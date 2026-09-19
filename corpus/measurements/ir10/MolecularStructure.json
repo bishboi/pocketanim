@@ -1,0 +1,12 @@
+{
+  "scene": "MolecularStructure",
+  "frames": 243,
+  "snapshots": 4,
+  "atlas_shapes": 14,
+  "atlas_points": 240,
+  "atlas_hit_rate": 1.0,
+  "affine_reuses": 635572,
+  "instances_emitted": 40936,
+  "ir_bytes": 2704529,
+  "keyframe_stride": 3
+}

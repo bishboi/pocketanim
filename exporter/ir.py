@@ -138,7 +138,12 @@ def serialise(atlas: Atlas, records: list[tuple[int, dict[int, Instance]]], fps:
         out += struct.pack("<BI", kind, len(instances))
         for slot, inst in sorted(instances.items()):
             out += struct.pack("<II", slot, inst.atlas_id)
-            out += inst.transform.astype("<f4").tobytes()
+            # Linear part in float16, translation in float32. The linear part is
+            # a small dimensionless multiplier where half precision is ample;
+            # translation is in scene units, where float16's ~0.4px resolution
+            # at 720p would be visible.
+            out += inst.transform[:, :3].astype("<f2").tobytes()
+            out += inst.transform[:, 3].astype("<f4").tobytes()
             out += bytes(inst.fill) + bytes(inst.stroke)
             out += struct.pack("<H", int(min(inst.stroke_width * 64, 65535)))
 

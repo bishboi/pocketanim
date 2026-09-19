@@ -383,16 +383,22 @@ two mechanisms are complements, not alternatives.
 
 A working exporter exists (`exporter/`). These are measured `.panm` outputs, not models:
 
-| Scene | IR @30fps | IR @10fps | MP4 | Naive probe predicted |
-|---|---|---|---|---|
-| LatexDerivation | **143 KB** | — | 153 KB | 5.43 MB |
-| ThreeDCamera | **281 KB** | — | 2,719 KB | 25.4 MB |
-| PlotGeometry | 354 KB | — | 345 KB | 9.20 MB |
-| CodeWalkthrough | 1,859 KB | 1,503 KB | 251 KB | 21.4 MB |
-| MolecularStructure | 6,178 KB | 2,641 KB | 259 KB | 124.7 MB |
-| CartopyMap | 11,311 KB | 5,353 KB | 1,035 KB | 402.6 MB |
+| Scene | IR @30fps | Tuned (10fps + quantised) | MP4 | vs MP4 | Naive probe predicted |
+|---|---|---|---|---|---|
+| LatexDerivation | **143 KB** | — | 153 KB | **0.94× — wins** | 5.43 MB |
+| ThreeDCamera | 281 KB | **223 KB** | 2,719 KB | **0.08× — wins 12.2×** | 25.4 MB |
+| PlotGeometry | 354 KB | — | 345 KB | 1.03× — par | 9.20 MB |
+| CodeWalkthrough | 1,859 KB | **1,436 KB** | 251 KB | 5.7× larger | 21.4 MB |
+| MolecularStructure | 6,178 KB | **1,922 KB** | 259 KB | 7.4× larger | 124.7 MB |
+| CartopyMap | 11,311 KB | **4,274 KB** | 1,035 KB | 4.1× larger | 402.6 MB |
 
-Every scene beat its naive prediction by **10–37×**; two beat their MP4 outright.
+Every scene beat its naive prediction by **10–37×**. Tuning (10 fps keyframes plus quantised
+transforms) bought a further 1.3–3.2×, most on the instance-dominated scenes.
+
+**Three scenes win or draw; three still lose by 4–7×.** The v2 fixes in §10 target exactly
+those three, but on today's numbers a mixed library is roughly a wash on bandwidth — which
+means **offline playback and instant start, not CDN cost, are what justify this project.**
+Those two drivers are unaffected by any of these measurements and apply to every scene.
 
 Atlas performance confirms the unification works:
 

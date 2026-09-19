@@ -97,6 +97,8 @@ class Instance:
     fill: tuple[int, int, int, int]
     stroke: tuple[int, int, int, int]
     stroke_width: float
+    flags: int = 0  # bit 0: shade_in_3d, i.e. participates in depth sorting
+    normal: np.ndarray | None = None  # unit normal, only when shaded
 
     def key(self):
         return (
@@ -105,6 +107,8 @@ class Instance:
             self.fill,
             self.stroke,
             round(self.stroke_width, 2),
+            self.flags,
+            None if self.normal is None else np.round(self.normal, 3).tobytes(),
         )
 
 
@@ -114,8 +118,42 @@ def quantise(points: np.ndarray, lo: np.ndarray, span: np.ndarray) -> np.ndarray
     return np.clip(normalised * 65535.0, 0, 65535).astype("<u2")
 
 
-def serialise(atlas: Atlas, records: list[tuple[int, dict[int, Instance]]], fps: int) -> bytes:
-    """Pack atlas and timeline into the binary IR."""
+FLAG_CAMERA = 1 << 0
+SHADE_IN_3D = 1 << 0  # per-instance flag
+
+# Per-frame camera state: frame_center(3), focal_distance, zoom, rotation(9),
+# light_source(3). The light moves with the scene, so it is part of the track.
+CAMERA_FLOATS = 17
+
+
+def project(points: np.ndarray, camera: np.ndarray) -> np.ndarray:
+    """Apply a captured camera to world-space points.
+
+    Replicates ThreeDCamera.project_points. The device does this per frame,
+    which is why the IR carries 3D vertices and a camera track rather than
+    flattened 2D output -- a camera move then costs 14 floats, not new geometry.
+    """
+    centre = camera[0:3]
+    focal, zoom = float(camera[3]), float(camera[4])
+    rotation = camera[5:14].reshape(3, 3)
+
+    out = (points - centre) @ rotation.T
+    zs = out[:, 2]
+    denominator = focal - zs
+    factor = np.where(denominator < 0, 1e6, focal / np.where(denominator == 0, 1e-9, denominator))
+    out = out.copy()
+    out[:, 0] *= factor * zoom
+    out[:, 1] *= factor * zoom
+    return out
+
+
+def serialise(
+    atlas: Atlas,
+    records: list[tuple[int, dict[int, Instance]]],
+    fps: int,
+    cameras: list[np.ndarray] | None = None,
+) -> bytes:
+    """Pack atlas, optional camera track, and timeline into the binary IR."""
     if atlas.shapes:
         stacked = np.vstack(atlas.shapes)
         lo, hi = stacked.min(axis=0), stacked.max(axis=0)
@@ -123,12 +161,18 @@ def serialise(atlas: Atlas, records: list[tuple[int, dict[int, Instance]]], fps:
         lo = hi = np.zeros(3)
     span = np.where(hi - lo < 1e-9, 1.0, hi - lo)
 
+    flags = FLAG_CAMERA if cameras else 0
+
     out = bytearray()
     out += struct.pack(
         "<4sHHHII6f",
-        MAGIC, VERSION, 0, fps, len(records), len(atlas.shapes),
+        MAGIC, VERSION, flags, fps, len(records), len(atlas.shapes),
         *lo.astype(float), *hi.astype(float),
     )
+
+    if cameras:
+        for cam in cameras:
+            out += np.asarray(cam, dtype="<f4").tobytes()
 
     for shape in atlas.shapes:
         out += struct.pack("<I", len(shape))
@@ -136,8 +180,10 @@ def serialise(atlas: Atlas, records: list[tuple[int, dict[int, Instance]]], fps:
 
     for kind, instances in records:
         out += struct.pack("<BI", kind, len(instances))
-        for slot, inst in sorted(instances.items()):
-            out += struct.pack("<II", slot, inst.atlas_id)
+        # Insertion order is scene traversal order, which is Manim's painter
+        # order. Sorting by slot here would silently reorder overlapping shapes.
+        for slot, inst in instances.items():
+            out += struct.pack("<IIB", slot, inst.atlas_id, inst.flags)
             # Linear part in float16, translation in float32. The linear part is
             # a small dimensionless multiplier where half precision is ample;
             # translation is in scene units, where float16's ~0.4px resolution
@@ -146,5 +192,8 @@ def serialise(atlas: Atlas, records: list[tuple[int, dict[int, Instance]]], fps:
             out += inst.transform[:, 3].astype("<f4").tobytes()
             out += bytes(inst.fill) + bytes(inst.stroke)
             out += struct.pack("<H", int(min(inst.stroke_width * 64, 65535)))
+            if inst.flags & SHADE_IN_3D:
+                normal = inst.normal if inst.normal is not None else np.array([0.0, 0.0, 1.0])
+                out += np.asarray(normal, dtype="<f2").tobytes()
 
     return bytes(out)

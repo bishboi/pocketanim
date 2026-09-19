@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .ir import REC_KEYFRAME, REC_SNAPSHOT, Atlas, Instance, serialise
+from .ir import REC_KEYFRAME, REC_SNAPSHOT, SHADE_IN_3D, Atlas, Instance, serialise
 
 
 def rgba(color, opacity) -> tuple[int, int, int, int]:
@@ -34,6 +34,34 @@ def rgba(color, opacity) -> tuple[int, int, int, int]:
         int(np.clip(b, 0, 1) * 255),
         int(np.clip(float(opacity), 0, 1) * 255),
     )
+
+
+def unit_normal(mob, points: np.ndarray) -> np.ndarray:
+    """Surface normal for shading.
+
+    Prefers Manim's own value, but some mobjects (ThreeDAxes' shading helpers)
+    override get_unit_normal with an incompatible signature, so fall back to
+    deriving it from the geometry.
+    """
+    try:
+        value = np.asarray(mob.get_unit_normal(), dtype=np.float64).reshape(3)
+        if np.isfinite(value).all() and np.linalg.norm(value) > 1e-9:
+            return value
+    except (TypeError, ValueError, AttributeError):
+        pass
+
+    # Plane fit by SVD. Its sign is arbitrary, which would band a surface with
+    # alternating light and dark faces, so orient every normal into the same
+    # hemisphere. Winding-order cross products were tried and are worse here:
+    # these are Bezier control points, not polygon vertices.
+    centred = points - points.mean(axis=0)
+    try:
+        _, _, vh = np.linalg.svd(centred, full_matrices=False)
+        normal = vh[2]
+    except np.linalg.LinAlgError:
+        return np.array([0.0, 0.0, 1.0])
+
+    return -normal if normal[2] < 0 else normal
 
 
 def read_style(mob):
@@ -58,8 +86,27 @@ class Exporter:
         # smoothness for size, and costs nothing in geometry.
         self.keyframe_stride = max(1, keyframe_stride)
         self.frame_index = -1
+        self.cameras: list[np.ndarray] = []
+
+    @staticmethod
+    def read_camera(scene) -> np.ndarray | None:
+        """Capture ThreeDCamera state as 14 floats, or None for a 2D scene."""
+        camera = getattr(scene, "camera", None)
+        if camera is None or not hasattr(camera, "get_rotation_matrix"):
+            return None
+        return np.concatenate(
+            [
+                np.asarray(camera.frame_center, dtype=np.float64).reshape(3),
+                [float(camera.get_focal_distance()), float(camera.get_zoom())],
+                np.asarray(camera.get_rotation_matrix(), dtype=np.float64).reshape(9),
+                np.asarray(camera.light_source.get_location(), dtype=np.float64).reshape(3),
+            ]
+        )
 
     def capture(self, scene):
+        camera = self.read_camera(scene)
+        if camera is not None:
+            self.cameras.append(camera)
         current: dict[int, Instance] = {}
 
         for mob in scene.mobjects:
@@ -74,7 +121,10 @@ class Exporter:
                 self.last_atlas[slot] = atlas_id
 
                 fill, stroke, width = read_style(sub)
-                current[slot] = Instance(atlas_id, transform, fill, stroke, width)
+                shaded = bool(getattr(sub, "shade_in_3d", False))
+                flags = SHADE_IN_3D if shaded else 0
+                normal = unit_normal(sub, points) if shaded else None
+                current[slot] = Instance(atlas_id, transform, fill, stroke, width, flags, normal)
 
         self.frame_index += 1
         set_changed = current.keys() != self.previous.keys()
@@ -150,7 +200,8 @@ def main():
         CairoRenderer.update_frame = original_update
         Scene.play = original_play
 
-    blob = serialise(exporter.atlas, exporter.records, fps=30)
+    blob = serialise(exporter.atlas, exporter.records, fps=30,
+                     cameras=exporter.cameras or None)
 
     atlas_points = sum(len(s) for s in exporter.atlas.shapes)
     total_instances = sum(len(r[1]) for r in exporter.records)

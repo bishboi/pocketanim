@@ -41,15 +41,38 @@ def main():
     reference: dict[int, np.ndarray] = {}
     original_update = CairoRenderer.update_frame
     original_play = Scene.play
-    counter = {"n": -1}
+    renderer_state = {"renderer": None, "fps": 30}
+
+    in_static = {"depth": 0}
+    original_static = CairoRenderer.save_static_frame_data
+
+    def patched_static(self, scene, static_mobjects):
+        in_static["depth"] += 1
+        try:
+            return original_static(self, scene, static_mobjects)
+        finally:
+            in_static["depth"] -= 1
 
     def patched_update(self, scene, *a, **kw):
-        exporter.capture(scene)
+        # Manim renders the static layer through update_frame too, to cache it.
+        # That is a partial render -- only the static mobjects, and no frame is
+        # written for it -- so it must not be counted as a frame. Both call
+        # sites pass a mobject list, so the static one is detected by wrapping
+        # save_static_frame_data rather than by inspecting arguments.
+        if in_static["depth"]:
+            return original_update(self, scene, *a, **kw)
+
+        # Index by playback frame, not by call: update_frame fires twice at
+        # every animation boundary and both renders become the same output
+        # frame, so counting calls drifted one frame per animation.
+        renderer_state["renderer"] = self
+        renderer_state["fps"] = int(getattr(self.camera, "frame_rate", 30) or 30)
+        index = round(float(self.time) * renderer_state["fps"])
+        exporter.capture(scene, index)
         result = original_update(self, scene, *a, **kw)
-        counter["n"] += 1
-        if counter["n"] % args.every == 0:
+        if index % args.every == 0:
             frame = self.get_frame()
-            reference[counter["n"]] = np.asarray(frame)[:, :, :3].copy()
+            reference[index] = np.asarray(frame)[:, :, :3].copy()
         return result
 
     def patched_play(self, *a, **kw):
@@ -57,6 +80,7 @@ def main():
         return original_play(self, *a, **kw)
 
     CairoRenderer.update_frame = patched_update
+    CairoRenderer.save_static_frame_data = patched_static
     Scene.play = patched_play
 
     path = Path(args.scene_file).resolve()
@@ -76,7 +100,15 @@ def main():
             scene_cls().render()
     finally:
         CairoRenderer.update_frame = original_update
+        CairoRenderer.save_static_frame_data = original_static
         Scene.play = original_play
+
+    renderer = renderer_state["renderer"]
+    if renderer is not None:
+        exporter.pad_to(
+            round(float(renderer.time) * renderer_state["fps"]),
+            exporter.cameras[-1] if exporter.cameras else None,
+        )
 
     ir = load(serialise(exporter.atlas, exporter.records, fps=30,
                         cameras=exporter.cameras or None))

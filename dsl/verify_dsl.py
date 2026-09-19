@@ -34,7 +34,25 @@ def main():
     reference: dict[int, np.ndarray] = {}
     original = CairoRenderer.update_frame
 
+    in_static = {"depth": 0}
+    original_static = CairoRenderer.save_static_frame_data
+
+    def patched_static(self, scene, static_mobjects):
+        in_static["depth"] += 1
+        try:
+            return original_static(self, scene, static_mobjects)
+        finally:
+            in_static["depth"] -= 1
+
     def patched(self, scene, *a, **kw):
+        # Manim renders the static layer through update_frame too, to cache it.
+        # That is a partial render -- only the static mobjects, and no frame is
+        # written for it -- so it must not be counted as a frame. Both call
+        # sites pass a mobject list, so the static one is detected by wrapping
+        # save_static_frame_data rather than by inspecting arguments.
+        if in_static["depth"]:
+            return original(self, scene, *a, **kw)
+
         # Index by playback time, not by call count. `update_frame` fires twice
         # at every animation boundary -- both renders land on the same output
         # frame -- so counting calls drifted one frame per animation and read
@@ -43,11 +61,12 @@ def main():
         # render is about to become.
         index = round(float(self.time) * ir.fps)
         result = original(self, scene, *a, **kw)
-        if index % every == 0 and index not in reference:
+        if index % every == 0:
             reference[index] = np.asarray(self.get_frame())[:, :, :3].copy()
         return result
 
     CairoRenderer.update_frame = patched
+    CairoRenderer.save_static_frame_data = patched_static
     path = Path(scene_file).resolve()
     sys.path.insert(0, str(path.parent))
     module = __import__(path.stem)
@@ -63,6 +82,7 @@ def main():
             getattr(module, scene_class)().render()
     finally:
         CairoRenderer.update_frame = original
+        CairoRenderer.save_static_frame_data = original_static
 
     print(f"program bytes       {Path(program_path).stat().st_size}")
     print(f"manim frames        {max(reference) + 1} (sampled every {every})")

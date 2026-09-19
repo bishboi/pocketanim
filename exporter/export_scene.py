@@ -119,17 +119,51 @@ class Exporter:
         camera = getattr(scene, "camera", None)
         if camera is None or not hasattr(camera, "get_rotation_matrix"):
             return None
+        # `rotation_matrix` is a cached field that Manim only refreshes inside
+        # capture_mobjects, i.e. during the render. Reading it here -- before
+        # the render -- returned the *previous* frame's orientation, so the
+        # camera track lagged its own geometry by one frame. The error was
+        # invisible wherever the camera was momentarily still and grew with
+        # camera speed, which is why it looked like a projection bug.
+        generate = getattr(camera, "generate_rotation_matrix", None)
+        rotation = generate() if generate else camera.get_rotation_matrix()
         return np.concatenate(
             [
                 np.asarray(camera.frame_center, dtype=np.float64).reshape(3),
                 [float(camera.get_focal_distance()), float(camera.get_zoom())],
-                np.asarray(camera.get_rotation_matrix(), dtype=np.float64).reshape(9),
+                np.asarray(rotation, dtype=np.float64).reshape(9),
                 np.asarray(camera.light_source.get_location(), dtype=np.float64).reshape(3),
             ]
         )
 
-    def capture(self, scene):
+    def hold(self, camera) -> None:
+        """Repeat the previous frame once.
+
+        Manim writes a frozen `wait` without re-rendering, so those frames
+        arrive as a gap in playback time rather than as calls. Without filling
+        them the IR is shorter than the scene and every later frame plays early.
+        """
+        self.records.append((REC_KEYFRAME, {}))
+        if camera is not None:
+            self.cameras.append(self.cameras[-1] if self.cameras else camera)
+        self.frame_index += 1
+
+    def pad_to(self, target: int, camera=None) -> None:
+        while self.frame_index + 1 < target:
+            self.hold(camera)
+
+    def capture(self, scene, frame: int | None = None):
         camera = self.read_camera(scene)
+
+        # Index by playback frame, not by call. Recording one entry per call
+        # made the IR shorter than the scene and mistimed everything after the
+        # first animation; a frozen `wait` produces no call at all, so those
+        # frames exist only as elapsed time and have to be filled in.
+        if frame is not None:
+            if frame <= self.frame_index:
+                return
+            self.pad_to(frame, camera)
+
         if camera is not None:
             self.cameras.append(camera)
         current: dict[int, Instance] = {}
@@ -195,8 +229,30 @@ def main():
     original_update = CairoRenderer.update_frame
     original_play = Scene.play
 
+    renderer_state = {"renderer": None, "fps": 30}
+
+    in_static = {"depth": 0}
+    original_static = CairoRenderer.save_static_frame_data
+
+    def patched_static(self, scene, static_mobjects):
+        in_static["depth"] += 1
+        try:
+            return original_static(self, scene, static_mobjects)
+        finally:
+            in_static["depth"] -= 1
+
     def patched_update(self, scene, *a, **kw):
-        exporter.capture(scene)
+        # Manim renders the static layer through update_frame too, to cache it.
+        # That is a partial render -- only the static mobjects, and no frame is
+        # written for it -- so it must not be counted as a frame. Both call
+        # sites pass a mobject list, so the static one is detected by wrapping
+        # save_static_frame_data rather than by inspecting arguments.
+        if in_static["depth"]:
+            return original_update(self, scene, *a, **kw)
+
+        renderer_state["renderer"] = self
+        renderer_state["fps"] = int(getattr(self.camera, "frame_rate", 30) or 30)
+        exporter.capture(scene, round(float(self.time) * renderer_state["fps"]))
         return original_update(self, scene, *a, **kw)
 
     def patched_play(self, *a, **kw):
@@ -204,6 +260,7 @@ def main():
         return original_play(self, *a, **kw)
 
     CairoRenderer.update_frame = patched_update
+    CairoRenderer.save_static_frame_data = patched_static
     Scene.play = patched_play
 
     path = Path(args.scene_file).resolve()
@@ -223,7 +280,18 @@ def main():
             scene_cls().render()
     finally:
         CairoRenderer.update_frame = original_update
+        CairoRenderer.save_static_frame_data = original_static
         Scene.play = original_play
+
+    # A trailing static wait produces no render at all, so the last frames of
+    # the scene exist only as elapsed time. Without this the IR ends early and
+    # the closing hold is simply missing.
+    renderer = renderer_state["renderer"]
+    if renderer is not None:
+        exporter.pad_to(
+            round(float(renderer.time) * renderer_state["fps"]),
+            exporter.cameras[-1] if exporter.cameras else None,
+        )
 
     blob = serialise(exporter.atlas, exporter.records, fps=30,
                      cameras=exporter.cameras or None)

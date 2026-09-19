@@ -348,28 +348,42 @@ Bezier control points, not polygon vertices.
 
 ### 7.3 Measured agreement
 
-Sampled every 60th frame, at 720p:
+Sampled IR versus Manim's own frames, every 60th frame at 720p:
 
-All six scenes, sampled every 60th frame at 720p:
+| Scene | Mean MAE (of 255) | Pixels differing | Previously |
+|---|---|---|---|
+| LatexDerivation | 0.01 | **0.00%** | 0.00% |
+| SurfaceOrbit | 0.31 | **0.00%** | 10.70% |
+| CodeWalkthrough | 0.09 | **0.07%** | 0.02% |
+| ThreeDCamera | 0.67 | **0.09%** | 7.02% |
+| CartopyMap | 0.19 | **0.21%** | 0.25% |
+| PlotGeometry | 0.60 | **0.45%** | 0.45% |
+| MolecularStructure | 0.41 | **0.46%** | 0.75% |
 
-| Scene | Mean MAE (of 255) | Pixels differing |
-|---|---|---|
-| LatexDerivation | 0.01 | **0.00%** |
-| CodeWalkthrough | 0.03 | **0.02%** |
-| CartopyMap | 0.23 | **0.25%** |
-| PlotGeometry | 0.60 | **0.44%** |
-| MolecularStructure | 0.77 | **0.75%** |
-| ThreeDCamera | 3.97 | 7.02% |
+**Every scene is now under half a percent**, and two are pixel-identical.
+CartopyMap remains the striking one: 235,948 points reconstructed through
+16-bit quantisation, atlas deduplication and affine transforms, landing within
+a fifth of a percent.
 
-**Five of six are under 1%**, and two are effectively pixel-identical. CartopyMap is the notable
-one: 235,948 points reconstructed through 16-bit quantisation, atlas deduplication and affine
-transforms, landing within a quarter of a percent. Only the 3D shading nuance remains above 1%.
+The two 3D outliers were not a shading or projection nuance, as the earlier
+figures were read to mean. They were **one stale read**: Manim caches the
+camera's rotation matrix in a field it only refreshes inside `capture_mobjects`
+— that is, during the render — so reading it before the render returned the
+*previous* frame's orientation and the camera track lagged its own geometry by
+a frame. The error vanished wherever the camera was momentarily still and grew
+with camera speed, which is exactly why it looked like a projection problem.
+The exporter now regenerates the matrix at capture time.
 
-**This is what "perceptually identical" means in practice, and it is now a number rather than an
-aspiration.**
+CodeWalkthrough reads slightly worse than its published 0.02%. That figure
+compared reference frames and IR records that were **both** indexed by
+`update_frame` call, so they were mistimed identically and the error cancelled.
+0.07% is the same data compared against the right frames.
 
-Suggested CI gate: fail above 2% differing pixels for 2D scenes, 10% for 3D, pending a human
-judgement on whether the ThreeDCamera case is visually acceptable.
+**This is what "perceptually identical" means in practice, and it is a number
+rather than an aspiration.**
+
+Suggested CI gate: fail above 1% differing pixels, with no 2D/3D distinction —
+the 3D allowance existed only to accommodate the camera bug.
 
 ### 7.4 A fourth bug, and why it matters most
 
@@ -598,20 +612,20 @@ badly, so never report one without the other.
 
 | Scene | Tier | Program | Pixels differing |
 |---|---|---|---|
+| TextHybrid | **1** | 162 B | **0.03%** |
 | VerbTest | **1** | 127 B | **0.04%** |
 | TextReuse | **1** | 110 B | **0.05%** |
 | ThreeDCamera | **1** | 180 B | **0.06%** |
-| TextHybrid | **1** | 162 B | **0.09%** |
-| LatexDerivation | **1** | 465 B | **0.37%** |
-| CartopyMap | **1** | 140 B | **0.49%** |
-| CodeWalkthrough | **1** | 263 B | **0.93%** |
+| CartopyMap | **1** | 140 B | **0.27%** |
+| LatexDerivation | **1** | 465 B | **0.36%** |
+| CodeWalkthrough | **1** | 263 B | **0.51%** |
 | MolecularStructure | **1** | 226 B | 2.44% |
 | SurfaceOrbit | **1** | 196 B | 2.98% |
 | PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
 
-Sampled every 10th frame. **Every tier-1 scene is now under 3%, seven of nine
+Sampled every 10th frame. **Every tier-1 scene is under 3%, seven of nine
 under 1%.** ThreeDCamera used to be the honest exception at 12.79% — *worse*
-than its own sampled IR — and is now 0.06%. See "Three frame-timing bugs" below
+than its own sampled IR — and is now 0.06%. See "Four frame-timing bugs" below
 for why, because the cause was not what the number suggested.
 
 **One scene remains, and it is the one that always will.** `ValueTracker` +
@@ -619,7 +633,7 @@ for why, because the cause was not what the number suggested.
 frame cannot be a verb, ever. This is the hard ceiling on tier 1 and the reason
 tier 3 must exist permanently.
 
-#### Three frame-timing bugs, and why 12.79% was misleading
+#### Four frame-timing bugs, and why 12.79% was misleading
 
 ThreeDCamera's error looked like a camera-model problem: it appeared only once
 the camera moved, peaked mid-move and left a persistent plateau. It was not.
@@ -629,37 +643,51 @@ normals, shading and depth ordering were already exact and put the whole
 residual in the camera track. Recovering Manim's per-frame `phi`/`theta` then
 showed the program's track was **bit-exact** — 0 or 2.2e-16 — at a constant
 offset of two frames. There was no rate-function bug, no interpolation bug and
-no spin-rate bug. Three separate off-by-ones were stacked on top of each other:
+no spin-rate bug. Four separate off-by-ones were stacked on top of each other,
+three of them in how a frame is *identified* rather than in how it is drawn:
 
 1. **The harness counted the wrong thing.** It indexed Manim's frames by
-   `update_frame` call. `update_frame` fires *twice* at every animation
-   boundary — both renders land on the same output frame — so the comparison
-   drifted one frame per animation. `renderer.time` is how many frames have
-   actually been written, which is the frame the render is about to become, and
-   indexing by `round(time × fps)` aligns the two exactly.
+   `update_frame` call, and calls are not frames: an extra one fires at every
+   animation boundary (see 3), so the comparison drifted one frame per
+   animation. `renderer.time` is how many frames have actually been written,
+   which is the frame the render is about to become, so `round(time × fps)`
+   identifies frames rather than counting calls.
 2. **The program had no opening frame.** Manim renders the scene's state once at
    t=0 before the first animation's first step. The interpreter started its
    first animation at frame 0, so every later frame was one early and the
    closing frame was missing. It now emits the opening state after any leading
    `show` and before the first frame-producing verb, which is also what puts
    objects added before the first `play` on stage in frame 0.
-3. **The last frame of an ambient rotation does not advance.** Over a wait of
+3. **The static-layer render is not a frame.** Manim caches the static
+   mobjects by rendering them through `update_frame` with an explicit mobject
+   list, and writes no frame for it. Both call sites pass a mobject list, so
+   arguments cannot tell them apart; `save_static_frame_data` is wrapped
+   instead. Counting that partial render — whose pixels hold only the static
+   layer — as a frame is what produced two renders claiming the same index.
+4. **The last frame of an ambient rotation does not advance.** Over a wait of
    *n* frames Manim applies *n−1* increments and repeats the last orientation.
    Measured independently on ThreeDCamera and SurfaceOrbit, both of which spiked
    on exactly that frame.
 
-The third one is the instructive one. Its visible cost was a single frame the
+The fourth one is the instructive one. Its visible cost was a single frame the
 harness happened to sample — but the orientation it leaves behind is the one the
 *trailing hold* renders, so a whole second of video sat 0.57° out where **the
 harness never looks**. A measurement that only samples animated frames cannot
 see a static error, and the fix was only found because the frame-count mismatch
 was chased instead of explained away.
 
-Correcting all three took ThreeDCamera from 12.79% to 0.06%, CartopyMap from
-3.39% to 0.49% and SurfaceOrbit from 4.96% to 2.98%. The scenes that appear
-slightly worse than their previously published figures (CodeWalkthrough 0.32% →
-0.93%) are sampled three times as densely here; the denser number is the honest
-one.
+The first three also applied to the **sampled** exporter, which recorded one
+record per call and so shipped an IR shorter than its own scene, with the
+trailing hold missing entirely and everything after the first animation playing
+early. Both tiers are fixed, and both are re-measured in §7.3 and above.
+
+Correcting these took ThreeDCamera from 12.79% to 0.06%, CartopyMap from 3.39%
+to 0.27% and SurfaceOrbit from 4.96% to 2.98% at tier 1, and at tier 3 took
+SurfaceOrbit from 10.70% to 0.00% and ThreeDCamera from 7.02% to 0.09%. The
+scenes that read slightly worse than their previously published figures are
+sampled three times as densely here, or were previously compared against
+reference frames that were mistimed in the same direction as the IR so the
+error cancelled. The new numbers are the honest ones.
 
 #### What `LaggedStart` actually cost
 

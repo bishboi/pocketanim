@@ -583,6 +583,36 @@ span the *hardest* envelope, so this understates a real library:
 missing vocabulary and by text, and text is a tier-2 asset problem that every
 tier shares.
 
+### Tier 2 measured: the glyph atlas must be library-wide
+
+Text is the dominant blocker, and it can never be tier 1 — Manim hands us
+outlines with no glyph identity (§3.5) and LaTeX cannot run on device. It ships
+as a referenced asset.
+
+The first implementation put glyph outlines inside each text asset. Measured,
+that costs **682 bytes per glyph**, so a library re-ships the alphabet once per
+caption. Deduplicating at the **glyph** level instead:
+
+| | Per-string assets | Library-wide atlas |
+|---|---|---|
+| Text asset | 6,817 B | **537 B** (12.7× smaller) |
+| Shared atlas | — | 6,322 B, once |
+
+**Amortisation is measured, not projected.** Exporting a second scene whose text
+("animation") reuses letters from the first ("pocketanim") grew the shared atlas
+by **exactly 0 bytes**. That scene's marginal cost is 585 B against a 27,193 B
+MP4 — **97.85%** — verified at **0.05%** of pixels differing.
+
+This confirms §3.5's "per-bundle atlas" was the wrong call for bandwidth, as
+that section already suspected. Make it library-wide.
+
+Hybrid result, program plus text asset:
+
+| Scene | Program | Asset | MP4 | Pixels differing |
+|---|---|---|---|---|
+| TextHybrid | 149 B | 537 B | 65,359 B | **0.26%** |
+| TextReuse | 97 B | 488 B | 27,193 B | **0.05%** |
+
 ### The three tiers
 
 1. **Program** — 99.8–99.99%, fidelity equal or better than sampling.

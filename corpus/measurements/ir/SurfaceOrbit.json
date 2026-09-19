@@ -1,0 +1,12 @@
+{
+  "scene": "SurfaceOrbit",
+  "frames": 182,
+  "snapshots": 3,
+  "atlas_shapes": 545,
+  "atlas_points": 8720,
+  "atlas_hit_rate": 0.9948,
+  "affine_reuses": 104256,
+  "instances_emitted": 1728,
+  "ir_bytes": 162868,
+  "keyframe_stride": 1
+}

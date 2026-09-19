@@ -64,6 +64,11 @@ class Recorder:
         self.blockers: list[str] = []
         self.names: dict[int, str] = {}
         self.counter = 0
+        # Mobjects whose geometry is already inside a declared group asset.
+        # Manim's introducer animations add each child to the scene on
+        # clean-up, and declaring those again would put every atom on stage
+        # twice -- once through the group, once on its own.
+        self.covered: set[int] = set()
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -206,6 +211,28 @@ class Recorder:
         return None
 
 
+def instance_partition(group) -> list[int] | None:
+    """Instance counts per direct child, matching the asset baker's filter.
+
+    A baked group is a flat instance list, so a per-child animation needs to
+    know where each child's run begins. This counts with exactly the same
+    `len(points) >= 4` test `export_standalone_asset` applies, because a
+    disagreement of one would misalign every subsequent child.
+    """
+    points = getattr(group, "points", None)
+    if points is not None and len(points) >= 4:
+        # The baker would emit the container itself first, shifting every run.
+        return None
+    return [
+        sum(
+            1
+            for sub in child.get_family()
+            if getattr(sub, "points", None) is not None and len(sub.points) >= 4
+        )
+        for child in group.submobjects
+    ]
+
+
 def geometry_digest(mob) -> bytes:
     """Content-address a mobject by its actual geometry and styling."""
     import numpy as np
@@ -271,7 +298,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim.animation.creation import Create
     from manim.animation.creation import Write
     from manim.animation.transform_matching_parts import TransformMatchingAbstractBase
+    from manim.animation.composition import LaggedStart
     from manim.animation.fading import FadeIn, FadeOut
+    from manim.animation.growing import GrowFromPoint
     from manim.animation.transform import Transform
     from manim.animation.animation import Wait
     from manim.scene.three_d_scene import ThreeDScene
@@ -337,6 +366,44 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.blockers.append(
                         "TransformMatchingTex operands could not be declared"
                     )
+            elif isinstance(anim, LaggedStart):
+                # A staggered per-child animation over one group. Only the
+                # grow family is expressible today; anything else is named in
+                # the blocker so the gap stays measured rather than guessed at.
+                import numpy as np
+
+                parts = list(anim.animations)
+                kinds = sorted({type(a).__name__ for a in parts})
+                grows = parts and all(isinstance(a, GrowFromPoint) for a in parts)
+                from_centre = grows and all(
+                    np.allclose(a.point, a.mobject.get_center(), atol=1e-6)
+                    for a in parts
+                )
+                # LaggedStart's own .mobject is empty: introducer animations
+                # are excluded from the group it builds. So assemble the group
+                # from the sub-animations' targets, in their animation order.
+                from manim import VGroup
+
+                group = VGroup(*[a.mobject for a in parts]) if from_centre else None
+                name = rec.declare(group) if group is not None else None
+                sizes = instance_partition(group) if name else None
+                if name and sizes and len(sizes) == len(parts):
+                    rec.timeline.append(
+                        f"laggedgrow {name} lag={float(anim.lag_ratio):g} "
+                        f"groups={','.join(str(s) for s in sizes)} t={duration:g}"
+                    )
+                    for part in parts:
+                        rec.covered.update(
+                            id(sub) for sub in part.mobject.get_family()
+                        )
+                elif not grows:
+                    rec.blockers.append(
+                        f"LaggedStart over {', '.join(kinds) or 'nothing'}"
+                    )
+                elif not from_centre:
+                    rec.blockers.append("LaggedStart grows from a point off centre")
+                else:
+                    rec.blockers.append("LaggedStart group could not be partitioned")
             elif isinstance(anim, Write):
                 # Write reveals each glyph in turn. On a text asset that is a
                 # lagged per-glyph reveal, not a single partial path.
@@ -430,6 +497,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # Objects put on stage directly rather than animated in. Missing these
         # produced a program that claimed tier 1 while drawing nothing.
         for mob in mobjects:
+            if id(mob) in rec.covered:
+                continue
             name = rec.declare(mob)
             if name:
                 # Declaring a thing is not the same as it being on stage.

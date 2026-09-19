@@ -204,6 +204,11 @@ def parse(text: str) -> dict:
                 ("xform", positional[0], float(args.get("by", 1.0)),
                  [float(by_xy[0]), float(by_xy[1])], float(args["t"]))
             )
+        elif verb == "laggedgrow":
+            scene["timeline"].append(
+                ("laggedgrow", positional[0], float(args["lag"]),
+                 [int(x) for x in args["groups"].split(",")], float(args["t"]))
+            )
         elif verb == "wait":
             scene["timeline"].append(("wait", float(args["t"])))
     return scene
@@ -463,6 +468,83 @@ def build_2d(scene: dict) -> DecodedIR:
                 emit()
             obj["instances"] = base
 
+        elif step[0] == "laggedgrow":
+            # Manim's LaggedStart(*[GrowFromCenter(child) ...], lag_ratio=r).
+            # Each child scales up from a point at its own centre. The group's
+            # clock is linear and each child's is smooth -- the same two-level
+            # timing as Write, so the stagger arithmetic is shared with it.
+            _, name, lag, group_sizes, duration = step
+            obj = objects[name]
+            obj["visible"] = True
+            base = [tuple(inst) for inst in obj["instances"]]
+            flags = obj.get("flags")
+            normals = obj.get("normals")
+
+            # Children occupy contiguous runs of instances; the program carries
+            # the run lengths because the instance list alone has no notion of
+            # which faces belong to which sphere.
+            spans = []
+            cursor = 0
+            for size in group_sizes:
+                spans.append((cursor, cursor + size))
+                cursor += size
+            if cursor != len(base):
+                raise ValueError(
+                    f"laggedgrow {name}: groups cover {cursor} instances, "
+                    f"asset has {len(base)}"
+                )
+
+            # Centres are measured, not shipped: GrowFromCenter grows about the
+            # child's own bounding-box centre, which the geometry already knows.
+            centres = []
+            for lo_i, hi_i in spans:
+                corners = [
+                    shapes[aid] @ transform[:, :3].T + transform[:, 3]
+                    for aid, transform, _, _, _ in base[lo_i:hi_i]
+                ]
+                stacked = np.vstack(corners) if corners else np.zeros((1, 3))
+                centres.append((stacked.min(axis=0) + stacked.max(axis=0)) / 2.0)
+
+            count = max(len(spans), 1)
+            window = 1.0 / (1.0 + lag * (count - 1))
+            total = int(duration * fps)
+            for frame_index in range(total):
+                alpha = (frame_index + 1) / total
+                grown = []
+                kept = []
+                for group_index, (lo_i, hi_i) in enumerate(spans):
+                    start = group_index * lag * window
+                    local = min(max((alpha - start) / window, 0.0), 1.0)
+                    if local <= 0:
+                        continue
+                    scale = smooth(local)
+                    # p -> c + s(p - c), which is this affine composed onto
+                    # whatever transform the instance already carries.
+                    grow = np.hstack([
+                        np.identity(3) * scale,
+                        ((1 - scale) * centres[group_index]).reshape(3, 1),
+                    ])
+                    for index in range(lo_i, hi_i):
+                        aid, transform, fill, stroke, width = base[index]
+                        grown.append(
+                            (aid, compose(grow, transform), fill, stroke, width)
+                        )
+                        kept.append(index)
+                # Flags and normals are indexed by position, so dropping the
+                # not-yet-grown children would otherwise shade each sphere with
+                # another sphere's normals.
+                obj["instances"] = grown
+                if flags is not None:
+                    obj["flags"] = [flags[i] for i in kept]
+                if normals is not None:
+                    obj["normals"] = [normals[i] for i in kept]
+                emit()
+            obj["instances"] = base
+            if flags is not None:
+                obj["flags"] = flags
+            if normals is not None:
+                obj["normals"] = normals
+
         elif step[0] == "fadeout":
             _, name, duration = step
             if name in objects:
@@ -601,40 +683,17 @@ def build_2d(scene: dict) -> DecodedIR:
 
 
 def build(scene: dict) -> DecodedIR:
-    if scene["timeline"] or scene["assets"] or scene["shapes"]:
-        return build_2d(scene)
+    """Expand a parsed program into frames.
 
-    shapes: list[np.ndarray] = []
-    template: list[DecodedInstance] = []
-
-    for surface in scene["surfaces"]:
-        faces = tessellate(surface["fn"], surface["u"], surface["v"], surface["res"])
-        u_res, v_res = surface["res"]
-        alpha = int(surface["alpha"] * 255)
-        for index, face in enumerate(faces):
-            i, j = divmod(index, v_res)
-            colour = surface["colors"][(i + j) % len(surface["colors"])]
-            centre = face.mean(axis=0)
-            shapes.append(face - centre)
-
-            normal = plane_normal(face)
-            transform = np.hstack([np.identity(3), centre.reshape(3, 1)])
-            template.append(
-                DecodedInstance(
-                    slot=len(template),
-                    atlas_id=len(shapes) - 1,
-                    transform=transform,
-                    fill=(*colour, alpha),
-                    stroke=(*colour, alpha),
-                    stroke_width=surface["stroke"],
-                    flags=SHADE_IN_3D,
-                    normal=normal,
-                )
-            )
-
-    cameras = camera_track(scene)
-    records = [(REC_SNAPSHOT, list(template)) for _ in cameras]
-    return DecodedIR(fps=scene["fps"], shapes=shapes, records=records, cameras=cameras)
+    There used to be a second, 3D-only builder here, kept from before 2D and 3D
+    were unified. It was unreachable -- `build_2d` handles any program with a
+    timeline, and a program without one has nothing to draw -- and it carried
+    its own copy of the timeline semantics, so a fix applied to one path would
+    silently not apply to the other. Three bugs in this project were an
+    animation quietly taking the wrong branch; a duplicate branch nobody runs
+    is the same hazard waiting.
+    """
+    return build_2d(scene)
 
 
 def plane_normal(points: np.ndarray) -> np.ndarray:
@@ -642,209 +701,6 @@ def plane_normal(points: np.ndarray) -> np.ndarray:
     _, _, vh = np.linalg.svd(centred, full_matrices=False)
     normal = vh[2]
     return -normal if normal[2] < 0 else normal
-
-
-def camera_track(scene: dict) -> list[np.ndarray]:
-    """Expand the timeline into one camera record per frame."""
-    fps = scene["fps"]
-    phi, theta = scene["phi"], scene["theta"]
-    track: list[np.ndarray] = []
-
-    def emit():
-        track.append(
-            np.concatenate(
-                [
-                    FRAME_CENTRE,
-                    [FOCAL_DISTANCE, ZOOM],
-                    camera_matrix(phi, theta).reshape(9),
-                    LIGHT_SOURCE,
-                ]
-            )
-        )
-
-    for step in scene["timeline"]:
-        if step[0] == "move":
-            _, target_phi, target_theta, duration = step
-            start_phi, start_theta = phi, theta
-            for frame in range(int(duration * fps)):
-                alpha = smooth((frame + 1) / (duration * fps))
-                phi = start_phi + (target_phi - start_phi) * alpha
-                theta = start_theta + (target_theta - start_theta) * alpha
-                emit()
-        elif step[0] == "spin":
-            _, rate, duration = step
-            for _ in range(int(duration * fps)):
-                theta += rate / fps
-                emit()
-        elif step[0] in ("write", "revealseq") and step[1] not in objects:
-            # write targets an asset; a shape reaching here means the exporter
-            # emitted a verb for something it never declared as an asset.
-            raise KeyError(f"write target {step[1]!r} was never declared")
-
-        elif step[0] in ("write", "revealseq"):
-            # Manim lags each submobject. Write uses lag_ratio min(4/n, 0.2);
-            # Create on a group uses 1.0, i.e. strictly one child at a time.
-            _, name, duration = step
-            obj = objects[name]
-            # Revealing a thing puts it on stage. Without this the object
-            # stayed hidden for the whole reveal and only appeared at its
-            # trailing show verb.
-            obj["visible"] = True
-            base = [tuple(inst) for inst in obj["instances"]]
-            count = max(len(base), 1)
-            lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
-            span = 1.0 / (1.0 + lag * (count - 1))
-            total = int(duration * fps)
-            for frame_index in range(total):
-                alpha = (frame_index + 1) / total
-                revealed = []
-                for i, (aid, transform, fill, stroke, width) in enumerate(base):
-                    start = i * lag * span
-                    local = min(max((alpha - start) / span, 0.0), 1.0)
-                    if local <= 0:
-                        continue
-                    if local >= 1:
-                        revealed.append((aid, transform, fill, stroke, width))
-                        continue
-                    partial = pointwise_become_partial(shapes[aid], 0.0, smooth(local))
-                    shapes.append(partial)
-                    revealed.append((len(shapes) - 1, transform, fill, stroke, width))
-                obj["instances"] = revealed
-                emit()
-            obj["instances"] = base
-
-        elif step[0] == "fadeout":
-            _, name, duration = step
-            if name in objects:
-                objects[name]["visible"] = True
-            obj = objects[name]
-            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
-            for frame_index in range(int(duration * fps)):
-                alpha = 1.0 - smooth((frame_index + 1) / (duration * fps))
-                if base is None:
-                    obj["alpha"] = alpha
-                else:
-                    obj["instances"] = [
-                        (aid, transform,
-                         (*fill[:3], int(fill[3] * alpha)),
-                         (*stroke[:3], int(stroke[3] * alpha)),
-                         width)
-                        for aid, transform, fill, stroke, width in base
-                    ]
-                emit()
-            if base is None:
-                objects.pop(name, None)
-            else:
-                obj["instances"] = []
-
-        elif step[0] == "morph":
-            _, source, target, duration = step
-            src, dst = objects[source], objects[target]
-            src["visible"] = True
-            dst["visible"] = False
-
-            # Pair instances sharing a glyph id, in order; anything left over
-            # on either side fades rather than morphing into an unrelated shape.
-            pending: dict[int, list[int]] = {}
-            for index, glyph in enumerate(dst["glyph_ids"]):
-                pending.setdefault(glyph, []).append(index)
-
-            pairs, orphans = [], []
-            for index, glyph in enumerate(src["glyph_ids"]):
-                queue = pending.get(glyph)
-                if queue:
-                    pairs.append((index, queue.pop(0)))
-                else:
-                    orphans.append(index)
-            arrivals = [i for queue in pending.values() for i in queue]
-
-            src_base = [tuple(i) for i in src["instances"]]
-            dst_base = [tuple(i) for i in dst["instances"]]
-
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
-                built = []
-                for si, di in pairs:
-                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
-                    _, b_t, b_fill, b_stroke, b_w = dst_base[di]
-                    built.append((
-                        a_id,
-                        a_t + (b_t - a_t) * alpha,
-                        tuple(int(round(x + (y - x) * alpha))
-                              for x, y in zip(a_fill, b_fill)),
-                        tuple(int(round(x + (y - x) * alpha))
-                              for x, y in zip(a_stroke, b_stroke)),
-                        a_w + (b_w - a_w) * alpha,
-                    ))
-                for si in orphans:
-                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
-                    fade_out = 1.0 - alpha
-                    built.append((a_id, a_t,
-                                  (*a_fill[:3], int(a_fill[3] * fade_out)),
-                                  (*a_stroke[:3], int(a_stroke[3] * fade_out)), a_w))
-                for di in arrivals:
-                    b_id, b_t, b_fill, b_stroke, b_w = dst_base[di]
-                    built.append((b_id, b_t,
-                                  (*b_fill[:3], int(b_fill[3] * alpha)),
-                                  (*b_stroke[:3], int(b_stroke[3] * alpha)), b_w))
-                src["instances"] = built
-                emit()
-            src["instances"] = dst_base
-            src["glyph_ids"] = list(dst["glyph_ids"])
-
-        elif step[0] == "fade":
-            _, name, duration = step
-            if name in objects:
-                objects[name]["visible"] = True
-            # A declared shape only enters the scene when something animates
-            # it in; fade is one of those entry points, not just create.
-            if name not in objects:
-                spec = scene["shapes"][name]
-                objects[name] = {
-                    "kind": "shape", "visible": True, "points": geometry_for(spec),
-                    "alpha": 0.0,
-                    "stroke": spec["stroke"], "width": spec["width"],
-                }
-            obj = objects[name]
-            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
-                if base is None:
-                    obj["alpha"] = alpha
-                else:
-                    obj["instances"] = [
-                        (aid, transform,
-                         (*fill[:3], int(fill[3] * alpha)),
-                         (*stroke[:3], int(stroke[3] * alpha)),
-                         width)
-                        for aid, transform, fill, stroke, width in base
-                    ]
-                emit()
-            if base is None:
-                obj["alpha"] = 1.0
-            else:
-                obj["instances"] = base
-
-        elif step[0] == "move":
-            _, target_phi, target_theta, duration = step
-            start_phi, start_theta = camera_state["phi"], camera_state["theta"]
-            total = int(duration * fps)
-            for frame_index in range(total):
-                alpha = smooth((frame_index + 1) / total)
-                camera_state["phi"] = start_phi + (target_phi - start_phi) * alpha
-                camera_state["theta"] = start_theta + (target_theta - start_theta) * alpha
-                emit()
-
-        elif step[0] == "spin":
-            _, rate, duration = step
-            for _ in range(int(duration * fps)):
-                camera_state["theta"] += rate / fps
-                emit()
-
-        elif step[0] == "wait":
-            for _ in range(int(step[1] * fps)):
-                emit()
-    return track
 
 
 def load_program(path: str) -> DecodedIR:

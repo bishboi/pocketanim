@@ -297,6 +297,33 @@ agreement.
 of any Android code, so when the Kotlin renderer disagrees with it, the bug is in the Kotlin.
 Build the Android renderer against this, not against Manim directly.
 
+#### The format has a second reader
+
+`exporter/decode.py` was the only thing that read the IR, which meant nothing
+distinguished *the format* from *whatever that file happens to do*.
+`client/PanimDecoder.java` is an independent implementation written from this
+spec — plain Java, no dependencies, no Android APIs, so it runs on any JVM. The
+Android renderer will be its logic in Kotlin feeding `android.graphics.Path`,
+so a disagreement here is a disagreement on the phone.
+
+`tools/crosscheck_decoders.py` makes both emit the same canonical dump — header,
+quantisation bounds, every atlas shape, every record's instance count, the
+camera row, every instance of a probed frame — and compares them field by field.
+Floats compare by tolerance rather than equality **on purpose**: Java dequantises
+the atlas in float32 because that is what the device will do, Python in float64.
+Everything that arrives as an integer, a float16 or a float32 must match
+exactly, and does.
+
+Verified on the cases where a layout bug would actually bite: a 182-record scene
+with a camera track and variable-length instance records (normals present only
+under `SHADE_IN_3D`), probed mid-timeline so keyframe replay is exercised rather
+than just the opening snapshot; a 1,416-shape baked coastline; a 750-instance
+shaded molecule; and a shape-free instances-only text asset.
+
+One thing this exposed: the quantisation box was being recovered from the
+extremes of the dequantised points, which only works when some point happens to
+land on each extreme. It is now carried on the decoded IR.
+
 ### 7.2 What verification caught
 
 Three spec-mandated requirements were **missing from the exporter while every statistic looked
@@ -563,7 +590,7 @@ function**, not an alignment bug. Manim defaults both verbs to `smooth`.
 **The failure mode is forgetting a documented behaviour, not being unable to
 reproduce one**, and the harness catches exactly that.
 
-### Coverage and fidelity: 8 of 10, verified
+### Coverage and fidelity: 9 of 10, verified
 
 Coverage and fidelity are **separate axes**. Tier 1 means *expressible*; the
 harness separately says *correct*. A scene can reach tier 1 and still render
@@ -576,24 +603,60 @@ badly, so never report one without the other.
 | TextHybrid | **1** | 162 B | **0.04%** |
 | CodeWalkthrough | **1** | 263 B | **0.32%** |
 | LatexDerivation | **1** | 465 B | **0.45%** |
+| MolecularStructure | **1** | 226 B | 2.30% |
 | CartopyMap | **1** | 140 B | 3.39% |
 | SurfaceOrbit | **1** | 196 B | 4.96% |
 | ThreeDCamera | **1** | 180 B | 12.79% |
 | PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
-| MolecularStructure | 3 | — | `LaggedStart` |
 
 Five scenes are under 0.5%. **ThreeDCamera is the honest exception**: at 12.79%
 it is currently *worse* than its own sampled IR (7.02%), despite being ~1200×
 smaller. The program approach wins decisively on size everywhere, but it has not
 yet won on fidelity there, and the residual is in the camera-move phase.
 
-**Two scenes remain, for opposite reasons:**
+**One scene remains, and it is the one that always will.** `ValueTracker` +
+`always_redraw` is **fundamental**: arbitrary Python recomputing geometry every
+frame cannot be a verb, ever. This is the hard ceiling on tier 1 and the reason
+tier 3 must exist permanently.
 
-- `LaggedStart` is **mechanical** — lagged start times over a group, the same
-  shape as the reveal verbs already implemented.
-- `ValueTracker` + `always_redraw` is **fundamental**. Arbitrary Python
-  recomputing geometry every frame cannot be a verb, ever. This is the hard
-  ceiling on tier 1 and the reason tier 3 must exist permanently.
+#### What `LaggedStart` actually cost
+
+It was predicted to be mechanical, and the *timing* was — the two-level clock
+(group linear, child `smooth`, child *i* starting at `i·lag·span`) is character
+for character the arithmetic `Write` already used. Three things were not:
+
+- **The group Manim hands you is empty.** `AnimationGroup` excludes introducer
+  animations from the group it builds, and `GrowFromCenter` is an introducer,
+  so `anim.mobject` has no submobjects. The group has to be reassembled from
+  the sub-animations' own targets, in animation order.
+- **A baked group is a flat instance list.** One sphere is 144 faces, so a
+  per-child animation needs to know where each child's run starts. The program
+  carries the run lengths (`groups=144,144,…`), counted with exactly the same
+  `len(points) >= 4` filter the asset baker applies — a disagreement of one
+  would misalign every subsequent child.
+- **Manim adds each child to the scene on clean-up.** Every atom was therefore
+  declared a second time as its own asset and shown, drawing the molecule
+  twice. Mobjects covered by a group asset are now marked, and `add` skips them.
+
+The growth itself is exact and needs nothing shipped: `GrowFromCenter`
+interpolates from a zero-size copy at the child's centre, which point by point
+is `c + α(p − c)` — a uniform scale about `c`, composable onto whatever
+transform the instance already carries. `c` is the child's bounding-box centre,
+which the runtime measures from geometry it already has.
+
+#### Harness note: Manim elides static waits
+
+`verify_dsl` reports both frame counts and they do not match — 243 Manim frames
+against 270 for MolecularStructure, 122 against 150 for VerbTest. This is not
+drift. Manim renders a *static* `wait` as two or three frames rather than one
+per frame, so a trailing `self.wait(1)` costs 30 frames in the program and ~3 in
+Manim's output. MolecularStructure's arithmetic is exact: 30 (fade) + 60
+(lagged grow) + 150 (orbit, not static, so fully rendered) + 3 = 243.
+
+The program is right to expand the hold — the player has to show it — and index
+alignment holds for every frame the harness actually compares. The consequence
+worth knowing is that **the trailing hold is never compared**, so a bug confined
+to it would not show up here.
 
 ### Superseded: coverage was 5 of 10
 
@@ -753,6 +816,14 @@ serialise.
 
 ## 11. Open items
 
+- **The Android player is not started.** Everything above is exporter, format and oracle;
+  `client/PanimDecoder.java` is a format check, not a renderer. No Android SDK is available in
+  this environment, so the Kotlin renderer, the `SurfaceView` playback loop and the audio clock
+  are all unwritten.
+- **Device throughput is ungated.** This is the one measurement that can invalidate the
+  architecture, and it needs a physical low-end phone. There is no MP4 fallback path, so a bad
+  result has nowhere to fall back to — build the fallback or take the measurement before
+  committing further.
 - **Corpus scenes are 6–14.5 s.** Any 3-minute figure here is extrapolation, and the IR/video
   crossover is duration-sensitive — CartopyMap's sits around 8 s. Add a long scene before any
   production sizing decision.

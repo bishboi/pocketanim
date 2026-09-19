@@ -563,7 +563,39 @@ function**, not an alignment bug. Manim defaults both verbs to `smooth`.
 **The failure mode is forgetting a documented behaviour, not being unable to
 reproduce one**, and the harness catches exactly that.
 
-### Coverage and fidelity: 5 of 10, verified
+### Coverage and fidelity: 8 of 10, verified
+
+Coverage and fidelity are **separate axes**. Tier 1 means *expressible*; the
+harness separately says *correct*. A scene can reach tier 1 and still render
+badly, so never report one without the other.
+
+| Scene | Tier | Program | Pixels differing |
+|---|---|---|---|
+| TextReuse | **1** | 110 B | **0.00%** |
+| VerbTest | **1** | 127 B | **0.01%** |
+| TextHybrid | **1** | 162 B | **0.04%** |
+| CodeWalkthrough | **1** | 263 B | **0.32%** |
+| LatexDerivation | **1** | 465 B | **0.45%** |
+| CartopyMap | **1** | 140 B | 3.39% |
+| SurfaceOrbit | **1** | 196 B | 4.96% |
+| ThreeDCamera | **1** | 180 B | 12.79% |
+| PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
+| MolecularStructure | 3 | — | `LaggedStart` |
+
+Five scenes are under 0.5%. **ThreeDCamera is the honest exception**: at 12.79%
+it is currently *worse* than its own sampled IR (7.02%), despite being ~1200×
+smaller. The program approach wins decisively on size everywhere, but it has not
+yet won on fidelity there, and the residual is in the camera-move phase.
+
+**Two scenes remain, for opposite reasons:**
+
+- `LaggedStart` is **mechanical** — lagged start times over a group, the same
+  shape as the reveal verbs already implemented.
+- `ValueTracker` + `always_redraw` is **fundamental**. Arbitrary Python
+  recomputing geometry every frame cannot be a verb, ever. This is the hard
+  ceiling on tier 1 and the reason tier 3 must exist permanently.
+
+### Superseded: coverage was 5 of 10
 
 Coverage and fidelity are **separate axes**. Tier 1 means *expressible*; the
 harness separately says *correct*. A scene can reach tier 1 and still render

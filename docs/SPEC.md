@@ -323,19 +323,43 @@ Bezier control points, not polygon vertices.
 
 Sampled every 60th frame, at 720p:
 
+All six scenes, sampled every 60th frame at 720p:
+
 | Scene | Mean MAE (of 255) | Pixels differing |
 |---|---|---|
-| LatexDerivation | 0.75 | **0.42%** |
-| PlotGeometry | 0.88 | **0.61%** |
-| CodeWalkthrough | 3.78 | 6.98% |
+| LatexDerivation | 0.01 | **0.00%** |
+| CodeWalkthrough | 0.03 | **0.02%** |
+| CartopyMap | 0.23 | **0.25%** |
+| PlotGeometry | 0.60 | **0.44%** |
+| MolecularStructure | 0.77 | **0.75%** |
 | ThreeDCamera | 3.97 | 7.02% |
 
-The 2D text and geometry scenes are essentially exact — sub-1% differences at antialiased edges,
-confirming the glyph atlas round-trips. **This is what "perceptually identical" means in
-practice, and it is now a number rather than an aspiration.**
+**Five of six are under 1%**, and two are effectively pixel-identical. CartopyMap is the notable
+one: 235,948 points reconstructed through 16-bit quantisation, atlas deduplication and affine
+transforms, landing within a quarter of a percent. Only the 3D shading nuance remains above 1%.
+
+**This is what "perceptually identical" means in practice, and it is now a number rather than an
+aspiration.**
 
 Suggested CI gate: fail above 2% differing pixels for 2D scenes, 10% for 3D, pending a human
-judgement on whether the 7% cases are visually acceptable.
+judgement on whether the ThreeDCamera case is visually acceptable.
+
+### 7.4 A fourth bug, and why it matters most
+
+After the three 3D fixes above, `CodeWalkthrough` still measured 6.98%. Rendering a frame showed
+**a code block containing no code**: the title and nearly every glyph were missing.
+
+Cause: **Text and Code glyphs render fully opaque but report `fill_opacity == 0` on the
+attribute.** Manim keeps the authoritative value in `fill_rgbas`. The exporter was reading the
+attribute, writing correct colours at zero alpha, and producing thousands of invisible glyphs.
+
+Every statistic was healthy — 2,595 atlas shapes, 90.5% hit rate, plausible file size, instance
+counts in range. **No numerical check could distinguish "exported the glyphs" from "exported
+2,595 invisible glyphs."** Fix: read style through Manim's getters, never the raw attributes.
+6.98% → 0.02%.
+
+This is the strongest argument for the oracle existing at all, and for building the Android
+renderer against it rather than against Manim directly.
 
 ## 8. Measured baselines
 

@@ -1,0 +1,13 @@
+{
+  "scene": "LatexDerivation",
+  "frames": 192,
+  "duration_s": 6.4,
+  "mobjects_per_frame_max": 55,
+  "points_per_frame_mean": 2356.0,
+  "points_per_frame_max": 4300,
+  "morphing_points_per_frame_mean": 1077.1,
+  "morphing_fraction": 0.4571,
+  "ir_naive_bytes": 5428320,
+  "ir_static_cached_bytes": 2552592,
+  "ir_cached_saving_x": 2.1
+}

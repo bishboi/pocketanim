@@ -64,11 +64,36 @@ def unit_normal(mob, points: np.ndarray) -> np.ndarray:
     return -normal if normal[2] < 0 else normal
 
 
+def _call(mob, name, fallback):
+    """Prefer Manim's getter over the raw attribute.
+
+    The scalar attributes can be stale: Manim keeps the authoritative values in
+    fill_rgbas/stroke_rgbas, and `mob.fill_opacity` reads 0 for Text and Code
+    glyphs that render fully opaque. Reading the attribute silently produced
+    invisible text.
+    """
+    getter = getattr(mob, name, None)
+    if callable(getter):
+        try:
+            value = getter()
+            if value is not None:
+                return value
+        except (TypeError, ValueError, IndexError, AttributeError):
+            pass
+    return fallback
+
+
 def read_style(mob):
     return (
-        rgba(getattr(mob, "fill_color", None), getattr(mob, "fill_opacity", 0) or 0),
-        rgba(getattr(mob, "stroke_color", None), getattr(mob, "stroke_opacity", 0) or 0),
-        float(getattr(mob, "stroke_width", 0) or 0),
+        rgba(
+            _call(mob, "get_fill_color", getattr(mob, "fill_color", None)),
+            _call(mob, "get_fill_opacity", getattr(mob, "fill_opacity", 0) or 0),
+        ),
+        rgba(
+            _call(mob, "get_stroke_color", getattr(mob, "stroke_color", None)),
+            _call(mob, "get_stroke_opacity", getattr(mob, "stroke_opacity", 0) or 0),
+        ),
+        float(_call(mob, "get_stroke_width", getattr(mob, "stroke_width", 0) or 0) or 0),
     )
 
 

@@ -527,6 +527,74 @@ no mitigation inside this design. It needs a real low-end phone and should measu
 Pull this forward. It needs no final IR, only a synthetic path-heavy workload, and a bad result
 invalidates much of the design above.
 
+## 9.5 Tier 1: ship the program, not the samples
+
+Measured after the sampled IR was built, and it changes the economics. The
+**source program is itself a 99%+ reduction**, because the IR stores the result
+of computation at every keyframe while the program stores the computation once.
+
+Proven end to end (`dsl/`), against Manim's own frames:
+
+| Scene | Program | MP4 | Reduction | Pixels differing |
+|---|---|---|---|---|
+| VerbTest (`Create` + `Transform`) | **121 B** | 57 KB | **99.79%** | **0.01%** |
+| SurfaceOrbit (procedural 3D) | **190 B** | 1,445 KB | **99.987%** | 4.96% |
+
+On SurfaceOrbit the same scene is 162,868 B as sampled IR at 10.70% differing —
+so the program is **862× smaller and less than half the error**. It dominates
+rather than trading, because the device computes at full precision instead of
+replaying 16-bit quantised samples. **Shipping the computation is lossless by
+construction; shipping its sampled output cannot be.**
+
+### The semantics reproduce exactly
+
+The risk §3.1 cited for rejecting parametric encoding — silent drift from
+mismatched semantics — measured as zero:
+
+| Component | Max error vs Manim |
+|---|---|
+| Circle geometry | **0.0** |
+| `Create` / `pointwise_become_partial` | 2.2e-16, correct point count at every alpha |
+| `Transform` (align + interpolate) | 2.2e-16 at every alpha |
+
+`Transform` first showed 0.277 error at alpha 0.25/0.75 while exact at 0.5 and
+1.0 — symmetric midpoint error with correct endpoints is a **missing rate
+function**, not an alignment bug. Manim defaults both verbs to `smooth`.
+**The failure mode is forgetting a documented behaviour, not being unable to
+reproduce one**, and the harness catches exactly that.
+
+### Coverage today: 2 of 8
+
+`dsl/export_dsl.py` maps a Manim scene onto DSL verbs and records a blocker
+rather than guessing when it cannot. Against the corpus — which was built to
+span the *hardest* envelope, so this understates a real library:
+
+| Blocker | Scenes | Nature |
+|---|---|---|
+| `VGroup` / `Group` | 5 | container; mechanical |
+| `linear` rate_func | 4 | one parameter |
+| `Write`, `Text`, `MathTex`, `Tex`, `Code` | 5 | **one problem: text as assets** |
+| `_AnimationBuilder` (`.animate`) | 2 | mechanical |
+| `ParametricFunction`, `Axes`, `ThreeDAxes` | 3 | procedural/composite, as `Surface` |
+| `TransformMatchingTex` | 1 | genuinely hard — glyph-level matching |
+| `LaggedStart` | 1 | mechanical — offset start times |
+
+**Almost nothing here is a fundamental obstacle.** The list is dominated by
+missing vocabulary and by text, and text is a tier-2 asset problem that every
+tier shares.
+
+### The three tiers
+
+1. **Program** — 99.8–99.99%, fidelity equal or better than sampling.
+2. **Assets** — glyph outlines and imported geometry, **library-wide and
+   cached**, not per bundle. This is what makes text scenes viable and is a
+   change from §3.5.
+3. **Sampled IR** — already built, verified 0.00–0.99% on five of six scenes.
+   Handles whatever the DSL cannot express.
+
+The exporter attempts tier 1 and falls back, so nothing already built is wasted
+and the worst case for any scene is the 9× the sampled IR already delivers.
+
 ## 10. Exporter v2 — the fixes measurement identified
 
 Ordered by expected value. None reopens a design decision; all are refinements to how instances

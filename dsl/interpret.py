@@ -190,8 +190,8 @@ def parse(text: str) -> dict:
             )
         elif verb == "spin":
             scene["timeline"].append(("spin", float(args["rate"]), float(args["t"])))
-        elif verb == "fade":
-            scene["timeline"].append(("fade", positional[0], float(args["t"])))
+        elif verb in ("fade", "fadeout", "write"):
+            scene["timeline"].append((verb, positional[0], float(args["t"])))
         elif verb == "xform":
             by_xy = args.get("by_xy", "0,0").split(",")
             scene["timeline"].append(
@@ -291,7 +291,7 @@ def build_2d(scene: dict) -> DecodedIR:
                         atlas_id=len(shapes) - 1,
                         transform=identity.copy(),
                         fill=(0, 0, 0, 0),
-                        stroke=(*obj["stroke"], 255),
+                        stroke=(*obj["stroke"], int(255 * obj.get("alpha", 1.0))),
                         stroke_width=obj["width"],
                     )
                 )
@@ -304,7 +304,7 @@ def build_2d(scene: dict) -> DecodedIR:
             spec = scene["shapes"][name]
             full = geometry_for(spec)
             objects[name] = {
-                "kind": "shape", "points": full,
+                "kind": "shape", "points": full, "alpha": 1.0,
                 "stroke": spec["stroke"], "width": spec["width"],
             }
             for frame_index in range(int(duration * fps)):
@@ -343,6 +343,56 @@ def build_2d(scene: dict) -> DecodedIR:
                 step_matrix = np.hstack([step_linear, step_translation.reshape(3, 1)])
                 obj["xform"] = compose(step_matrix, base)
                 emit()
+
+        elif step[0] == "write":
+            # Manim's Write lags each submobject; lag_ratio defaults to
+            # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(inst) for inst in obj["instances"]]
+            count = max(len(base), 1)
+            lag = min(4.0 / count, 0.2)
+            span = 1.0 / (1.0 + lag * (count - 1))
+            total = int(duration * fps)
+            for frame_index in range(total):
+                alpha = (frame_index + 1) / total
+                revealed = []
+                for i, (aid, transform, fill, stroke, width) in enumerate(base):
+                    start = i * lag * span
+                    local = min(max((alpha - start) / span, 0.0), 1.0)
+                    if local <= 0:
+                        continue
+                    if local >= 1:
+                        revealed.append((aid, transform, fill, stroke, width))
+                        continue
+                    partial = pointwise_become_partial(shapes[aid], 0.0, smooth(local))
+                    shapes.append(partial)
+                    revealed.append((len(shapes) - 1, transform, fill, stroke, width))
+                obj["instances"] = revealed
+                emit()
+            obj["instances"] = base
+
+        elif step[0] == "fadeout":
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
+            for frame_index in range(int(duration * fps)):
+                alpha = 1.0 - smooth((frame_index + 1) / (duration * fps))
+                if base is None:
+                    obj["alpha"] = alpha
+                else:
+                    obj["instances"] = [
+                        (aid, transform,
+                         (*fill[:3], int(fill[3] * alpha)),
+                         (*stroke[:3], int(stroke[3] * alpha)),
+                         width)
+                        for aid, transform, fill, stroke, width in base
+                    ]
+                emit()
+            if base is None:
+                objects.pop(name, None)
+            else:
+                obj["instances"] = []
 
         elif step[0] == "fade":
             _, name, duration = step
@@ -443,6 +493,56 @@ def camera_track(scene: dict) -> list[np.ndarray]:
             for _ in range(int(duration * fps)):
                 theta += rate / fps
                 emit()
+        elif step[0] == "write":
+            # Manim's Write lags each submobject; lag_ratio defaults to
+            # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(inst) for inst in obj["instances"]]
+            count = max(len(base), 1)
+            lag = min(4.0 / count, 0.2)
+            span = 1.0 / (1.0 + lag * (count - 1))
+            total = int(duration * fps)
+            for frame_index in range(total):
+                alpha = (frame_index + 1) / total
+                revealed = []
+                for i, (aid, transform, fill, stroke, width) in enumerate(base):
+                    start = i * lag * span
+                    local = min(max((alpha - start) / span, 0.0), 1.0)
+                    if local <= 0:
+                        continue
+                    if local >= 1:
+                        revealed.append((aid, transform, fill, stroke, width))
+                        continue
+                    partial = pointwise_become_partial(shapes[aid], 0.0, smooth(local))
+                    shapes.append(partial)
+                    revealed.append((len(shapes) - 1, transform, fill, stroke, width))
+                obj["instances"] = revealed
+                emit()
+            obj["instances"] = base
+
+        elif step[0] == "fadeout":
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
+            for frame_index in range(int(duration * fps)):
+                alpha = 1.0 - smooth((frame_index + 1) / (duration * fps))
+                if base is None:
+                    obj["alpha"] = alpha
+                else:
+                    obj["instances"] = [
+                        (aid, transform,
+                         (*fill[:3], int(fill[3] * alpha)),
+                         (*stroke[:3], int(stroke[3] * alpha)),
+                         width)
+                        for aid, transform, fill, stroke, width in base
+                    ]
+                emit()
+            if base is None:
+                objects.pop(name, None)
+            else:
+                obj["instances"] = []
+
         elif step[0] == "fade":
             _, name, duration = step
             obj = objects[name]

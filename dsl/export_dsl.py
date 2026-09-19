@@ -71,6 +71,12 @@ class Recorder:
             self.counter += 1
         return self.names[id(mob)]
 
+    def is_asset(self, name: str) -> bool:
+        return any(
+            d.startswith(("text ", "geom ")) and d.split()[1] == name
+            for d in self.declarations
+        )
+
     @staticmethod
     def is_primitive(mob) -> bool:
         from manim import Circle, Square
@@ -120,6 +126,15 @@ class Recorder:
             )
             return name
 
+        if type(mob).__name__ in ("Rectangle", "SurroundingRectangle"):
+            centre = mob.get_center()
+            self.declarations.append(
+                f"rect {name} wh={float(mob.width):g},{float(mob.height):g} "
+                f"at={centre[0]:g},{centre[1]:g} stroke={self.hex_of(mob)} "
+                f"w={float(mob.get_stroke_width()):g}"
+            )
+            return name
+
         if isinstance(mob, Surface):
             expr = surface_expression(mob)
             if expr is None:
@@ -149,9 +164,7 @@ class Recorder:
                 return name
             from dsl.library import export_standalone_asset
 
-            digest = hashlib.sha1(
-                f"group:{len(mob.get_family())}:{mob.get_center()}".encode()
-            ).hexdigest()[:10]
+            digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
             asset = Path("dsl/generated/assets") / f"{digest}.panm"
             self.assets[digest] = export_standalone_asset(mob, asset)
             self.declarations.append(f"geom {name} asset={digest}")
@@ -160,9 +173,10 @@ class Recorder:
         if isinstance(mob, (Text, SingleStringMathTex)) or type(mob).__name__ in (
             "MathTex", "Tex", "Code", "MarkupText"
         ):
-            digest = hashlib.sha1(
-                f"{type(mob).__name__}:{getattr(mob, 'text', '')}:{mob.get_center()}".encode()
-            ).hexdigest()[:10]
+            # Hash the actual geometry, not a text attribute: Code exposes no
+            # .text, so two different code blocks at the same centre collided
+            # onto one asset and the program referenced the wrong content.
+            digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
             asset = Path("dsl/generated/assets") / f"{digest}.panm"
             from dsl.library import GlyphLibrary, export_text_instances
 
@@ -174,6 +188,20 @@ class Recorder:
 
         self.blockers.append(f"unsupported mobject: {type(mob).__name__}")
         return None
+
+
+def geometry_digest(mob) -> bytes:
+    """Content-address a mobject by its actual geometry and styling."""
+    import numpy as np
+
+    parts = []
+    for sub in mob.get_family():
+        points = getattr(sub, "points", None)
+        if points is None or len(points) < 4:
+            continue
+        parts.append(np.asarray(points, dtype=np.float64).tobytes())
+        parts.append(str(sub.get_fill_color()).encode())
+    return b"".join(parts) or repr(type(mob)).encode()
 
 
 def surface_expression(mob) -> str | None:
@@ -225,7 +253,8 @@ def affine_verb(methods, target: str, duration: float) -> str | None:
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, tempconfig
     from manim.animation.creation import Create
-    from manim.animation.fading import FadeIn
+    from manim.animation.creation import Write
+    from manim.animation.fading import FadeIn, FadeOut
     from manim.animation.transform import Transform
     from manim.animation.animation import Wait
     from manim.scene.three_d_scene import ThreeDScene
@@ -262,10 +291,26 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 continue
 
             rate = getattr(anim, "rate_func", None)
-            if rate is not None and rate.__name__ != "smooth":
-                rec.blockers.append(f"non-default rate_func: {rate.__name__}")
+            rate_name = rate.__name__ if rate is not None else "smooth"
+            if rate_name not in ("smooth", "linear"):
+                rec.blockers.append(f"non-default rate_func: {rate_name}")
+            suffix = "" if rate_name == "smooth" else f" rate={rate_name}"
 
-            if isinstance(anim, FadeIn):
+            if isinstance(anim, Write):
+                # Write reveals each glyph in turn. On a text asset that is a
+                # lagged per-glyph reveal, not a single partial path.
+                name = rec.declare(anim.mobject)
+                if name:
+                    rec.timeline.append(f"write {name} t={duration:g}")
+                else:
+                    rec.blockers.append("Write target could not be declared")
+            elif isinstance(anim, FadeOut):
+                name = rec.declare(anim.mobject)
+                if name:
+                    rec.timeline.append(f"fadeout {name} t={duration:g}")
+                else:
+                    rec.blockers.append("FadeOut target could not be declared")
+            elif isinstance(anim, FadeIn):
                 # FadeIn subclasses Transform, so it must be tested first --
                 # and its target_mobject is not a separate declarable shape.
                 name = rec.declare(anim.mobject)
@@ -276,14 +321,26 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             elif isinstance(anim, Create):
                 name = rec.declare(anim.mobject)
                 if name:
-                    rec.timeline.append(f"create {name} t={duration:g}")
+                    rec.timeline.append(f"create {name} t={duration:g}{suffix}")
                 else:
                     rec.blockers.append("Create target could not be declared")
             elif isinstance(anim, Transform):
                 source = rec.declare(anim.mobject)
                 target = rec.declare(anim.target_mobject)
-                if source and target:
-                    rec.timeline.append(f"transform {source} {target} t={duration:g}")
+                # Morphing one baked asset into another is glyph-level
+                # matching -- the same capability as TransformMatchingTex --
+                # and the runtime cannot do it. Emitting the verb anyway would
+                # ship a program that crashes or renders the wrong thing.
+                if source and target and not (
+                    rec.is_asset(source) or rec.is_asset(target)
+                ):
+                    rec.timeline.append(
+                        f"transform {source} {target} t={duration:g}{suffix}"
+                    )
+                elif source and target:
+                    rec.blockers.append(
+                        "Transform between baked assets (needs glyph-level matching)"
+                    )
                 else:
                     # Never drop an animation silently: a missing verb shifts
                     # the whole timeline and the program renders the wrong thing.

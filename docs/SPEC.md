@@ -285,9 +285,57 @@ sub-pixel deviation is acceptable. Pixel-exactness is not achievable anyway — 
 not rasterize identically.
 
 **A golden-image CI harness is required from day one.** We own the format, so we own fidelity;
-there is no upstream runtime to be correct on our behalf. It should compare device output
-against reference Manim renders with a tolerance threshold, and be used to find the lowest
-keyframe density that still reads as identical, per scene class.
+there is no upstream runtime to be correct on our behalf.
+
+### 7.1 The harness exists
+
+`tools/verify_fidelity.py` exports a scene while capturing Manim's own frames, decodes the IR,
+re-renders the same frame indices through `exporter/reference_render.py`, and reports per-pixel
+agreement.
+
+**`exporter/reference_render.py` is the oracle.** It proves the format is correct independently
+of any Android code, so when the Kotlin renderer disagrees with it, the bug is in the Kotlin.
+Build the Android renderer against this, not against Manim directly.
+
+### 7.2 What verification caught
+
+Three spec-mandated requirements were **missing from the exporter while every statistic looked
+healthy** — atlas hit rates, sizes and affine detection were all fine. Only rendering a frame
+revealed them:
+
+| Fix | ThreeDCamera pixels differing |
+|---|---|
+| (as first written — no camera) | **44.6%** |
+| + camera track | 21.0% |
+| + per-frame depth sort | 20.9% |
+| + normal-based shading | 16.1% |
+| + consistent normal orientation | **7.0%** |
+
+The missing camera track is the instructive one: §3.6 says the exporter must never flatten, and
+it was silently shipping unprojected world coordinates. No size or hit-rate metric can see that.
+
+The last fix is worth remembering: a plane fit gives an **arbitrary normal sign**, so neighbouring
+faces shaded in opposite directions and surfaces came out banded. Orienting every normal into one
+hemisphere took 16% to 7%. Winding-order cross products were tried and were *worse* — these are
+Bezier control points, not polygon vertices.
+
+### 7.3 Measured agreement
+
+Sampled every 60th frame, at 720p:
+
+| Scene | Mean MAE (of 255) | Pixels differing |
+|---|---|---|
+| LatexDerivation | 0.75 | **0.42%** |
+| PlotGeometry | 0.88 | **0.61%** |
+| CodeWalkthrough | 3.78 | 6.98% |
+| ThreeDCamera | 3.97 | 7.02% |
+
+The 2D text and geometry scenes are essentially exact — sub-1% differences at antialiased edges,
+confirming the glyph atlas round-trips. **This is what "perceptually identical" means in
+practice, and it is now a number rather than an aspiration.**
+
+Suggested CI gate: fail above 2% differing pixels for 2D scenes, 10% for 3D, pending a human
+judgement on whether the 7% cases are visually acceptable.
 
 ## 8. Measured baselines
 

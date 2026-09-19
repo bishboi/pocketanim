@@ -1,0 +1,11 @@
+{
+  "scene": "ThreeDCamera",
+  "frames": 273,
+  "snapshots": 5,
+  "atlas_shapes": 612,
+  "atlas_points": 9648,
+  "atlas_hit_rate": 0.9962,
+  "affine_reuses": 160175,
+  "instances_emitted": 3418,
+  "ir_bytes": 287331
+}

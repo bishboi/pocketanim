@@ -1,0 +1,11 @@
+{
+  "scene": "PlotGeometry",
+  "frames": 400,
+  "snapshots": 9,
+  "atlas_shapes": 371,
+  "atlas_points": 26192,
+  "atlas_hit_rate": 0.9792,
+  "affine_reuses": 16793,
+  "instances_emitted": 3065,
+  "ir_bytes": 362968
+}

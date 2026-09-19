@@ -1,0 +1,11 @@
+{
+  "scene": "CodeWalkthrough",
+  "frames": 280,
+  "snapshots": 8,
+  "atlas_shapes": 2595,
+  "atlas_points": 212704,
+  "atlas_hit_rate": 0.9045,
+  "affine_reuses": 24141,
+  "instances_emitted": 9329,
+  "ir_bytes": 1903760
+}

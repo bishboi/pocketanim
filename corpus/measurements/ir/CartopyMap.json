@@ -1,0 +1,11 @@
+{
+  "scene": "CartopyMap",
+  "frames": 141,
+  "snapshots": 4,
+  "atlas_shapes": 1443,
+  "atlas_points": 237232,
+  "atlas_hit_rate": 0.9929,
+  "affine_reuses": 202969,
+  "instances_emitted": 153830,
+  "ir_bytes": 11582691
+}

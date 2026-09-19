@@ -45,7 +45,7 @@ def read_style(mob):
 
 
 class Exporter:
-    def __init__(self):
+    def __init__(self, keyframe_stride: int = 1):
         self.atlas = Atlas()
         self.records: list[tuple[int, dict[int, Instance]]] = []
         self.slots: dict[int, int] = {}          # id(mob) -> slot
@@ -53,6 +53,11 @@ class Exporter:
         self.previous: dict[int, Instance] = {}
         self.force_snapshot = True
         self.snapshots = 0
+        # Sample instance updates every Nth frame; the device interpolates
+        # between them. This is the quality dial -- higher stride trades
+        # smoothness for size, and costs nothing in geometry.
+        self.keyframe_stride = max(1, keyframe_stride)
+        self.frame_index = -1
 
     def capture(self, scene):
         current: dict[int, Instance] = {}
@@ -71,19 +76,26 @@ class Exporter:
                 fill, stroke, width = read_style(sub)
                 current[slot] = Instance(atlas_id, transform, fill, stroke, width)
 
+        self.frame_index += 1
         set_changed = current.keys() != self.previous.keys()
+
         if self.force_snapshot or set_changed:
             self.records.append((REC_SNAPSHOT, current))
             self.snapshots += 1
             self.force_snapshot = False
-        else:
-            changed = {
-                slot: inst
-                for slot, inst in current.items()
-                if slot not in self.previous or inst.key() != self.previous[slot].key()
-            }
-            self.records.append((REC_KEYFRAME, changed))
+            self.previous = current
+            return
 
+        if self.frame_index % self.keyframe_stride:
+            self.records.append((REC_KEYFRAME, {}))
+            return  # not a keyframe: leave `previous` alone so deltas accumulate
+
+        changed = {
+            slot: inst
+            for slot, inst in current.items()
+            if slot not in self.previous or inst.key() != self.previous[slot].key()
+        }
+        self.records.append((REC_KEYFRAME, changed))
         self.previous = current
 
 
@@ -93,12 +105,18 @@ def main():
     ap.add_argument("scene_class")
     ap.add_argument("-o", "--out")
     ap.add_argument("--json", dest="json_out")
+    ap.add_argument(
+        "--keyframe-stride",
+        type=int,
+        default=1,
+        help="emit instance updates every Nth frame (3 = 10fps at 30fps source)",
+    )
     args = ap.parse_args()
 
     from manim import Scene, tempconfig
     from manim.renderer.cairo_renderer import CairoRenderer
 
-    exporter = Exporter()
+    exporter = Exporter(keyframe_stride=args.keyframe_stride)
     original_update = CairoRenderer.update_frame
     original_play = Scene.play
 
@@ -148,6 +166,7 @@ def main():
         "affine_reuses": exporter.atlas.affine_hits,
         "instances_emitted": total_instances,
         "ir_bytes": len(blob),
+        "keyframe_stride": args.keyframe_stride,
     }
 
     width = max(len(k) for k in report)

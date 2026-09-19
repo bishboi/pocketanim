@@ -1,0 +1,312 @@
+# pocketanim: on-device Manim rendering for Android
+
+Implementation spec. Every decision here was resolved on the wayfinder map
+([issue #2](https://github.com/bishboi/pocketanim/issues/2)); each section links the ticket
+holding its reasoning. Where a figure is measured, the measurement is cited. Where something
+is unresolved, it says so rather than guessing.
+
+## 1. What this replaces
+
+Today: Manim renders scenes server-side to MP4, stored and streamed over a CDN.
+
+Instead: the server exports each scene to a compact **IR**, and a native Android renderer
+replays it on device. No Python, Cairo, Pango or LaTeX runs on the phone.
+
+**Drivers, in priority order:** bandwidth/CDN cost, offline playback, instant start.
+
+**Hard constraints:**
+
+- Device floor is **low-end Android at 720p30**.
+- Playback is **video-player grade** — arbitrary seek and scrub. Any frame must be renderable
+  on demand, not merely reachable by playing forward.
+- **Voiceover is core**; audio ships as a real asset.
+- **No MP4 fallback exists.** The video pipeline is retired, so the renderer must hold up at
+  the floor ([#4](https://github.com/bishboi/pocketanim/issues/4)).
+
+## 2. Architecture
+
+```
+Manim Scene (Python)
+   │  exporter hooks CairoRenderer.update_frame
+   ▼
+Scene IR  ──────────┐
+   │                │  AAC-LC 64 kbps narration, per segment
+   ▼                ▼
+Android player: Skia via Canvas, RenderNode display lists, custom SurfaceView
+```
+
+Three components: a Python **exporter**, the **IR format**, an Android **player**.
+
+## 3. The IR
+
+### 3.1 Shape
+
+Keyframe-sampled geometry, interpolated linearly on device
+([#9](https://github.com/bishboi/pocketanim/issues/9)).
+
+**Manim's interpolation semantics are NOT reimplemented on device.** Every semantic mismatch
+would be a silent visual drift, and Manim upstream changes would become our problem. Keyframe
+density is the quality dial instead — measurable, tunable, and it cannot drift.
+
+**Keyframes store absolute geometry, never deltas.** This is what makes seeking O(1) in seek
+distance: nothing accumulates, nothing is reconstructed by walking the timeline.
+
+Rejected by measurement: a **baked per-frame** dump is 27–85× *larger* than the H.264 it
+replaces. This is not an estimate — see §8.
+
+### 3.2 Timeline
+
+- **Snapshots** at animation boundaries: the complete geometry state at that instant.
+  These coincide with narration segment boundaries and seek anchors — three independent lines
+  of reasoning converged here.
+- **Keyframes** between snapshots, carrying only geometry that *morphs*.
+- The IR is a **self-sufficient timeline**. Segment durations are resolved at export and
+  written in as concrete values. The IR never consults the audio file to know how long
+  anything lasts, because scenes must play silently when audio is absent
+  ([#15](https://github.com/bishboi/pocketanim/issues/15)).
+
+### 3.3 Static versus morphing
+
+**The IR must mark geometry static or morphing.** Skia caches paths but re-tessellates any path
+whose points changed, and Android's docs explicitly warn against editing paths frame to frame
+([#8](https://github.com/bishboi/pocketanim/issues/8)).
+
+Measured morphing fractions vary enormously — **0.49% to 45.7%** across the corpus. A single
+global keyframe density will be wrong for most scenes: **choose density per mobject from its
+measured morph rate.** That is exporter policy, not a format concern.
+
+### 3.4 Coordinates
+
+**16-bit fixed point over the scene bounding box.** At 720p this grid is far finer than a
+pixel — visually lossless, and a 4× saving over Manim's float64.
+
+Manim gives `(N, 3)` float64 points. **Keep all three axes**, including for 2D scenes (§3.6).
+
+### 3.5 Glyph atlas
+
+All text in Manim — body text, LaTeX and code alike — is **already outlines** by the time it
+reaches the Mobject tree. Everything is `VMobjectFromSVGPath` with no font reference, glyph ID
+or character code. Shipping glyph runs is therefore impossible
+([#12](https://github.com/bishboi/pocketanim/issues/12)).
+
+Two measured properties make outlines cheap anyway:
+
+- **One submobject per glyph** — per-glyph addressability comes free.
+- **Repeated glyphs deduplicate exactly.** After removing translation, outlines are
+  byte-identical: `Text("aaabbb")` → 6 instances, **2 unique outlines**.
+
+So the IR carries a **per-bundle glyph atlas**: each distinct outline stored once, each
+on-screen glyph an `(atlas index, transform)` reference. An instance costs ~8–14 bytes against
+~600 for its outline — roughly **50× on text-heavy content**, which is the dominant 2D payload
+term.
+
+This also resolves the performance objection: atlas outlines are **static paths reused across
+every instance and frame**, exactly what Skia's path cache handles well.
+
+No fonts ship. No shaping agreement to maintain. LaTeX and body text use one mechanism.
+
+### 3.6 3D
+
+**The IR carries 3D vertices and a camera track. The exporter must never flatten to 2D.**
+The client re-projects every frame in painter order
+([#13](https://github.com/bishboi/pocketanim/issues/13)).
+
+This is faithful **by construction**: Manim's own Cairo renderer has no z-buffer either — it
+projects to 2D Beziers and draws in painter order. The reference implementation has the same
+limitation, so matching it is exact rather than approximate.
+
+Measured: a 3D camera orbit morphs **0.49%** of its geometry, because the camera moves and the
+model does not. Static-cached IR is **153 KB against a 2.72 MB MP4 — 17.8× smaller**, before
+quantization or keyframing. 3D is the cheapest content in the IR and the most expensive in
+video; it is the strongest single justification for this project.
+
+**Deferred:** genuinely occluded solids (molecular structures) are the one case painter order
+cannot express, and would need a depth-tested GL ES 3.0 layer. Unmeasured — no corpus scene
+exercises it yet.
+
+### 3.7 Layers: vector and raster
+
+Two geometry layer types ([#11](https://github.com/bishboi/pocketanim/issues/11)):
+
+- **Vector paths** — the default.
+- **Raster with a transform** — the fallback for singular dense assets.
+
+**Selection is automatic by point count.** No author annotation. Corpus scenes run 2,000–10,000
+points per frame *in total*; a full-detail Cartopy coastline is 50,000–500,000 points for one
+asset. That crosses Skia's `kMaxGPUPathRendererVerbs` (16,384) into **software** rasterization,
+so this is a performance guardrail as much as a payload one.
+
+**Threshold:** derive from device measurement ([#6](https://github.com/bishboi/pocketanim/issues/6)).
+Until that exists, 16,384 verbs is a defensible provisional ceiling.
+
+**Raster resolution:** the exporter inspects the camera track and rasterizes at the tightest
+zoom that asset actually reaches. Scenes are fixed at export time, so the export already knows
+this. No device-side LOD selection, no pyramid.
+
+**Raster layers animate by transform only** — translate, scale, rotate, opacity. Internals
+cannot morph. Content needing internal animation must stay vector.
+
+## 4. The exporter
+
+Hooks `CairoRenderer.update_frame(self, scene, ...)`, called once per frame with the live scene.
+**All public API — no fork, no patched internals**
+([#3](https://github.com/bishboi/pocketanim/issues/3)).
+
+| Need | API |
+|---|---|
+| Walk the tree | `Mobject.get_family()` over `scene.mobjects` |
+| Geometry | `VMobject.points` → `(N, 3)` float64 |
+| Curves | `get_cubic_bezier_tuples()` → `(n_curves, 4, 3)` |
+| Style | `fill_color`, `fill_opacity`, `stroke_color`, `stroke_width`, `stroke_opacity` |
+
+`tools/probe_scene_geometry.py` is a working reference for this traversal.
+
+**Arbitrary-`t` evaluation is exact.** `Animation.interpolate(alpha)` is a pure function of
+alpha — verified for `Transform`, `Create`, `FadeIn`, `Rotate`, and `ValueTracker` +
+`always_redraw`. Evaluating out of order and returning to the same alpha gives byte-identical
+geometry.
+
+**But state is cumulative across animations.** `Animation.begin()` snapshots whatever the
+previous animation left behind, so `t → (animation index, alpha)` requires the state at that
+animation's start. This is precisely why snapshots sit at animation boundaries.
+
+**Build environment:** Manim 0.21.0 in a virtualenv. It will *not* install against a Debian
+system Python — `srt` fails to build against patched setuptools. LaTeX is required for anything
+using `MathTex`, which includes `Axes` coordinate labels, not just explicit formulas.
+
+## 5. The Android player
+
+**Skia via the Android `Canvas` API**, driven from `RenderNode` display lists in a custom
+`SurfaceView`. Compose for app chrome only. **`minSdk 29`**
+([#8](https://github.com/bishboi/pocketanim/issues/8)).
+
+Not OpenGL ES or Vulkan: requiring Vulkan 1.1 drops ~11% of handhelds concentrated in the floor
+segment, and Flutter's Impeller — a funded, dedicated 2D GPU renderer — found hand-rolled path
+rendering *"not acceptable for release on Android"*. If that team could not beat Skia at this,
+we should not assume we can.
+
+### 5.1 Playback
+
+- **Audio is the master clock** when present. The renderer samples the scene at whatever time
+  audio has reached ([#4](https://github.com/bishboi/pocketanim/issues/4)).
+- **Silent playback uses the system clock.** A second clock source, not a special case — scenes
+  play without audio whenever it has not been downloaded.
+- **No live clock handover.** A scene playing silently whose audio arrives mid-playback finishes
+  on the system clock; audio takes over on the next play or seek.
+- **Under load, drop visual frames.** No adaptive quality ladder, no render-ahead buffer, no
+  video fallback.
+
+### 5.2 Seeking
+
+1. Find the nearest snapshot at or before `t`; take static geometry from it.
+2. For each morphing mobject, interpolate between the two keyframes bracketing `t`.
+3. Render.
+
+**No forward replay at any seek distance.** Cost is bounded by snapshot size, not seek distance.
+
+**During a drag:** snap to the nearest keyframe while the finger is down; settle on the exact
+time on release.
+
+**With audio:** the audio decoder leads and visuals snap to where it lands (AAC frame
+granularity, ~23 ms). **Silent:** the system clock is exact, with nothing to reposition.
+
+### 5.3 Storage
+
+([#15](https://github.com/bishboi/pocketanim/issues/15))
+
+- **All IR cached eagerly** — the whole library, ~50 MB per thousand scenes. Every scene stays
+  browsable and playable offline.
+- **Audio on explicit user download only.** Predictable data use; respects metered connections.
+- **LRU over audio under a size cap. IR is never evicted.**
+- A scene with IR but no audio **plays silently** with an offer to fetch narration.
+
+The two halves differ ~30× in size, so they get opposite policies.
+
+**Scaling bound:** "cache all IR" holds to roughly a thousand scenes. At ten thousand it is
+~500 MB and the policy inverts. Carry an explicit library-size assumption.
+
+## 6. Audio
+
+([#4](https://github.com/bishboi/pocketanim/issues/4))
+
+- **AAC-LC 64 kbps**, ~1.44 MB per 3 minutes.
+- **Per-segment**, with animation durations derived from clip lengths at export.
+- **IR lands instantly; audio streams behind it.**
+
+AAC over Opus costs ~2.5× the bytes but buys **hardware decode**. The renderer is CPU-bound at
+the floor (Skia draws large paths on CPU before uploading), so trading bytes for CPU headroom is
+correct when the renderer is what is most likely to fail.
+
+**Tuning lever, if payload pressure appears:** mono AAC-LC 48 kbps or HE-AAC v1, both still
+hardware-decoded. Neither changes the architecture.
+
+## 7. Fidelity
+
+**Target: perceptually identical.** A viewer comparing side by side sees no difference;
+sub-pixel deviation is acceptable. Pixel-exactness is not achievable anyway — Skia and Cairo do
+not rasterize identically.
+
+**A golden-image CI harness is required from day one.** We own the format, so we own fidelity;
+there is no upstream runtime to be correct on our behalf. It should compare device output
+against reference Manim renders with a tolerance threshold, and be used to find the lowest
+keyframe density that still reads as identical, per scene class.
+
+## 8. Measured baselines
+
+720p30, Manim 0.21.0, from `tools/probe_scene_geometry.py` and `corpus/measurements/`.
+
+| Scene | Points/frame | Morphing | Naive dump | Static-cached | MP4 | Video bitrate |
+|---|---|---|---|---|---|---|
+| LatexDerivation | 2,356 | 45.7% | 5.43 MB | 2.55 MB | 153 KB | 147 kbps |
+| PlotGeometry | 1,917 | 24.8% | 9.20 MB | 2.29 MB | 345 KB | 195 kbps |
+| CodeWalkthrough | 6,382 | 35.9% | 21.4 MB | 7.73 MB | 251 KB | 187 kbps |
+| ThreeDCamera | 7,746 | **0.49%** | 25.4 MB | **153 KB** | 2.72 MB | **2227 kbps** |
+
+**Read these honestly.** The naive and static-cached columns are an **upper bound on a naive
+all-paths IR**, not a prediction of the real one — they model neither the glyph atlas (§3.5),
+16-bit quantization (§3.4), nor sub-30fps keyframing (§3.1). The `CodeWalkthrough` row in
+particular is almost entirely glyph outlines, which the atlas is designed to collapse.
+
+**What is a genuine result:** 2D Manim content encodes at only **147–195 kbps** because H.264
+is excellent at flat-shaded vector graphics on static backgrounds. The codec already exploits
+much of the structure our IR intends to. For 2D, **audio outweighs video**, so eliminating video
+cannot deliver an order of magnitude — the bandwidth case for 2D is modest. 3D is where it
+lands, at 17.8× before optimization.
+
+Curve counts run **~620 to ~2,600 per frame**, comfortably under Skia's 16,384-verb cliff.
+The 3D scene peaks at **657 mobjects** against 55–128 for 2D, so **draw-call batching matters
+more than raw path throughput there** — a different bottleneck.
+
+## 9. Gates before building
+
+**[Measure render throughput on a low-end device](https://github.com/bishboi/pocketanim/issues/6)
+is a go/no-go gate, not a sizing exercise.** There is no MP4 fallback, so a negative result has
+no mitigation inside this design. It needs a real low-end phone and should measure:
+
+- Static versus morphing path counts **separately** — cached geometry is far cheaper.
+- **Many small objects** as a distinct case from few large paths (the 3D scene's 657 mobjects).
+- **Frame-drop behaviour under sustained overload**, not just average frame time.
+- **Cold snapshot decode plus one frame**, which sets the seek latency budget and hence
+  snapshot density.
+- The **point count at which a floor device stops holding 30 fps** — this becomes the raster
+  fallback threshold (§3.7).
+
+Pull this forward. It needs no final IR, only a synthetic path-heavy workload, and a bad result
+invalidates much of the design above.
+
+## 10. Open items
+
+- **Two corpus scenes unwritten** — Cartopy and molecular
+  ([#5](https://github.com/bishboi/pocketanim/issues/5)). These are exactly where vector data
+  may exceed video, so the corpus is least informative where risk is highest.
+- **Payload budget unvalidated against a real IR**
+  ([#14](https://github.com/bishboi/pocketanim/issues/14)).
+- **Occluded solids** — depth-tested layer, deferred (§3.6).
+- **Glyph atlas at varying sizes.** Deduplication was verified at identical scale; Manim may
+  bake size into outlines, in which case the atlas must normalise by scale before deduplicating.
+  Affects hit rate, not design.
+- **Bundle packaging, versioning and library sync** — caching all IR means the device must learn
+  what exists: a manifest and incremental sync.
+- **Export pipeline in CI**, bundle integrity, and player UX beyond scrubbing.
+- **Two secondary figures** in the substrate research want re-verifying; several primary sources
+  were unreachable behind an egress proxy when it was written.

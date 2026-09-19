@@ -1,0 +1,13 @@
+{
+  "scene": "CodeWalkthrough",
+  "frames": 280,
+  "duration_s": 9.33,
+  "mobjects_per_frame_max": 128,
+  "points_per_frame_mean": 6381.7,
+  "points_per_frame_max": 10388,
+  "morphing_points_per_frame_mean": 2293.6,
+  "morphing_fraction": 0.3594,
+  "ir_naive_bytes": 21442656,
+  "ir_static_cached_bytes": 7731216,
+  "ir_cached_saving_x": 2.8
+}

@@ -131,13 +131,25 @@ Two geometry layer types ([#11](https://github.com/bishboi/pocketanim/issues/11)
 - **Vector paths** — the default.
 - **Raster with a transform** — the fallback for singular dense assets.
 
-**Selection is automatic by point count.** No author annotation. Corpus scenes run 2,000–10,000
-points per frame *in total*; a full-detail Cartopy coastline is 50,000–500,000 points for one
-asset. That crosses Skia's `kMaxGPUPathRendererVerbs` (16,384) into **software** rasterization,
-so this is a performance guardrail as much as a payload one.
+**Selection is automatic by point count.** No author annotation.
+
+Measured: a Natural Earth **50m world coastline is 235,948 points across 1,429 polylines** — one
+asset, appearing once. Against corpus scenes running 1,917–6,382 points per frame *in total*,
+that is 24–118× an entire scene, and **14.4× over** Skia's `kMaxGPUPathRendererVerbs` (16,384)
+into **software** rasterization. So this is a performance guardrail as much as a payload one.
+
+The glyph atlas cannot help here: it rescues text because glyphs *repeat*, and a coastline is
+singular. At 16-bit that asset is ~1.42 MB — comparable to a full 3-minute narration track, for
+one map.
+
+**Try source resolution first.** The same coastline at Natural Earth 110m is 5,128 points, a
+**46× reduction**, and for a map shown small it is visually indistinguishable. Choosing source
+resolution by on-screen size is likely more effective than either simplification or
+rasterization, and the exporter should attempt it *before* the raster fallback triggers.
 
 **Threshold:** derive from device measurement ([#6](https://github.com/bishboi/pocketanim/issues/6)).
-Until that exists, 16,384 verbs is a defensible provisional ceiling.
+Until that exists, 16,384 verbs is a defensible provisional ceiling — the corpus populations
+separate cleanly either side of it.
 
 **Raster resolution:** the exporter inspects the camera track and rasterizes at the tightest
 zoom that asset actually reaches. Scenes are fixed at export time, so the export already knows

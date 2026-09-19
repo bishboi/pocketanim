@@ -182,6 +182,26 @@ geometry.
 previous animation left behind, so `t → (animation index, alpha)` requires the state at that
 animation's start. This is precisely why snapshots sit at animation boundaries.
 
+### 4.1 Affine detection is required, not an optimisation
+
+**The exporter must recognise when a mobject's points changed by an affine transform — scale,
+translate, rotate — and encode the transform, not the geometry.**
+
+Measured consequence of not doing this: the Cartopy scene zooms with
+`coast.animate.scale(3.0)` over 3 seconds. All 235,948 points change value on all 90 frames.
+
+| Encoding | Cost of that one zoom |
+|---|---|
+| Naive morphing geometry | 90 × 235,948 × 6 B ≈ **127 MB** |
+| Affine transform | a few bytes per frame |
+
+An ordinary pan or zoom over dense content is catastrophic without this. Detection is
+straightforward — fit a transform between consecutive point sets and check residual against a
+tolerance — but it must exist before the exporter is considered working.
+
+Note that `tools/probe_scene_geometry.py` deliberately does **not** do this. It measures raw
+point deltas, so its output is a naive upper bound, not an IR estimate.
+
 **Build environment:** Manim 0.21.0 in a virtualenv. It will *not* install against a Debian
 system Python — `srt` fails to build against patched setuptools. LaTeX is required for anything
 using `MathTex`, which includes `Axes` coordinate labels, not just explicit formulas.
@@ -284,6 +304,23 @@ is excellent at flat-shaded vector graphics on static backgrounds. The codec alr
 much of the structure our IR intends to. For 2D, **audio outweighs video**, so eliminating video
 cannot deliver an order of magnitude — the bandwidth case for 2D is modest. 3D is where it
 lands, at 17.8× before optimization.
+
+### 8.1 The organising principle
+
+> **IR cost scales with *change*. Video cost scales with *time*.**
+
+This explains every row above better than "2D versus 3D", which the map used as a proxy for
+most of its life:
+
+- **3D camera orbit** — geometry static, camera moves. IR 17.8× smaller.
+- **Cartopy map** — geometry static and large, paid once. IR is 1,382 KB against a 1,034 KB
+  MP4, so it *loses* at the measured 6 s — but the IR does not grow with duration and the video
+  does. **Crossover is ~8 s**; at 30 s the IR wins 3.8×, at 3 min it wins 22×. The measured loss
+  is an artefact of a short test clip, not a property of maps.
+- **LaTeX derivation** — 45.7% morphing, the worst case, and the weakest IR result.
+
+Content that sits still is nearly free in the IR and expensive in video. Content that changes
+constantly is expensive in both. **Use this, not the 2D/3D split, when estimating a scene.**
 
 Curve counts run **~620 to ~2,600 per frame**, comfortably under Skia's 16,384-verb cliff.
 The 3D scene peaks at **657 mobjects** against 55–128 for 2D, so **draw-call batching matters

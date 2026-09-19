@@ -190,6 +190,8 @@ def parse(text: str) -> dict:
             )
         elif verb == "spin":
             scene["timeline"].append(("spin", float(args["rate"]), float(args["t"])))
+        elif verb == "show":
+            scene["timeline"].append(("show", positional[0]))
         elif verb in ("fade", "fadeout", "write"):
             scene["timeline"].append((verb, positional[0], float(args["t"])))
         elif verb == "xform":
@@ -215,6 +217,10 @@ def geometry_for(spec: dict) -> np.ndarray:
 
     at = spec.get("at") or [0.0, 0.0]
     return points + np.array([at[0], at[1], 0.0])
+
+
+def name_is_asset(objects: dict, name: str) -> bool:
+    return objects.get(name, {}).get("kind") == "asset"
 
 
 def compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
@@ -259,6 +265,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
         objects[name] = {
             "kind": "asset",
+            "visible": False,
             "centre": centre,
             "xform": identity.copy(),
             "instances": [
@@ -271,6 +278,8 @@ def build_2d(scene: dict) -> DecodedIR:
     def emit():
         frame: list[DecodedInstance] = []
         for obj in objects.values():
+            if not obj.get("visible", True):
+                continue
             if obj["kind"] == "asset":
                 for atlas_id, transform, fill, stroke, width in obj["instances"]:
                     frame.append(
@@ -297,14 +306,26 @@ def build_2d(scene: dict) -> DecodedIR:
                 )
         records.append((REC_SNAPSHOT, frame))
 
-    for step in scene["timeline"]:
+    timeline_steps = list(scene["timeline"])
+    for step in timeline_steps:
+        if step[0] == "show":
+            objects[step[1]]["visible"] = True
+            continue
+
+        if step[0] == "create" and name_is_asset(objects, step[1]):
+            # Manim's Create on a group lags its children, which is the same
+            # reveal Write performs on glyphs.
+            objects[step[1]]["visible"] = True
+            timeline_steps.append(("write", step[1], step[2]))
+            continue
+
         if step[0] == "create":
             _, name, duration, rate_name = step
             rate = RATE_FUNCS[rate_name]
             spec = scene["shapes"][name]
             full = geometry_for(spec)
             objects[name] = {
-                "kind": "shape", "points": full, "alpha": 1.0,
+                "kind": "shape", "visible": True, "points": full, "alpha": 1.0,
                 "stroke": spec["stroke"], "width": spec["width"],
             }
             for frame_index in range(int(duration * fps)):
@@ -344,6 +365,11 @@ def build_2d(scene: dict) -> DecodedIR:
                 obj["xform"] = compose(step_matrix, base)
                 emit()
 
+        elif step[0] == "write" and step[1] not in objects:
+            # write targets an asset; a shape reaching here means the exporter
+            # emitted a verb for something it never declared as an asset.
+            raise KeyError(f"write target {step[1]!r} was never declared")
+
         elif step[0] == "write":
             # Manim's Write lags each submobject; lag_ratio defaults to
             # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
@@ -374,6 +400,8 @@ def build_2d(scene: dict) -> DecodedIR:
 
         elif step[0] == "fadeout":
             _, name, duration = step
+            if name in objects:
+                objects[name]["visible"] = True
             obj = objects[name]
             base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
             for frame_index in range(int(duration * fps)):
@@ -396,19 +424,36 @@ def build_2d(scene: dict) -> DecodedIR:
 
         elif step[0] == "fade":
             _, name, duration = step
+            if name in objects:
+                objects[name]["visible"] = True
+            # A declared shape only enters the scene when something animates
+            # it in; fade is one of those entry points, not just create.
+            if name not in objects:
+                spec = scene["shapes"][name]
+                objects[name] = {
+                    "kind": "shape", "visible": True, "points": geometry_for(spec),
+                    "alpha": 0.0,
+                    "stroke": spec["stroke"], "width": spec["width"],
+                }
             obj = objects[name]
-            base = [tuple(inst) for inst in obj["instances"]]
+            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
             for frame_index in range(int(duration * fps)):
                 alpha = smooth((frame_index + 1) / (duration * fps))
-                obj["instances"] = [
-                    (aid, transform,
-                     (*fill[:3], int(fill[3] * alpha)),
-                     (*stroke[:3], int(stroke[3] * alpha)),
-                     width)
-                    for aid, transform, fill, stroke, width in base
-                ]
+                if base is None:
+                    obj["alpha"] = alpha
+                else:
+                    obj["instances"] = [
+                        (aid, transform,
+                         (*fill[:3], int(fill[3] * alpha)),
+                         (*stroke[:3], int(stroke[3] * alpha)),
+                         width)
+                        for aid, transform, fill, stroke, width in base
+                    ]
                 emit()
-            obj["instances"] = base
+            if base is None:
+                obj["alpha"] = 1.0
+            else:
+                obj["instances"] = base
 
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):
@@ -493,6 +538,11 @@ def camera_track(scene: dict) -> list[np.ndarray]:
             for _ in range(int(duration * fps)):
                 theta += rate / fps
                 emit()
+        elif step[0] == "write" and step[1] not in objects:
+            # write targets an asset; a shape reaching here means the exporter
+            # emitted a verb for something it never declared as an asset.
+            raise KeyError(f"write target {step[1]!r} was never declared")
+
         elif step[0] == "write":
             # Manim's Write lags each submobject; lag_ratio defaults to
             # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
@@ -523,6 +573,8 @@ def camera_track(scene: dict) -> list[np.ndarray]:
 
         elif step[0] == "fadeout":
             _, name, duration = step
+            if name in objects:
+                objects[name]["visible"] = True
             obj = objects[name]
             base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
             for frame_index in range(int(duration * fps)):
@@ -545,19 +597,36 @@ def camera_track(scene: dict) -> list[np.ndarray]:
 
         elif step[0] == "fade":
             _, name, duration = step
+            if name in objects:
+                objects[name]["visible"] = True
+            # A declared shape only enters the scene when something animates
+            # it in; fade is one of those entry points, not just create.
+            if name not in objects:
+                spec = scene["shapes"][name]
+                objects[name] = {
+                    "kind": "shape", "visible": True, "points": geometry_for(spec),
+                    "alpha": 0.0,
+                    "stroke": spec["stroke"], "width": spec["width"],
+                }
             obj = objects[name]
-            base = [tuple(inst) for inst in obj["instances"]]
+            base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
             for frame_index in range(int(duration * fps)):
                 alpha = smooth((frame_index + 1) / (duration * fps))
-                obj["instances"] = [
-                    (aid, transform,
-                     (*fill[:3], int(fill[3] * alpha)),
-                     (*stroke[:3], int(stroke[3] * alpha)),
-                     width)
-                    for aid, transform, fill, stroke, width in base
-                ]
+                if base is None:
+                    obj["alpha"] = alpha
+                else:
+                    obj["instances"] = [
+                        (aid, transform,
+                         (*fill[:3], int(fill[3] * alpha)),
+                         (*stroke[:3], int(stroke[3] * alpha)),
+                         width)
+                        for aid, transform, fill, stroke, width in base
+                    ]
                 emit()
-            obj["instances"] = base
+            if base is None:
+                obj["alpha"] = 1.0
+            else:
+                obj["instances"] = base
 
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):

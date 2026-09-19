@@ -66,8 +66,13 @@ class Recorder:
         self.counter = 0
 
     def name_for(self, mob) -> str:
+        """Unique short name. Wrapping at 26 silently aliased two objects onto
+        one name in a 26-declaration scene, so names extend past Z."""
         if id(mob) not in self.names:
-            self.names[id(mob)] = chr(ord("A") + self.counter % 26)
+            index = self.counter
+            letter = chr(ord("A") + index % 26)
+            suffix = index // 26
+            self.names[id(mob)] = letter if suffix == 0 else f"{letter}{suffix}"
             self.counter += 1
         return self.names[id(mob)]
 
@@ -155,13 +160,11 @@ class Recorder:
             return name
 
         if type(mob).__name__ in ("VGroup", "Group") and mob.submobjects:
-            # A group of recognisable primitives stays program; a group of
-            # arbitrary imported geometry becomes a tier-2 asset. Baking the
-            # whole group in one go keeps its internal structure intact.
-            if all(self.is_primitive(child) for child in mob.submobjects):
-                for child in mob.submobjects:
-                    self.declare(child)
-                return name
+            # Always bake a group, even one of recognisable primitives. The
+            # earlier special case declared the *children* and returned the
+            # *group's* name, which no declaration ever defined -- so verbs
+            # referenced a name the runtime had never seen. The DSL has no
+            # group concept, so one name must mean one declared thing.
             from dsl.library import export_standalone_asset
 
             digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
@@ -184,6 +187,18 @@ class Recorder:
             self.assets[digest] = export_text_instances(mob, asset, library)
             library.save()
             self.declarations.append(f"text {name} asset={digest}")
+            return name
+
+        # Geometry we cannot express as program is still shippable as a
+        # tier-2 asset, which beats dropping the whole scene to sampled IR.
+        # Only an inexpressible *animation* should force tier 3.
+        if drawable or mob.submobjects:
+            from dsl.library import export_standalone_asset
+
+            digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
+            asset = Path("dsl/generated/assets") / f"{digest}.panm"
+            self.assets[digest] = export_standalone_asset(mob, asset)
+            self.declarations.append(f"geom {name} asset={digest}")
             return name
 
         self.blockers.append(f"unsupported mobject: {type(mob).__name__}")
@@ -364,7 +379,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # Objects put on stage directly rather than animated in. Missing these
         # produced a program that claimed tier 1 while drawing nothing.
         for mob in mobjects:
-            rec.declare(mob)
+            name = rec.declare(mob)
+            if name:
+                # Declaring a thing is not the same as it being on stage.
+                # Without this, every asset drew from frame 0.
+                rec.timeline.append(f"show {name}")
         return originals["add"](self, *mobjects, **kw)
 
     def patched_orientation(self, phi=None, theta=None, **kw):

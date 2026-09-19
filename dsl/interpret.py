@@ -110,7 +110,15 @@ def tessellate(expr: str, u_range, v_range, res) -> list[np.ndarray]:
 
 def parse(text: str) -> dict:
     """Parse the line-based DSL into a scene description."""
-    scene = {"fps": 30, "surfaces": [], "timeline": [], "phi": 0.0, "theta": 0.0}
+    scene = {
+        "fps": 30,
+        "mode": "3d",
+        "surfaces": [],
+        "shapes": {},
+        "timeline": [],
+        "phi": 0.0,
+        "theta": 0.0,
+    }
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -127,6 +135,22 @@ def parse(text: str) -> dict:
 
         if verb == "scene":
             scene["fps"] = int(args.get("fps", 30))
+            if positional:
+                scene["mode"] = positional[0]
+        elif verb in ("circle", "square"):
+            name = positional[0]
+            scene["shapes"][name] = {
+                "kind": verb,
+                "size": float(args.get("r") or args.get("s")),
+                "stroke": hex_rgb(args["stroke"]),
+                "width": float(args.get("w", 4)),
+            }
+        elif verb == "create":
+            scene["timeline"].append(("create", positional[0], float(args["t"])))
+        elif verb == "transform":
+            scene["timeline"].append(
+                ("transform", positional[0], positional[1], float(args["t"]))
+            )
         elif verb == "surface":
             scene["surfaces"].append(
                 {
@@ -155,7 +179,83 @@ def parse(text: str) -> dict:
     return scene
 
 
+def geometry_for(spec: dict) -> np.ndarray:
+    from dsl.verbs import circle, square
+
+    return circle(spec["size"]) if spec["kind"] == "circle" else square(spec["size"])
+
+
+def build_2d(scene: dict) -> DecodedIR:
+    """Expand a 2D shape scene into per-frame geometry.
+
+    Note what is *not* happening here: nothing is stored per frame in the
+    shipped artefact. The program is 120 bytes; this expansion is what a device
+    runtime does live. The DecodedIR is only a vehicle for the reference
+    renderer so the existing comparison harness can be reused.
+    """
+    from dsl.verbs import align, pointwise_become_partial
+
+    fps = scene["fps"]
+    shapes: list[np.ndarray] = []
+    records: list[tuple[int, list[DecodedInstance]]] = []
+    live: dict[str, dict] = {}
+
+    def emit(points: np.ndarray, stroke, width):
+        shapes.append(points)
+        records.append(
+            (
+                REC_SNAPSHOT,
+                [
+                    DecodedInstance(
+                        slot=0,
+                        atlas_id=len(shapes) - 1,
+                        transform=np.hstack([np.identity(3), np.zeros((3, 1))]),
+                        fill=(0, 0, 0, 0),
+                        stroke=(*stroke, 255),
+                        stroke_width=width,
+                    )
+                ],
+            )
+        )
+
+    for step in scene["timeline"]:
+        if step[0] == "create":
+            _, name, duration = step
+            spec = scene["shapes"][name]
+            full = geometry_for(spec)
+            live[name] = {"points": full, "stroke": spec["stroke"], "width": spec["width"]}
+            for frame in range(int(duration * fps)):
+                alpha = smooth((frame + 1) / (duration * fps))
+                emit(pointwise_become_partial(full, 0.0, alpha), spec["stroke"], spec["width"])
+
+        elif step[0] == "transform":
+            _, source, target, duration = step
+            target_spec = scene["shapes"][target]
+            start, end = align(live[source]["points"], geometry_for(target_spec))
+            c0 = np.array(live[source]["stroke"], dtype=float)
+            c1 = np.array(target_spec["stroke"], dtype=float)
+            for frame in range(int(duration * fps)):
+                alpha = smooth((frame + 1) / (duration * fps))
+                colour = tuple(int(round(x)) for x in c0 + (c1 - c0) * alpha)
+                emit(start + (end - start) * alpha, colour, live[source]["width"])
+            live[source] = {
+                "points": end,
+                "stroke": target_spec["stroke"],
+                "width": live[source]["width"],
+            }
+
+        elif step[0] == "wait":
+            current = next(iter(live.values()))
+            for _ in range(int(step[1] * fps)):
+                emit(current["points"], current["stroke"], current["width"])
+
+    return DecodedIR(fps=fps, shapes=shapes, records=records, cameras=None)
+
+
 def build(scene: dict) -> DecodedIR:
+    if scene["mode"] == "2d":
+        return build_2d(scene)
+
     shapes: list[np.ndarray] = []
     template: list[DecodedInstance] = []
 

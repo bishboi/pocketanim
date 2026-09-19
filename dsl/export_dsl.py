@@ -269,10 +269,22 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, tempconfig
     from manim.animation.creation import Create
     from manim.animation.creation import Write
+    from manim.animation.transform_matching_parts import TransformMatchingAbstractBase
     from manim.animation.fading import FadeIn, FadeOut
     from manim.animation.transform import Transform
     from manim.animation.animation import Wait
     from manim.scene.three_d_scene import ThreeDScene
+
+    # TransformMatchingTex consumes its target_mobject in __init__ and never
+    # stores it, so capture the operands at construction.
+    matching_init = TransformMatchingAbstractBase.__init__
+
+    def patched_matching_init(self, mobject, target_mobject, *a, **kw):
+        self._panim_source = mobject
+        self._panim_target = target_mobject
+        return matching_init(self, mobject, target_mobject, *a, **kw)
+
+    TransformMatchingAbstractBase.__init__ = patched_matching_init
 
     rec = Recorder()
     originals = {
@@ -312,7 +324,19 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.blockers.append(f"non-default rate_func: {rate_name}")
             suffix = "" if rate_name == "smooth" else f" rate={rate_name}"
 
-            if isinstance(anim, Write):
+            if isinstance(anim, TransformMatchingAbstractBase):
+                # This IS glyph-level matching -- it subclasses AnimationGroup
+                # rather than Transform, so it needs its own branch, but it maps
+                # onto exactly the morph verb.
+                source = rec.declare(anim._panim_source)
+                target = rec.declare(anim._panim_target)
+                if source and target:
+                    rec.timeline.append(f"morph {source} {target} t={duration:g}")
+                else:
+                    rec.blockers.append(
+                        "TransformMatchingTex operands could not be declared"
+                    )
+            elif isinstance(anim, Write):
                 # Write reveals each glyph in turn. On a text asset that is a
                 # lagged per-glyph reveal, not a single partial path.
                 name = rec.declare(anim.mobject)
@@ -354,8 +378,13 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                         f"transform {source} {target} t={duration:g}{suffix}"
                     )
                 elif source and target:
-                    rec.blockers.append(
-                        "Transform between baked assets (needs glyph-level matching)"
+                    # Glyph-level matching: both operands are baked assets, so
+                    # match their instances by atlas id -- the shared library
+                    # already gives identical glyphs identical ids, which is
+                    # exactly the correspondence TransformMatchingTex computes
+                    # from TeX structure.
+                    rec.timeline.append(
+                        f"morph {source} {target} t={duration:g}{suffix}"
                     )
                 else:
                     # Never drop an animation silently: a missing verb shifts
@@ -461,6 +490,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         ):
             getattr(module, scene_class)().render()
     finally:
+        TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]
         Scene.add = originals["add"]
         ThreeDScene.move_camera = originals["move_camera"]

@@ -190,6 +190,10 @@ def parse(text: str) -> dict:
             )
         elif verb == "spin":
             scene["timeline"].append(("spin", float(args["rate"]), float(args["t"])))
+        elif verb == "morph":
+            scene["timeline"].append(
+                ("morph", positional[0], positional[1], float(args["t"]))
+            )
         elif verb == "show":
             scene["timeline"].append(("show", positional[0]))
         elif verb in ("fade", "fadeout", "write"):
@@ -273,6 +277,9 @@ def build_2d(scene: dict) -> DecodedIR:
                  inst.stroke_width)
                 for inst in instances
             ],
+            # Library-relative ids, kept so two assets can be matched glyph for
+            # glyph even though each is offset into the combined shape list.
+            "glyph_ids": [inst.atlas_id for inst in instances],
         }
 
     def emit():
@@ -421,6 +428,61 @@ def build_2d(scene: dict) -> DecodedIR:
                 objects.pop(name, None)
             else:
                 obj["instances"] = []
+
+        elif step[0] == "morph":
+            _, source, target, duration = step
+            src, dst = objects[source], objects[target]
+            src["visible"] = True
+            dst["visible"] = False
+
+            # Pair instances sharing a glyph id, in order; anything left over
+            # on either side fades rather than morphing into an unrelated shape.
+            pending: dict[int, list[int]] = {}
+            for index, glyph in enumerate(dst["glyph_ids"]):
+                pending.setdefault(glyph, []).append(index)
+
+            pairs, orphans = [], []
+            for index, glyph in enumerate(src["glyph_ids"]):
+                queue = pending.get(glyph)
+                if queue:
+                    pairs.append((index, queue.pop(0)))
+                else:
+                    orphans.append(index)
+            arrivals = [i for queue in pending.values() for i in queue]
+
+            src_base = [tuple(i) for i in src["instances"]]
+            dst_base = [tuple(i) for i in dst["instances"]]
+
+            for frame_index in range(int(duration * fps)):
+                alpha = smooth((frame_index + 1) / (duration * fps))
+                built = []
+                for si, di in pairs:
+                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
+                    _, b_t, b_fill, b_stroke, b_w = dst_base[di]
+                    built.append((
+                        a_id,
+                        a_t + (b_t - a_t) * alpha,
+                        tuple(int(round(x + (y - x) * alpha))
+                              for x, y in zip(a_fill, b_fill)),
+                        tuple(int(round(x + (y - x) * alpha))
+                              for x, y in zip(a_stroke, b_stroke)),
+                        a_w + (b_w - a_w) * alpha,
+                    ))
+                for si in orphans:
+                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
+                    fade_out = 1.0 - alpha
+                    built.append((a_id, a_t,
+                                  (*a_fill[:3], int(a_fill[3] * fade_out)),
+                                  (*a_stroke[:3], int(a_stroke[3] * fade_out)), a_w))
+                for di in arrivals:
+                    b_id, b_t, b_fill, b_stroke, b_w = dst_base[di]
+                    built.append((b_id, b_t,
+                                  (*b_fill[:3], int(b_fill[3] * alpha)),
+                                  (*b_stroke[:3], int(b_stroke[3] * alpha)), b_w))
+                src["instances"] = built
+                emit()
+            src["instances"] = dst_base
+            src["glyph_ids"] = list(dst["glyph_ids"])
 
         elif step[0] == "fade":
             _, name, duration = step
@@ -594,6 +656,61 @@ def camera_track(scene: dict) -> list[np.ndarray]:
                 objects.pop(name, None)
             else:
                 obj["instances"] = []
+
+        elif step[0] == "morph":
+            _, source, target, duration = step
+            src, dst = objects[source], objects[target]
+            src["visible"] = True
+            dst["visible"] = False
+
+            # Pair instances sharing a glyph id, in order; anything left over
+            # on either side fades rather than morphing into an unrelated shape.
+            pending: dict[int, list[int]] = {}
+            for index, glyph in enumerate(dst["glyph_ids"]):
+                pending.setdefault(glyph, []).append(index)
+
+            pairs, orphans = [], []
+            for index, glyph in enumerate(src["glyph_ids"]):
+                queue = pending.get(glyph)
+                if queue:
+                    pairs.append((index, queue.pop(0)))
+                else:
+                    orphans.append(index)
+            arrivals = [i for queue in pending.values() for i in queue]
+
+            src_base = [tuple(i) for i in src["instances"]]
+            dst_base = [tuple(i) for i in dst["instances"]]
+
+            for frame_index in range(int(duration * fps)):
+                alpha = smooth((frame_index + 1) / (duration * fps))
+                built = []
+                for si, di in pairs:
+                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
+                    _, b_t, b_fill, b_stroke, b_w = dst_base[di]
+                    built.append((
+                        a_id,
+                        a_t + (b_t - a_t) * alpha,
+                        tuple(int(round(x + (y - x) * alpha))
+                              for x, y in zip(a_fill, b_fill)),
+                        tuple(int(round(x + (y - x) * alpha))
+                              for x, y in zip(a_stroke, b_stroke)),
+                        a_w + (b_w - a_w) * alpha,
+                    ))
+                for si in orphans:
+                    a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
+                    fade_out = 1.0 - alpha
+                    built.append((a_id, a_t,
+                                  (*a_fill[:3], int(a_fill[3] * fade_out)),
+                                  (*a_stroke[:3], int(a_stroke[3] * fade_out)), a_w))
+                for di in arrivals:
+                    b_id, b_t, b_fill, b_stroke, b_w = dst_base[di]
+                    built.append((b_id, b_t,
+                                  (*b_fill[:3], int(b_fill[3] * alpha)),
+                                  (*b_stroke[:3], int(b_stroke[3] * alpha)), b_w))
+                src["instances"] = built
+                emit()
+            src["instances"] = dst_base
+            src["glyph_ids"] = list(dst["glyph_ids"])
 
         elif step[0] == "fade":
             _, name, duration = step

@@ -328,6 +328,27 @@ most of its life:
 Content that sits still is nearly free in the IR and expensive in video. Content that changes
 constantly is expensive in both. **Use this, not the 2D/3D split, when estimating a scene.**
 
+### 8.2 Refinement: video cost tracks moving *pixel area*, not dimensionality
+
+Both 3D scenes orbit a camera over static geometry, yet their video costs differ 9.5×:
+
+| Scene | Content | Bitrate |
+|---|---|---|
+| ThreeDCamera | 24×24 checkerboard `Surface` filling the frame | **2227 kbps** |
+| MolecularStructure | 15 small spheres on an empty background | **235 kbps** |
+
+So "3D is expensive in video" is the wrong generalisation. **Densely-filled moving content is
+expensive in video; sparse moving content is not.** `ThreeDCamera` is expensive because a
+textured surface covers most of the frame and every pixel changes under rotation.
+
+The practical consequence for estimating a scene: multiply the two axes.
+
+- **Static geometry + large moving pixel area** → the IR's best case by far. This is where the
+  17.8× came from, and it is what to look for when judging whether a scene is worth converting.
+- **Static geometry + small moving pixel area** (the molecule) → both formats are cheap; the IR
+  still wins on duration-independence, but the absolute saving is small.
+- **Morphing geometry** → expensive in the IR regardless of what video does.
+
 Curve counts run **~620 to ~2,600 per frame**, comfortably under Skia's 16,384-verb cliff.
 The 3D scene peaks at **657 mobjects** against 55–128 for 2D, so **draw-call batching matters
 more than raw path throughput there** — a different bottleneck.

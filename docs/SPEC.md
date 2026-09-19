@@ -563,7 +563,48 @@ function**, not an alignment bug. Manim defaults both verbs to `smooth`.
 **The failure mode is forgetting a documented behaviour, not being unable to
 reproduce one**, and the harness catches exactly that.
 
-### Coverage: 5 of 10
+### Coverage and fidelity: 5 of 10, verified
+
+Coverage and fidelity are **separate axes**. Tier 1 means *expressible*; the
+harness separately says *correct*. A scene can reach tier 1 and still render
+badly, so never report one without the other.
+
+| Scene | Tier | Program | Pixels differing |
+|---|---|---|---|
+| TextReuse | **1** | 110 B | **0.00%** |
+| VerbTest | **1** | 127 B | **0.01%** |
+| TextHybrid | **1** | 162 B | **0.04%** |
+| CartopyMap | **1** | 140 B | 3.39% |
+| SurfaceOrbit | **1** | 196 B | 4.96% |
+| LatexDerivation | 3 | — | `TransformMatchingTex` |
+| CodeWalkthrough | 3 | — | asset-to-asset `Transform` |
+| PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
+| MolecularStructure | 3 | — | `LaggedStart` |
+| ThreeDCamera | 3 | — | surface built via `axes.c2p` |
+
+**One blocker per scene now**, and they sort into three kinds:
+
+- **Glyph-level matching** (LatexDerivation, CodeWalkthrough) — `TransformMatchingTex`
+  and asset-to-asset `Transform` are *one capability*. The highest-value thing
+  left, and it operates on the glyph atlas §7 already describes.
+- **Mechanical** (`LaggedStart`, a declarative surface form) — more vocabulary.
+- **Fundamental** (`ValueTracker` + `always_redraw`) — arbitrary Python
+  recomputing geometry per frame. **This cannot be program, ever.** It is the
+  hard limit of tier 1 and the reason tier 3 must exist.
+
+### The structural guard
+
+Three separate bugs silently dropped an animation by falling through a branch
+with no `else` — `FadeIn`, `Transform` operands, and `.animate` on a
+`ValueTracker`. Each shipped a program that *claimed tier 1* while rendering the
+wrong thing; the `.animate` one lost seven seconds of PlotGeometry.
+
+The exporter now asserts that **every `play()` produces at least one verb**. A
+play that emits nothing is always a drop, whatever the cause. Keep this guard as
+the vocabulary grows: each new verb is another chance to claim success while
+emitting something that does not run.
+
+### Superseded: coverage was 5 of 10 (pre-fidelity)
 
 After adding text assets, groups, `.animate`, `FadeIn`/`FadeOut`, `Write`,
 rectangles and rate functions:

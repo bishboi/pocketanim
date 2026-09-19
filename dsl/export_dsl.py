@@ -143,11 +143,12 @@ class Recorder:
         if isinstance(mob, Surface):
             expr = surface_expression(mob)
             if expr is None:
-                self.blockers.append(
-                    f"Surface function is not a recognisable expression "
-                    f"(needs a declarative form or source that parses)"
-                )
-                return None
+                # Not every Surface is a parseable expression -- Sphere is a
+                # Surface, and axes.c2p closures are not expressions at all.
+                # Geometry always has a tier-2 fallback, so bake rather than
+                # block; only an inexpressible animation forces tier 3.
+                expr = None
+        if isinstance(mob, Surface) and expr is not None:
             u0, u1 = mob.u_range
             v0, v1 = mob.v_range
             res = getattr(mob, "resolution", (24, 24))

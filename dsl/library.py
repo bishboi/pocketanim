@@ -85,7 +85,8 @@ def export_standalone_asset(mob, path: Path) -> int:
     atlas rather than polluting the shared glyph library with 200k points that
     will never be reused.
     """
-    from exporter.export_scene import read_style
+    from exporter.export_scene import read_style, unit_normal
+    from exporter.ir import SHADE_IN_3D
 
     atlas = Atlas()
     instances: dict[int, Instance] = {}
@@ -93,9 +94,17 @@ def export_standalone_asset(mob, path: Path) -> int:
         points = getattr(sub, "points", None)
         if points is None or len(points) < 4:
             continue
-        atlas_id, transform = atlas.resolve(np.asarray(points, dtype=np.float64))
+        array = np.asarray(points, dtype=np.float64)
+        atlas_id, transform = atlas.resolve(array)
         fill, stroke, width = read_style(sub)
-        instances[index] = Instance(atlas_id, transform, fill, stroke, width)
+        # 3D geometry must carry its normal and shade flag, or the renderer
+        # skips depth sorting and a rotating surface draws in list order.
+        shaded = bool(getattr(sub, "shade_in_3d", False))
+        instances[index] = Instance(
+            atlas_id, transform, fill, stroke, width,
+            SHADE_IN_3D if shaded else 0,
+            unit_normal(sub, array) if shaded else None,
+        )
 
     blob = serialise(atlas, [(REC_SNAPSHOT, instances)], fps=30)
     path.parent.mkdir(parents=True, exist_ok=True)

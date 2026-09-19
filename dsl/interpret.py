@@ -248,9 +248,43 @@ def build_2d(scene: dict) -> DecodedIR:
     fps = scene["fps"]
     shapes: list[np.ndarray] = []
     records: list[tuple[int, list[DecodedInstance]]] = []
+    cameras: list[np.ndarray] = []
     objects: dict[str, dict] = {}
 
     identity = np.hstack([np.identity(3), np.zeros((3, 1))])
+    is_3d = scene["mode"] == "3d"
+    camera_state = {"phi": scene["phi"], "theta": scene["theta"]}
+
+    def camera_record() -> np.ndarray:
+        return np.concatenate([
+            FRAME_CENTRE,
+            [FOCAL_DISTANCE, ZOOM],
+            camera_matrix(camera_state["phi"], camera_state["theta"]).reshape(9),
+            LIGHT_SOURCE,
+        ])
+
+    # Surfaces declared as program become objects like anything else.
+    for surface in scene["surfaces"]:
+        faces = tessellate(surface["fn"], surface["u"], surface["v"], surface["res"])
+        _, v_res = surface["res"]
+        alpha = int(surface["alpha"] * 255)
+        instances = []
+        for index, face in enumerate(faces):
+            i, j = divmod(index, v_res)
+            colour = surface["colors"][(i + j) % len(surface["colors"])]
+            centre = face.mean(axis=0)
+            shapes.append(face - centre)
+            instances.append((
+                len(shapes) - 1,
+                np.hstack([np.identity(3), centre.reshape(3, 1)]),
+                (*colour, alpha), (*colour, alpha), surface["stroke"],
+            ))
+        objects[surface["name"]] = {
+            "kind": "asset", "visible": True, "centre": np.zeros(3),
+            "xform": identity.copy(), "instances": instances,
+            "glyph_ids": list(range(len(instances))),
+            "normals": [plane_normal(face) for face in faces],
+        }
 
     for name, (kind, asset_id) in scene["assets"].items():
         path = Path("dsl/generated/assets") / f"{asset_id}.panm"
@@ -277,6 +311,8 @@ def build_2d(scene: dict) -> DecodedIR:
                  inst.stroke_width)
                 for inst in instances
             ],
+            "flags": [inst.flags for inst in instances],
+            "normals": [inst.normal for inst in instances],
             # Library-relative ids, kept so two assets can be matched glyph for
             # glyph even though each is offset into the combined shape list.
             "glyph_ids": [inst.atlas_id for inst in instances],
@@ -288,7 +324,16 @@ def build_2d(scene: dict) -> DecodedIR:
             if not obj.get("visible", True):
                 continue
             if obj["kind"] == "asset":
-                for atlas_id, transform, fill, stroke, width in obj["instances"]:
+                normals = obj.get("normals")
+                flags = obj.get("flags")
+                for index, (atlas_id, transform, fill, stroke, width) in enumerate(
+                    obj["instances"]
+                ):
+                    normal = normals[index] if normals and index < len(normals) else None
+                    if flags is not None and index < len(flags):
+                        flag = flags[index]
+                    else:
+                        flag = SHADE_IN_3D if normal is not None else 0
                     frame.append(
                         DecodedInstance(
                             slot=len(frame),
@@ -297,6 +342,8 @@ def build_2d(scene: dict) -> DecodedIR:
                             fill=fill,
                             stroke=stroke,
                             stroke_width=width,
+                            flags=flag,
+                            normal=normal,
                         )
                     )
             else:
@@ -312,18 +359,25 @@ def build_2d(scene: dict) -> DecodedIR:
                     )
                 )
         records.append((REC_SNAPSHOT, frame))
+        if is_3d:
+            cameras.append(camera_record())
 
-    timeline_steps = list(scene["timeline"])
-    for step in timeline_steps:
-        if step[0] == "show":
-            objects[step[1]]["visible"] = True
-            continue
-
+    # Rewrite create-on-asset to revealseq in a PRE-PASS. Appending the
+    # rewritten step to the list being iterated pushed every asset reveal to
+    # the end of the timeline, so camera moves ran before the things they were
+    # meant to be looking at.
+    timeline_steps = []
+    for step in scene["timeline"]:
         if step[0] == "create" and name_is_asset(objects, step[1]):
             # Manim's Create on a group lags its children, which is the same
             # reveal Write performs on glyphs.
-            objects[step[1]]["visible"] = True
             timeline_steps.append(("revealseq", step[1], step[2]))
+        else:
+            timeline_steps.append(step)
+
+    for step in timeline_steps:
+        if step[0] == "show":
+            objects[step[1]]["visible"] = True
             continue
 
         if step[0] == "create":
@@ -382,6 +436,10 @@ def build_2d(scene: dict) -> DecodedIR:
             # Create on a group uses 1.0, i.e. strictly one child at a time.
             _, name, duration = step
             obj = objects[name]
+            # Revealing a thing puts it on stage. Without this the object
+            # stayed hidden for the whole reveal and only appeared at its
+            # trailing show verb.
+            obj["visible"] = True
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
             lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
@@ -517,15 +575,33 @@ def build_2d(scene: dict) -> DecodedIR:
             else:
                 obj["instances"] = base
 
+        elif step[0] == "move":
+            _, target_phi, target_theta, duration = step
+            start_phi, start_theta = camera_state["phi"], camera_state["theta"]
+            total = int(duration * fps)
+            for frame_index in range(total):
+                alpha = smooth((frame_index + 1) / total)
+                camera_state["phi"] = start_phi + (target_phi - start_phi) * alpha
+                camera_state["theta"] = start_theta + (target_theta - start_theta) * alpha
+                emit()
+
+        elif step[0] == "spin":
+            _, rate, duration = step
+            for _ in range(int(duration * fps)):
+                camera_state["theta"] += rate / fps
+                emit()
+
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):
                 emit()
 
-    return DecodedIR(fps=fps, shapes=shapes, records=records, cameras=None)
+    return DecodedIR(
+        fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None
+    )
 
 
 def build(scene: dict) -> DecodedIR:
-    if scene["mode"] == "2d":
+    if scene["timeline"] or scene["assets"] or scene["shapes"]:
         return build_2d(scene)
 
     shapes: list[np.ndarray] = []
@@ -610,6 +686,10 @@ def camera_track(scene: dict) -> list[np.ndarray]:
             # Create on a group uses 1.0, i.e. strictly one child at a time.
             _, name, duration = step
             obj = objects[name]
+            # Revealing a thing puts it on stage. Without this the object
+            # stayed hidden for the whole reveal and only appeared at its
+            # trailing show verb.
+            obj["visible"] = True
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
             lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
@@ -744,6 +824,22 @@ def camera_track(scene: dict) -> list[np.ndarray]:
                 obj["alpha"] = 1.0
             else:
                 obj["instances"] = base
+
+        elif step[0] == "move":
+            _, target_phi, target_theta, duration = step
+            start_phi, start_theta = camera_state["phi"], camera_state["theta"]
+            total = int(duration * fps)
+            for frame_index in range(total):
+                alpha = smooth((frame_index + 1) / total)
+                camera_state["phi"] = start_phi + (target_phi - start_phi) * alpha
+                camera_state["theta"] = start_theta + (target_theta - start_theta) * alpha
+                emit()
+
+        elif step[0] == "spin":
+            _, rate, duration = step
+            for _ in range(int(duration * fps)):
+                camera_state["theta"] += rate / fps
+                emit()
 
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):

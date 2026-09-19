@@ -115,6 +115,7 @@ def parse(text: str) -> dict:
         "mode": "3d",
         "surfaces": [],
         "shapes": {},
+        "assets": {},
         "timeline": [],
         "phi": 0.0,
         "theta": 0.0,
@@ -145,6 +146,8 @@ def parse(text: str) -> dict:
                 "stroke": hex_rgb(args["stroke"]),
                 "width": float(args.get("w", 4)),
             }
+        elif verb == "text":
+            scene["assets"][positional[0]] = args["asset"]
         elif verb == "create":
             scene["timeline"].append(("create", positional[0], float(args["t"])))
         elif verb == "transform":
@@ -195,17 +198,43 @@ def build_2d(scene: dict) -> DecodedIR:
     """
     from dsl.verbs import align, pointwise_become_partial
 
+    from exporter.decode import load as load_ir
+
     fps = scene["fps"]
     shapes: list[np.ndarray] = []
     records: list[tuple[int, list[DecodedInstance]]] = []
     live: dict[str, dict] = {}
+
+    # Tier-2 assets: glyph geometry the program references rather than
+    # describes. Loaded once and drawn on every frame, which is also why a
+    # library-wide asset cache amortises text toward zero.
+    static: list[DecodedInstance] = []
+    for asset in scene["assets"].values():
+        from dsl.library import load_text_asset
+
+        path = Path("dsl/generated/assets") / f"{asset}.panm"
+        glyphs, asset_instances = load_text_asset(path)
+        offset = len(shapes)
+        shapes.extend(glyphs)
+        for inst in asset_instances:
+            static.append(
+                DecodedInstance(
+                    slot=1000 + len(static),
+                    atlas_id=inst.atlas_id + offset,
+                    transform=inst.transform,
+                    fill=inst.fill,
+                    stroke=inst.stroke,
+                    stroke_width=inst.stroke_width,
+                )
+            )
 
     def emit(points: np.ndarray, stroke, width):
         shapes.append(points)
         records.append(
             (
                 REC_SNAPSHOT,
-                [
+                static
+                + [
                     DecodedInstance(
                         slot=0,
                         atlas_id=len(shapes) - 1,

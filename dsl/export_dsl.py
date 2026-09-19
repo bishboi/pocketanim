@@ -27,8 +27,38 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
+def export_text_asset(mob, path: Path) -> int:
+    """Bake a text mobject's glyphs into a standalone asset file.
+
+    Text can never be *program*: Manim hands us outlines with no glyph
+    identity, and LaTeX cannot run on device. So it ships as tier 2 -- a
+    deduplicated atlas the program points at. Assets are content-addressed so
+    the same words across a library resolve to one cached file.
+    """
+    import numpy as np
+
+    from exporter.export_scene import read_style
+    from exporter.ir import REC_SNAPSHOT, Atlas, Instance, serialise
+
+    atlas = Atlas()
+    instances: dict[int, Instance] = {}
+    for index, sub in enumerate(mob.get_family()):
+        points = getattr(sub, "points", None)
+        if points is None or len(points) < 4:
+            continue
+        atlas_id, transform = atlas.resolve(np.asarray(points, dtype=np.float64))
+        fill, stroke, width = read_style(sub)
+        instances[index] = Instance(atlas_id, transform, fill, stroke, width)
+
+    blob = serialise(atlas, [(REC_SNAPSHOT, instances)], fps=30)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+    return len(blob)
+
+
 class Recorder:
     def __init__(self):
+        self.assets: dict[str, int] = {}
         self.declarations: list[str] = []
         self.timeline: list[str] = []
         self.blockers: list[str] = []
@@ -49,7 +79,11 @@ class Recorder:
 
     def declare(self, mob) -> str | None:
         """Emit a declaration for a mobject, or record why we cannot."""
+        import hashlib
+
         from manim import Circle, Square, Surface
+        from manim.mobject.text.tex_mobject import SingleStringMathTex
+        from manim.mobject.text.text_mobject import Text
 
         # Non-drawable scaffolding: ValueTracker stores its value *as* a
         # point, so emptiness is the wrong test. Fewer than four points cannot
@@ -95,6 +129,21 @@ class Recorder:
                 f"res={res[0]},{res[1]} fill={colours} "
                 f"alpha={float(mob.fill_opacity):g} stroke={float(mob.get_stroke_width()):g}"
             )
+            return name
+
+        if isinstance(mob, (Text, SingleStringMathTex)) or type(mob).__name__ in (
+            "MathTex", "Tex", "Code", "MarkupText"
+        ):
+            digest = hashlib.sha1(
+                f"{type(mob).__name__}:{getattr(mob, 'text', '')}:{mob.get_center()}".encode()
+            ).hexdigest()[:10]
+            asset = Path("dsl/generated/assets") / f"{digest}.panm"
+            from dsl.library import GlyphLibrary, export_text_instances
+
+            library = GlyphLibrary()
+            self.assets[digest] = export_text_instances(mob, asset, library)
+            library.save()
+            self.declarations.append(f"text {name} asset={digest}")
             return name
 
         self.blockers.append(f"unsupported mobject: {type(mob).__name__}")

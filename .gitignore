@@ -5,3 +5,6 @@ __pycache__/
 # Manim render output
 media/
 corpus/renders/
+
+# DSL build output (regenerable from the corpus scenes)
+dsl/generated/

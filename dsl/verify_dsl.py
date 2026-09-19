@@ -33,13 +33,18 @@ def main():
 
     reference: dict[int, np.ndarray] = {}
     original = CairoRenderer.update_frame
-    counter = {"n": -1}
 
     def patched(self, scene, *a, **kw):
+        # Index by playback time, not by call count. `update_frame` fires twice
+        # at every animation boundary -- both renders land on the same output
+        # frame -- so counting calls drifted one frame per animation and read
+        # as a camera error rather than as a misalignment. `renderer.time` is
+        # how many frames have actually been written, which is the frame this
+        # render is about to become.
+        index = round(float(self.time) * ir.fps)
         result = original(self, scene, *a, **kw)
-        counter["n"] += 1
-        if counter["n"] % every == 0:
-            reference[counter["n"]] = np.asarray(self.get_frame())[:, :, :3].copy()
+        if index % every == 0 and index not in reference:
+            reference[index] = np.asarray(self.get_frame())[:, :, :3].copy()
         return result
 
     CairoRenderer.update_frame = patched
@@ -60,7 +65,7 @@ def main():
         CairoRenderer.update_frame = original
 
     print(f"program bytes       {Path(program_path).stat().st_size}")
-    print(f"manim frames        {counter['n'] + 1}")
+    print(f"manim frames        {max(reference) + 1} (sampled every {every})")
     print(f"dsl frames          {len(ir.records)}")
     print()
     print(f"{'frame':>7} {'MAE':>8} {'%pixels off':>12} {'%ink':>8}")

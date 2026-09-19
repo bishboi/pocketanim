@@ -380,10 +380,22 @@ def build_2d(scene: dict) -> DecodedIR:
         else:
             timeline_steps.append(step)
 
+    # Manim renders the scene's opening state once, at t=0, before the first
+    # animation's first step. Without it every frame after was one early and
+    # the closing frame was missing -- which read as a camera error because it
+    # showed up as the wrong orientation, not as a wrong length.
+    opened = {"done": False}
+
     for step in timeline_steps:
         if step[0] == "show":
             objects[step[1]]["visible"] = True
             continue
+
+        # After any leading `show`, so objects added before the first play are
+        # on stage in the opening frame, as they are in Manim.
+        if not opened["done"]:
+            opened["done"] = True
+            emit()
 
         if step[0] == "create":
             _, name, duration, rate_name = step
@@ -668,9 +680,16 @@ def build_2d(scene: dict) -> DecodedIR:
                 emit()
 
         elif step[0] == "spin":
+            # Manim's ambient rotation advances once per frame except on the
+            # wait's last frame, which repeats the previous orientation.
+            # Measured on both spinning scenes. Without it the trailing hold
+            # sits 0.57 deg out for a whole second -- and the harness never
+            # compares the hold, so it would not have shown up there.
             _, rate, duration = step
-            for _ in range(int(duration * fps)):
-                camera_state["theta"] += rate / fps
+            total = int(duration * fps)
+            for frame_index in range(total):
+                if frame_index < total - 1:
+                    camera_state["theta"] += rate / fps
                 emit()
 
         elif step[0] == "wait":

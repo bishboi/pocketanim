@@ -564,11 +564,11 @@ Proven end to end (`dsl/`), against Manim's own frames:
 
 | Scene | Program | MP4 | Reduction | Pixels differing |
 |---|---|---|---|---|
-| VerbTest (`Create` + `Transform`) | **121 B** | 57 KB | **99.79%** | **0.01%** |
-| SurfaceOrbit (procedural 3D) | **190 B** | 1,445 KB | **99.987%** | 4.96% |
+| VerbTest (`Create` + `Transform`) | **127 B** | 57 KB | **99.78%** | **0.04%** |
+| SurfaceOrbit (procedural 3D) | **196 B** | 1,445 KB | **99.986%** | 2.98% |
 
 On SurfaceOrbit the same scene is 162,868 B as sampled IR at 10.70% differing —
-so the program is **862× smaller and less than half the error**. It dominates
+so the program is **831× smaller at roughly a quarter of the error**. It dominates
 rather than trading, because the device computes at full precision instead of
 replaying 16-bit quantised samples. **Shipping the computation is lossless by
 construction; shipping its sampled output cannot be.**
@@ -598,26 +598,68 @@ badly, so never report one without the other.
 
 | Scene | Tier | Program | Pixels differing |
 |---|---|---|---|
-| TextReuse | **1** | 110 B | **0.00%** |
-| VerbTest | **1** | 127 B | **0.01%** |
-| TextHybrid | **1** | 162 B | **0.04%** |
-| CodeWalkthrough | **1** | 263 B | **0.32%** |
-| LatexDerivation | **1** | 465 B | **0.45%** |
-| MolecularStructure | **1** | 226 B | 2.30% |
-| CartopyMap | **1** | 140 B | 3.39% |
-| SurfaceOrbit | **1** | 196 B | 4.96% |
-| ThreeDCamera | **1** | 180 B | 12.79% |
+| VerbTest | **1** | 127 B | **0.04%** |
+| TextReuse | **1** | 110 B | **0.05%** |
+| ThreeDCamera | **1** | 180 B | **0.06%** |
+| TextHybrid | **1** | 162 B | **0.09%** |
+| LatexDerivation | **1** | 465 B | **0.37%** |
+| CartopyMap | **1** | 140 B | **0.49%** |
+| CodeWalkthrough | **1** | 263 B | **0.93%** |
+| MolecularStructure | **1** | 226 B | 2.44% |
+| SurfaceOrbit | **1** | 196 B | 2.98% |
 | PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
 
-Five scenes are under 0.5%. **ThreeDCamera is the honest exception**: at 12.79%
-it is currently *worse* than its own sampled IR (7.02%), despite being ~1200×
-smaller. The program approach wins decisively on size everywhere, but it has not
-yet won on fidelity there, and the residual is in the camera-move phase.
+Sampled every 10th frame. **Every tier-1 scene is now under 3%, seven of nine
+under 1%.** ThreeDCamera used to be the honest exception at 12.79% — *worse*
+than its own sampled IR — and is now 0.06%. See "Three frame-timing bugs" below
+for why, because the cause was not what the number suggested.
 
 **One scene remains, and it is the one that always will.** `ValueTracker` +
 `always_redraw` is **fundamental**: arbitrary Python recomputing geometry every
 frame cannot be a verb, ever. This is the hard ceiling on tier 1 and the reason
 tier 3 must exist permanently.
+
+#### Three frame-timing bugs, and why 12.79% was misleading
+
+ThreeDCamera's error looked like a camera-model problem: it appeared only once
+the camera moved, peaked mid-move and left a persistent plateau. It was not.
+Substituting Manim's own camera track into the program's IR dropped the
+difference to **0.00% at every frame**, which proved the baked geometry,
+normals, shading and depth ordering were already exact and put the whole
+residual in the camera track. Recovering Manim's per-frame `phi`/`theta` then
+showed the program's track was **bit-exact** — 0 or 2.2e-16 — at a constant
+offset of two frames. There was no rate-function bug, no interpolation bug and
+no spin-rate bug. Three separate off-by-ones were stacked on top of each other:
+
+1. **The harness counted the wrong thing.** It indexed Manim's frames by
+   `update_frame` call. `update_frame` fires *twice* at every animation
+   boundary — both renders land on the same output frame — so the comparison
+   drifted one frame per animation. `renderer.time` is how many frames have
+   actually been written, which is the frame the render is about to become, and
+   indexing by `round(time × fps)` aligns the two exactly.
+2. **The program had no opening frame.** Manim renders the scene's state once at
+   t=0 before the first animation's first step. The interpreter started its
+   first animation at frame 0, so every later frame was one early and the
+   closing frame was missing. It now emits the opening state after any leading
+   `show` and before the first frame-producing verb, which is also what puts
+   objects added before the first `play` on stage in frame 0.
+3. **The last frame of an ambient rotation does not advance.** Over a wait of
+   *n* frames Manim applies *n−1* increments and repeats the last orientation.
+   Measured independently on ThreeDCamera and SurfaceOrbit, both of which spiked
+   on exactly that frame.
+
+The third one is the instructive one. Its visible cost was a single frame the
+harness happened to sample — but the orientation it leaves behind is the one the
+*trailing hold* renders, so a whole second of video sat 0.57° out where **the
+harness never looks**. A measurement that only samples animated frames cannot
+see a static error, and the fix was only found because the frame-count mismatch
+was chased instead of explained away.
+
+Correcting all three took ThreeDCamera from 12.79% to 0.06%, CartopyMap from
+3.39% to 0.49% and SurfaceOrbit from 4.96% to 2.98%. The scenes that appear
+slightly worse than their previously published figures (CodeWalkthrough 0.32% →
+0.93%) are sampled three times as densely here; the denser number is the honest
+one.
 
 #### What `LaggedStart` actually cost
 
@@ -644,19 +686,20 @@ is `c + α(p − c)` — a uniform scale about `c`, composable onto whatever
 transform the instance already carries. `c` is the child's bounding-box centre,
 which the runtime measures from geometry it already has.
 
-#### Harness note: Manim elides static waits
+#### Harness note: the trailing hold is never compared
 
-`verify_dsl` reports both frame counts and they do not match — 243 Manim frames
-against 270 for MolecularStructure, 122 against 150 for VerbTest. This is not
-drift. Manim renders a *static* `wait` as two or three frames rather than one
-per frame, so a trailing `self.wait(1)` costs 30 frames in the program and ~3 in
-Manim's output. MolecularStructure's arithmetic is exact: 30 (fade) + 60
-(lagged grow) + 150 (orbit, not static, so fully rendered) + 3 = 243.
+`verify_dsl` still reports two frame counts that do not match — 241 Manim frames
+against 271 for MolecularStructure. Now that both are indexed by playback time
+this is not drift: Manim renders a *static* `wait` as a frozen frame written
+many times, calling `update_frame` two or three times instead of once per frame,
+so no reference image exists for the hold at all.
 
-The program is right to expand the hold — the player has to show it — and index
-alignment holds for every frame the harness actually compares. The consequence
-worth knowing is that **the trailing hold is never compared**, so a bug confined
-to it would not show up here.
+The program is right to expand the hold — the player has to show it — but the
+consequence is that **the trailing hold is never compared**, and a bug confined
+to it does not show up here. That is not hypothetical: the ambient-rotation
+off-by-one above left the entire final second 0.57° out of true, and the harness
+was blind to all of it. Anything that changes the state a hold renders needs
+checking by hand, or the harness needs a frozen-frame case.
 
 ### Superseded: coverage was 5 of 10
 

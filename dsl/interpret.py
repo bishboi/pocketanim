@@ -316,7 +316,7 @@ def build_2d(scene: dict) -> DecodedIR:
             # Manim's Create on a group lags its children, which is the same
             # reveal Write performs on glyphs.
             objects[step[1]]["visible"] = True
-            timeline_steps.append(("write", step[1], step[2]))
+            timeline_steps.append(("revealseq", step[1], step[2]))
             continue
 
         if step[0] == "create":
@@ -365,19 +365,19 @@ def build_2d(scene: dict) -> DecodedIR:
                 obj["xform"] = compose(step_matrix, base)
                 emit()
 
-        elif step[0] == "write" and step[1] not in objects:
+        elif step[0] in ("write", "revealseq") and step[1] not in objects:
             # write targets an asset; a shape reaching here means the exporter
             # emitted a verb for something it never declared as an asset.
             raise KeyError(f"write target {step[1]!r} was never declared")
 
-        elif step[0] == "write":
-            # Manim's Write lags each submobject; lag_ratio defaults to
-            # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
+        elif step[0] in ("write", "revealseq"):
+            # Manim lags each submobject. Write uses lag_ratio min(4/n, 0.2);
+            # Create on a group uses 1.0, i.e. strictly one child at a time.
             _, name, duration = step
             obj = objects[name]
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
-            lag = min(4.0 / count, 0.2)
+            lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
             total = int(duration * fps)
             for frame_index in range(total):
@@ -538,19 +538,19 @@ def camera_track(scene: dict) -> list[np.ndarray]:
             for _ in range(int(duration * fps)):
                 theta += rate / fps
                 emit()
-        elif step[0] == "write" and step[1] not in objects:
+        elif step[0] in ("write", "revealseq") and step[1] not in objects:
             # write targets an asset; a shape reaching here means the exporter
             # emitted a verb for something it never declared as an asset.
             raise KeyError(f"write target {step[1]!r} was never declared")
 
-        elif step[0] == "write":
-            # Manim's Write lags each submobject; lag_ratio defaults to
-            # min(4/n, 0.2). Each glyph is drawn progressively over its slot.
+        elif step[0] in ("write", "revealseq"):
+            # Manim lags each submobject. Write uses lag_ratio min(4/n, 0.2);
+            # Create on a group uses 1.0, i.e. strictly one child at a time.
             _, name, duration = step
             obj = objects[name]
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
-            lag = min(4.0 / count, 0.2)
+            lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
             total = int(duration * fps)
             for frame_index in range(total):

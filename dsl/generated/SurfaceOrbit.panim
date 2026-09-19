@@ -1,7 +1,7 @@
 scene 3d fps=30
 camera phi=60 theta=-45
 surface A fn=0.6*sin(u)*cos(v) u=-3,3 v=-3,3 res=24,24 fill=#29ABCA,#236B8E alpha=0.7 stroke=0.5
+show A
 move phi=45 theta=45 t=3
 spin rate=0.3 t=3
 wait t=1
-

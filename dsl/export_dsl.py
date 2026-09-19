@@ -287,6 +287,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
     def patched_play(self, *animations, **kwargs):
         run_time = kwargs.get("run_time")
+        emitted_before = len(rec.timeline)
         for anim in animations:
             duration = run_time if run_time is not None else getattr(anim, "run_time", 1.0)
 
@@ -371,8 +372,28 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     else:
                         names = ", ".join(e.method.__name__ for e in anim.methods)
                         rec.blockers.append(f"unsupported .animate method: {names}")
+                elif type(anim.mobject).__name__ == "ValueTracker":
+                    # The fundamental limit of program-shipping: a ValueTracker
+                    # drives always_redraw closures, so geometry is arbitrary
+                    # Python recomputed per frame. It cannot be a verb.
+                    rec.blockers.append(
+                        "ValueTracker drives always_redraw (arbitrary per-frame Python)"
+                    )
+                else:
+                    # Same missing-else that silently dropped FadeIn. Seven
+                    # seconds of this scene vanished with no blocker recorded.
+                    rec.blockers.append(
+                        f".animate on undeclarable {type(anim.mobject).__name__}"
+                    )
             else:
                 rec.blockers.append(f"unsupported animation: {type(anim).__name__}")
+        # Structural guard. Three separate bugs silently dropped an
+        # animation by falling through a branch with no else, each time
+        # shifting the whole timeline and rendering the wrong thing. A play()
+        # that produced no verb is always a drop, whatever the cause.
+        if not state["in_camera_move"] and len(rec.timeline) == emitted_before:
+            kinds = ", ".join(type(a).__name__ for a in animations)
+            rec.blockers.append(f"play() produced no verb ({kinds})")
         return originals["play"](self, *animations, **kwargs)
 
     def patched_add(self, *mobjects, **kw):

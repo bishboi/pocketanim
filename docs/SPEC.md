@@ -187,13 +187,19 @@ animation's start. This is precisely why snapshots sit at animation boundaries.
 **The exporter must recognise when a mobject's points changed by an affine transform — scale,
 translate, rotate — and encode the transform, not the geometry.**
 
-Measured consequence of not doing this: the Cartopy scene zooms with
-`coast.animate.scale(3.0)` over 3 seconds. All 235,948 points change value on all 90 frames.
+Measured, not projected. The Cartopy scene zooms with `coast.animate.scale(3.0)`, which changes
+every one of its 235,948 points on every frame. The probe reports a **93.5% morphing fraction**
+— static caching is defeated almost entirely, saving only 1.1×:
 
-| Encoding | Cost of that one zoom |
+| Encoding of the whole 4.7 s scene | Size |
 |---|---|
-| Naive morphing geometry | 90 × 235,948 × 6 B ≈ **127 MB** |
-| Affine transform | a few bytes per frame |
+| Naive per-frame geometry | **402.6 MB** |
+| Static-cached (no affine detection) | **379.2 MB** |
+| With affine detection | ~1.4 MB geometry + a few bytes/frame |
+| MP4 baseline | 1.03 MB |
+
+Without affine detection the IR is **~390× larger than the video**. With it, roughly par at
+this duration and far ahead at any realistic one. **One exporter feature is worth ~275× here.**
 
 An ordinary pan or zoom over dense content is catastrophic without this. Detection is
 straightforward — fit a transform between consecutive point sets and check residual against a

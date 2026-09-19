@@ -1,0 +1,13 @@
+{
+  "scene": "CartopyMap",
+  "frames": 141,
+  "duration_s": 4.7,
+  "mobjects_per_frame_max": 1450,
+  "points_per_frame_mean": 237928.0,
+  "points_per_frame_max": 237928,
+  "morphing_points_per_frame_mean": 222410.9,
+  "morphing_fraction": 0.9348,
+  "ir_naive_bytes": 402574176,
+  "ir_static_cached_bytes": 379174320,
+  "ir_cached_saving_x": 1.1
+}

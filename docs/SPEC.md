@@ -293,12 +293,16 @@ keyframe density that still reads as identical, per scene class.
 
 720p30, Manim 0.21.0, from `tools/probe_scene_geometry.py` and `corpus/measurements/`.
 
-| Scene | Points/frame | Morphing | Naive dump | Static-cached | MP4 | Video bitrate |
-|---|---|---|---|---|---|---|
-| LatexDerivation | 2,356 | 45.7% | 5.43 MB | 2.55 MB | 153 KB | 147 kbps |
-| PlotGeometry | 1,917 | 24.8% | 9.20 MB | 2.29 MB | 345 KB | 195 kbps |
-| CodeWalkthrough | 6,382 | 35.9% | 21.4 MB | 7.73 MB | 251 KB | 187 kbps |
-| ThreeDCamera | 7,746 | **0.49%** | 25.4 MB | **153 KB** | 2.72 MB | **2227 kbps** |
+All six corpus scenes:
+
+| Scene | Points/frame | Mobjects | Morphing | Naive dump | Static-cached | MP4 | Bitrate |
+|---|---|---|---|---|---|---|---|
+| LatexDerivation | 2,356 | 55 | 45.7% | 5.43 MB | 2.55 MB | 153 KB | 147 kbps |
+| PlotGeometry | 1,917 | 66 | 24.8% | 9.20 MB | 2.29 MB | 345 KB | 195 kbps |
+| CodeWalkthrough | 6,382 | 128 | 35.9% | 21.4 MB | 7.73 MB | 251 KB | 187 kbps |
+| ThreeDCamera | 7,746 | 657 | **0.49%** | 25.4 MB | **153 KB** | 2.72 MB | **2227 kbps** |
+| CartopyMap | 237,928 | 1,450 | **93.5%** | 402.6 MB | 379.2 MB | 1.03 MB | 1413 kbps |
+| MolecularStructure | 42,774 | **2,911** | 15.4% | 124.7 MB | 19.8 MB | 259 KB | 235 kbps |
 
 **Read these honestly.** The naive and static-cached columns are an **upper bound on a naive
 all-paths IR**, not a prediction of the real one — they model neither the glyph atlas (§3.5),
@@ -349,9 +353,41 @@ The practical consequence for estimating a scene: multiply the two axes.
   still wins on duration-independence, but the absolute saving is small.
 - **Morphing geometry** → expensive in the IR regardless of what video does.
 
-Curve counts run **~620 to ~2,600 per frame**, comfortably under Skia's 16,384-verb cliff.
-The 3D scene peaks at **657 mobjects** against 55–128 for 2D, so **draw-call batching matters
-more than raw path throughput there** — a different bottleneck.
+Curve counts for the four ordinary scenes run **~620 to ~2,600 per frame**, comfortably under
+Skia's 16,384-verb cliff. CartopyMap and MolecularStructure blow past it, which is what the
+raster fallback (§3.7) and affine detection (§4.1) exist for.
+
+**Object count is a second, independent bottleneck.** MolecularStructure peaks at **2,911
+mobjects** against 55–128 for 2D scenes — `Sphere(resolution=(12,12))` expands into ~144
+sub-objects each, so 15 atoms become thousands of small mobjects with low point counts.
+**Draw-call batching, not path throughput, is what limits this scene class.**
+
+### 8.3 The measurement that matters most
+
+**Affine detection is worth more than every other optimisation combined**, demonstrated
+independently by two unrelated scenes:
+
+| Scene | Affine animation | Reported morphing | Cost if mis-encoded |
+|---|---|---|---|
+| CartopyMap | `.animate.scale(3.0)` | 93.5% | 379 MB vs a 1.03 MB MP4 (~390×) |
+| MolecularStructure | `LaggedStart(GrowFromCenter(...))` | 15.4% | 19.8 MB vs a 259 KB MP4 (~78×) |
+
+In both, the "morphing" geometry is a transform of unchanged points.
+
+Note too that **static caching — worth 162× on ThreeDCamera and 6.3× on MolecularStructure —
+collapses to 1.1× on CartopyMap.** The static/morphing distinction is load-bearing everywhere
+except where affine animations defeat it, which is exactly where the payload is largest. The
+two mechanisms are complements, not alternatives.
+
+### 8.4 A hazard for scene authors
+
+**The morphing fraction measures which Manim API was used, not the visual intent.**
+ThreeDCamera (0.49%) and CartopyMap (93.5%) both depict static geometry under a moving
+viewpoint. `ThreeDScene` moves a camera and leaves points alone; `.animate.scale()` rewrites
+every point. Same intent, opposite IR cost.
+
+Affine detection makes this moot, which is the strongest argument for treating it as mandatory.
+Without it, scene authors would need to know which API is cheap — an unreasonable thing to ask.
 
 ## 9. Gates before building
 
@@ -372,12 +408,15 @@ invalidates much of the design above.
 
 ## 10. Open items
 
-- **Two corpus scenes unwritten** — Cartopy and molecular
-  ([#5](https://github.com/bishboi/pocketanim/issues/5)). These are exactly where vector data
-  may exceed video, so the corpus is least informative where risk is highest.
-- **Payload budget unvalidated against a real IR**
-  ([#14](https://github.com/bishboi/pocketanim/issues/14)).
-- **Occluded solids** — depth-tested layer, deferred (§3.6).
+- **Corpus scenes are 6–14.5 s.** Any 3-minute figure here is extrapolation, and the IR/video
+  crossover is duration-sensitive — CartopyMap's sits around 8 s. Add a long scene before any
+  production sizing decision.
+- **No real IR exists**, so the exporter should be diffed against
+  `tools/probe_scene_geometry.py` (which reports the naive upper bound by design) to prove
+  affine detection and the glyph atlas are actually firing. Use the corpus as a regression
+  suite, not a one-off.
+- **Occluded solids** — depth-tested layer, deferred (§3.6). MolecularStructure now exercises
+  this case and can be used to judge how visible the painter-order artefact actually is.
 - **Glyph atlas at varying sizes.** Deduplication was verified at identical scale; Manim may
   bake size into outlines, in which case the atlas must normalise by scale before deduplicating.
   Affects hit rate, not design.

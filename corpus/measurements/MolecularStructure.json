@@ -1,0 +1,13 @@
+{
+  "scene": "MolecularStructure",
+  "frames": 243,
+  "duration_s": 8.1,
+  "mobjects_per_frame_max": 2911,
+  "points_per_frame_mean": 42774.0,
+  "points_per_frame_max": 47041,
+  "morphing_points_per_frame_mean": 6591.8,
+  "morphing_fraction": 0.1541,
+  "ir_naive_bytes": 124728840,
+  "ir_static_cached_bytes": 19786248,
+  "ir_cached_saving_x": 6.3
+}

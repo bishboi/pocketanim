@@ -126,6 +126,23 @@ def circle(radius: float, segments: int = 8) -> np.ndarray:
     return np.array(points)
 
 
+def rectangle(width: float, height: float) -> np.ndarray:
+    """Manim's Rectangle: same winding as Square, independent extents."""
+    w, h = width / 2, height / 2
+    corners = [
+        np.array([w, h, 0.0]),
+        np.array([-w, h, 0.0]),
+        np.array([-w, -h, 0.0]),
+        np.array([w, -h, 0.0]),
+        np.array([w, h, 0.0]),
+    ]
+    points = []
+    for start, end in zip(corners, corners[1:]):
+        for t in (0.0, 1 / 3, 2 / 3, 1.0):
+            points.append(start + (end - start) * t)
+    return np.array(points)
+
+
 def square(side: float) -> np.ndarray:
     """Manim's Square: corners counter-clockwise from top-right, straight edges."""
     h = side / 2

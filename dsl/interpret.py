@@ -49,6 +49,14 @@ def smooth(t: float, inflection: float = 10.0) -> float:
     return min(max((sigmoid(inflection * (t - 0.5)) - error) / (1 - 2 * error), 0.0), 1.0)
 
 
+def linear(t: float) -> float:
+    """Manim's linear rate function -- the default for Write and Wait."""
+    return t
+
+
+RATE_FUNCS = {"smooth": smooth, "linear": linear}
+
+
 def rotation_z(angle: float) -> np.ndarray:
     c, s = math.cos(angle), math.sin(angle)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
@@ -138,21 +146,26 @@ def parse(text: str) -> dict:
             scene["fps"] = int(args.get("fps", 30))
             if positional:
                 scene["mode"] = positional[0]
-        elif verb in ("circle", "square"):
+        elif verb in ("circle", "square", "rect"):
             name = positional[0]
             scene["shapes"][name] = {
                 "kind": verb,
-                "size": float(args.get("r") or args.get("s")),
+                "size": float(args.get("r") or args.get("s") or 0),
+                "extent": [float(x) for x in args["wh"].split(",")] if "wh" in args else None,
                 "stroke": hex_rgb(args["stroke"]),
                 "width": float(args.get("w", 4)),
+                "at": [float(x) for x in args.get("at", "0,0").split(",")],
             }
-        elif verb == "text":
-            scene["assets"][positional[0]] = args["asset"]
+        elif verb in ("text", "geom"):
+            scene["assets"][positional[0]] = (verb, args["asset"])
         elif verb == "create":
-            scene["timeline"].append(("create", positional[0], float(args["t"])))
+            scene["timeline"].append(
+                ("create", positional[0], float(args["t"]), args.get("rate", "smooth"))
+            )
         elif verb == "transform":
             scene["timeline"].append(
-                ("transform", positional[0], positional[1], float(args["t"]))
+                ("transform", positional[0], positional[1], float(args["t"]),
+                 args.get("rate", "smooth"))
             )
         elif verb == "surface":
             scene["surfaces"].append(
@@ -177,106 +190,179 @@ def parse(text: str) -> dict:
             )
         elif verb == "spin":
             scene["timeline"].append(("spin", float(args["rate"]), float(args["t"])))
+        elif verb == "fade":
+            scene["timeline"].append(("fade", positional[0], float(args["t"])))
+        elif verb == "xform":
+            by_xy = args.get("by_xy", "0,0").split(",")
+            scene["timeline"].append(
+                ("xform", positional[0], float(args.get("by", 1.0)),
+                 [float(by_xy[0]), float(by_xy[1])], float(args["t"]))
+            )
         elif verb == "wait":
             scene["timeline"].append(("wait", float(args["t"])))
     return scene
 
 
 def geometry_for(spec: dict) -> np.ndarray:
-    from dsl.verbs import circle, square
+    from dsl.verbs import circle, rectangle, square
 
-    return circle(spec["size"]) if spec["kind"] == "circle" else square(spec["size"])
+    if spec["kind"] == "circle":
+        points = circle(spec["size"])
+    elif spec["kind"] == "rect":
+        points = rectangle(*spec["extent"])
+    else:
+        points = square(spec["size"])
+
+    at = spec.get("at") or [0.0, 0.0]
+    return points + np.array([at[0], at[1], 0.0])
+
+
+def compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
+    """Apply an object-level transform on top of an instance transform."""
+    linear = outer[:, :3] @ inner[:, :3]
+    translation = outer[:, :3] @ inner[:, 3] + outer[:, 3]
+    return np.hstack([linear, translation.reshape(3, 1)])
 
 
 def build_2d(scene: dict) -> DecodedIR:
-    """Expand a 2D shape scene into per-frame geometry.
+    """Expand a 2D scene into per-frame geometry.
 
-    Note what is *not* happening here: nothing is stored per frame in the
-    shipped artefact. The program is 120 bytes; this expansion is what a device
-    runtime does live. The DecodedIR is only a vehicle for the reference
-    renderer so the existing comparison harness can be reused.
+    Note what is *not* shipped: nothing here is stored per frame in the
+    artefact. The program is ~120 bytes and the assets are cached; this
+    expansion is what a device runtime does live. The DecodedIR is only a
+    vehicle so the existing reference renderer and harness can be reused.
     """
+    from dsl.library import load_standalone_asset, load_text_asset
     from dsl.verbs import align, pointwise_become_partial
-
-    from exporter.decode import load as load_ir
 
     fps = scene["fps"]
     shapes: list[np.ndarray] = []
     records: list[tuple[int, list[DecodedInstance]]] = []
-    live: dict[str, dict] = {}
+    objects: dict[str, dict] = {}
 
-    # Tier-2 assets: glyph geometry the program references rather than
-    # describes. Loaded once and drawn on every frame, which is also why a
-    # library-wide asset cache amortises text toward zero.
-    static: list[DecodedInstance] = []
-    for asset in scene["assets"].values():
-        from dsl.library import load_text_asset
+    identity = np.hstack([np.identity(3), np.zeros((3, 1))])
 
-        path = Path("dsl/generated/assets") / f"{asset}.panm"
-        glyphs, asset_instances = load_text_asset(path)
-        offset = len(shapes)
-        shapes.extend(glyphs)
-        for inst in asset_instances:
-            static.append(
-                DecodedInstance(
-                    slot=1000 + len(static),
-                    atlas_id=inst.atlas_id + offset,
-                    transform=inst.transform,
-                    fill=inst.fill,
-                    stroke=inst.stroke,
-                    stroke_width=inst.stroke_width,
-                )
-            )
-
-    def emit(points: np.ndarray, stroke, width):
-        shapes.append(points)
-        records.append(
-            (
-                REC_SNAPSHOT,
-                static
-                + [
-                    DecodedInstance(
-                        slot=0,
-                        atlas_id=len(shapes) - 1,
-                        transform=np.hstack([np.identity(3), np.zeros((3, 1))]),
-                        fill=(0, 0, 0, 0),
-                        stroke=(*stroke, 255),
-                        stroke_width=width,
-                    )
-                ],
-            )
+    for name, (kind, asset_id) in scene["assets"].items():
+        path = Path("dsl/generated/assets") / f"{asset_id}.panm"
+        geometry, instances = (
+            load_text_asset(path) if kind == "text" else load_standalone_asset(path)
         )
+        offset = len(shapes)
+        shapes.extend(geometry)
+
+        bounds = [
+            geometry[inst.atlas_id] @ inst.transform[:, :3].T + inst.transform[:, 3]
+            for inst in instances
+        ]
+        stacked = np.vstack(bounds) if bounds else np.zeros((1, 3))
+        centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
+
+        objects[name] = {
+            "kind": "asset",
+            "centre": centre,
+            "xform": identity.copy(),
+            "instances": [
+                (inst.atlas_id + offset, inst.transform, inst.fill, inst.stroke,
+                 inst.stroke_width)
+                for inst in instances
+            ],
+        }
+
+    def emit():
+        frame: list[DecodedInstance] = []
+        for obj in objects.values():
+            if obj["kind"] == "asset":
+                for atlas_id, transform, fill, stroke, width in obj["instances"]:
+                    frame.append(
+                        DecodedInstance(
+                            slot=len(frame),
+                            atlas_id=atlas_id,
+                            transform=compose(obj["xform"], transform),
+                            fill=fill,
+                            stroke=stroke,
+                            stroke_width=width,
+                        )
+                    )
+            else:
+                shapes.append(obj["points"])
+                frame.append(
+                    DecodedInstance(
+                        slot=len(frame),
+                        atlas_id=len(shapes) - 1,
+                        transform=identity.copy(),
+                        fill=(0, 0, 0, 0),
+                        stroke=(*obj["stroke"], 255),
+                        stroke_width=obj["width"],
+                    )
+                )
+        records.append((REC_SNAPSHOT, frame))
 
     for step in scene["timeline"]:
         if step[0] == "create":
-            _, name, duration = step
+            _, name, duration, rate_name = step
+            rate = RATE_FUNCS[rate_name]
             spec = scene["shapes"][name]
             full = geometry_for(spec)
-            live[name] = {"points": full, "stroke": spec["stroke"], "width": spec["width"]}
-            for frame in range(int(duration * fps)):
-                alpha = smooth((frame + 1) / (duration * fps))
-                emit(pointwise_become_partial(full, 0.0, alpha), spec["stroke"], spec["width"])
+            objects[name] = {
+                "kind": "shape", "points": full,
+                "stroke": spec["stroke"], "width": spec["width"],
+            }
+            for frame_index in range(int(duration * fps)):
+                alpha = rate((frame_index + 1) / (duration * fps))
+                objects[name]["points"] = pointwise_become_partial(full, 0.0, alpha)
+                emit()
+            objects[name]["points"] = full
 
         elif step[0] == "transform":
-            _, source, target, duration = step
+            _, source, target, duration, rate_name = step
+            rate = RATE_FUNCS[rate_name]
             target_spec = scene["shapes"][target]
-            start, end = align(live[source]["points"], geometry_for(target_spec))
-            c0 = np.array(live[source]["stroke"], dtype=float)
+            start_pts, end_pts = align(objects[source]["points"], geometry_for(target_spec))
+            c0 = np.array(objects[source]["stroke"], dtype=float)
             c1 = np.array(target_spec["stroke"], dtype=float)
-            for frame in range(int(duration * fps)):
-                alpha = smooth((frame + 1) / (duration * fps))
-                colour = tuple(int(round(x)) for x in c0 + (c1 - c0) * alpha)
-                emit(start + (end - start) * alpha, colour, live[source]["width"])
-            live[source] = {
-                "points": end,
-                "stroke": target_spec["stroke"],
-                "width": live[source]["width"],
-            }
+            for frame_index in range(int(duration * fps)):
+                alpha = rate((frame_index + 1) / (duration * fps))
+                objects[source]["points"] = start_pts + (end_pts - start_pts) * alpha
+                objects[source]["stroke"] = tuple(
+                    int(round(x)) for x in c0 + (c1 - c0) * alpha
+                )
+                emit()
+
+        elif step[0] == "xform":
+            _, name, factor, offset_xy, duration = step
+            obj = objects[name]
+            base = obj["xform"].copy()
+            centre = obj.get("centre", np.zeros(3))
+            shift = np.array([offset_xy[0], offset_xy[1], 0.0])
+            for frame_index in range(int(duration * fps)):
+                alpha = smooth((frame_index + 1) / (duration * fps))
+                scale = 1.0 + (factor - 1.0) * alpha
+                # Manim scales about the object's centre, then translates.
+                step_linear = np.identity(3) * scale
+                step_translation = (1 - scale) * centre + shift * alpha
+                step_matrix = np.hstack([step_linear, step_translation.reshape(3, 1)])
+                obj["xform"] = compose(step_matrix, base)
+                emit()
+
+        elif step[0] == "fade":
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(inst) for inst in obj["instances"]]
+            for frame_index in range(int(duration * fps)):
+                alpha = smooth((frame_index + 1) / (duration * fps))
+                obj["instances"] = [
+                    (aid, transform,
+                     (*fill[:3], int(fill[3] * alpha)),
+                     (*stroke[:3], int(stroke[3] * alpha)),
+                     width)
+                    for aid, transform, fill, stroke, width in base
+                ]
+                emit()
+            obj["instances"] = base
 
         elif step[0] == "wait":
-            current = next(iter(live.values()))
             for _ in range(int(step[1] * fps)):
-                emit(current["points"], current["stroke"], current["width"])
+                emit()
 
     return DecodedIR(fps=fps, shapes=shapes, records=records, cameras=None)
 
@@ -357,6 +443,22 @@ def camera_track(scene: dict) -> list[np.ndarray]:
             for _ in range(int(duration * fps)):
                 theta += rate / fps
                 emit()
+        elif step[0] == "fade":
+            _, name, duration = step
+            obj = objects[name]
+            base = [tuple(inst) for inst in obj["instances"]]
+            for frame_index in range(int(duration * fps)):
+                alpha = smooth((frame_index + 1) / (duration * fps))
+                obj["instances"] = [
+                    (aid, transform,
+                     (*fill[:3], int(fill[3] * alpha)),
+                     (*stroke[:3], int(stroke[3] * alpha)),
+                     width)
+                    for aid, transform, fill, stroke, width in base
+                ]
+                emit()
+            obj["instances"] = base
+
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):
                 emit()

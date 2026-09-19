@@ -71,6 +71,14 @@ class Recorder:
             self.counter += 1
         return self.names[id(mob)]
 
+    @staticmethod
+    def is_primitive(mob) -> bool:
+        from manim import Circle, Square
+
+        return isinstance(mob, (Circle, Square)) or type(mob).__name__ in (
+            "Rectangle", "SurroundingRectangle"
+        )
+
     def hex_of(self, mob) -> str:
         try:
             return str(mob.get_stroke_color()).upper()
@@ -131,6 +139,24 @@ class Recorder:
             )
             return name
 
+        if type(mob).__name__ in ("VGroup", "Group") and mob.submobjects:
+            # A group of recognisable primitives stays program; a group of
+            # arbitrary imported geometry becomes a tier-2 asset. Baking the
+            # whole group in one go keeps its internal structure intact.
+            if all(self.is_primitive(child) for child in mob.submobjects):
+                for child in mob.submobjects:
+                    self.declare(child)
+                return name
+            from dsl.library import export_standalone_asset
+
+            digest = hashlib.sha1(
+                f"group:{len(mob.get_family())}:{mob.get_center()}".encode()
+            ).hexdigest()[:10]
+            asset = Path("dsl/generated/assets") / f"{digest}.panm"
+            self.assets[digest] = export_standalone_asset(mob, asset)
+            self.declarations.append(f"geom {name} asset={digest}")
+            return name
+
         if isinstance(mob, (Text, SingleStringMathTex)) or type(mob).__name__ in (
             "MathTex", "Tex", "Code", "MarkupText"
         ):
@@ -175,9 +201,31 @@ def surface_expression(mob) -> str | None:
     return expr if re.fullmatch(r"[0-9a-zA-Z_+\-*/()., ]+", expr) else None
 
 
+def affine_verb(methods, target: str, duration: float) -> str | None:
+    """Map a whole .animate chain onto one DSL verb, if every step is affine.
+
+    Chained methods run *concurrently* over the animation's run_time -- emitting
+    one verb per method would play them in sequence and stretch the scene.
+    """
+    import numpy as np
+
+    parts = []
+    for entry in methods:
+        name = entry.method.__name__
+        if name == "scale" and entry.args:
+            parts.append(f"by={float(entry.args[0]):g}")
+        elif name == "shift" and entry.args:
+            vector = np.asarray(entry.args[0], dtype=float).reshape(3)
+            parts.append(f"by_xy={vector[0]:g},{vector[1]:g}")
+        else:
+            return None
+    return f"xform {target} " + " ".join(parts) + f" t={duration:g}" if parts else None
+
+
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, tempconfig
     from manim.animation.creation import Create
+    from manim.animation.fading import FadeIn
     from manim.animation.transform import Transform
     from manim.animation.animation import Wait
     from manim.scene.three_d_scene import ThreeDScene
@@ -217,15 +265,40 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             if rate is not None and rate.__name__ != "smooth":
                 rec.blockers.append(f"non-default rate_func: {rate.__name__}")
 
-            if isinstance(anim, Create):
+            if isinstance(anim, FadeIn):
+                # FadeIn subclasses Transform, so it must be tested first --
+                # and its target_mobject is not a separate declarable shape.
+                name = rec.declare(anim.mobject)
+                if name:
+                    rec.timeline.append(f"fade {name} t={duration:g}")
+                else:
+                    rec.blockers.append("FadeIn target could not be declared")
+            elif isinstance(anim, Create):
                 name = rec.declare(anim.mobject)
                 if name:
                     rec.timeline.append(f"create {name} t={duration:g}")
+                else:
+                    rec.blockers.append("Create target could not be declared")
             elif isinstance(anim, Transform):
                 source = rec.declare(anim.mobject)
                 target = rec.declare(anim.target_mobject)
                 if source and target:
                     rec.timeline.append(f"transform {source} {target} t={duration:g}")
+                else:
+                    # Never drop an animation silently: a missing verb shifts
+                    # the whole timeline and the program renders the wrong thing.
+                    rec.blockers.append(
+                        f"{type(anim).__name__} operands could not be declared"
+                    )
+            elif type(anim).__name__ == "_AnimationBuilder":
+                target = rec.declare(anim.mobject)
+                if target:
+                    verb = affine_verb(anim.methods, target, duration)
+                    if verb:
+                        rec.timeline.append(verb)
+                    else:
+                        names = ", ".join(e.method.__name__ for e in anim.methods)
+                        rec.blockers.append(f"unsupported .animate method: {names}")
             else:
                 rec.blockers.append(f"unsupported animation: {type(anim).__name__}")
         return originals["play"](self, *animations, **kwargs)

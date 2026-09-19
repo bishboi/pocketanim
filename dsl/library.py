@@ -77,6 +77,37 @@ def export_text_instances(mob, path: Path, library: GlyphLibrary) -> int:
     return len(blob)
 
 
+def export_standalone_asset(mob, path: Path) -> int:
+    """Bake singular geometry into a self-contained asset.
+
+    Imported artwork -- a coastline, a molecule -- is content, not program, and
+    unlike glyphs it does not repeat across a library. So it carries its own
+    atlas rather than polluting the shared glyph library with 200k points that
+    will never be reused.
+    """
+    from exporter.export_scene import read_style
+
+    atlas = Atlas()
+    instances: dict[int, Instance] = {}
+    for index, sub in enumerate(mob.get_family()):
+        points = getattr(sub, "points", None)
+        if points is None or len(points) < 4:
+            continue
+        atlas_id, transform = atlas.resolve(np.asarray(points, dtype=np.float64))
+        fill, stroke, width = read_style(sub)
+        instances[index] = Instance(atlas_id, transform, fill, stroke, width)
+
+    blob = serialise(atlas, [(REC_SNAPSHOT, instances)], fps=30)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+    return len(blob)
+
+
+def load_standalone_asset(path: Path):
+    ir = load(path.read_bytes())
+    return ir.shapes, ir.frame(0)
+
+
 def load_text_asset(path: Path, library_path: Path = LIBRARY_PATH):
     """Resolve a text asset's instances against the shared glyph library."""
     shared = load(library_path.read_bytes())

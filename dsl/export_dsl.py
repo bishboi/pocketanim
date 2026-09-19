@@ -51,6 +51,14 @@ class Recorder:
         """Emit a declaration for a mobject, or record why we cannot."""
         from manim import Circle, Square, Surface
 
+        # Non-drawable scaffolding: ValueTracker stores its value *as* a
+        # point, so emptiness is the wrong test. Fewer than four points cannot
+        # form a cubic, which is the same filter the sampled exporter uses.
+        points = getattr(mob, "points", None)
+        drawable = points is not None and len(points) >= 4
+        if not drawable and not mob.submobjects:
+            return None
+
         name = self.name_for(mob)
         if any(d.split()[1] == name for d in self.declarations):
             return name
@@ -99,7 +107,8 @@ def surface_expression(mob) -> str | None:
     A production exporter would want a declarative surface form in the authoring
     API rather than source scraping. This is enough to measure coverage.
     """
-    func = getattr(mob, "func", None)
+    # Surface.func is a method wrapper; the authored lambda is on _func.
+    func = getattr(mob, "_func", None) or getattr(mob, "func", None)
     if func is None:
         return None
     try:
@@ -111,7 +120,9 @@ def surface_expression(mob) -> str | None:
     if not match:
         return None
     expr = match.group(1).strip().rstrip(",")
-    expr = expr.replace("np.", "")
+    # The DSL is whitespace-tokenised, so the expression must not contain
+    # spaces -- emitting "0.6 * sin(u)" produced a program that would not parse.
+    expr = expr.replace("np.", "").replace(" ", "")
     return expr if re.fullmatch(r"[0-9a-zA-Z_+\-*/()., ]+", expr) else None
 
 
@@ -125,17 +136,24 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     rec = Recorder()
     originals = {
         "play": Scene.play,
+        "add": Scene.add,
         "move_camera": ThreeDScene.move_camera,
         "set_orientation": ThreeDScene.set_camera_orientation,
         "begin_spin": ThreeDScene.begin_ambient_camera_rotation,
         "stop_spin": ThreeDScene.stop_ambient_camera_rotation,
     }
-    state = {"spin_rate": None}
+    state = {"spin_rate": None, "in_camera_move": False}
 
     def patched_play(self, *animations, **kwargs):
         run_time = kwargs.get("run_time")
         for anim in animations:
             duration = run_time if run_time is not None else getattr(anim, "run_time", 1.0)
+
+            # move_camera drives the camera through play internally. Those
+            # animations are already captured by the move_camera patch, so
+            # counting them again would report a false blocker.
+            if state["in_camera_move"]:
+                continue
 
             # Scene.wait routes through play as a Wait animation, which is
             # linear by definition -- not a rate function we need to support.
@@ -163,6 +181,13 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.blockers.append(f"unsupported animation: {type(anim).__name__}")
         return originals["play"](self, *animations, **kwargs)
 
+    def patched_add(self, *mobjects, **kw):
+        # Objects put on stage directly rather than animated in. Missing these
+        # produced a program that claimed tier 1 while drawing nothing.
+        for mob in mobjects:
+            rec.declare(mob)
+        return originals["add"](self, *mobjects, **kw)
+
     def patched_orientation(self, phi=None, theta=None, **kw):
         parts = []
         if phi is not None:
@@ -179,7 +204,13 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         if theta is not None:
             parts.append(f"theta={math.degrees(theta):g}")
         rec.timeline.append("move " + " ".join(parts) + f" t={run_time:g}")
-        return originals["move_camera"](self, phi=phi, theta=theta, run_time=run_time, **kw)
+        state["in_camera_move"] = True
+        try:
+            return originals["move_camera"](
+                self, phi=phi, theta=theta, run_time=run_time, **kw
+            )
+        finally:
+            state["in_camera_move"] = False
 
     def patched_spin(self, rate=0.02, **kw):
         state["spin_rate"] = rate
@@ -190,6 +221,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         return originals["stop_spin"](self, **kw)
 
     Scene.play = patched_play
+    Scene.add = patched_add
     ThreeDScene.move_camera = patched_move_camera
     ThreeDScene.set_camera_orientation = patched_orientation
     ThreeDScene.begin_ambient_camera_rotation = patched_spin
@@ -211,6 +243,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             getattr(module, scene_class)().render()
     finally:
         Scene.play = originals["play"]
+        Scene.add = originals["add"]
         ThreeDScene.move_camera = originals["move_camera"]
         ThreeDScene.set_camera_orientation = originals["set_orientation"]
         ThreeDScene.begin_ambient_camera_rotation = originals["begin_spin"]

@@ -1,0 +1,7 @@
+scene 2d fps=30
+circle A r=2 stroke=#58C4DD w=6
+square B s=3 stroke=#F7D96F w=6
+create A t=2
+transform A B t=2
+wait t=1
+

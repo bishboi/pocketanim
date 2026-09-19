@@ -563,7 +563,39 @@ function**, not an alignment bug. Manim defaults both verbs to `smooth`.
 **The failure mode is forgetting a documented behaviour, not being unable to
 reproduce one**, and the harness catches exactly that.
 
-### Coverage today: 2 of 8
+### Coverage: 5 of 10
+
+After adding text assets, groups, `.animate`, `FadeIn`/`FadeOut`, `Write`,
+rectangles and rate functions:
+
+| Scene | Tier | Program |
+|---|---|---|
+| TextReuse | **1** | 96 B |
+| VerbTest | **1** | 120 B |
+| CartopyMap | **1** | 126 B |
+| TextHybrid | **1** | 148 B |
+| SurfaceOrbit | **1** | 189 B |
+| LatexDerivation, PlotGeometry, ThreeDCamera, MolecularStructure, CodeWalkthrough | 3 | — |
+
+`CartopyMap` is the notable one: 126 bytes plus a cached coastline asset, where
+the naive sampled dump was 402 MB.
+
+**Remaining blockers, down from 16 distinct kinds to 8:**
+
+| Blocker | Nature |
+|---|---|
+| `Axes`, `ThreeDAxes`, `ParametricFunction` | composite/procedural — more vocabulary |
+| Surface function using `axes.c2p` | needs a declarative surface form, not source scraping |
+| `LaggedStart` | mechanical — offset start times |
+| `TransformMatchingTex`, asset-to-asset `Transform` | **one capability: glyph-level matching** |
+
+The text cluster is gone entirely. What is left splits cleanly into vocabulary
+(mechanical) and **one genuinely hard capability** — matching glyphs between two
+baked text assets, which `TransformMatchingTex` also needs. That capability is
+the single highest-value thing left to build, and it operates on exactly the
+glyph atlas §7 already describes.
+
+### Superseded: coverage was 2 of 8
 
 `dsl/export_dsl.py` maps a Manim scene onto DSL verbs and records a blocker
 rather than guessing when it cannot. Against the corpus — which was built to

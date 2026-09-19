@@ -35,6 +35,11 @@ class DecodedIR:
     shapes: list[np.ndarray]          # dequantised canonical geometry
     records: list[tuple[int, list[DecodedInstance]]]
     cameras: list[np.ndarray] | None = None
+    # The quantisation box the atlas was encoded against. Kept because a
+    # consumer cannot recover it from the points: nothing guarantees some
+    # point actually lands on each extreme.
+    lo: np.ndarray | None = None
+    hi: np.ndarray | None = None
 
     def frame(self, index: int) -> list[DecodedInstance]:
         """Resolve frame `index` to its full ordered instance list.
@@ -121,4 +126,4 @@ def load(blob: bytes) -> DecodedIR:
             )
         records.append((kind, instances))
 
-    return DecodedIR(fps=fps, shapes=shapes, records=records, cameras=cameras)
+    return DecodedIR(fps=fps, shapes=shapes, records=records, cameras=cameras, lo=lo, hi=hi)

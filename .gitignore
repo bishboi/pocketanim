@@ -8,3 +8,6 @@ corpus/renders/
 
 # DSL build output (regenerable from the corpus scenes)
 dsl/generated/
+
+# Sampled IR exports (regenerable from corpus/scenes)
+corpus/ir/

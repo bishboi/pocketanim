@@ -63,7 +63,21 @@ internal class Obj(
     var alpha: Double = 1.0,
     var strokeRgb: Int = 0xFFFFFF,
     var width: Double = 0.0,
-)
+) {
+    /**
+     * A checkpoint copy.
+     *
+     * The instance *list* is copied but the instances are not: verbs replace
+     * entries rather than mutating them in place, so sharing is safe and
+     * copying 2,900 of them per checkpoint would not be. `points` is copied
+     * because create and transform do write it.
+     */
+    fun copy() = Obj(
+        kind, visible, centre.copyOf(), xform.copyOf(), ArrayList(instances),
+        flags?.copyOf(), normals?.copyOf(), glyphIds?.copyOf(),
+        points?.copyOf(), alpha, strokeRgb, width,
+    )
+}
 
 internal fun identity() = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
 
@@ -102,7 +116,15 @@ internal fun pyRound(x: Double): Int {
 
 object Interpreter {
 
-    fun build(program: Program, loader: AssetLoader): Scene = Builder(program, loader).build()
+    /**
+     * Open a program for playback.
+     *
+     * Frames are computed on demand rather than materialised: the eager form
+     * measured at 98.8 MB retained for one corpus scene, which a phone does not
+     * have to spare. See [ProgramFrames].
+     */
+    fun open(program: Program, loader: AssetLoader): ProgramFrames =
+        ProgramFrames(Builder(program, loader).also { it.prepare() })
 
     /** Manim composes rot_z(gamma) @ rot_x(-phi) @ rot_z(-theta - 90deg). */
     fun cameraMatrix(phi: Double, theta: Double, gamma: Double = GAMMA): DoubleArray {

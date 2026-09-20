@@ -17,31 +17,25 @@ import com.pocketanim.core.Scene
  */
 internal class Builder(private val program: Program, private val loader: AssetLoader) {
 
-    private val fps = program.fps
-    private val is3d = program.is3d
+    val fps = program.fps
+    val is3d = program.is3d
     private val shapes = ArrayList<DoubleArray>()
-    private val records = ArrayList<Record>()
-    private val cameras = ArrayList<FloatArray>()
     private val objects = LinkedHashMap<String, Obj>()
 
     private var phi = program.phi
     private var theta = program.theta
 
-    fun build(): Scene {
-        declareSurfaces()
-        declareAssets()
-        runTimeline()
+    /** The frame just produced, held so the renderer can read it. */
+    private var current: Array<Instance> = emptyArray()
+    private var currentCamera: FloatArray? = null
 
-        val atlas = Array(shapes.size) { i -> FloatArray(shapes[i].size) { shapes[i][it].toFloat() } }
-        return Scene(
-            fps = fps,
-            atlas = atlas,
-            cameras = if (is3d) cameras.toTypedArray() else null,
-            records = records.toTypedArray(),
-            lo = FloatArray(3),
-            hi = FloatArray(3),
-        )
+    fun shape(atlasId: Int): FloatArray {
+        val s = shapes[atlasId]
+        return FloatArray(s.size) { s[it].toFloat() }
     }
+
+    fun frameInstances(): Array<Instance> = current
+    fun frameCamera(): FloatArray? = currentCamera
 
     // ---- declarations -----------------------------------------------------
 
@@ -193,8 +187,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 )
             }
         }
-        records.add(Record(Panm.REC_SNAPSHOT, frame.toTypedArray()))
-        if (is3d) cameras.add(cameraRecord())
+        current = frame.toTypedArray()
+        currentCamera = if (is3d) cameraRecord() else null
     }
 
     // ---- helpers ----------------------------------------------------------
@@ -236,100 +230,271 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         const val ZOOM_F = 1.0f
     }
 
+
     // ---- timeline ---------------------------------------------------------
 
-    private fun runTimeline() {
+    /**
+     * One verb, resumable.
+     *
+     * These replaced loops that materialised every frame of every verb up front
+     * and retained them -- 98.8 MB for one corpus scene, which is fatal on a
+     * phone. Each verb's per-frame body was already a pure function of (state
+     * captured at the verb's start, frame number), so splitting that out costs
+     * nothing and lets the player hold one frame instead of all of them.
+     */
+    private interface Runner {
+        val frames: Int
+        /** Capture whatever the per-frame body reads; put the object on stage. */
+        fun enter()
+        /** Put the scene into the state frame [k] of this verb should show. */
+        fun render(k: Int)
+        /** Settle the end-of-verb state that the next verb inherits. */
+        fun exit()
+    }
+
+    /** Scene state at a verb boundary, so seeking back need not start over. */
+    private class Checkpoint(
+        val objects: LinkedHashMap<String, Obj>,
+        val shapeCount: Int,
+        val phi: Double,
+        val theta: Double,
+    )
+
+    private lateinit var runners: List<Runner>
+    /** Global frame index at which each verb starts; the last entry is the total. */
+    private lateinit var starts: IntArray
+    /** Names made visible immediately before the verb at this index. */
+    private val shows = HashMap<Int, List<String>>()
+    private val checkpoints = HashMap<Int, Checkpoint>()
+
+    private var cursorStep = -1
+    private var cursorFrame = -1
+
+    val frameCount: Int get() = starts.last()
+
+    fun prepare() {
+        declareSurfaces()
+        declareAssets()
+
         // Rewrite create-on-asset to a lagged reveal in a PRE-PASS. Appending
         // the rewrite to the list being iterated pushed every asset reveal to
         // the end, so camera moves ran before the things they were looking at.
-        val steps = program.timeline.map { step ->
+        val rewritten = program.timeline.map { step ->
             if (step is Step.Create && isAsset(step.name)) Step.RevealSequence(step.name, step.seconds)
             else step
         }
 
-        // Manim renders the scene's opening state once at t=0, before the first
-        // animation's first step. Without it every later frame is one early and
-        // the closing frame is missing.
+        // `show` produces no frame, so it is attached to the verb that follows
+        // rather than being a verb itself. Manim also renders the scene's
+        // opening state once at t=0 before the first animation's first step --
+        // that is the one-frame hold below, and without it every later frame is
+        // one early and the closing frame is missing.
+        val expanded = ArrayList<Step>()
+        val pending = ArrayList<String>()
         var opened = false
-
-        for (step in steps) {
+        for (step in rewritten) {
             if (step is Step.Show) {
-                objects.getValue(step.name).visible = true
+                pending.add(step.name)
                 continue
             }
             if (!opened) {
                 opened = true
-                emit()
+                // Anything added before the first play is on stage for it.
+                shows[expanded.size] = ArrayList(pending)
+                pending.clear()
+                expanded.add(Step.Wait(1.0 / fps))
             }
-            runStep(step)
+            shows[expanded.size] = ArrayList(pending)
+            pending.clear()
+            expanded.add(step)
         }
+
+        runners = expanded.map { runnerFor(it) }
+        starts = IntArray(runners.size + 1)
+        for (i in runners.indices) starts[i + 1] = starts[i] + runners[i].frames
+        checkpoint(0)
+    }
+
+    private fun checkpoint(stepIndex: Int) {
+        val copy = LinkedHashMap<String, Obj>()
+        for ((name, obj) in objects) copy[name] = obj.copy()
+        checkpoints[stepIndex] = Checkpoint(copy, shapes.size, phi, theta)
+    }
+
+    private fun restore(stepIndex: Int) {
+        val saved = checkpoints.getValue(stepIndex)
+        objects.clear()
+        for ((name, obj) in saved.objects) objects[name] = obj.copy()
+        // Reveals append partial geometry to the atlas; replaying without
+        // truncating would append it again on every seek.
+        while (shapes.size > saved.shapeCount) shapes.removeAt(shapes.size - 1)
+        phi = saved.phi
+        theta = saved.theta
+    }
+
+    private fun stepContaining(frame: Int): Int {
+        for (i in runners.indices) if (frame < starts[i + 1]) return i
+        return runners.size - 1
+    }
+
+    /**
+     * Produce one frame.
+     *
+     * Playing forward advances within the current verb. Seeking backwards
+     * restores the nearest verb boundary and replays inside that verb only, so
+     * the cost is bounded by the longest verb rather than by how far the seek
+     * went -- the same property that makes tier-3 snapshots cheap to seek in.
+     */
+    fun seek(index: Int) {
+        val target = index.coerceIn(0, frameCount - 1)
+        val step = stepContaining(target)
+        val local = target - starts[step]
+
+        if (step == cursorStep && local >= cursorFrame) {
+            for (k in (cursorFrame + 1)..local) runners[step].render(k)
+            cursorFrame = local
+            return
+        }
+
+        // Finishing the current verb is the cheap way into the next one; it
+        // avoids replaying a verb we have just finished playing.
+        if (cursorStep >= 0 && step == cursorStep + 1 &&
+            cursorFrame == runners[cursorStep].frames - 1 &&
+            !checkpoints.containsKey(step)
+        ) {
+            runners[cursorStep].exit()
+            checkpoint(step)
+        }
+
+        ensureCheckpoint(step)
+        restore(step)
+        applyShows(step)
+        runners[step].enter()
+        for (k in 0..local) runners[step].render(k)
+        cursorStep = step
+        cursorFrame = local
+    }
+
+    private fun ensureCheckpoint(step: Int) {
+        if (checkpoints.containsKey(step)) return
+        var from = checkpoints.keys.filter { it < step }.max()
+        restore(from)
+        while (from < step) {
+            playWhole(from)
+            from++
+            checkpoint(from)
+        }
+    }
+
+    private fun applyShows(stepIndex: Int) {
+        shows[stepIndex]?.forEach { objects.getValue(it).visible = true }
+    }
+
+    /** Run a verb start to finish for its side effects, discarding its frames. */
+    private fun playWhole(stepIndex: Int) {
+        applyShows(stepIndex)
+        val runner = runners[stepIndex]
+        runner.enter()
+        for (k in 0 until runner.frames) runner.render(k)
+        runner.exit()
     }
 
     private fun frames(seconds: Double) = (seconds * fps).toInt()
 
-    private fun runStep(step: Step) {
-        when (step) {
-            is Step.Create -> doCreate(step)
-            is Step.Transform -> doTransform(step)
-            is Step.Xform -> doXform(step)
-            is Step.Write -> doReveal(step.name, step.seconds, sequential = false)
-            is Step.RevealSequence -> doReveal(step.name, step.seconds, sequential = true)
-            is Step.LaggedGrow -> doLaggedGrow(step)
-            is Step.Fade -> doFade(step.name, step.seconds, fadingIn = true)
-            is Step.FadeOut -> doFade(step.name, step.seconds, fadingIn = false)
-            is Step.Morph -> doMorph(step)
-            is Step.Move -> doMove(step)
-            is Step.Spin -> doSpin(step)
-            is Step.Wait -> repeat(frames(step.seconds)) { emit() }
-            is Step.Show -> Unit
-        }
+    private fun runnerFor(step: Step): Runner = when (step) {
+        is Step.Create -> createRunner(step)
+        is Step.Transform -> transformRunner(step)
+        is Step.Xform -> xformRunner(step)
+        is Step.Write -> revealRunner(step.name, step.seconds, sequential = false)
+        is Step.RevealSequence -> revealRunner(step.name, step.seconds, sequential = true)
+        is Step.LaggedGrow -> laggedGrowRunner(step)
+        is Step.Fade -> fadeRunner(step.name, step.seconds, fadingIn = true)
+        is Step.FadeOut -> fadeRunner(step.name, step.seconds, fadingIn = false)
+        is Step.Morph -> morphRunner(step)
+        is Step.Move -> moveRunner(step)
+        is Step.Spin -> spinRunner(step)
+        is Step.Wait -> holdRunner(step.seconds)
+        is Step.Show -> holdRunner(0.0)
     }
 
-    private fun doCreate(step: Step.Create) {
-        val rate = Verbs.rate(step.rate)
-        val spec = program.shapes.getValue(step.name)
-        val full = geometryFor(spec)
-        val obj = Obj(
-            kind = "shape", visible = true, points = full, alpha = 1.0,
-            strokeRgb = spec.stroke, width = spec.width,
-        )
-        objects[step.name] = obj
-        val total = frames(step.seconds)
-        for (i in 0 until total) {
-            obj.points = Verbs.pointwiseBecomePartial(full, 0.0, rate((i + 1).toDouble() / total))
+    private fun holdRunner(seconds: Double) = object : Runner {
+        override val frames = frames(seconds)
+        override fun enter() {}
+        override fun render(k: Int) = emit()
+        override fun exit() {}
+    }
+
+    private fun createRunner(step: Step.Create) = object : Runner {
+        override val frames = frames(step.seconds)
+        private val rate = Verbs.rate(step.rate)
+        private val spec = program.shapes.getValue(step.name)
+        private val full = geometryFor(spec)
+        private lateinit var obj: Obj
+
+        override fun enter() {
+            obj = Obj(
+                kind = "shape", visible = true, points = full, alpha = 1.0,
+                strokeRgb = spec.stroke, width = spec.width,
+            )
+            objects[step.name] = obj
+        }
+
+        override fun render(k: Int) {
+            obj.points = Verbs.pointwiseBecomePartial(full, 0.0, rate((k + 1).toDouble() / frames))
             emit()
         }
-        obj.points = full
+
+        override fun exit() {
+            obj.points = full
+        }
     }
 
-    private fun doTransform(step: Step.Transform) {
-        val rate = Verbs.rate(step.rate)
-        val obj = objects.getValue(step.source)
-        val targetSpec = program.shapes.getValue(step.target)
-        val (startPts, endPts) = Verbs.align(obj.points!!, geometryFor(targetSpec))
-        val c0 = intArrayOf((obj.strokeRgb shr 16) and 0xFF, (obj.strokeRgb shr 8) and 0xFF, obj.strokeRgb and 0xFF)
-        val c1 = intArrayOf((targetSpec.stroke shr 16) and 0xFF, (targetSpec.stroke shr 8) and 0xFF, targetSpec.stroke and 0xFF)
+    private fun transformRunner(step: Step.Transform) = object : Runner {
+        override val frames = frames(step.seconds)
+        private val rate = Verbs.rate(step.rate)
+        private lateinit var obj: Obj
+        private lateinit var startPts: DoubleArray
+        private lateinit var endPts: DoubleArray
+        private lateinit var c0: IntArray
+        private lateinit var c1: IntArray
 
-        val total = frames(step.seconds)
-        for (i in 0 until total) {
-            val alpha = rate((i + 1).toDouble() / total)
-            val pts = DoubleArray(startPts.size) { startPts[it] + (endPts[it] - startPts[it]) * alpha }
-            obj.points = pts
-            obj.strokeRgb = (0 until 3).fold(0) { acc, k ->
-                (acc shl 8) or pyRound(c0[k] + (c1[k] - c0[k]) * alpha).coerceIn(0, 255)
+        override fun enter() {
+            obj = objects.getValue(step.source)
+            val targetSpec = program.shapes.getValue(step.target)
+            val aligned = Verbs.align(obj.points!!, geometryFor(targetSpec))
+            startPts = aligned.first
+            endPts = aligned.second
+            c0 = intArrayOf((obj.strokeRgb shr 16) and 0xFF, (obj.strokeRgb shr 8) and 0xFF, obj.strokeRgb and 0xFF)
+            c1 = intArrayOf((targetSpec.stroke shr 16) and 0xFF, (targetSpec.stroke shr 8) and 0xFF, targetSpec.stroke and 0xFF)
+        }
+
+        override fun render(k: Int) {
+            val alpha = rate((k + 1).toDouble() / frames)
+            obj.points = DoubleArray(startPts.size) { startPts[it] + (endPts[it] - startPts[it]) * alpha }
+            obj.strokeRgb = (0 until 3).fold(0) { acc, i ->
+                (acc shl 8) or pyRound(c0[i] + (c1[i] - c0[i]) * alpha).coerceIn(0, 255)
             }
             emit()
         }
+
+        override fun exit() {}
     }
 
     /** Manim scales about the object's centre, then translates. */
-    private fun doXform(step: Step.Xform) {
-        val obj = objects.getValue(step.name)
-        val base = obj.xform.copyOf()
-        val centre = obj.centre
-        val total = frames(step.seconds)
-        for (i in 0 until total) {
-            val alpha = Verbs.smooth((i + 1).toDouble() / total)
+    private fun xformRunner(step: Step.Xform) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private lateinit var base: DoubleArray
+        private lateinit var centre: DoubleArray
+
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            base = obj.xform.copyOf()
+            centre = obj.centre
+        }
+
+        override fun render(k: Int) {
+            val alpha = Verbs.smooth((k + 1).toDouble() / frames)
             val scale = 1.0 + (step.factor - 1.0) * alpha
             val m = DoubleArray(12)
             m[0] = scale; m[5] = scale; m[10] = scale
@@ -339,25 +504,41 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             obj.xform = compose(m, base)
             emit()
         }
+
+        override fun exit() {}
     }
 
     /**
      * Manim lags each submobject. Write uses lag_ratio min(4/n, 0.2); Create on
      * a group uses 1.0, i.e. strictly one child at a time.
      */
-    private fun doReveal(name: String, seconds: Double, sequential: Boolean) {
-        val obj = objects[name] ?: throw IllegalStateException("reveal target '$name' was never declared")
-        // Revealing a thing puts it on stage. Without this the object stayed
-        // hidden for the whole reveal and appeared only at its trailing show.
-        obj.visible = true
-        val base = obj.instances.toList()
-        val count = maxOf(base.size, 1)
-        val lag = if (sequential) 1.0 else minOf(4.0 / count, 0.2)
-        val window = 1.0 / (1.0 + lag * (count - 1))
-        val total = frames(seconds)
+    private fun revealRunner(name: String, seconds: Double, sequential: Boolean) = object : Runner {
+        override val frames = frames(seconds)
+        private lateinit var obj: Obj
+        private lateinit var base: List<Inst>
+        private var lag = 0.0
+        private var window = 0.0
+        private var shapeFloor = 0
 
-        for (i in 0 until total) {
-            val alpha = (i + 1).toDouble() / total
+        override fun enter() {
+            obj = objects[name] ?: throw IllegalStateException("reveal target '$name' was never declared")
+            // Revealing a thing puts it on stage. Without this the object
+            // stayed hidden for the whole reveal and appeared only at its
+            // trailing show.
+            obj.visible = true
+            base = obj.instances.toList()
+            val count = maxOf(base.size, 1)
+            lag = if (sequential) 1.0 else minOf(4.0 / count, 0.2)
+            window = 1.0 / (1.0 + lag * (count - 1))
+            shapeFloor = shapes.size
+        }
+
+        override fun render(k: Int) {
+            // Partial paths are per frame and never outlive it, so the atlas is
+            // wound back rather than allowed to grow for the whole reveal.
+            while (shapes.size > shapeFloor) shapes.removeAt(shapes.size - 1)
+
+            val alpha = (k + 1).toDouble() / frames
             val revealed = ArrayList<Inst>(base.size)
             for ((index, inst) in base.withIndex()) {
                 val start = index * lag * window
@@ -374,7 +555,11 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             obj.instances = revealed
             emit()
         }
-        obj.instances = base.toMutableList()
+
+        override fun exit() {
+            while (shapes.size > shapeFloor) shapes.removeAt(shapes.size - 1)
+            obj.instances = base.toMutableList()
+        }
     }
 
     /**
@@ -383,54 +568,44 @@ internal class Builder(private val program: Program, private val loader: AssetLo
      * GrowFromCenter interpolates from a zero-size copy at the child's centre,
      * which point by point is c + alpha*(p - c) -- a uniform scale about c,
      * composable onto whatever transform the instance already carries, so
-     * nothing extra has to be shipped. The run lengths do have to be: a baked
-     * group is a flat instance list with no notion of which faces are which
-     * sphere.
+     * nothing extra is shipped. The run lengths do have to be: a baked group is
+     * a flat instance list with no notion of which faces are which sphere.
      */
-    private fun doLaggedGrow(step: Step.LaggedGrow) {
-        val obj = objects.getValue(step.name)
-        obj.visible = true
-        val base = obj.instances.toList()
-        val flags = obj.flags
-        val normals = obj.normals
+    private fun laggedGrowRunner(step: Step.LaggedGrow) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private lateinit var base: List<Inst>
+        private var flags: IntArray? = null
+        private var normals: Array<DoubleArray?>? = null
+        private lateinit var spans: List<IntArray>
+        private lateinit var centres: List<DoubleArray>
+        private var window = 0.0
 
-        val spans = ArrayList<IntArray>()
-        var cursor = 0
-        for (size in step.groups) {
-            spans.add(intArrayOf(cursor, cursor + size))
-            cursor += size
-        }
-        require(cursor == base.size) {
-            "laggedgrow ${step.name}: groups cover $cursor instances, asset has ${base.size}"
-        }
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            obj.visible = true
+            base = obj.instances.toList()
+            flags = obj.flags
+            normals = obj.normals
 
-        // Centres are measured, not shipped: the geometry already knows them.
-        val centres = spans.map { (lo, hi) ->
-            var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
-            var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
-            for (index in lo until hi) {
-                val inst = base[index]
-                val pts = shapes[inst.atlasId]
-                var i = 0
-                while (i < pts.size) {
-                    val x = inst.transform[0] * pts[i] + inst.transform[1] * pts[i + 1] + inst.transform[2] * pts[i + 2] + inst.transform[3]
-                    val y = inst.transform[4] * pts[i] + inst.transform[5] * pts[i + 1] + inst.transform[6] * pts[i + 2] + inst.transform[7]
-                    val z = inst.transform[8] * pts[i] + inst.transform[9] * pts[i + 1] + inst.transform[10] * pts[i + 2] + inst.transform[11]
-                    if (x < minX) minX = x; if (x > maxX) maxX = x
-                    if (y < minY) minY = y; if (y > maxY) maxY = y
-                    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
-                    i += 3
-                }
+            val built = ArrayList<IntArray>()
+            var cursor = 0
+            for (size in step.groups) {
+                built.add(intArrayOf(cursor, cursor + size))
+                cursor += size
             }
-            doubleArrayOf((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
+            require(cursor == base.size) {
+                "laggedgrow ${step.name}: groups cover $cursor instances, asset has ${base.size}"
+            }
+            spans = built
+
+            // Centres are measured, not shipped: the geometry already knows them.
+            centres = spans.map { span -> boundsCentre(base, span[0], span[1]) }
+            window = 1.0 / (1.0 + step.lag * (maxOf(spans.size, 1) - 1))
         }
 
-        val count = maxOf(spans.size, 1)
-        val window = 1.0 / (1.0 + step.lag * (count - 1))
-        val total = frames(step.seconds)
-
-        for (i in 0 until total) {
-            val alpha = (i + 1).toDouble() / total
+        override fun render(k: Int) {
+            val alpha = (k + 1).toDouble() / frames
             val grown = ArrayList<Inst>()
             val kept = ArrayList<Int>()
             for ((groupIndex, span) in spans.withIndex()) {
@@ -453,37 +628,46 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             // Flags and normals are indexed by position, so dropping the
             // not-yet-grown children would shade each sphere with another's.
             obj.instances = grown
-            if (flags != null) obj.flags = IntArray(kept.size) { flags[kept[it]] }
-            if (normals != null) obj.normals = Array(kept.size) { normals[kept[it]] }
+            flags?.let { f -> obj.flags = IntArray(kept.size) { f[kept[it]] } }
+            normals?.let { n -> obj.normals = Array(kept.size) { n[kept[it]] } }
             emit()
         }
-        obj.instances = base.toMutableList()
-        obj.flags = flags
-        obj.normals = normals
+
+        override fun exit() {
+            obj.instances = base.toMutableList()
+            obj.flags = flags
+            obj.normals = normals
+        }
     }
 
-    private fun doFade(name: String, seconds: Double, fadingIn: Boolean) {
-        objects[name]?.visible = true
-        // A declared shape only enters the scene when something animates it in;
-        // fade is one of those entry points, not just create.
-        if (fadingIn && name !in objects) {
-            val spec = program.shapes.getValue(name)
-            objects[name] = Obj(
-                kind = "shape", visible = true, points = geometryFor(spec), alpha = 0.0,
-                strokeRgb = spec.stroke, width = spec.width,
-            )
-        }
-        val obj = objects.getValue(name)
-        val base = if (obj.kind == "asset") obj.instances.toList() else null
-        val total = frames(seconds)
+    private fun fadeRunner(name: String, seconds: Double, fadingIn: Boolean) = object : Runner {
+        override val frames = frames(seconds)
+        private lateinit var obj: Obj
+        private var base: List<Inst>? = null
 
-        for (i in 0 until total) {
-            val progress = Verbs.smooth((i + 1).toDouble() / total)
+        override fun enter() {
+            objects[name]?.visible = true
+            // A declared shape only enters the scene when something animates it
+            // in; fade is one of those entry points, not just create.
+            if (fadingIn && name !in objects) {
+                val spec = program.shapes.getValue(name)
+                objects[name] = Obj(
+                    kind = "shape", visible = true, points = geometryFor(spec), alpha = 0.0,
+                    strokeRgb = spec.stroke, width = spec.width,
+                )
+            }
+            obj = objects.getValue(name)
+            base = if (obj.kind == "asset") obj.instances.toList() else null
+        }
+
+        override fun render(k: Int) {
+            val progress = Verbs.smooth((k + 1).toDouble() / frames)
             val alpha = if (fadingIn) progress else 1.0 - progress
-            if (base == null) {
+            val held = base
+            if (held == null) {
                 obj.alpha = alpha
             } else {
-                obj.instances = base.mapTo(ArrayList()) { inst ->
+                obj.instances = held.mapTo(ArrayList()) { inst ->
                     Inst(
                         inst.atlasId, inst.transform,
                         intArrayOf(inst.fill[0], inst.fill[1], inst.fill[2], (inst.fill[3] * alpha).toInt()),
@@ -495,45 +679,59 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             emit()
         }
 
-        if (base == null) {
-            if (fadingIn) obj.alpha = 1.0 else objects.remove(name)
-        } else {
-            obj.instances = if (fadingIn) base.toMutableList() else ArrayList()
+        override fun exit() {
+            val held = base
+            if (held == null) {
+                if (fadingIn) obj.alpha = 1.0 else objects.remove(name)
+            } else {
+                obj.instances = if (fadingIn) held.toMutableList() else ArrayList()
+            }
         }
     }
 
     /**
      * Glyph-level matching. Instances sharing a library glyph id pair up in
      * order; anything left over on either side fades rather than morphing into
-     * an unrelated shape -- which is the correspondence TransformMatchingTex
-     * computes from TeX structure, recovered here from the shared atlas.
+     * an unrelated shape -- the correspondence TransformMatchingTex computes
+     * from TeX structure, recovered here from the shared atlas.
      */
-    private fun doMorph(step: Step.Morph) {
-        val src = objects.getValue(step.source)
-        val dst = objects.getValue(step.target)
-        src.visible = true
-        dst.visible = false
+    private fun morphRunner(step: Step.Morph) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var src: Obj
+        private lateinit var dst: Obj
+        private lateinit var pairs: List<IntArray>
+        private lateinit var orphans: List<Int>
+        private lateinit var arrivals: List<Int>
+        private lateinit var srcBase: List<Inst>
+        private lateinit var dstBase: List<Inst>
 
-        val pending = LinkedHashMap<Int, ArrayDeque<Int>>()
-        dst.glyphIds!!.forEachIndexed { index, glyph ->
-            pending.getOrPut(glyph) { ArrayDeque() }.addLast(index)
+        override fun enter() {
+            src = objects.getValue(step.source)
+            dst = objects.getValue(step.target)
+            src.visible = true
+            dst.visible = false
+
+            val pending = LinkedHashMap<Int, ArrayDeque<Int>>()
+            dst.glyphIds!!.forEachIndexed { index, glyph ->
+                pending.getOrPut(glyph) { ArrayDeque() }.addLast(index)
+            }
+            val matched = ArrayList<IntArray>()
+            val unmatched = ArrayList<Int>()
+            src.glyphIds!!.forEachIndexed { index, glyph ->
+                val queue = pending[glyph]
+                if (queue != null && queue.isNotEmpty()) matched.add(intArrayOf(index, queue.removeFirst()))
+                else unmatched.add(index)
+            }
+            pairs = matched
+            orphans = unmatched
+            arrivals = pending.values.flatten()
+            srcBase = src.instances.toList()
+            dstBase = dst.instances.toList()
         }
 
-        val pairs = ArrayList<IntArray>()
-        val orphans = ArrayList<Int>()
-        src.glyphIds!!.forEachIndexed { index, glyph ->
-            val queue = pending[glyph]
-            if (queue != null && queue.isNotEmpty()) pairs.add(intArrayOf(index, queue.removeFirst()))
-            else orphans.add(index)
-        }
-        val arrivals = pending.values.flatten()
-
-        val srcBase = src.instances.toList()
-        val dstBase = dst.instances.toList()
-        val total = frames(step.seconds)
-
-        for (i in 0 until total) {
-            val alpha = Verbs.smooth((i + 1).toDouble() / total)
+        override fun render(k: Int) {
+            val alpha = Verbs.smooth((k + 1).toDouble() / frames)
+            val fadeOut = 1.0 - alpha
             val built = ArrayList<Inst>()
             for (pair in pairs) {
                 val a = srcBase[pair[0]]
@@ -548,7 +746,6 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                     )
                 )
             }
-            val fadeOut = 1.0 - alpha
             for (index in orphans) {
                 val a = srcBase[index]
                 built.add(
@@ -574,20 +771,31 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             src.instances = built
             emit()
         }
-        src.instances = dstBase.toMutableList()
-        src.glyphIds = dst.glyphIds!!.copyOf()
+
+        override fun exit() {
+            src.instances = dstBase.toMutableList()
+            src.glyphIds = dst.glyphIds!!.copyOf()
+        }
     }
 
-    private fun doMove(step: Step.Move) {
-        val startPhi = phi
-        val startTheta = theta
-        val total = frames(step.seconds)
-        for (i in 0 until total) {
-            val alpha = Verbs.smooth((i + 1).toDouble() / total)
+    private fun moveRunner(step: Step.Move) = object : Runner {
+        override val frames = frames(step.seconds)
+        private var startPhi = 0.0
+        private var startTheta = 0.0
+
+        override fun enter() {
+            startPhi = phi
+            startTheta = theta
+        }
+
+        override fun render(k: Int) {
+            val alpha = Verbs.smooth((k + 1).toDouble() / frames)
             phi = startPhi + (step.phi - startPhi) * alpha
             theta = startTheta + (step.theta - startTheta) * alpha
             emit()
         }
+
+        override fun exit() {}
     }
 
     /**
@@ -595,12 +803,46 @@ internal class Builder(private val program: Program, private val loader: AssetLo
      * last frame, which repeats the previous orientation. Measured on two
      * scenes. Without it the trailing hold sits 0.57 deg out for a whole
      * second -- where the fidelity harness never looks.
+     *
+     * Resumable form: theta at frame k is a closed form off the verb's start,
+     * so a seek inside a spin does not have to replay it.
      */
-    private fun doSpin(step: Step.Spin) {
-        val total = frames(step.seconds)
-        for (i in 0 until total) {
-            if (i < total - 1) theta += step.rate / fps
+    private fun spinRunner(step: Step.Spin) = object : Runner {
+        override val frames = frames(step.seconds)
+        private var startTheta = 0.0
+
+        override fun enter() {
+            startTheta = theta
+        }
+
+        override fun render(k: Int) {
+            val advances = minOf(k + 1, maxOf(frames - 1, 0))
+            theta = startTheta + advances * step.rate / fps
             emit()
         }
+
+        override fun exit() {
+            theta = startTheta + maxOf(frames - 1, 0) * step.rate / fps
+        }
+    }
+
+    private fun boundsCentre(instances: List<Inst>, from: Int, until: Int): DoubleArray {
+        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
+        for (index in from until until) {
+            val inst = instances[index]
+            val pts = shapes[inst.atlasId]
+            var i = 0
+            while (i < pts.size) {
+                val x = inst.transform[0] * pts[i] + inst.transform[1] * pts[i + 1] + inst.transform[2] * pts[i + 2] + inst.transform[3]
+                val y = inst.transform[4] * pts[i] + inst.transform[5] * pts[i + 1] + inst.transform[6] * pts[i + 2] + inst.transform[7]
+                val z = inst.transform[8] * pts[i] + inst.transform[9] * pts[i + 1] + inst.transform[10] * pts[i + 2] + inst.transform[11]
+                if (x < minX) minX = x; if (x > maxX) maxX = x
+                if (y < minY) minY = y; if (y > maxY) maxY = y
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
+                i += 3
+            }
+        }
+        return doubleArrayOf((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
     }
 }

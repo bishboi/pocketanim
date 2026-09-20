@@ -161,14 +161,16 @@ object Renderer {
      * point, because the throughput question on a low-end phone is decided by
      * allocation and draw-call count long before it is decided by arithmetic.
      */
-    fun drawFrame(scene: Scene, index: Int, sink: PathSink) {
-        val camera = scene.cameras?.getOrNull(index)
-        var instances = scene.frame(index)
+    fun drawFrame(scene: Frames, index: Int, sink: PathSink) {
+        // instances() first: a computing source populates its atlas as a side
+        // effect of producing the frame, so shape() is only valid afterwards.
+        var instances = scene.instances(index)
+        val camera = scene.camera(index)
 
         if (camera != null) {
             val keyed = Array(instances.size) { i ->
                 val inst = instances[i]
-                val canonical = scene.atlas[inst.atlasId]
+                val canonical = scene.shape(inst.atlasId)
                 val world = FloatArray(canonical.size)
                 transform(canonical, inst.transform, world)
                 Pair(depthOf(world, inst.flags, camera), inst)
@@ -178,7 +180,7 @@ object Renderer {
         }
 
         for (inst in instances) {
-            val canonical = scene.atlas[inst.atlasId]
+            val canonical = scene.shape(inst.atlasId)
             val world = FloatArray(canonical.size)
             transform(canonical, inst.transform, world)
 

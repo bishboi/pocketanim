@@ -69,8 +69,13 @@ done
 # build script at all.
 kotlinc() {
   local log status
+  # errexit would kill the script at this assignment the moment the compiler
+  # returns non-zero, before any of the reporting below could run -- so the
+  # failure would surface as silence.
+  set +e
   log=$(java -cp "$COMPILER_CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib "$@" 2>&1)
   status=$?
+  set -e
   printf '%s\n' "$log" | grep -viE '^warning:|Picked up JAVA_TOOL_OPTIONS' || true
   if [ $status -ne 0 ] || printf '%s' "$log" | grep -q 'error:'; then
     echo "compile failed" >&2

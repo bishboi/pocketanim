@@ -44,18 +44,14 @@ def python_dump(program: Path, frame: int) -> list[str]:
 
     ir = load_program(str(program))
     lines = [
-        "H %d %d %d %d" % (ir.fps, len(ir.records), len(ir.shapes),
-                           1 if ir.cameras is not None else 0)
+        "H %d %d %d" % (ir.fps, len(ir.records), 1 if ir.cameras is not None else 0)
     ]
 
-    for index, shape in enumerate(ir.shapes):
-        n = len(shape)
-        first = shape[0] if n else np.zeros(3)
-        last = shape[-1] if n else np.zeros(3)
-        mean = shape.mean(axis=0) if n else np.zeros(3)
-        lines.append("A %d %d " % (index, n)
-                     + " ".join("%.6f" % v for v in (*first, *last, *mean)))
-
+    # No atlas lines: the two implementations allocate atlas ids differently on
+    # purpose. The reference keeps every transient reveal path it ever built;
+    # the device winds them back, because holding them was most of the 98.8 MB
+    # that made the eager interpreter unusable on a phone. Geometry is compared
+    # per instance below instead, which is what is actually drawn.
     for index, (kind, instances) in enumerate(ir.records):
         lines.append("R %d %d %d" % (index, kind, len(instances)))
 
@@ -65,7 +61,14 @@ def python_dump(program: Path, frame: int) -> list[str]:
     instances = ir.frame(frame)
     lines.append("F %d %d" % (frame, len(instances)))
     for ordinal, inst in enumerate(instances):
-        parts = ["I %d %d %d %d" % (ordinal, inst.slot, inst.atlas_id, inst.flags)]
+        shape = ir.shapes[inst.atlas_id]
+        n = len(shape)
+        first = shape[0] if n else np.zeros(3)
+        last = shape[-1] if n else np.zeros(3)
+        mean = shape.mean(axis=0) if n else np.zeros(3)
+        lines.append("G %d %d " % (ordinal, n)
+                     + " ".join("%.6f" % v for v in (*first, *last, *mean)))
+        parts = ["I %d %d %d %d" % (ordinal, inst.slot, n, inst.flags)]
         parts += ["%.6f" % v for v in inst.transform.reshape(-1)]
         parts += [str(v) for v in inst.fill]
         parts += [str(v) for v in inst.stroke]

@@ -988,14 +988,37 @@ serialise.
   magnitude slower — but it points at the rasteriser rather than at the maths.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back to.
-- **The tier-1 interpreter materialises every frame up front.** Correct, and verified against
-  the reference interpreter, but a long instance-heavy scene will hold tens of megabytes on a
-  phone. The structure to fix it is already there — the timeline is a state machine stepped one
-  frame at a time — so the change is to stop retaining rather than to redesign. Seeking
-  backwards then needs the same snapshot trick tier 3 already uses.
+- ~~**The tier-1 interpreter materialises every frame up front.**~~ **Fixed.** It measured at
+  **98.8 MB retained** for MolecularStructure, which a phone does not have to spare, so this was
+  a defect rather than a note. Each verb is now a resumable `Runner` — its per-frame body was
+  already a pure function of (state at the verb's start, frame number) — and verb boundaries are
+  checkpointed, so the player holds one frame instead of all of them:
+
+  | Scene | Before | After |
+  |---|---|---|
+  | MolecularStructure | 98.8 MB | **1.6 MB** |
+  | CartopyMap | 31.9 MB | **6.7 MB** |
+  | ThreeDCamera | 23.0 MB | **0.7 MB** |
+  | CodeWalkthrough | 4.6 MB | **0.8 MB** |
+
+  CartopyMap stays largest because most of its footprint is a 732,852-float coastline — that is
+  content, not frames, and no amount of laziness removes it.
+
+  Playing forward costs one verb body per frame; seeking backwards restores the nearest verb
+  boundary and replays *inside that verb only*, so cost is bounded by the longest verb rather
+  than by how far the seek went — the same property §5.2 relies on for tier 3. **Seeking is
+  verified exact**, which matters because a frame rebuilt from a checkpoint could otherwise
+  depend on how it was reached: every frame is digested on a forward pass, then re-requested
+  in reverse, shuffled, repeated and interleaved with the ends. All 18 corpus files match on
+  all four orders (`VerifyKt <scene> seektest`).
+
+  One consequence worth stating: the device no longer keeps transient reveal geometry, so its
+  atlas ids differ from the reference interpreter's by design. The interpreter cross-check
+  therefore compares the *geometry each instance resolves to* rather than the id — which is
+  what is actually drawn, and a better check than the one it replaced.
 - **The Android layer has never run.** It compiles against the real framework (§5.0); that is
-  all a compiler can tell you. The render thread, surface lifecycle, `AudioTrack` clock and
-  seek-during-drag behaviour are unexercised.
+  all a compiler can tell you. The render thread, surface lifecycle, `AudioTrack` clock,
+  `MediaCodec` audio decode and seek-during-drag behaviour are unexercised.
 - **Corpus scenes are 6–14.5 s.** Any 3-minute figure here is extrapolation, and the IR/video
   crossover is duration-sensitive — CartopyMap's sits around 8 s. Add a long scene before any
   production sizing decision.

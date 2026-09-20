@@ -38,7 +38,7 @@ class Instance(
 class Record(@JvmField val kind: Int, @JvmField val instances: Array<Instance>)
 
 class Scene(
-    @JvmField val fps: Int,
+    override val fps: Int,
     /** Per shape, flat xyz triples, already dequantised. */
     @JvmField val atlas: Array<FloatArray>,
     /** Per record, [Panm.CAMERA_FLOATS] floats; null when the scene is 2D. */
@@ -46,8 +46,14 @@ class Scene(
     @JvmField val records: Array<Record>,
     @JvmField val lo: FloatArray,
     @JvmField val hi: FloatArray,
-) {
-    val frameCount: Int get() = records.size
+) : Frames {
+    override val frameCount: Int get() = records.size
+
+    override fun shape(atlasId: Int): FloatArray = atlas[atlasId]
+
+    override fun camera(index: Int): FloatArray? = cameras?.getOrNull(index)
+
+    override fun instances(index: Int): Array<Instance> = frame(index)
 
     /**
      * Resolve a frame to its ordered instance list.

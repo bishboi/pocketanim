@@ -5,6 +5,7 @@ import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.Panm
 import com.pocketanim.core.PathSink
 import com.pocketanim.core.Renderer
+import com.pocketanim.core.Frames
 import com.pocketanim.core.Scene
 import com.pocketanim.core.dsl.AssetLoader
 import com.pocketanim.core.dsl.Interpreter
@@ -69,7 +70,7 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
     }
 }
 
-private fun render(scene: Scene, index: Int, width: Int, height: Int): BufferedImage {
+private fun render(scene: Frames, index: Int, width: Int, height: Int): BufferedImage {
     val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
     val g = image.createGraphics()
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -88,49 +89,107 @@ private fun render(scene: Scene, index: Int, width: Int, height: Int): BufferedI
 }
 
 /** The canonical dump the Java and Python decoders also emit, field for field. */
-private fun dump(scene: Scene, probe: Int) {
+private fun highestAtlasId(scene: Frames, index: Int): Int {
+    var highest = -1
+    for (inst in scene.instances(index)) if (inst.atlasId > highest) highest = inst.atlasId
+    return highest
+}
+
+private fun dump(scene: Frames, probe: Int) {
     val l = Locale.ROOT
     val out = StringBuilder()
-    out.append(String.format(l, "H %d %d %d %d%n",
-        scene.fps, scene.records.size, scene.atlas.size, if (scene.cameras != null) 1 else 0))
-    // A program carries no quantisation box -- its geometry is computed, not
-    // dequantised -- so the bounds line is omitted rather than faked.
-    val quantised = scene.lo.any { it != 0f } || scene.hi.any { it != 0f }
+
+    // A computing source has no records array and grows its atlas as it plays,
+    // so the header and the per-record lines are gathered by walking frames.
+    val perFrame = IntArray(scene.frameCount)
+    var atlasSize = 0
+    for (i in 0 until scene.frameCount) {
+        perFrame[i] = scene.instances(i).size
+        atlasSize = maxOf(atlasSize, highestAtlasId(scene, i) + 1)
+    }
+    val quantised = scene is Scene && (scene.lo.any { it != 0f } || scene.hi.any { it != 0f })
+    val shapeCount = if (scene is Scene) scene.atlas.size else atlasSize
+
+    if (scene is Scene) {
+        out.append(String.format(l, "H %d %d %d %d%n",
+            scene.fps, scene.frameCount, shapeCount,
+            if (scene.camera(0) != null) 1 else 0))
+    } else {
+        // Shape count is bookkeeping for a computing source, not content.
+        out.append(String.format(l, "H %d %d %d%n",
+            scene.fps, scene.frameCount, if (scene.camera(0) != null) 1 else 0))
+    }
     if (quantised) {
+        val s2 = scene as Scene
         out.append(String.format(l, "B %.6f %.6f %.6f %.6f %.6f %.6f%n",
-            scene.lo[0], scene.lo[1], scene.lo[2], scene.hi[0], scene.hi[1], scene.hi[2]))
+            s2.lo[0], s2.lo[1], s2.lo[2], s2.hi[0], s2.hi[1], s2.hi[2]))
     }
 
-    for (s in scene.atlas.indices) {
-        val pts = scene.atlas[s]
-        val n = pts.size / 3
-        val mean = DoubleArray(3)
-        for (i in 0 until n) for (k in 0 until 3) mean[k] += pts[i * 3 + k].toDouble()
-        for (k in 0 until 3) mean[k] = if (n > 0) mean[k] / n else 0.0
-        out.append(String.format(l, "A %d %d %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f%n",
-            s, n,
-            if (n > 0) pts[0] else 0f, if (n > 0) pts[1] else 0f, if (n > 0) pts[2] else 0f,
-            if (n > 0) pts[(n - 1) * 3] else 0f,
-            if (n > 0) pts[(n - 1) * 3 + 1] else 0f,
-            if (n > 0) pts[(n - 1) * 3 + 2] else 0f,
-            mean[0], mean[1], mean[2]))
+    if (scene is Scene) {
+        for (s in scene.atlas.indices) {
+            val pts = scene.atlas[s]
+            val n = pts.size / 3
+            val mean = DoubleArray(3)
+            for (i in 0 until n) for (k in 0 until 3) mean[k] += pts[i * 3 + k].toDouble()
+            for (k in 0 until 3) mean[k] = if (n > 0) mean[k] / n else 0.0
+            out.append(String.format(l, "A %d %d %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f%n",
+                s, n,
+                if (n > 0) pts[0] else 0f, if (n > 0) pts[1] else 0f, if (n > 0) pts[2] else 0f,
+                if (n > 0) pts[(n - 1) * 3] else 0f,
+                if (n > 0) pts[(n - 1) * 3 + 1] else 0f,
+                if (n > 0) pts[(n - 1) * 3 + 2] else 0f,
+                mean[0], mean[1], mean[2]))
+        }
     }
 
-    for (r in scene.records.indices) {
-        out.append(String.format(l, "R %d %d %d%n", r, scene.records[r].kind, scene.records[r].instances.size))
+    // A decoded container has real record kinds -- snapshot versus keyframe is
+    // part of what the decoder cross-check is checking. A computing source has
+    // no records at all, so every frame reports as a snapshot.
+    for (r in 0 until scene.frameCount) {
+        if (scene is Scene) {
+            // The record's own payload, not the resolved frame: a keyframe
+            // carrying no changes is exactly what the delta encoding is for,
+            // and reporting the replayed count would hide it.
+            out.append(String.format(l, "R %d %d %d%n",
+                r, scene.records[r].kind, scene.records[r].instances.size))
+        } else {
+            out.append(String.format(l, "R %d %d %d%n", r, 0, perFrame[r]))
+        }
     }
 
-    scene.cameras?.let { cameras ->
+    scene.camera(probe)?.let { camera ->
         out.append("C ").append(probe)
-        for (v in cameras[probe]) out.append(String.format(l, " %.6f", v))
+        for (v in camera) out.append(String.format(l, " %.6f", v))
         out.append('\n')
     }
 
-    val frame = scene.frame(probe)
+    val frame = scene.instances(probe)
     out.append(String.format(l, "F %d %d%n", probe, frame.size))
     for (i in frame.indices) {
         val inst = frame[i]
-        out.append(String.format(l, "I %d %d %d %d", i, inst.slot, inst.atlasId, inst.flags))
+        // A computing source allocates atlas ids as it goes and reuses them
+        // once transient reveal geometry is wound back, so the id itself is
+        // bookkeeping rather than meaning. What must agree across
+        // implementations is the geometry the id resolves to.
+        val pts = scene.shape(inst.atlasId)
+        val n = pts.size / 3
+        if (scene !is Scene) {
+            // Only for a computing source: it allocates atlas ids as it goes and
+            // reuses them once transient reveal geometry is wound back, so the id
+            // is bookkeeping. What must agree is the geometry it resolves to.
+            val mean = DoubleArray(3)
+            for (q in 0 until n) for (k in 0 until 3) mean[k] += pts[q * 3 + k].toDouble()
+            for (k in 0 until 3) mean[k] = if (n > 0) mean[k] / n else 0.0
+            out.append(String.format(l, "G %d %d %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f%n",
+                i, n,
+                if (n > 0) pts[0] else 0f, if (n > 0) pts[1] else 0f, if (n > 0) pts[2] else 0f,
+                if (n > 0) pts[(n - 1) * 3] else 0f,
+                if (n > 0) pts[(n - 1) * 3 + 1] else 0f,
+                if (n > 0) pts[(n - 1) * 3 + 2] else 0f,
+                mean[0], mean[1], mean[2]))
+        }
+        out.append(String.format(l, "I %d %d %d %d", i, inst.slot,
+            if (scene is Scene) inst.atlasId else n, inst.flags))
         for (row in 0 until 3) for (col in 0 until 4) {
             out.append(String.format(l, " %.6f", inst.transform[row * 4 + col]))
         }
@@ -154,7 +213,7 @@ private fun dump(scene: Scene, probe: Int) {
  * phone, and Java2D is not Skia. It measures the part that is the same on both:
  * decode, transform, project, depth sort, shade, and walk the paths.
  */
-private fun benchmark(scene: Scene, width: Int, height: Int) {
+private fun benchmark(scene: Frames, width: Int, height: Int) {
     // Two different numbers, and they answer different questions.
     //
     // Skia's kMaxGPUPathRendererVerbs cliff is per *path*: a single path over
@@ -215,16 +274,82 @@ private class FileAssets(private val root: File) : AssetLoader {
  * nothing downstream can tell which tier it is looking at, which is the whole
  * point of the interpreter producing a [Scene].
  */
-private fun load(path: File): Scene =
+private fun load(path: File): Frames =
     if (path.name.endsWith(".panim")) {
-        Interpreter.build(Program.parse(path.readText()), FileAssets(path.parentFile))
+        Interpreter.open(Program.parse(path.readText()), FileAssets(path.parentFile))
     } else {
         Scene.parse(path.readBytes())
     }
 
+/**
+ * Seeking must be exact, not approximate.
+ *
+ * A computing source rebuilds a frame from a checkpoint and replays forward, so
+ * "the frame you get" could depend on how you arrived at it. That would show up
+ * as a scrub that renders subtly differently from playback -- the kind of bug
+ * that survives a fidelity harness, because a harness plays forward.
+ *
+ * Every frame is digested during a forward pass, then re-requested backwards,
+ * shuffled, and with repeats. Any disagreement is a state leak between frames.
+ */
+private fun seekTest(scene: Frames): Boolean {
+    fun digest(index: Int): Long {
+        var h = 1125899906842597L
+        for (inst in scene.instances(index)) {
+            h = h * 31 + inst.slot
+            h = h * 31 + inst.flags
+            h = h * 31 + inst.fill
+            h = h * 31 + inst.stroke
+            h = h * 31 + inst.strokeWidth.toRawBits()
+            for (v in inst.transform) h = h * 31 + v.toRawBits()
+            inst.normal?.forEach { h = h * 31 + it.toRawBits() }
+            // Geometry too: the atlas is rebuilt on seek, so an id alone would
+            // not notice if it came back pointing at different points.
+            val pts = scene.shape(inst.atlasId)
+            h = h * 31 + pts.size
+            if (pts.isNotEmpty()) {
+                h = h * 31 + pts[0].toRawBits()
+                h = h * 31 + pts[pts.size - 1].toRawBits()
+            }
+        }
+        scene.camera(index)?.forEach { h = h * 31 + it.toRawBits() }
+        return h
+    }
+
+    val forward = LongArray(scene.frameCount) { digest(it) }
+
+    val orders = listOf(
+        "reverse" to (scene.frameCount - 1 downTo 0).toList(),
+        "shuffled" to (0 until scene.frameCount).shuffled(java.util.Random(7).let { r ->
+            kotlin.random.Random(7)
+        }),
+        "repeated" to (0 until scene.frameCount).flatMap { listOf(it, it) },
+        "ends" to (0 until scene.frameCount).flatMap { listOf(it, 0, scene.frameCount - 1) },
+    )
+
+    var failures = 0
+    for ((name, order) in orders) {
+        var bad = 0
+        var firstBad = -1
+        for (index in order) {
+            if (digest(index) != forward[index]) {
+                bad++
+                if (firstBad < 0) firstBad = index
+            }
+        }
+        if (bad > 0) {
+            failures++
+            println("  FAIL $name: $bad/${order.size} frames differ, first at $firstBad")
+        } else {
+            println("  ok   $name: ${order.size} requests match the forward pass")
+        }
+    }
+    return failures == 0
+}
+
 fun main(args: Array<String>) {
     if (args.size < 2) {
-        println("usage: Verify <scene.panm|scene.panim> <dump|render|bench> [frame] [out.png]")
+        println("usage: Verify <scene.panm|scene.panim> <dump|render|bench|seektest> [frame] [out.png]")
         return
     }
     val scene = load(File(args[0]))
@@ -239,6 +364,10 @@ fun main(args: Array<String>) {
             println("wrote $out (frame $probe of ${scene.frameCount})")
         }
         "bench" -> benchmark(scene, 1280, 720)
+        "seektest" -> {
+            println("seek exactness, ${scene.frameCount} frames")
+            if (!seekTest(scene)) kotlin.system.exitProcess(1)
+        }
         else -> println("unknown mode $mode")
     }
 }

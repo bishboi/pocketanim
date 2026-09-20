@@ -10,7 +10,7 @@ package com.pocketanim.core
  * the right speed, and a clock that returns nothing is worse than one that is
  * merely not authoritative.
  */
-interface TimeSource {
+fun interface TimeSource {
     /** Seconds of media played, or null when this source cannot answer yet. */
     fun positionSeconds(): Double?
 }

@@ -382,6 +382,17 @@ private fun libraryReport(root: File): Boolean {
         return false
     }
 
+    // Digests as well as sizes: a download that truncates is caught by size,
+    // but one that corrupts a block in place is not, and the symptom of the
+    // second is geometry that decodes and draws the wrong picture.
+    val problems = library.checkIntegrity(verifyDigests = true)
+    if (problems.isNotEmpty()) {
+        println("integrity: ${problems.size} problem(s)")
+        problems.take(5).forEach { println("  $it") }
+        return false
+    }
+    println("integrity: ${library.assets.size} files match the manifest")
+
     println(String.format("%-22s %5s %7s %8s %9s  %s", "scene", "tier", "frames", "bytes", "instances", "status"))
     var failures = 0
     for (entry in library.scenes) {
@@ -412,10 +423,16 @@ private fun libraryReport(root: File): Boolean {
 }
 
 fun main(args: Array<String>) {
-    if (args.size < 2) {
+    if (args.size < 2 && args.firstOrNull() != "selftest") {
         println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library> [frame] [out.png]")
+        println("       Verify selftest")
         return
     }
+    if (args[0] == "selftest") {
+        if (!runSelfTest()) kotlin.system.exitProcess(1)
+        return
+    }
+
     if (args[1] == "library") {
         if (!libraryReport(File(args[0]))) kotlin.system.exitProcess(1)
         return

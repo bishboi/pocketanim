@@ -45,6 +45,15 @@ jobs:
       - name: Build the player
         run: ./player/build.sh --fetch
 
+      - name: Player self-test
+        # The clock, the manifest reader and the JSON parser: the parts that
+        # decide what reaches the renderer. A clock that picks the wrong frame
+        # draws it perfectly, so the oracle comparison cannot see this class of
+        # bug at all.
+        run: |
+          java -cp player/build/classes/core:player/build/classes/desktop:player/build/classes/kotlin-stdlib.jar \
+            com.pocketanim.desktop.VerifyKt selftest
+
       - name: Decoders agree (python, java, kotlin)
         run: |
           if ls corpus/ir/*.panm >/dev/null 2>&1; then

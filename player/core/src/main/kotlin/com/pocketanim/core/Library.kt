@@ -21,6 +21,14 @@ interface Storage {
     fun sizeOf(path: String): Long
 }
 
+/** A file the manifest names, with what it should be when it arrives. */
+class AssetRecord(val path: String, val bytes: Long, val digest: String?)
+
+/** One thing wrong with local storage, and which file it is wrong about. */
+class IntegrityProblem(val path: String, val reason: String) {
+    override fun toString() = "$path: $reason"
+}
+
 class SceneEntry(
     val name: String,
     val tier: Int,
@@ -46,7 +54,38 @@ class Library(
     private val storage: Storage,
     val scenes: List<SceneEntry>,
     val glyphAtlas: String?,
+    /** Every content-addressed file the manifest names, including the atlas. */
+    val assets: List<AssetRecord> = emptyList(),
 ) {
+
+    /**
+     * Check what is on disk against what the manifest says should be there.
+     *
+     * Content addressing makes sync trivial but does not make storage
+     * trustworthy: a download can truncate, a cache can be evicted mid-write,
+     * and the failure then looks like corrupt geometry rather than a bad file.
+     * Size is checked always because it is free; the digest only when asked,
+     * because hashing two megabytes on every launch is not.
+     */
+    fun checkIntegrity(verifyDigests: Boolean = false): List<IntegrityProblem> {
+        val problems = ArrayList<IntegrityProblem>()
+        for (record in assets) {
+            if (!storage.exists(record.path)) continue // missing() reports these
+            val actual = storage.sizeOf(record.path)
+            if (actual != record.bytes) {
+                problems.add(IntegrityProblem(record.path, "expected ${record.bytes} B, found $actual B"))
+                continue
+            }
+            val expected = record.digest ?: continue
+            if (verifyDigests) {
+                val got = digestOf(storage.read(record.path))
+                if (got != expected) {
+                    problems.add(IntegrityProblem(record.path, "digest $got, expected $expected"))
+                }
+            }
+        }
+        return problems
+    }
     /** Paths named by the manifest that this device does not have yet. */
     fun missing(): List<String> {
         val wanted = LinkedHashSet<String>()
@@ -111,7 +150,32 @@ class Library(
                 )
             }
 
-            return Library(storage, scenes, root["glyph_atlas"]?.get("path")?.asString)
+            val assets = ArrayList<AssetRecord>()
+            root["assets"]?.asList.orEmpty().forEach { entry ->
+                val path = entry["path"]?.asString ?: return@forEach
+                assets.add(AssetRecord(path, entry["bytes"]?.asLong ?: 0L, entry["sha256_16"]?.asString))
+            }
+            root["glyph_atlas"]?.let { atlas ->
+                atlas["path"]?.asString?.let { path ->
+                    assets.add(AssetRecord(path, atlas["bytes"]?.asLong ?: 0L, atlas["sha256_16"]?.asString))
+                }
+            }
+
+            return Library(storage, scenes, root["glyph_atlas"]?.get("path")?.asString, assets)
+        }
+
+        /**
+         * The manifest's short digest: the first 16 hex characters of SHA-256.
+         *
+         * Truncated because this guards against a damaged download rather than
+         * a forged one, and 64 bits of it is already far past the point where
+         * an accidental collision is conceivable.
+         */
+        fun digestOf(bytes: ByteArray): String {
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            val out = StringBuilder(16)
+            for (i in 0 until 8) out.append(String.format("%02x", hash[i]))
+            return out.toString()
         }
     }
 }

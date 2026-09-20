@@ -40,6 +40,35 @@ GLYPHS = PROGRAMS / "library.atlas"
 
 ASSET_REF = re.compile(r"\basset=([0-9a-f]+)")
 
+# Skia rasterises a path on the CPU once it exceeds kMaxGPUPathRendererVerbs.
+# The limit is per *path*, not per frame, and a path here is one atlas shape:
+# four points per cubic, plus a move and a close per subpath.
+SKIA_GPU_VERB_LIMIT = 16_384
+
+
+def verb_count(points_len: int) -> int:
+    """Path verbs for a baked shape, as the renderer will emit them.
+
+    One cubic per four points, plus roughly one move and one close per subpath.
+    Subpath count is not known without walking the geometry, so this is the
+    cubic count -- a lower bound, which is the conservative direction for a
+    warning about being *under* a limit.
+    """
+    return points_len // 4
+
+
+def oversized_shapes(asset: Path) -> list[tuple[int, int]]:
+    """Shapes in this asset at or near the software-fallback cliff."""
+    from exporter.decode import load
+
+    ir = load(asset.read_bytes())
+    out = []
+    for index, shape in enumerate(ir.shapes):
+        verbs = verb_count(len(shape))
+        if verbs > SKIA_GPU_VERB_LIMIT // 2:
+            out.append((index, verbs))
+    return out
+
 
 def digest_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
@@ -168,6 +197,14 @@ def main() -> int:
             "sha256_16": digest_of(source),
         })
 
+    # Being close to the cliff matters as much as crossing it: a path just
+    # under the limit crosses it with one more zoom level of detail, and the
+    # symptom is a scene that silently rasterises on the CPU on every device.
+    near_limit = []
+    for asset in sorted(wanted_assets):
+        for index, verbs in oversized_shapes(ASSETS / asset):
+            near_limit.append((asset, index, verbs))
+
     glyphs = None
     if GLYPHS.exists():
         shutil.copy(GLYPHS, out / "library.atlas")
@@ -197,6 +234,15 @@ def main() -> int:
     print(f"tier-3 fallbacks  {containers:,} B")
     print(f"library total     {programs + shared + (glyphs['bytes'] if glyphs else 0):,} B"
           f"  (without tier-3 fallbacks)")
+
+    if near_limit:
+        print()
+        for asset, index, verbs in sorted(near_limit, key=lambda r: -r[2]):
+            over = "OVER" if verbs > SKIA_GPU_VERB_LIMIT else "at"
+            share = verbs / SKIA_GPU_VERB_LIMIT
+            print(f"NOTE: {asset} shape {index} is {verbs:,} verbs "
+                  f"({share:.0%} of Skia's GPU limit, {over} the cliff) -- "
+                  f"a path past {SKIA_GPU_VERB_LIMIT:,} rasterises on the CPU")
 
     if uncertified:
         print(f"\nWARNING: no exporter verdict for {', '.join(uncertified)} -- "

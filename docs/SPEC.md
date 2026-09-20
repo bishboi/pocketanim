@@ -954,9 +954,11 @@ serialise.
   **§3.7's 16,384-verb cliff is not being hit.** That limit
   (`kMaxGPUPathRendererVerbs`) is per *path*, and the largest single path in the corpus is
   CartopyMap's 10,298-verb coastline — 63% of it. Close enough to matter: a denser map, or one
-  more zoom level of coastline detail, crosses it and falls to CPU rasterisation. Worth a
-  guard in the exporter that splits a shape before it gets there, but it is a hazard rather
-  than a present fault.
+  more zoom level of coastline detail, crosses it and falls to CPU rasterisation.
+  `tools/build_library.py` now reports any shape past half the limit at packaging time, so
+  crossing it is noticed rather than discovered as a device that renders one scene slowly.
+  Splitting such a path is *not* implemented, and should not be done blindly: splitting a
+  filled path changes what it fills, so only stroke-only geometry can be divided safely.
 
   **The live risk is draw calls.** MolecularStructure issues 5,120 `drawPath` calls per frame
   — 154,000 per second at 30 fps — because 15 spheres of 144 faces each are 2,160 separate

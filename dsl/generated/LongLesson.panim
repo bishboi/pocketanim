@@ -1,0 +1,132 @@
+scene 2d fps=30
+text A asset=a49bd9a23f
+text B asset=dc546f9797
+text C asset=56560eae88
+circle D r=1.1 stroke=#29ABCA w=6
+square E s=2 stroke=#29ABCA w=6
+text F asset=aefb7e82f7
+text G asset=463e86278a
+circle H r=1.1 stroke=#55C1A7 w=6
+square I s=2 stroke=#55C1A7 w=6
+text J asset=b55893787f
+text K asset=0b2befc67e
+circle L r=1.1 stroke=#77B05D w=6
+square M s=2 stroke=#77B05D w=6
+text N asset=e79389f960
+text O asset=5a6e589d99
+circle P r=1.1 stroke=#F4D345 w=6
+square Q s=2 stroke=#F4D345 w=6
+text R asset=0fb746c790
+text S asset=57f22d5ceb
+circle T r=1.1 stroke=#E65A4C w=6
+square U s=2 stroke=#E65A4C w=6
+text V asset=4729563fd7
+text W asset=0e2db67ac1
+circle X r=1.1 stroke=#715582 w=6
+square Y s=2 stroke=#715582 w=6
+text Z asset=aa9dcd41e5
+write A t=2
+show A
+wait t=3
+fade B t=1
+show B
+write C t=2
+show C
+wait t=4
+create D t=2
+show D
+wait t=2
+transform D E t=2
+wait t=3
+xform D by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout D t=1
+fadeout C t=1
+fadeout B t=1
+wait t=1
+fade F t=1
+show F
+write G t=2
+show G
+wait t=4
+create H t=2
+show H
+wait t=2
+transform H I t=2
+wait t=3
+xform H by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout H t=1
+fadeout G t=1
+fadeout F t=1
+wait t=1
+fade J t=1
+show J
+write K t=2
+show K
+wait t=4
+create L t=2
+show L
+wait t=2
+transform L M t=2
+wait t=3
+xform L by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout L t=1
+fadeout K t=1
+fadeout J t=1
+wait t=1
+fade N t=1
+show N
+write O t=2
+show O
+wait t=4
+create P t=2
+show P
+wait t=2
+transform P Q t=2
+wait t=3
+xform P by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout P t=1
+fadeout O t=1
+fadeout N t=1
+wait t=1
+fade R t=1
+show R
+write S t=2
+show S
+wait t=4
+create T t=2
+show T
+wait t=2
+transform T U t=2
+wait t=3
+xform T by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout T t=1
+fadeout S t=1
+fadeout R t=1
+wait t=1
+fade V t=1
+show V
+write W t=2
+show W
+wait t=4
+create X t=2
+show X
+wait t=2
+transform X Y t=2
+wait t=3
+xform X by=1.35 by_xy=0.8,0 t=2
+wait t=3
+fadeout X t=1
+fadeout W t=1
+fadeout V t=1
+wait t=1
+write Z t=2
+show Z
+wait t=5
+fadeout Z t=1
+fadeout A t=1
+wait t=2

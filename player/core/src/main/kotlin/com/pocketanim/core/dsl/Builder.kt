@@ -486,11 +486,37 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private lateinit var obj: Obj
         private lateinit var base: DoubleArray
         private lateinit var centre: DoubleArray
+        private var isShape = false
+        private var basePoints: DoubleArray? = null
 
         override fun enter() {
             obj = objects.getValue(step.name)
-            base = obj.xform.copyOf()
-            centre = obj.centre
+            // A primitive carries its geometry directly rather than as
+            // instances under an object transform, so the matrix has to be
+            // applied to its points. `.animate.scale(...).shift(...)` on a
+            // Circle is ordinary Manim; this used to assume an asset.
+            isShape = obj.kind == "shape"
+            if (isShape) {
+                val points = obj.points!!.copyOf()
+                basePoints = points
+                var minX = points[0]; var minY = points[1]; var minZ = points[2]
+                var maxX = minX; var maxY = minY; var maxZ = minZ
+                var i = 3
+                while (i < points.size) {
+                    if (points[i] < minX) minX = points[i]
+                    if (points[i] > maxX) maxX = points[i]
+                    if (points[i + 1] < minY) minY = points[i + 1]
+                    if (points[i + 1] > maxY) maxY = points[i + 1]
+                    if (points[i + 2] < minZ) minZ = points[i + 2]
+                    if (points[i + 2] > maxZ) maxZ = points[i + 2]
+                    i += 3
+                }
+                centre = doubleArrayOf((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
+                base = identity()
+            } else {
+                base = obj.xform.copyOf()
+                centre = obj.centre
+            }
         }
 
         override fun render(k: Int) {
@@ -501,7 +527,21 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             m[3] = (1 - scale) * centre[0] + step.offsetXy[0] * alpha
             m[7] = (1 - scale) * centre[1] + step.offsetXy[1] * alpha
             m[11] = (1 - scale) * centre[2]
-            obj.xform = compose(m, base)
+
+            val points = basePoints
+            if (isShape && points != null) {
+                val out = DoubleArray(points.size)
+                var i = 0
+                while (i < points.size) {
+                    out[i] = m[0] * points[i] + m[1] * points[i + 1] + m[2] * points[i + 2] + m[3]
+                    out[i + 1] = m[4] * points[i] + m[5] * points[i + 1] + m[6] * points[i + 2] + m[7]
+                    out[i + 2] = m[8] * points[i] + m[9] * points[i + 1] + m[10] * points[i + 2] + m[11]
+                    i += 3
+                }
+                obj.points = out
+            } else {
+                obj.xform = compose(m, base)
+            }
             emit()
         }
 

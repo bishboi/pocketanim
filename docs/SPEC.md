@@ -668,6 +668,7 @@ badly, so never report one without the other.
 | CodeWalkthrough | **1** | 263 B | **0.51%** |
 | MolecularStructure | **1** | 226 B | 2.44% |
 | SurfaceOrbit | **1** | 196 B | 2.98% |
+| LongLesson (166 s) | **1** | 2,005 B | 0.37% |
 | PlotGeometry | 3 | — | `ValueTracker` / `always_redraw` |
 
 Sampled every 10th frame. **Every tier-1 scene is under 3%, seven of nine
@@ -1019,9 +1020,34 @@ serialise.
 - **The Android layer has never run.** It compiles against the real framework (§5.0); that is
   all a compiler can tell you. The render thread, surface lifecycle, `AudioTrack` clock,
   `MediaCodec` audio decode and seek-during-drag behaviour are unexercised.
-- **Corpus scenes are 6–14.5 s.** Any 3-minute figure here is extrapolation, and the IR/video
-  crossover is duration-sensitive — CartopyMap's sits around 8 s. Add a long scene before any
-  production sizing decision.
+- ~~**Corpus scenes are 6–14.5 s.**~~ **Measured at three minutes.**
+  `corpus/scenes/11_long_lesson.py` is a **166-second** explainer, built to be representative
+  rather than favourable: roughly half its runtime is spent holding still while a viewer reads,
+  which is what a real lesson does. Every 3-minute figure above was extrapolation; this is not.
+
+  | Encoding | Bytes | vs MP4 | Per second of runtime |
+  |---|---|---|---|
+  | **Tier 1 program** | **2,005** | — | **12 B/s** |
+  | Tier 1 playable (program + its 14 text assets) | **13,933** | **133× smaller** | 84 B/s |
+  | Tier 3 sampled IR | 1,159,936 | 1.6× smaller | 6,986 B/s |
+  | MP4, 720p30 | 1,853,831 | — | 11,165 B/s |
+
+  The per-second column is §8.1's organising principle stated as a measurement: **video costs
+  11,165 B for every second that passes; the program costs 12.** The scene's shared glyph
+  geometry is not counted in tier 1 above because it lives in the library atlas (51,606 B for
+  eleven scenes) and is paid once, which is the whole argument of §3.5.
+
+  Note what the long scene did *not* change: tier 3 still only beats MP4 by 1.6×, consistent
+  with §8.4's mixed picture. **The duration argument belongs to tier 1, not to sampled IR** —
+  sampling still stores something per frame, so it still scales with time, just more cheaply
+  than video does.
+
+  Fidelity against Manim's own frames: **0.37% of pixels differing** across all 4,981 frames.
+
+  The scene also found a real gap. `.animate.scale(...).shift(...)` on a `Circle` is ordinary
+  Manim, and the `xform` verb assumed every target was a baked asset — a primitive carries its
+  geometry directly rather than as instances under an object transform, so the matrix has to be
+  applied to its points. Both interpreters crashed on it. That is what a corpus is for.
 - **No real IR exists**, so the exporter should be diffed against
   `tools/probe_scene_geometry.py` (which reports the naive upper bound by design) to prove
   affine detection and the glyph atlas are actually firing. Use the corpus as a regression

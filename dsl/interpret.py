@@ -430,9 +430,21 @@ def build_2d(scene: dict) -> DecodedIR:
         elif step[0] == "xform":
             _, name, factor, offset_xy, duration = step
             obj = objects[name]
-            base = obj["xform"].copy()
-            centre = obj.get("centre", np.zeros(3))
             shift = np.array([offset_xy[0], offset_xy[1], 0.0])
+
+            # A primitive carries its geometry directly rather than as instances
+            # under an object transform, so the matrix has to be applied to its
+            # points. `.animate.scale(...).shift(...)` on a Circle is ordinary
+            # Manim and this branch used to assume every target was an asset.
+            is_shape = obj["kind"] == "shape"
+            if is_shape:
+                base_points = obj["points"].copy()
+                centre = (base_points.min(axis=0) + base_points.max(axis=0)) / 2.0
+                base = None
+            else:
+                base = obj["xform"].copy()
+                centre = obj.get("centre", np.zeros(3))
+
             for frame_index in range(int(duration * fps)):
                 alpha = smooth((frame_index + 1) / (duration * fps))
                 scale = 1.0 + (factor - 1.0) * alpha
@@ -440,7 +452,12 @@ def build_2d(scene: dict) -> DecodedIR:
                 step_linear = np.identity(3) * scale
                 step_translation = (1 - scale) * centre + shift * alpha
                 step_matrix = np.hstack([step_linear, step_translation.reshape(3, 1)])
-                obj["xform"] = compose(step_matrix, base)
+                if is_shape:
+                    obj["points"] = (
+                        base_points @ step_matrix[:, :3].T + step_matrix[:, 3]
+                    )
+                else:
+                    obj["xform"] = compose(step_matrix, base)
                 emit()
 
         elif step[0] in ("write", "revealseq") and step[1] not in objects:

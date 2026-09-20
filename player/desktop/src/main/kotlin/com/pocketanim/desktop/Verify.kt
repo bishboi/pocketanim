@@ -6,6 +6,8 @@ import com.pocketanim.core.Panm
 import com.pocketanim.core.PathSink
 import com.pocketanim.core.Renderer
 import com.pocketanim.core.Frames
+import com.pocketanim.core.Library
+import com.pocketanim.core.Storage
 import com.pocketanim.core.Scene
 import com.pocketanim.core.dsl.AssetLoader
 import com.pocketanim.core.dsl.Interpreter
@@ -107,7 +109,10 @@ private fun dump(scene: Frames, probe: Int) {
         perFrame[i] = scene.instances(i).size
         atlasSize = maxOf(atlasSize, highestAtlasId(scene, i) + 1)
     }
-    val quantised = scene is Scene && (scene.lo.any { it != 0f } || scene.hi.any { it != 0f })
+    // A decoded container always carries a quantisation box in its header, even
+    // when it is all zeros -- a text asset has an empty atlas because its
+    // glyphs live in the shared library. Testing the values rather than the
+    // kind skipped the line for exactly those assets.
     val shapeCount = if (scene is Scene) scene.atlas.size else atlasSize
 
     if (scene is Scene) {
@@ -119,10 +124,9 @@ private fun dump(scene: Frames, probe: Int) {
         out.append(String.format(l, "H %d %d %d%n",
             scene.fps, scene.frameCount, if (scene.camera(0) != null) 1 else 0))
     }
-    if (quantised) {
-        val s2 = scene as Scene
+    if (scene is Scene) {
         out.append(String.format(l, "B %.6f %.6f %.6f %.6f %.6f %.6f%n",
-            s2.lo[0], s2.lo[1], s2.lo[2], s2.hi[0], s2.hi[1], s2.hi[2]))
+            scene.lo[0], scene.lo[1], scene.lo[2], scene.hi[0], scene.hi[1], scene.hi[2]))
     }
 
     if (scene is Scene) {
@@ -171,9 +175,12 @@ private fun dump(scene: Frames, probe: Int) {
         // once transient reveal geometry is wound back, so the id itself is
         // bookkeeping rather than meaning. What must agree across
         // implementations is the geometry the id resolves to.
-        val pts = scene.shape(inst.atlasId)
-        val n = pts.size / 3
+        // Only a computing source is asked for geometry here. A decoded text
+        // asset carries an empty atlas on purpose -- its glyphs live in the
+        // shared library -- so resolving the id would fail and mean nothing.
         if (scene !is Scene) {
+            val pts = scene.shape(inst.atlasId)
+            val n = pts.size / 3
             // Only for a computing source: it allocates atlas ids as it goes and
             // reuses them once transient reveal geometry is wound back, so the id
             // is bookkeeping. What must agree is the geometry it resolves to.
@@ -187,9 +194,10 @@ private fun dump(scene: Frames, probe: Int) {
                 if (n > 0) pts[(n - 1) * 3 + 1] else 0f,
                 if (n > 0) pts[(n - 1) * 3 + 2] else 0f,
                 mean[0], mean[1], mean[2]))
+            out.append(String.format(l, "I %d %d %d %d", i, inst.slot, n, inst.flags))
+        } else {
+            out.append(String.format(l, "I %d %d %d %d", i, inst.slot, inst.atlasId, inst.flags))
         }
-        out.append(String.format(l, "I %d %d %d %d", i, inst.slot,
-            if (scene is Scene) inst.atlasId else n, inst.flags))
         for (row in 0 until 3) for (col in 0 until 4) {
             out.append(String.format(l, " %.6f", inst.transform[row * 4 + col]))
         }
@@ -347,11 +355,65 @@ private fun seekTest(scene: Frames): Boolean {
     return failures == 0
 }
 
+/** [Storage] over a directory, which is what app storage will look like. */
+private class DirStorage(private val root: File) : Storage {
+    override fun exists(path: String) = File(root, path).exists()
+    override fun read(path: String) = File(root, path).readBytes()
+    override fun sizeOf(path: String) = File(root, path).length()
+}
+
+/**
+ * Open every scene the way the device will: through the manifest, not by
+ * knowing where files live. This is the check that the library is actually
+ * self-describing rather than a directory the harness happens to understand.
+ */
+private fun libraryReport(root: File): Boolean {
+    val library = Library.load(DirStorage(root))
+    val missing = library.missing()
+    if (missing.isNotEmpty()) {
+        println("missing ${missing.size} path(s): ${missing.take(5)}")
+        return false
+    }
+
+    println(String.format("%-22s %5s %7s %8s %9s  %s", "scene", "tier", "frames", "bytes", "instances", "status"))
+    var failures = 0
+    for (entry in library.scenes) {
+        if (!library.isPlayable(entry)) {
+            println(String.format("%-22s %5d %7d %8d %9s  NOT PLAYABLE", entry.name, entry.tier, entry.frames, entry.playableBytes, "-"))
+            failures++
+            continue
+        }
+        val status = try {
+            val frames = library.open(entry.name)
+            // Touch both ends and the middle: enough to prove assets resolved
+            // and the timeline runs, without rendering the whole scene.
+            var seen = 0L
+            for (i in intArrayOf(0, frames.frameCount / 2, frames.frameCount - 1)) {
+                seen += frames.instances(i).size
+            }
+            println(String.format("%-22s %5d %7d %8d %9d  ok", entry.name, entry.tier,
+                frames.frameCount, entry.playableBytes, seen))
+            null
+        } catch (e: Exception) {
+            failures++
+            "${e::class.simpleName}: ${e.message}"
+        }
+        if (status != null) println(String.format("%-22s %5d %7d %8d %9s  FAIL %s",
+            entry.name, entry.tier, entry.frames, entry.playableBytes, "-", status))
+    }
+    return failures == 0
+}
+
 fun main(args: Array<String>) {
     if (args.size < 2) {
-        println("usage: Verify <scene.panm|scene.panim> <dump|render|bench|seektest> [frame] [out.png]")
+        println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library> [frame] [out.png]")
         return
     }
+    if (args[1] == "library") {
+        if (!libraryReport(File(args[0]))) kotlin.system.exitProcess(1)
+        return
+    }
+
     val scene = load(File(args[0]))
     val mode = args[1]
     val probe = args.getOrNull(2)?.toInt() ?: (scene.frameCount / 2)

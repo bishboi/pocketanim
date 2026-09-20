@@ -6,10 +6,15 @@ __pycache__/
 media/
 corpus/renders/
 
-# DSL build output (regenerable from the corpus scenes)
-dsl/generated/
+# The tier-1 artefacts are versioned, not ignored. They are what ships -- the
+# whole corpus is ~1.9 MB, dominated by baked geometry that is content rather
+# than build output -- and CI cannot check that the implementations agree
+# unless it has something to check them against. Regenerate with:
+#   python -m dsl.export_dsl corpus/scenes/<file> <Class> --write
 
-# Sampled IR exports (regenerable from corpus/scenes)
+# Sampled IR exports: 20 MB of tier-3 fallbacks, regenerable from corpus/scenes
+# and far too large to version. CI checks the decoders against the baked assets
+# in dsl/generated/assets instead, which exercise the same container.
 corpus/ir/
 
 # Player build output and its downloaded toolchain

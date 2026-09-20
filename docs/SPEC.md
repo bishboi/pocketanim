@@ -1031,8 +1031,37 @@ serialise.
 - **Glyph atlas at varying sizes.** Deduplication was verified at identical scale; Manim may
   bake size into outlines, in which case the atlas must normalise by scale before deduplicating.
   Affects hit rate, not design.
-- **Bundle packaging, versioning and library sync** — caching all IR means the device must learn
-  what exists: a manifest and incremental sync.
-- **Export pipeline in CI**, bundle integrity, and player UX beyond scrubbing.
+- ~~**Bundle packaging, versioning and library sync**~~ **Done.** `tools/build_library.py`
+  packages the corpus into a manifest plus content-addressed files; `player/core`'s `Library`
+  reads it, reports what is missing, and opens any scene without knowing where files live. The
+  sync algorithm reduces to *fetch the paths I do not have*, because content-addressed files
+  never change and so there is no invalidation to get wrong. Measured, for the whole corpus:
+
+  | | Bytes |
+  |---|---|
+  | 9 programs | **1,869** |
+  | 22 shared assets | 1,794,666 |
+  | Glyph atlas | 91,802 |
+  | **Library total** | **1,888,337** |
+  | (tier-3 fallbacks, not shipped where tier 1 exists) | 20,094,987 |
+
+  Two scenes are *pure program* — SurfaceOrbit is 196 B and VerbTest 127 B with no assets at
+  all. Everything else is dominated by baked geometry, which is content, not overhead.
+
+  **The manifest exposed a live hazard.** A scene's tier was being inferred from whether a
+  `.panim` existed, and `PlotGeometry`'s was stale from before `ValueTracker` was recognised as
+  a blocker. Measured against Manim it renders **4.61% of pixels wrong, peaking at 15.65%, and
+  is 75 frames (2.5 s) short** — it would have shipped as tier 1. The exporter now writes a
+  `<Scene>.tier.json` verdict alongside and deletes a program it cannot certify; the packager
+  refuses to ship a program without one. *Presence is not correctness*, and nothing but the
+  exporter knows the difference.
+- **Export pipeline in CI** — `.github/workflows/verify.yml` runs the cheap half on every push:
+  three decoders agree, two interpreters agree, seeking is exact on every file, and the library
+  opens every scene through its manifest. About a minute, and no Manim or LaTeX needed. The
+  tier-1 artefacts are versioned rather than ignored so CI has something to check — ~1.9 MB,
+  which is the point of the project. Fidelity against Manim's own frames still needs a full
+  Manim and LaTeX install and tens of minutes per scene; that belongs in a nightly job and is
+  run by hand until one exists.
+- **Bundle integrity and player UX beyond scrubbing.**
 - **Two secondary figures** in the substrate research want re-verifying; several primary sources
   were unreachable behind an egress proxy when it was written.

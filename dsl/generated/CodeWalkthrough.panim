@@ -1,0 +1,16 @@
+scene 2d fps=30
+text A asset=82118a6e9d
+text B asset=98350e0205
+rect C wh=5.995,2.53812 at=-0.638281,0 stroke=#F7D96F w=4
+text D asset=ea83059fb0
+write A t=2
+show A
+write B t=3
+show B
+wait t=0.5
+create C t=1
+show C
+wait t=0.5
+fadeout C t=1
+morph B D t=2
+wait t=1

@@ -1,0 +1,86 @@
+name: verify
+
+# The checks that make the claims in docs/SPEC.md checkable. Deliberately the
+# cheap half: decoding, interpreting and seeking need no Manim, no LaTeX and no
+# rendering, so they run in about a minute and catch the class of bug this
+# project keeps producing -- an implementation drifting from the format.
+#
+# Not here: fidelity against Manim's own frames. That needs a full Manim and
+# LaTeX install and tens of minutes per scene. It belongs in a nightly job
+# against the corpus, and until that exists it is run by hand.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the Python side
+        # numpy only: the checks below deliberately avoid Manim.
+        run: pip install numpy pillow
+
+      - name: Cache the Kotlin and Android toolchain
+        # ~200 MB, and the Android framework jar alone is 137 MB. Fetching it on
+        # every run would dominate the job.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pocketanim-toolchain
+          key: pocketanim-toolchain-kotlin2.0.21-android14
+
+      - name: Build the player
+        run: ./player/build.sh --fetch
+
+      - name: Decoders agree (python, java, kotlin)
+        run: |
+          if ls corpus/ir/*.panm >/dev/null 2>&1; then
+            python -m tools.crosscheck_decoders corpus/ir/*.panm
+          else
+            echo "no sampled IR checked in; skipping"
+          fi
+
+      - name: Decoders agree on baked assets
+        run: python -m tools.crosscheck_decoders dsl/generated/assets/*.panm
+
+      - name: Interpreters agree (python, kotlin)
+        run: python -m tools.crosscheck_interpreter dsl/generated/*.panim
+
+      - name: Seeking is exact
+        # A frame rebuilt from a checkpoint must not depend on how it was
+        # reached. Playing forward would never catch that, so this is the only
+        # check that does.
+        run: |
+          CP=player/build/classes
+          status=0
+          for f in dsl/generated/*.panim dsl/generated/assets/*.panm; do
+            out=$(java -cp "$CP/core:$CP/desktop:$CP/kotlin-stdlib.jar" \
+                    com.pocketanim.desktop.VerifyKt "$f" seektest 2>&1) || status=1
+            if printf '%s' "$out" | grep -q FAIL; then
+              echo "$f"
+              printf '%s\n' "$out"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: The library is self-describing
+        # Opens every scene through the manifest rather than by knowing where
+        # files live, which is how the device will do it.
+        run: |
+          python -m tools.build_library --out /tmp/library
+          java -cp player/build/classes/core:player/build/classes/desktop:player/build/classes/kotlin-stdlib.jar \
+            com.pocketanim.desktop.VerifyKt /tmp/library library

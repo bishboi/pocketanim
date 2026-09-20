@@ -45,7 +45,7 @@ class SystemTimeSource(private val nanos: () -> Long = System::nanoTime) : TimeS
  * [Scene.frame]), so this can jump anywhere without replaying from zero.
  */
 class Playback(
-    private val scene: Scene,
+    private val scene: Frames,
     private val system: SystemTimeSource = SystemTimeSource(),
 ) {
     /** Set once audio is running; cleared for silent scenes. */

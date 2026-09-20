@@ -1,0 +1,9 @@
+scene 2d fps=30
+text A asset=01fa2822f2
+geom B asset=d43c418bf3
+show A
+fade B t=1.5
+show B
+wait t=0.5
+xform B by=3 by_xy=-2,-1 t=3
+wait t=1

@@ -1,0 +1,9 @@
+scene 3d fps=30
+camera phi=70 theta=-50
+geom A asset=d8ee7734d8
+geom B asset=bd7291a075
+fade A t=1
+show A
+laggedgrow B lag=0.04 groups=144,144,144,144,144,144,144,144,144,144,144,144,144,144,144 t=2
+spin rate=0.5 t=5
+wait t=1

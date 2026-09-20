@@ -5,9 +5,10 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import com.pocketanim.core.Frames
 import com.pocketanim.core.Playback
 import com.pocketanim.core.Renderer
-import com.pocketanim.core.Scene
+import java.io.File
 
 /**
  * A SurfaceView that plays a .panm.
@@ -28,10 +29,13 @@ class PanimView @JvmOverloads constructor(
 
     var backgroundColorArgb: Int = Color.BLACK
 
-    var scene: Scene? = null
+    var scene: Frames? = null
         private set
     var playback: Playback? = null
         private set
+
+    private var audio: AudioPlayer? = null
+    private var audioClock: AudioClock? = null
 
     /** Statistics the throughput gate needs; see docs/SPEC.md §11. */
     @Volatile var framesDrawn: Long = 0L
@@ -45,19 +49,59 @@ class PanimView @JvmOverloads constructor(
         holder.addCallback(this)
     }
 
-    fun load(scene: Scene) {
+    fun load(scene: Frames) {
+        releaseAudio()
         this.scene = scene
         this.playback = Playback(scene)
     }
 
-    fun play() = playback?.play()
-    fun pause() = playback?.pause()
+    /**
+     * Attach narration.
+     *
+     * Optional by design: §5.3 downloads audio only on request, so a scene
+     * routinely plays before its narration exists. Attaching switches the
+     * master clock from the system clock to the audio device; until the track
+     * reports a position, [AudioClock] returns null and [Playback] keeps using
+     * the system clock, which is what covers the start-up gap.
+     */
+    fun attachAudio(file: File, sampleRate: Int, channelCount: Int) {
+        releaseAudio()
+        val clock = AudioClock(sampleRate, channelCount)
+        audioClock = clock
+        audio = AudioPlayer(file, clock)
+        playback?.audio = clock
+    }
+
+    fun play() {
+        playback?.play()
+        audioClock?.play()
+        audio?.start()
+    }
+
+    fun pause() {
+        playback?.pause()
+        audioClock?.pause()
+    }
 
     fun seekToFrame(index: Int) {
         playback?.seekToFrame(index)
+        scene?.let { audio?.seekTo(index.toDouble() / it.fps) }
         // Draw the sought frame immediately: a scrub that waits for the next
         // tick to show anything feels broken even when it is only 16 ms.
         thread?.requestRedraw()
+    }
+
+    /** Call from the host's onDestroy; an AudioTrack outlives the view otherwise. */
+    fun release() {
+        releaseAudio()
+    }
+
+    private fun releaseAudio() {
+        audio?.stop()
+        audio = null
+        audioClock?.release()
+        audioClock = null
+        playback?.audio = null
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {

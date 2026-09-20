@@ -83,21 +83,27 @@ kotlinc() {
   fi
 }
 
-rm -rf "$OUT"
-mkdir -p "$OUT"
-cp "$STDLIB" "$OUT/kotlin-stdlib.jar"
+# Build into a staging directory and swap at the end. Wiping $OUT first means
+# anything reading it concurrently -- a verification run, an editor -- sees a
+# half-built tree and reports failures that are not real.
+STAGE="$OUT.staging"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+cp "$STDLIB" "$STAGE/kotlin-stdlib.jar"
 
 echo "compiling core"
-kotlinc -classpath "$STDLIB" player/core/src/main/kotlin -d "$OUT/core"
+kotlinc -classpath "$STDLIB" player/core/src/main/kotlin -d "$STAGE/core"
 
 echo "compiling desktop harness"
-kotlinc -classpath "$STDLIB:$OUT/core" player/desktop/src/main/kotlin -d "$OUT/desktop"
+kotlinc -classpath "$STDLIB:$STAGE/core" player/desktop/src/main/kotlin -d "$STAGE/desktop"
 
 if [ -f "$ANDROID_JAR" ]; then
   echo "compiling android layer"
-  kotlinc -classpath "$STDLIB:$ANDROID_JAR:$OUT/core" player/android/src/main/kotlin -d "$OUT/android"
+  kotlinc -classpath "$STDLIB:$ANDROID_JAR:$STAGE/core" player/android/src/main/kotlin -d "$STAGE/android"
 else
   echo "skipping android layer (no framework jar; run $0 --fetch)" >&2
 fi
 
+rm -rf "$OUT"
+mv "$STAGE" "$OUT"
 echo "built into $OUT"

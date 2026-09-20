@@ -1,0 +1,9 @@
+{
+  "scene": "PlotGeometry",
+  "tier": 3,
+  "blockers": [
+    "ValueTracker drives always_redraw (arbitrary per-frame Python)",
+    "play() produced no verb (_AnimationBuilder)"
+  ],
+  "program_bytes": 0
+}

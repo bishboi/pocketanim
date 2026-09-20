@@ -1,0 +1,9 @@
+scene 2d fps=30
+text A asset=d04bc01974
+circle B r=1.8 stroke=#58C4DD w=6
+square C s=2.8 stroke=#F7D96F w=6
+show A
+create B t=2
+show B
+transform B C t=2
+wait t=1

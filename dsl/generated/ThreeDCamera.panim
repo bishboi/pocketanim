@@ -1,0 +1,11 @@
+scene 3d fps=30
+camera phi=60 theta=-45
+geom A asset=16de1120ec
+geom B asset=3de290efdb
+create A t=1
+show A
+create B t=2
+show B
+move phi=45 theta=45 t=3
+spin rate=0.3 t=3
+wait t=1

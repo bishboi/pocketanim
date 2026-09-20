@@ -578,19 +578,48 @@ def emit(rec: Recorder, mode: str, fps: int = 30) -> str:
 
 def main():
     scene_file, scene_class = sys.argv[1:3]
+    write = "--write" in sys.argv[3:]
     rec = record_scene(scene_file, scene_class)
 
     mode = "3d" if any(d.startswith(("surface", "camera")) for d in rec.declarations) else "2d"
     program = emit(rec, mode)
+    blockers = list(dict.fromkeys(rec.blockers))
 
     print(f"=== {scene_class} ===")
-    if rec.blockers:
+    if blockers:
         print("TIER 3 (falls back to sampled IR)")
-        for blocker in dict.fromkeys(rec.blockers):
+        for blocker in blockers:
             print(f"  blocked by: {blocker}")
     else:
         print(f"TIER 1 ({len(program)} bytes)")
         print(program)
+
+    if write:
+        # The exporter is the only thing that knows whether a program is
+        # faithful, so it records the verdict rather than leaving it to be
+        # inferred from which files exist. A stale program from a run that
+        # later grew a blocker silently shipped a scene missing 2.5 seconds.
+        import json
+
+        out = Path("dsl/generated")
+        out.mkdir(parents=True, exist_ok=True)
+        target = out / f"{scene_class}.panim"
+        if blockers:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_text(program)
+        (out / f"{scene_class}.tier.json").write_text(
+            json.dumps(
+                {
+                    "scene": scene_class,
+                    "tier": 3 if blockers else 1,
+                    "blockers": blockers,
+                    "program_bytes": 0 if blockers else len(program),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
 
 if __name__ == "__main__":

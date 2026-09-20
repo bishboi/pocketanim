@@ -1069,10 +1069,12 @@ the fallback.
   Manim, and the `xform` verb assumed every target was a baked asset — a primitive carries its
   geometry directly rather than as instances under an object transform, so the matrix has to be
   applied to its points. Both interpreters crashed on it. That is what a corpus is for.
-- **No real IR exists**, so the exporter should be diffed against
-  `tools/probe_scene_geometry.py` (which reports the naive upper bound by design) to prove
-  affine detection and the glyph atlas are actually firing. Use the corpus as a regression
-  suite, not a one-off.
+- ~~**No real IR exists**, so the exporter should be diffed against the naive upper bound.~~
+  **Superseded.** The IR exists and the corpus *is* the regression suite. Both mechanisms are
+  now asserted nightly rather than inspected: `fidelity.yml` fails if atlas hit rate drops
+  below 0.95 or affine reuses fall under a thousand on the 3D scenes. That guard exists
+  because breaking either is **invisible** — every frame still renders correctly and the file
+  just quietly balloons, which no pixel comparison can see.
 - **Occluded solids** — depth-tested layer, deferred (§3.6). MolecularStructure now exercises
   this case and can be used to judge how visible the painter-order artefact actually is.
 - ~~**Glyph atlas at varying sizes.**~~ **Measured, and it does.** Manim bakes size into glyph
@@ -1122,14 +1124,27 @@ the fallback.
   `<Scene>.tier.json` verdict alongside and deletes a program it cannot certify; the packager
   refuses to ship a program without one. *Presence is not correctness*, and nothing but the
   exporter knows the difference.
-- **Export pipeline in CI** — `.github/workflows/verify.yml` runs the cheap half on every push:
-  three decoders agree, two interpreters agree, seeking is exact on every file, and the library
-  opens every scene through its manifest. About a minute, and no Manim or LaTeX needed. The
-  tier-1 artefacts are versioned rather than ignored so CI has something to check — ~1.9 MB,
-  which is the point of the project. Fidelity against Manim's own frames still needs a full
-  Manim and LaTeX install and tens of minutes per scene; that belongs in a nightly job and is
-  run by hand until one exists.
-- **Bundle integrity and player UX beyond scrubbing.**
+- ~~**Export pipeline in CI**~~ **Done, in two halves.**
+
+  `verify.yml` runs on every push in about 80 seconds, with no Manim or LaTeX: the player
+  self-test, three decoders agreeing, two interpreters agreeing, seeking exact on every file,
+  and the library opening every scene through its manifest. The tier-1 artefacts are versioned
+  rather than ignored so it has something to check — ~1.9 MB, which is the point of the
+  project.
+
+  `fidelity.yml` runs nightly and on demand, and is the expensive half: a full Manim and LaTeX
+  install, comparing the program against Manim's own frames and failing above §7.3's 1% gate.
+  **Validated by running it** — TextReuse and VerbTest both came back 0.00% differing. It also
+  guards the two mechanisms that make the IR small, because breaking either is *invisible*:
+  every frame still renders correctly and the file quietly balloons. Thresholds are atlas hit
+  rate ≥ 0.95 and affine reuses ≥ 1,000; measured now at 0.9962 / 158,865 for ThreeDCamera and
+  1.0000 / 629,752 for MolecularStructure.
+- ~~**Bundle integrity.**~~ **Done.** `Library.checkIntegrity` compares local storage against
+  the manifest: size always, because it is free and catches a truncated download; digests on
+  request, because hashing two megabytes per launch is not free and only same-length
+  corruption needs them. Both paths are tested against deliberately damaged storage, including
+  the case a size check cannot see.
+- **Player UX beyond scrubbing.**
 - ~~**Two secondary figures** in the substrate research want re-verifying.~~ **Done, and one was
   wrong.** The Graphite MotionMark number is confirmed as written (~15% on MotionMark 1.3,
   Apple Silicon, not Android). The Snapdragon 680 Impeller-vs-Skia entry had **merged two

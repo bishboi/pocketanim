@@ -104,3 +104,33 @@ jobs:
             fi
           done
           exit $status
+
+      - name: Atlas deduplication and affine detection are still firing
+        # These two mechanisms are what make the IR small, and breaking either
+        # is invisible: every frame still renders correctly, the file just
+        # quietly balloons. The exporter already reports both, so the only
+        # thing missing was a threshold to fail against.
+        run: |
+          status=0
+          for pair in "03_three_d_camera.py ThreeDCamera" "05_molecular_structure.py MolecularStructure"; do
+            set -- $pair
+            python -m exporter.export_scene "corpus/scenes/$1" "$2" \
+              -o "/tmp/$2.panm" --json "/tmp/$2.json" > /dev/null
+            python - "$2" <<'EOF' || status=1
+          import json, sys
+          name = sys.argv[1]
+          r = json.load(open(f"/tmp/{name}.json"))
+          hit = r["atlas_hit_rate"]
+          affine = r["affine_reuses"]
+          print(f"{name}: atlas hit rate {hit:.4f}, affine reuses {affine:,}")
+          ok = True
+          if hit < 0.95:
+              print(f"::error::{name} atlas hit rate {hit:.4f} below 0.95 -- deduplication regressed")
+              ok = False
+          if affine < 1000:
+              print(f"::error::{name} only {affine} affine reuses -- affine detection regressed")
+              ok = False
+          sys.exit(0 if ok else 1)
+          EOF
+          done
+          exit $status

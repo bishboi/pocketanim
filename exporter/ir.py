@@ -36,6 +36,23 @@ REC_KEYFRAME = 1
 # In scene units; the 16-bit quantisation grid is far finer than this.
 AFFINE_TOLERANCE = 1e-4
 
+# Glyph deduplication gets a looser bound than animation does, and the two are
+# separate on purpose.
+#
+# Manim bakes size into glyph outlines: the same "A" at six font sizes produces
+# six point arrays that are *nearly* but not exactly scaled copies, with
+# residuals of 5e-4 to 1.7e-3. At 1e-4 they all become separate atlas entries.
+#
+# Those residuals are sub-pixel. At 720p a scene unit is 90 px, so 2e-3 is
+# 0.18 px -- below what any rasteriser resolves. Measured on the corpus library,
+# 2e-3 collapses 182 glyphs to 89, a 51% reduction in the atlas that §3.5 says
+# every scene in the library shares.
+#
+# AFFINE_TOLERANCE stays tight because it decides whether a *moving* shape is
+# being transformed or genuinely re-drawn, and a false match there is a wrong
+# animation rather than a sub-pixel outline.
+GLYPH_TOLERANCE = 2e-3
+
 
 def fit_affine(src: np.ndarray, dst: np.ndarray) -> tuple[np.ndarray, float] | None:
     """Least-squares affine taking src -> dst, with its max residual.
@@ -60,23 +77,32 @@ class Atlas:
     misses: int = 0
     affine_hits: int = 0
 
-    def resolve(self, points: np.ndarray, hint: int | None = None) -> tuple[int, np.ndarray]:
+    def resolve(
+        self,
+        points: np.ndarray,
+        hint: int | None = None,
+        tolerance: float | None = None,
+    ) -> tuple[int, np.ndarray]:
         """Map points to (atlas_id, transform), adding a new entry if needed.
 
         `hint` is the atlas id this mobject used last frame. Checking it first
         is what makes an animated transform cheap: the geometry is already
         there and only the matrix changes.
+
+        `tolerance` defaults to AFFINE_TOLERANCE; the glyph library passes
+        GLYPH_TOLERANCE, for the reasons given where that constant is defined.
         """
+        limit = AFFINE_TOLERANCE if tolerance is None else tolerance
         if hint is not None and hint < len(self.shapes):
             fit = fit_affine(self.shapes[hint], points)
-            if fit and fit[1] < AFFINE_TOLERANCE:
+            if fit and fit[1] < limit:
                 self.hits += 1
                 self.affine_hits += 1
                 return hint, fit[0]
 
         for candidate in self._by_count.get(len(points), []):
             fit = fit_affine(self.shapes[candidate], points)
-            if fit and fit[1] < AFFINE_TOLERANCE:
+            if fit and fit[1] < limit:
                 self.hits += 1
                 return candidate, fit[0]
 

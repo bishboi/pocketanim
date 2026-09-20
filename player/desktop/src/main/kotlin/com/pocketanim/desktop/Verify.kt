@@ -301,6 +301,8 @@ private fun load(path: File): Frames =
  * shuffled, and with repeats. Any disagreement is a state leak between frames.
  */
 private fun seekTest(scene: Frames): Boolean {
+    val shapeCount = if (scene is Scene) scene.atlas.size else Int.MAX_VALUE
+
     fun digest(index: Int): Long {
         var h = 1125899906842597L
         for (inst in scene.instances(index)) {
@@ -313,7 +315,12 @@ private fun seekTest(scene: Frames): Boolean {
             inst.normal?.forEach { h = h * 31 + it.toRawBits() }
             // Geometry too: the atlas is rebuilt on seek, so an id alone would
             // not notice if it came back pointing at different points.
-            val pts = scene.shape(inst.atlasId)
+            //
+            // Absent for a text asset decoded on its own: its instances index
+            // the shared glyph library, so it carries an empty atlas and the id
+            // resolves to nothing. That is a fragment rather than a scene, and
+            // the ids are still worth checking even when the geometry is not.
+            val pts = if (inst.atlasId < shapeCount) scene.shape(inst.atlasId) else FloatArray(0)
             h = h * 31 + pts.size
             if (pts.isNotEmpty()) {
                 h = h * 31 + pts[0].toRawBits()

@@ -19,7 +19,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from exporter.decode import load
-from exporter.ir import REC_SNAPSHOT, Atlas, Instance, serialise
+from exporter.ir import GLYPH_TOLERANCE, REC_SNAPSHOT, Atlas, Instance, serialise
 
 LIBRARY_PATH = Path("dsl/generated/library.atlas")
 
@@ -39,8 +39,13 @@ class GlyphLibrary:
                 )
 
     def resolve(self, points: np.ndarray) -> tuple[int, np.ndarray]:
-        """Map a glyph onto the shared atlas, adding it only if new."""
-        return self.atlas.resolve(points)
+        """Map a glyph onto the shared atlas, adding it only if new.
+
+        Uses the looser GLYPH_TOLERANCE: Manim bakes size into outlines, so the
+        same letter at different font sizes is only *nearly* a scaled copy. The
+        difference is sub-pixel and deduplicating across it halves the atlas.
+        """
+        return self.atlas.resolve(points, tolerance=GLYPH_TOLERANCE)
 
     def save(self) -> int:
         blob = serialise(self.atlas, [], fps=30)

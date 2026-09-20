@@ -1028,9 +1028,29 @@ serialise.
   suite, not a one-off.
 - **Occluded solids** — depth-tested layer, deferred (§3.6). MolecularStructure now exercises
   this case and can be used to judge how visible the painter-order artefact actually is.
-- **Glyph atlas at varying sizes.** Deduplication was verified at identical scale; Manim may
-  bake size into outlines, in which case the atlas must normalise by scale before deduplicating.
-  Affects hit rate, not design.
+- ~~**Glyph atlas at varying sizes.**~~ **Measured, and it does.** Manim bakes size into glyph
+  outlines: the same `A` at six font sizes gives six point arrays that are only *nearly* scaled
+  copies, with affine residuals of 4.7e-4 to 1.7e-3. At the 1e-4 tolerance every size became its
+  own atlas entry.
+
+  Those residuals are sub-pixel. A scene unit is 90 px at 720p, so 2e-3 is **0.18 px** — below
+  what any rasteriser resolves. Measured on the corpus library:
+
+  | Tolerance | Glyphs | Worst error |
+  |---|---|---|
+  | 1e-4 (before) | 182 | 0.009 px |
+  | 1e-3 | 92 | 0.090 px |
+  | **2e-3 (now)** | **89** | **0.180 px** |
+  | 5e-3 | 87 | 0.450 px |
+
+  `GLYPH_TOLERANCE = 2e-3` is now separate from `AFFINE_TOLERANCE`, which stays at 1e-4 because
+  it decides whether a *moving* shape is being transformed or genuinely redrawn — a false match
+  there is a wrong animation, not a sub-pixel outline. The shared atlas went **91,802 B → 42,830
+  B**, and re-measured against Manim's own frames the text scenes are unchanged or better:
+  TextReuse 0.05%, TextHybrid 0.04%, LatexDerivation 0.36%, CodeWalkthrough 0.51% → 0.39%.
+
+  This affects hit rate rather than design, as predicted — but the hit rate was half of what it
+  should have been, and the atlas is the one thing every scene in the library shares.
 - ~~**Bundle packaging, versioning and library sync**~~ **Done.** `tools/build_library.py`
   packages the corpus into a manifest plus content-addressed files; `player/core`'s `Library`
   reads it, reports what is missing, and opens any scene without knowing where files live. The
@@ -1041,8 +1061,8 @@ serialise.
   |---|---|
   | 9 programs | **1,869** |
   | 22 shared assets | 1,794,666 |
-  | Glyph atlas | 91,802 |
-  | **Library total** | **1,888,337** |
+  | Glyph atlas | 42,830 |
+  | **Library total** | **1,839,365** |
   | (tier-3 fallbacks, not shipped where tier 1 exists) | 20,094,987 |
 
   Two scenes are *pure program* — SurfaceOrbit is 196 B and VerbTest 127 B with no assets at

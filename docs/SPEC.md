@@ -934,32 +934,40 @@ serialise.
 
 ## 11. Open items
 
-- **Device throughput is ungated, and the verb counts say why that matters.** This is still the
-  one measurement that can invalidate the architecture, and it needs a physical low-end phone.
-  But the player can now be *asked* what it will demand, and the answer is not comfortable:
+- **Device throughput is ungated, but the load it will place on the rasteriser is now
+  measured.** The gate still needs a physical low-end phone. What the player can be asked
+  without one is how much work it hands Skia per frame:
 
-  | Scene | Path verbs / frame | vs Skia's 16,384-verb GPU limit |
-  |---|---|---|
-  | CartopyMap | **62,054** | **3.8× over — software fallback guaranteed** |
-  | MolecularStructure | **15,586** | 0.95× — on the cliff edge |
-  | SurfaceOrbit | 3,456 | 0.21× |
-  | ThreeDCamera | 2,992 | 0.18× |
-  | CodeWalkthrough | 1,882 | 0.11× |
-  | LatexDerivation | 1,515 | 0.09× |
-  | TextHybrid / TextReuse | 299 / 277 | 0.02× |
-  | VerbTest | 9 | negligible |
+  | Scene | Draws / frame | Verbs / frame | Max verbs in one path |
+  |---|---|---|---|
+  | MolecularStructure | **5,120** | 15,586 | 10 |
+  | CartopyMap | 1,426 | **62,054** | **10,298** |
+  | SurfaceOrbit | 1,152 | 3,456 | 6 |
+  | ThreeDCamera | 996 | 2,992 | 6 |
+  | CodeWalkthrough | 90 | 1,882 | 37 |
+  | LatexDerivation | 68 | 1,515 | 40 |
+  | PlotGeometry (tier 3) | 57 | 587 | 47 |
+  | TextHybrid / TextReuse | 11 / 10 | 299 / 277 | 44 |
+  | VerbTest | 1 | 9 | 10 |
 
-  §3.7 named the 16,384 cliff as a design constraint; this is the first time the corpus has
-  been measured against it. Two of nine scenes are at or past it, and CartopyMap is not
-  marginal — it is nearly four times over, so on that scene Skia will rasterise paths on the
-  CPU on every device, not just slow ones. **Splitting oversized paths so each draw stays under
-  the limit is now a known requirement, not a contingency**, and it belongs in §10 above the
-  size work: a scene that cannot hit frame rate does not benefit from being smaller.
+  **§3.7's 16,384-verb cliff is not being hit.** That limit
+  (`kMaxGPUPathRendererVerbs`) is per *path*, and the largest single path in the corpus is
+  CartopyMap's 10,298-verb coastline — 63% of it. Close enough to matter: a denser map, or one
+  more zoom level of coastline detail, crosses it and falls to CPU rasterisation. Worth a
+  guard in the exporter that splits a shape before it gets there, but it is a hazard rather
+  than a present fault.
 
-  Geometry cost was also measured, and is *not* the worry: 1.6 ms/frame on the worst scene, on
-  a desktop CPU, excluding rasterisation. That is a weak lower bound — a low-end phone is
-  perhaps an order of magnitude slower — but it says the bottleneck is the rasteriser, which
-  is what the verb counts are about.
+  **The live risk is draw calls.** MolecularStructure issues 5,120 `drawPath` calls per frame
+  — 154,000 per second at 30 fps — because 15 spheres of 144 faces each are 2,160 separate
+  quads, fill and stroke apiece. That is the number most likely to miss frame rate on a low-end
+  phone, and it is a direct consequence of Manim's Cairo renderer having no z-buffer (§3.6):
+  the faces cannot be batched because painter order is the depth algorithm. Batching
+  same-style adjacent faces into one path, or the depth-tested layer §3.6 defers, would both
+  attack it.
+
+  Geometry cost is *not* the worry: 1.7 ms/frame on the worst scene, on a desktop CPU,
+  excluding rasterisation. A weak lower bound — a low-end phone is perhaps an order of
+  magnitude slower — but it points at the rasteriser rather than at the maths.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back to.
 - **The tier-1 interpreter materialises every frame up front.** Correct, and verified against

@@ -80,7 +80,8 @@ pixels differing, which is antialiasing noise.
 real framework, and that is all a compiler can tell you. The render loop, the
 surface lifecycle and the audio clock have not run.
 
-**Not addressed at all:** whether a low-end phone can keep up. See the verb
-counts in `docs/SPEC.md` §11 — one corpus scene needs 62,396 path verbs per
-frame against Skia's 16,384-verb GPU limit, and that is a real risk this
+**Not addressed at all:** whether a low-end phone can keep up. `bench` reports
+draws, verbs and the largest single path per frame; `docs/SPEC.md` §11 has the
+corpus numbers. The headline is 5,120 `drawPath` calls per frame on
+MolecularStructure — 154,000 per second at 30 fps. That is a real risk this
 repository cannot retire without a device.

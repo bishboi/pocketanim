@@ -155,18 +155,34 @@ private fun dump(scene: Scene, probe: Int) {
  * decode, transform, project, depth sort, shade, and walk the paths.
  */
 private fun benchmark(scene: Scene, width: Int, height: Int) {
+    // Two different numbers, and they answer different questions.
+    //
+    // Skia's kMaxGPUPathRendererVerbs cliff is per *path*: a single path over
+    // 16,384 verbs falls back to CPU rasterisation. So maxPathVerbs is the one
+    // that decides whether that fallback fires.
+    //
+    // Verbs and draws per frame are throughput, not a cliff: they say how much
+    // work the rasteriser is handed and how many draw calls it costs.
     val sink = object : PathSink {
         var verbs = 0L
-        override fun beginPath() {}
-        override fun moveTo(x: Float, y: Float) { verbs++ }
-        override fun cubicTo(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) { verbs++ }
-        override fun closeSubpath() { verbs++ }
-        override fun fillPath(argb: Int) {}
-        override fun strokePath(argb: Int, widthInSceneUnits: Float) {}
+        var draws = 0L
+        var current = 0
+        var maxPathVerbs = 0
+        override fun beginPath() { current = 0 }
+        override fun moveTo(x: Float, y: Float) { verbs++; current++ }
+        override fun cubicTo(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) { verbs++; current++ }
+        override fun closeSubpath() {
+            verbs++; current++
+            if (current > maxPathVerbs) maxPathVerbs = current
+        }
+        override fun fillPath(argb: Int) { draws++ }
+        override fun strokePath(argb: Int, widthInSceneUnits: Float) { draws++ }
     }
 
     repeat(2) { for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink) } // warm up
     sink.verbs = 0
+    sink.draws = 0
+    sink.maxPathVerbs = 0
 
     val started = System.nanoTime()
     for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink)
@@ -175,7 +191,9 @@ private fun benchmark(scene: Scene, width: Int, height: Int) {
     val perFrame = elapsed / scene.frameCount * 1000.0
     println(String.format(Locale.ROOT, "frames          %d", scene.frameCount))
     println(String.format(Locale.ROOT, "geometry ms/fr  %.3f", perFrame))
-    println(String.format(Locale.ROOT, "path verbs/fr   %.0f", sink.verbs.toDouble() / scene.frameCount))
+    println(String.format(Locale.ROOT, "verbs/frame     %.0f", sink.verbs.toDouble() / scene.frameCount))
+    println(String.format(Locale.ROOT, "draws/frame     %.0f", sink.draws.toDouble() / scene.frameCount))
+    println(String.format(Locale.ROOT, "max verbs/path  %d", sink.maxPathVerbs))
     println(String.format(Locale.ROOT, "budget at 30fps %.1f%% (geometry only, desktop)",
         perFrame / (1000.0 / scene.fps) * 100.0))
 }

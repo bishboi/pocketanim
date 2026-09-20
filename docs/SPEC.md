@@ -912,26 +912,45 @@ Hybrid result, program plus text asset:
 The exporter attempts tier 1 and falls back, so nothing already built is wasted
 and the worst case for any scene is the 9× the sampled IR already delivers.
 
-## 10. Exporter v2 — the fixes measurement identified
+## 10. Exporter v2 — mostly overtaken by tier 1
 
-Ordered by expected value. None reopens a design decision; all are refinements to how instances
-serialise.
+**This section was written when six of ten corpus scenes fell back to sampled IR and three of
+them lost to MP4 by 4–7×.** Tier 1 now covers **ten of eleven**. Only PlotGeometry still uses
+the sampled path, and only because `ValueTracker` + `always_redraw` is the one thing a program
+cannot express (§9.5). Three of the four fixes below targeted scenes that no longer use tier 3
+at all, so the ordering they were given is obsolete.
 
-1. **Factor group transforms.** Cartopy's zoom scales a single `VGroup`, so all 1,429 polylines
-   share one matrix change — currently written out 1,429 times per keyframe. Manim's hierarchy
-   already expresses this and the exporter flattens it away. Structurally the right fix and
-   almost certainly the largest: it targets the worst scene directly.
-2. **A morph instance type.** `Transform(before, after)` between two known shapes currently
-   generates a new atlas entry per intermediate frame — the whole of CodeWalkthrough's 2,595
-   shapes. Storing `(atlas_a, atlas_b, t, transform, style)` instead costs a few bytes over a
-   normal instance and eliminates the intermediates entirely. This is a narrowly-scoped
-   parametric element, and worth the exception: it is the only fix that helps atlas-dominated
-   scenes.
-3. **Per-mobject keyframe density.** Currently one global stride. §3.3 already calls for choosing
-   density from each mobject's measured morph rate; a slow-moving background object does not
-   need the rate a fast one does.
-4. **Further transform quantisation.** Now float16 linear part plus float32 translation (30 bytes,
-   from 48). Full 16-bit fixed point over scene bounds would reach 24.
+Measured on the one scene that still needs it — PlotGeometry, 435 frames:
+
+| | Bytes | Atlas | Instances |
+|---|---|---|---|
+| 30 fps keyframes | 365,428 | ~157,152 | ~258,850 |
+| 10 fps keyframes | **249,690** | ~157,152 | ~92,600 |
+
+The gain is **1.46×**, and the shape of what is left inverts §8.4's conclusion. That section
+found instance records dominate; here, after decimation, the IR is **63% atlas**. Those 371
+shapes are geometry `always_redraw` genuinely recomputes each frame, so no amount of
+deduplication removes them — the same property that keeps the scene out of tier 1 is what makes
+its atlas irreducible.
+
+Status of the four, against the corpus as it now stands:
+
+1. ~~**Factor group transforms.**~~ Targeted Cartopy's 1,429 polylines sharing one matrix.
+   **Cartopy is tier 1** — 140 B of program. Nothing in tier 3 has this shape any more.
+2. ~~**A morph instance type.**~~ Targeted CodeWalkthrough's 2,595 intermediates from
+   `Transform`. **CodeWalkthrough is tier 1** — 263 B. PlotGeometry's shapes are not
+   interpolations between two known endpoints, so this would not help it either.
+3. **Per-mobject keyframe density.** Still pays: 1.46× measured above with a single global
+   stride, and §3.3 already asks for per-mobject rates. The only fix here with a live target.
+4. **Further transform quantisation.** Now float16 linear plus float32 translation (30 bytes,
+   from 48); full 16-bit fixed point over scene bounds would reach 24. Attacks the 37% of
+   PlotGeometry that is instances.
+
+**The useful conclusion is not about the fixes.** Making a scene expressible as a program beat
+every one of these optimisations by two to three orders of magnitude — Cartopy went from
+11,311 KB of tuned IR to 140 B of program. Effort on *tier-1 coverage* dominates effort on
+tier-3 encoding, and will keep doing so until something other than `always_redraw` lands in
+the fallback.
 
 ## 11. Open items
 

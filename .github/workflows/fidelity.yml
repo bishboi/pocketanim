@@ -1,0 +1,106 @@
+name: fidelity
+
+# The expensive half, kept out of `verify` on purpose.
+#
+# This compares the player's output against Manim's own rendered frames, which
+# means a full Manim and a LaTeX distribution, and tens of minutes per scene.
+# Running it per push would make every change wait on it; running it never is
+# how the four frame-timing bugs in docs/SPEC.md §9.5 survived as long as they
+# did. So: nightly, and on demand.
+#
+# Scope is a knob rather than a constant. The default covers one scene of each
+# kind that has historically broken differently -- a 3D camera move, text and
+# glyph matching, and the long scene -- and `scenes` takes anything else.
+
+on:
+  schedule:
+    # 03:30 UTC. Nothing depends on the hour; it is away from the push traffic.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      scenes:
+        description: "Space-separated Class names, or 'all'"
+        required: false
+        default: "ThreeDCamera TextReuse LongLesson"
+      every:
+        description: "Sample every Nth frame"
+        required: false
+        default: "60"
+
+jobs:
+  fidelity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Cairo, ffmpeg and LaTeX
+        # texlive-latex-extra and dvisvgm are what MathTex needs; without
+        # dvisvgm the failure is a confusing "no output produced".
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcairo2-dev libpango1.0-dev ffmpeg \
+            texlive texlive-latex-extra texlive-fonts-extra dvisvgm
+
+      - name: Install Manim
+        run: pip install manim numpy pillow
+
+      - name: Compare the program against Manim's own frames
+        env:
+          SCENES: ${{ github.event.inputs.scenes || 'ThreeDCamera TextReuse LongLesson' }}
+          EVERY: ${{ github.event.inputs.every || '60' }}
+        run: |
+          declare -A FILES=(
+            [LatexDerivation]=01_latex_derivation.py
+            [PlotGeometry]=02_plot_geometry.py
+            [ThreeDCamera]=03_three_d_camera.py
+            [CartopyMap]=04_cartopy_map.py
+            [MolecularStructure]=05_molecular_structure.py
+            [CodeWalkthrough]=06_code_walkthrough.py
+            [SurfaceOrbit]=07_surface_orbit.py
+            [VerbTest]=08_verb_test.py
+            [TextHybrid]=09_text_hybrid.py
+            [TextReuse]=10_text_reuse.py
+            [LongLesson]=11_long_lesson.py
+          )
+
+          if [ "$SCENES" = "all" ]; then
+            SCENES="${!FILES[@]}"
+          fi
+
+          status=0
+          for scene in $SCENES; do
+            file="${FILES[$scene]:-}"
+            if [ -z "$file" ]; then
+              echo "::error::unknown scene '$scene'"
+              status=1
+              continue
+            fi
+            if [ ! -f "dsl/generated/$scene.panim" ]; then
+              echo "$scene is tier 3; no program to compare"
+              continue
+            fi
+
+            echo "::group::$scene"
+            python -m dsl.verify_dsl "dsl/generated/$scene.panim" \
+              "corpus/scenes/$file" "$scene" "$EVERY" | tee "/tmp/$scene.log"
+            echo "::endgroup::"
+
+            # §7.3's gate: 1% of pixels differing, no 2D/3D distinction.
+            pct=$(grep -o 'mean pixels off [0-9.]*' "/tmp/$scene.log" | awk '{print $4}')
+            if [ -z "$pct" ]; then
+              echo "::error::$scene produced no result"
+              status=1
+            elif awk "BEGIN{exit !($pct > 1.0)}"; then
+              echo "::error::$scene at $pct% differing, over the 1% gate"
+              status=1
+            else
+              echo "$scene: $pct% differing"
+            fi
+          done
+          exit $status

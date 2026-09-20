@@ -1130,5 +1130,17 @@ the fallback.
   Manim and LaTeX install and tens of minutes per scene; that belongs in a nightly job and is
   run by hand until one exists.
 - **Bundle integrity and player UX beyond scrubbing.**
-- **Two secondary figures** in the substrate research want re-verifying; several primary sources
-  were unreachable behind an egress proxy when it was written.
+- ~~**Two secondary figures** in the substrate research want re-verifying.~~ **Done, and one was
+  wrong.** The Graphite MotionMark number is confirmed as written (~15% on MotionMark 1.3,
+  Apple Silicon, not Android). The Snapdragon 680 Impeller-vs-Skia entry had **merged two
+  different benchmarks**: the ~22% frame-time and ~60% variance figures belong to that device,
+  the "4.05 ms vs 2.81 ms GPU raster" numbers belong to another with no Snapdragon attribution.
+  Corrected in `docs/research/android-rendering-substrate.md`.
+
+  Re-verification also turned up a primary source the draft did not have, and it is a better
+  one: [flutter/flutter#192147](https://github.com/flutter/flutter/issues/192147) measures
+  Impeller's GLES backend at **2–3× slower than Skia GL on an Adreno 610** — 12.0 ms/frame
+  against 6.7 ms — with the cause being per-draw CPU overhead, 25–35 redundant GL calls per
+  draw, not anything on the GPU. That sharpens §5's substrate choice and says plainly what
+  §11's draw-call measurement implies: **on a floor-segment device the number of draws costs
+  you, not their complexity.**

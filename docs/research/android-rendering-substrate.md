@@ -146,12 +146,39 @@ a large one on Canvas.
 No source gives "N Manim paths per frame on a Snapdragon 680". The honest answer is that
 the number is workload-shaped, and the credible anchors are:
 
-- **Impeller vs Skia on a Snapdragon 680 / 4 GB device**: GPU raster averaged 4.05 ms/frame
-  (Skia) vs 2.81 ms (Impeller), with Impeller improving average frame render time ~22% and
-  frame-time variance ~60% *for Flutter UI workloads* (widely republished benchmark; treat
-  as order-of-magnitude, secondary source). The useful reading is that **GPU raster on a
-  budget phone for a full-screen UI is single-digit milliseconds** — the GPU is not our
-  problem, the CPU-side path work is.
+- **Impeller vs Skia on a Snapdragon 680 / 4 GB device**: Impeller improved average frame
+  render time ~22% and frame-time variance ~60% *for Flutter UI workloads*.
+  **Correction (re-verified 2026-09):** the "4.05 ms vs 2.81 ms GPU raster" figures were
+  previously attributed to this same device. They are not from it — they come from a
+  *separate* republished benchmark (~30% GPU raster reduction, ~7.71 ms vs ~6.57 ms total
+  frame time) with no Snapdragon 680 attribution. Two benchmarks had been merged into one
+  sentence. The percentages and the millisecond figures are each defensible; pairing them
+  was not.
+
+  The reading that survives either way is that **GPU raster on a budget phone for a
+  full-screen UI is single-digit milliseconds** — the GPU is not our problem, the CPU-side
+  path work is. What follows makes that concrete with a primary source.
+
+- **Adreno 610 (Snapdragon 662/665), a floor-segment GPU — the CPU-side cost, measured**
+  ([flutter/flutter#192147](https://github.com/flutter/flutter/issues/192147), open):
+
+  | Backend | Total | Raster | Late frames |
+  |---|---|---|---|
+  | Skia GL | 6.7 ms | 3.4 ms | 0% |
+  | Impeller GLES | 12.0 ms | 8.5 ms | 10% |
+
+  Impeller is **2–3× slower than Skia** here, and the diagnosed cause is per-draw CPU
+  overhead rather than anything on the GPU: the GLES backend re-issues all GL state per
+  draw with minimal caching — **25–35 GL calls per draw command** — and a scene with no
+  blur, no shadows and no platform views spends 6.5 ms/frame inside `EncodeCommandsInReactor`
+  on the raster thread.
+
+  This is the strongest available evidence for §5's conclusion, and it is evidence the
+  earlier draft did not have. It also says the thing directly: **on a floor-segment device,
+  what costs you is the number of draws, not their complexity.** Our own measurement agrees —
+  MolecularStructure issues 5,120 `drawPath` calls per frame, 154,000 per second at 30 fps
+  (SPEC §11). A second data point on per-draw cost, from the other direction: Skia's reported
+  text ceiling of ~10,000 `DrawText` calls/sec on desktop-class hardware.
 - Skia's own text throughput ceiling in one reported case was ~10,000 `DrawText` calls/sec
   ([SkiaSharp#2771](https://github.com/mono/SkiaSharp/issues/2771)) — i.e. roughly
   300 calls per frame at 30 fps before text alone eats the budget, on desktop-class
@@ -622,6 +649,21 @@ Secondary (used only for order-of-magnitude, flagged inline): republished Impell
 Snapdragon 680 benchmarks; React Native Skia batching write-ups; [apilevels.com](https://apilevels.com/)
 cumulative reach figures.
 
+### Re-verification, 2026-09
+
+The two figures flagged below were re-checked. `skia.org`, `blog.chromium.org`,
+`source.android.com` and `vulkan.org` remain unreachable from this environment, so the check
+used search and the retrievable primary sources.
+
+- **Graphite MotionMark: confirmed as written.** ~15% MotionMark 1.3 improvement, measured on
+  Apple Silicon (a MacBook Pro M3), not Android. The caveat the draft already carried —
+  Android's HWUI uses Ganesh, not Graphite — is the load-bearing part and is unchanged.
+- **Snapdragon 680 Impeller-vs-Skia: partly wrong, corrected above.** The percentages belong
+  to that device; the millisecond figures belong to a different benchmark and had been merged
+  into the same sentence. The conclusion drawn from them did not depend on the pairing, so
+  §1.4 and §5 stand — and flutter/flutter#192147 now supports them with a primary source and
+  a harsher number.
+
 ### Sources that could not be retrieved
 
 The research network blocked `skia.org`, `skia.googlesource.com`, `source.android.com`,
@@ -629,6 +671,5 @@ The research network blocked `skia.org`, `skia.googlesource.com`, `source.androi
 `news.ycombinator.com`, `vulkan.org` (Ian Elliott's *Vulkan on Android* Vulkanised 2025/2026
 decks) and `arxiv.org`. Claims that would normally be sourced there were either obtained
 from the GitHub mirror of the Skia repo, from `developer.android.com`, or from search-engine
-summaries and are flagged as secondary above. **Two figures worth re-verifying against the
-original when those domains are reachable:** the Graphite Motionmark number, and the
-Snapdragon 680 Impeller-vs-Skia frame times.
+summaries and are flagged as secondary above. The two figures once flagged here have been
+re-checked; see *Re-verification, 2026-09* above.

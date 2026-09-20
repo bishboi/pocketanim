@@ -960,10 +960,28 @@ serialise.
   **The live risk is draw calls.** MolecularStructure issues 5,120 `drawPath` calls per frame
   — 154,000 per second at 30 fps — because 15 spheres of 144 faces each are 2,160 separate
   quads, fill and stroke apiece. That is the number most likely to miss frame rate on a low-end
-  phone, and it is a direct consequence of Manim's Cairo renderer having no z-buffer (§3.6):
-  the faces cannot be batched because painter order is the depth algorithm. Batching
-  same-style adjacent faces into one path, or the depth-tested layer §3.6 defers, would both
-  attack it.
+  phone.
+
+  **Batching same-style adjacent faces does not fix it, and that was measured rather than
+  assumed.** In a mid-timeline frame of MolecularStructure, 2,910 faces in draw order collapse
+  to only 2,595 runs of equal colour — an 11% saving, not worth the complexity. The reason is
+  the interesting part: those 2,910 faces carry **435 distinct fills derived from 5 base
+  colours**. Shading is per face, so depth-adjacent faces share a base colour but almost never a
+  final one. Quantising the shade to recover batching does not pay either — 8 levels buys a 33%
+  reduction for up to 16/255 of channel error, which is visible banding:
+
+  | Shade levels | Distinct fills | Adjacent runs | Max channel error |
+  |---|---|---|---|
+  | exact | 435 | 2,595 | 0 |
+  | 32 | 72 | 2,329 | 4 |
+  | 16 | 40 | 2,196 | 8 |
+  | 8 | 24 | 1,958 | 16 |
+
+  So the draw-call count is not a batching problem, it is a **shading-model** problem: one flat
+  colour per face means one draw per face, whatever the ordering. The fixes that would actually
+  work are the depth-tested layer §3.6 defers, which removes the painter-order constraint, or
+  moving to interpolated vertex colours so a whole solid is one draw. Both are larger than they
+  look, and neither should be started before the device gate says the problem is real.
 
   Geometry cost is *not* the worry: 1.7 ms/frame on the worst scene, on a desktop CPU,
   excluding rasterisation. A weak lower bound — a low-end phone is perhaps an order of

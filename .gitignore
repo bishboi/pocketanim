@@ -11,3 +11,6 @@ dsl/generated/
 
 # Sampled IR exports (regenerable from corpus/scenes)
 corpus/ir/
+
+# Player build output and its downloaded toolchain
+player/build/

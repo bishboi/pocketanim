@@ -223,6 +223,53 @@ segment, and Flutter's Impeller — a funded, dedicated 2D GPU renderer — foun
 rendering *"not acceptable for release on Android"*. If that team could not beat Skia at this,
 we should not assume we can.
 
+### 5.0 It exists, and most of it has been run
+
+`player/` is three modules, split by what can be verified rather than by
+convention:
+
+| Module | What it is | Runs where |
+|---|---|---|
+| `core/` | Decoder, tier-1 interpreter, renderer, playback clock. No Android, no AWT. | Anywhere a JVM runs |
+| `android/` | `SurfaceView` render loop, Skia sink, `AudioTrack` clock | Device only |
+| `desktop/` | Verification harness. Not shipped. | Any desktop JVM |
+
+**The whole design turns on one seam.** `core` asks the platform for exactly one
+thing — a `PathSink` with `moveTo`/`cubicTo`/`close`/`fill`/`stroke`. Android
+backs it with `Canvas`; the desktop harness backs it with Java2D. Everything
+that decides *what the picture is* — decode, interpret, transform, project,
+depth sort, shade, split subpaths — sits on the `core` side of that line, so
+**the code that runs on the phone is the code that gets checked here** against
+the §7.1 oracle. Without that seam the Android renderer would be unverifiable
+until someone ran it on a device.
+
+Both tiers produce the same type. `Scene.parse(bytes)` yields one from a
+`.panm`; `Interpreter.build(Program.parse(text), assets)` yields one from a
+`.panim`, expanding the program the way the device must. Past that point nothing
+downstream can tell which tier it is playing.
+
+**Verified by running it:**
+
+| Check | Result |
+|---|---|
+| Three decoders agree field for field (`decode.py`, `PanimDecoder.java`, `player/core`) | 8/8 corpus scenes |
+| Two interpreters agree field for field (`dsl/interpret.py`, `player/core`) | 10/10 programs |
+| Shipping renderer vs the Cairo oracle, tier 3 | 0.00–0.01% pixels differing |
+| Shipping renderer *and* interpreter vs the oracle, tier 1, end to end | **0.00% on all nine** |
+
+The residual is antialiasing: mean absolute error is 0.01–0.21 out of 255 and
+sits on edges. Cairo, Java2D and Skia cannot agree pixel-for-pixel and the spec
+never asked them to; what is being checked is that the geometry, ordering,
+shading and colour are the same.
+
+**Compiled but never executed:** everything in `android/`. `dl.google.com` is
+blocked in this environment, so `player/build.sh` compiles the Android layer
+against a real framework jar from Maven Central (`org.robolectric:android-all`,
+which carries AOSP's `android.jar` contents) rather than against an SDK. That
+proves it builds against the real `android.*` API and nothing more. The render
+loop, the surface lifecycle and the audio clock have not run. The Gradle build
+alongside it is what to use where an SDK is available.
+
 ### 5.1 Playback
 
 - **Audio is the master clock** when present. The renderer samples the scene at whatever time
@@ -887,14 +934,42 @@ serialise.
 
 ## 11. Open items
 
-- **The Android player is not started.** Everything above is exporter, format and oracle;
-  `client/PanimDecoder.java` is a format check, not a renderer. No Android SDK is available in
-  this environment, so the Kotlin renderer, the `SurfaceView` playback loop and the audio clock
-  are all unwritten.
-- **Device throughput is ungated.** This is the one measurement that can invalidate the
-  architecture, and it needs a physical low-end phone. There is no MP4 fallback path, so a bad
-  result has nowhere to fall back to — build the fallback or take the measurement before
-  committing further.
+- **Device throughput is ungated, and the verb counts say why that matters.** This is still the
+  one measurement that can invalidate the architecture, and it needs a physical low-end phone.
+  But the player can now be *asked* what it will demand, and the answer is not comfortable:
+
+  | Scene | Path verbs / frame | vs Skia's 16,384-verb GPU limit |
+  |---|---|---|
+  | CartopyMap | **62,054** | **3.8× over — software fallback guaranteed** |
+  | MolecularStructure | **15,586** | 0.95× — on the cliff edge |
+  | SurfaceOrbit | 3,456 | 0.21× |
+  | ThreeDCamera | 2,992 | 0.18× |
+  | CodeWalkthrough | 1,882 | 0.11× |
+  | LatexDerivation | 1,515 | 0.09× |
+  | TextHybrid / TextReuse | 299 / 277 | 0.02× |
+  | VerbTest | 9 | negligible |
+
+  §3.7 named the 16,384 cliff as a design constraint; this is the first time the corpus has
+  been measured against it. Two of nine scenes are at or past it, and CartopyMap is not
+  marginal — it is nearly four times over, so on that scene Skia will rasterise paths on the
+  CPU on every device, not just slow ones. **Splitting oversized paths so each draw stays under
+  the limit is now a known requirement, not a contingency**, and it belongs in §10 above the
+  size work: a scene that cannot hit frame rate does not benefit from being smaller.
+
+  Geometry cost was also measured, and is *not* the worry: 1.6 ms/frame on the worst scene, on
+  a desktop CPU, excluding rasterisation. That is a weak lower bound — a low-end phone is
+  perhaps an order of magnitude slower — but it says the bottleneck is the rasteriser, which
+  is what the verb counts are about.
+
+  There is still no MP4 fallback, so a bad device result has nowhere to fall back to.
+- **The tier-1 interpreter materialises every frame up front.** Correct, and verified against
+  the reference interpreter, but a long instance-heavy scene will hold tens of megabytes on a
+  phone. The structure to fix it is already there — the timeline is a state machine stepped one
+  frame at a time — so the change is to stop retaining rather than to redesign. Seeking
+  backwards then needs the same snapshot trick tier 3 already uses.
+- **The Android layer has never run.** It compiles against the real framework (§5.0); that is
+  all a compiler can tell you. The render thread, surface lifecycle, `AudioTrack` clock and
+  seek-during-drag behaviour are unexercised.
 - **Corpus scenes are 6–14.5 s.** Any 3-minute figure here is extrapolation, and the IR/video
   crossover is duration-sensitive — CartopyMap's sits around 8 s. Add a long scene before any
   production sizing decision.

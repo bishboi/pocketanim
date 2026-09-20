@@ -1,0 +1,156 @@
+package com.pocketanim.android
+
+import android.content.Context
+import android.graphics.Color
+import android.util.AttributeSet
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import com.pocketanim.core.Playback
+import com.pocketanim.core.Renderer
+import com.pocketanim.core.Scene
+
+/**
+ * A SurfaceView that plays a .panm.
+ *
+ * SurfaceView rather than a custom View: rendering happens on its own thread
+ * with no dependence on the UI thread's frame pacing, which matters because a
+ * heavy frame here costs tens of milliseconds and would otherwise jank the
+ * whole app. The trade is that the surface's lifecycle is not the view's, so
+ * the thread is owned by the surface callbacks below, not by attach/detach.
+ */
+class PanimView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+) : SurfaceView(context, attrs), SurfaceHolder.Callback {
+
+    private val sink = CanvasSink()
+    private var thread: RenderThread? = null
+
+    var backgroundColorArgb: Int = Color.BLACK
+
+    var scene: Scene? = null
+        private set
+    var playback: Playback? = null
+        private set
+
+    /** Statistics the throughput gate needs; see docs/SPEC.md §11. */
+    @Volatile var framesDrawn: Long = 0L
+        private set
+    @Volatile var framesSkipped: Long = 0L
+        private set
+    @Volatile var lastFrameMillis: Double = 0.0
+        private set
+
+    init {
+        holder.addCallback(this)
+    }
+
+    fun load(scene: Scene) {
+        this.scene = scene
+        this.playback = Playback(scene)
+    }
+
+    fun play() = playback?.play()
+    fun pause() = playback?.pause()
+
+    fun seekToFrame(index: Int) {
+        playback?.seekToFrame(index)
+        // Draw the sought frame immediately: a scrub that waits for the next
+        // tick to show anything feels broken even when it is only 16 ms.
+        thread?.requestRedraw()
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        thread = RenderThread(holder).also { it.start() }
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        thread?.resize(width, height)
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        thread?.shutdown()
+        thread = null
+    }
+
+    private inner class RenderThread(private val holder: SurfaceHolder) : Thread("panim-render") {
+        @Volatile private var running = true
+        @Volatile private var widthPx = 0
+        @Volatile private var heightPx = 0
+        @Volatile private var forceRedraw = false
+
+        fun resize(w: Int, h: Int) {
+            widthPx = w
+            heightPx = h
+            forceRedraw = true
+        }
+
+        fun requestRedraw() {
+            forceRedraw = true
+        }
+
+        fun shutdown() {
+            running = false
+            interrupt()
+            try {
+                join(500)
+            } catch (_: InterruptedException) {
+                currentThread().interrupt()
+            }
+        }
+
+        override fun run() {
+            while (running) {
+                val active = scene
+                val clock = playback
+                if (active == null || clock == null || widthPx == 0 || heightPx == 0) {
+                    idle()
+                    continue
+                }
+
+                // frameToDraw returns -1 when the current frame is already on
+                // screen, so a paused or slow-moving scene costs nothing.
+                var index = clock.frameToDraw()
+                if (index < 0) {
+                    if (!forceRedraw) {
+                        idle()
+                        continue
+                    }
+                    index = clock.currentFrame()
+                }
+                forceRedraw = false
+
+                val started = System.nanoTime()
+                val canvas = holder.lockCanvas() ?: continue
+                try {
+                    val depth = sink.begin(canvas, widthPx, heightPx, backgroundColorArgb)
+                    try {
+                        Renderer.drawFrame(active, index, sink)
+                    } finally {
+                        sink.end(depth)
+                    }
+                } finally {
+                    holder.unlockCanvasAndPost(canvas)
+                }
+
+                lastFrameMillis = (System.nanoTime() - started) / 1e6
+                framesDrawn++
+
+                // Frames the clock moved past while this one was being drawn.
+                // This is the number the device gate cares about: dropping
+                // frames is survivable, and counting them is how we find out.
+                val now = clock.currentFrame()
+                if (now > index + 1) framesSkipped += (now - index - 1).toLong()
+            }
+        }
+
+        private fun idle() {
+            try {
+                sleep(2)
+            } catch (_: InterruptedException) {
+                currentThread().interrupt()
+                running = false
+            }
+        }
+    }
+}

@@ -31,6 +31,7 @@ from exporter.decode import load
 
 CLASSES = Path("/tmp/panim-classes")
 SOURCE = Path("client/PanimDecoder.java")
+KOTLIN_CLASSES = Path("player/build/classes")
 
 # Atlas points are dequantised at different precision on each side by design,
 # so they get a looser bound -- still far below the quantisation step itself.
@@ -48,6 +49,26 @@ def compile_java() -> None:
 def java_dump(path: Path, frame: int) -> list[str]:
     out = subprocess.run(
         ["java", "-cp", str(CLASSES), "PanimDecoder", str(path), str(frame), "--dump"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    return [line for line in out.splitlines() if line and line[0].isupper()]
+
+
+def kotlin_dump(path: Path, frame: int) -> list[str] | None:
+    """The shipping decoder's dump, when the player has been built.
+
+    Absent rather than fatal: the Kotlin toolchain is not part of the Python
+    environment, so a checkout that has not run player/build.sh still gets the
+    Java-versus-Python check rather than an error it cannot act on.
+    """
+    classpath = KOTLIN_CLASSES / "core"
+    stdlib = KOTLIN_CLASSES / "kotlin-stdlib.jar"
+    desktop = KOTLIN_CLASSES / "desktop"
+    if not (classpath.exists() and desktop.exists() and stdlib.exists()):
+        return None
+    out = subprocess.run(
+        ["java", "-cp", f"{classpath}:{desktop}:{stdlib}",
+         "com.pocketanim.desktop.VerifyKt", str(path), "dump", str(frame)],
         check=True, capture_output=True, text=True,
     ).stdout
     return [line for line in out.splitlines() if line and line[0].isupper()]
@@ -131,18 +152,29 @@ def check(path: Path) -> bool:
     # Probe mid-timeline: far enough in that keyframe replay, not just the
     # opening snapshot, has to be right.
     frame = len(ir.records) // 2
-    py, java = python_dump(path, frame), java_dump(path, frame)
-    problems = compare(py, java)
+    py = python_dump(path, frame)
+
+    others = [("java", java_dump(path, frame))]
+    kotlin = kotlin_dump(path, frame)
+    if kotlin is not None:
+        others.append(("kotlin", kotlin))
 
     label = f"{path.name} (records={len(ir.records)} shapes={len(ir.shapes)} " \
             f"camera={ir.cameras is not None} frame={frame})"
-    if problems:
-        print(f"FAIL {label}")
-        for problem in problems:
-            print("  " + problem.replace("\n", "\n  "))
-        return False
-    print(f"ok   {label}: {len(py)} lines agree")
-    return True
+
+    failed = False
+    for name, other in others:
+        problems = compare(py, other)
+        if problems:
+            failed = True
+            print(f"FAIL {label} [python vs {name}]")
+            for problem in problems:
+                print("  " + problem.replace("\n", "\n  "))
+
+    if not failed:
+        agreed = ", ".join(name for name, _ in others)
+        print(f"ok   {label}: {len(py)} lines agree (python vs {agreed})")
+    return not failed
 
 
 def main() -> int:
@@ -157,7 +189,7 @@ def main() -> int:
     if failures:
         print(f"\nFAIL: {failures}/{len(paths)} file(s) disagree")
         return 1
-    print(f"\nOK: Java and Python decoders agree on all {len(paths)} file(s)")
+    print(f"\nOK: all decoders agree on all {len(paths)} file(s)")
     return 0
 
 

@@ -8,10 +8,14 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        // SurfaceView, AudioTrack.Builder and AudioTimestamp are all present
-        // well before this, but 29 is where getTimestamp is dependable enough
-        // to be the master clock.
-        minSdk = 29
+        // §5 picks 29 as the *support* floor, which is a product decision
+        // about which devices to ship to. Technically the renderer needs 21,
+        // AudioTrack.Builder 23 and MediaCodec.getInputBuffer 21; 24 is set
+        // here so the benchmark can run on an older phone than we intend to
+        // support, which is exactly the device whose numbers matter most.
+        // getTimestamp is less dependable below 29 -- that affects lip-sync,
+        // not whether frames arrive.
+        minSdk = 24
     }
 
     compileOptions {

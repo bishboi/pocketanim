@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No permissions: the library ships in assets and nothing here touches the
+     network. Keeping it that way means a benchmark run cannot be perturbed by
+     a download, and there is no grant dialog between installing and measuring. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:label="pocketanim benchmark"
+        android:hardwareAccelerated="true"
+        android:allowBackup="false">
+        <activity
+            android:name=".BenchmarkActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

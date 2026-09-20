@@ -5,6 +5,8 @@ import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.Panm
 import com.pocketanim.core.PathSink
 import com.pocketanim.core.Renderer
+import com.pocketanim.core.Benchmark
+import com.pocketanim.core.FrameTarget
 import com.pocketanim.core.Frames
 import com.pocketanim.core.Library
 import com.pocketanim.core.Storage
@@ -422,14 +424,70 @@ private fun libraryReport(root: File): Boolean {
     return failures == 0
 }
 
+/**
+ * The device benchmark, run here.
+ *
+ * Identical procedure to the one the phone runs -- same warm-up, same three
+ * passes, same percentiles -- against Java2D instead of Skia. That is the point:
+ * a frame time from a phone means little alone, and means a lot next to one
+ * measured the same way on hardware you understand.
+ *
+ * It is a reference, not a prediction. Java2D is not Skia and a desktop CPU is
+ * not a phone SoC; what transfers is the *shape* -- which scenes are expensive,
+ * and how much of their cost is geometry rather than rasterisation.
+ */
+private fun deviceBenchmark(root: File, only: List<String>?) {
+    val library = Library.load(DirStorage(root))
+    val missing = library.missing()
+    if (missing.isNotEmpty()) {
+        println("library incomplete, ${missing.size} path(s) missing")
+        return
+    }
+
+    val width = 1280
+    val height = 720
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+
+    val target = FrameTarget { draw ->
+        val g = image.createGraphics()
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+            g.color = Color.BLACK
+            g.fillRect(0, 0, width, height)
+            g.translate(width / 2.0, height / 2.0)
+            g.scale(width / FRAME_WIDTH.toDouble(), -height / FRAME_HEIGHT.toDouble())
+            draw(Java2DSink(g))
+        } finally {
+            g.dispose()
+        }
+    }
+
+    println("desktop reference, ${width}x$height, Java2D")
+    val scenes = library.scenes.filter { only == null || it.name in only }
+    for (entry in scenes) {
+        val result = try {
+            Benchmark.run(entry.name, entry.tier, library.open(entry.name), target)
+        } catch (e: Throwable) {
+            Benchmark.failed(entry.name, entry.tier, "${e::class.simpleName}: ${e.message}")
+        }
+        println(result.toLine())
+    }
+}
+
 fun main(args: Array<String>) {
     if (args.size < 2 && args.firstOrNull() != "selftest") {
-        println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library> [frame] [out.png]")
+        println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library|devicebench> [args]")
         println("       Verify selftest")
         return
     }
     if (args[0] == "selftest") {
         if (!runSelfTest()) kotlin.system.exitProcess(1)
+        return
+    }
+
+    if (args[1] == "devicebench") {
+        deviceBenchmark(File(args[0]), args.drop(2).takeIf { it.isNotEmpty() })
         return
     }
 

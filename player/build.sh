@@ -100,6 +100,14 @@ kotlinc -classpath "$STDLIB:$STAGE/core" player/desktop/src/main/kotlin -d "$STA
 if [ -f "$ANDROID_JAR" ]; then
   echo "compiling android layer"
   kotlinc -classpath "$STDLIB:$ANDROID_JAR:$STAGE/core" player/android/src/main/kotlin -d "$STAGE/android"
+
+  # The benchmark is an app module and needs the Android Gradle Plugin to build
+  # an APK, which this environment cannot reach. Type-checking its Kotlin here
+  # still catches the errors that would otherwise surface on someone else's
+  # machine after a toolchain download.
+  echo "type-checking benchmark"
+  kotlinc -classpath "$STDLIB:$ANDROID_JAR:$STAGE/core:$STAGE/android" \
+    player/benchmark/src/main/kotlin -d "$STAGE/benchmark"
 else
   echo "skipping android layer (no framework jar; run $0 --fetch)" >&2
 fi

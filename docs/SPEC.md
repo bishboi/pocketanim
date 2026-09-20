@@ -1009,7 +1009,42 @@ the fallback.
   excluding rasterisation. A weak lower bound — a low-end phone is perhaps an order of
   magnitude slower — but it points at the rasteriser rather than at the maths.
 
-  There is still no MP4 fallback, so a bad device result has nowhere to fall back to.
+  **A desktop reference now exists, measured by the identical procedure.** `player/benchmark`
+  is an installable app that runs every corpus scene three times — warm-up, unpaced, then paced
+  at the scene's own rate — and the same `Benchmark` code runs here against Java2D, so a phone
+  number lands next to a comparable one. 1280×720:
+
+  | Scene | Verdict | p50 ms | Geometry ms | Draws | Max path verbs |
+  |---|---|---|---|---|---|
+  | CartopyMap | **FAIL** (98% late) | 67.35 | 2.19 | 1,426 | **10,298** |
+  | MolecularStructure | **FAIL** (51% late) | 30.72 | 2.32 | **5,120** | 10 |
+  | ThreeDCamera | PASS (0.3% late) | 20.71 | 0.32 | 996 | 6 |
+  | SurfaceOrbit | PASS | 11.44 | 0.33 | 1,152 | 6 |
+  | LongLesson | PASS | 1.00 | 0.04 | 47 | 44 |
+  | the other six | PASS | ≤1.5 | ≤0.08 | ≤90 | ≤47 |
+
+  Three things fall out of this, and the first is the important one.
+
+  **Geometry is 0.3–3% of a frame. Rasterisation is the rest.** Everything measured so far —
+  interpreter laziness, atlas deduplication, affine detection, camera projection — lives in a
+  column that never exceeds 2.32 ms. §11's earlier note that "the bottleneck is the rasteriser"
+  was an inference from verb counts; this measures it.
+
+  **The two failures fail differently.** CartopyMap has *few* draws and an enormous path;
+  MolecularStructure has *many* draws and trivial ones. 1,426 draws costing 67 ms against 5,120
+  costing 31 ms is not a draw-count story — it is path complexity in one case and per-draw
+  overhead in the other, and they want different fixes. §11's draw-call analysis covers the
+  second; the first is what the `maxpath` guard in `build_library.py` was added for.
+
+  **This is a shape, not a prediction.** Java2D software-rasterises antialiased paths and is
+  generally slower at it than Skia, which on Android is GPU-backed through HWUI. A phone may
+  well beat these numbers on the rasterisation-dominated scenes. What transfers is which scenes
+  are expensive and where their cost sits — and ThreeDCamera at 62% of a 33.3 ms budget on a
+  desktop is a warning worth taking to the device.
+
+  `player/BENCHMARK.md` has the build-and-run instructions; results land in logcat and in a
+  JSON file. There is still no MP4 fallback, so a bad device result has nowhere to fall back
+  to — but render-to-cache on first open, which #6 names, needs no format change.
 - ~~**The tier-1 interpreter materialises every frame up front.**~~ **Fixed.** It measured at
   **98.8 MB retained** for MolecularStructure, which a phone does not have to spare, so this was
   a defect rather than a note. Each verb is now a resumable `Runner` — its per-frame body was

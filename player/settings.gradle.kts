@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "pocketanim-player"
-include(":core", ":android", ":desktop")
+include(":core", ":android", ":desktop", ":benchmark")

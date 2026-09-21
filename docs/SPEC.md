@@ -262,13 +262,17 @@ sits on edges. Cairo, Java2D and Skia cannot agree pixel-for-pixel and the spec
 never asked them to; what is being checked is that the geometry, ordering,
 shading and colour are the same.
 
-**Compiled but never executed:** everything in `android/`. `dl.google.com` is
-blocked in this environment, so `player/build.sh` compiles the Android layer
-against a real framework jar from Maven Central (`org.robolectric:android-all`,
-which carries AOSP's `android.jar` contents) rather than against an SDK. That
-proves it builds against the real `android.*` API and nothing more. The render
-loop, the surface lifecycle and the audio clock have not run. The Gradle build
-alongside it is what to use where an SDK is available.
+**Not executed here:** everything in `android/`. `dl.google.com` is blocked in
+this environment, so `player/build.sh` compiles the Android layer against a
+real framework jar from Maven Central (`org.robolectric:android-all`, which
+carries AOSP's `android.jar` contents) rather than against an SDK. That proves
+it builds against the real `android.*` API and nothing more. The Gradle build
+alongside it is what to use where an SDK is available, and CI builds the
+benchmark APK with it.
+
+It *has* run on a phone — the render loop, the surface lifecycle and the Skia
+sink — twice, through that APK. §11 carries both runs, including the one whose
+numbers turned out to be measuring a software canvas.
 
 ### 5.1 Playback
 
@@ -428,6 +432,20 @@ compared reference frames and IR records that were **both** indexed by
 
 **This is what "perceptually identical" means in practice, and it is a number
 rather than an aspiration.**
+
+**One deliberate loss.** The exporter decimates imported artwork to the detail
+a screen can resolve, which is a fidelity decision and so it is measured rather
+than assumed. On CartopyMap's tier-1 program against Manim's own frames:
+
+| | Mean MAE | Pixels differing |
+|---|---|---|
+| Full coastline, 58,987 curves | 0.25 | 0.30% |
+| Decimated, 30,756 curves | **0.42** | **0.60%** |
+
+The budget is one pixel at 2400 px wide **at the tightest zoom the program
+reaches** — a third of a pixel anywhere else in that animation — and the cost
+of it is those two rows. It stays inside the 1% gate below with room, and it is
+the only place in this table where the exporter is choosing to be wrong.
 
 Suggested CI gate: fail above 1% differing pixels, with no 2D/3D distinction —
 the 3D allowance existed only to accommodate the camera bug.
@@ -1067,8 +1085,50 @@ the fallback.
   the JSON, and acquires a frame before reporting so the answer is observed rather than
   assumed. A silent fallback is how the first numbers came to be misread.
 
-  **No optimisation work until this is re-measured.** Choosing between path simplification,
-  level of detail and draw batching on numbers from the wrong rasteriser would be guessing.
+  **Second device run, on a hardware canvas.** RMX3242, mt6833, Android 33. **8 of 10
+  scenes pass**, and ThreeDCamera went from 45/301 frames late to **0/301** — the fill-rate
+  reading was right, and nothing else was wrong with it. CartopyMap and MolecularStructure
+  still fail, for different reasons:
+
+  | Scene | p50 | geometry | draws/frame | verbs/frame | late |
+  |---|---|---|---|---|---|
+  | CartopyMap | 104.3 ms | 7.9 ms | 1,426 | 62,054 | 180/181 |
+  | MolecularStructure | 41.5 ms | 7.4 ms | 5,120 | 15,586 | 222/271 |
+  | *VerbTest (1 draw, 9 verbs)* | *16.47 ms* | *0.04 ms* | *1* | *9* | *0/151* |
+
+  VerbTest is the important row: a scene that draws one path takes 16.47 ms, because
+  `unlockCanvasAndPost` blocks on the next buffer. **Every passing scene's p50 sits on that
+  vsync floor**, so p50 is an upper bound on their cost and not a measurement of it. Only
+  the two failures are above it and therefore actually measured.
+
+  Two failures and two passes give four equations for two unknowns, and they fit:
+  **rasterisation costs about 1.5 µs per verb and 2.1 µs per draw** on this device. That is
+  the model the work below is aimed at, and each change attacks one term.
+
+  | | draws/frame | verbs/frame | max path |
+  |---|---|---|---|
+  | CartopyMap, first run | 1,426 | 62,054 | 10,298 |
+  | CartopyMap, now | **355** | **22,719** | **8,192** |
+  | MolecularStructure, first run | 5,120 | 15,586 | 10 |
+  | MolecularStructure, now | **2,649** | 15,569 | 10 |
+
+  Where that came from: lines instead of cubics where Manim's polylines are straight (98% of
+  CartopyMap's curves); frame culling of 2D instances, which an affine transform makes exact;
+  merging adjacent opaque strokes that share a paint, which is exact for the same reason;
+  one `drawPath` where a face's fill and stroke are the same opaque colour, which is 2,880 of
+  MolecularStructure's 2,910; and export-time decimation of over-detailed artwork. Agreement
+  with the Cairo oracle is unchanged to three digits, which is the property all of it had to
+  preserve — the decimation is the one deliberate loss, and §7.3 carries its cost.
+
+  **What is still unknown is what a line costs against a cubic on Skia.** The model above was
+  fitted before that change existed, and it is the term that decides whether CartopyMap can
+  reach 30 fps at all: at 1.5 µs a verb, 22,719 verbs is still 34 ms. If lines are not
+  materially cheaper, a coastline at this detail is what §3.7's raster layer exists for, and
+  this scene will have measured that rather than failed it.
+
+  The next run also changes basis: the benchmark rendered into a 2148x411 surface, a fifth of
+  a frame's pixels at an aspect ratio that stretched every scene, and now fixes a 1920x1080
+  buffer. Its numbers will be worse and will mean something.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.

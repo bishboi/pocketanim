@@ -1043,7 +1043,34 @@ the fallback.
   desktop is a warning worth taking to the device.
 
   `player/BENCHMARK.md` has the build-and-run instructions; results land in logcat and in a
-  JSON file. There is still no MP4 fallback, so a bad device result has nowhere to fall back
+  JSON file.
+
+  **First device run, and a bug it exposed in the benchmark itself.** On a low-end phone,
+  **8 of 11 scenes passed** and rendered correctly. Three did not: CartopyMap 178/181 frames
+  late, MolecularStructure 235/271, ThreeDCamera 45/301.
+
+  Those numbers came through `SurfaceHolder.lockCanvas()`, which returns a **software**
+  canvas — Skia rasterising into a CPU buffer, with the GPU only compositing the result.
+  `lockHardwareCanvas()` is the HWUI-backed one. **§5's substrate decision is "Skia via the
+  Canvas API, GPU-backed", and the benchmark bypassed exactly that**, so the first run
+  measured CPU rasterisation on a phone: the one thing the architecture exists to avoid.
+
+  It matters most for the scenes that failed. ThreeDCamera is **fill-bound, not draw-bound**
+  — 996 draws against SurfaceOrbit's 1,152, but 63% screen coverage against 23% — and filling
+  pixels is nearly free on a GPU and expensive on a CPU. CartopyMap scored identically on
+  desktop Java2D and on the phone (178/181 both), which is what two software rasterisers far
+  over budget look like.
+
+  `SurfaceCanvas` now takes a hardware canvas where the device offers one and falls back
+  rather than dropping a frame; `PanimView` uses it too, so the player is not
+  software-rendering either. The benchmark **reports which path it got**, in the log line and
+  the JSON, and acquires a frame before reporting so the answer is observed rather than
+  assumed. A silent fallback is how the first numbers came to be misread.
+
+  **No optimisation work until this is re-measured.** Choosing between path simplification,
+  level of detail and draw batching on numbers from the wrong rasteriser would be guessing.
+
+  There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.
 - ~~**The tier-1 interpreter materialises every frame up front.**~~ **Fixed.** It measured at
   **98.8 MB retained** for MolecularStructure, which a phone does not have to spare, so this was

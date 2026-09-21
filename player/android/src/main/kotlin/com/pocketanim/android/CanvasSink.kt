@@ -27,6 +27,14 @@ class CanvasSink : PathSink {
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
+    // Same geometry, one traversal: Skia fills and strokes from a single
+    // drawPath when the style asks for both, and the renderer only asks when
+    // the two colours are identical and opaque.
+    private val bothPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL_AND_STROKE
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
 
     private var canvas: Canvas? = null
 
@@ -62,6 +70,10 @@ class CanvasSink : PathSink {
         path.cubicTo(x1, y1, x2, y2, x3, y3)
     }
 
+    override fun lineTo(x: Float, y: Float) {
+        path.lineTo(x, y)
+    }
+
     override fun closeSubpath() {
         path.close()
     }
@@ -75,5 +87,11 @@ class CanvasSink : PathSink {
         strokePaint.color = argb
         strokePaint.strokeWidth = widthInSceneUnits
         canvas?.drawPath(path, strokePaint)
+    }
+
+    override fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
+        bothPaint.color = argb
+        bothPaint.strokeWidth = widthInSceneUnits
+        canvas?.drawPath(path, bothPaint)
     }
 }

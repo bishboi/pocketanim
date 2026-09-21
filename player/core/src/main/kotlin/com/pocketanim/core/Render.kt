@@ -39,6 +39,38 @@ interface PathSink {
     /** Fill the current path with a premultiplied-by-nothing ARGB colour. */
     fun fillPath(argb: Int)
     fun strokePath(argb: Int, widthInSceneUnits: Float)
+
+    /**
+     * A straight segment.
+     *
+     * Manim has no line primitive -- `set_points_as_corners` stores a polyline
+     * as cubics whose handles sit exactly at a third and two thirds of the
+     * chord -- so the renderer recovers the lines it was given. Measured on the
+     * coastline scene: every one of its 58,987 curves is straight to 1e-15, and
+     * a rasteriser must otherwise subdivide each of them before it can find
+     * that out.
+     *
+     * The default keeps the seam small: a sink that has no line primitive gets
+     * the cubic it would have got anyway.
+     */
+    fun lineTo(x: Float, y: Float) {
+        // Without the original handles, thirds reproduce the same curve.
+        cubicTo(x, y, x, y, x, y)
+    }
+
+    /**
+     * Fill and stroke the current path in one operation.
+     *
+     * Only ever called when the two colours are identical and opaque, which is
+     * the common case for shaded 3D faces: Manim gives a face the same colour
+     * for both, so two draws produce one appearance. The default splits it back
+     * into the two calls, so this stays an optimisation rather than a format
+     * change.
+     */
+    fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
+        fillPath(argb)
+        strokePath(argb, widthInSceneUnits)
+    }
 }
 
 object Renderer {
@@ -50,15 +82,24 @@ object Renderer {
      * which is why the IR carries 3D vertices and a camera track instead of
      * flattened output: a camera move costs 17 floats, not new geometry.
      */
-    fun project(points: FloatArray, camera: FloatArray, out: FloatArray) {
+    fun project(points: FloatArray, camera: FloatArray, out: FloatArray) =
+        project(points, 0, points.size, camera, out)
+
+    /**
+     * [project], reading a slice of a shared buffer and writing from zero.
+     *
+     * The slice is how one frame's world points live in a single array rather
+     * than one array per instance.
+     */
+    fun project(points: FloatArray, at: Int, length: Int, camera: FloatArray, out: FloatArray) {
         val cx = camera[0]; val cy = camera[1]; val cz = camera[2]
         val focal = camera[3]; val zoom = camera[4]
 
         var i = 0
-        while (i < points.size) {
-            val dx = points[i] - cx
-            val dy = points[i + 1] - cy
-            val dz = points[i + 2] - cz
+        while (i < length) {
+            val dx = points[at + i] - cx
+            val dy = points[at + i + 1] - cy
+            val dz = points[at + i + 2] - cz
 
             // rotation is row-major 3x3 at camera[5..13]; this is (p - c) @ R^T.
             val rx = camera[5] * dx + camera[6] * dy + camera[7] * dz
@@ -80,23 +121,16 @@ object Renderer {
     }
 
     /** Apply an instance's 3x4 transform to the canonical atlas points. */
-    fun transform(canonical: FloatArray, m: FloatArray, out: FloatArray) {
-        var i = 0
-        while (i < canonical.size) {
-            val x = canonical[i]; val y = canonical[i + 1]; val z = canonical[i + 2]
-            out[i] = m[0] * x + m[1] * y + m[2] * z + m[3]
-            out[i + 1] = m[4] * x + m[5] * y + m[6] * z + m[7]
-            out[i + 2] = m[8] * x + m[9] * y + m[10] * z + m[11]
-            i += 3
-        }
-    }
+    fun transform(canonical: FloatArray, m: FloatArray, out: FloatArray) =
+        transformInto(canonical, m, out)
 
     /** Bounding-box centre, which is what Manim means by a mobject's centre. */
-    private fun centre(points: FloatArray, out: FloatArray) {
-        var minX = points[0]; var minY = points[1]; var minZ = points[2]
+    private fun centre(points: FloatArray, at: Int, length: Int, out: FloatArray) {
+        var minX = points[at]; var minY = points[at + 1]; var minZ = points[at + 2]
         var maxX = minX; var maxY = minY; var maxZ = minZ
-        var i = 3
-        while (i < points.size) {
+        var i = at + 3
+        val end = at + length
+        while (i < end) {
             val x = points[i]; val y = points[i + 1]; val z = points[i + 2]
             if (x < minX) minX = x; if (x > maxX) maxX = x
             if (y < minY) minY = y; if (y > maxY) maxY = y
@@ -114,9 +148,15 @@ object Renderer {
      * the IR, so this is derived on the device rather than baked into colours --
      * which is what lets one atlas entry serve every orientation of a solid.
      */
-    private fun shadeOf(worldPoints: FloatArray, normal: FloatArray, camera: FloatArray): Float {
+    private fun shadeOf(
+        worldPoints: FloatArray,
+        at: Int,
+        length: Int,
+        normal: FloatArray,
+        camera: FloatArray,
+    ): Float {
         val c = FloatArray(3)
-        centre(worldPoints, c)
+        centre(worldPoints, at, length, c)
         val sx = camera[14] - c[0]
         val sy = camera[15] - c[1]
         val sz = camera[16] - c[2]
@@ -134,10 +174,16 @@ object Renderer {
      * the camera moves and cannot be baked in. Anything not flagged
      * shade_in_3d sorts last, matching Manim's np.inf.
      */
-    private fun depthOf(worldPoints: FloatArray, flags: Int, camera: FloatArray): Float {
+    private fun depthOf(
+        worldPoints: FloatArray,
+        at: Int,
+        length: Int,
+        flags: Int,
+        camera: FloatArray,
+    ): Float {
         if (flags and Panm.SHADE_IN_3D == 0) return Float.POSITIVE_INFINITY
         val c = FloatArray(3)
-        centre(worldPoints, c)
+        centre(worldPoints, at, length, c)
         // rotation^T column 2 is rotation row 2.
         return camera[11] * c[0] + camera[12] * c[1] + camera[13] * c[2]
     }
@@ -155,56 +201,242 @@ object Renderer {
     }
 
     /**
+     * How far a cubic's handles may stray from the chord before it stops
+     * counting as a line, in scene units. At the benchmark's 2148-pixel surface
+     * a scene unit is 151 pixels, so this is a sixth of a pixel -- below what
+     * antialiasing can express, and comfortably above the atlas's quantisation
+     * step.
+     */
+    private const val LINE_TOLERANCE = 1e-3f
+
+    /**
+     * Verb ceiling for a merged run of strokes.
+     *
+     * Skia rasterises a path on the GPU only below kMaxGPUPathRendererVerbs
+     * (16,384) and on the CPU above it, so merging draws is only a saving while
+     * the merged path stays under that. Half the limit leaves room for the
+     * shape that tips a run over it.
+     */
+    private const val MERGE_VERB_BUDGET = 8192
+
+    /**
+     * Whether an instance can touch the frame at all.
+     *
+     * The canonical bounding box through the instance's affine transform is a
+     * bounding box of the result, so a miss is a certain miss. Measured on the
+     * coastline scene at its tightest zoom: 62% of its verbs are off-screen,
+     * and this drops them before they are transformed, walked or drawn.
+     *
+     * Only the 2D path uses it. Under a projecting camera the mapping is not
+     * affine and a box does not survive it.
+     */
+    private fun offFrame(canonical: FloatArray, m: FloatArray): Boolean {
+        var minX = canonical[0]; var maxX = minX
+        var minY = canonical[1]; var maxY = minY
+        var minZ = canonical[2]; var maxZ = minZ
+        var i = 3
+        while (i < canonical.size) {
+            val x = canonical[i]; val y = canonical[i + 1]; val z = canonical[i + 2]
+            if (x < minX) minX = x else if (x > maxX) maxX = x
+            if (y < minY) minY = y else if (y > maxY) maxY = y
+            if (z < minZ) minZ = z else if (z > maxZ) maxZ = z
+            i += 3
+        }
+
+        // |a| * halfExtent bounds the linear part's contribution on each axis.
+        val cx = (minX + maxX) * 0.5f; val ex = (maxX - minX) * 0.5f
+        val cy = (minY + maxY) * 0.5f; val ey = (maxY - minY) * 0.5f
+        val cz = (minZ + maxZ) * 0.5f; val ez = (maxZ - minZ) * 0.5f
+
+        val centreX = m[0] * cx + m[1] * cy + m[2] * cz + m[3]
+        val spanX = abs(m[0]) * ex + abs(m[1]) * ey + abs(m[2]) * ez
+        if (centreX - spanX > FRAME_WIDTH * 0.5f || centreX + spanX < -FRAME_WIDTH * 0.5f) return true
+
+        val centreY = m[4] * cx + m[5] * cy + m[6] * cz + m[7]
+        val spanY = abs(m[4]) * ex + abs(m[5]) * ey + abs(m[6]) * ez
+        return centreY - spanY > FRAME_HEIGHT * 0.5f || centreY + spanY < -FRAME_HEIGHT * 0.5f
+    }
+
+    /**
      * Emit one frame into [sink].
      *
-     * Allocation is kept to two scratch buffers per instance rather than per
-     * point, because the throughput question on a low-end phone is decided by
-     * allocation and draw-call count long before it is decided by arithmetic.
+     * Scratch buffers are grown, never reallocated per instance: the throughput
+     * question on a low-end phone is decided by allocation and draw-call count
+     * long before it is decided by arithmetic.
      */
     fun drawFrame(scene: Frames, index: Int, sink: PathSink) {
         // instances() first: a computing source populates its atlas as a side
         // effect of producing the frame, so shape() is only valid afterwards.
-        var instances = scene.instances(index)
+        val instances = scene.instances(index)
         val camera = scene.camera(index)
+        if (camera == null) draw2D(scene, instances, sink) else draw3D(scene, instances, camera, sink)
+    }
 
-        if (camera != null) {
-            val keyed = Array(instances.size) { i ->
-                val inst = instances[i]
-                val canonical = scene.shape(inst.atlasId)
-                val world = FloatArray(canonical.size)
-                transform(canonical, inst.transform, world)
-                Pair(depthOf(world, inst.flags, camera), inst)
-            }
-            keyed.sortBy { it.first }
-            instances = Array(keyed.size) { keyed[it].second }
-        }
+    /**
+     * The 2D case: no projection, no depth sort, no shading.
+     *
+     * Two things it does that the 3D case cannot. It culls against the frame,
+     * because an affine transform carries a bounding box. And it merges a run
+     * of adjacent opaque strokes that share a colour and a width into one path,
+     * which is exact -- stroking A then B in the same opaque colour paints the
+     * same pixels as stroking A and B together -- and turns the coastline's
+     * 1,429 draws into a handful.
+     */
+    private fun draw2D(scene: Frames, instances: Array<Instance>, sink: PathSink) {
+        var world = FloatArray(0)
+
+        var runOpen = false
+        var runColour = 0
+        var runWidth = 0f
+        var runVerbs = 0
 
         for (inst in instances) {
             val canonical = scene.shape(inst.atlasId)
-            val world = FloatArray(canonical.size)
-            transform(canonical, inst.transform, world)
-
-            val screen: FloatArray
-            var shade = 0f
-            if (camera != null) {
-                screen = FloatArray(world.size)
-                project(world, camera, screen)
-                if (inst.flags and Panm.SHADE_IN_3D != 0 && inst.normal != null) {
-                    shade = shadeOf(world, inst.normal, camera)
-                }
-            } else {
-                screen = world
-            }
-
-            emitPath(screen, sink)
+            if (canonical.size < 12) continue
+            if (offFrame(canonical, inst.transform)) continue
 
             val fill = inst.fill
-            if ((fill ushr 24) and 0xFF > 0) sink.fillPath(shift(fill, shade))
-
             val stroke = inst.stroke
-            if ((stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f) {
-                sink.strokePath(shift(stroke, shade), inst.strokeWidth * STROKE_SCALE)
+            val filled = (fill ushr 24) and 0xFF > 0
+            val stroked = (stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f
+            if (!filled && !stroked) continue
+            val width = inst.strokeWidth * STROKE_SCALE
+
+            // Verbs this shape will contribute: one per curve, plus a move and
+            // a close for each subpath. One subpath is the usual case and the
+            // budget has slack, so the estimate need not be exact.
+            val verbs = canonical.size / 12 + 2
+            val mergeable = !filled && stroked && (stroke ushr 24) and 0xFF == 0xFF
+
+            val continues = runOpen && mergeable && stroke == runColour &&
+                width == runWidth && runVerbs + verbs <= MERGE_VERB_BUDGET
+            if (runOpen && !continues) {
+                sink.strokePath(runColour, runWidth)
+                runOpen = false
             }
+
+            if (world.size < canonical.size) world = FloatArray(canonical.size)
+            transformInto(canonical, inst.transform, world)
+
+            if (mergeable) {
+                if (!runOpen) {
+                    sink.beginPath()
+                    runOpen = true
+                    runColour = stroke
+                    runWidth = width
+                    runVerbs = 0
+                }
+                appendPath(world, canonical.size, sink)
+                runVerbs += verbs
+                continue
+            }
+
+            sink.beginPath()
+            appendPath(world, canonical.size, sink)
+            if (filled && stroked && fill == stroke && (fill ushr 24) and 0xFF == 0xFF) {
+                sink.fillAndStrokePath(fill, width)
+            } else {
+                if (filled) sink.fillPath(fill)
+                if (stroked) sink.strokePath(stroke, width)
+            }
+        }
+
+        if (runOpen) sink.strokePath(runColour, runWidth)
+    }
+
+    /**
+     * The 3D case: depth sort, project, shade.
+     *
+     * The sort keeps the world points it computed rather than computing them
+     * again in the draw pass, and orders an index permutation packed into longs
+     * rather than an array of boxed pairs. On the molecule scene that is 2,910
+     * fewer transforms and 2,910 fewer allocations per frame.
+     */
+    private fun draw3D(
+        scene: Frames,
+        instances: Array<Instance>,
+        camera: FloatArray,
+        sink: PathSink,
+    ) {
+        val n = instances.size
+        if (n == 0) return
+
+        // One buffer for every instance's world points, indexed by offset.
+        // The molecule scene has 2,910 instances per frame; a FloatArray each
+        // is 2,910 allocations a frame, which is what its 7.4 ms of geometry
+        // time on the device was mostly made of.
+        val offset = IntArray(n + 1)
+        for (i in 0 until n) offset[i + 1] = offset[i] + scene.shape(instances[i].atlasId).size
+        val world = FloatArray(offset[n])
+
+        val order = LongArray(n)
+        for (i in 0 until n) {
+            val inst = instances[i]
+            val canonical = scene.shape(inst.atlasId)
+            transformInto(canonical, inst.transform, world, offset[i])
+            val depth = depthOf(world, offset[i], canonical.size, inst.flags, camera)
+            order[i] = (sortable(depth).toLong() shl 32) or (i.toLong() and 0xFFFFFFFFL)
+        }
+        order.sort()
+
+        var screen = FloatArray(0)
+        for (k in 0 until n) {
+            val i = (order[k] and 0xFFFFFFFFL).toInt()
+            val inst = instances[i]
+            val at = offset[i]
+            val length = offset[i + 1] - at
+            if (length < 12) continue
+
+            val fill = inst.fill
+            val stroke = inst.stroke
+            val filled = (fill ushr 24) and 0xFF > 0
+            val stroked = (stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f
+            if (!filled && !stroked) continue
+
+            if (screen.size < length) screen = FloatArray(length)
+            project(world, at, length, camera, screen)
+            var shade = 0f
+            if (inst.flags and Panm.SHADE_IN_3D != 0 && inst.normal != null) {
+                shade = shadeOf(world, at, length, inst.normal, camera)
+            }
+
+            sink.beginPath()
+            appendPath(screen, length, sink)
+
+            val width = inst.strokeWidth * STROKE_SCALE
+            if (filled && stroked && fill == stroke && (fill ushr 24) and 0xFF == 0xFF) {
+                // Both shift by the same amount, so equal colours stay equal.
+                sink.fillAndStrokePath(shift(fill, shade), width)
+            } else {
+                if (filled) sink.fillPath(shift(fill, shade))
+                if (stroked) sink.strokePath(shift(stroke, shade), width)
+            }
+        }
+    }
+
+    /**
+     * Order floats as signed integers.
+     *
+     * Float bit patterns already increase with the value for positives, but run
+     * backwards for negatives; reflecting them about the sign bit fixes that,
+     * and lets a depth key and an instance index share one long that sorts
+     * correctly without boxing anything.
+     */
+    private fun sortable(f: Float): Int {
+        val bits = f.toRawBits()
+        return if (bits < 0) Int.MIN_VALUE - bits else bits
+    }
+
+    /** [transform], writing only the first [canonical].size floats of [out]. */
+    private fun transformInto(canonical: FloatArray, m: FloatArray, out: FloatArray, at: Int = 0) {
+        var i = 0
+        val end = canonical.size
+        while (i < end) {
+            val x = canonical[i]; val y = canonical[i + 1]; val z = canonical[i + 2]
+            out[at + i] = m[0] * x + m[1] * y + m[2] * z + m[3]
+            out[at + i + 1] = m[4] * x + m[5] * y + m[6] * z + m[7]
+            out[at + i + 2] = m[8] * x + m[9] * y + m[10] * z + m[11]
+            i += 3
         }
     }
 
@@ -213,10 +445,17 @@ object Renderer {
      * starts where the previous one ended; a break starts a new one. Splitting
      * is done on the projected points, as the oracle does, so a projection that
      * separates two curves separates the subpaths too.
+     *
+     * A curve whose handles lie on the chord is emitted as a line. Manim has no
+     * line primitive, so a polyline arrives here as cubics with handles at a
+     * third and two thirds, and telling the rasteriser that saves it
+     * subdividing every one of them to discover it.
+     *
+     * Does not open the path: a caller may be accumulating several shapes into
+     * one.
      */
-    private fun emitPath(points: FloatArray, sink: PathSink) {
-        sink.beginPath()
-        val curves = points.size / 12 // 4 points x 3 floats
+    private fun appendPath(points: FloatArray, length: Int, sink: PathSink) {
+        val curves = length / 12 // 4 points x 3 floats
         var open = false
         for (i in 0 until curves) {
             val o = i * 12
@@ -235,11 +474,23 @@ object Renderer {
                 sink.moveTo(points[o], points[o + 1])
                 open = true
             }
-            sink.cubicTo(
-                points[o + 3], points[o + 4],
-                points[o + 6], points[o + 7],
-                points[o + 9], points[o + 10],
-            )
+
+            val ax = points[o]; val ay = points[o + 1]
+            val dx = points[o + 9] - ax; val dy = points[o + 10] - ay
+            val straight =
+                abs(points[o + 3] - (ax + dx * (1f / 3f))) <= LINE_TOLERANCE &&
+                abs(points[o + 4] - (ay + dy * (1f / 3f))) <= LINE_TOLERANCE &&
+                abs(points[o + 6] - (ax + dx * (2f / 3f))) <= LINE_TOLERANCE &&
+                abs(points[o + 7] - (ay + dy * (2f / 3f))) <= LINE_TOLERANCE
+            if (straight) {
+                sink.lineTo(points[o + 9], points[o + 10])
+            } else {
+                sink.cubicTo(
+                    points[o + 3], points[o + 4],
+                    points[o + 6], points[o + 7],
+                    points[o + 9], points[o + 10],
+                )
+            }
         }
         if (open) sink.closeSubpath()
     }

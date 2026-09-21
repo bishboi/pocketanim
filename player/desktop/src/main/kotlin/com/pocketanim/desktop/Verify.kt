@@ -5,6 +5,7 @@ import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.Panm
 import com.pocketanim.core.PathSink
 import com.pocketanim.core.Renderer
+import com.pocketanim.core.CountingSink
 import com.pocketanim.core.Benchmark
 import com.pocketanim.core.FrameTarget
 import com.pocketanim.core.Frames
@@ -58,6 +59,10 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
         )
     }
 
+    override fun lineTo(x: Float, y: Float) {
+        path.lineTo(x.toDouble(), y.toDouble())
+    }
+
     override fun closeSubpath() {
         path.closePath()
     }
@@ -71,6 +76,14 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
         g.color = Color(argb, true)
         g.stroke = BasicStroke(widthInSceneUnits, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         g.draw(path)
+    }
+
+    override fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
+        // Java2D has no combined style, so the oracle side keeps two calls.
+        // That is the point of the default: only the sink that gains from one
+        // call has to know about it.
+        fillPath(argb)
+        strokePath(argb, widthInSceneUnits)
     }
 }
 
@@ -232,26 +245,13 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
     //
     // Verbs and draws per frame are throughput, not a cliff: they say how much
     // work the rasteriser is handed and how many draw calls it costs.
-    val sink = object : PathSink {
-        var verbs = 0L
-        var draws = 0L
-        var current = 0
-        var maxPathVerbs = 0
-        override fun beginPath() { current = 0 }
-        override fun moveTo(x: Float, y: Float) { verbs++; current++ }
-        override fun cubicTo(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) { verbs++; current++ }
-        override fun closeSubpath() {
-            verbs++; current++
-            if (current > maxPathVerbs) maxPathVerbs = current
-        }
-        override fun fillPath(argb: Int) { draws++ }
-        override fun strokePath(argb: Int, widthInSceneUnits: Float) { draws++ }
-    }
+    // CountingSink rather than a copy of it: a second implementation drifted
+    // from the first the moment the sink grew a combined fill-and-stroke, and
+    // this harness went on reporting two draws where the device now issues one.
+    val sink = CountingSink()
 
     repeat(2) { for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink) } // warm up
-    sink.verbs = 0
-    sink.draws = 0
-    sink.maxPathVerbs = 0
+    sink.reset()
 
     val started = System.nanoTime()
     for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink)

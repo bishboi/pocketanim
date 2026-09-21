@@ -45,6 +45,11 @@ class CountingSink(private val delegate: PathSink? = null) : PathSink {
         delegate?.cubicTo(x1, y1, x2, y2, x3, y3)
     }
 
+    override fun lineTo(x: Float, y: Float) {
+        verbs++; current++
+        delegate?.lineTo(x, y)
+    }
+
     override fun closeSubpath() {
         verbs++; current++
         if (current > maxPathVerbs) maxPathVerbs = current
@@ -59,5 +64,11 @@ class CountingSink(private val delegate: PathSink? = null) : PathSink {
     override fun strokePath(argb: Int, widthInSceneUnits: Float) {
         draws++
         delegate?.strokePath(argb, widthInSceneUnits)
+    }
+
+    override fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
+        // One draw, which is the whole reason the renderer asks for it.
+        draws++
+        delegate?.fillAndStrokePath(argb, widthInSceneUnits)
     }
 }

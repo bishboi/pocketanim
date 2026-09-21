@@ -1160,9 +1160,23 @@ the fallback.
   atlas ids differ from the reference interpreter's by design. The interpreter cross-check
   therefore compares the *geometry each instance resolves to* rather than the id — which is
   what is actually drawn, and a better check than the one it replaced.
-- **The Android layer has never run.** It compiles against the real framework (§5.0); that is
-  all a compiler can tell you. The render thread, surface lifecycle, `AudioTrack` clock,
-  `MediaCodec` audio decode and seek-during-drag behaviour are unexercised.
+- ~~**The Android layer has never run.**~~ **Partly run.** Two device runs have exercised the
+  render thread, the surface lifecycle and the Skia sink through the benchmark APK; the results
+  and what the first of them got wrong are above. The `AudioTrack` clock, `MediaCodec` audio
+  decode and seek-during-drag behaviour are still unexercised, because the benchmark drives
+  frames itself and plays no audio.
+- **Exporting the same scene twice gives different asset files.** Confirmed, and it is Python's
+  string-hash randomisation: `TransformMatchingTex` matches by tex-string keys through sets, so
+  the order of the groups it builds varies per process, and a group's order is part of its
+  content digest. Two runs under `PYTHONHASHSEED=0` produce identical digests; two runs without
+  it do not. LatexDerivation's five matched groups churn their asset files on every export and
+  orphan the previous ones.
+
+  Nothing ships wrong — the program and the assets it points at are written together, and the
+  fidelity harness checks the pair. But a content-addressed store whose addresses move is not
+  content-addressed, so the export path should either pin the seed or make the digest
+  independent of a group's internal order. Left open because the fix belongs with whatever
+  cleans up orphaned assets, which nothing does yet.
 - ~~**Corpus scenes are 6–14.5 s.**~~ **Measured at three minutes.**
   `corpus/scenes/11_long_lesson.py` is a **166-second** explainer, built to be representative
   rather than favourable: roughly half its runtime is spent holding still while a viewer reads,

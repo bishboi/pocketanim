@@ -26,7 +26,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # No setup-android action: the runner already ships the SDK at
+      # $ANDROID_HOME, and the action's `sdkmanager tools` step fails against
+      # current SDKs because the `tools` package was removed years ago. AGP
+      # fetches any missing platform or build-tools itself.
+      - name: Show the preinstalled SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" 2>/dev/null || true
+          yes | "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager --licenses > /dev/null 2>&1 || true
 
       - uses: actions/setup-python@v5
         with:

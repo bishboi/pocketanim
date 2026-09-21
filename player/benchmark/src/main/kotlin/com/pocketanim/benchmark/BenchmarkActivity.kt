@@ -13,6 +13,7 @@ import android.widget.TextView
 import com.pocketanim.android.AssetStorage
 import com.pocketanim.android.CanvasSink
 import com.pocketanim.android.FileStorage
+import com.pocketanim.android.SurfaceCanvas
 import com.pocketanim.core.Benchmark
 import com.pocketanim.core.FrameTarget
 import com.pocketanim.core.Library
@@ -111,17 +112,14 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
         val wanted = intent.getStringExtra("scenes")?.split(" ")?.filter { it.isNotBlank() }
         val scenes = library.scenes.filter { wanted == null || it.name in wanted }
 
-        report(deviceLine())
-        report("surface ${width}x$height, ${scenes.size} scene(s)")
-        report("")
-
         val sink = CanvasSink()
 
         // Locking a canvas and posting it is part of what a frame costs, so the
         // target does it per frame rather than the benchmark drawing into
         // something off-screen.
+        val surfaceCanvas = SurfaceCanvas(holder)
         val target = FrameTarget { draw ->
-            val canvas = holder.lockCanvas()
+            val canvas = surfaceCanvas.acquire()
             if (canvas != null) {
                 try {
                     val depth = sink.begin(canvas, width, height, Color.BLACK)
@@ -131,10 +129,22 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
                         sink.end(depth)
                     }
                 } finally {
-                    holder.unlockCanvasAndPost(canvas)
+                    surfaceCanvas.release(canvas)
                 }
             }
         }
+
+        // Acquire one frame before reporting, so the canvas kind printed below
+        // is what was actually obtained rather than what was hoped for. A run
+        // that silently fell back to software raster would otherwise look
+        // exactly like one that did not, which is how the first round of
+        // numbers came to be misread.
+        target.render { }
+
+        report(deviceLine())
+        report("surface ${width}x$height, canvas ${surfaceCanvas.description}")
+        report("${scenes.size} scene(s)")
+        report("")
 
         val results = ArrayList<SceneResult>()
 
@@ -160,6 +170,7 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             append("\"soc\":\"${android.os.Build.HARDWARE}\",")
             append("\"android\":${android.os.Build.VERSION.SDK_INT},")
             append("\"surface\":\"${width}x$height\",")
+            append("\"canvas\":\"${if (surfaceCanvas.usingHardware) "hardware" else "software"}\",")
             append("\"scenes\":[")
             append(results.joinToString(",") { it.toJson() })
             append("]}")

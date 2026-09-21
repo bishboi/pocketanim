@@ -26,6 +26,11 @@ class PanimView @JvmOverloads constructor(
 
     private val sink = CanvasSink()
     private var thread: RenderThread? = null
+    private var surfaceCanvas: SurfaceCanvas? = null
+
+    /** Whether frames are going through the GPU pipeline. See [SurfaceCanvas]. */
+    val usingHardwareCanvas: Boolean
+        get() = surfaceCanvas?.usingHardware == true
 
     var backgroundColorArgb: Int = Color.BLACK
 
@@ -105,6 +110,7 @@ class PanimView @JvmOverloads constructor(
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        surfaceCanvas = SurfaceCanvas(holder)
         thread = RenderThread(holder).also { it.start() }
     }
 
@@ -165,7 +171,10 @@ class PanimView @JvmOverloads constructor(
                 forceRedraw = false
 
                 val started = System.nanoTime()
-                val canvas = holder.lockCanvas() ?: continue
+                // GPU-backed where the device allows it; see SurfaceCanvas for
+                // why lockCanvas alone is the wrong call.
+                val surface = surfaceCanvas ?: continue
+                val canvas = surface.acquire() ?: continue
                 try {
                     val depth = sink.begin(canvas, widthPx, heightPx, backgroundColorArgb)
                     try {
@@ -174,7 +183,7 @@ class PanimView @JvmOverloads constructor(
                         sink.end(depth)
                     }
                 } finally {
-                    holder.unlockCanvasAndPost(canvas)
+                    surface.release(canvas)
                 }
 
                 lastFrameMillis = (System.nanoTime() - started) / 1e6

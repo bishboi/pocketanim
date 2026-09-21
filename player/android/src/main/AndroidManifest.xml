@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A library, not an app: the player is a view plus a decoder, to be embedded.
-     No permissions are needed -- bundles are read from app storage and audio
-     output requires none. -->
+<!-- A library, not an app: the player is a view plus a decoder, meant to be
+     embedded. No permissions are declared; bundles are read from app storage
+     and audio output needs none. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" />

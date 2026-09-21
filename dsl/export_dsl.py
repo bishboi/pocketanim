@@ -59,6 +59,9 @@ def export_text_asset(mob, path: Path) -> int:
 class Recorder:
     def __init__(self):
         self.assets: dict[str, int] = {}
+        # Pristine geometry per baked asset, kept so the asset can be baked a
+        # second time once the tightest zoom in the program is known.
+        self.snapshots: dict[str, list] = {}
         self.declarations: list[str] = []
         self.timeline: list[str] = []
         self.blockers: list[str] = []
@@ -171,11 +174,13 @@ class Recorder:
             # *group's* name, which no declaration ever defined -- so verbs
             # referenced a name the runtime had never seen. The DSL has no
             # group concept, so one name must mean one declared thing.
-            from dsl.library import export_standalone_asset
+            from dsl.library import export_standalone_asset, snapshot_family
 
             digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
             asset = Path("dsl/generated/assets") / f"{digest}.panm"
-            self.assets[digest] = export_standalone_asset(mob, asset)
+            snapshot = snapshot_family(mob)
+            self.snapshots[digest] = snapshot
+            self.assets[digest] = export_standalone_asset(snapshot, asset)
             self.declarations.append(f"geom {name} asset={digest}")
             return name
 
@@ -199,11 +204,13 @@ class Recorder:
         # tier-2 asset, which beats dropping the whole scene to sampled IR.
         # Only an inexpressible *animation* should force tier 3.
         if drawable or mob.submobjects:
-            from dsl.library import export_standalone_asset
+            from dsl.library import export_standalone_asset, snapshot_family
 
             digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
             asset = Path("dsl/generated/assets") / f"{digest}.panm"
-            self.assets[digest] = export_standalone_asset(mob, asset)
+            snapshot = snapshot_family(mob)
+            self.snapshots[digest] = snapshot
+            self.assets[digest] = export_standalone_asset(snapshot, asset)
             self.declarations.append(f"geom {name} asset={digest}")
             return name
 
@@ -571,6 +578,81 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     return rec
 
 
+# What the decimation is aimed at. A phone's long edge at the top of the range
+# the player targets, and a pixel of error there at the tightest zoom the
+# program reaches -- so anywhere else in the animation the error is smaller.
+# Exported artwork is decimated against these; nothing else is touched.
+REFERENCE_WIDTH_PX = 2400
+ERROR_PX = 1.0
+
+
+def program_max_scale(program: str) -> float:
+    """The largest magnification the program ever applies to anything.
+
+    Read off the verbs rather than off the interpreter's transforms: those
+    compose the atlas's own canonicalisation, which normalises a coastline to a
+    unit box and would be read as a 2.9x zoom that no viewer ever sees.
+
+    `xform ... by=` is the vocabulary's only magnifying verb, and it composes,
+    so successive ones on the same object multiply. `create`, `write` and the
+    grow verbs animate from nothing up to the size the asset was baked at,
+    which needs no extra detail. A future verb that magnifies would have to be
+    added here; the fidelity harness is what would catch its absence.
+    """
+    cumulative: dict[str, float] = {}
+    largest = 1.0
+    for line in program.splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != "xform":
+            continue
+        factor = 1.0
+        for token in parts[2:]:
+            if token.startswith("by="):
+                factor = float(token[3:])
+        name = parts[1]
+        cumulative[name] = cumulative.get(name, 1.0) * factor
+        largest = max(largest, cumulative[name])
+    return largest
+
+
+def decimate_assets(rec: Recorder, program: str) -> dict:
+    """Re-bake the program's imported artwork at the detail a screen can show.
+
+    Runs after recording because the tolerance depends on the whole program:
+    the same coastline needs three times the detail in a scene that zooms into
+    it as in one that does not.
+    """
+    from dsl.library import export_standalone_asset
+    from exporter.simplify import simplify_shape, tolerance_for
+
+    if not rec.snapshots:
+        return {}
+
+    scale = program_max_scale(program)
+    tolerance = tolerance_for(REFERENCE_WIDTH_PX, ERROR_PX, scale)
+
+    # Counted over the snapshot on both sides, not over the baked atlas: the
+    # atlas deduplicates, so reading the "after" out of the file reported a
+    # molecule's 11,760 drawn curves shrinking to the 60 distinct ones it is
+    # built from, which is not a saving and not what the device draws.
+    before = after = 0
+    for digest, snapshot in rec.snapshots.items():
+        for points, *_ in snapshot:
+            before += len(points) // 4
+            after += len(simplify_shape(points, tolerance)) // 4
+        asset = Path("dsl/generated/assets") / f"{digest}.panm"
+        rec.assets[digest] = export_standalone_asset(snapshot, asset, tolerance)
+
+    return {
+        "reference_width_px": REFERENCE_WIDTH_PX,
+        "error_px": ERROR_PX,
+        "max_scale": round(scale, 3),
+        "tolerance": round(tolerance, 6),
+        "curves_before": before,
+        "curves_after": after,
+    }
+
+
 def emit(rec: Recorder, mode: str, fps: int = 30) -> str:
     lines = [f"scene {mode} fps={fps}"] + rec.declarations + rec.timeline
     return "\n".join(lines) + "\n"
@@ -604,21 +686,26 @@ def main():
         out = Path("dsl/generated")
         out.mkdir(parents=True, exist_ok=True)
         target = out / f"{scene_class}.panim"
+        verdict = {
+            "scene": scene_class,
+            "tier": 3 if blockers else 1,
+            "blockers": blockers,
+            "program_bytes": 0 if blockers else len(program),
+        }
         if blockers:
             target.unlink(missing_ok=True)
         else:
             target.write_text(program)
+            simplified = decimate_assets(rec, program)
+            if simplified:
+                verdict["simplified"] = simplified
+                print(
+                    f"decimated artwork: {simplified['curves_before']} -> "
+                    f"{simplified['curves_after']} curves "
+                    f"({simplified['error_px']}px at {simplified['max_scale']}x)"
+                )
         (out / f"{scene_class}.tier.json").write_text(
-            json.dumps(
-                {
-                    "scene": scene_class,
-                    "tier": 3 if blockers else 1,
-                    "blockers": blockers,
-                    "program_bytes": 0 if blockers else len(program),
-                },
-                indent=2,
-            )
-            + "\n"
+            json.dumps(verdict, indent=2) + "\n"
         )
 
 

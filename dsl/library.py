@@ -82,33 +82,61 @@ def export_text_instances(mob, path: Path, library: GlyphLibrary) -> int:
     return len(blob)
 
 
-def export_standalone_asset(mob, path: Path) -> int:
+def snapshot_family(mob) -> list[tuple]:
+    """Freeze a mobject's drawable family: geometry and style, nothing live.
+
+    Baking happens when a mobject is declared, but the tolerance to bake at is
+    only known once the whole animation has been recorded -- it depends on the
+    tightest zoom the program reaches. Keeping the mobject instead would keep a
+    thing that the animation then scales and recolours, so the second bake would
+    use the geometry the scene *ended* with.
+    """
+    import numpy as np
+
+    from exporter.export_scene import read_style, unit_normal
+
+    out = []
+    for sub in mob.get_family():
+        points = getattr(sub, "points", None)
+        if points is None or len(points) < 4:
+            continue
+        array = np.array(points, dtype=np.float64)  # a copy, not a view
+        fill, stroke, width = read_style(sub)
+        # 3D geometry must carry its normal and shade flag, or the renderer
+        # skips depth sorting and a rotating surface draws in list order.
+        shaded = bool(getattr(sub, "shade_in_3d", False))
+        normal = unit_normal(sub, array) if shaded else None
+        out.append((array, fill, stroke, width, shaded, normal))
+    return out
+
+
+def export_standalone_asset(snapshot: list[tuple], path: Path, tolerance: float = 0.0) -> int:
     """Bake singular geometry into a self-contained asset.
 
     Imported artwork -- a coastline, a molecule -- is content, not program, and
     unlike glyphs it does not repeat across a library. So it carries its own
     atlas rather than polluting the shared glyph library with 200k points that
     will never be reused.
+
+    A positive `tolerance` decimates that artwork to the detail a screen can
+    resolve; see exporter/simplify.py for why that is an exporter decision and
+    not a renderer one.
     """
-    from exporter.export_scene import read_style, unit_normal
+    import numpy as np
+
     from exporter.ir import SHADE_IN_3D
+    from exporter.simplify import simplify_shape
 
     atlas = Atlas()
     instances: dict[int, Instance] = {}
-    for index, sub in enumerate(mob.get_family()):
-        points = getattr(sub, "points", None)
-        if points is None or len(points) < 4:
-            continue
-        array = np.asarray(points, dtype=np.float64)
-        atlas_id, transform = atlas.resolve(array)
-        fill, stroke, width = read_style(sub)
-        # 3D geometry must carry its normal and shade flag, or the renderer
-        # skips depth sorting and a rotating surface draws in list order.
-        shaded = bool(getattr(sub, "shade_in_3d", False))
+    for index, (array, fill, stroke, width, shaded, normal) in enumerate(snapshot):
+        if tolerance > 0.0:
+            array = simplify_shape(array, tolerance)
+        atlas_id, transform = atlas.resolve(np.asarray(array, dtype=np.float64))
         instances[index] = Instance(
             atlas_id, transform, fill, stroke, width,
             SHADE_IN_3D if shaded else 0,
-            unit_normal(sub, array) if shaded else None,
+            normal if shaded else None,
         )
 
     blob = serialise(atlas, [(REC_SNAPSHOT, instances)], fps=30)

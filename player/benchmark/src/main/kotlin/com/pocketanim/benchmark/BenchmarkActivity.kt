@@ -64,6 +64,14 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         surface = SurfaceView(this)
+        // Render into a fixed 16:9 buffer rather than whatever the layout
+        // happens to give. The first device run measured a 2148x411 surface --
+        // a fifth of the pixels a full frame has, at an aspect ratio that
+        // stretched every scene -- so its rasterisation numbers were neither
+        // right for that phone nor comparable with any other. The buffer is
+        // scaled to the view for display, which is why the preview can look
+        // squashed while the measurement does not.
+        surface.holder.setFixedSize(BUFFER_WIDTH, BUFFER_HEIGHT)
         output = TextView(this).apply {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.BLACK)
@@ -173,7 +181,7 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
         target.render { }
 
         report(deviceLine())
-        report("surface ${width}x$height, canvas ${surfaceCanvas.description}")
+        report("buffer ${width}x$height, canvas ${surfaceCanvas.description}")
         report("${scenes.size} scene(s)")
         report("")
 
@@ -201,6 +209,7 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             append("\"soc\":\"${android.os.Build.HARDWARE}\",")
             append("\"android\":${android.os.Build.VERSION.SDK_INT},")
             append("\"surface\":\"${width}x$height\",")
+            append("\"view\":\"${surface.width}x${surface.height}\",")
             append("\"canvas\":\"${if (surfaceCanvas.usingHardware) "hardware" else "software"}\",")
             append("\"scenes\":[")
             append(results.joinToString(",") { it.toJson() })
@@ -275,6 +284,9 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
 
     private companion object {
         const val TAG = "panim"
+        /** The frame every device is measured at, so numbers compare. */
+        const val BUFFER_WIDTH = 1920
+        const val BUFFER_HEIGHT = 1080
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
     }

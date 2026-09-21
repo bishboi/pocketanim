@@ -1,0 +1,73 @@
+name: apk
+
+# Builds the device-gate benchmark and attaches the APK to the run.
+#
+# The environment this project is developed in cannot reach dl.google.com, so it
+# has no Android SDK and cannot produce an APK. GitHub's runners ship one. This
+# is therefore the only place the app can actually be built, and the artifact it
+# uploads is how the APK gets to a phone.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "player/**"
+      - ".github/workflows/apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pack the scene library into the app
+        # The scenes ship inside the APK so a benchmark run needs no network
+        # and nothing can perturb it mid-measurement.
+        run: |
+          pip install numpy
+          python -m tools.build_library --out player/benchmark/src/main/assets/library
+          du -sh player/benchmark/src/main/assets/library
+
+      - name: Build
+        # Release, not debug: a debug build has assertions on and optimisation
+        # off, and reports frame times that mean nothing. It is signed with the
+        # auto-generated debug key, which is enough to install by hand.
+        working-directory: player
+        run: ./gradlew --no-daemon :benchmark:assembleRelease
+
+      - name: Name the artifact after the commit
+        id: meta
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketanim-benchmark-${{ steps.meta.outputs.sha }}
+          path: player/benchmark/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report
+        run: |
+          apk=$(find player/benchmark/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "### APK built" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh "$apk" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download it from the **Artifacts** section of this run, then:' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo 'adb install -r benchmark-release.apk' >> "$GITHUB_STEP_SUMMARY"
+          echo 'adb shell am start -n com.pocketanim.benchmark/.BenchmarkActivity' >> "$GITHUB_STEP_SUMMARY"
+          echo 'adb logcat -s panim:I' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

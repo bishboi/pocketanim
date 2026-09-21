@@ -19,3 +19,6 @@ corpus/ir/
 
 # Player build output and its downloaded toolchain
 player/build/
+
+# Scene library packed into the benchmark app at build time
+player/benchmark/src/main/assets/

@@ -1,15 +1,21 @@
 package com.pocketanim.benchmark
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.pocketanim.android.AssetStorage
 import com.pocketanim.android.CanvasSink
 import com.pocketanim.android.FileStorage
@@ -43,8 +49,13 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
 
     private lateinit var surface: SurfaceView
     private lateinit var output: TextView
+    private lateinit var shareButton: Button
+    private lateinit var copyButton: Button
     private val lines = StringBuilder()
     private var started = false
+
+    /** The finished report. Null until the run completes. */
+    @Volatile private var resultJson: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,11 +72,31 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             text = "warming up..."
         }
 
+        // Getting the results off the phone should not require a cable.
+        // `run-as` needs adb, which is a lot of setup for someone who just ran
+        // a benchmark and wants to send the numbers on.
+        shareButton = Button(this).apply {
+            text = "Share results"
+            isEnabled = false
+            setOnClickListener { shareResults() }
+        }
+        copyButton = Button(this).apply {
+            text = "Copy JSON"
+            isEnabled = false
+            setOnClickListener { copyResults() }
+        }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(shareButton, LinearLayout.LayoutParams(0, WRAP, 1f))
+            addView(copyButton, LinearLayout.LayoutParams(0, WRAP, 1f))
+        }
+
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         // The surface gets most of the window: rasterisation cost scales with
         // the pixels actually touched, so measuring in a thumbnail would
         // understate it.
         root.addView(surface, LinearLayout.LayoutParams(MATCH, 0, 3f))
+        root.addView(buttons, LinearLayout.LayoutParams(MATCH, WRAP))
         root.addView(
             ScrollView(this).apply { addView(output) },
             LinearLayout.LayoutParams(MATCH, 0, 2f),
@@ -175,11 +206,56 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             append(results.joinToString(",") { it.toJson() })
             append("]}")
         }
-        val file = File(filesDir, "benchmark.json")
-        file.writeText(json)
+        resultJson = json
+        File(filesDir, "benchmark.json").writeText(json)
+
+        // Also somewhere a file manager can reach. getExternalFilesDir needs no
+        // permission and is browsable on most devices, unlike filesDir.
+        val shared = runCatching {
+            File(getExternalFilesDir(null), "benchmark.json").also { it.writeText(json) }
+        }.getOrNull()
+
         report("")
-        report("wrote ${file.absolutePath}")
-        report("adb shell run-as $packageName cat files/benchmark.json")
+        report("Use the buttons above to send these numbers on.")
+        if (shared != null) report("also written to ${shared.absolutePath}")
+        report("or with adb: adb shell run-as $packageName cat files/benchmark.json")
+
+        runOnUiThread {
+            shareButton.isEnabled = true
+            copyButton.isEnabled = true
+        }
+    }
+
+    /**
+     * Sends the report as text rather than as a file attachment.
+     *
+     * A file share would need a FileProvider and an androidx dependency for
+     * what is a few kilobytes of JSON; text goes through any mail, chat or
+     * notes app and can be pasted straight back. The human-readable table
+     * rides along above it, because a table someone can read is more useful in
+     * a message than JSON alone.
+     */
+    private fun shareResults() {
+        val json = resultJson ?: return
+        val body = buildString {
+            append(lines)
+            append("\n--- machine readable ---\n")
+            append(json)
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "pocketanim benchmark: ${android.os.Build.MODEL}")
+            putExtra(Intent.EXTRA_TEXT, body)
+        }
+        startActivity(Intent.createChooser(intent, "Send benchmark results"))
+    }
+
+    /** Clipboard, for when the fastest route is pasting into a chat. */
+    private fun copyResults() {
+        val json = resultJson ?: return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("pocketanim benchmark", json))
+        Toast.makeText(this, "JSON copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -200,5 +276,6 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
     private companion object {
         const val TAG = "panim"
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
+        const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
     }
 }

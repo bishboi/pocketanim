@@ -27,10 +27,19 @@ adb logcat -s panim:I
 ```
 
 **No adb?** Copy the APK to the phone, allow installs from your file manager,
-and tap it. Results render on screen as well as to logcat — a screenshot of the
-final table is a perfectly good report.
+and tap it. Nothing else is needed: when the run finishes, two buttons above the
+results become active.
 
-With adb, the machine-readable copy is worth having:
+- **Share results** — sends the readable table *and* the JSON as text, through
+  any mail, chat or notes app. Text rather than a file attachment because a few
+  kilobytes of JSON does not justify a `FileProvider` and an androidx
+  dependency, and text can be pasted straight back.
+- **Copy JSON** — straight to the clipboard.
+
+A copy is also written to `Android/data/com.pocketanim.benchmark/files/benchmark.json`,
+which most file managers can reach without permissions.
+
+With adb, the same file is available the usual way:
 
 ```bash
 adb shell run-as com.pocketanim.benchmark cat files/benchmark.json > device.json

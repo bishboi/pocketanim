@@ -5,12 +5,48 @@ floor-segment phone render these scenes live at 30 fps?** It is the one
 measurement that can invalidate the architecture, because there is no MP4
 fallback to retreat to.
 
-Everything here has to happen on your machine. The environment this was built in
-cannot reach `dl.google.com`, so it has no Android SDK and cannot produce an APK
-— the Kotlin is type-checked against a real Android 14 framework jar, and that
-is all.
+---
+
+## The short way: download the APK from CI
+
+The environment this project is developed in cannot reach `dl.google.com`, so it
+has no Android SDK. GitHub's runners do, so `.github/workflows/apk.yml` builds
+the APK there on every push to `player/` and attaches it to the run.
+
+1. Open the [**apk** workflow runs](https://github.com/bishboi/pocketanim/actions/workflows/apk.yml)
+   and pick the newest green one.
+2. Download the `pocketanim-benchmark-<sha>` artifact — it is a zip containing
+   `benchmark-release.apk`.
+3. Install and run:
+
+```bash
+unzip pocketanim-benchmark-*.zip
+adb install -r benchmark-release.apk
+adb shell am start -n com.pocketanim.benchmark/.BenchmarkActivity
+adb logcat -s panim:I
+```
+
+**No adb?** Copy the APK to the phone, allow installs from your file manager,
+and tap it. Results render on screen as well as to logcat — a screenshot of the
+final table is a perfectly good report.
+
+With adb, the machine-readable copy is worth having:
+
+```bash
+adb shell run-as com.pocketanim.benchmark cat files/benchmark.json > device.json
+```
+
+The APK carries the **ten tier-1 scenes** (~2 MB of assets). `PlotGeometry` is
+absent: it is the one scene that cannot be expressed as a program, and its
+365 kB sampled container is not versioned. Nothing is lost for this measurement
+— the gate is about whether live rendering keeps up, and the tier-3 path is a
+fallback rather than the thing being tested.
 
 ---
+
+## The long way: build it yourself
+
+Worth doing if you want to change scenes or iterate quickly.
 
 ## 1. Get the toolchain
 

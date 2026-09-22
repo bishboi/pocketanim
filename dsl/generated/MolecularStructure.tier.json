@@ -2,7 +2,7 @@
   "scene": "MolecularStructure",
   "tier": 1,
   "blockers": [],
-  "program_bytes": 226,
+  "program_bytes": 235,
   "simplified": {
     "reference_width_px": 2400,
     "error_px": 1.0,

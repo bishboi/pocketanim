@@ -183,6 +183,7 @@ def parse(text: str) -> dict:
         elif verb == "camera":
             scene["phi"] = math.radians(float(args.get("phi", 0)))
             scene["theta"] = math.radians(float(args.get("theta", 0)))
+            scene["zoom"] = float(args.get("zoom", ZOOM))
         elif verb == "move":
             scene["timeline"].append(
                 ("move", math.radians(float(args["phi"])), math.radians(float(args["theta"])),
@@ -268,7 +269,7 @@ def build_2d(scene: dict) -> DecodedIR:
     def camera_record() -> np.ndarray:
         return np.concatenate([
             FRAME_CENTRE,
-            [FOCAL_DISTANCE, ZOOM],
+            [FOCAL_DISTANCE, scene.get("zoom", ZOOM)],
             camera_matrix(camera_state["phi"], camera_state["theta"]).reshape(9),
             LIGHT_SOURCE,
         ])

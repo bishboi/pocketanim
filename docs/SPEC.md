@@ -755,8 +755,21 @@ three just closed:
 - **LatexDerivation, 32%** — mid-`TransformMatchingTex`. We pair glyphs by atlas
   id and fade the leftovers; Manim matches by tex string and animates matched,
   removed and added groups separately.
-- **MolecularStructure, 182%** — mid-`laggedgrow`, and the largest remaining
-  number in the corpus.
+- ~~**MolecularStructure, 182%** — mid-`laggedgrow`~~ — **not `laggedgrow`, and
+  now fixed.** The error was ~100% of ink at *every* frame of that scene, the
+  static ones included, which is what said it was not an animation model at all.
+  Our molecule had the same centroid as Manim's and a bounding box 1.113× the
+  size; the scene opens with `set_camera_orientation(..., zoom=0.9)` and
+  1/0.9 = 1.111. The exporter read that keyword and dropped it, and the IR has
+  carried a zoom field all along, so the program drew the whole scene 11% too
+  large in every frame — at tier 1, with no blocker. `zoom` is now a camera
+  field end to end.
+
+  The same call silently dropped `gamma`, `focal_distance` and `frame_center`,
+  which the interpreters fix at Manim's defaults; each is a blocker now, as is
+  `move_camera(zoom=...)`, which is expressible as a declaration but not as an
+  animation. Both were checked by exporting a scene that sets them and
+  confirming it falls to tier 3.
 - **CartopyMap, 35%** — expected, and already paid for: it is the decimation
   §7.3 chose, measured where the coastline is thinnest.
 

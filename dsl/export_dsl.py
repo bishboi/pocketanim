@@ -575,10 +575,33 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             parts.append(f"phi={math.degrees(phi):g}")
         if theta is not None:
             parts.append(f"theta={math.degrees(theta):g}")
+        # zoom was read off this call and thrown away, and the IR has carried a
+        # zoom field all along -- so MolecularStructure's zoom=0.9 exported at
+        # tier 1, with no blocker, and drew the whole molecule 1/0.9 = 11%
+        # too large in every frame of the scene.
+        zoom = kw.get("zoom")
+        if zoom is not None:
+            parts.append(f"zoom={float(zoom):g}")
+        camera_blockers(kw)
         rec.declarations.append("camera " + " ".join(parts))
         return originals["set_orientation"](self, phi=phi, theta=theta, **kw)
 
+    def camera_blockers(kw, animated=False):
+        """Name the camera parameters the program cannot carry.
+
+        The interpreters fix gamma, focal distance and frame centre at Manim's
+        defaults, so a scene that sets one renders from the wrong camera with
+        nothing recorded. `zoom` is expressible as a declaration but not as an
+        animation, so an animated one is a blocker too.
+        """
+        for key in ("gamma", "focal_distance", "frame_center"):
+            if kw.get(key) is not None:
+                rec.blockers.append(f"camera {key} is not expressible")
+        if animated and kw.get("zoom") is not None:
+            rec.blockers.append("move_camera animates zoom")
+
     def patched_move_camera(self, phi=None, theta=None, run_time=3.0, **kw):
+        camera_blockers(kw, animated=True)
         parts = []
         if phi is not None:
             parts.append(f"phi={math.degrees(phi):g}")

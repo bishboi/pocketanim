@@ -66,6 +66,8 @@ class Program(
     val mode: String,
     val phi: Double,
     val theta: Double,
+    /** Manim's camera zoom. 1.0 unless the scene set one. */
+    val zoom: Double,
     val shapes: Map<String, ShapeSpec>,
     /** name -> (kind, assetId), kind being "text" or "geom". */
     val assets: Map<String, Pair<String, String>>,
@@ -80,6 +82,7 @@ class Program(
             var mode = "3d"
             var phi = 0.0
             var theta = 0.0
+            var zoom = 1.0
             val shapes = LinkedHashMap<String, ShapeSpec>()
             val assets = LinkedHashMap<String, Pair<String, String>>()
             val surfaces = ArrayList<SurfaceSpec>()
@@ -131,6 +134,7 @@ class Program(
                     "camera" -> {
                         phi = Math.toRadians((args["phi"] ?: "0").toDouble())
                         theta = Math.toRadians((args["theta"] ?: "0").toDouble())
+                        zoom = (args["zoom"] ?: "1").toDouble()
                     }
                     "create" -> timeline.add(Step.Create(positional[0], t(), rate()))
                     "transform" -> timeline.add(Step.Transform(positional[0], positional[1], t(), rate()))
@@ -171,7 +175,7 @@ class Program(
                 }
             }
 
-            return Program(fps, mode, phi, theta, shapes, assets, surfaces, timeline)
+            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline)
         }
 
         private fun hexRgb(text: String): Int {

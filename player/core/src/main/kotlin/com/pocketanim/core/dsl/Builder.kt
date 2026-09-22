@@ -27,6 +27,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     private var phi = program.phi
     private var theta = program.theta
+    private val zoom = program.zoom
 
     /** The frame just produced, held so the renderer can read it. */
     private var current: Array<Instance> = emptyArray()
@@ -136,7 +137,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private fun cameraRecord(): FloatArray {
         val m = Interpreter.cameraMatrix(phi, theta)
         val out = FloatArray(Panm.CAMERA_FLOATS)
-        out[3] = FOCAL; out[4] = ZOOM_F
+        out[3] = FOCAL; out[4] = zoom.toFloat()
         for (k in 0 until 9) out[5 + k] = m[k].toFloat()
         out[14] = -7f; out[15] = -9f; out[16] = 10f
         return out
@@ -230,7 +231,6 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     private companion object {
         const val FOCAL = 20.0f
-        const val ZOOM_F = 1.0f
     }
 
 

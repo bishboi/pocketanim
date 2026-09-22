@@ -366,7 +366,13 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.timeline.append(f"wait t={duration:g}")
                 continue
 
-            rate = getattr(anim, "rate_func", None)
+            # play(rate_func=...) applies to every animation in the call, and
+            # Manim sets it on each one -- but through compile_animation_data,
+            # which runs inside the real play(), after this. Reading only the
+            # animation's own attribute therefore saw the default: a
+            # `play(Create(c), rate_func=linear)` exported as an eased `create`
+            # with no rate= at all, at tier 1 and with no blocker.
+            rate = kwargs.get("rate_func") or getattr(anim, "rate_func", None)
             rate_name = rate.__name__ if rate is not None else "smooth"
             if rate_name not in ("smooth", "linear"):
                 rec.blockers.append(f"non-default rate_func: {rate_name}")
@@ -617,6 +623,15 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             state["in_camera_move"] = False
 
     def patched_spin(self, rate=0.02, **kw):
+        # Manim can spin about theta, phi or gamma. The `spin` verb means theta
+        # in both interpreters, so anything else used to rotate the camera about
+        # the wrong axis for the whole scene -- tier 1, no blocker. Blocked
+        # rather than implemented: there is no corpus scene spinning about phi,
+        # and an unmeasured camera path is worth less than a tier-3 fallback
+        # that is measured.
+        about = kw.get("about", "theta")
+        if about != "theta":
+            rec.blockers.append(f"ambient camera rotation about {about}")
         state["spin_rate"] = rate
         return originals["begin_spin"](self, rate=rate, **kw)
 

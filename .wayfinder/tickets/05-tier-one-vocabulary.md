@@ -1,11 +1,11 @@
 ---
 id: 5
 title: How generation is kept from silently producing a wrong scene
-labels: [wayfinder:grilling]
+labels: [wayfinder:answered]
 parent: 1
 blocked_by: []
 assignee: null
-state: open
+state: answered
 ---
 
 ## Question
@@ -42,3 +42,51 @@ The user has ruled out an **orchestrator loop** — no agent that builds then
 fixes in a cycle. That does not rule out a single deterministic gate before the
 human ever sees the output, and the distinction is worth being explicit about
 when this is decided.
+
+## Answer
+
+**Fix the exporter.** Not chosen on argument — the option list above was written
+before the evidence, and the evidence settled it.
+
+All three examples in the question are fixed in this repo, and three more of the
+same kind were found while fixing them:
+
+| Silently wrong at tier 1 | Status |
+|---|---|
+| `Circle().shift(...)` drawn at the origin | fixed — `at=` is emitted |
+| `play(Create(a), Create(b))` playing for the sum of its parts | fixed — `par` verb |
+| `Write(Circle())` crashing the player | fixed — blocker, falls to tier 3 |
+| `set_camera_orientation(zoom=0.9)` drawing every frame 11% too large | fixed — `zoom` is a camera field |
+| `begin_ambient_camera_rotation(about="phi")` spinning the wrong axis | fixed — blocker |
+| `play(..., rate_func=linear)` easing anyway | fixed — `rate=` is emitted |
+
+**Why a harness-side pre-flight gate does not answer this ticket.** Every one of
+the six is the exporter reading a value and dropping it. A gate that parses
+generated source can only refuse constructs; it cannot make `zoom=0.9` arrive,
+because the information is lost *after* the source is accepted. A gate would
+have had to ban `set_camera_orientation(zoom=...)` outright — banning correct
+Manim to work around a defect in the emitter.
+
+**What the harness should take from this instead:**
+
+1. **Trust `tier` and `blockers`, and nothing else.** A blocker is honest: the
+   scene falls to tier 3 and still renders correctly. The danger was never
+   tier 3; it was tier 1 with an empty blocker list.
+2. **The vocabulary is not the risk.** Geometry never blocks
+   ([research 03](../research/03-openrouter-model-capability.md)), and the
+   animation set is wide. Constraining generation to a "safe subset" would have
+   prevented none of the six, because all six are constructs the exporter
+   accepts.
+3. **The seam to audit is Manim's API against the emitter**, not the generated
+   source. The check that found the last two: diff what each patched entry point
+   *accepts* against what it *reads*. That is a standing job for this repo,
+   not the harness.
+
+Ticket 6 and ticket 7 are unblocked: neither needs a vocabulary constraint.
+
+## Still open, and named so it is not lost
+
+The audit covered the patched entry points' signatures. It did **not** cover
+mobject constructor arguments — the same class could live in `declare()`, which
+reads a mobject's geometry and styling and could as easily drop a field. No
+instance is known; none has been looked for.

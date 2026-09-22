@@ -797,6 +797,37 @@ Three rows still carry a worst frame worth looking at:
   `move_camera(zoom=...)`, which is expressible as a declaration but not as an
   animation. Both were checked by exporting a scene that sets them and
   confirming it falls to tier 3.
+
+- **The class, named.** Four of these have now been found the hard way, and they
+  are one bug repeated: **the exporter reads a value and drops it on the floor**,
+  and because the program is then well-formed, nothing downstream can tell. Not
+  the tier check, which sees no blocker; not `crosscheck_interpreter`, which
+  compares two readers of the same program; not `verify_player`, which compares
+  a renderer against an oracle reading that same program. Only a comparison
+  against Manim can see it, and only on a frame where the dropped value matters.
+
+  So the fourth was followed by an audit rather than another accident: read every
+  patched entry point against Manim's real signature, and ask what it accepts
+  that we never look at. Two more, both confirmed by export and both of the same
+  shape:
+
+  - **`begin_ambient_camera_rotation(about=...)`** takes `theta`, `phi` or
+    `gamma`. The `spin` verb means theta in both interpreters, so a scene
+    spinning about phi rotated the camera about the wrong axis for its whole
+    length. Now a blocker — not implemented, because there is no corpus scene
+    spinning about phi and an unmeasured camera path is worth less than a
+    tier-3 fallback that is measured.
+  - **`play(..., rate_func=linear)`** was invisible. Manim applies a `play`
+    keyword to each animation inside `compile_animation_data`, which runs
+    *within* the real `play()` — after the exporter has already read
+    `anim.rate_func` and seen the default. So the verb came out eased where the
+    scene asked for linear. Fixed rather than blocked: `rate=` already exists in
+    the grammar and is exercised, so this is emitting a value the format could
+    always carry.
+
+  The audit is the transferable part. The grammar is not the risk; **the seam
+  between Manim's API and the emitter is**, and the only systematic check is to
+  diff what each patch accepts against what it reads.
 - **CartopyMap, 35%** — expected, and already paid for: it is the decimation
   §7.3 chose, measured where the coastline is thinnest.
 

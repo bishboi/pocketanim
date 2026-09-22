@@ -1,12 +1,49 @@
 # The Android player
 
-Three modules, split by what can be verified rather than by convention.
+Five modules, split by what can be verified rather than by convention.
 
 | Module | What it is | Runs where |
 |---|---|---|
 | `core/` | Decoder, tier-1 interpreter, renderer, playback clock. No Android, no AWT. | Anywhere a JVM runs |
 | `android/` | `SurfaceView` render loop, Skia `PathSink`, `AudioTrack` clock | Device only |
+| `app/` | The player someone watches a scene in. Transport, scrubbing, scene picker. | Device only |
+| `benchmark/` | The device gate. Renders every scene as fast as it can and counts late frames. | Device only |
 | `desktop/` | Verification harness. Not shipped. | This machine |
+
+## Watching something
+
+`app/` is the demonstration, and the thing it demonstrates is what is *not*
+in the APK. It opens on `HelloPocketanim` — an ordinary Manim scene in
+`samples/hello_pocketanim.py`, eight seconds of title, circle, transform and
+move:
+
+```python
+class HelloPocketanim(Scene):
+    def construct(self):
+        title = Text("pocketanim", font_size=56)
+        self.play(Write(title), run_time=1.5)
+        ...
+```
+
+| That scene, as | Bytes |
+|---|---|
+| 720p30 MP4 from `manim -qm` | 128,851 |
+| tier-1 program | 277 |
+| program **and** its text asset — everything needed to play it | **814** |
+
+158x smaller, and not because it is compressed: there is no video in the APK
+and nothing is decoded. The program is interpreted and its frames are drawn
+as they are needed, which is why scrubbing lands instantly and why the whole
+twelve-scene library is 1.2 MB.
+
+Against Manim's own frames the sample measures **0.05% of pixels differing**.
+
+```
+adb install -r app-release.apk
+adb shell am start -n com.pocketanim.player/.PlayerActivity
+```
+
+Both APKs are built by `.github/workflows/apk.yml` and attached to the run.
 
 ## The one seam
 

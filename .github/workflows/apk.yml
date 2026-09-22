@@ -1,6 +1,8 @@
 name: apk
 
-# Builds the device-gate benchmark and attaches the APK to the run.
+# Builds both apps and attaches their APKs to the run: the player someone
+# actually watches a scene in, and the benchmark that measures whether it can
+# keep up.
 #
 # The environment this project is developed in cannot reach dl.google.com, so it
 # has no Android SDK and cannot produce an APK. GitHub's runners ship one. This
@@ -40,24 +42,33 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Pack the scene library into the app
-        # The scenes ship inside the APK so a benchmark run needs no network
-        # and nothing can perturb it mid-measurement.
+      - name: Pack the scene library into both apps
+        # The scenes ship inside the APK. The player needs that so it opens
+        # offline; the benchmark needs it so nothing can perturb a measurement
+        # mid-run. It is the same library, built once and copied.
         run: |
           pip install numpy
           python -m tools.build_library --out player/benchmark/src/main/assets/library
+          cp -r player/benchmark/src/main/assets/library player/app/src/main/assets/library
           du -sh player/benchmark/src/main/assets/library
 
       - name: Build
         # Release, not debug: a debug build has assertions on and optimisation
-        # off, and reports frame times that mean nothing. It is signed with the
-        # auto-generated debug key, which is enough to install by hand.
+        # off, and reports frame times that mean nothing. Both are signed with
+        # the auto-generated debug key, which is enough to install by hand.
         working-directory: player
-        run: ./gradlew --no-daemon :benchmark:assembleRelease
+        run: ./gradlew --no-daemon :app:assembleRelease :benchmark:assembleRelease
 
-      - name: Name the artifact after the commit
+      - name: Name the artifacts after the commit
         id: meta
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketanim-player-${{ steps.meta.outputs.sha }}
+          path: player/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:
@@ -68,14 +79,23 @@ jobs:
 
       - name: Report
         run: |
-          apk=$(find player/benchmark/build/outputs/apk/release -name '*.apk' | head -1)
-          echo "### APK built" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          ls -lh "$apk" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Download it from the **Artifacts** section of this run, then:' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo 'adb install -r benchmark-release.apk' >> "$GITHUB_STEP_SUMMARY"
-          echo 'adb shell am start -n com.pocketanim.benchmark/.BenchmarkActivity' >> "$GITHUB_STEP_SUMMARY"
-          echo 'adb logcat -s panim:I' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### APKs built"
+            echo '```'
+            find player/app/build/outputs/apk/release player/benchmark/build/outputs/apk/release \
+              -name '*.apk' -exec ls -lh {} \;
+            echo '```'
+            echo 'Download them from the **Artifacts** section of this run.'
+            echo
+            echo '**pocketanim-player** — tap to open, it plays the sample scene.'
+            echo '```'
+            echo 'adb install -r app-release.apk'
+            echo 'adb shell am start -n com.pocketanim.player/.PlayerActivity'
+            echo '```'
+            echo '**pocketanim-benchmark** — the device gate.'
+            echo '```'
+            echo 'adb install -r benchmark-release.apk'
+            echo 'adb shell am start -n com.pocketanim.benchmark/.BenchmarkActivity'
+            echo 'adb logcat -s panim:I'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

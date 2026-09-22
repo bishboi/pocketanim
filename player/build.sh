@@ -108,6 +108,10 @@ if [ -f "$ANDROID_JAR" ]; then
   echo "type-checking benchmark"
   kotlinc -classpath "$STDLIB:$ANDROID_JAR:$STAGE/core:$STAGE/android" \
     player/benchmark/src/main/kotlin -d "$STAGE/benchmark"
+
+  echo "type-checking player app"
+  kotlinc -classpath "$STDLIB:$ANDROID_JAR:$STAGE/core:$STAGE/android" \
+    player/app/src/main/kotlin -d "$STAGE/app"
 else
   echo "skipping android layer (no framework jar; run $0 --fetch)" >&2
 fi

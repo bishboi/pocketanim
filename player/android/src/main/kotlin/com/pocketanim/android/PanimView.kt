@@ -5,6 +5,8 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import com.pocketanim.core.FRAME_HEIGHT
+import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.Frames
 import com.pocketanim.core.Playback
 import com.pocketanim.core.RenderOptions
@@ -53,6 +55,32 @@ class PanimView @JvmOverloads constructor(
 
     init {
         holder.addCallback(this)
+    }
+
+    /**
+     * Fit the scene's own aspect ratio inside whatever space the host offers.
+     *
+     * Manim composes for 16:9, so a surface that simply fills a 20:9 phone
+     * shows a stretched scene -- a circle becomes an ellipse. The benchmark
+     * spent three device runs reporting numbers from a 2148x411 surface before
+     * anyone noticed, which is a good argument for the view refusing to do it
+     * at all rather than each host remembering not to ask.
+     */
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val availableWidth = MeasureSpec.getSize(widthSpec)
+        val availableHeight = MeasureSpec.getSize(heightSpec)
+        if (availableWidth <= 0 || availableHeight <= 0) {
+            super.onMeasure(widthSpec, heightSpec)
+            return
+        }
+        val aspect = FRAME_WIDTH / FRAME_HEIGHT
+        var width = availableWidth
+        var height = (width / aspect).toInt()
+        if (height > availableHeight) {
+            height = availableHeight
+            width = (height * aspect).toInt()
+        }
+        setMeasuredDimension(width, height)
     }
 
     fun load(scene: Frames) {

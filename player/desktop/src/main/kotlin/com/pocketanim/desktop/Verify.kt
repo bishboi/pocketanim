@@ -4,6 +4,7 @@ import com.pocketanim.core.FRAME_HEIGHT
 import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.Panm
 import com.pocketanim.core.PathSink
+import com.pocketanim.core.RenderOptions
 import com.pocketanim.core.Renderer
 import com.pocketanim.core.CountingSink
 import com.pocketanim.core.Benchmark
@@ -87,7 +88,13 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
     }
 }
 
-private fun render(scene: Frames, index: Int, width: Int, height: Int): BufferedImage {
+private fun render(
+    scene: Frames,
+    index: Int,
+    width: Int,
+    height: Int,
+    options: RenderOptions = RenderOptions.DEFAULT,
+): BufferedImage {
     val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
     val g = image.createGraphics()
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -100,7 +107,7 @@ private fun render(scene: Frames, index: Int, width: Int, height: Int): Buffered
     g.translate(width / 2.0, height / 2.0)
     g.scale(width / FRAME_WIDTH.toDouble(), -height / FRAME_HEIGHT.toDouble())
 
-    Renderer.drawFrame(scene, index, Java2DSink(g))
+    Renderer.drawFrame(scene, index, Java2DSink(g), options)
     g.dispose()
     return image
 }
@@ -265,6 +272,23 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
     println(String.format(Locale.ROOT, "max verbs/path  %d", sink.maxPathVerbs))
     println(String.format(Locale.ROOT, "budget at 30fps %.1f%% (geometry only, desktop)",
         perFrame / (1000.0 / scene.fps) * 100.0))
+
+    // What each of the renderer's trades is worth, in the two numbers that
+    // travel between rasterisers. The milliseconds do not travel; the counts
+    // do, and on the device the sweep is run against a real surface.
+    println()
+    println(String.format(Locale.ROOT, "%-10s %10s %10s %10s", "variant", "verbs/fr", "draws/fr", "maxpath"))
+    for ((label, options) in Benchmark.VARIANTS) {
+        val counter = CountingSink()
+        for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, counter, options)
+        println(String.format(
+            Locale.ROOT, "%-10s %10.0f %10.0f %10d",
+            label,
+            counter.verbs.toDouble() / scene.frameCount,
+            counter.draws.toDouble() / scene.frameCount,
+            counter.maxPathVerbs,
+        ))
+    }
 }
 
 /**
@@ -504,7 +528,12 @@ fun main(args: Array<String>) {
         "dump" -> dump(scene, probe)
         "render" -> {
             val out = args.getOrNull(3) ?: "frame.png"
-            ImageIO.write(render(scene, probe, 1280, 720), "png", File(out))
+            // An optional variant name renders through one of the sweep's
+            // option sets, so a trade can be looked at rather than only timed.
+            val variant = args.getOrNull(4)
+            val options = Benchmark.VARIANTS.firstOrNull { it.first == variant }?.second
+                ?: RenderOptions.DEFAULT
+            ImageIO.write(render(scene, probe, 1280, 720, options), "png", File(out))
             println("wrote $out (frame $probe of ${scene.frameCount})")
         }
         "bench" -> benchmark(scene, 1280, 720)

@@ -34,6 +34,8 @@ class SceneResult(
     val verbsPerFrame: Double,
     val maxPathVerbs: Int,
     val error: String? = null,
+    /** Which option set produced this row, when the run was a sweep. */
+    val variant: String? = null,
 ) {
     private fun percentile(sorted: DoubleArray, p: Double): Double {
         if (sorted.isEmpty()) return 0.0
@@ -63,6 +65,7 @@ class SceneResult(
         val l = Locale.ROOT
         append("{")
         append("\"scene\":\"$name\",\"tier\":$tier,\"frames\":$frames,\"fps\":$fps,")
+        if (variant != null) append("\"variant\":\"$variant\",")
         if (error != null) {
             append("\"error\":\"${error.replace("\"", "'")}\"}")
             return@buildString
@@ -80,16 +83,20 @@ class SceneResult(
         append("\"verdict\":\"$verdict\"}")
     }
 
-    fun toLine(): String = if (error != null) {
-        String.format(Locale.ROOT, "%-20s ERROR  %s", name, error)
-    } else {
-        String.format(
-            Locale.ROOT,
-            "%-20s %-8s p50 %6.2f  p95 %6.2f  p99 %6.2f ms   late %4d/%4d (%5.1f%%)   " +
-                "geom %5.2f   draws %6.0f   maxpath %5d",
-            name, verdict, renderP50, renderP95, renderP99,
-            lateFrames, pacedFrames, lateShare * 100, geometryP50, drawsPerFrame, maxPathVerbs,
-        )
+    fun toLine(): String {
+        val label = if (variant == null) name else "$name/$variant"
+        return if (error != null) {
+            String.format(Locale.ROOT, "%-20s ERROR  %s", label, error)
+        } else {
+            String.format(
+                Locale.ROOT,
+                "%-20s %-8s p50 %6.2f  p95 %6.2f  p99 %6.2f ms   late %4d/%4d (%5.1f%%)   " +
+                    "geom %5.2f   draws %6.0f   verbs %7.0f   maxpath %5d",
+                label, verdict, renderP50, renderP95, renderP99,
+                lateFrames, pacedFrames, lateShare * 100, geometryP50,
+                drawsPerFrame, verbsPerFrame, maxPathVerbs,
+            )
+        }
     }
 }
 
@@ -117,6 +124,25 @@ object Benchmark {
     /** How many frames to render before timing, so JIT and caches settle. */
     private const val WARMUP_FRAMES = 30
 
+    /**
+     * The option sets a sweep runs, each turning off exactly one thing.
+     *
+     * Every entry after the first was a change that measured well on a desktop
+     * and had to be taken on trust on a phone. Rasterisers differ enough that
+     * trust is not good enough -- merging strokes, for one, replaces many small
+     * paths with a few that span the screen, and which of those Skia prefers is
+     * not something this repository can reason its way to.
+     */
+    @JvmField
+    val VARIANTS: Array<Pair<String, RenderOptions>> = arrayOf(
+        "all" to RenderOptions(),
+        "no-lines" to RenderOptions(lines = false),
+        "no-cull" to RenderOptions(cull = false),
+        "no-merge" to RenderOptions(mergeVerbs = 0),
+        "backface" to RenderOptions(backface = true),
+    )
+
+    @JvmOverloads
     fun run(
         name: String,
         tier: Int,
@@ -124,6 +150,8 @@ object Benchmark {
         target: FrameTarget,
         nanos: () -> Long = System::nanoTime,
         sleep: (Long) -> Unit = { ms -> Thread.sleep(ms) },
+        options: RenderOptions = RenderOptions.DEFAULT,
+        variant: String? = null,
     ): SceneResult {
         val counter = CountingSink()
         val total = scene.frameCount
@@ -136,7 +164,7 @@ object Benchmark {
         // after it. Sample across the timeline instead.
         for (i in 0 until WARMUP_FRAMES) {
             val frame = (i.toLong() * total / WARMUP_FRAMES).toInt()
-            target.render { sink -> Renderer.drawFrame(scene, frame, sink) }
+            target.render { sink -> Renderer.drawFrame(scene, frame, sink, options) }
         }
         counter.reset()
 
@@ -145,7 +173,7 @@ object Benchmark {
         val geometry = DoubleArray(total)
         for (i in 0 until total) {
             val started = nanos()
-            Renderer.drawFrame(scene, i, counter)
+            Renderer.drawFrame(scene, i, counter, options)
             geometry[i] = (nanos() - started) / 1e6
         }
         val drawsPerFrame = counter.draws.toDouble() / total
@@ -156,7 +184,7 @@ object Benchmark {
         val render = DoubleArray(total)
         for (i in 0 until total) {
             val started = nanos()
-            target.render { sink -> Renderer.drawFrame(scene, i, sink) }
+            target.render { sink -> Renderer.drawFrame(scene, i, sink, options) }
             render[i] = (nanos() - started) / 1e6
         }
 
@@ -176,7 +204,7 @@ object Benchmark {
                 val waitMs = (due - now) / 1_000_000
                 if (waitMs > 0) sleep(waitMs)
             }
-            target.render { sink -> Renderer.drawFrame(scene, i, sink) }
+            target.render { sink -> Renderer.drawFrame(scene, i, sink, options) }
             if (nanos() > due + budgetNs) late++
         }
 
@@ -192,6 +220,7 @@ object Benchmark {
             drawsPerFrame = drawsPerFrame,
             verbsPerFrame = verbsPerFrame,
             maxPathVerbs = maxPathVerbs,
+            variant = variant,
         )
     }
 

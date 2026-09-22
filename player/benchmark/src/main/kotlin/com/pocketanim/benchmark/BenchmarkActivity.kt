@@ -198,11 +198,41 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             report(result.toLine())
         }
 
+        // Anything that missed its budget gets swept: the same scene again with
+        // one of the renderer's trades turned off each time. A change that
+        // measured well on a desktop rasteriser is a guess on a phone until the
+        // phone says so, and this is cheap -- it only runs for scenes that
+        // failed, and only until the list is exhausted.
+        val struggling = results.filter { it.verdict == "FAIL" || it.verdict == "MARGINAL" }
+        if (struggling.isNotEmpty()) {
+            report("")
+            report("sweeping ${struggling.size} scene(s) that missed the budget")
+            for (result in struggling) {
+                for ((label, options) in Benchmark.VARIANTS) {
+                    if (label == "all") continue  // the run above already is it
+                    val swept = try {
+                        val frames = library.open(result.name)
+                        Benchmark.run(
+                            result.name, result.tier, frames, target,
+                            options = options, variant = label,
+                        )
+                    } catch (e: Throwable) {
+                        Benchmark.failed(result.name, result.tier, "${e::class.java.simpleName}: ${e.message}")
+                    }
+                    results.add(swept)
+                    report(swept.toLine())
+                }
+            }
+        }
+
         report("")
-        val pass = results.count { it.verdict == "PASS" }
-        val marginal = results.count { it.verdict == "MARGINAL" }
-        val fail = results.count { it.verdict == "FAIL" || it.verdict == "ERROR" }
-        report("PASS $pass   MARGINAL $marginal   FAIL $fail   of ${results.size}")
+        // The tally is about the shipping configuration, so sweep rows -- which
+        // exist to be worse -- are left out of it.
+        val primary = results.filter { it.variant == null }
+        val pass = primary.count { it.verdict == "PASS" }
+        val marginal = primary.count { it.verdict == "MARGINAL" }
+        val fail = primary.count { it.verdict == "FAIL" || it.verdict == "ERROR" }
+        report("PASS $pass   MARGINAL $marginal   FAIL $fail   of ${primary.size}")
 
         val json = buildString {
             append("{\"device\":\"${android.os.Build.MODEL}\",")

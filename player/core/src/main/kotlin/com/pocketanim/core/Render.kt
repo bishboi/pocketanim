@@ -73,6 +73,43 @@ interface PathSink {
     }
 }
 
+/**
+ * The parts of drawing that trade one cost for another.
+ *
+ * Each of these was measured to help on one device and could plausibly hurt on
+ * another, or on another scene, so they are parameters rather than decisions
+ * baked into the renderer -- and the benchmark can sweep them on the hardware
+ * that matters instead of anyone arguing about it.
+ *
+ * @param cull drop 2D instances whose transformed bounds miss the frame.
+ * @param lines emit a cubic whose handles lie on its chord as a line.
+ * @param backface drop shaded faces that point away from the camera. Worth
+ *   1.46x on MolecularStructure, in both verbs and draws, and it is off because
+ *   it is not free. Two reasons. The IR does not say whether a shape is a
+ *   closed solid, where a back face is covered by a front one, or an open
+ *   surface, where it is the far side of a sheet a viewer can see. And even on
+ *   the closed spheres it is visible: Manim's back faces show through the
+ *   antialiased seams between front faces and dapple them, so culling changes
+ *   1.14% of the pixels of a frame that is only 3.5% ink. It exists to be
+ *   swept -- to find out what that 1.46x would be worth before anyone decides
+ *   whether to earn it honestly.
+ * @param mergeVerbs verb ceiling for a merged run of identical opaque strokes;
+ *   zero draws every shape on its own. Skia rasterises a path on the GPU only
+ *   below kMaxGPUPathRendererVerbs (16,384) and on the CPU above it, so merging
+ *   is a saving only while the merged path stays under that. The default leaves
+ *   half the limit as room for the shape that tips a run over it.
+ */
+class RenderOptions(
+    @JvmField val cull: Boolean = true,
+    @JvmField val lines: Boolean = true,
+    @JvmField val backface: Boolean = false,
+    @JvmField val mergeVerbs: Int = 8192,
+) {
+    companion object {
+        @JvmField val DEFAULT = RenderOptions()
+    }
+}
+
 object Renderer {
 
     /**
@@ -210,51 +247,46 @@ object Renderer {
     private const val LINE_TOLERANCE = 1e-3f
 
     /**
-     * Verb ceiling for a merged run of strokes.
+     * Transform an instance's points and say whether the result can be seen.
      *
-     * Skia rasterises a path on the GPU only below kMaxGPUPathRendererVerbs
-     * (16,384) and on the CPU above it, so merging draws is only a saving while
-     * the merged path stays under that. Half the limit leaves room for the
-     * shape that tips a run over it.
-     */
-    private const val MERGE_VERB_BUDGET = 8192
-
-    /**
-     * Whether an instance can touch the frame at all.
+     * The bounds come out of the same pass that writes the points, because the
+     * separate pass they used to come from cost more than the culling saved:
+     * on the device CartopyMap's geometry went from 7.9 ms a frame to 22.1 ms,
+     * half its whole budget, for a scan whose only output is four floats.
      *
-     * The canonical bounding box through the instance's affine transform is a
-     * bounding box of the result, so a miss is a certain miss. Measured on the
-     * coastline scene at its tightest zoom: 62% of its verbs are off-screen,
-     * and this drops them before they are transformed, walked or drawn.
+     * Culling is still worth doing -- 62% of that scene's verbs are off-screen
+     * at its tightest zoom -- it just has to be free. A transform we were going
+     * to do anyway can carry it.
      *
-     * Only the 2D path uses it. Under a projecting camera the mapping is not
+     * Only the 2D path uses this. Under a projecting camera the mapping is not
      * affine and a box does not survive it.
      */
-    private fun offFrame(canonical: FloatArray, m: FloatArray): Boolean {
-        var minX = canonical[0]; var maxX = minX
-        var minY = canonical[1]; var maxY = minY
-        var minZ = canonical[2]; var maxZ = minZ
-        var i = 3
-        while (i < canonical.size) {
+    private fun transformVisible(canonical: FloatArray, m: FloatArray, out: FloatArray): Boolean {
+        val m0 = m[0]; val m1 = m[1]; val m2 = m[2]; val m3 = m[3]
+        val m4 = m[4]; val m5 = m[5]; val m6 = m[6]; val m7 = m[7]
+        val m8 = m[8]; val m9 = m[9]; val m10 = m[10]; val m11 = m[11]
+
+        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+
+        var i = 0
+        val end = canonical.size
+        while (i < end) {
             val x = canonical[i]; val y = canonical[i + 1]; val z = canonical[i + 2]
-            if (x < minX) minX = x else if (x > maxX) maxX = x
-            if (y < minY) minY = y else if (y > maxY) maxY = y
-            if (z < minZ) minZ = z else if (z > maxZ) maxZ = z
+            val tx = m0 * x + m1 * y + m2 * z + m3
+            val ty = m4 * x + m5 * y + m6 * z + m7
+            out[i] = tx
+            out[i + 1] = ty
+            out[i + 2] = m8 * x + m9 * y + m10 * z + m11
+            if (tx < minX) minX = tx
+            if (tx > maxX) maxX = tx
+            if (ty < minY) minY = ty
+            if (ty > maxY) maxY = ty
             i += 3
         }
 
-        // |a| * halfExtent bounds the linear part's contribution on each axis.
-        val cx = (minX + maxX) * 0.5f; val ex = (maxX - minX) * 0.5f
-        val cy = (minY + maxY) * 0.5f; val ey = (maxY - minY) * 0.5f
-        val cz = (minZ + maxZ) * 0.5f; val ez = (maxZ - minZ) * 0.5f
-
-        val centreX = m[0] * cx + m[1] * cy + m[2] * cz + m[3]
-        val spanX = abs(m[0]) * ex + abs(m[1]) * ey + abs(m[2]) * ez
-        if (centreX - spanX > FRAME_WIDTH * 0.5f || centreX + spanX < -FRAME_WIDTH * 0.5f) return true
-
-        val centreY = m[4] * cx + m[5] * cy + m[6] * cz + m[7]
-        val spanY = abs(m[4]) * ex + abs(m[5]) * ey + abs(m[6]) * ez
-        return centreY - spanY > FRAME_HEIGHT * 0.5f || centreY + spanY < -FRAME_HEIGHT * 0.5f
+        return maxX >= -FRAME_WIDTH * 0.5f && minX <= FRAME_WIDTH * 0.5f &&
+            maxY >= -FRAME_HEIGHT * 0.5f && minY <= FRAME_HEIGHT * 0.5f
     }
 
     /**
@@ -264,12 +296,19 @@ object Renderer {
      * question on a low-end phone is decided by allocation and draw-call count
      * long before it is decided by arithmetic.
      */
-    fun drawFrame(scene: Frames, index: Int, sink: PathSink) {
+    @JvmOverloads
+    fun drawFrame(
+        scene: Frames,
+        index: Int,
+        sink: PathSink,
+        options: RenderOptions = RenderOptions.DEFAULT,
+    ) {
         // instances() first: a computing source populates its atlas as a side
         // effect of producing the frame, so shape() is only valid afterwards.
         val instances = scene.instances(index)
         val camera = scene.camera(index)
-        if (camera == null) draw2D(scene, instances, sink) else draw3D(scene, instances, camera, sink)
+        if (camera == null) draw2D(scene, instances, sink, options)
+        else draw3D(scene, instances, camera, sink, options)
     }
 
     /**
@@ -282,7 +321,12 @@ object Renderer {
      * same pixels as stroking A and B together -- and turns the coastline's
      * 1,429 draws into a handful.
      */
-    private fun draw2D(scene: Frames, instances: Array<Instance>, sink: PathSink) {
+    private fun draw2D(
+        scene: Frames,
+        instances: Array<Instance>,
+        sink: PathSink,
+        options: RenderOptions,
+    ) {
         var world = FloatArray(0)
 
         var runOpen = false
@@ -293,30 +337,35 @@ object Renderer {
         for (inst in instances) {
             val canonical = scene.shape(inst.atlasId)
             if (canonical.size < 12) continue
-            if (offFrame(canonical, inst.transform)) continue
 
             val fill = inst.fill
             val stroke = inst.stroke
             val filled = (fill ushr 24) and 0xFF > 0
             val stroked = (stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f
             if (!filled && !stroked) continue
+
+            if (world.size < canonical.size) world = FloatArray(canonical.size)
+            val visible = transformVisible(canonical, inst.transform, world)
+            // An invisible instance contributes nothing, so it does not break
+            // an open run either -- the shapes either side of it still share a
+            // paint and still merge.
+            if (options.cull && !visible) continue
+
             val width = inst.strokeWidth * STROKE_SCALE
 
             // Verbs this shape will contribute: one per curve, plus a move and
             // a close for each subpath. One subpath is the usual case and the
             // budget has slack, so the estimate need not be exact.
             val verbs = canonical.size / 12 + 2
-            val mergeable = !filled && stroked && (stroke ushr 24) and 0xFF == 0xFF
+            val mergeable = options.mergeVerbs > 0 && !filled && stroked &&
+                (stroke ushr 24) and 0xFF == 0xFF
 
             val continues = runOpen && mergeable && stroke == runColour &&
-                width == runWidth && runVerbs + verbs <= MERGE_VERB_BUDGET
+                width == runWidth && runVerbs + verbs <= options.mergeVerbs
             if (runOpen && !continues) {
                 sink.strokePath(runColour, runWidth)
                 runOpen = false
             }
-
-            if (world.size < canonical.size) world = FloatArray(canonical.size)
-            transformInto(canonical, inst.transform, world)
 
             if (mergeable) {
                 if (!runOpen) {
@@ -326,13 +375,13 @@ object Renderer {
                     runWidth = width
                     runVerbs = 0
                 }
-                appendPath(world, canonical.size, sink)
+                appendPath(world, canonical.size, sink, options)
                 runVerbs += verbs
                 continue
             }
 
             sink.beginPath()
-            appendPath(world, canonical.size, sink)
+            appendPath(world, canonical.size, sink, options)
             if (filled && stroked && fill == stroke && (fill ushr 24) and 0xFF == 0xFF) {
                 sink.fillAndStrokePath(fill, width)
             } else {
@@ -357,6 +406,7 @@ object Renderer {
         instances: Array<Instance>,
         camera: FloatArray,
         sink: PathSink,
+        options: RenderOptions,
     ) {
         val n = instances.size
         if (n == 0) return
@@ -393,6 +443,15 @@ object Renderer {
             val stroked = (stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f
             if (!filled && !stroked) continue
 
+            // Rotation row 2 is the camera's forward axis, and project() makes
+            // a larger value mean nearer, so a face with a positive component
+            // along it turns towards the viewer.
+            val normal = inst.normal
+            if (options.backface && inst.flags and Panm.SHADE_IN_3D != 0 && normal != null) {
+                val facing = camera[11] * normal[0] + camera[12] * normal[1] + camera[13] * normal[2]
+                if (facing <= 0f) continue
+            }
+
             if (screen.size < length) screen = FloatArray(length)
             project(world, at, length, camera, screen)
             var shade = 0f
@@ -401,7 +460,7 @@ object Renderer {
             }
 
             sink.beginPath()
-            appendPath(screen, length, sink)
+            appendPath(screen, length, sink, options)
 
             val width = inst.strokeWidth * STROKE_SCALE
             if (filled && stroked && fill == stroke && (fill ushr 24) and 0xFF == 0xFF) {
@@ -454,7 +513,12 @@ object Renderer {
      * Does not open the path: a caller may be accumulating several shapes into
      * one.
      */
-    private fun appendPath(points: FloatArray, length: Int, sink: PathSink) {
+    private fun appendPath(
+        points: FloatArray,
+        length: Int,
+        sink: PathSink,
+        options: RenderOptions,
+    ) {
         val curves = length / 12 // 4 points x 3 floats
         var open = false
         for (i in 0 until curves) {
@@ -477,7 +541,7 @@ object Renderer {
 
             val ax = points[o]; val ay = points[o + 1]
             val dx = points[o + 9] - ax; val dy = points[o + 10] - ay
-            val straight =
+            val straight = options.lines &&
                 abs(points[o + 3] - (ax + dx * (1f / 3f))) <= LINE_TOLERANCE &&
                 abs(points[o + 4] - (ay + dy * (1f / 3f))) <= LINE_TOLERANCE &&
                 abs(points[o + 6] - (ax + dx * (2f / 3f))) <= LINE_TOLERANCE &&

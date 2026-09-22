@@ -1307,6 +1307,29 @@ the fallback.
   The same run did confirm the one thing that was load-bearing: **MolecularStructure without
   back-face culling is 30.0 ms and 33 late frames — a clear fail** — against 16.6 ms with it.
 
+  **Tenth run, verifying the revert, and the end of the sequence.** CartopyMap marginal at 28.2
+  ms and 9 late frames of 181; everything else passes, MolecularStructure among them at 0 late,
+  which settles the previous run's 10 as the noise its own controls said it was.
+
+  Three samples of each join style now exist, so the cost of matching Manim is no longer a guess:
+
+  | CartopyMap, with playback detail | p50 samples | mean | late samples | mean |
+  |---|---|---|---|---|
+  | round joins (ships) | 26.9, 26.3, 28.2 | 27.1 ms | 6, 8, 9 | 7.7 |
+  | bevel | 23.5, 22.6, 22.3 | 22.8 ms | 5, 4, 8 | 5.7 |
+
+  The p50 ranges do not overlap, so **4.3 ms is real**; two late frames is not much more than the
+  noise. Marginal either way, in all six samples. **That makes the shipping choice a judgement
+  rather than a measurement**: 0.17 points of fidelity margin, which is measured, against 4.3 ms
+  of headroom for a slower phone than the one that exists, which is not. It ships matching Manim,
+  and `RenderOptions.roundJoins` is one field for whoever meets that phone.
+
+  One last note on the metric, from inside this run: `lod-1px` draws **fewer** verbs than the
+  shipping configuration (14,033 against 17,625) at a better p50 (21.0 against 28.2), and reports
+  **more** late frames (15 against 9). Percentiles and late counts disagree even within a single
+  run at this end of the scale. The verdict column is still the right question, and it still
+  needs more than one run to answer.
+
   **What the whole sequence cost and bought:**
 
   | | first run | now |

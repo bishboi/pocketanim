@@ -465,6 +465,26 @@ the only place in this table where the exporter is choosing to be wrong.
 Suggested CI gate: fail above 1% differing pixels, with no 2D/3D distinction —
 the 3D allowance existed only to accommodate the camera bug.
 
+**That gate is real in the workflow and has never run against the scenes that
+would trip it.** `fidelity.yml` enforces 1% — and defaults to
+`ThreeDCamera TextReuse LongLesson`, three scenes that pass it comfortably.
+Until the zoom fix in §11, `MolecularStructure` measured 2.28% and
+`SurfaceOrbit` 2.98%: both over the stated gate, both openly recorded as such in
+§9.5's table, and neither in the nightly's default set. The threshold read as a
+promise that nothing was checking.
+
+`MolecularStructure` is now 0.56%, so **`SurfaceOrbit` is the only scene in the
+corpus above 1%**, and it has been 2.98% since it was first measured — a known
+number for a procedural 3D surface, not a regression. That makes the gate
+expressible for the first time: a per-scene budget, each set at what the scene
+measures today, so any scene regressing fails while `SurfaceOrbit` is held to
+its own number rather than to one it has never met. A single global threshold
+can only be set high enough to pass `SurfaceOrbit`, which is 3% — too loose to
+catch anything, and how a 2.28% scene sat in the corpus unnoticed.
+
+Not yet done, and deliberately: the budgets want `LongLesson` measured too,
+which is hours of Manim and belongs to the nightly rather than to a change.
+
 ### 7.4 A fourth bug, and why it matters most
 
 After the three 3D fixes above, `CodeWalkthrough` still measured 6.98%. Rendering a frame showed
@@ -737,8 +757,8 @@ worst frame scored.
 | LatexDerivation | **0.04%** | 32.0% | 0.36% |
 | ThreeDCamera | **0.05%** | 4.6% | 0.06% |
 | CodeWalkthrough | **0.06%** | 4.6% | 0.51% |
+| MolecularStructure | **0.56%** | 55.0% | 2.44% |
 | CartopyMap | 0.65% | 35.0% | see below |
-| MolecularStructure | 2.28% | 181.8% | 2.44% |
 | SurfaceOrbit | 2.98% | 16.9% | 2.98% |
 
 `LongLesson` was not re-measured: 4,981 frames through Manim is hours, and it
@@ -748,9 +768,10 @@ belongs in the nightly job rather than in a change's own verification.
 deliberate losses §7.3 measures — export decimation and playback detail — which
 that section records at 0.75%. 0.65% is that same configuration, slightly better.
 
-Three rows still carry a worst frame worth chasing, and each is a *modelling*
-gap rather than a stale-state one, which is a different kind of problem from the
-three just closed:
+**Eleven of twelve are now under 1% of pixels**, and the one that is not is
+`SurfaceOrbit`. That matters for §7.3's gate — see below.
+
+Three rows still carry a worst frame worth looking at:
 
 - **LatexDerivation, 32%** — mid-`TransformMatchingTex`. We pair glyphs by atlas
   id and fade the leftovers; Manim matches by tex string and animates matched,
@@ -763,7 +784,13 @@ three just closed:
   1/0.9 = 1.111. The exporter read that keyword and dropped it, and the IR has
   carried a zoom field all along, so the program drew the whole scene 11% too
   large in every frame — at tier 1, with no blocker. `zoom` is now a camera
-  field end to end.
+  field end to end, and the scene went **2.39% of pixels to 0.56%**, worst frame
+  **182% of its ink to 55%**, mean MAE 3.18 to 0.48.
+
+  What is left is the artefact the scene was written to expose: fifteen
+  overlapping opaque spheres, where painter order decides what covers what.
+  That is the next question in this scene, and it is about draw order rather
+  than about geometry.
 
   The same call silently dropped `gamma`, `focal_distance` and `frame_center`,
   which the interpreters fix at Manim's defaults; each is a blocker now, as is

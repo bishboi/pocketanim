@@ -10,6 +10,8 @@ Deliberately simple and slow. Correctness only.
 from __future__ import annotations
 
 import cairo
+import os
+
 import numpy as np
 
 from .decode import DecodedInstance, DecodedIR
@@ -41,8 +43,66 @@ def _subpaths(points: np.ndarray):
         yield current
 
 
+# How far a dropped point may sit from the segment that replaces it, in pixels
+# of whatever the frame is being rendered at. Matches RenderOptions.forSurface
+# in the player, and has to be expressed in pixels for the same reason: half a
+# pixel is a promise about what a viewer can see. PANIM_LOD_ERROR_PX overrides
+# it, which is how the cost of the whole idea gets measured against Manim
+# rather than guessed; zero turns it off.
+LOD_ERROR_PX = float(os.environ.get("PANIM_LOD_ERROR_PX", "0.5"))
+
+LINE_TOLERANCE = 1e-3  # handles this close to the chord mean the curve is a line
+
+
+def _is_line(curve: np.ndarray) -> bool:
+    """Whether a cubic's handles lie on its chord, as the renderer tests it."""
+    delta = curve[3] - curve[0]
+    return bool(
+        np.abs(curve[1][:2] - (curve[0] + delta / 3.0)[:2]).max() <= LINE_TOLERANCE
+        and np.abs(curve[2][:2] - (curve[0] + delta * (2.0 / 3.0))[:2]).max() <= LINE_TOLERANCE
+    )
+
+
+def _emit_subpath(ctx, subpath, tolerance: float) -> None:
+    """Draw one subpath, dropping points within `tolerance` of the pen.
+
+    The same rule the player applies, and for the same reason: the exporter has
+    to decimate for the tightest zoom a program reaches, so a shape carries more
+    detail than it needs in the frames where all of it is on screen. A dropped
+    run is held rather than discarded -- whatever ends it draws a straight
+    segment to the last point, so a subpath never loses its end.
+    """
+    ctx.move_to(subpath[0][0][0], subpath[0][0][1])
+    anchor = subpath[0][0]
+    held = None
+    for curve in subpath:
+        end = curve[3]
+        if tolerance > 0.0 and _is_line(curve):
+            if float(np.hypot(*(end[:2] - anchor[:2]))) < tolerance:
+                held = end
+                continue
+            # A straight segment supersedes the run it follows: it starts from
+            # the anchor, so the held points are inside the tolerance of it and
+            # are dropped rather than drawn to. Only a curve has to be caught up
+            # to, because a curve must start where it was drawn from.
+            ctx.line_to(end[0], end[1])
+        else:
+            if held is not None:
+                ctx.line_to(held[0], held[1])
+            ctx.curve_to(curve[1][0], curve[1][1], curve[2][0], curve[2][1], end[0], end[1])
+        held = None
+        anchor = end
+    if held is not None:
+        ctx.line_to(held[0], held[1])
+    ctx.close_path()
+
+
 def draw_instance(
-    ctx, inst: DecodedInstance, shapes: list[np.ndarray], camera: np.ndarray | None = None
+    ctx,
+    inst: DecodedInstance,
+    shapes: list[np.ndarray],
+    camera: np.ndarray | None = None,
+    lod: float = 0.0,
 ) -> None:
     canonical = shapes[inst.atlas_id]
     points = canonical @ inst.transform[:, :3].T + inst.transform[:, 3]
@@ -51,14 +111,7 @@ def draw_instance(
 
     ctx.new_path()
     for subpath in _subpaths(points):
-        ctx.move_to(subpath[0][0][0], subpath[0][0][1])
-        for curve in subpath:
-            ctx.curve_to(
-                curve[1][0], curve[1][1],
-                curve[2][0], curve[2][1],
-                curve[3][0], curve[3][1],
-            )
-        ctx.close_path()
+        _emit_subpath(ctx, subpath, lod)
 
     shade = 0.0
     if camera is not None and inst.flags & SHADE_IN_3D and inst.normal is not None:
@@ -117,6 +170,8 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
     # scene whose strokes are sub-pixel it is not a difference at all:
     # SurfaceOrbit against Manim measures 2.98% of pixels differing either way.
     ctx.set_line_join(cairo.LINE_JOIN_BEVEL)
+
+    lod = LOD_ERROR_PX / (width / FRAME_WIDTH)
     ctx.set_line_cap(cairo.LINE_CAP_ROUND)
 
     camera = ir.cameras[index] if ir.cameras and index < len(ir.cameras) else None
@@ -155,7 +210,7 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
         instances = [inst for inst in instances if faces_viewer(inst)]
 
     for inst in instances:
-        draw_instance(ctx, inst, ir.shapes, camera)
+        draw_instance(ctx, inst, ir.shapes, camera, lod)
 
     surface.flush()
     buf = np.ndarray(

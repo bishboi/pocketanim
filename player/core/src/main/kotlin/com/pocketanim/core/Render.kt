@@ -146,6 +146,21 @@ class RenderOptions(
 ) {
     companion object {
         @JvmField val DEFAULT = RenderOptions()
+
+        /**
+         * Options for drawing into a surface this many pixels wide.
+         *
+         * The level-of-detail tolerance is the only thing here that depends on
+         * the target, and it has to: half a pixel is a promise about what a
+         * viewer can see, which is a statement about pixels and not about scene
+         * units. A caller that does not know its resolution gets [DEFAULT],
+         * which does no dropping at all, because guessing wrong here would
+         * silently coarsen someone's artwork.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun forSurface(widthPx: Int, errorPx: Float = 0.5f): RenderOptions =
+            RenderOptions(lodTolerance = errorPx / (widthPx / FRAME_WIDTH))
     }
 }
 

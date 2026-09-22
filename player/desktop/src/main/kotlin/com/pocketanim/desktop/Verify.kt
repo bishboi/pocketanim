@@ -262,11 +262,12 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
     // this harness went on reporting two draws where the device now issues one.
     val sink = CountingSink()
 
-    repeat(2) { for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink) } // warm up
+    val shipping = RenderOptions.forSurface(width)
+    repeat(2) { for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink, shipping) } // warm up
     sink.reset()
 
     val started = System.nanoTime()
-    for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink)
+    for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, sink, shipping)
     val elapsed = (System.nanoTime() - started) / 1e9
 
     val perFrame = elapsed / scene.frameCount * 1000.0
@@ -283,7 +284,7 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
     // do, and on the device the sweep is run against a real surface.
     println()
     println(String.format(Locale.ROOT, "%-10s %10s %10s %10s", "variant", "verbs/fr", "draws/fr", "maxpath"))
-    for ((label, options) in Benchmark.variants(width / FRAME_WIDTH)) {
+    for ((label, options) in Benchmark.variants(width)) {
         val counter = CountingSink()
         for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, counter, options)
         println(String.format(
@@ -545,8 +546,8 @@ fun main(args: Array<String>) {
             // An optional variant name renders through one of the sweep's
             // option sets, so a trade can be looked at rather than only timed.
             val variant = args.getOrNull(4)
-            val options = Benchmark.variants(1280f / FRAME_WIDTH).firstOrNull { it.first == variant }?.second
-                ?: RenderOptions.DEFAULT
+            val options = Benchmark.variants(1280).firstOrNull { it.first == variant }?.second
+                ?: RenderOptions.forSurface(1280)
             ImageIO.write(render(scene, probe, 1280, 720, options), "png", File(out))
             println("wrote $out (frame $probe of ${scene.frameCount})")
         }

@@ -7,6 +7,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import com.pocketanim.core.Frames
 import com.pocketanim.core.Playback
+import com.pocketanim.core.RenderOptions
 import com.pocketanim.core.Renderer
 import java.io.File
 
@@ -178,7 +179,10 @@ class PanimView @JvmOverloads constructor(
                 try {
                     val depth = sink.begin(canvas, widthPx, heightPx, backgroundColorArgb)
                     try {
-                        Renderer.drawFrame(active, index, sink)
+                        // Options, not defaults: the only one that depends on
+                        // the target is level of detail, and half a pixel is a
+                        // promise about pixels rather than about scene units.
+                        Renderer.drawFrame(active, index, sink, RenderOptions.forSurface(widthPx))
                     } finally {
                         sink.end(depth)
                     }

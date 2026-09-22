@@ -58,6 +58,12 @@ class CanvasSink : PathSink {
         canvas = null
     }
 
+    override fun strokeStyle(round: Boolean) {
+        val join = if (round) Paint.Join.ROUND else Paint.Join.BEVEL
+        strokePaint.strokeJoin = join
+        bothPaint.strokeJoin = join
+    }
+
     override fun beginPath() {
         path.rewind()
     }

@@ -13,7 +13,7 @@ import cairo
 import numpy as np
 
 from .decode import DecodedInstance, DecodedIR
-from .ir import SHADE_IN_3D, project
+from .ir import CLOSED_SOLID, NORMAL_INWARD, SHADE_IN_3D, project
 
 # Manim defaults at 16:9.
 FRAME_WIDTH = 14.222222222222221
@@ -129,6 +129,22 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
             return float(centre @ rotation.T[:, 2])
 
         instances = sorted(instances, key=depth)
+
+        # A back face of a closed solid is covered by a front face of the same
+        # solid, so drawing it is work whose only visible effect is to dapple
+        # the antialiased seams between the faces in front of it. Rotation row
+        # 2 is the camera's forward axis, and project() makes a larger value
+        # mean nearer, so a face turned towards the viewer has a positive
+        # component along it.
+        forward = rotation[2]
+
+        def faces_viewer(inst: DecodedInstance) -> bool:
+            if not inst.flags & CLOSED_SOLID or inst.normal is None:
+                return True
+            outward = -inst.normal if inst.flags & NORMAL_INWARD else inst.normal
+            return float(outward @ forward) > 0.0
+
+        instances = [inst for inst in instances if faces_viewer(inst)]
 
     for inst in instances:
         draw_instance(ctx, inst, ir.shapes, camera)

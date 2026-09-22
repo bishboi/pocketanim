@@ -71,6 +71,21 @@ interface PathSink {
         fillPath(argb)
         strokePath(argb, widthInSceneUnits)
     }
+
+    /**
+     * How strokes join and cap, set once a frame.
+     *
+     * Manim strokes with round joins and round caps, and a rasteriser has to
+     * build the round join at every vertex -- 30,000 of them on a coastline.
+     * A bevel is one flat cut instead, and at a stroke a pixel or two wide the
+     * difference is sub-pixel. A mitre is not the alternative: measured on the
+     * coastline it changes 0.88% of the pixels, because a polyline that doubles
+     * back produces a mitre spike up to ten stroke widths long.
+     *
+     * Caps stay round either way. There are two per subpath against a join per
+     * vertex, so they are not where the time goes.
+     */
+    fun strokeStyle(round: Boolean) {}
 }
 
 /**
@@ -83,16 +98,23 @@ interface PathSink {
  *
  * @param cull drop 2D instances whose transformed bounds miss the frame.
  * @param lines emit a cubic whose handles lie on its chord as a line.
- * @param backface drop shaded faces that point away from the camera. Worth
- *   1.46x on MolecularStructure, in both verbs and draws, and it is off because
- *   it is not free. Two reasons. The IR does not say whether a shape is a
- *   closed solid, where a back face is covered by a front one, or an open
- *   surface, where it is the far side of a sheet a viewer can see. And even on
- *   the closed spheres it is visible: Manim's back faces show through the
- *   antialiased seams between front faces and dapple them, so culling changes
- *   1.14% of the pixels of a frame that is only 3.5% ink. It exists to be
- *   swept -- to find out what that 1.46x would be worth before anyone decides
- *   whether to earn it honestly.
+ * @param backface honour [Panm.CLOSED_SOLID] and drop faces that point away
+ *   from the camera, which for a closed solid are behind faces that do not.
+ *   Measured on the device: 1.46x fewer verbs and draws on MolecularStructure,
+ *   which took it from 32.6 ms a frame to 22.9 and from 194 late frames to
+ *   none. It is not quite free -- Manim's back faces show through the
+ *   antialiased seams between the front faces and dapple them, so culling them
+ *   changes about 1% of the pixels of a frame that is 3.5% ink -- and the
+ *   exporter decides which shapes may be treated this way, not this flag.
+ * @param roundJoins join strokes with an arc, as Manim does, rather than with
+ *   a bevel. One per vertex, so on a long polyline it is not a detail.
+ * @param mergeTranslucent merge a run of strokes that share a colour even when
+ *   that colour is not opaque. Merging opaque strokes is exact -- stroking A
+ *   then B paints what stroking A and B together paints -- and merging
+ *   translucent ones is exact only where they do not overlap, since two
+ *   overlapping translucent strokes blend twice when drawn apart and once when
+ *   drawn together. Whether that matters is a question about the artwork, so it
+ *   is measured rather than assumed.
  * @param mergeVerbs verb ceiling for a merged run of identical opaque strokes;
  *   zero draws every shape on its own. Skia rasterises a path on the GPU only
  *   below kMaxGPUPathRendererVerbs (16,384) and on the CPU above it, so merging
@@ -102,7 +124,9 @@ interface PathSink {
 class RenderOptions(
     @JvmField val cull: Boolean = true,
     @JvmField val lines: Boolean = true,
-    @JvmField val backface: Boolean = false,
+    @JvmField val backface: Boolean = true,
+    @JvmField val roundJoins: Boolean = true,
+    @JvmField val mergeTranslucent: Boolean = true,
     @JvmField val mergeVerbs: Int = 8192,
 ) {
     companion object {
@@ -327,6 +351,7 @@ object Renderer {
         sink: PathSink,
         options: RenderOptions,
     ) {
+        sink.strokeStyle(options.roundJoins)
         var world = FloatArray(0)
 
         var runOpen = false
@@ -358,7 +383,7 @@ object Renderer {
             // budget has slack, so the estimate need not be exact.
             val verbs = canonical.size / 12 + 2
             val mergeable = options.mergeVerbs > 0 && !filled && stroked &&
-                (stroke ushr 24) and 0xFF == 0xFF
+                (options.mergeTranslucent || (stroke ushr 24) and 0xFF == 0xFF)
 
             val continues = runOpen && mergeable && stroke == runColour &&
                 width == runWidth && runVerbs + verbs <= options.mergeVerbs
@@ -410,6 +435,7 @@ object Renderer {
     ) {
         val n = instances.size
         if (n == 0) return
+        sink.strokeStyle(options.roundJoins)
 
         // One buffer for every instance's world points, indexed by offset.
         // The molecule scene has 2,910 instances per frame; a FloatArray each
@@ -443,12 +469,15 @@ object Renderer {
             val stroked = (stroke ushr 24) and 0xFF > 0 && inst.strokeWidth > 0f
             if (!filled && !stroked) continue
 
-            // Rotation row 2 is the camera's forward axis, and project() makes
-            // a larger value mean nearer, so a face with a positive component
-            // along it turns towards the viewer.
+            // A back face of a closed solid is covered by a front face of the
+            // same solid. Rotation row 2 is the camera's forward axis, and
+            // project() makes a larger value mean nearer, so a face with a
+            // positive component along it turns towards the viewer.
             val normal = inst.normal
-            if (options.backface && inst.flags and Panm.SHADE_IN_3D != 0 && normal != null) {
-                val facing = camera[11] * normal[0] + camera[12] * normal[1] + camera[13] * normal[2]
+            if (options.backface && inst.flags and Panm.CLOSED_SOLID != 0 && normal != null) {
+                val out = if (inst.flags and Panm.NORMAL_INWARD != 0) -1f else 1f
+                val facing = out *
+                    (camera[11] * normal[0] + camera[12] * normal[1] + camera[13] * normal[2])
                 if (facing <= 0f) continue
             }
 

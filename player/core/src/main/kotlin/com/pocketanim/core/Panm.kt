@@ -18,6 +18,22 @@ object Panm {
     const val MAGIC = 0x4D4E4150 // "PANM" little-endian
     const val FLAG_CAMERA = 1
     const val SHADE_IN_3D = 1
+
+    /**
+     * The face belongs to a closed solid, so one pointing away from the camera
+     * is behind one pointing towards it and cannot be seen. Only the exporter
+     * can know this -- it saw the class that built the shape, where the device
+     * sees an anonymous quad.
+     */
+    const val CLOSED_SOLID = 2
+
+    /**
+     * The stored normal points into that solid rather than out of it. Shading
+     * wants the normal Manim derived, sign and all; culling wants to know
+     * which way is out. One bit serves both rather than a second normal
+     * serving neither.
+     */
+    const val NORMAL_INWARD = 4
     const val CAMERA_FLOATS = 17
     const val REC_SNAPSHOT = 0
 }

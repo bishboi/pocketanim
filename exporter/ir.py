@@ -146,6 +146,17 @@ def quantise(points: np.ndarray, lo: np.ndarray, span: np.ndarray) -> np.ndarray
 
 FLAG_CAMERA = 1 << 0
 SHADE_IN_3D = 1 << 0  # per-instance flag
+# The face belongs to a closed solid -- a sphere, a cylinder, a cube -- so a
+# face pointing away from the camera is behind one pointing towards it and
+# cannot be seen. An open surface carries no such promise: its far side is a
+# sheet a viewer looks at. Only the exporter knows which a shape is, because
+# only the exporter saw the class that built it.
+CLOSED_SOLID = 1 << 1
+# The stored normal points into that solid rather than out of it. Shading wants
+# the normal Manim derived, sign and all, because matching Manim is the whole
+# point of it; culling wants to know which way is out. One bit serves both
+# rather than a second normal serving neither.
+NORMAL_INWARD = 1 << 2
 
 # Per-frame camera state: frame_center(3), focal_distance, zoom, rotation(9),
 # light_source(3). The light moves with the scene, so it is part of the track.

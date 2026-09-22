@@ -43,6 +43,11 @@ import javax.imageio.ImageIO
  */
 class Java2DSink(private val g: Graphics2D) : PathSink {
     private val path = Path2D.Float()
+    private var join = BasicStroke.JOIN_ROUND
+
+    override fun strokeStyle(round: Boolean) {
+        join = if (round) BasicStroke.JOIN_ROUND else BasicStroke.JOIN_BEVEL
+    }
 
     override fun beginPath() {
         path.reset()
@@ -75,7 +80,7 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
 
     override fun strokePath(argb: Int, widthInSceneUnits: Float) {
         g.color = Color(argb, true)
-        g.stroke = BasicStroke(widthInSceneUnits, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        g.stroke = BasicStroke(widthInSceneUnits, BasicStroke.CAP_ROUND, join)
         g.draw(path)
     }
 
@@ -525,6 +530,15 @@ fun main(args: Array<String>) {
     val probe = args.getOrNull(2)?.toInt() ?: (scene.frameCount / 2)
 
     when (mode) {
+        "perframe" -> {
+            val counter = CountingSink()
+            println("frame verbs draws maxpath")
+            for (i in 0 until scene.frameCount) {
+                counter.reset()
+                Renderer.drawFrame(scene, i, counter)
+                println("$i ${counter.verbs} ${counter.draws} ${counter.maxPathVerbs}")
+            }
+        }
         "dump" -> dump(scene, probe)
         "render" -> {
             val out = args.getOrNull(3) ?: "frame.png"

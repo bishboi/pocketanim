@@ -20,7 +20,16 @@ from pathlib import Path
 
 import numpy as np
 
-from .ir import REC_KEYFRAME, REC_SNAPSHOT, SHADE_IN_3D, Atlas, Instance, serialise
+from .ir import (
+    CLOSED_SOLID,
+    NORMAL_INWARD,
+    REC_KEYFRAME,
+    REC_SNAPSHOT,
+    SHADE_IN_3D,
+    Atlas,
+    Instance,
+    serialise,
+)
 
 
 def rgba(color, opacity) -> tuple[int, int, int, int]:
@@ -34,6 +43,51 @@ def rgba(color, opacity) -> tuple[int, int, int, int]:
         int(np.clip(b, 0, 1) * 255),
         int(np.clip(float(opacity), 0, 1) * 255),
     )
+
+
+# Manim classes whose faces enclose a volume. Every one of these is built from
+# a closed parametric surface or a closed polyhedron, so a face turned away
+# from the camera is behind a face turned towards it. `Surface` is deliberately
+# absent: the plot in SurfaceOrbit is a sheet, and its far side is exactly what
+# a viewer sees when the camera swings under it.
+CLOSED_SOLID_TYPES = frozenset({
+    "Sphere", "Cube", "Prism", "Cone", "Cylinder", "Line3D", "Arrow3D",
+    "Dot3D", "Torus",
+})
+
+
+def closed_solid_centres(mob) -> dict[int, np.ndarray]:
+    """Map each submobject of a closed solid to that solid's centre.
+
+    Answered by walking the tree rather than by asking each leaf, because the
+    leaf is an anonymous face: only its ancestor knows it came from a sphere.
+
+    The centre, rather than a yes or no, because the stored normal cannot be
+    trusted to point outwards. Manim 0.21's VMobject has no `get_unit_normal`
+    at all, so every one of these normals comes from the SVD plane fit below,
+    whose sign is arbitrary and which then forces all of them into one
+    hemisphere -- correct for shading a sheet evenly, and inward for half of
+    any closed solid. Which way is out is settled against the solid's centre.
+    """
+    owners: dict[int, int] = {}
+    centres: dict[int, np.ndarray] = {}
+
+    def walk(node, owner) -> None:
+        if owner is None and type(node).__name__ in CLOSED_SOLID_TYPES:
+            owner = node
+            centres[id(node)] = np.asarray(node.get_center(), dtype=np.float64)
+        if owner is not None:
+            owners[id(node)] = id(owner)
+        for child in node.submobjects:
+            walk(child, owner)
+
+    walk(mob, None)
+    return {member: centres[owner] for member, owner in owners.items()}
+
+
+def points_outward(normal: np.ndarray, points: np.ndarray, centre: np.ndarray) -> bool:
+    """Whether `normal` points away from the solid `centre` rather than into it."""
+    return float(normal @ (points.mean(axis=0) - centre)) >= 0.0
 
 
 def unit_normal(mob, points: np.ndarray) -> np.ndarray:
@@ -169,6 +223,7 @@ class Exporter:
         current: dict[int, Instance] = {}
 
         for mob in scene.mobjects:
+            solid = closed_solid_centres(mob)
             for sub in mob.get_family():
                 pts = getattr(sub, "points", None)
                 if pts is None or len(pts) < 4:
@@ -183,6 +238,11 @@ class Exporter:
                 shaded = bool(getattr(sub, "shade_in_3d", False))
                 flags = SHADE_IN_3D if shaded else 0
                 normal = unit_normal(sub, points) if shaded else None
+                centre = solid.get(id(sub))
+                if shaded and centre is not None and normal is not None:
+                    flags |= CLOSED_SOLID
+                    if not points_outward(normal, points, centre):
+                        flags |= NORMAL_INWARD
                 current[slot] = Instance(atlas_id, transform, fill, stroke, width, flags, normal)
 
         self.frame_index += 1

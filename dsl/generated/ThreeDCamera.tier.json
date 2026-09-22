@@ -2,5 +2,13 @@
   "scene": "ThreeDCamera",
   "tier": 1,
   "blockers": [],
-  "program_bytes": 180
+  "program_bytes": 180,
+  "simplified": {
+    "reference_width_px": 2400,
+    "error_px": 1.0,
+    "max_scale": 1.0,
+    "tolerance": 0.005926,
+    "curves_before": 2389,
+    "curves_after": 2389
+  }
 }

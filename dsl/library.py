@@ -93,8 +93,14 @@ def snapshot_family(mob) -> list[tuple]:
     """
     import numpy as np
 
-    from exporter.export_scene import read_style, unit_normal
+    from exporter.export_scene import (
+        closed_solid_centres,
+        points_outward,
+        read_style,
+        unit_normal,
+    )
 
+    solid = closed_solid_centres(mob)
     out = []
     for sub in mob.get_family():
         points = getattr(sub, "points", None)
@@ -106,7 +112,14 @@ def snapshot_family(mob) -> list[tuple]:
         # skips depth sorting and a rotating surface draws in list order.
         shaded = bool(getattr(sub, "shade_in_3d", False))
         normal = unit_normal(sub, array) if shaded else None
-        out.append((array, fill, stroke, width, shaded, normal))
+        # A face may be back-face culled only if it belongs to a closed solid,
+        # and then only against which way is out -- the stored normal is a
+        # plane fit forced into one hemisphere, so half of any sphere's point
+        # inwards. Culling on those would drop the half facing the viewer.
+        centre = solid.get(id(sub))
+        closed = shaded and centre is not None and normal is not None
+        inward = closed and not points_outward(normal, array, centre)
+        out.append((array, fill, stroke, width, shaded, normal, closed, inward))
     return out
 
 
@@ -124,18 +137,23 @@ def export_standalone_asset(snapshot: list[tuple], path: Path, tolerance: float 
     """
     import numpy as np
 
-    from exporter.ir import SHADE_IN_3D
+    from exporter.ir import CLOSED_SOLID, NORMAL_INWARD, SHADE_IN_3D
     from exporter.simplify import simplify_shape
 
     atlas = Atlas()
     instances: dict[int, Instance] = {}
-    for index, (array, fill, stroke, width, shaded, normal) in enumerate(snapshot):
+    for index, entry in enumerate(snapshot):
+        array, fill, stroke, width, shaded, normal, closed, inward = entry
         if tolerance > 0.0:
             array = simplify_shape(array, tolerance)
         atlas_id, transform = atlas.resolve(np.asarray(array, dtype=np.float64))
+        flags = (
+            (SHADE_IN_3D if shaded else 0)
+            | (CLOSED_SOLID if closed else 0)
+            | (NORMAL_INWARD if inward else 0)
+        )
         instances[index] = Instance(
-            atlas_id, transform, fill, stroke, width,
-            SHADE_IN_3D if shaded else 0,
+            atlas_id, transform, fill, stroke, width, flags,
             normal if shaded else None,
         )
 

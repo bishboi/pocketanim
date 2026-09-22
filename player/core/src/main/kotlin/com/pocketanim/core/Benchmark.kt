@@ -139,7 +139,9 @@ object Benchmark {
         "no-lines" to RenderOptions(lines = false),
         "no-cull" to RenderOptions(cull = false),
         "no-merge" to RenderOptions(mergeVerbs = 0),
-        "backface" to RenderOptions(backface = true),
+        "no-backface" to RenderOptions(backface = false),
+        "opaque-merge" to RenderOptions(mergeTranslucent = false),
+        "bevel" to RenderOptions(roundJoins = false),
     )
 
     @JvmOverloads

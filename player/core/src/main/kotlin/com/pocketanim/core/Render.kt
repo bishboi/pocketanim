@@ -601,6 +601,13 @@ object Renderer {
         var anchorX = 0f
         var anchorY = 0f
 
+        // The subpath's first point, and the end of its last curve. A subpath
+        // is closed only when those two meet -- see [closes].
+        var startX = 0f
+        var startY = 0f
+        var endX = 0f
+        var endY = 0f
+
         for (i in 0 until curves) {
             val o = i * 12
             if (open) {
@@ -611,18 +618,20 @@ object Renderer {
                     abs(points[p + 2] - points[o + 2]) <= 1e-6f
                 if (!joined) {
                     if (held) { sink.lineTo(heldX, heldY); held = false }
-                    sink.closeSubpath()
+                    if (closes(startX, startY, endX, endY)) sink.closeSubpath()
                     open = false
                 }
             }
             if (!open) {
                 sink.moveTo(points[o], points[o + 1])
                 anchorX = points[o]; anchorY = points[o + 1]
+                startX = points[o]; startY = points[o + 1]
                 open = true
             }
 
             val ax = points[o]; val ay = points[o + 1]
             val ex = points[o + 9]; val ey = points[o + 10]
+            endX = ex; endY = ey
             val dx = ex - ax; val dy = ey - ay
             val straight = options.lines &&
                 abs(points[o + 3] - (ax + dx * (1f / 3f))) <= LINE_TOLERANCE &&
@@ -651,6 +660,17 @@ object Renderer {
         }
 
         if (held) sink.lineTo(heldX, heldY)
-        if (open) sink.closeSubpath()
+        if (open && closes(startX, startY, endX, endY)) sink.closeSubpath()
     }
+
+    /**
+     * Whether a subpath that started at (sx, sy) and ended at (ex, ey) is a
+     * closed one. Manim's Camera asks the same question of every subpath it
+     * draws, and a partial reveal is why it matters: Create hands the renderer
+     * an open arc, and closing that arc draws a chord across its two ends that
+     * Manim never draws. A shape that is closed brings its ends together
+     * exactly, so the test needs no more tolerance than float noise.
+     */
+    private fun closes(sx: Float, sy: Float, ex: Float, ey: Float): Boolean =
+        abs(ex - sx) <= 1e-6f && abs(ey - sy) <= 1e-6f
 }

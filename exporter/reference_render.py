@@ -94,7 +94,13 @@ def _emit_subpath(ctx, subpath, tolerance: float) -> None:
         anchor = end
     if held is not None:
         ctx.line_to(held[0], held[1])
-    ctx.close_path()
+
+    # Closed only when it really is closed. Manim's Camera does the same test
+    # (consider_points_equals_2d on the subpath's ends) and for the reason a
+    # partial reveal exposes: Create hands the renderer an open arc, and
+    # closing it draws a chord across the two ends that Manim never draws.
+    if np.allclose(subpath[0][0][:2], subpath[-1][3][:2], rtol=1e-5, atol=1e-6):
+        ctx.close_path()
 
 
 def draw_instance(

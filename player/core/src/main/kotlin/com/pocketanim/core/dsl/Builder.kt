@@ -5,6 +5,9 @@ import com.pocketanim.core.Panm
 import com.pocketanim.core.Record
 import com.pocketanim.core.Scene
 
+/** Manim's DrawBorderThenFill(stroke_width=2). */
+private const val OUTLINE_STROKE_WIDTH = 2.0
+
 /**
  * The timeline state machine.
  *
@@ -264,7 +267,12 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     /** Global frame index at which each verb starts; the last entry is the total. */
     private lateinit var starts: IntArray
     /** Names made visible immediately before the verb at this index. */
-    private val shows = HashMap<Int, List<String>>()
+    /**
+     * The `show` and `hide` verbs attached to each step, in the order the
+     * program wrote them. Neither produces a frame, so they ride the verb that
+     * follows; order between them matters, so they share one list.
+     */
+    private val staging = HashMap<Int, List<Step>>()
     private val checkpoints = HashMap<Int, Checkpoint>()
 
     private var cursorStep = -1
@@ -305,33 +313,33 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             while (members.size < step.count && cursor < rewritten.size) {
                 val next = rewritten[cursor]
                 cursor++
-                if (next is Step.Show) carried.add(next) else members.add(next)
+                if (next is Step.Show || next is Step.Hide) carried.add(next) else members.add(next)
             }
             if (members.isNotEmpty()) folded.add(Step.Parallel(members))
             folded.addAll(carried)
         }
 
-        // `show` produces no frame, so it is attached to the verb that follows
-        // rather than being a verb itself. Manim also renders the scene's
-        // opening state once at t=0 before the first animation's first step --
-        // that is the one-frame hold below, and without it every later frame is
-        // one early and the closing frame is missing.
+        // `show` and `hide` produce no frame, so they are attached to the verb
+        // that follows rather than being verbs themselves. Manim also renders
+        // the scene's opening state once at t=0 before the first animation's
+        // first step -- that is the one-frame hold below, and without it every
+        // later frame is one early and the closing frame is missing.
         val expanded = ArrayList<Step>()
-        val pending = ArrayList<String>()
+        val pending = ArrayList<Step>()
         var opened = false
         for (step in folded) {
-            if (step is Step.Show) {
-                pending.add(step.name)
+            if (step is Step.Show || step is Step.Hide) {
+                pending.add(step)
                 continue
             }
             if (!opened) {
                 opened = true
                 // Anything added before the first play is on stage for it.
-                shows[expanded.size] = ArrayList(pending)
+                staging[expanded.size] = ArrayList(pending)
                 pending.clear()
                 expanded.add(Step.Wait(1.0 / fps))
             }
-            shows[expanded.size] = ArrayList(pending)
+            staging[expanded.size] = ArrayList(pending)
             pending.clear()
             expanded.add(step)
         }
@@ -395,7 +403,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
         ensureCheckpoint(step)
         restore(step)
-        applyShows(step)
+        applyStaging(step)
         runners[step].enter()
         for (k in 0..local) runners[step].render(k)
         cursorStep = step
@@ -413,13 +421,22 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
     }
 
-    private fun applyShows(stepIndex: Int) {
-        shows[stepIndex]?.forEach { objects.getValue(it).visible = true }
+    private fun applyStaging(stepIndex: Int) {
+        staging[stepIndex]?.forEach { step ->
+            when (step) {
+                // A `hide` may name an object this interpreter never put on
+                // stage -- a fadeout drops its object outright -- so a hide for
+                // an absent name is a no-op rather than an error.
+                is Step.Hide -> objects[step.name]?.visible = false
+                is Step.Show -> objects.getValue(step.name).visible = true
+                else -> Unit
+            }
+        }
     }
 
     /** Run a verb start to finish for its side effects, discarding its frames. */
     private fun playWhole(stepIndex: Int) {
-        applyShows(stepIndex)
+        applyStaging(stepIndex)
         val runner = runners[stepIndex]
         runner.enter()
         for (k in 0 until runner.frames) runner.render(k)
@@ -443,7 +460,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Wait -> holdRunner(step.seconds)
         is Step.Parallel -> parallelRunner(step.members.map { runnerFor(it) })
         is Step.Par -> holdRunner(0.0)  // folded away in prepare; never reached
-        is Step.Show -> holdRunner(0.0)
+        is Step.Show, is Step.Hide -> holdRunner(0.0)
     }
 
     /**
@@ -633,9 +650,14 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                     revealed.add(inst)
                     continue
                 }
-                val partial = Verbs.pointwiseBecomePartial(shapes[inst.atlasId], 0.0, Verbs.smooth(local))
-                shapes.add(partial)
-                revealed.add(Inst(shapes.size - 1, inst.transform, inst.fill, inst.stroke, inst.width))
+                if (sequential) {
+                    // Create on a group: a plain partial reveal, eased.
+                    val partial = Verbs.pointwiseBecomePartial(shapes[inst.atlasId], 0.0, Verbs.smooth(local))
+                    shapes.add(partial)
+                    revealed.add(Inst(shapes.size - 1, inst.transform, inst.fill, inst.stroke, inst.width))
+                } else {
+                    revealed.add(drawBorderThenFill(inst, local))
+                }
             }
             obj.instances = revealed
             emit()
@@ -644,6 +666,62 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         override fun exit() {
             while (shapes.size > shapeFloor) shapes.removeAt(shapes.size - 1)
             obj.instances = base.toMutableList()
+        }
+
+        /**
+         * One child of a Write, at [local] along its own clock.
+         *
+         * Manim's Write is DrawBorderThenFill on a linear clock, and the two
+         * phases are what the name says. The first half draws the child's
+         * *outline* -- a copy with the fill switched off and a width-2 stroke
+         * in the child's own colour -- as a partial path, twice as fast as the
+         * clock. The second half puts the whole outline down and interpolates
+         * it into the finished child, so the fill fades in as the outline
+         * stroke thins away.
+         *
+         * Modelling it as one eased partial reveal, which is what Create does,
+         * put the pen a long way behind Manim's: at the start of the sample
+         * scene, where a few strokes are all there is to disagree about, Manim
+         * had 36% of a glyph down where we had 3%.
+         */
+        private fun drawBorderThenFill(inst: Inst, local: Double): Inst {
+            // Manim's get_stroke_color: the stroke colour where there is a
+            // stroke, the mobject's own colour otherwise. Text carries no
+            // stroke, so its outline is drawn in the fill colour.
+            val source = if (inst.width > 0.0) inst.stroke else inst.fill
+            val outline = intArrayOf(source[0], source[1], source[2], 255)
+
+            if (local < 0.5) {
+                val partial = Verbs.pointwiseBecomePartial(shapes[inst.atlasId], 0.0, 2.0 * local)
+                shapes.add(partial)
+                return Inst(
+                    shapes.size - 1,
+                    inst.transform,
+                    intArrayOf(inst.fill[0], inst.fill[1], inst.fill[2], 0),
+                    outline,
+                    OUTLINE_STROKE_WIDTH,
+                )
+            }
+
+            // integerInterpolate(0, 2, local) lands in the upper half: the
+            // shape is whole and only the style is still moving.
+            val t = 2.0 * local - 1.0
+            // floor(x + 0.5), not Math.round: Python rounds halves to even
+            // and Java rounds them up, and the two interpreters have to agree
+            // on every byte. Every value here is a non-negative channel.
+            val stroke = IntArray(4) {
+                (outline[it] + (inst.stroke[it] - outline[it]) * t + 0.5).toInt()
+            }
+            return Inst(
+                inst.atlasId,
+                inst.transform,
+                intArrayOf(
+                    inst.fill[0], inst.fill[1], inst.fill[2],
+                    (inst.fill[3] * t + 0.5).toInt(),
+                ),
+                stroke,
+                OUTLINE_STROKE_WIDTH + (inst.width - OUTLINE_STROKE_WIDTH) * t,
+            )
         }
     }
 
@@ -860,6 +938,16 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         override fun exit() {
             src.instances = dstBase.toMutableList()
             src.glyphIds = dst.glyphIds!!.copyOf()
+
+            // Manim's TransformMatchingTex leaves the *target* on stage and
+            // takes the source off it. The blend is carried by the source
+            // object, so without this the source stayed visible holding the
+            // target's content while the target's own trailing `show` drew the
+            // same thing again -- harmless for one morph, and cumulative for a
+            // chain of them. Three morphs left three stale equations
+            // superimposed on the fourth.
+            src.visible = false
+            dst.visible = true
         }
     }
 

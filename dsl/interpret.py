@@ -194,8 +194,8 @@ def parse(text: str) -> dict:
             scene["timeline"].append(
                 ("morph", positional[0], positional[1], float(args["t"]))
             )
-        elif verb == "show":
-            scene["timeline"].append(("show", positional[0]))
+        elif verb in ("show", "hide"):
+            scene["timeline"].append((verb, positional[0]))
         elif verb in ("fade", "fadeout", "write"):
             scene["timeline"].append((verb, positional[0], float(args["t"])))
         elif verb == "xform":
@@ -253,7 +253,7 @@ def build_2d(scene: dict) -> DecodedIR:
     vehicle so the existing reference renderer and harness can be reused.
     """
     from dsl.library import load_standalone_asset, load_text_asset
-    from dsl.verbs import align, pointwise_become_partial
+    from dsl.verbs import align, draw_border_then_fill, pointwise_become_partial
 
     fps = scene["fps"]
     shapes: list[np.ndarray] = []
@@ -477,7 +477,8 @@ def build_2d(scene: dict) -> DecodedIR:
             obj["visible"] = True
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
-            lag = 1.0 if step[0] == "revealseq" else min(4.0 / count, 0.2)
+            sequential = step[0] == "revealseq"
+            lag = 1.0 if sequential else min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
             total = int(duration * fps)
             for frame_index in range(total):
@@ -491,9 +492,15 @@ def build_2d(scene: dict) -> DecodedIR:
                     if local >= 1:
                         revealed.append((aid, transform, fill, stroke, width))
                         continue
-                    partial = pointwise_become_partial(shapes[aid], 0.0, smooth(local))
-                    shapes.append(partial)
-                    revealed.append((len(shapes) - 1, transform, fill, stroke, width))
+                    if sequential:
+                        # Create on a group: a plain partial reveal, eased.
+                        partial = pointwise_become_partial(shapes[aid], 0.0, smooth(local))
+                        shapes.append(partial)
+                        revealed.append((len(shapes) - 1, transform, fill, stroke, width))
+                    else:
+                        revealed.append(
+                            draw_border_then_fill(shapes, aid, transform, fill, stroke, width, local)
+                        )
                 obj["instances"] = revealed
                 yield
             obj["instances"] = base
@@ -654,6 +661,16 @@ def build_2d(scene: dict) -> DecodedIR:
             src["instances"] = dst_base
             src["glyph_ids"] = list(dst["glyph_ids"])
 
+            # Manim's TransformMatchingTex leaves the *target* on stage and takes
+            # the source off it. The blend is carried by the source object, so
+            # without this the source stayed visible holding the target's content
+            # while the target's own trailing `show` drew the same thing again --
+            # harmless for one morph, and cumulative for a chain of them. Three
+            # morphs left three stale equations superimposed on the fourth, at
+            # 255% of the frame's ink, under a frame-relative mean of 0.31%.
+            src["visible"] = False
+            dst["visible"] = True
+
         elif step[0] == "fade":
             _, name, duration = step
             if name in objects:
@@ -719,8 +736,16 @@ def build_2d(scene: dict) -> DecodedIR:
         step = timeline_steps[index]
         index += 1
 
-        if step[0] == "show":
-            objects[step[1]]["visible"] = True
+        if step[0] in ("show", "hide"):
+            # `hide` names something Manim took off stage. It may name an object
+            # this interpreter never put on one -- a fadeout drops its object
+            # outright -- so a hide for an absent name is a no-op rather than an
+            # error.
+            obj = objects.get(step[1])
+            if obj is not None:
+                obj["visible"] = step[0] == "show"
+            elif step[0] == "show":
+                raise KeyError(f"show target {step[1]!r} was never declared")
             continue
 
         # After any leading `show`, so objects added before the first play are

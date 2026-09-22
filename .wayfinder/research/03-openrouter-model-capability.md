@@ -134,11 +134,19 @@ tests each with `isinstance`, in this order. `duration` is the `play()`
 | `show N` | `Scene.add` | `:503-514` | also fires when an introducer animation adds its mobject on cleanup |
 | `move phi= theta= t=` | `ThreeDScene.move_camera` | `:525-538` | |
 
+Two verbs have been added since this was written, both to close a tier-1-but-wrong
+defect, and line numbers above have shifted:
+
+| Verb | Triggered by | Notes |
+|---|---|---|
+| `par n= t=` | one `play()` producing more than one verb | claims the next `n` verbs and runs them on one clock |
+| `hide N` | `Scene.remove` | the missing half of `show`; only for mobjects already named *and* declared |
+
 `dsl/interpret.py`'s `parse()` (`:119-214`) recognises exactly this set and
 nothing more: `scene`, `circle`, `square`, `rect`, `text`, `geom`, `surface`,
 `camera`, `create`, `transform`, `morph`, `write`, `fade`, `fadeout`, `xform`,
-`laggedgrow`, `show`, `move`, `spin`, `wait`. **Exporter and interpreter agree
-exactly on the verb set** — there is no verb one can produce that the other does
+`laggedgrow`, `show`, `hide`, `par`, `move`, `spin`, `wait`. **Exporter and
+interpreter agree exactly on the verb set** — there is no verb one can produce that the other does
 not know.
 
 Scene mode is `3d` iff any declaration starts with `surface` or `camera`

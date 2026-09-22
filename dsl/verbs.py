@@ -81,6 +81,55 @@ def pointwise_become_partial(points: np.ndarray, a: float, b: float) -> np.ndarr
     return np.vstack(chunks)
 
 
+OUTLINE_STROKE_WIDTH = 2.0  # Manim's DrawBorderThenFill(stroke_width=2)
+
+
+def draw_border_then_fill(shapes, atlas_id, transform, fill, stroke, width, local):
+    """One child of a Write, at `local` along its own clock.
+
+    Manim's Write is DrawBorderThenFill on a linear clock, and the two phases
+    are what the name says. The first half draws the child's *outline* -- a
+    copy with the fill switched off and a width-2 stroke in the child's own
+    colour -- as a partial path, twice as fast as the clock. The second half
+    puts the whole outline down and interpolates it into the finished child,
+    so the fill fades in as the outline stroke thins away.
+
+    Modelling it as one eased partial reveal, which is what Create does, put
+    the pen a long way behind Manim's: at the start of the sample scene, where
+    a few strokes are all there is to disagree about, Manim had 36% of a glyph
+    down where we had 3%.
+    """
+    # Manim's get_stroke_color: the stroke colour where there is a stroke, the
+    # mobject's own colour otherwise. Text carries no stroke, so its outline is
+    # drawn in the fill colour.
+    outline_stroke = (*(stroke[:3] if width > 0 else fill[:3]), 255)
+
+    # floor(x + 0.5), not round(): Python rounds halves to even and Java rounds
+    # them up, and the two interpreters have to agree on every byte. Every value
+    # here is a non-negative channel, so the floor is a truncation.
+    def channel(x: float) -> int:
+        return int(x + 0.5)
+
+    if local < 0.5:
+        partial = pointwise_become_partial(shapes[atlas_id], 0.0, 2.0 * local)
+        shapes.append(partial)
+        return (
+            len(shapes) - 1, transform, (*fill[:3], 0),
+            outline_stroke, OUTLINE_STROKE_WIDTH,
+        )
+
+    # integer_interpolate(0, 2, local) lands in the upper half: the shape is
+    # whole and only the style is still moving.
+    t = 2.0 * local - 1.0
+    return (
+        atlas_id,
+        transform,
+        (*fill[:3], channel(fill[3] * t)),
+        tuple(channel(a + (b - a) * t) for a, b in zip(outline_stroke, stroke)),
+        OUTLINE_STROKE_WIDTH + (width - OUTLINE_STROKE_WIDTH) * t,
+    )
+
+
 def remap_curves(points: np.ndarray, target_curves: int) -> np.ndarray:
     """Resample a path to exactly `target_curves` cubics.
 

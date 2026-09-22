@@ -684,6 +684,15 @@ function**, not an alignment bug. Manim defaults both verbs to `smooth`.
 **The failure mode is forgetting a documented behaviour, not being unable to
 reproduce one**, and the harness catches exactly that.
 
+That table is about *geometry*, and it is worth being precise about how much it
+buys. `pointwise_become_partial` agreeing with Manim to 2.2e-16 says the points
+of a half-drawn path are right; it says nothing about how the path is then
+drawn, or about which animation asks for it. Both of the defects §11 closed on
+partial reveals live outside this table — one in the renderer, which closed
+every subpath whether or not it was closed, and one in `Write`, which is not a
+partial reveal at all but `DrawBorderThenFill`. A component-level oracle proves
+the component.
+
 ### Coverage and fidelity: 9 of 10, verified
 
 Coverage and fidelity are **separate axes**. Tier 1 means *expressible*; the
@@ -1475,24 +1484,92 @@ the fallback.
   nightly numbers for the whole corpus first — a dense scene and a sparse one
   should probably not be held to the same threshold on either measure.
 
-- **Mid-animation frames disagree with Manim far more than the headline says.**
+- **Closed. Mid-animation frames disagreed with Manim far more than the headline
+  said, for two reasons, and neither was the clock.**
   The first thing the ink-relative number found, and it was already there.
-  `HelloPocketanim` ships at 0.05% of pixels differing; measured against its own
-  ink it reads **139% at frame 8**, 83% at 16, 60% at 24. By frame 64 — once the
-  animation has settled — it is 0.4%. The corpus's fidelity numbers are averages
-  dominated by held frames, and the held frames are the ones that agree.
+  `HelloPocketanim` shipped at 0.05% of pixels differing; measured against its own
+  ink it read **139% at frame 8**, 83% at 16, 60% at 24, settling to 0.4% by frame
+  64. The corpus's fidelity numbers are averages dominated by held frames, and the
+  held frames are the ones that agree.
 
-  **It is not a timing offset.** Scoring our frame *N* against Manim's *N±1* and
-  *N±2* produces no minimum — 163%, 151%, 139%, 125%, 124% across the window, a
-  monotone slide with no dip at any shift. So this is not the off-by-one family
-  §11 already closed; the *partial geometry* differs. `Create` on a circle draws
-  a visibly longer arc than Manim's at the same instant, which points at
-  `pointwise_become_partial` or the rate applied to it rather than at the clock.
+  **The clock was ruled out by measurement, not by argument.** Shifting every
+  verb's alpha back a frame — the whole interpreter, both the eased and the linear
+  verbs — made the sample scene *worse* on every verb, 0.06% of pixels differing to
+  0.40%, including the verbs that already read 0.0% of their ink. The frame the
+  interpreter draws at index *N* is the frame Manim draws at index *N*. What the
+  phase test had read as a monotone slide was the pixel geometry differing at every
+  shift, so there was no minimum to find.
 
-  Whether it matters is a judgement nobody has made yet: a growing stroke that is
-  slightly further along is a different animation, not a wrong picture, and every
-  device run and every visual check passed it. Recorded rather than chased,
-  because it is a self-contained investigation and this section already has two.
+  Dumping a frame said in one look what the metric could not. Two causes:
+
+  1. **Every subpath was closed, whether or not it was closed.** Both renderers
+     ended each subpath with `closeSubpath`, so a half-drawn circle got a chord
+     across its two ends and a half-drawn square's first edge came out as a thin
+     closed sliver. Manim's `Camera` closes a subpath only when its ends actually
+     meet (`consider_points_equals_2d`), and a partial reveal's never do. Both
+     sides of the `PathSink` seam now test the same thing. `ConcurrentPlay`, which
+     is nothing but two concurrent `Create`s, went from **90.8% of its ink at its
+     worst frame to 2.9%**.
+
+  2. **`Write` was modelled as `Create`.** Manim's `Write` is
+     `DrawBorderThenFill` on a **linear** clock, and the name is the behaviour:
+     the first half of each child's own clock draws that child's *outline* — the
+     fill switched off, a width-2 stroke in the child's own colour — as a partial
+     path at twice the clock rate; the second half puts the whole outline down and
+     interpolates it into the finished glyph, the fill coming up as the outline
+     stroke thins away. We drew a single eased partial reveal instead, which is
+     what `Create` does. At the start of the sample scene Manim had 36% of a glyph
+     down where we had 3%. `HelloPocketanim`'s worst frame: **139% of its ink to
+     3.1%**, and its mean MAE 0.08 to 0.01.
+
+  Neither showed up in the frame-relative gate, and neither could have: both live
+  in the frames where there is least ink to disagree about. Nothing else in the
+  corpus moved — `SurfaceOrbit` is still 2.98%, `LatexDerivation` still under its
+  recorded 0.36% — because neither defect touches a scene that is holding still.
+
+  **And behind those two, a third the same metric found: nothing ever left the
+  stage.** The exporter patched `Scene.add` and emitted a `show` verb for it. It
+  did not patch `Scene.remove`, and the program language had no verb for it
+  either — so a mobject Manim took off stage stayed on ours for the rest of the
+  scene. `TransformMatchingTex` adds its working groups through `add` and drops
+  them again in `clean_up_from_scene`, so `LatexDerivation`'s three morphs ended
+  with three stale equations drawn on top of the fourth. Frame-relative that is
+  0.29% of pixels — comfortably inside the gate — and **237% of that frame's own
+  ink**.
+
+  `hide NAME` is now a verb, both interpreters apply it in program order with
+  `show` (neither produces a frame, so both ride the verb that follows), and
+  `patched_remove` emits it for anything already named *and* declared: Manim
+  removes internal copies that were never on our stage, and declaring one from a
+  removal would invent an asset out of nothing. `LatexDerivation` went **0.29% to
+  0.06%**, and every held frame in it is now exactly 0.00%. `morph` separately
+  takes its source off stage and puts its target on, which is what
+  `TransformMatchingTex` itself does, so the verb is right even where a program
+  carries no `hide`.
+
+  What is left in that scene is the morph *blend*: 32% and 59% of ink at the two
+  frames in the middle of a `TransformMatchingTex`. We pair glyphs by id and fade
+  the leftovers; Manim matches by tex string and animates matched, faded-out and
+  faded-in groups separately. That is a modelling approximation rather than a
+  stale-state bug, and it is the next thing in this scene worth measuring.
+
+  **The ink-relative column needed a floor.** The first frames of a reveal hold a
+  few dozen lit pixels, and a ratio over a denominator that small is noise: one
+  frame of `ConcurrentPlay` read 106% of its ink while differing on 0.00% of the
+  frame, which is antialiasing on a stroke a few pixels long. `verify_dsl` now
+  marks any frame under 0.05% ink and leaves it out of the worst-frame summary,
+  so the headline stays a statement about drawings that exist.
+
+- **A re-export in a different environment rewrites asset bytes that no digest
+  covers.** Separate from the hash-seed item below, and found while re-exporting
+  the corpus for the `hide` verb. A text asset's digest is its glyph points and
+  fill colour, so it is stable; the *file* stores each glyph's affine onto the
+  shared atlas, and this container's LaTeX produces outlines that differ from
+  the checked-in ones by about 1e-4 scene units — a hundredth of a pixel. Two
+  exports in the same container agree byte for byte, so it is the toolchain, not
+  the exporter. The effect is diff noise on regeneration, not drift: the fidelity
+  numbers are unchanged. It does mean an asset digest identifies an asset's
+  *content*, not its file, which is worth knowing before anything caches by it.
 
 - **Exporting the same scene twice gives different asset files.** Confirmed, and it is Python's
   string-hash randomisation: `TransformMatchingTex` matches by tex-string keys through sets, so

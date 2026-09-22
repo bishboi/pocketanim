@@ -34,6 +34,8 @@ sealed class Step {
     class Transform(val source: String, val target: String, val seconds: Double, val rate: String) : Step()
     class Morph(val source: String, val target: String, val seconds: Double) : Step()
     class Show(val name: String) : Step()
+    /** The other half of [Show]: what Manim's Scene.remove took off stage. */
+    class Hide(val name: String) : Step()
     class Fade(val name: String, val seconds: Double) : Step()
     class FadeOut(val name: String, val seconds: Double) : Step()
     class Write(val name: String, val seconds: Double) : Step()
@@ -134,6 +136,7 @@ class Program(
                     "transform" -> timeline.add(Step.Transform(positional[0], positional[1], t(), rate()))
                     "morph" -> timeline.add(Step.Morph(positional[0], positional[1], t()))
                     "show" -> timeline.add(Step.Show(positional[0]))
+                    "hide" -> timeline.add(Step.Hide(positional[0]))
                     "fade" -> timeline.add(Step.Fade(positional[0], t()))
                     "fadeout" -> timeline.add(Step.FadeOut(positional[0], t()))
                     "write" -> timeline.add(Step.Write(positional[0], t()))

@@ -84,6 +84,9 @@ class Recorder:
             self.counter += 1
         return self.names[id(mob)]
 
+    def declared(self, name: str) -> bool:
+        return any(d.split()[1] == name for d in self.declarations)
+
     def is_asset(self, name: str) -> bool:
         return any(
             d.startswith(("text ", "geom ")) and d.split()[1] == name
@@ -334,6 +337,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     originals = {
         "play": Scene.play,
         "add": Scene.add,
+        "remove": Scene.remove,
         "move_camera": ThreeDScene.move_camera,
         "set_orientation": ThreeDScene.set_camera_orientation,
         "begin_spin": ThreeDScene.begin_ambient_camera_rotation,
@@ -547,6 +551,24 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.timeline.append(f"show {name}")
         return originals["add"](self, *mobjects, **kw)
 
+    def patched_remove(self, *mobjects, **kw):
+        # Manim takes things off stage as well as putting them on, and until
+        # this existed the program had no way to say so. TransformMatchingTex
+        # adds its working groups through add() and drops them again in
+        # clean_up_from_scene; without the removal they stayed on our stage for
+        # the rest of the scene. Three morphs ended with three stale equations
+        # drawn over the fourth -- 237% of that frame's ink, under a
+        # frame-relative mean of 0.29%, which is why the gate never saw it.
+        #
+        # Only things already named and declared: Manim removes internal copies
+        # (TransformMatchingTex's fade target, for one) that were never on our
+        # stage, and declaring one here would invent an asset out of a removal.
+        for mob in mobjects:
+            name = rec.names.get(id(mob))
+            if name and rec.declared(name):
+                rec.timeline.append(f"hide {name}")
+        return originals["remove"](self, *mobjects, **kw)
+
     def patched_orientation(self, phi=None, theta=None, **kw):
         parts = []
         if phi is not None:
@@ -581,6 +603,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
     Scene.play = patched_play
     Scene.add = patched_add
+    Scene.remove = patched_remove
     ThreeDScene.move_camera = patched_move_camera
     ThreeDScene.set_camera_orientation = patched_orientation
     ThreeDScene.begin_ambient_camera_rotation = patched_spin
@@ -604,6 +627,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]
         Scene.add = originals["add"]
+        Scene.remove = originals["remove"]
         ThreeDScene.move_camera = originals["move_camera"]
         ThreeDScene.set_camera_orientation = originals["set_orientation"]
         ThreeDScene.begin_ambient_camera_rotation = originals["begin_spin"]

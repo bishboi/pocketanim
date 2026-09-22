@@ -20,6 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dsl.interpret import load_program
 from exporter.reference_render import render_frame
 
+# Below this much ink, a frame is too nearly empty for "of ink" to mean
+# anything -- a few dozen pixels, where antialiasing alone moves the ratio by
+# tens of points. About 200 pixels at 480p.
+INK_FLOOR = 0.0005
+
 
 def main():
     program_path, scene_file, scene_class = sys.argv[1:4]
@@ -97,6 +102,7 @@ def main():
     print(f"{'frame':>7} {'MAE':>8} {'%pixels off':>12} {'%ink':>8} {'of ink':>9}")
 
     rows = []
+    thin = 0
     for index, expected in sorted(reference.items()):
         if index >= len(ir.records):
             continue
@@ -107,10 +113,19 @@ def main():
         ink = float((expected.max(axis=2) > 24).mean())
         # A blank frame has no ink and cannot disagree about any of it.
         relative = bad / ink if ink > 0 else 0.0
-        rows.append((mae, bad, relative))
+        # The first frames of a reveal hold a few dozen lit pixels, and a ratio
+        # over a denominator that small is noise: one frame of ConcurrentPlay
+        # read 106% of its ink while differing on 0.00% of the frame, which is
+        # antialiasing on a stroke a few pixels long. Such a frame is printed
+        # with its ratio marked and left out of the worst-frame summary, so the
+        # headline number stays a statement about drawings that exist.
+        enough = ink >= INK_FLOOR
+        rows.append((mae, bad, relative, enough))
+        if not enough:
+            thin += 1
         print(
             f"{index:>7} {mae:>8.2f} {bad * 100:>11.2f}% {ink * 100:>7.2f}% "
-            f"{relative * 100:>8.1f}%"
+            f"{relative * 100:>8.1f}%{'' if enough else ' *'}"
         )
 
         if dump:
@@ -123,11 +138,13 @@ def main():
             )
 
     if rows:
-        worst = max(r[2] for r in rows)
+        scored = [r for r in rows if r[3]] or rows
+        worst = max(r[2] for r in scored)
+        note = f" ({thin} too thin to score, marked *)" if thin else ""
         print(
             f"\nmean MAE {sum(r[0] for r in rows) / len(rows):.2f}, "
             f"mean pixels off {sum(r[1] for r in rows) / len(rows) * 100:.2f}%, "
-            f"worst frame {worst * 100:.1f}% of its ink"
+            f"worst frame {worst * 100:.1f}% of its ink{note}"
         )
 
 

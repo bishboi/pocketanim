@@ -1402,6 +1402,26 @@ the fallback.
   supports; the fidelity harness compares programs to Manim for scenes that were
   authored to work.
 
+  **`LongLesson` was shipping wrong.** Its circles and squares sit at
+  `(0, -1.4)` and were drawn at the origin, through every device run in this
+  section and every nightly fidelity run — including while someone watched it
+  play.
+
+  **Two of the three verification layers cannot see this class of defect at
+  all**, and that is structural rather than an oversight:
+
+  | Check | What it compares | Can it see a lost position? |
+  |---|---|---|
+  | `crosscheck_interpreter` | Python interpreter vs Kotlin | **No** — both read the same program and agree, wrongly |
+  | `verify_player` | Kotlin renderer vs Cairo oracle | **No** — same program, same omission, perfect agreement |
+  | `verify_dsl` | program vs **Manim's own frames** | Yes, and only this one |
+
+  Everything except the last is an agreement test between implementations of the
+  format. They are worth having and they caught real drift, but no number of
+  them can notice that the format was handed the wrong thing in the first place.
+  Only the comparison against Manim can, which makes it load-bearing rather than
+  one of three, and makes its threshold the thing to get right.
+
   Also established while probing: the `unsupported mobject:` blocker at
   `export_dsl.py:217` is **unreachable**. Line 120 returns early on exactly the
   negation of line 206's condition, so no mobject ever reaches it. Geometry

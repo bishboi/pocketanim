@@ -4,8 +4,8 @@ title: What the export worker's contract and lifecycle are
 labels: [wayfinder:grilling]
 parent: 1
 blocked_by: [4, 5]
-assignee: null
-state: open
+assignee: opus-5
+state: closed
 ---
 
 ## Question
@@ -32,3 +32,38 @@ What has to be settled:
 
 Note the overlap with preview: if the worker also renders frames, that is one
 service; if not, it is two.
+
+## Resolution
+
+Decided, as asked, against the measurement in
+[What an export actually costs, per archetype](04-export-cost-per-archetype.md)
+and the user's "immediate outputs, no orchestrator loop".
+
+**Synchronous. One HTTP request per export, no queue.** A queue is the right
+answer to a multi-minute job, and three of the four archetypes are not one.
+Building it now would be paying for a molecule's 126 s in every text scene's
+1.2 s.
+
+- **Interface.** `POST /export` with `{source, scene_class, template}`; back
+  comes `{tier, blockers[], program, assets[], frames, fps, duration_ms}` or an
+  error. The tier and blockers come straight from the exporter's own
+  `<Scene>.tier.json` rather than being re-derived.
+- **Timeout 180 s**, which clears the worst measured archetype with margin. A
+  timeout is a failed build with a reason, not a hang.
+- **Warm worker.** A container with Manim, LaTeX, cairo and cartopy. One that
+  stays up: import and TeX startup are per-process, not per-scene.
+- **The UI promises per template, not globally.** A template knows roughly what
+  it costs; the button should say so rather than implying every scene is
+  instant.
+
+**The part that is not comfortable, recorded rather than smoothed over:** this
+executes model-written Python on a server, which is remote code execution by
+design. For a throwaway single-user version the mitigation is a
+network-isolated container, one process per request, and resource limits. That
+is *adequate for one trusted user and not adequate for signups*, and the moment
+this has a second user it needs revisiting. Noted as fog on the map rather than
+pretended away.
+
+**What this forecloses:** if a later version wants many templates like the
+molecule, the answer is a queue, and this decision is meant to be reversed then
+rather than defended.

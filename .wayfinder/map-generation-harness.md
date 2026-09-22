@@ -37,7 +37,7 @@ not steps on the route.
 | Where Manim runs | A server-side Python worker. The harness is a browser app; export is a server job |
 | Artifact of record | **Both**: Manim Python as editable source, `.panim` + assets as build output |
 | Preview fidelity | Server-rendered frames for now. A TS/WASM renderer is named as the eventual answer and is **not** this effort |
-| Template | A scene **archetype** (explainer, map walkthrough, molecule tour) that shapes generated structure. Visual style is a property of one |
+| Template | **Corrected by the user after charting**: a *type of video* — animation style, colour scheme, and so on. Charting had recommended "archetype, not visual style"; the user's definition puts the look at the centre and the archetype alongside it. The schema holds both |
 | Where it lives | A new repo. This map stays here, because the constraint that binds it — the `.panim` format — is defined here |
 
 ### The constraint everything bends around
@@ -65,6 +65,43 @@ context, which describes the format and the player.
 - **Scene source** — the Manim Python. What the model writes and a human reads.
 - **Scene program** — the `.panim` plus its assets. What a phone plays. Built from the source by the worker.
 - **Export** — running the source through `dsl/export_dsl.py` to get a program. A server job, minutes not milliseconds.
+
+### This effort carries execution
+
+Wayfinder plans by default. This one was overridden: the user asked for the
+Supabase schema to be built rather than specified, so decided things get
+implemented here as they settle. The map still drives the order.
+
+### Settled after charting
+
+Given directly by the user, and so given rather than derived:
+
+- **A template is a type of video** — animation style, colour scheme, and what kind of thing it is. Not primarily a vocabulary constraint.
+- **No orchestrator agent.** The first version does not loop build-then-fix. A human looks at the output and says what to change. The exporter's blocker list is therefore something to *show a person*, not something to feed back into a model.
+- **Immediate outputs.** The first version answers rather than queues. See the export timings below for where that promise breaks.
+
+### What an export actually costs
+
+Measured, because the decision above depends on it and my own impression was
+wrong. `python -m dsl.export_dsl` on this machine:
+
+| Archetype | Scene | Export |
+|---|---|---|
+| simple / text | HelloPocketanim | **1.2 s** |
+| LaTeX | LatexDerivation | **2.2 s** |
+| map | CartopyMap | **20.9 s** |
+| molecule | MolecularStructure | **126.5 s** |
+
+I had assumed minutes across the board, from watching exports during the player
+work. That was wrong: what took minutes there was *fidelity verification*, which
+renders Manim's own frames. Export sets `write_to_movie: False` and encodes
+nothing, which is why text is a second and a half.
+
+So "immediate" is true for most of the corpus, marginal for maps, and false for
+molecules. That is a **template-level** fact, not a global one — and it is
+partly a template's own doing: MolecularStructure is 15 spheres at resolution
+(12,12), so 2,160 faces walked across 271 frames. A molecule template picks that
+number.
 
 ### Skills every session should consult
 

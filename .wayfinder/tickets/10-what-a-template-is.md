@@ -10,8 +10,14 @@ state: open
 
 ## Question
 
-Charting settled that a template is a scene **archetype** rather than a visual
-theme. Decide what one *is* as an artifact, and which exist at v1. Waits on
+**The user has since defined the term**: a template is a *type of video* —
+animation style, colour scheme, and what kind of thing it is. Charting had
+recommended the opposite ("archetype, not visual style"); the user's definition
+puts the look at the centre. The schema in `harness/supabase/migrations/` holds
+both — `palette`/`typography`/`pacing` beside `prompt`/`preamble`/`requires` —
+so nothing is foreclosed.
+
+What remains is the catalogue and the mechanics. Waits on
 [How generation is held inside the exporter's vocabulary](05-tier-one-vocabulary.md),
 because if templates are how generation is constrained then they carry far more
 weight than if they are only a starting point.
@@ -28,6 +34,11 @@ What has to be settled:
   scene the template's worked example?
 - **Who can author one.** Built-in only, or user-authored? That decides whether a
   template is a database row or a file in the repo.
+- **What a template costs to export.** Measured: a molecule takes 126.5 s and a
+  text scene 1.2 s, and the difference is largely the template's own choice —
+  MolecularStructure is 15 spheres at resolution (12,12), so 2,160 faces walked
+  across 271 frames. A template picks that number, which makes export time a
+  design parameter rather than a fact of the archetype.
 - **What a template declares about its needs.** A map template needs cartopy and
   Natural Earth data; a molecule template needs `Sphere` and `Line3D` and a set
   of coordinates. Is that declared, or implied by the prompt?

@@ -1378,6 +1378,39 @@ the fallback.
   and what the first of them got wrong are above. The `AudioTrack` clock, `MediaCodec` audio
   decode and seek-during-drag behaviour are still unexercised, because the benchmark drives
   frames itself and plays no audio.
+- **A scene can export at tier 1 and be wrong.** Three verified defects, found by
+  probing the exporter with 34 single-construct scenes while charting a separate
+  effort. Each exports cleanly, reports tier 1, and lists no blockers.
+
+  | What the scene says | What the program does |
+  |---|---|
+  | `Circle().shift(RIGHT*4 + UP*2)` | drawn at the origin |
+  | `self.play(Create(a), Create(b), run_time=2)` | plays for 4.03 s, not 2 s |
+  | `Write(Circle())` | crashes the player: `KeyError "write target 'A' was never declared"` |
+
+  The first is the plainest: the `circle` and `square` emitters carry radius,
+  colour and stroke width and **no position**. Only `rect` emits `at=`, and the
+  interpreter's parser reads `at=` for all three — so the reader was built for a
+  field the writer never sends. The second is that concurrent animations inside
+  one `play()` become sequential verbs. The third is that `write` assumes a text
+  asset and nothing checks.
+
+  What makes these worse than a blocker is that **nothing reports them**. §9.5's
+  tier machinery exists to catch scenes the exporter cannot express, and these
+  are scenes it believes it *can*. The corpus does not catch them either,
+  because every corpus scene was written by hand against what the exporter
+  supports; the fidelity harness compares programs to Manim for scenes that were
+  authored to work.
+
+  Also established while probing: the `unsupported mobject:` blocker at
+  `export_dsl.py:217` is **unreachable**. Line 120 returns early on exactly the
+  negation of line 206's condition, so no mobject ever reaches it. Geometry
+  never blocks; the tier-3 cliff is narrower than §9.5 implies and is about
+  animations alone.
+
+  Not fixed here: found while charting, recorded rather than patched, because a
+  fix wants its own session and a corpus scene that would have caught it.
+
 - **Exporting the same scene twice gives different asset files.** Confirmed, and it is Python's
   string-hash randomisation: `TransformMatchingTex` matches by tex-string keys through sets, so
   the order of the groups it builds varies per process, and a group's order is part of its

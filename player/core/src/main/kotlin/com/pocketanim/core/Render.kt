@@ -110,11 +110,13 @@ interface PathSink {
  *   a bevel. One join per vertex, so what it costs depends entirely on how many
  *   there are, and the device made that vivid: at 22,719 verbs round joins were
  *   worth 119 of CartopyMap's 181 late frames, more than lines or merging, and
- *   a bevel shipped. At 17,625, after [lodTolerance] took the count down, they
- *   are worth one late frame -- inside the run-to-run noise. So they are back,
- *   because matching Manim is the default worth having when it is affordable:
- *   it returns 0.17 points of the fidelity margin, 0.92% of pixels differing
- *   against a 1% gate to 0.75%.
+ *   a bevel shipped. At 17,625, after [lodTolerance] took the count down, two
+ *   samples put them at 1 and 4 late frames and about 3.5 ms at p50, with the
+ *   scene marginal either way. So they are back, because matching Manim is the
+ *   default worth having whenever it is affordable: it returns 0.17 points of
+ *   the fidelity margin, 0.92% of pixels differing against a 1% gate to 0.75%.
+ *   That is the trade, and it is a judgement rather than a measurement --
+ *   [RenderOptions] exists so the bevel is one field away.
  * @param mergeTranslucent merge a run of strokes that share a colour even when
  *   that colour is not opaque. Merging opaque strokes is exact -- stroking A
  *   then B paints what stroking A and B together paints -- and merging

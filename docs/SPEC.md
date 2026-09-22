@@ -1282,12 +1282,30 @@ the fallback.
   of 181.** Every number above reproduced.
 
   It also showed that these trades interact, in the direction that gives something back. **Round
-  joins, which cost 119 late frames at 22,719 verbs, cost one at 17,625** — playback detail took
-  the vertex count down and took the cost of an arc at every vertex with it. So Manim's own join
-  is back, the fidelity margin returns from 0.92% to **0.75%**, and the bevel stays in the sweep
-  for a device that needs it. The same shape as the translucent-merge reversal two runs earlier,
-  read the right way round this time: a trade is worth only what is left once the others are
-  paid, which cuts both ways.
+  joins, which cost 119 late frames at 22,719 verbs, cost a handful at 17,625** — playback detail
+  took the vertex count down and took the cost of an arc at every vertex with it. Two samples put
+  that handful at 1 and 4 late frames, and about 3.5 ms at p50, with the scene marginal either
+  way. So Manim's own join is back: the fidelity margin returns from 0.92% to **0.75%** and the
+  bevel stays in the sweep for a device that needs it. That last step is a judgement rather than
+  a measurement — 0.17 points of fidelity against 3.5 ms — and `RenderOptions` exists so it is
+  one field to reverse. The same shape as the translucent-merge reversal two runs earlier, read
+  the right way round this time: a trade is worth only what is left once the others are paid,
+  which cuts both ways.
+
+  **A ninth run, of the same build, is what the harness needed.** The benchmark sweeps any scene
+  that misses its budget, so a marginal MolecularStructure brought seven near-identical rows with
+  it — and the primary row reported **10 late frames of 271 where all six comparable rows
+  reported 0**, on the same code, in the same run, minutes apart. Its p50 never moved: 16.56 ms
+  then 16.63 ms across the two runs.
+
+  That is the clearest statement yet of something §11 already suspected: **once a scene's p50
+  sits near the vsync floor or near its budget, `late_frames` measures the machine's mood as much
+  as the renderer.** It is still the right question — a viewer sees late frames, not percentiles
+  — but a single run of it decides nothing. The sweep's controls are what make it readable, and
+  they are only there because a scene missed its budget. A scene that passes has none.
+
+  The same run did confirm the one thing that was load-bearing: **MolecularStructure without
+  back-face culling is 30.0 ms and 33 late frames — a clear fail** — against 16.6 ms with it.
 
   **What the whole sequence cost and bought:**
 

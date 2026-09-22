@@ -1120,15 +1120,35 @@ the fallback.
   with the Cairo oracle is unchanged to three digits, which is the property all of it had to
   preserve — the decimation is the one deliberate loss, and §7.3 carries its cost.
 
-  **What is still unknown is what a line costs against a cubic on Skia.** The model above was
-  fitted before that change existed, and it is the term that decides whether CartopyMap can
-  reach 30 fps at all: at 1.5 µs a verb, 22,719 verbs is still 34 ms. If lines are not
-  materially cheaper, a coastline at this detail is what §3.7's raster layer exists for, and
-  this scene will have measured that rather than failed it.
+  **Third device run, at 1920x1080 — 2.35x the pixels of the run above.** Same phone. The two
+  scenes are still the only failures, and the answer to the open question is emphatic:
 
-  The next run also changes basis: the benchmark rendered into a 2148x411 surface, a fifth of
-  a frame's pixels at an aspect ratio that stretched every scene, and now fixes a 1920x1080
-  buffer. Its numbers will be worse and will mean something.
+  | | p50 | p95 | geometry | rasterisation | late |
+  |---|---|---|---|---|---|
+  | CartopyMap, before | 104.3 ms | 135.6 ms | 7.9 ms | 96.3 ms | 180/181 |
+  | CartopyMap, after | **44.1 ms** | 201.3 ms | 22.1 ms | **22.0 ms** | 134/181 |
+  | MolecularStructure, before | 41.5 ms | 51.9 ms | 7.4 ms | 34.1 ms | 222/271 |
+  | MolecularStructure, after | **30.9 ms** | **39.9 ms** | 5.9 ms | **25.0 ms** | 190/271 |
+
+  **Rasterising a coastline got 4.4x cheaper while the frame got 2.35x bigger.** Lines are
+  much cheaper than cubics on Skia — that was the term the cost model could not supply, and it
+  is the difference between a vector coastline being hopeless on this phone and being close.
+  Every passing scene is unchanged and still sitting on the vsync floor.
+
+  Two things the run exposed, both now addressed or instrumented:
+
+  **Geometry became CartopyMap's bottleneck**, 7.9 ms to 22.1 ms — half the remaining budget.
+  That was culling scanning each instance's points for a bounding box *before* transforming
+  them, so every visible shape was walked twice to produce four floats. The bounds now fall out
+  of the transform. The same regression is invisible on a desktop JVM, which is its own lesson.
+
+  **CartopyMap's p95 got worse as its p50 halved**, 135.6 ms to 201.3 ms. That is the signature
+  of a trade winning on average and losing badly somewhere, and the most likely suspect is
+  stroke merging: it replaces 1,429 small paths with a handful spanning the whole screen, and
+  which of those Skia prefers is not something this repository can reason its way to. So it no
+  longer tries. Each trade is a field on `RenderOptions`, and the benchmark now **sweeps any
+  scene that missed its budget** with one of them turned off at a time — lines, culling,
+  merging, and back-face culling — and reports a row for each. The phone decides.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.

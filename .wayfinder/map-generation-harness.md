@@ -75,15 +75,15 @@ tickets. The glossary above is live — sharpen it as terms settle.
 
 <!-- one line per closed ticket, then zoom the link for the detail -->
 
-_None yet._
+- [What the reference project does for web rendering](tickets/02-reference-web-renderer.md): it is a Windows desktop app that plays an MP4 off disk, not a web renderer — no transport to copy, and it does not support the frames-based preview position. Its value is the latency calibration: even with no network hop it settles for fire-and-forget and 480p.
 
 ## Not yet specified
 
 In scope, not yet sharp enough to ticket. Graduates as the frontier advances.
 
 - **Edit-loop semantics.** "Edit using further instructions" — does an instruction regenerate the scene or patch it? Does history branch, or is it linear? Waits on the pipeline's artifacts being settled.
-- **Preview transport.** Server-rendered frames have to reach the browser without an MP4 existing at rest. Waits on the worker contract.
 - **Template asset provenance.** Natural Earth data for cartopy, coordinates for molecules: bundled with the worker, fetched at generation, or supplied by the user. Waits on what a template turns out to be.
+- **Preview latency budget.** What the harness promises a user between "generate" and something on screen, and whether `render_farm.py`'s parallel-fragment trick is worth stealing. Waits on the real export timings.
 - **Failure surface.** What a user sees when export fails, or when a scene silently lands at tier 3 instead of tier 1.
 - **Auth and multi-tenancy.** Supabase auth and RLS, or single-user for the throwaway version.
 - **Cost control.** Rate limiting and budget on OpenRouter, once the model and token cost per scene are known.

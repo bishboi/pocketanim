@@ -1,0 +1,13 @@
+scene 2d fps=30
+circle A r=0.9 at=-3,0 stroke=#58C4DD w=4
+square B s=1.6 at=3,0 stroke=#F7D96F w=4
+par n=2 t=2
+create A t=2
+create B t=2
+show A
+show B
+wait t=0.5
+par n=2 t=1.5
+xform A by_xy=0,1.5 t=1.5
+xform B by_xy=0,-1.5 t=1.5
+wait t=1

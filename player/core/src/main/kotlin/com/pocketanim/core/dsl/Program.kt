@@ -44,6 +44,19 @@ sealed class Step {
     class Move(val phi: Double, val theta: Double, val seconds: Double) : Step()
     class Spin(val rate: Double, val seconds: Double) : Step()
     class Wait(val seconds: Double) : Step()
+
+    /**
+     * A marker, not a verb: the next [count] steps share one clock.
+     *
+     * Manim's `play(A(), B())` runs its animations together, and a timeline of
+     * consecutive verbs cannot say that -- it played the scene for twice its
+     * run_time and showed one thing after the other. The builder folds a run of
+     * these into [Parallel] before anything is scheduled.
+     */
+    class Par(val count: Int, val seconds: Double) : Step()
+
+    /** A folded [Par] group. Never parsed; only ever built. */
+    class Parallel(val members: List<Step>) : Step()
 }
 
 class Program(
@@ -147,6 +160,9 @@ class Program(
                         )
                     )
                     "spin" -> timeline.add(Step.Spin(args.getValue("rate").toDouble(), t()))
+                    "par" -> timeline.add(
+                        Step.Par(args.getValue("n").toInt(), t())
+                    )
                     "wait" -> timeline.add(Step.Wait(t()))
                     else -> throw IllegalArgumentException("unknown verb '$verb'")
                 }

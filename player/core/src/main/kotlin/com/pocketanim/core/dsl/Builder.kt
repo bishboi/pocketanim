@@ -284,6 +284,33 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             else step
         }
 
+        // Fold `par` groups before anything is scheduled, so a group is one
+        // step from here on and the show-attachment below keeps its indices.
+        val folded = ArrayList<Step>()
+        var cursor = 0
+        while (cursor < rewritten.size) {
+            val step = rewritten[cursor]
+            cursor++
+            if (step !is Step.Par) {
+                folded.add(step)
+                continue
+            }
+            // Take the next `count` verbs. A `show` produces no frame and is
+            // not a member, so it is carried past the group rather than into
+            // it -- the exporter does not interleave them, and relying on that
+            // silently would be the kind of assumption this file keeps paying
+            // for.
+            val members = ArrayList<Step>()
+            val carried = ArrayList<Step>()
+            while (members.size < step.count && cursor < rewritten.size) {
+                val next = rewritten[cursor]
+                cursor++
+                if (next is Step.Show) carried.add(next) else members.add(next)
+            }
+            if (members.isNotEmpty()) folded.add(Step.Parallel(members))
+            folded.addAll(carried)
+        }
+
         // `show` produces no frame, so it is attached to the verb that follows
         // rather than being a verb itself. Manim also renders the scene's
         // opening state once at t=0 before the first animation's first step --
@@ -292,7 +319,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         val expanded = ArrayList<Step>()
         val pending = ArrayList<String>()
         var opened = false
-        for (step in rewritten) {
+        for (step in folded) {
             if (step is Step.Show) {
                 pending.add(step.name)
                 continue
@@ -414,7 +441,25 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Move -> moveRunner(step)
         is Step.Spin -> spinRunner(step)
         is Step.Wait -> holdRunner(step.seconds)
+        is Step.Parallel -> parallelRunner(step.members.map { runnerFor(it) })
+        is Step.Par -> holdRunner(0.0)  // folded away in prepare; never reached
         is Step.Show -> holdRunner(0.0)
+    }
+
+    /**
+     * Several verbs over one clock.
+     *
+     * The Runner contract composes without help: enter them all, render frame
+     * k of each, exit them all. A member shorter than the group holds its last
+     * frame rather than disappearing, which is what Manim does when one
+     * animation in a `play()` finishes before another.
+     */
+    private fun parallelRunner(children: List<Runner>) = object : Runner {
+        override val frames = children.maxOfOrNull { it.frames } ?: 0
+        override fun enter() = children.forEach { it.enter() }
+        override fun render(k: Int) =
+            children.forEach { it.render(minOf(k, it.frames - 1).coerceAtLeast(0)) }
+        override fun exit() = children.forEach { it.exit() }
     }
 
     private fun holdRunner(seconds: Double) = object : Runner {

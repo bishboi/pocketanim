@@ -1442,12 +1442,22 @@ the fallback.
   asset one submobject at a time; a primitive has none to lag. Tier 3 producing
   a correct large scene is what the tiers are for.
 
-  *Concurrent animations* are **not fixed**. `play(Create(a), Create(b))` still
-  becomes two sequential verbs and still plays for twice its `run_time`. This is
-  a format gap rather than an oversight — the DSL timeline has no way to say
-  "these two run together" — and closing it means a new verb, both interpreters,
-  and a fidelity scene. It is the most likely thing a generator writes, so it is
-  the next real piece of work on the format.
+  *Concurrent animations* are fixed, and it took a format change. The timeline
+  had no way to say "these run together", so `par n=N t=T` was added: a marker
+  that claims the next N verbs and gives them one clock.
+  `corpus/scenes/13_concurrent_play.py` is the scene that would have caught it,
+  and it now plays 151 frames where Manim plays 151.
+
+  The two runtimes absorbed it differently, which is worth recording because it
+  says something about both designs. Kotlin's `Runner` — `frames`, `enter`,
+  `render(k)`, `exit` — **composes without being asked to**: a parallel runner
+  enters them all, renders frame k of each, and exits them all, in four lines. A
+  member shorter than the group holds its last frame, as Manim does. Python's
+  interpreter had each verb's per-frame loop calling `emit()` directly, which
+  cannot interleave; each verb is now a **generator that yields once per frame**
+  and the driver either drains one or advances a group in lockstep. That was a
+  mechanical change — `emit()` became `yield` — but only because the branches
+  already had a clean per-frame body to extract.
 
 - **A 1% pixel gate cannot see a positioning bug.** The scene above, with every
   primitive drawn in the wrong place, measured **0.57% of pixels differing** and
@@ -1464,6 +1474,25 @@ the fallback.
   ink-relative number becomes the gate, or a second one beside it, wants the
   nightly numbers for the whole corpus first — a dense scene and a sparse one
   should probably not be held to the same threshold on either measure.
+
+- **Mid-animation frames disagree with Manim far more than the headline says.**
+  The first thing the ink-relative number found, and it was already there.
+  `HelloPocketanim` ships at 0.05% of pixels differing; measured against its own
+  ink it reads **139% at frame 8**, 83% at 16, 60% at 24. By frame 64 — once the
+  animation has settled — it is 0.4%. The corpus's fidelity numbers are averages
+  dominated by held frames, and the held frames are the ones that agree.
+
+  **It is not a timing offset.** Scoring our frame *N* against Manim's *N±1* and
+  *N±2* produces no minimum — 163%, 151%, 139%, 125%, 124% across the window, a
+  monotone slide with no dip at any shift. So this is not the off-by-one family
+  §11 already closed; the *partial geometry* differs. `Create` on a circle draws
+  a visibly longer arc than Manim's at the same instant, which points at
+  `pointwise_become_partial` or the rate applied to it rather than at the clock.
+
+  Whether it matters is a judgement nobody has made yet: a growing stroke that is
+  slightly further along is a different animation, not a wrong picture, and every
+  device run and every visual check passed it. Recorded rather than chased,
+  because it is a self-contained investigation and this section already has two.
 
 - **Exporting the same scene twice gives different asset files.** Confirmed, and it is Python's
   string-hash randomisation: `TransformMatchingTex` matches by tex-string keys through sets, so

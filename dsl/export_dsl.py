@@ -514,6 +514,24 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         if not state["in_camera_move"] and len(rec.timeline) == emitted_before:
             kinds = ", ".join(type(a).__name__ for a in animations)
             rec.blockers.append(f"play() produced no verb ({kinds})")
+
+        # One play(), several animations: Manim runs them together. Consecutive
+        # verbs run them one after another, so the scene played for the sum of
+        # their durations and showed them in sequence -- for play(Create(a),
+        # Create(b), run_time=2), four seconds of the wrong thing. `par` claims
+        # the verbs this call produced and gives them one clock.
+        produced = len(rec.timeline) - emitted_before
+        if produced > 1:
+            spans = [
+                run_time if run_time is not None else getattr(anim, "run_time", 1.0)
+                for anim in animations
+                if not isinstance(anim, Wait)
+            ]
+            # Manim's play ends when its longest animation does.
+            if spans:
+                rec.timeline.insert(
+                    emitted_before, f"par n={produced} t={max(spans):g}"
+                )
         return originals["play"](self, *animations, **kwargs)
 
     def patched_add(self, *mobjects, **kw):

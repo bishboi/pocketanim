@@ -209,6 +209,11 @@ def parse(text: str) -> dict:
                 ("laggedgrow", positional[0], float(args["lag"]),
                  [int(x) for x in args["groups"].split(",")], float(args["t"]))
             )
+        elif verb == "par":
+            # A marker, not a verb: it claims the next `n` timeline entries and
+            # gives them one shared clock. Manim's play(A(), B()) runs its
+            # animations together, and consecutive verbs cannot say that.
+            scene["timeline"].append(("par", int(args["n"]), float(args["t"])))
         elif verb == "wait":
             scene["timeline"].append(("wait", float(args["t"])))
     return scene
@@ -386,17 +391,13 @@ def build_2d(scene: dict) -> DecodedIR:
     # showed up as the wrong orientation, not as a wrong length.
     opened = {"done": False}
 
-    for step in timeline_steps:
-        if step[0] == "show":
-            objects[step[1]]["visible"] = True
-            continue
+    def play_step(step):
+        """One verb, as a generator that yields once per frame it occupies.
 
-        # After any leading `show`, so objects added before the first play are
-        # on stage in the opening frame, as they are in Manim.
-        if not opened["done"]:
-            opened["done"] = True
-            emit()
-
+        Yielding rather than emitting is what lets several verbs share a clock:
+        the driver below advances a whole group one frame at a time and emits
+        once per round. Sequential playback is the same generator, drained.
+        """
         if step[0] == "create":
             _, name, duration, rate_name = step
             rate = RATE_FUNCS[rate_name]
@@ -409,7 +410,7 @@ def build_2d(scene: dict) -> DecodedIR:
             for frame_index in range(int(duration * fps)):
                 alpha = rate((frame_index + 1) / (duration * fps))
                 objects[name]["points"] = pointwise_become_partial(full, 0.0, alpha)
-                emit()
+                yield
             objects[name]["points"] = full
 
         elif step[0] == "transform":
@@ -425,7 +426,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 objects[source]["stroke"] = tuple(
                     int(round(x)) for x in c0 + (c1 - c0) * alpha
                 )
-                emit()
+                yield
 
         elif step[0] == "xform":
             _, name, factor, offset_xy, duration = step
@@ -458,7 +459,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     )
                 else:
                     obj["xform"] = compose(step_matrix, base)
-                emit()
+                yield
 
         elif step[0] in ("write", "revealseq") and step[1] not in objects:
             # write targets an asset; a shape reaching here means the exporter
@@ -494,7 +495,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     shapes.append(partial)
                     revealed.append((len(shapes) - 1, transform, fill, stroke, width))
                 obj["instances"] = revealed
-                emit()
+                yield
             obj["instances"] = base
 
         elif step[0] == "laggedgrow":
@@ -567,7 +568,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     obj["flags"] = [flags[i] for i in kept]
                 if normals is not None:
                     obj["normals"] = [normals[i] for i in kept]
-                emit()
+                yield
             obj["instances"] = base
             if flags is not None:
                 obj["flags"] = flags
@@ -592,7 +593,7 @@ def build_2d(scene: dict) -> DecodedIR:
                          width)
                         for aid, transform, fill, stroke, width in base
                     ]
-                emit()
+                yield
             if base is None:
                 objects.pop(name, None)
             else:
@@ -649,7 +650,7 @@ def build_2d(scene: dict) -> DecodedIR:
                                   (*b_fill[:3], int(b_fill[3] * alpha)),
                                   (*b_stroke[:3], int(b_stroke[3] * alpha)), b_w))
                 src["instances"] = built
-                emit()
+                yield
             src["instances"] = dst_base
             src["glyph_ids"] = list(dst["glyph_ids"])
 
@@ -680,7 +681,7 @@ def build_2d(scene: dict) -> DecodedIR:
                          width)
                         for aid, transform, fill, stroke, width in base
                     ]
-                emit()
+                yield
             if base is None:
                 obj["alpha"] = 1.0
             else:
@@ -694,7 +695,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 alpha = smooth((frame_index + 1) / total)
                 camera_state["phi"] = start_phi + (target_phi - start_phi) * alpha
                 camera_state["theta"] = start_theta + (target_theta - start_theta) * alpha
-                emit()
+                yield
 
         elif step[0] == "spin":
             # Manim's ambient rotation advances once per frame except on the
@@ -707,11 +708,51 @@ def build_2d(scene: dict) -> DecodedIR:
             for frame_index in range(total):
                 if frame_index < total - 1:
                     camera_state["theta"] += rate / fps
-                emit()
+                yield
 
         elif step[0] == "wait":
             for _ in range(int(step[1] * fps)):
-                emit()
+                yield
+
+    index = 0
+    while index < len(timeline_steps):
+        step = timeline_steps[index]
+        index += 1
+
+        if step[0] == "show":
+            objects[step[1]]["visible"] = True
+            continue
+
+        # After any leading `show`, so objects added before the first play are
+        # on stage in the opening frame, as they are in Manim.
+        if not opened["done"]:
+            opened["done"] = True
+            emit()
+
+        if step[0] == "par":
+            # `par n=N t=T` claims the next N verbs and runs them together.
+            # Manim's play(A(), B()) animates both at once; emitting them as
+            # consecutive verbs played the scene for twice its run_time and
+            # showed them one after the other.
+            group = timeline_steps[index : index + step[1]]
+            index += step[1]
+            running = [play_step(member) for member in group]
+            while running:
+                alive = []
+                for runner in running:
+                    try:
+                        next(runner)
+                        alive.append(runner)
+                    except StopIteration:
+                        pass  # its epilogue has run; it just has no more frames
+                if alive:
+                    emit()
+                running = alive
+            continue
+
+        for _ in play_step(step):
+            emit()
+
 
     return DecodedIR(
         fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None

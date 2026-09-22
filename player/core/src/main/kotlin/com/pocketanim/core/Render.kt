@@ -107,14 +107,20 @@ interface PathSink {
  *   changes about 1% of the pixels of a frame that is 3.5% ink -- and the
  *   exporter decides which shapes may be treated this way, not this flag.
  * @param roundJoins join strokes with an arc, as Manim does, rather than with
- *   a bevel. One per vertex, so on a long polyline it is not a detail.
+ *   a bevel. One join per vertex, and a coastline has 22,719 of them, so this
+ *   is not a detail: on the device it is worth 119 of CartopyMap's 181 late
+ *   frames, more than lines or merging. Off, because against Manim's own
+ *   frames a bevel costs 0.60% of pixels differing against 0.75% -- inside the
+ *   1% gate 7.3 sets -- and that is the cheapest 10 ms on offer anywhere.
  * @param mergeTranslucent merge a run of strokes that share a colour even when
  *   that colour is not opaque. Merging opaque strokes is exact -- stroking A
  *   then B paints what stroking A and B together paints -- and merging
  *   translucent ones is exact only where they do not overlap, since two
  *   overlapping translucent strokes blend twice when drawn apart and once when
- *   drawn together. Whether that matters is a question about the artwork, so it
- *   is measured rather than assumed.
+ *   drawn together. Off, because the device settled it: on CartopyMap's fade it
+ *   takes 355 draws a frame down to 25 and changes the frame time by less than
+ *   the run-to-run noise, while costing 0.117% of a frame's pixels. A cost for
+ *   no measured gain is not a trade.
  * @param mergeVerbs verb ceiling for a merged run of identical opaque strokes;
  *   zero draws every shape on its own. Skia rasterises a path on the GPU only
  *   below kMaxGPUPathRendererVerbs (16,384) and on the CPU above it, so merging
@@ -125,8 +131,8 @@ class RenderOptions(
     @JvmField val cull: Boolean = true,
     @JvmField val lines: Boolean = true,
     @JvmField val backface: Boolean = true,
-    @JvmField val roundJoins: Boolean = true,
-    @JvmField val mergeTranslucent: Boolean = true,
+    @JvmField val roundJoins: Boolean = false,
+    @JvmField val mergeTranslucent: Boolean = false,
     @JvmField val mergeVerbs: Int = 8192,
 ) {
     companion object {

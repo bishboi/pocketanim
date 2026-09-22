@@ -127,11 +127,17 @@ object Benchmark {
     /**
      * The option sets a sweep runs, each turning off exactly one thing.
      *
-     * Every entry after the first was a change that measured well on a desktop
-     * and had to be taken on trust on a phone. Rasterisers differ enough that
-     * trust is not good enough -- merging strokes, for one, replaces many small
-     * paths with a few that span the screen, and which of those Skia prefers is
-     * not something this repository can reason its way to.
+     * Every entry after the first is a trade that measured well somewhere and
+     * had to be taken on trust on a phone. Rasterisers differ enough that trust
+     * is not good enough. Two of these were settled by a sweep against the
+     * expectation: round joins turned out to cost more than any other single
+     * thing on a coastline, and merging a translucent run turned out to buy
+     * nothing at all.
+     *
+     * A row whose option does not apply to the scene -- a 3D-only one on a 2D
+     * scene -- is the run's own control: it does identical work to the first
+     * row, so the gap between them is the noise floor everything else has to
+     * clear.
      */
     @JvmField
     val VARIANTS: Array<Pair<String, RenderOptions>> = arrayOf(
@@ -140,8 +146,8 @@ object Benchmark {
         "no-cull" to RenderOptions(cull = false),
         "no-merge" to RenderOptions(mergeVerbs = 0),
         "no-backface" to RenderOptions(backface = false),
-        "opaque-merge" to RenderOptions(mergeTranslucent = false),
-        "bevel" to RenderOptions(roundJoins = false),
+        "round-joins" to RenderOptions(roundJoins = true),
+        "merge-fade" to RenderOptions(mergeTranslucent = true),
     )
 
     @JvmOverloads

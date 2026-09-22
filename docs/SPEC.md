@@ -441,6 +441,12 @@ than assumed. On CartopyMap's tier-1 program against Manim's own frames:
 |---|---|---|
 | Full coastline, 58,987 curves | 0.25 | 0.30% |
 | Decimated, 30,756 curves | **0.42** | **0.60%** |
+| Decimated, bevel joins | **0.49** | **0.75%** |
+
+The third row is the other deliberate loss, and it is the same kind: Manim joins strokes with
+an arc, the renderer joins them with a flat cut, and on a 22,719-vertex coastline that is worth
+119 of 181 late frames on the device (§11). It costs nothing at all where strokes are
+sub-pixel — SurfaceOrbit measures 2.98% against Manim either way.
 
 The budget is one pixel at 2400 px wide **at the tightest zoom the program
 reaches** — a third of a pixel anywhere else in that animation — and the cost
@@ -1184,6 +1190,37 @@ the fallback.
   exactly why they were the scene's worst frames. Merging a translucent run is exact except
   where two strokes overlap, and that measures at 0.117% of a frame's pixels, a fifth of what
   decimation already costs. Draws per frame: **355 → 25**.
+
+  **Fifth device run: 9 of 10 pass, and the last one is marginal.** MolecularStructure came in
+  at **18.1 ms p50 and 0 of 271 late**, so closed-solid back-face culling did what the sweep
+  said it would. The sweep then overturned two more of my expectations at once.
+
+  | CartopyMap, turned off | p50 | p95 | late of 181 |
+  |---|---|---|---|
+  | nothing | 36.0 ms | 53.5 ms | 126 |
+  | lines | 53.4 | 62.0 | 177 |
+  | stroke merging | 46.5 | 72.4 | 178 |
+  | frame culling | 33.4 | 39.5 | 155 |
+  | *back-face culling (3D only: a control)* | *32.3* | *39.1* | *120* |
+  | translucent merging | 32.7 | 58.8 | 132 |
+  | **round joins** | **25.5** | **30.6** | **7** |
+
+  The control row matters as much as the rest: a 3D-only option swept on a 2D scene does
+  identical work to the first row, and it came back 3.7 ms and 14.4 ms and 6 frames away from
+  it. **That is the noise floor**, and it is far wider than a desktop's — three of these rows
+  never cleared it.
+
+  **Round joins cost 119 of 181 late frames**, more than lines and more than merging. Manim
+  joins strokes with an arc and a rasteriser has to build one at every vertex; a coastline has
+  22,719 of them. A bevel is one flat cut, and against Manim's own frames the whole scene goes
+  from 0.60% of pixels differing to **0.75%** — inside the 1% gate. On a scene whose strokes are
+  sub-pixel it is not a difference at all: SurfaceOrbit measures 2.98% either way. So the
+  renderer bevels, and the Cairo oracle bevels with it.
+
+  **Merging a translucent run buys nothing.** It takes the fade from 355 draws a frame to 25 and
+  moves the frame time by less than the noise floor, while costing 0.117% of a frame's pixels.
+  A cost for no measured gain is not a trade, so it is off — and still swept, because once round
+  joins are gone the arithmetic may change.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.

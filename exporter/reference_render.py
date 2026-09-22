@@ -108,7 +108,15 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
             width / 2, height / 2,
         )
     )
-    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+    # Bevel, matching the renderer. Manim joins with an arc; building one at
+    # every vertex of a 22,719-verb coastline costs more on the device than any
+    # other single thing, and 7.3 carries what the difference measures.
+    # Bevel, matching the renderer. Manim joins with an arc; building one at
+    # every vertex of a 22,719-verb coastline costs more on the device than any
+    # other single thing, and 7.3 carries what the difference measures. On a
+    # scene whose strokes are sub-pixel it is not a difference at all:
+    # SurfaceOrbit against Manim measures 2.98% of pixels differing either way.
+    ctx.set_line_join(cairo.LINE_JOIN_BEVEL)
     ctx.set_line_cap(cairo.LINE_CAP_ROUND)
 
     camera = ir.cameras[index] if ir.cameras and index < len(ir.cameras) else None

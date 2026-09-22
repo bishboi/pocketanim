@@ -157,7 +157,7 @@ object Benchmark {
             "no-cull" to of(cull = false),
             "no-merge" to of(mergeVerbs = 0),
             "no-backface" to of(backface = false),
-            "round-joins" to of(roundJoins = true),
+            "bevel" to of(roundJoins = false),
             "no-merge-fade" to of(mergeTranslucent = false),
             "no-lod" to of(lodTolerance = 0f),
             "lod-1px" to RenderOptions.forSurface(widthPx, errorPx = 1f),

@@ -441,18 +441,21 @@ than assumed. On CartopyMap's tier-1 program against Manim's own frames:
 |---|---|---|
 | Full coastline, 58,987 curves | 0.25 | 0.30% |
 | Decimated at export, 30,756 curves | 0.42 | 0.60% |
-| …and bevel joins | 0.49 | 0.75% |
-| …and half a pixel of playback detail | **0.57** | **0.92%** |
+| …and half a pixel of playback detail | **0.48** | **0.75%** |
 
-Each row after the first is a deliberate loss, each was measured before it was taken, and
-together they are what makes the scene playable on a phone (§11): 104 ms a frame became 22.
-**0.92% against a 1% gate is the tightest margin in the corpus**, and it is the reason there is
-no fifth row.
+Two deliberate losses, each measured before it was taken, and together they are what makes the
+scene playable on a phone (§11): 104 ms a frame became 23. **0.75% against a 1% gate is the
+tightest margin in the corpus.**
 
-None of them costs anything where it is not needed. Bevel joins are invisible where strokes are
-sub-pixel — SurfaceOrbit measures 2.98% against Manim either way — and playback detail is
-invisible on text, where CodeWalkthrough measures 0.19% either way. A glyph outline has no
-sub-pixel straight runs to drop and a quad has no sharp joins to round.
+A third row lived here for two runs and has been taken back out. Bevelling stroke joins bought
+119 of CartopyMap's 181 late frames when the scene carried 22,719 verbs, and cost 0.17 points
+of this margin. Once playback detail took the count to 17,625 it bought **one** late frame, so
+the join that matches Manim is the one that ships and the margin is 0.75% rather than 0.92%.
+The bevel is still in the sweep for a device that needs it.
+
+Neither loss costs anything where it is not needed: playback detail is invisible on text, where
+CodeWalkthrough measures **0.19% against Manim either way**, because a glyph outline has no
+sub-pixel straight runs to drop.
 
 The budget is one pixel at 2400 px wide **at the tightest zoom the program
 reaches** — a third of a pixel anywhere else in that animation — and the cost
@@ -1275,12 +1278,29 @@ the fallback.
   two digits, because a glyph outline has no sub-pixel straight runs to drop. The cost lands
   only where the detail is.
 
-  **Where the corpus stands: 9 of 10 pass, CartopyMap is marginal, and its fidelity margin is
-  now the tightest thing in the project.** Measured through the harness's own 720p canvas, where
-  half a pixel of tolerance is a looser scene-unit budget than a phone's 1080p gives it, the
-  scene sits at **0.92% of pixels differing against a 1% gate**. That is the number to watch,
-  and it is why this is the last lever rather than one of several: the next one would have to
-  come out of fidelity, and there is no longer room.
+  **Eighth run, and the last: 9 of 10 pass, CartopyMap is marginal at 23.5 ms and 5 late frames
+  of 181.** Every number above reproduced.
+
+  It also showed that these trades interact, in the direction that gives something back. **Round
+  joins, which cost 119 late frames at 22,719 verbs, cost one at 17,625** — playback detail took
+  the vertex count down and took the cost of an arc at every vertex with it. So Manim's own join
+  is back, the fidelity margin returns from 0.92% to **0.75%**, and the bevel stays in the sweep
+  for a device that needs it. The same shape as the translucent-merge reversal two runs earlier,
+  read the right way round this time: a trade is worth only what is left once the others are
+  paid, which cuts both ways.
+
+  **What the whole sequence cost and bought:**
+
+  | | first run | now |
+  |---|---|---|
+  | CartopyMap | 104.3 ms, 180/181 late | **23.5 ms, 5/181 late** |
+  | MolecularStructure | 41.5 ms, 222/271 late | **16.6 ms, 0/271 late** |
+  | verdicts | 8 pass, 2 fail | **9 pass, 1 marginal** |
+  | surface | 2148x411 (stretched) | 1920x1080, 2.35x the pixels |
+
+  The stopping point is fidelity rather than ideas. CartopyMap sits at 0.75% of pixels differing
+  against a 1% gate, and it is the scene the corpus chose as the worst case for a vector format.
+  Anything further has to be spent out of that margin.
 
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.

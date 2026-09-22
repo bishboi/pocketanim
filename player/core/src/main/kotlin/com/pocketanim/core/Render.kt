@@ -107,11 +107,14 @@ interface PathSink {
  *   changes about 1% of the pixels of a frame that is 3.5% ink -- and the
  *   exporter decides which shapes may be treated this way, not this flag.
  * @param roundJoins join strokes with an arc, as Manim does, rather than with
- *   a bevel. One join per vertex, and a coastline has 22,719 of them, so this
- *   is not a detail: on the device it is worth 119 of CartopyMap's 181 late
- *   frames, more than lines or merging. Off, because against Manim's own
- *   frames a bevel costs 0.60% of pixels differing against 0.75% -- inside the
- *   1% gate 7.3 sets -- and that is the cheapest 10 ms on offer anywhere.
+ *   a bevel. One join per vertex, so what it costs depends entirely on how many
+ *   there are, and the device made that vivid: at 22,719 verbs round joins were
+ *   worth 119 of CartopyMap's 181 late frames, more than lines or merging, and
+ *   a bevel shipped. At 17,625, after [lodTolerance] took the count down, they
+ *   are worth one late frame -- inside the run-to-run noise. So they are back,
+ *   because matching Manim is the default worth having when it is affordable:
+ *   it returns 0.17 points of the fidelity margin, 0.92% of pixels differing
+ *   against a 1% gate to 0.75%.
  * @param mergeTranslucent merge a run of strokes that share a colour even when
  *   that colour is not opaque. Merging opaque strokes is exact -- stroking A
  *   then B paints what stroking A and B together paints -- and merging
@@ -139,7 +142,7 @@ class RenderOptions(
     @JvmField val cull: Boolean = true,
     @JvmField val lines: Boolean = true,
     @JvmField val backface: Boolean = true,
-    @JvmField val roundJoins: Boolean = false,
+    @JvmField val roundJoins: Boolean = true,
     @JvmField val mergeTranslucent: Boolean = true,
     @JvmField val lodTolerance: Float = 0f,
     @JvmField val mergeVerbs: Int = 8192,

@@ -12,5 +12,6 @@ create C t=1
 show C
 wait t=0.5
 fadeout C t=1
+hide C
 morph B D t=2
 wait t=1

@@ -2,14 +2,14 @@ scene 2d fps=30
 text A asset=0e8aeff072
 text B asset=0ff4301628
 text C asset=d3dcad149d
-geom D asset=0b27525ce6
-geom E asset=2d0adfc341
+geom D asset=8e49f98bd8
+geom E asset=86e2a87f63
 text F asset=c1f243170f
-geom G asset=6b2f182563
-geom H asset=c157d51de7
+geom G asset=d9fa9c3775
+geom H asset=4b4eaac522
 text I asset=bdca3be870
-geom J asset=759ca1bf3b
-geom K asset=77fd638a45
+geom J asset=d65e10c68d
+geom K asset=3508cb7ff0
 write A t=2
 show A
 write B t=1
@@ -18,15 +18,24 @@ wait t=0.5
 morph B C t=1
 show D
 show E
+hide D
+hide B
+hide E
 show C
 wait t=0.5
 morph C F t=1
 show G
 show H
+hide G
+hide C
+hide H
 show F
 wait t=0.5
 morph F I t=1
 show J
 show K
+hide J
+hide F
+hide K
 show I
 wait t=1

@@ -41,8 +41,11 @@ wait t=3
 xform D by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout D t=1
+hide D
 fadeout C t=1
+hide C
 fadeout B t=1
+hide B
 wait t=1
 fade F t=1
 show F
@@ -57,8 +60,11 @@ wait t=3
 xform H by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout H t=1
+hide H
 fadeout G t=1
+hide G
 fadeout F t=1
+hide F
 wait t=1
 fade J t=1
 show J
@@ -73,8 +79,11 @@ wait t=3
 xform L by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout L t=1
+hide L
 fadeout K t=1
+hide K
 fadeout J t=1
+hide J
 wait t=1
 fade N t=1
 show N
@@ -89,8 +98,11 @@ wait t=3
 xform P by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout P t=1
+hide P
 fadeout O t=1
+hide O
 fadeout N t=1
+hide N
 wait t=1
 fade R t=1
 show R
@@ -105,8 +117,11 @@ wait t=3
 xform T by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout T t=1
+hide T
 fadeout S t=1
+hide S
 fadeout R t=1
+hide R
 wait t=1
 fade V t=1
 show V
@@ -121,12 +136,17 @@ wait t=3
 xform X by=1.35 by_xy=0.8,0 t=2
 wait t=3
 fadeout X t=1
+hide X
 fadeout W t=1
+hide W
 fadeout V t=1
+hide V
 wait t=1
 write Z t=2
 show Z
 wait t=5
 fadeout Z t=1
+hide Z
 fadeout A t=1
+hide A
 wait t=2

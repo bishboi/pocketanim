@@ -49,8 +49,12 @@ jobs:
         run: |
           pip install numpy
           python -m tools.build_library --out player/benchmark/src/main/assets/library
+          # The assets directories are build output and so are gitignored, which
+          # means neither exists in a fresh checkout. build_library makes its own;
+          # the copy does not, and a missing parent is all it takes.
+          mkdir -p player/app/src/main/assets
           cp -r player/benchmark/src/main/assets/library player/app/src/main/assets/library
-          du -sh player/benchmark/src/main/assets/library
+          du -sh player/benchmark/src/main/assets/library player/app/src/main/assets/library
 
       - name: Build
         # Release, not debug: a debug build has assertions on and optimisation

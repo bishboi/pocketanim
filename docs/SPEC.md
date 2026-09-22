@@ -1150,6 +1150,41 @@ the fallback.
   scene that missed its budget** with one of them turned off at a time — lines, culling,
   merging, and back-face culling — and reports a row for each. The phone decides.
 
+  **Fourth device run, the first sweep.** Same phone, same 1920x1080. The geometry fix landed:
+  CartopyMap's geometry went 22.1 ms → **4.3 ms** and its p95 201.3 → **57.1 ms**, so the tail
+  was that regression and *not* stroke merging. What each trade is worth, measured rather than
+  argued:
+
+  | turned off | CartopyMap p50 | CartopyMap p95 | MolecularStructure p50 |
+  |---|---|---|---|
+  | nothing | 34.4 ms | 57.1 ms | 32.6 ms |
+  | lines | +19.6 | +33.1 | +2.8 |
+  | stroke merging | +16.8 | +24.6 | ±0 (2D only) |
+  | frame culling | ±0 | +13.5 | ±0 (2D only) |
+  | *back-face culling, then ON* | *±0 (2D only)* | — | **−9.6** |
+
+  The noise floor is ±1.6 ms at p50, read off the row where a 2D scene was swept with a 3D-only
+  option and should have been identical. Two conclusions. **Lines and merging are both worth
+  about half a budget each** and neither is optional. And **back-face culling took
+  MolecularStructure to 22.9 ms and 0 late frames of 271** — a pass — so it now ships, driven by
+  a `CLOSED_SOLID` flag the exporter sets for Manim's nine closed types and never for `Surface`.
+  Against Manim it costs nothing measurable: 2.36% of pixels differing becomes 2.35%.
+
+  That flag needed a second one, and finding out why corrected a mistake. **The normals in the
+  IR do not point outwards.** Manim 0.21's `VMobject` has no `get_unit_normal` at all, so every
+  normal comes from the exporter's SVD plane fit, whose sign is arbitrary and which then forces
+  all of them into one hemisphere — right for shading a sheet evenly, inward for half of any
+  sphere. The device's 1.46x was measured through that, culling the wrong faces and looking
+  plausible because a sphere is symmetric. `NORMAL_INWARD` records which way is out, settled
+  against the solid's own centre; shading still uses the normal exactly as Manim derived it.
+  Corrected, it is **2.0x**: 15,569 verbs → 7,785, 2,649 draws → 1,325.
+
+  CartopyMap's remaining problem is now visible. Its first 44 frames are a `FadeIn`, and they
+  were drawing 1,429 separate paths each because merging demanded an opaque colour — which is
+  exactly why they were the scene's worst frames. Merging a translucent run is exact except
+  where two strokes overlap, and that measures at 0.117% of a frame's pixels, a fifth of what
+  decimation already costs. Draws per frame: **355 → 25**.
+
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.
 - ~~**The tier-1 interpreter materialises every frame up front.**~~ **Fixed.** It measured at

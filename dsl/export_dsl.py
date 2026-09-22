@@ -84,6 +84,48 @@ class Recorder:
             self.counter += 1
         return self.names[id(mob)]
 
+    def primitive_is_faithful(self, mob) -> bool:
+        """Whether a `circle`/`square`/`rect` declaration reproduces `mob`.
+
+        Checked against the mobject's own anchors rather than against a
+        regenerated primitive, because the two differ by construction: Manim
+        builds a circle's handles at d_theta/3 and `dsl.verbs.circle` at
+        (4/3)tan(d_theta/4), a 1.3% difference that is not an error and must
+        not be read as one. The anchors are exact on both sides.
+        """
+        import numpy as np
+
+        from manim import Circle
+
+        # The declarations carry one opaque stroke and no fill.
+        if float(mob.get_fill_opacity()) > 0:
+            return False
+        if not np.isclose(float(mob.get_stroke_opacity()), 1.0):
+            return False
+
+        points = np.asarray(getattr(mob, "points", []), dtype=float)
+        if len(points) < 4:
+            return False
+        # The start anchor of each cubic; handles say nothing about the shape's
+        # placement, and a closed primitive's anchors are its corners.
+        anchors = points[::4, :2] - np.asarray(mob.get_center(), dtype=float)[:2]
+
+        if isinstance(mob, Circle):
+            # A stretched circle is an ellipse, and its anchors are not all one
+            # radius from the centre.
+            radii = np.hypot(anchors[:, 0], anchors[:, 1])
+            return bool(np.allclose(radii, float(mob.width) / 2, rtol=1e-3, atol=1e-6))
+
+        # A rotated square or rectangle has anchors off the axis-aligned
+        # corners, and `mob.width` is then its bounding box rather than a side.
+        half = np.array([float(mob.width) / 2, float(mob.height) / 2])
+        if not np.all(half > 0):
+            return False
+        return bool(
+            np.allclose(np.abs(anchors[:, 0]), half[0], rtol=1e-3, atol=1e-6)
+            and np.allclose(np.abs(anchors[:, 1]), half[1], rtol=1e-3, atol=1e-6)
+        )
+
     def declared(self, name: str) -> bool:
         return any(d.split()[1] == name for d in self.declarations)
 
@@ -127,12 +169,26 @@ class Recorder:
         if any(d.split()[1] == name for d in self.declarations):
             return name
 
+        # A primitive declaration carries a size, a centre and a stroke, and
+        # nothing else -- so it can only be used where that is the whole of the
+        # mobject. `Square(fill_opacity=1)` came out as an empty outline,
+        # `Square(2).rotate(PI/4)` as an axis-aligned square of its bounding
+        # box (2.83 rather than 2), and `Circle(1).stretch(2, 0)` as a circle
+        # of radius 2. All three at tier 1, with no blocker, because the
+        # emitter read `mob.width` and never asked whether the shape it was
+        # about to name was the shape it had.
+        #
+        # Falling through rather than blocking: the geom path below bakes any
+        # mobject exactly, style included, and stays tier 1. A faithful
+        # primitive is smaller, not more correct.
+        faithful = self.primitive_is_faithful(mob)
+
         # `at=` on every primitive, not just Rectangle. Both interpreters have
         # always read it for all three -- the reader was built for a field the
         # writer never sent, so a circle anywhere but the origin was quietly
         # drawn at the origin. corpus/scenes/12_positioned_primitives.py is the
         # scene that would have caught it, and did not exist.
-        if isinstance(mob, Circle):
+        if faithful and isinstance(mob, Circle):
             radius = float(mob.width / 2)
             centre = mob.get_center()
             self.declarations.append(
@@ -141,7 +197,7 @@ class Recorder:
             )
             return name
 
-        if isinstance(mob, Square):
+        if faithful and isinstance(mob, Square):
             centre = mob.get_center()
             self.declarations.append(
                 f"square {name} s={float(mob.width):g} at={centre[0]:g},{centre[1]:g} "
@@ -149,7 +205,7 @@ class Recorder:
             )
             return name
 
-        if type(mob).__name__ in ("Rectangle", "SurroundingRectangle"):
+        if faithful and type(mob).__name__ in ("Rectangle", "SurroundingRectangle"):
             centre = mob.get_center()
             self.declarations.append(
                 f"rect {name} wh={float(mob.width):g},{float(mob.height):g} "

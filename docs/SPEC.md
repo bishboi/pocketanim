@@ -825,9 +825,35 @@ Three rows still carry a worst frame worth looking at:
     the grammar and is exercised, so this is emitting a value the format could
     always carry.
 
+  Then the same audit on `declare()`, which the first pass had not covered and
+  which was recorded as an open gap rather than quietly assumed clean. Three
+  more, and these are the worst of the set because the constructs are ordinary:
+
+  - **`Square(fill_opacity=1, fill_color=BLUE)`** exported as an empty outline.
+    A primitive declaration carries a stroke and no fill at all.
+  - **`Square(2).rotate(PI/4)`** exported as `s=2.82843` — an axis-aligned
+    square of the rotated one's *bounding box*. Wrong shape and wrong size.
+  - **`Circle(1).stretch(2, 0)`** exported as `r=2`. An ellipse became a circle.
+
+  One cause: the emitter read `mob.width` and never asked whether the shape it
+  was about to name was the shape it had. `declare()` now checks that a
+  primitive declaration can reproduce the mobject — anchors all one radius from
+  the centre for a circle, anchors on the axis-aligned corners for a square or
+  rectangle, no fill, opaque stroke — and **falls through to the geom asset path
+  when it cannot**. Not a blocker: that path bakes any mobject exactly, style
+  included, and stays tier 1. A faithful primitive is smaller, not more correct.
+
+  The check is against the mobject's own anchors, never against a regenerated
+  primitive, because the two differ by construction: Manim builds a circle's
+  handles at `d_theta/3` and `dsl.verbs.circle` at `(4/3)tan(d_theta/4)`, a 1.3%
+  difference that is not an error and must not be read as one. All four
+  primitive-using corpus programs re-export byte-identical, so the check admits
+  every legitimate primitive in the corpus.
+
   The audit is the transferable part. The grammar is not the risk; **the seam
   between Manim's API and the emitter is**, and the only systematic check is to
-  diff what each patch accepts against what it reads.
+  diff what each patch accepts against what it reads. Nine defects of this one
+  shape have now been found, six of them by looking rather than by being bitten.
 - **CartopyMap, 35%** — expected, and already paid for: it is the decimation
   §7.3 chose, measured where the coastline is thinnest.
 

@@ -84,9 +84,24 @@ Manim to work around a defect in the emitter.
 
 Ticket 6 and ticket 7 are unblocked: neither needs a vocabulary constraint.
 
-## Still open, and named so it is not lost
+## The gap this answer named, then closed
 
-The audit covered the patched entry points' signatures. It did **not** cover
-mobject constructor arguments — the same class could live in `declare()`, which
-reads a mobject's geometry and styling and could as easily drop a field. No
-instance is known; none has been looked for.
+The first audit covered the patched entry points' signatures and not `declare()`.
+Looking there found three more, and they are the most ordinary constructs of the
+nine:
+
+| Silently wrong at tier 1 | Status |
+|---|---|
+| `Square(fill_opacity=1)` drawn as an empty outline | fixed — bakes as a geom asset |
+| `Square(2).rotate(PI/4)` drawn axis-aligned at bounding-box size | fixed — bakes as a geom asset |
+| `Circle(1).stretch(2, 0)` drawn as a circle | fixed — bakes as a geom asset |
+
+A filled shape is not an exotic thing for a model to write; it is the first
+thing most people write. This strengthens point 2 above rather than weakening
+it — the danger is not an unusual vocabulary, it is an ordinary one the emitter
+reads carelessly.
+
+**Still not audited:** the animation branches of `patched_play` read specific
+attributes off each animation (`anim.mobject`, `anim.point`, chain arguments for
+`.animate`). The same class could live there. No instance is known; none has
+been looked for.

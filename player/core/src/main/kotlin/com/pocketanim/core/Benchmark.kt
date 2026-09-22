@@ -139,15 +139,20 @@ object Benchmark {
      * row, so the gap between them is the noise floor everything else has to
      * clear.
      */
-    @JvmField
-    val VARIANTS: Array<Pair<String, RenderOptions>> = arrayOf(
+    fun variants(pixelsPerUnit: Float): Array<Pair<String, RenderOptions>> = arrayOf(
         "all" to RenderOptions(),
         "no-lines" to RenderOptions(lines = false),
         "no-cull" to RenderOptions(cull = false),
         "no-merge" to RenderOptions(mergeVerbs = 0),
         "no-backface" to RenderOptions(backface = false),
         "round-joins" to RenderOptions(roundJoins = true),
-        "merge-fade" to RenderOptions(mergeTranslucent = true),
+        "no-merge-fade" to RenderOptions(mergeTranslucent = false),
+        // Error budgets at the size the frame is actually being drawn. Two of
+        // them, because the exporter's own decimation curve saturates and the
+        // only way to know whether this one does too is to measure two points
+        // on it.
+        "lod-half-px" to RenderOptions(lodTolerance = 0.5f / pixelsPerUnit),
+        "lod-1px" to RenderOptions(lodTolerance = 1f / pixelsPerUnit),
     )
 
     @JvmOverloads

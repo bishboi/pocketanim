@@ -1222,6 +1222,36 @@ the fallback.
   A cost for no measured gain is not a trade, so it is off — and still swept, because once round
   joins are gone the arithmetic may change.
 
+  **Sixth device run: it did change, and the sweep caught it.** With bevel joins shipping,
+  CartopyMap measures 25.7 ms p50 and 30 late frames — and the `merge-fade` row, the thing
+  turned off one run earlier for buying nothing, measures **9 late frames and 5.7 ms less at
+  p99**. A trade is worth only what is left once the larger costs are paid; with round joins
+  still in, merging was hidden behind them. It is back on.
+
+  | CartopyMap | p50 | p95 | p99 | late of 181 |
+  |---|---|---|---|---|
+  | shipping | 25.7 | 37.5 | 44.0 | 30 |
+  | without lines | 47.2 | 91.7 | 94.4 | 177 |
+  | without merging | 32.7 | 41.9 | 46.9 | 177 |
+  | without frame culling | 26.8 | 55.1 | 57.6 | 121 |
+  | with round joins | 32.8 | 71.9 | 78.6 | 144 |
+  | *3D-only option: a control* | *25.2* | *34.9* | *46.1* | *78* |
+  | **with translucent merging** | **25.5** | **34.9** | **38.3** | **9** |
+
+  **And the control row says something about the harness.** It does work identical to the first
+  row and lands within 0.5, 2.6 and 2.1 ms of it — but 48 late frames away. Once p50 sits near
+  the budget, small jitter flips many frames at once, so **`late_frames` is the unstable number
+  there and the percentiles are not.** The verdict still keys off late share, which is the right
+  question to ask; it just has to be read next to a control.
+
+  That leaves CartopyMap marginal at about 5% of frames late, and every lever that got it there
+  is exhausted or exercised. The last one is level of detail *at playback*: the exporter has to
+  decimate for the tightest zoom a program reaches, so a coastline carries three times the
+  detail it needs in exactly the frames where all of it is on screen. Dropping points within a
+  tolerance of the segment that replaces them takes 22,719 verbs to 15,552 at half a pixel or
+  11,861 at one, for 0.87% and 1.74% of a frame's pixels. Both are swept, both are off; whether
+  either is worth its error is the next thing the device gets asked.
+
   There is still no MP4 fallback, so a bad device result has nowhere to fall back
   to — but render-to-cache on first open, which #6 names, needs no format change.
 - ~~**The tier-1 interpreter materialises every frame up front.**~~ **Fixed.** It measured at

@@ -117,10 +117,18 @@ interface PathSink {
  *   then B paints what stroking A and B together paints -- and merging
  *   translucent ones is exact only where they do not overlap, since two
  *   overlapping translucent strokes blend twice when drawn apart and once when
- *   drawn together. Off, because the device settled it: on CartopyMap's fade it
- *   takes 355 draws a frame down to 25 and changes the frame time by less than
- *   the run-to-run noise, while costing 0.117% of a frame's pixels. A cost for
- *   no measured gain is not a trade.
+ *   drawn together. On, and it took two device runs to settle: with round joins
+ *   still in it changed nothing measurable and was turned off as a cost with no
+ *   gain; with them gone it is worth 5.7 ms at p99 and takes CartopyMap from 30
+ *   late frames to 9. A trade is only worth what is left once the larger costs
+ *   are paid. It costs 0.117% of a frame's pixels.
+ * @param lodTolerance drop points closer together than this, in scene units,
+ *   when the segments either side of them are straight. The exporter already
+ *   decimates artwork, but it has to decimate for the tightest zoom the program
+ *   reaches -- so a coastline carries three times the detail it needs at rest,
+ *   in exactly the frames where all of it is on screen. This spends the error
+ *   budget where the frame actually is. Every dropped point lies within the
+ *   tolerance of the segment that replaces it. Zero disables it.
  * @param mergeVerbs verb ceiling for a merged run of identical opaque strokes;
  *   zero draws every shape on its own. Skia rasterises a path on the GPU only
  *   below kMaxGPUPathRendererVerbs (16,384) and on the CPU above it, so merging
@@ -132,7 +140,8 @@ class RenderOptions(
     @JvmField val lines: Boolean = true,
     @JvmField val backface: Boolean = true,
     @JvmField val roundJoins: Boolean = false,
-    @JvmField val mergeTranslucent: Boolean = false,
+    @JvmField val mergeTranslucent: Boolean = true,
+    @JvmField val lodTolerance: Float = 0f,
     @JvmField val mergeVerbs: Int = 8192,
 ) {
     companion object {
@@ -555,7 +564,19 @@ object Renderer {
         options: RenderOptions,
     ) {
         val curves = length / 12 // 4 points x 3 floats
+        val lod = options.lodTolerance
+        val lodSquared = lod * lod
         var open = false
+
+        // A run of points dropped by [RenderOptions.lodTolerance] is remembered
+        // rather than discarded: whatever ends the run draws a straight segment
+        // to the last of them, so a subpath never loses its end.
+        var held = false
+        var heldX = 0f
+        var heldY = 0f
+        var anchorX = 0f
+        var anchorY = 0f
+
         for (i in 0 until curves) {
             val o = i * 12
             if (open) {
@@ -565,32 +586,47 @@ object Renderer {
                     abs(points[p + 1] - points[o + 1]) <= 1e-6f &&
                     abs(points[p + 2] - points[o + 2]) <= 1e-6f
                 if (!joined) {
+                    if (held) { sink.lineTo(heldX, heldY); held = false }
                     sink.closeSubpath()
                     open = false
                 }
             }
             if (!open) {
                 sink.moveTo(points[o], points[o + 1])
+                anchorX = points[o]; anchorY = points[o + 1]
                 open = true
             }
 
             val ax = points[o]; val ay = points[o + 1]
-            val dx = points[o + 9] - ax; val dy = points[o + 10] - ay
+            val ex = points[o + 9]; val ey = points[o + 10]
+            val dx = ex - ax; val dy = ey - ay
             val straight = options.lines &&
                 abs(points[o + 3] - (ax + dx * (1f / 3f))) <= LINE_TOLERANCE &&
                 abs(points[o + 4] - (ay + dy * (1f / 3f))) <= LINE_TOLERANCE &&
                 abs(points[o + 6] - (ax + dx * (2f / 3f))) <= LINE_TOLERANCE &&
                 abs(points[o + 7] - (ay + dy * (2f / 3f))) <= LINE_TOLERANCE
+
             if (straight) {
-                sink.lineTo(points[o + 9], points[o + 10])
+                if (lod > 0f) {
+                    val gx = ex - anchorX; val gy = ey - anchorY
+                    if (gx * gx + gy * gy < lodSquared) {
+                        // Still within the tolerance of where the pen is: hold
+                        // this point in case it turns out to be the last one.
+                        held = true; heldX = ex; heldY = ey
+                        continue
+                    }
+                }
+                sink.lineTo(ex, ey)
             } else {
-                sink.cubicTo(
-                    points[o + 3], points[o + 4],
-                    points[o + 6], points[o + 7],
-                    points[o + 9], points[o + 10],
-                )
+                // A curve must start where it was drawn from, so catch up first.
+                if (held) { sink.lineTo(heldX, heldY); held = false }
+                sink.cubicTo(points[o + 3], points[o + 4], points[o + 6], points[o + 7], ex, ey)
             }
+            held = false
+            anchorX = ex; anchorY = ey
         }
+
+        if (held) sink.lineTo(heldX, heldY)
         if (open) sink.closeSubpath()
     }
 }

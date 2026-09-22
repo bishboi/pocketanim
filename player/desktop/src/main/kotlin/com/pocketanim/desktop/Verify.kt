@@ -283,7 +283,7 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
     // do, and on the device the sweep is run against a real surface.
     println()
     println(String.format(Locale.ROOT, "%-10s %10s %10s %10s", "variant", "verbs/fr", "draws/fr", "maxpath"))
-    for ((label, options) in Benchmark.VARIANTS) {
+    for ((label, options) in Benchmark.variants(width / FRAME_WIDTH)) {
         val counter = CountingSink()
         for (i in 0 until scene.frameCount) Renderer.drawFrame(scene, i, counter, options)
         println(String.format(
@@ -545,7 +545,7 @@ fun main(args: Array<String>) {
             // An optional variant name renders through one of the sweep's
             // option sets, so a trade can be looked at rather than only timed.
             val variant = args.getOrNull(4)
-            val options = Benchmark.VARIANTS.firstOrNull { it.first == variant }?.second
+            val options = Benchmark.variants(1280f / FRAME_WIDTH).firstOrNull { it.first == variant }?.second
                 ?: RenderOptions.DEFAULT
             ImageIO.write(render(scene, probe, 1280, 720, options), "png", File(out))
             println("wrote $out (frame $probe of ${scene.frameCount})")

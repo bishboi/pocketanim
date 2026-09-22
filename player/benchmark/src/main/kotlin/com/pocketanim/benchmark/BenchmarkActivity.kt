@@ -21,6 +21,7 @@ import com.pocketanim.android.CanvasSink
 import com.pocketanim.android.FileStorage
 import com.pocketanim.android.SurfaceCanvas
 import com.pocketanim.core.Benchmark
+import com.pocketanim.core.FRAME_WIDTH
 import com.pocketanim.core.FrameTarget
 import com.pocketanim.core.Library
 import com.pocketanim.core.SceneResult
@@ -208,7 +209,7 @@ class BenchmarkActivity : Activity(), SurfaceHolder.Callback {
             report("")
             report("sweeping ${struggling.size} scene(s) that missed the budget")
             for (result in struggling) {
-                for ((label, options) in Benchmark.VARIANTS) {
+                for ((label, options) in Benchmark.variants(width / FRAME_WIDTH)) {
                     if (label == "all") continue  // the run above already is it
                     val swept = try {
                         val frames = library.open(result.name)

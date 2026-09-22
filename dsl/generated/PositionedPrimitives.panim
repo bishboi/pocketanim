@@ -1,0 +1,11 @@
+scene 2d fps=30
+circle A r=0.8 at=-3.5,1.5 stroke=#58C4DD w=4
+square B s=1.4 at=3.5,1.5 stroke=#F7D96F w=4
+rect C wh=2.2,1.1 at=0,-2 stroke=#83C167 w=4
+create A t=1
+show A
+create B t=1
+show B
+create C t=1
+show C
+wait t=1

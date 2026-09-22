@@ -88,7 +88,13 @@ def main():
     print(f"manim frames        {max(reference) + 1} (sampled every {every})")
     print(f"dsl frames          {len(ir.records)}")
     print()
-    print(f"{'frame':>7} {'MAE':>8} {'%pixels off':>12} {'%ink':>8}")
+    # "of ink" is the column that matters, and it took a real defect to learn
+    # that. A scene of thin outlines on black is under 1% ink, so drawing every
+    # shape in the wrong place moves well under 1% of the *frame* and sails
+    # through a gate set on that. Measured against the ink instead, the same
+    # frame reads 114% -- more than the whole drawing moved. Sparse line art
+    # needs a denominator that knows how sparse it is.
+    print(f"{'frame':>7} {'MAE':>8} {'%pixels off':>12} {'%ink':>8} {'of ink':>9}")
 
     rows = []
     for index, expected in sorted(reference.items()):
@@ -99,8 +105,13 @@ def main():
         mae = float(diff.mean())
         bad = float((diff.max(axis=2) > 24).mean())
         ink = float((expected.max(axis=2) > 24).mean())
-        rows.append((mae, bad))
-        print(f"{index:>7} {mae:>8.2f} {bad * 100:>11.2f}% {ink * 100:>7.2f}%")
+        # A blank frame has no ink and cannot disagree about any of it.
+        relative = bad / ink if ink > 0 else 0.0
+        rows.append((mae, bad, relative))
+        print(
+            f"{index:>7} {mae:>8.2f} {bad * 100:>11.2f}% {ink * 100:>7.2f}% "
+            f"{relative * 100:>8.1f}%"
+        )
 
         if dump:
             out = Path(dump)
@@ -112,9 +123,11 @@ def main():
             )
 
     if rows:
+        worst = max(r[2] for r in rows)
         print(
             f"\nmean MAE {sum(r[0] for r in rows) / len(rows):.2f}, "
-            f"mean pixels off {sum(r[1] for r in rows) / len(rows) * 100:.2f}%"
+            f"mean pixels off {sum(r[1] for r in rows) / len(rows) * 100:.2f}%, "
+            f"worst frame {worst * 100:.1f}% of its ink"
         )
 
 

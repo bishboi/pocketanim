@@ -2,28 +2,28 @@ scene 2d fps=30
 text A asset=a49bd9a23f
 text B asset=dc546f9797
 text C asset=56560eae88
-circle D r=1.1 stroke=#29ABCA w=6
-square E s=2 stroke=#29ABCA w=6
+circle D r=1.1 at=0,-1.4 stroke=#29ABCA w=6
+square E s=2 at=0,-1.4 stroke=#29ABCA w=6
 text F asset=aefb7e82f7
 text G asset=463e86278a
-circle H r=1.1 stroke=#55C1A7 w=6
-square I s=2 stroke=#55C1A7 w=6
+circle H r=1.1 at=0,-1.4 stroke=#55C1A7 w=6
+square I s=2 at=0,-1.4 stroke=#55C1A7 w=6
 text J asset=b55893787f
 text K asset=0b2befc67e
-circle L r=1.1 stroke=#77B05D w=6
-square M s=2 stroke=#77B05D w=6
+circle L r=1.1 at=0,-1.4 stroke=#77B05D w=6
+square M s=2 at=0,-1.4 stroke=#77B05D w=6
 text N asset=e79389f960
 text O asset=5a6e589d99
-circle P r=1.1 stroke=#F4D345 w=6
-square Q s=2 stroke=#F4D345 w=6
+circle P r=1.1 at=0,-1.4 stroke=#F4D345 w=6
+square Q s=2 at=0,-1.4 stroke=#F4D345 w=6
 text R asset=0fb746c790
 text S asset=57f22d5ceb
-circle T r=1.1 stroke=#E65A4C w=6
-square U s=2 stroke=#E65A4C w=6
+circle T r=1.1 at=0,-1.4 stroke=#E65A4C w=6
+square U s=2 at=0,-1.4 stroke=#E65A4C w=6
 text V asset=4729563fd7
 text W asset=0e2db67ac1
-circle X r=1.1 stroke=#715582 w=6
-square Y s=2 stroke=#715582 w=6
+circle X r=1.1 at=0,-1.4 stroke=#715582 w=6
+square Y s=2 at=0,-1.4 stroke=#715582 w=6
 text Z asset=aa9dcd41e5
 write A t=2
 show A

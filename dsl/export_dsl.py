@@ -124,18 +124,25 @@ class Recorder:
         if any(d.split()[1] == name for d in self.declarations):
             return name
 
+        # `at=` on every primitive, not just Rectangle. Both interpreters have
+        # always read it for all three -- the reader was built for a field the
+        # writer never sent, so a circle anywhere but the origin was quietly
+        # drawn at the origin. corpus/scenes/12_positioned_primitives.py is the
+        # scene that would have caught it, and did not exist.
         if isinstance(mob, Circle):
             radius = float(mob.width / 2)
+            centre = mob.get_center()
             self.declarations.append(
-                f"circle {name} r={radius:g} stroke={self.hex_of(mob)} "
-                f"w={float(mob.get_stroke_width()):g}"
+                f"circle {name} r={radius:g} at={centre[0]:g},{centre[1]:g} "
+                f"stroke={self.hex_of(mob)} w={float(mob.get_stroke_width()):g}"
             )
             return name
 
         if isinstance(mob, Square):
+            centre = mob.get_center()
             self.declarations.append(
-                f"square {name} s={float(mob.width):g} stroke={self.hex_of(mob)} "
-                f"w={float(mob.get_stroke_width()):g}"
+                f"square {name} s={float(mob.width):g} at={centre[0]:g},{centre[1]:g} "
+                f"stroke={self.hex_of(mob)} w={float(mob.get_stroke_width()):g}"
             )
             return name
 
@@ -415,10 +422,19 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 # Write reveals each glyph in turn. On a text asset that is a
                 # lagged per-glyph reveal, not a single partial path.
                 name = rec.declare(anim.mobject)
-                if name:
-                    rec.timeline.append(f"write {name} t={duration:g}")
-                else:
+                if not name:
                     rec.blockers.append("Write target could not be declared")
+                elif not rec.is_asset(name):
+                    # Write reveals an asset one submobject at a time. A
+                    # primitive has none to lag, and the interpreter raises
+                    # rather than guess -- so this used to export at tier 1 and
+                    # then crash the player. A blocker sends it to tier 3, which
+                    # draws it correctly, which is what the tiers are for.
+                    rec.blockers.append(
+                        f"Write on a primitive: {type(anim.mobject).__name__}"
+                    )
+                else:
+                    rec.timeline.append(f"write {name} t={duration:g}")
             elif isinstance(anim, FadeOut):
                 name = rec.declare(anim.mobject)
                 if name:

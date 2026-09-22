@@ -1408,8 +1408,42 @@ the fallback.
   never blocks; the tier-3 cliff is narrower than §9.5 implies and is about
   animations alone.
 
-  Not fixed here: found while charting, recorded rather than patched, because a
-  fix wants its own session and a corpus scene that would have caught it.
+  **Two of the three are fixed, and the third is not.**
+
+  *Position.* `circle` and `square` now emit `at=`, as `rect` always did. Two
+  lines, because both readers had parsed the field all along.
+  `corpus/scenes/12_positioned_primitives.py` is the scene that would have
+  caught it: three primitives, three positions, drawn one at a time so that a
+  failure means the position was lost and nothing else. Against Manim it went
+  from 0.57% of pixels differing to **0.04%**.
+
+  *`Write` on a primitive* is now a blocker, so the scene falls to tier 3 and
+  draws correctly rather than reaching tier 1 and crashing. Write reveals an
+  asset one submobject at a time; a primitive has none to lag. Tier 3 producing
+  a correct large scene is what the tiers are for.
+
+  *Concurrent animations* are **not fixed**. `play(Create(a), Create(b))` still
+  becomes two sequential verbs and still plays for twice its `run_time`. This is
+  a format gap rather than an oversight — the DSL timeline has no way to say
+  "these two run together" — and closing it means a new verb, both interpreters,
+  and a fidelity scene. It is the most likely thing a generator writes, so it is
+  the next real piece of work on the format.
+
+- **A 1% pixel gate cannot see a positioning bug.** The scene above, with every
+  primitive drawn in the wrong place, measured **0.57% of pixels differing** and
+  would have passed §7.3's suggested gate with room to spare. Thin outlines on
+  black are under 1% ink, so moving all of them moves well under 1% of the
+  frame.
+
+  `verify_dsl` now also reports **differing pixels as a share of inked pixels**.
+  The same broken frame reads **114%** by that measure — more than the entire
+  drawing moved — against 0.4% once fixed. A denominator of "the whole frame"
+  flatters sparse line art, and most of this corpus is sparse line art.
+
+  Not yet done: §7.3's gate is still phrased against the frame. Whether the
+  ink-relative number becomes the gate, or a second one beside it, wants the
+  nightly numbers for the whole corpus first — a dense scene and a sparse one
+  should probably not be held to the same threshold on either measure.
 
 - **Exporting the same scene twice gives different asset files.** Confirmed, and it is Python's
   string-hash randomisation: `TransformMatchingTex` matches by tex-string keys through sets, so

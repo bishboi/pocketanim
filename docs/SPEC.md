@@ -718,6 +718,48 @@ under 1%.** ThreeDCamera used to be the honest exception at 12.79% — *worse*
 than its own sampled IR — and is now 0.06%. See "Four frame-timing bugs" below
 for why, because the cause was not what the number suggested.
 
+#### After the partial-reveal and stage fixes
+
+Re-measured once §11's three defects were closed, **sampled every 30th frame**,
+so the means are not directly comparable with the table above — but the moves
+are far larger than sampling explains. The second column is the measure that
+found all three: differing pixels as a share of the frame's *own* ink, at the
+worst frame scored.
+
+| Scene | Pixels differing | Worst frame, of its ink | Was |
+|---|---|---|---|
+| TextHybrid | **0.00%** | 0.6% | 0.03% |
+| VerbTest | **0.00%** | 0.9% | 0.04% |
+| TextReuse | **0.00%** | 0.6% | 0.05% |
+| PositionedPrimitives | **0.00%** | 0.4% | — |
+| ConcurrentPlay | **0.00%** | 1.6% | — |
+| HelloPocketanim (the sample) | **0.00%** | 1.0% | 0.05%, worst 139% |
+| LatexDerivation | **0.04%** | 32.0% | 0.36% |
+| ThreeDCamera | **0.05%** | 4.6% | 0.06% |
+| CodeWalkthrough | **0.06%** | 4.6% | 0.51% |
+| CartopyMap | 0.65% | 35.0% | see below |
+| MolecularStructure | 2.28% | 181.8% | 2.44% |
+| SurfaceOrbit | 2.98% | 16.9% | 2.98% |
+
+`LongLesson` was not re-measured: 4,981 frames through Manim is hours, and it
+belongs in the nightly job rather than in a change's own verification.
+
+**CartopyMap's row is not a regression.** The 0.27% above predates the two
+deliberate losses §7.3 measures — export decimation and playback detail — which
+that section records at 0.75%. 0.65% is that same configuration, slightly better.
+
+Three rows still carry a worst frame worth chasing, and each is a *modelling*
+gap rather than a stale-state one, which is a different kind of problem from the
+three just closed:
+
+- **LatexDerivation, 32%** — mid-`TransformMatchingTex`. We pair glyphs by atlas
+  id and fade the leftovers; Manim matches by tex string and animates matched,
+  removed and added groups separately.
+- **MolecularStructure, 182%** — mid-`laggedgrow`, and the largest remaining
+  number in the corpus.
+- **CartopyMap, 35%** — expected, and already paid for: it is the decimation
+  §7.3 chose, measured where the coastline is thinnest.
+
 **One scene remains, and it is the one that always will.** `ValueTracker` +
 `always_redraw` is **fundamental**: arbitrary Python recomputing geometry every
 frame cannot be a verb, ever. This is the hard ceiling on tier 1 and the reason
@@ -1523,9 +1565,10 @@ the fallback.
      3.1%**, and its mean MAE 0.08 to 0.01.
 
   Neither showed up in the frame-relative gate, and neither could have: both live
-  in the frames where there is least ink to disagree about. Nothing else in the
-  corpus moved — `SurfaceOrbit` is still 2.98%, `LatexDerivation` still under its
-  recorded 0.36% — because neither defect touches a scene that is holding still.
+  in the frames where there is least ink to disagree about. `CodeWalkthrough`, all
+  text, fell with them — 0.51% of pixels to 0.06%. Scenes that hold still did not
+  move: `SurfaceOrbit` is still 2.98%, because neither defect touches a frame
+  where nothing is being revealed.
 
   **And behind those two, a third the same metric found: nothing ever left the
   stage.** The exporter patched `Scene.add` and emitted a `show` verb for it. It
@@ -1547,11 +1590,13 @@ the fallback.
   `TransformMatchingTex` itself does, so the verb is right even where a program
   carries no `hide`.
 
-  What is left in that scene is the morph *blend*: 32% and 59% of ink at the two
-  frames in the middle of a `TransformMatchingTex`. We pair glyphs by id and fade
-  the leftovers; Manim matches by tex string and animates matched, faded-out and
-  faded-in groups separately. That is a modelling approximation rather than a
-  stale-state bug, and it is the next thing in this scene worth measuring.
+  What is left in that scene is the morph *blend*: 32% of ink at the frame in the
+  middle of a `TransformMatchingTex`. We pair glyphs by atlas id and fade the
+  leftovers; Manim matches by tex string and animates matched, removed and added
+  groups separately. That is a modelling approximation rather than a stale-state
+  bug. The larger one of its kind is `MolecularStructure` mid-`laggedgrow`, at
+  182% — the biggest worst-frame number left in the corpus, and the next one
+  worth chasing.
 
   **The ink-relative column needed a floor.** The first frames of a reveal hold a
   few dozen lit pixels, and a ratio over a denominator that small is noise: one

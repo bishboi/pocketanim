@@ -1,0 +1,97 @@
+---
+id: 1
+title: Generation harness for pocketanim scenes
+labels: [wayfinder:map]
+state: open
+---
+
+## Destination
+
+**A decided architecture for a browser harness that turns content into
+pocketanim scenes.** The hard choices locked and written down; implementation
+left to a build session afterwards. The map is done when someone could sit down
+and build the thing without another architectural argument.
+
+Not a spec, not a working app. The expensive mistakes here are structural, and
+the brief already says the first version is throwaway.
+
+## Notes
+
+### The brief, as given
+
+Content in, scene out: describe the scene / generate a transcript, generate the
+video, show it on screen, then let the user steer it with further instructions.
+No visual feedback loop — a human gives the feedback. OpenRouter for the model.
+Never store an MP4; store the code and assets. Next.js + Supabase + shadcn.
+Whatever it produces has to play on the phone renderer in this repo, users pick
+a **template**, and maps (cartopy) and molecular structures have to be possible.
+
+### Settled while charting
+
+These were decided in the opening round and are givens for every ticket below,
+not steps on the route.
+
+| | Decision |
+|---|---|
+| Destination | A decided architecture, not a spec and not a build |
+| Where Manim runs | A server-side Python worker. The harness is a browser app; export is a server job |
+| Artifact of record | **Both**: Manim Python as editable source, `.panim` + assets as build output |
+| Preview fidelity | Server-rendered frames for now. A TS/WASM renderer is named as the eventual answer and is **not** this effort |
+| Template | A scene **archetype** (explainer, map walkthrough, molecule tour) that shapes generated structure. Visual style is a property of one |
+| Where it lives | A new repo. This map stays here, because the constraint that binds it — the `.panim` format — is defined here |
+
+### The constraint everything bends around
+
+`dsl/export_dsl.py` produces a program by **executing** the scene: it intercepts
+`Scene.play` and `Scene.add` under a real Manim 0.21 with cairo, LaTeX and
+cartopy. There is no source-to-program path that avoids running Python, and the
+DSL has no vocabulary for a coastline or a molecule — those exist only as baked
+tier-2 assets that Manim produced. That is why "all in the browser" holds for
+the harness and not for export.
+
+Also load-bearing: **anything the exporter cannot express falls to tier 3**
+(sampled IR), which measured 1.2 MB against a 277-byte program on the sample
+scene. Generation that drifts outside the supported vocabulary does not fail
+loudly; it silently ships something 1000x larger.
+
+### Glossary in progress
+
+Terms sharpened here, to graduate into the new repo's `CONTEXT.md` once it
+exists. Kept on the map until then rather than written into this repo's
+context, which describes the format and the player.
+
+- **Harness** — the browser app. Authoring, editing, preview, storage. Not the renderer and not the exporter.
+- **Template** — a scene archetype. Shapes what the model generates and which Manim vocabulary is in play. Not a visual theme, though it carries one.
+- **Scene source** — the Manim Python. What the model writes and a human reads.
+- **Scene program** — the `.panim` plus its assets. What a phone plays. Built from the source by the worker.
+- **Export** — running the source through `dsl/export_dsl.py` to get a program. A server job, minutes not milliseconds.
+
+### Skills every session should consult
+
+`grilling` and `domain-modeling` by default; `research` for the research
+tickets. The glossary above is live — sharpen it as terms settle.
+
+## Decisions so far
+
+<!-- one line per closed ticket, then zoom the link for the detail -->
+
+_None yet._
+
+## Not yet specified
+
+In scope, not yet sharp enough to ticket. Graduates as the frontier advances.
+
+- **Edit-loop semantics.** "Edit using further instructions" — does an instruction regenerate the scene or patch it? Does history branch, or is it linear? Waits on the pipeline's artifacts being settled.
+- **Preview transport.** Server-rendered frames have to reach the browser without an MP4 existing at rest. Waits on the worker contract.
+- **Template asset provenance.** Natural Earth data for cartopy, coordinates for molecules: bundled with the worker, fetched at generation, or supplied by the user. Waits on what a template turns out to be.
+- **Failure surface.** What a user sees when export fails, or when a scene silently lands at tier 3 instead of tier 1.
+- **Auth and multi-tenancy.** Supabase auth and RLS, or single-user for the throwaway version.
+- **Cost control.** Rate limiting and budget on OpenRouter, once the model and token cost per scene are known.
+
+## Out of scope
+
+Ruled beyond the destination. Does not graduate.
+
+- **Building the TS/WASM renderer.** Named as the eventual answer to preview fidelity, and a project the size of this one. A separate effort.
+- **A visual feedback loop.** Explicitly excluded by the brief: the human judges the output.
+- **Storing rendered video.** Excluded by the brief, and the whole point of the format.

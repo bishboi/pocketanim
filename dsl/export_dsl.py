@@ -97,6 +97,8 @@ class Recorder:
 
         from manim import Circle
 
+        # Only ever called on a Circle, Square or Rectangle, all of which are
+        # VMobjects; a bare Mobject has none of these accessors.
         # The declarations carry one opaque stroke and no fill.
         if float(mob.get_fill_opacity()) > 0:
             return False
@@ -181,14 +183,16 @@ class Recorder:
         # Falling through rather than blocking: the geom path below bakes any
         # mobject exactly, style included, and stays tier 1. A faithful
         # primitive is smaller, not more correct.
-        faithful = self.primitive_is_faithful(mob)
-
+        #
+        # Asked per primitive branch and never up front: `declare` is called for
+        # every mobject in the scene, and a plain `Group` has no fill_opacity at
+        # all -- hoisting the call crashed LatexDerivation's export outright.
         # `at=` on every primitive, not just Rectangle. Both interpreters have
         # always read it for all three -- the reader was built for a field the
         # writer never sent, so a circle anywhere but the origin was quietly
         # drawn at the origin. corpus/scenes/12_positioned_primitives.py is the
         # scene that would have caught it, and did not exist.
-        if faithful and isinstance(mob, Circle):
+        if isinstance(mob, Circle) and self.primitive_is_faithful(mob):
             radius = float(mob.width / 2)
             centre = mob.get_center()
             self.declarations.append(
@@ -197,7 +201,7 @@ class Recorder:
             )
             return name
 
-        if faithful and isinstance(mob, Square):
+        if isinstance(mob, Square) and self.primitive_is_faithful(mob):
             centre = mob.get_center()
             self.declarations.append(
                 f"square {name} s={float(mob.width):g} at={centre[0]:g},{centre[1]:g} "
@@ -205,7 +209,8 @@ class Recorder:
             )
             return name
 
-        if faithful and type(mob).__name__ in ("Rectangle", "SurroundingRectangle"):
+        if type(mob).__name__ in ("Rectangle", "SurroundingRectangle") \
+                and self.primitive_is_faithful(mob):
             centre = mob.get_center()
             self.declarations.append(
                 f"rect {name} wh={float(mob.width):g},{float(mob.height):g} "

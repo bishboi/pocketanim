@@ -843,6 +843,15 @@ Three rows still carry a worst frame worth looking at:
   when it cannot**. Not a blocker: that path bakes any mobject exactly, style
   included, and stays tier 1. A faithful primitive is smaller, not more correct.
 
+  It is asked inside each primitive branch and never once up front. Hoisting
+  the call was the obvious tidy-up and it crashed `LatexDerivation`'s export
+  outright: `declare()` runs for every mobject in a scene, and a plain `Group`
+  has no `fill_opacity` at all. The export script logged the failure and left
+  the previous run's files in place, and the stale `tier.json` was then read as
+  evidence the scene was fine — which is the same shape as everything else in
+  this section. **A verification that reads an output file rather than an exit
+  code can confirm a run that never happened.**
+
   The check is against the mobject's own anchors, never against a regenerated
   primitive, because the two differ by construction: Manim builds a circle's
   handles at `d_theta/3` and `dsl.verbs.circle` at `(4/3)tan(d_theta/4)`, a 1.3%

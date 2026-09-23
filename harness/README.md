@@ -35,6 +35,32 @@ A scene that does not import is an ordinary outcome, not a crash — it comes ba
 as `{"tier": null, "error": ...}`, because that is the first thing the edit loop
 has to show a human.
 
+## Running it
+
+```sh
+cd harness/app
+npm install
+cp .env.example .env.local     # optional: a key and a project
+npm run dev                    # http://localhost:3000
+```
+
+Nothing in `.env.local` is required. With no `OPENROUTER_API_KEY` the app uses
+an offline fixture provider that returns real, exportable Manim, so export,
+preview and the edit loop all work with no network and no account. With no
+Supabase project, the pipeline runs and simply writes nothing down.
+
+The app needs the repo's Python environment, because export and preview are the
+repo's own tools: `lib/pocketanim.ts` prefers `../../.venv/bin/python`.
+
+The five steps on the page are the brief's pipeline: content and a template in,
+a scene source you can edit by hand, an export that reports its tier and its
+blockers, a preview, and an instruction box that produces the next version.
+
+**The preview is rendered on demand and never written down.** `/api/frame`
+renders one frame from the program through the reference renderer and returns
+PNG bytes. There is no video anywhere in a build -- only the program and its
+assets, which is the constraint the whole design is built around.
+
 ## Known gaps in this environment
 
 * **OpenRouter is unreachable** from the dev container (the egress proxy refuses

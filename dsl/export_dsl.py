@@ -401,6 +401,62 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     }
     state = {"spin_rate": None, "in_camera_move": False}
 
+    def animation_blockers(anim) -> None:
+        """Name the animation arguments the verb set cannot carry.
+
+        The same class as the camera audit, on the other side of `play`: each
+        of these is read off the animation and then dropped, leaving a
+        well-formed program that plays something else. Measured, not guessed:
+
+          FadeIn(square, shift=UP*2)     faded in place
+          Uncreate(circle)               played forwards and left it on stage
+          Transform(a, b, path_arc=PI/2) travelled in a straight line
+          Write(text, reverse=True)      wrote instead of un-writing
+
+        Blocked rather than implemented, as with the camera: there is no corpus
+        scene for any of them, and tier 3 draws them correctly today where a
+        new verb would be an unmeasured code path.
+        """
+        import numpy as np
+
+        name = type(anim).__name__
+
+        # FadeIn/FadeOut travel and scale while they fade; `fade` carries a
+        # name and a duration.
+        shift = getattr(anim, "shift_vector", None)
+        if shift is not None and not np.allclose(np.asarray(shift, dtype=float), 0.0):
+            rec.blockers.append(f"{name} with shift=")
+        scale = getattr(anim, "scale_factor", None)
+        if scale is not None and not np.isclose(float(scale), 1.0):
+            rec.blockers.append(f"{name} with scale=")
+        if getattr(anim, "target_position", None) is not None:
+            rec.blockers.append(f"{name} with target_position=")
+
+        # Transform's points follow an arc rather than the straight line both
+        # interpreters draw.
+        arc = getattr(anim, "path_arc", None)
+        if arc is not None and not np.isclose(float(arc), 0.0):
+            rec.blockers.append(f"{name} with path_arc=")
+
+        # Write(reverse=True), and Unwrite, un-write and then remove.
+        if getattr(anim, "reverse", False):
+            rec.blockers.append(f"{name} plays in reverse")
+
+        # Uncreate is Create with the rate function reversed and the mobject
+        # removed at the end, so it reached the Create branch and exported as a
+        # forward create.
+        if isinstance(anim, Create):
+            if getattr(anim, "remover", False):
+                rec.blockers.append(f"{name} un-draws and removes its target")
+            if not np.isclose(float(anim.lag_ratio), 1.0):
+                rec.blockers.append(f"{name} with lag_ratio={float(anim.lag_ratio):g}")
+        elif isinstance(anim, Write):
+            # Both interpreters recompute Manim's default rather than reading
+            # one, so an explicit lag_ratio would be silently ignored.
+            children = max(len(anim.mobject.family_members_with_points()), 1)
+            if not np.isclose(float(anim.lag_ratio), min(4.0 / children, 0.2)):
+                rec.blockers.append(f"{name} with lag_ratio={float(anim.lag_ratio):g}")
+
     def patched_play(self, *animations, **kwargs):
         run_time = kwargs.get("run_time")
         emitted_before = len(rec.timeline)
@@ -421,6 +477,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 else:
                     rec.timeline.append(f"wait t={duration:g}")
                 continue
+
+            animation_blockers(anim)
 
             # play(rate_func=...) applies to every animation in the call, and
             # Manim sets it on each one -- but through compile_animation_data,

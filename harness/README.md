@@ -56,10 +56,37 @@ The five steps on the page are the brief's pipeline: content and a template in,
 a scene source you can edit by hand, an export that reports its tier and its
 blockers, a preview, and an instruction box that produces the next version.
 
-**The preview is rendered on demand and never written down.** `/api/frame`
-renders one frame from the program through the reference renderer and returns
-PNG bytes. There is no video anywhere in a build -- only the program and its
-assets, which is the constraint the whole design is built around.
+**The preview plays in the browser.** `/api/ir` expands a built program into
+its geometry once -- the shape atlas, and per frame the instances that
+reference it -- and `lib/draw.ts` rasterises that onto a canvas. About 730 kB
+of numbers, 25 kB on the wire, one request per build and no server round-trip
+per frame. There is no video anywhere: the durable artifacts are the program
+and its assets, and a frame is recomputed from them like any other.
+
+Manim's animation semantics stay in Python, where a corpus and a fidelity
+harness have been spent proving them; only the rasterising crosses over. That
+split is the `PathSink` seam the renderer already defines -- whoever draws
+needs paths and colours and nothing more.
+
+`lib/draw.ts` is a fourth implementation of this format's rasterising, after
+Cairo, Java2D and Skia, so it is checked like the others:
+
+```sh
+npm run check:draw -- <ir.json> <build_dir> <SceneClass>
+```
+
+It renders frames headlessly and compares them with
+`exporter/reference_render.py`. Measured on a generated scene: **0.00% of
+pixels differing at every frame**. Node's canvas is Cairo and so is the oracle,
+so that is a statement about the drawing logic -- subpath splitting, when a
+subpath closes, fill and stroke order, the scene-to-pixel transform -- and not
+about how a real browser rasterises, exactly as `tools/verify_player.py` can
+say nothing about Skia.
+
+**3D scenes still preview on the server**, one PNG per frame via `/api/frame`.
+Projection, depth sorting and shading would all have to be reimplemented in the
+browser to draw them faithfully, and a wrong preview is worse than an honest
+fallback. Three of the four templates are 2D.
 
 ## Known gaps in this environment
 

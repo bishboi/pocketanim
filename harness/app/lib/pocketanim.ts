@@ -131,6 +131,39 @@ sys.stdout.buffer.write(buffer.getvalue())
   return stdout;
 }
 
+export type SceneIR =
+  | { mode: "2d"; fps: number; shapes: number[][]; frames: Instance[][]; error?: undefined }
+  | { mode: "3d"; fps: number; frames: number; error?: undefined }
+  | { error: string };
+
+/** [shapeIndex, a, b, c, d, e, f, fillRGBA, strokeRGBA, strokeWidth] */
+export type Instance = [
+  number, number, number, number, number, number, number,
+  number[], number[], number,
+];
+
+/**
+ * The geometry of every frame, expanded once.
+ *
+ * The browser plays a scene rather than asking for a picture of it, so the
+ * interpretation stays in Python -- Manim's animation semantics are the part
+ * this repo spent a corpus proving -- and only the rasterising crosses over.
+ */
+export async function sceneIR(
+  buildDir: string,
+  sceneClass: string,
+): Promise<SceneIR> {
+  const { stdout, stderr, code } = await run(
+    [path.join(REPO, "harness", "scripts", "scene_ir.py"), buildDir, sceneClass],
+    { timeoutMs: 300_000 },
+  );
+  const text = stdout.toString().trim();
+  if (!text) {
+    return { error: stderr.trim().split("\n").slice(-3).join("\n") || `exit ${code}` };
+  }
+  return JSON.parse(text) as SceneIR;
+}
+
 /** How many frames a built program has, so the scrubber knows its range. */
 export async function frameCount(
   buildDir: string,

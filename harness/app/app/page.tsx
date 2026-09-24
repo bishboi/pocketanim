@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TEMPLATES } from "@/lib/templates";
+import { Player } from "@/components/player";
+import type { SceneIR } from "@/lib/pocketanim";
 
 type ExportState = {
   tier: 1 | 3 | null;
@@ -38,6 +40,9 @@ export default function Home() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
+  // undefined = not fetched yet, null = fetch failed. Distinguishing them is
+  // what stops a still-loading 2D scene being announced as a 3D one.
+  const [ir, setIr] = useState<SceneIR | null | undefined>(undefined);
 
   const version = current >= 0 ? versions[current] : undefined;
   const exported = version?.exported;
@@ -73,6 +78,7 @@ export default function Home() {
       setCurrent(versions.length);
       setInstruction("");
       setFrame(0);
+      setIr(undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -95,6 +101,16 @@ export default function Home() {
         all.map((v, i) => (i === current ? { ...v, exported: data } : v)),
       );
       setFrame(0);
+      setIr(undefined);
+      if (data.tier === 1 && data.buildDir) {
+        setBusy("Loading the scene for playback…");
+        const response = await fetch(
+          `/api/ir?build=${encodeURIComponent(data.buildDir)}&scene=${SCENE}`,
+        );
+        const geometry = await response.json();
+        setIr(response.ok ? geometry : null);
+        if (!response.ok) setError(geometry.error ?? "could not load the scene");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -235,29 +251,48 @@ export default function Home() {
             </Card>
           )}
 
-          {frameSrc && (
+          {exported?.tier === 1 && (
             <Card>
               <CardHeader>
                 <CardTitle>4 · Preview</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={frameSrc}
-                  alt={`frame ${frame}`}
-                  className="w-full rounded border border-neutral-800 bg-black"
-                />
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(0, frames - 1)}
-                  value={frame}
-                  onChange={(e) => setFrame(Number(e.target.value))}
-                  className="w-full"
-                />
-                <p className="text-xs text-neutral-500">
-                  frame {frame} of {frames - 1} — rendered on demand, never stored
-                </p>
+                {ir === undefined ? (
+                  <p className="text-sm text-neutral-500">
+                    Expanding the program for playback…
+                  </p>
+                ) : ir && "mode" in ir && ir.mode === "2d" ? (
+                  <Player ir={ir} />
+                ) : frameSrc ? (
+                  <>
+                    {/* A 3D program still comes from the server: projection,
+                        depth sorting and shading would all have to be
+                        reimplemented here to draw it faithfully, and a wrong
+                        preview is worse than an honest fallback. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={frameSrc}
+                      alt={`frame ${frame}`}
+                      className="w-full rounded border border-neutral-800 bg-black"
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0, frames - 1)}
+                      value={frame}
+                      onChange={(e) => setFrame(Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-neutral-500">
+                      3D scene — frames rendered on the server, one at a time.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-neutral-500">
+                    No preview: the program built, but its geometry could not be
+                    loaded.
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

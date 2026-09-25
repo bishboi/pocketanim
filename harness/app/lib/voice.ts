@@ -19,16 +19,29 @@ export type VoiceResult = {
 };
 
 export function voiceLines(source: string): string[] {
-  return [...source.matchAll(/^# voice:\s*(.+)$/gm)].map((match) => match[1].trim()).filter(Boolean);
+  return [...source.matchAll(/^[ \t]*# voice:[ \t]*(.+)$/gm)].map((match) => match[1].trim()).filter(Boolean);
 }
 
-export function retime(source: string, durations: number[]): string {
+/**
+ * Set each voiced wait to its line's real length, and start the line there.
+ *
+ * With `files`, an `self.add_sound(...)` goes before each wait. The exporter
+ * records where every sound starts and mixes one track from them, so a line
+ * plays on the frame its beat does. The single concatenated file played from
+ * t=0 ran ahead of the picture by every animation between the waits.
+ */
+export function retime(source: string, durations: number[], files: string[] = []): string {
   let index = 0;
-  return source.replace(/# voice:.*\n([ \t]*)self\.wait\([^)]*\)/g, (match) => {
-    const seconds = durations[index++];
-    if (seconds == null) return match;
-    return match.replace(/self\.wait\([^)]*\)/, `self.wait(${seconds.toFixed(2)})`);
-  });
+  return source.replace(
+    /(# voice:.*\n)(?:[ \t]*self\.add_sound\([^)]*\)\n)?([ \t]*)self\.wait\([^)]*\)/g,
+    (match, comment: string, indent: string) => {
+      const at = index++;
+      const seconds = durations[at];
+      if (seconds == null) return match;
+      const sound = files[at] ? `${indent}self.add_sound(${JSON.stringify(files[at])})\n` : "";
+      return `${comment}${sound}${indent}self.wait(${seconds.toFixed(2)})`;
+    },
+  );
 }
 
 function runKokoro(payload: unknown): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -64,12 +77,17 @@ export async function speak(source: string, templateId: string): Promise<VoiceRe
   const voice = templateById(templateId).voice;
   const { stdout, stderr } = await runKokoro({ voice, lines, out: audioPath });
   const line = stdout.trim().split("\n").pop() || "";
-  let data: { ok?: boolean; durations?: number[]; out?: string; error?: string } = {};
+  let data: { ok?: boolean; durations?: number[]; files?: string[]; out?: string; error?: string } = {};
   try {
     data = JSON.parse(line);
   } catch {
     return { ok: false, source, error: stderr.trim().slice(-400) || "Kokoro returned nothing." };
   }
   if (!data.ok || !data.durations) return { ok: false, source, error: data.error || "Kokoro did not speak." };
-  return { ok: true, source: retime(source, data.durations), audioPath: data.out, durations: data.durations };
+  return {
+    ok: true,
+    source: retime(source, data.durations, data.files ?? []),
+    audioPath: data.out,
+    durations: data.durations,
+  };
 }

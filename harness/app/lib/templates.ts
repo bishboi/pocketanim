@@ -13,6 +13,14 @@ export type PreviewMark =
 export type Template = {
   id: string;
   name: string;
+  /**
+   * "scene": the agent writes Manim directly. "lecture": the agent writes a
+   * beat script that harness/lecture/compile_lecture.py turns into a narrated
+   * map lecture on the pocket_lecture engine, in `style`.
+   */
+  kind?: "scene" | "lecture";
+  /** The pocket_lecture style a lecture template compiles to. */
+  style?: string;
   summary: string;
   palette: string[];
   background: string;
@@ -25,6 +33,90 @@ export type Template = {
   /** Miniature of the frame, in a 320×180 viewBox. */
   preview: PreviewMark[];
 };
+
+/** A lecture frame in miniature: map on the left, fact panel on the right. */
+function lecturePreview(
+  land: string,
+  edge: string,
+  panel: string,
+  title: string,
+  ink: string,
+  accent: string,
+  caption: string,
+  captionInk: string,
+): PreviewMark[] {
+  return [
+    { t: "circle", cx: 92, cy: 84, r: 48, fill: land, stroke: edge, sw: 2 },
+    { t: "circle", cx: 80, cy: 72, r: 4, fill: accent },
+    { t: "line", x1: 52, y1: 104, x2: 134, y2: 62, stroke: accent, sw: 3 },
+    { t: "rect", x: 178, y: 18, w: 128, h: 124, fill: panel, rx: 3 },
+    { t: "text", x: 188, y: 40, text: "Rivers", size: 15, fill: title, weight: 700 },
+    { t: "text", x: 188, y: 70, text: "2,525 km", size: 17, fill: accent, weight: 700 },
+    { t: "text", x: 188, y: 88, text: "• perennial", size: 10, fill: ink },
+    { t: "rect", x: 70, y: 150, w: 180, h: 18, fill: caption, rx: 3 },
+    { t: "text", x: 160, y: 163, text: "The Ganga is India's longest river.", size: 8, fill: captionInk, anchor: "middle" },
+  ];
+}
+
+const LECTURE_EXAMPLE = [
+  "The geography of India",
+  "India lies entirely in the Northern Hemisphere, at the heart of South Asia.",
+  "It covers 3.287 million km², the seventh largest country in the world.",
+  "The Ganga is India's longest river, flowing 2,525 km to the Bay of Bengal.",
+  "The monsoon brings about 75% of the year's rain between June and September.",
+].join("\n");
+
+/** Lecture templates: one per pocket_lecture style. */
+const LECTURES: Template[] = [
+  {
+    id: "lecture-atlas", kind: "lecture", style: "atlas", name: "Atlas lecture",
+    summary: "Dark cartographic lecture: map, fact panel, captions, narration.",
+    palette: ["#E3B25A", "#5AB4F0", "#F2C14E"], background: "#0D1117", ink: "#F4E9D8", voice: "bf_emma",
+    direction: "A narrated map lecture in the atlas style: dark navy, sand outlines, serif titles.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#1A2230", "#E3B25A", "#141A23", "#E3B25A", "#F4E9D8", "#5AB4F0", "#05070A", "#F4E9D8"),
+  },
+  {
+    id: "lecture-vox", kind: "lecture", style: "vox", name: "Vox lecture",
+    summary: "Editorial explainer: warm paper, black type, yellow highlighter.",
+    palette: ["#111111", "#FFD02F", "#1F6FB2"], background: "#EFE8DA", ink: "#161616", voice: "af_bella",
+    direction: "A narrated map lecture in the Vox style: paper, uppercase condensed titles, highlighter bars.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#FBF8F1", "#111111", "#EFE8DA", "#111111", "#161616", "#1F6FB2", "#111111", "#FFFFFF"),
+  },
+  {
+    id: "lecture-cardboard", kind: "lecture", style: "cardboard", name: "Cardboard lecture",
+    summary: "Craft look: kraft paper, cut-out map with a shadow, taped notes.",
+    palette: ["#2B1D10", "#B8741F", "#1F6FB2"], background: "#B98A57", ink: "#2B1D10", voice: "am_michael",
+    direction: "A narrated map lecture in the cardboard style: kraft paper and paper cut-outs.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#EAD6AA", "#86613A", "#F3E6C8", "#2B1D10", "#2B1D10", "#1F6FB2", "#F3E6C8", "#2B1D10"),
+  },
+  {
+    id: "lecture-whiteboard", kind: "lecture", style: "whiteboard", name: "Whiteboard lecture",
+    summary: "Marker on a board: wobbly lines, blue underlined titles that write on.",
+    palette: ["#1B1B1B", "#1565C0", "#D9730D"], background: "#F7F7F3", ink: "#1B1B1B", voice: "am_adam",
+    direction: "A narrated map lecture in the whiteboard style: marker lines, text that writes itself on.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#F7F7F3", "#1B1B1B", "#F7F7F3", "#1565C0", "#1B1B1B", "#1565C0", "#FFFFFF", "#1B1B1B"),
+  },
+  {
+    id: "lecture-blueprint", kind: "lecture", style: "blueprint", name: "Blueprint lecture",
+    summary: "Technical drawing: blue grid, white linework, monospace type.",
+    palette: ["#FFFFFF", "#8ECAFF", "#FFD166"], background: "#0E3A66", ink: "#EAF2FF", voice: "am_eric",
+    direction: "A narrated map lecture in the blueprint style: grid, white lines, dashed frames.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#1A5288", "#FFFFFF", "#0E3A66", "#FFFFFF", "#EAF2FF", "#8ECAFF", "#0A2C4E", "#EAF2FF"),
+  },
+  {
+    id: "lecture-chalkboard", kind: "lecture", style: "chalkboard", name: "Chalkboard lecture",
+    summary: "Chalk on green: pale yellow titles, soft dusty strokes.",
+    palette: ["#F4F0E4", "#F2E27A", "#9FD4E0"], background: "#1B3A2F", ink: "#F4F0E4", voice: "am_michael",
+    direction: "A narrated map lecture in the chalkboard style.",
+    example: LECTURE_EXAMPLE,
+    preview: lecturePreview("#224536", "#F4F0E4", "#1B3A2F", "#F2E27A", "#F4F0E4", "#9FD4E0", "#12291F", "#F4F0E4"),
+  },
+];
 
 export const TEMPLATES: Template[] = [
   {
@@ -122,7 +214,12 @@ export const TEMPLATES: Template[] = [
       { t: "text", x: 208, y: 96, text: "scatters", size: 12, fill: "#F2E27A" },
     ],
   },
+  ...LECTURES,
 ];
+
+export function isLecture(template: Template): boolean {
+  return template.kind === "lecture";
+}
 
 /** The user message repeats this so a picked style cannot be dropped. */
 export function filmBrief(template: Template): string {

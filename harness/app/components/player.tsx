@@ -44,9 +44,9 @@ export function Player({
       if (!ctx) return;
 
       const { width, height } = canvas;
-      drawFrame(ctx, ir.shapes, pictureAt(index), width, height);
+      drawFrame(ctx, ir.shapes, pictureAt(index), width, height, ir.background);
     },
-    [ir.shapes, pictureAt],
+    [ir.shapes, ir.background, pictureAt],
   );
 
   useEffect(() => {
@@ -68,8 +68,14 @@ export function Player({
     const from = frame;
     let raf = 0;
     const tick = (now: number) => {
-      const elapsed = ((now - started) / 1000) * ir.fps;
-      const next = from + Math.floor(elapsed);
+      // The narration is the master clock once it is actually playing, as on
+      // the phone: a wall clock started before the audio had buffered let the
+      // picture run ahead of a long lecture's voice.
+      const audio = audioRef.current;
+      const next =
+        audio && !audio.paused && audio.readyState >= 2 && audio.currentTime > 0
+          ? Math.floor(audio.currentTime * ir.fps)
+          : from + Math.floor(((now - started) / 1000) * ir.fps);
       if (next >= total - 1) {
         setFrame(total - 1);
         setPlaying(false);

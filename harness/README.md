@@ -11,8 +11,27 @@ harness/
   supabase/migrations/0001_init.sql   the schema
   scripts/apply-schema.sh             applies it to a project
   scripts/export_scene.py             Manim source -> .panim program, as JSON
+  scripts/narration.py                a scene's add_sound calls -> one track
+  lecture/                            the narrated map-lecture engine and its compiler
   app/                                the Next.js app
 ```
+
+## Lectures
+
+`lecture/` is the map-lecture engine (see `lecture/README.md`): beats, captions,
+a fact panel, chapter cards and maps in six styles, all tier 1. The app has a
+lecture template per style. Generating with one writes a *beat script* -- with a
+model through a `write_lecture` tool, offline from the content and the place it
+names -- which `lecture/compile_lecture.py` lints and turns into Manim you can
+edit. A pasted lecture script written the guide's way (the India and Rajasthan
+lectures) plays too.
+
+Narration is part of the build. A scene that calls `add_sound` (every lecture
+beat does) gets one mixed `narration.wav`, each line placed on the frame its
+beat starts; a scene with `# voice:` lines is voiced by Kokoro (espeak-ng when
+Kokoro cannot run) and gets the same treatment. The preview plays that track as
+its clock, and **Download for the phone** zips the build as a player library,
+narration included.
 
 ## What the harness actually produces
 

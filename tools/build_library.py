@@ -15,10 +15,14 @@ not a protocol.
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
       assets/<digest>.panm  baked geometry, shared
-      audio/<name>.m4a      narration, fetched on demand (§5.3)
+      audio/<name>.wav      narration, fetched on demand (§5.3)
 
 Usage:
-    python -m tools.build_library [--out library]
+    python -m tools.build_library [--out library] [--source dsl/generated]
+
+--source packs another export -- a harness build's dsl/generated -- instead of
+the corpus. A scene's narration is `<source>/<name>.narration.wav`, which the
+harness exporter writes when the scene narrates itself.
 """
 
 from __future__ import annotations
@@ -120,30 +124,39 @@ def scene_manifest(name: str, program: Path | None, container: Path | None) -> d
 
 
 def frame_count(program: Path) -> int | None:
-    """How long the scene runs, from the program rather than by expanding it."""
-    from dsl.interpret import parse
+    """How long the scene runs: the number of frames the interpreter expands.
 
-    scene = parse(program.read_text())
-    fps = scene["fps"]
-    total = 0
-    opened = False
-    for step in scene["timeline"]:
-        if step[0] == "show":
-            continue
-        if not opened:
-            opened = True
-            total += 1  # Manim's opening frame at t=0
-        seconds = step[-1] if step[0] in ("move", "spin", "wait") else None
-        if seconds is None:
-            seconds = next((v for v in reversed(step) if isinstance(v, float)), 0.0)
-        total += int(seconds * fps)
-    return total
+    This used to be summed from the timeline by hand, which had to re-learn
+    every verb's argument order -- `spin` ends in its axis, not its duration,
+    and a `par` or `lag` header owns the steps that follow it -- and got each
+    new one wrong. Expanding the program is exact by construction.
+    """
+    import os
+
+    from dsl.interpret import load_program
+
+    # The interpreter finds assets under dsl/generated/assets relative to the
+    # working directory, so it runs from the export's own root.
+    root = PROGRAMS.resolve().parent.parent
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        return len(load_program(str(program.resolve())).records)
+    finally:
+        os.chdir(previous)
 
 
 def main() -> int:
+    global PROGRAMS, ASSETS, GLYPHS, CONTAINERS
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="library")
+    ap.add_argument("--source", default=None, help="an export's dsl/generated directory (default: the corpus)")
     args = ap.parse_args()
+    if args.source:
+        PROGRAMS = Path(args.source)
+        ASSETS = PROGRAMS / "assets"
+        GLYPHS = PROGRAMS / "library.atlas"
+        CONTAINERS = PROGRAMS / "containers"
 
     out = Path(args.out)
     for sub in ("scenes", "assets", "audio"):
@@ -180,6 +193,12 @@ def main() -> int:
             wanted_assets.update(Path(a).name for a in entry["assets"])
         if container:
             shutil.copy(container, out / "scenes" / f"{name}.panm")
+
+        narration = PROGRAMS / f"{name}.narration.wav"
+        if narration.exists():
+            shutil.copy(narration, out / "audio" / f"{name}.wav")
+            entry["audio"] = f"audio/{name}.wav"
+            entry["audio_bytes"] = narration.stat().st_size
 
         (out / "scenes" / f"{name}.json").write_text(json.dumps(entry, indent=2) + "\n")
         scenes.append(entry)

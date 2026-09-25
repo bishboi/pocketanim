@@ -92,8 +92,11 @@ class AudioPlayer(
                     // threshold where a listener notices the landing point.
                     extractor.seekTo(target, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                     codec.flush()
+                    // Resume only what was running: a scrub while paused used
+                    // to start the narration under a still picture.
+                    val resume = clock.playing
                     clock.seekTo(extractor.sampleTime / 1_000_000.0)
-                    clock.play()
+                    if (resume) clock.play()
                     inputDone = false
                     finished = false
                 }

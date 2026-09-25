@@ -1,0 +1,201 @@
+scene 2d fps=30 bg=#EFE8DA
+geom A asset=6b4a370fa2 z=-100
+geom B asset=3fb6909bae z=50
+geom C asset=d8f62371c8 z=60
+text D asset=e3d3dc364e z=40
+geom E asset=9af9c64508 z=40
+text F asset=5fd70f1225 z=40
+text G asset=01b23e714b z=40
+geom H asset=12c7580a8e z=40
+geom I asset=8b7feb8659 z=0.5
+geom J asset=2b6d88c87a z=5
+geom K asset=a601a29c57 z=20
+geom L asset=31e6c7b0f1 z=60
+geom M asset=ec96939d7a z=25
+geom N asset=bcd4f56440 z=25
+geom O asset=957b25874a z=60
+geom P asset=59d0cf8af2 z=12
+text Q asset=86fda4fecb z=12
+geom R asset=130984f161 z=25
+geom S asset=7ba094534c z=60
+geom T asset=a508302116 z=25
+geom U asset=5bca91dfb8 z=25
+geom V asset=82455d1750 z=2
+geom W asset=4810eb6224 z=10
+geom X asset=709c430b68 z=10
+text Y asset=ee6c9ccf05 z=10
+geom Z asset=183f744281 z=60
+geom A1 asset=d929743825 z=8
+text B1 asset=057d64e63d z=25
+geom C1 asset=b513486c92 z=25
+text D1 asset=58acd42a97 z=25
+text E1 asset=75b22779aa z=25
+geom F1 asset=635e7bbb39 z=25
+text G1 asset=8977e7a93b z=25
+text H1 asset=cc2923f5ad z=25
+geom I1 asset=770340ea15 z=25
+text J1 asset=352220e1a6 z=25
+geom K1 asset=9364f201ee z=60
+geom L1 asset=8ef9ca6517 z=15
+geom M1 asset=709cdca7c3 z=15
+show A
+show B
+show C
+lag n=4 runs=1,1,1,1 ratio=0.3 t=2.2
+fade D t=1 from=1.2
+laggedgrow E lag=0 groups=1 t=1
+fade F t=1 shift=0,0.2
+fade G t=1
+show D
+show F
+show G
+hide D
+hide E
+hide F
+hide G
+fadeout H t=0.8 shift=0,0.3
+hide D
+hide E
+hide F
+hide G
+show H
+hide H
+hide D
+hide E
+hide F
+hide G
+par n=3 t=1.4
+fade I t=1.4
+create J t=1.4
+fade K t=1.4
+show I
+show J
+show K
+hide C
+show L
+fade M t=1.0395 shift=0.2,0
+show M
+fade N t=1.0395 shift=0,0.12
+show N
+wait t=2.151
+hide L
+show O
+par n=3 t=1.617
+create P t=1.617
+fade Q t=1.617
+fade R t=1.617 shift=0,0.12
+show P
+show Q
+show R
+wait t=1.773
+hide O
+show S
+hide M
+hide N
+hide R
+par n=8 t=1.386
+lag n=2 runs=1,1 ratio=0.5 t=1.386
+fadeout T t=1
+fade U t=1 shift=0.2,0
+fade V t=1.386
+lag n=3 runs=1,1,1 ratio=0.25 t=1.386
+laggedgrow W lag=0 groups=1 t=1
+laggedgrow X lag=0 groups=1 t=1
+fade Y t=1 shift=0,0.05
+show U
+show V
+show Y
+hide T
+hide M
+hide N
+hide R
+wait t=1.584
+hide S
+show Z
+par n=15 t=1.2
+create A1 t=1.2
+fill V opacity=0.2 t=1.2
+lag n=3 runs=4,4,4 ratio=0.2 t=1.2
+par n=3 t=1
+fade B1 t=1
+laggedgrow C1 lag=0 groups=1 t=1 at=2.82812,2.42148,0
+fade D1 t=1
+par n=3 t=1
+fade E1 t=1
+laggedgrow F1 lag=0 groups=1 t=1 at=2.82812,2.00148,0
+fade G1 t=1
+par n=3 t=1
+fade H1 t=1
+laggedgrow I1 lag=0 groups=1 t=1 at=2.82812,1.58148,0
+fade J1 t=1
+show A1
+show B1
+show D1
+show E1
+show G1
+show H1
+show J1
+wait t=1.35
+hide Z
+show K1
+lag n=2 runs=1,1 ratio=0.8 t=1.386
+create L1 t=1 rate=linear
+fade M1 t=1
+show L1
+show M1
+wait t=1.584
+hide K1
+par n=31 t=1
+wait t=1
+fadeout I t=1
+fadeout J t=1
+fadeout K t=1
+wait t=1
+fadeout P t=1
+fadeout Q t=1
+wait t=1
+wait t=1
+fadeout U t=1
+fadeout V t=1
+fadeout W t=1
+fadeout X t=1
+fadeout Y t=1
+wait t=1
+wait t=1
+fadeout A1 t=1
+fadeout B1 t=1
+fadeout C1 t=1
+fadeout D1 t=1
+fadeout E1 t=1
+fadeout F1 t=1
+fadeout G1 t=1
+fadeout H1 t=1
+fadeout I1 t=1
+fadeout J1 t=1
+wait t=1
+wait t=1
+fadeout L1 t=1
+fadeout M1 t=1
+wait t=1
+hide I
+hide J
+hide K
+hide P
+hide Q
+hide U
+hide V
+hide W
+hide X
+hide Y
+hide A1
+hide B1
+hide C1
+hide D1
+hide E1
+hide F1
+hide G1
+hide H1
+hide I1
+hide J1
+hide L1
+hide M1

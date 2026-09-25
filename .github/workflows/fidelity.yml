@@ -21,7 +21,7 @@ on:
       scenes:
         description: "Space-separated Class names, or 'all'"
         required: false
-        default: "ThreeDCamera TextReuse LongLesson"
+        default: "ThreeDCamera TextReuse LongLesson LectureEngine"
       every:
         description: "Sample every Nth frame"
         required: false
@@ -48,11 +48,13 @@ jobs:
             texlive texlive-latex-extra texlive-fonts-extra dvisvgm
 
       - name: Install Manim
-        run: pip install manim numpy pillow
+        # cartopy and shapely for the lecture engine's projection, which
+        # 14_lecture_engine.py uses without downloading any map data.
+        run: pip install manim numpy pillow cartopy shapely
 
       - name: Compare the program against Manim's own frames
         env:
-          SCENES: ${{ github.event.inputs.scenes || 'ThreeDCamera TextReuse LongLesson' }}
+          SCENES: ${{ github.event.inputs.scenes || 'ThreeDCamera TextReuse LongLesson LectureEngine' }}
           EVERY: ${{ github.event.inputs.every || '60' }}
         run: |
           declare -A FILES=(
@@ -67,6 +69,7 @@ jobs:
             [TextHybrid]=09_text_hybrid.py
             [TextReuse]=10_text_reuse.py
             [LongLesson]=11_long_lesson.py
+            [LectureEngine]=14_lecture_engine.py
           )
 
           if [ "$SCENES" = "all" ]; then

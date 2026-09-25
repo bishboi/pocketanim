@@ -31,6 +31,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
+# The lecture engine, so a scene can `from pocket_lecture import *`.
+sys.path.insert(0, str(REPO / "harness" / "lecture"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+FIXED_LAYOUT = re.compile(
+    r"^\s*#\s*panim:\s*fixed-layout\b|^\s*def beat\(self|^from\s+pocket_lecture\s+import",
+    re.M,
+)
 
 
 def _install_layout(scene_file: Path) -> None:
@@ -42,6 +51,11 @@ def _install_layout(scene_file: Path) -> None:
     """
     source = scene_file.read_text()
     if "layout_guard" in source:
+        return
+    # A lecture engine lays out its own panel, captions and labels on a grid
+    # it computes; the guard is for placements a model guessed. Run over a
+    # designed layout it shrank panel titles and pushed stacked facts apart.
+    if FIXED_LAYOUT.search(source):
         return
     guard = Path(__file__).with_name("layout_guard.py")
     preamble = (
@@ -221,6 +235,21 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         assets = sorted(p.name for p in Path("dsl/generated/assets").glob("*.panm")) \
             if Path("dsl/generated/assets").is_dir() else []
         result["assets"] = assets
+        if rec.sounds:
+            from dsl.export_dsl import PROGRAM_FPS
+            from dsl.interpret import parse, timeline_frames
+            from narration import mix
+
+            frames = timeline_frames(parse(program)["timeline"], PROGRAM_FPS)
+            # Beside the program, where tools/build_library looks for it.
+            track = Path(f"dsl/generated/{scene_class}.narration.wav")
+            result["narration"] = mix(rec.sounds, frames / PROGRAM_FPS, track.resolve())
+            result["narration"]["file"] = str(track)
+        # The exporter's verdict, as `export_dsl --write` records it: the
+        # library builder ships a program only with one, so a build from here
+        # can be packed for the phone as it stands.
+        Path(f"dsl/generated/{scene_class}.tier.json").write_text(json.dumps(
+            {k: result[k] for k in ("scene", "tier", "blockers", "program_bytes")}, indent=2) + "\n")
         return result
     finally:
         os.chdir(previous)

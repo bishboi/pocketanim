@@ -40,6 +40,9 @@ class DecodedIR:
     # point actually lands on each extreme.
     lo: np.ndarray | None = None
     hi: np.ndarray | None = None
+    # The frame's clear colour as (r, g, b). A program carries it on its
+    # `scene` line; a sampled container predates it and means black.
+    background: tuple[int, int, int] = (0, 0, 0)
 
     def frame(self, index: int) -> list[DecodedInstance]:
         """Resolve frame `index` to its full ordered instance list.

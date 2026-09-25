@@ -27,3 +27,13 @@ harness/app/.voice/
 # Scene library packed into the apps at build time
 player/benchmark/src/main/assets/
 player/app/src/main/assets/
+
+# Gradle's own state and per-module outputs. The last commit shipped ~220 of
+# these; they are machine-local and change on every build.
+.gradle/
+player/*/build/
+.kotlin/
+
+# The harness app's install and build
+harness/app/node_modules/
+harness/app/.next/

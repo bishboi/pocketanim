@@ -120,24 +120,16 @@ def scene_manifest(name: str, program: Path | None, container: Path | None) -> d
 
 
 def frame_count(program: Path) -> int | None:
-    """How long the scene runs, from the program rather than by expanding it."""
-    from dsl.interpret import parse
+    """How long the scene runs: the number of frames the interpreter expands.
 
-    scene = parse(program.read_text())
-    fps = scene["fps"]
-    total = 0
-    opened = False
-    for step in scene["timeline"]:
-        if step[0] == "show":
-            continue
-        if not opened:
-            opened = True
-            total += 1  # Manim's opening frame at t=0
-        seconds = step[-1] if step[0] in ("move", "spin", "wait") else None
-        if seconds is None:
-            seconds = next((v for v in reversed(step) if isinstance(v, float)), 0.0)
-        total += int(seconds * fps)
-    return total
+    This used to be summed from the timeline by hand, which had to re-learn
+    every verb's argument order -- `spin` ends in its axis, not its duration,
+    and a `par` or `lag` header owns the steps that follow it -- and got each
+    new one wrong. Expanding the program is exact by construction.
+    """
+    from dsl.interpret import load_program
+
+    return len(load_program(str(program)).records)
 
 
 def main() -> int:

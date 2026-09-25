@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -408,7 +409,13 @@ def build_2d(scene: dict) -> DecodedIR:
                 # change. An object that sits still is the same picture every
                 # frame, so a lecture does not recompose its map 30 times a
                 # second.
-                token = (id(obj["instances"]), id(obj["xform"]))
+                # The slot offset is part of the token: slots are frame-wide
+                # (DecodedIR.frame resolves instances by slot), so an object's
+                # cached list is only reusable while the same number of
+                # instances precedes it. Numbering each object from zero made
+                # every object after the first overwrite the one before it.
+                offset = len(frame)
+                token = (id(obj["instances"]), id(obj["xform"]), offset)
                 drawn = obj.get("_drawn")
                 if drawn is None or drawn[0] != token:
                     normals = obj.get("normals")
@@ -424,7 +431,7 @@ def build_2d(scene: dict) -> DecodedIR:
                             flag = SHADE_IN_3D if normal is not None else 0
                         built.append(
                             DecodedInstance(
-                                slot=index,
+                                slot=offset + index,
                                 atlas_id=atlas_id,
                                 transform=compose(obj["xform"], transform),
                                 fill=fill,
@@ -439,13 +446,19 @@ def build_2d(scene: dict) -> DecodedIR:
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
             else:
+                offset = len(frame)
                 token = (id(obj["points"]), tuple(obj["stroke"]), obj.get("alpha", 1.0), obj["width"])
                 drawn = obj.get("_drawn")
+                if drawn is not None and drawn[0] == token and drawn[1][0].slot != offset:
+                    # Same picture, new position in the draw order: keep the
+                    # atlas entry, renumber the slot.
+                    drawn = (token, [replace(drawn[1][0], slot=offset)])
+                    obj["_drawn"] = drawn
                 if drawn is None or drawn[0] != token:
                     shapes.append(obj["points"])
                     drawn = (token, [
                         DecodedInstance(
-                            slot=0,
+                            slot=offset,
                             atlas_id=len(shapes) - 1,
                             transform=identity.copy(),
                             fill=(0, 0, 0, 0),

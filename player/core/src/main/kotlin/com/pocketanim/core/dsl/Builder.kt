@@ -492,7 +492,17 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         runner.exit()
     }
 
-    private fun frames(seconds: Double) = (seconds * fps).toInt()
+    /**
+     * Frames Manim renders for an animation: len(np.arange(0, t, 1/fps)), a
+     * ceiling. (t * fps).toInt() agreed only on whole frames, and a narrated
+     * beat never is one, so a lecture ran a frame short per play.
+     */
+    private fun frames(seconds: Double) =
+        if (seconds <= 0.0) 0 else kotlin.math.ceil(seconds / (1.0 / fps)).toInt()
+
+    /** Frames Manim writes for a static wait: freeze_current_frame's int(d / dt). */
+    private fun waitFrames(seconds: Double) =
+        if (seconds <= 0.0) 0 else (seconds / (1.0 / fps)).toInt()
 
     private fun runnerFor(step: Step): Runner = when (step) {
         is Step.Create -> createRunner(step)
@@ -512,12 +522,12 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Morph -> morphRunner(step)
         is Step.Move -> moveRunner(step)
         is Step.Spin -> spinRunner(step)
-        is Step.Wait -> holdRunner(step.seconds)
+        is Step.Wait -> holdRunner(waitFrames(step.seconds))
         is Step.Parallel -> parallelRunner(step.members.map { runnerFor(it) })
         is Step.Lag -> lagRunner(step)
         is Step.Sequence -> sequenceRunner(step.members.map { runnerFor(it) })
-        is Step.Par, is Step.LagHeader -> holdRunner(0.0)
-        is Step.Show, is Step.Hide -> holdRunner(0.0)
+        is Step.Par, is Step.LagHeader -> holdRunner(0)
+        is Step.Show, is Step.Hide -> holdRunner(0)
     }
 
     /**
@@ -634,8 +644,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         override fun exit() = children.forEach { it.exit() }
     }
 
-    private fun holdRunner(seconds: Double) = object : Runner {
-        override val frames = frames(seconds)
+    private fun holdRunner(count: Int) = object : Runner {
+        override val frames = count
         override fun enter() {}
         override fun render(k: Int) = emit()
         override fun exit() {}

@@ -110,7 +110,11 @@ def main():
         diff = np.abs(actual.astype(np.int16) - expected.astype(np.int16))
         mae = float(diff.mean())
         bad = float((diff.max(axis=2) > 24).mean())
-        ink = float((expected.max(axis=2) > 24).mean())
+        # Ink is what differs from the background, which is not always black:
+        # on a paper-coloured lecture every pixel read as ink, and a scene
+        # with its whole drawing in the wrong place still scored near 0%.
+        clear = np.array(getattr(ir, "background", (0, 0, 0)), dtype=np.int16)
+        ink = float((np.abs(expected.astype(np.int16) - clear).max(axis=2) > 24).mean())
         # A blank frame has no ink and cannot disagree about any of it.
         relative = bad / ink if ink > 0 else 0.0
         # The first frames of a reveal hold a few dozen lit pixels, and a ratio

@@ -43,6 +43,25 @@ LIGHT_SOURCE = np.array([-7.0, -9.0, 10.0])
 BEGUN = object()
 
 
+def play_frames(seconds: float, fps: int) -> int:
+    """Frames Manim renders for an animation: len(np.arange(0, t, 1/fps)).
+
+    A ceiling. int(t * fps) is the same for a whole number of frames, which is
+    all the corpus had; a narrated beat never is, and every animated play of
+    one came out a frame short, so a lecture ran seconds ahead of its video.
+    """
+    if seconds <= 0:
+        return 0
+    return math.ceil(seconds / (1.0 / fps))
+
+
+def wait_frames(seconds: float, fps: int) -> int:
+    """Frames Manim writes for a static wait: freeze_current_frame's int(d / dt)."""
+    if seconds <= 0:
+        return 0
+    return int(seconds / (1.0 / fps))
+
+
 def begin(generator):
     """Run a verb's set-up. Returns the generator, positioned at frame 0."""
     try:
@@ -558,8 +577,8 @@ def build_2d(scene: dict) -> DecodedIR:
             objects[name] = new_shape(name)
             full = objects[name]["points"]
             yield BEGUN
-            for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / max(int(duration * fps), 1))
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = rate((frame_index + 1) / max(play_frames(duration, fps), 1))
                 if removing:
                     alpha = 1.0 - alpha
                 objects[name]["points"] = pointwise_become_partial(full, 0.0, alpha)
@@ -576,7 +595,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 objects[name] = new_shape(name)
             obj = objects[name]
             obj["visible"] = True
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "asset":
                 base = [tuple(inst) for inst in obj["instances"]]
                 if forced is not None:
@@ -626,8 +645,8 @@ def build_2d(scene: dict) -> DecodedIR:
             c0 = np.array(objects[source]["stroke"], dtype=float)
             c1 = np.array(target_spec["stroke"], dtype=float)
             yield BEGUN
-            for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / max(int(duration * fps), 1))
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = rate((frame_index + 1) / max(play_frames(duration, fps), 1))
                 delta = end_pts - start_pts
                 bulge = math.sin(math.pi * alpha) * arc
                 perp = np.column_stack([
@@ -642,7 +661,7 @@ def build_2d(scene: dict) -> DecodedIR:
         elif step[0] == "stroke":
             _, name, color, width, opacity, duration = step
             obj = objects[name]
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 c0 = np.array(obj["stroke"], dtype=float)
                 w0 = float(obj["width"])
@@ -693,8 +712,8 @@ def build_2d(scene: dict) -> DecodedIR:
                 centre = obj.get("centre", np.zeros(3))
 
             yield BEGUN
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 scale = 1.0 + (factor - 1.0) * alpha
                 # Manim scales about the object's centre, then translates.
                 step_linear = np.identity(3) * scale
@@ -730,7 +749,7 @@ def build_2d(scene: dict) -> DecodedIR:
             else:
                 lag = min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
             yield BEGUN
             for frame_index in range(total):
                 alpha = (frame_index + 1) / total
@@ -804,7 +823,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
             count = max(len(spans), 1)
             window = 1.0 / (1.0 + lag * (count - 1))
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
             yield BEGUN
             for frame_index in range(total):
                 alpha = (frame_index + 1) / total
@@ -868,8 +887,8 @@ def build_2d(scene: dict) -> DecodedIR:
             dst_base = [tuple(i) for i in dst["instances"]]
 
             yield BEGUN
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 built = []
                 for si, di in pairs:
                     a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
@@ -939,8 +958,8 @@ def build_2d(scene: dict) -> DecodedIR:
                 stacked = np.vstack(corners) if corners else np.zeros((1, 3))
                 asset_centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
             yield BEGUN
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 shown = alpha if fading_in else 1.0 - alpha
                 scale = from_scale + (1.0 - from_scale) * shown
                 offset = sign * shift * (1.0 - shown)
@@ -982,7 +1001,7 @@ def build_2d(scene: dict) -> DecodedIR:
             # family, including members that had no fill, as Manim's does.
             _, name, color, opacity, duration = step
             obj = objects[name]
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 f0 = np.array(obj.get("fill", (0, 0, 0, 0)), dtype=float)
                 f1 = f0.copy()
@@ -1017,7 +1036,7 @@ def build_2d(scene: dict) -> DecodedIR:
             target_zoom = rest[0] if rest else None
             start_phi, start_theta = camera_state["phi"], camera_state["theta"]
             start_zoom = scene.get("zoom", ZOOM)
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
             yield BEGUN
             for frame_index in range(total):
                 alpha = smooth((frame_index + 1) / total)
@@ -1037,7 +1056,7 @@ def build_2d(scene: dict) -> DecodedIR:
             # compares the hold, so it would not have shown up there.
             _, rate, duration, *rest = step
             about = rest[0] if rest else "theta"
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
             yield BEGUN
             for frame_index in range(total):
                 if frame_index < total - 1:
@@ -1052,7 +1071,7 @@ def build_2d(scene: dict) -> DecodedIR:
             rate_fn = RATE_FUNCS[rate_name]
             obj = objects[name]
             origin = np.array([at[0], at[1], 0.0])
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 base_points = obj["points"].copy()
                 yield BEGUN
@@ -1089,7 +1108,7 @@ def build_2d(scene: dict) -> DecodedIR:
             # A short there-and-back scale to 1.2 about the object's centre.
             _, name, duration = step
             obj = objects[name]
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 base_points = obj["points"].copy()
                 centre = (base_points.min(axis=0) + base_points.max(axis=0)) / 2.0
@@ -1131,7 +1150,7 @@ def build_2d(scene: dict) -> DecodedIR:
             count = max(len(base), 1)
             lag = min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             yield BEGUN
             for frame_index in range(total):
                 alpha = 1.0 - (frame_index + 1) / total
@@ -1149,7 +1168,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
         elif step[0] == "wait":
             yield BEGUN
-            for _ in range(int(step[1] * fps)):
+            for _ in range(wait_frames(step[1], fps)):
                 yield
 
     def frames_of(node) -> int:
@@ -1193,7 +1212,7 @@ def build_2d(scene: dict) -> DecodedIR:
             max_end = max(
                 (starts_at[i] + run_times[i] for i in range(len(children))), default=1.0
             )
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
             runners = [None] * len(children)
             produced = [0] * len(children)
             yield BEGUN
@@ -1254,7 +1273,7 @@ def build_2d(scene: dict) -> DecodedIR:
         # frame count Manim would have rendered without copying the scene
         # thousands of times. A lecture is mostly these holds.
         if step[0] == "wait":
-            n = int(step[1] * fps)
+            n = wait_frames(step[1], fps)
             if n > 0:
                 emit()
                 last = records[-1]
@@ -1284,26 +1303,26 @@ def step_frames(node, fps: int) -> int:
     if kind == "sequence":
         return sum(step_frames(m, fps) for m in node[1])
     if kind == "laggroup":
-        return int(node[2] * fps)
+        return play_frames(node[2], fps)
     if kind in ("show", "hide"):
         return 0
     if kind == "wait":
-        return int(node[1] * fps)
+        return wait_frames(node[1], fps)
     if kind in ("move", "spin"):
-        return int(node[3 if kind == "move" else 2] * fps)
+        return play_frames(node[3 if kind == "move" else 2], fps)
     if kind in ("grow", "indicate", "unwrite"):
-        return max(int(node[2] * fps), 1)
+        return max(play_frames(node[2], fps), 1)
     if kind in ("stroke", "fill"):
-        return max(int(node[-1] * fps), 1)
+        return max(play_frames(node[-1], fps), 1)
     if kind == "rotate":
-        return max(int(node[4] * fps), 1)
+        return max(play_frames(node[4], fps), 1)
     if kind == "xform":
-        return int(node[4] * fps)
+        return play_frames(node[4], fps)
     if kind == "laggedgrow":
-        return int(node[4] * fps)
+        return play_frames(node[4], fps)
     if kind in ("transform", "morph"):
-        return int(node[3] * fps)
-    return int(node[2] * fps)
+        return play_frames(node[3], fps)
+    return play_frames(node[2], fps)
 
 def fold_steps(steps):
     """Fold `par` and `lag` headers into nodes, as the phone's builder does.

@@ -592,6 +592,10 @@ class Lecture(Scene):
 
     SECTIONS: list[str] = []
     SECTION = 0
+    # Where panel text starts. A map lecture keeps the left for the map and
+    # the panel to its right; without a map the column sits near the centre.
+    TEXT_LEFT = -3.0
+    PANEL_BOX = (-3.55, 5.9)   # the panel's left and right edges
 
     def setup(self):
         self.cap = None
@@ -642,7 +646,16 @@ class Lecture(Scene):
         anims = [a for a in anims if a is not None]
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
-            self.play(*anims, run_time=spent)
+            head = [a for a in anims if getattr(a, "panel_head", False)]
+            items = [a for a in anims if getattr(a, "panel_item", False)]
+            if head and items:
+                # A new panel clears the old one before its facts arrive;
+                # played together, the facts landed on the fading old panel.
+                rest = [a for a in anims if a not in items]
+                self.play(*rest, run_time=spent * 0.5)
+                self.play(*items, run_time=spent * 0.5)
+            else:
+                self.play(*anims, run_time=spent)
         rest = seconds + pad - spent
         if rest > 0.02:
             self.wait(rest)
@@ -675,8 +688,9 @@ class Lecture(Scene):
 
     # ---------------- side panel ----------------
     def panel_bg(self) -> VGroup:
-        r = Rectangle(width=6.0, height=6.55, fill_color=P.PANEL, fill_opacity=0.94, stroke_width=0)
-        r.move_to(RIGHT * 4.05 + UP * 0.35)
+        left, right = self.PANEL_BOX
+        r = Rectangle(width=right - left, height=6.55, fill_color=P.PANEL, fill_opacity=0.94, stroke_width=0)
+        r.move_to(RIGHT * (left + right) / 2 + UP * 0.35)
         style = TH["panel_style"]
         if style == "solid":
             parts = [r, Line(r.get_corner(UL), r.get_corner([-1, -1, 0]), color=P.SAND, stroke_width=2,
@@ -691,7 +705,7 @@ class Lecture(Scene):
             tape.move_to(note.get_top()).rotate(0.05)
             parts = [VGroup(shadow, note).rotate(-0.012), tape]
         elif style == "marker":
-            pts = [np.array([1.12 + 0.02 * np.sin(i * 1.7), 3.5 - i * 0.26, 0]) for i in range(26)]
+            pts = [np.array([left + 0.07 + 0.02 * np.sin(i * 1.7), 3.5 - i * 0.26, 0]) for i in range(26)]
             parts = [VMobject(stroke_color=P.CREAM, stroke_width=3.2).set_points_smoothly(pts)]
         else:  # dashed
             parts = [DashedVMobject(r.copy().set_fill(opacity=0).set_stroke(P.MUTED, 1.5), num_dashes=90)]
@@ -701,6 +715,11 @@ class Lecture(Scene):
 
     def reveal(self, group, text_part=None):
         """The style's entrance for panel content."""
+        anim = self._entrance(group, text_part)
+        anim.panel_item = True
+        return anim
+
+    def _entrance(self, group, text_part):
         mode = TH["anim"]
         if mode in ("write", "type") and text_part is not None:
             rest = [m for m in group if m is not text_part]
@@ -714,9 +733,9 @@ class Lecture(Scene):
         """Clear the panel and head it. Returns the animation."""
         old = self.panel_items
         t = T(title.upper() if TH["upper"] else title, 34, P.TITLE, font=TH["serif"], weight=BOLD)
-        t.move_to(RIGHT * TEXT_X + UP * 3.05, aligned_edge=LEFT)
+        t.move_to(RIGHT * self.TEXT_LEFT + UP * 3.05, aligned_edge=LEFT)
         if t.width > 5.2:
-            t.scale_to_fit_width(5.2).align_to(RIGHT * TEXT_X, LEFT)
+            t.scale_to_fit_width(5.2).align_to(RIGHT * self.TEXT_LEFT, LEFT)
         items = VGroup(t)
         if TH.get("highlight"):
             bar = Rectangle(width=t.width + 0.3, height=t.height * 0.62, fill_color=TH["highlight"],
@@ -737,12 +756,12 @@ class Lecture(Scene):
         items.set_z_index(Z_PANEL_TEXT)
         self.panel_items = VGroup(items)
         show = Write(items) if TH["anim"] == "write" else FadeIn(items, shift=RIGHT * 0.2)
-        if len(old):
-            return AnimationGroup(FadeOut(old), show, lag_ratio=0.5)
-        return show
+        anim = AnimationGroup(FadeOut(old), show, lag_ratio=0.5) if len(old) else show
+        anim.panel_head = True
+        return anim
 
     def _stack(self, group, gap: float):
-        group.move_to(RIGHT * TEXT_X + UP * self.panel_y, aligned_edge=UL)
+        group.move_to(RIGHT * self.TEXT_LEFT + UP * self.panel_y, aligned_edge=UL)
         self.panel_y = group.get_bottom()[1] - gap
         group.set_z_index(Z_PANEL_TEXT)
         self.panel_items.add(group)
@@ -771,7 +790,7 @@ class Lecture(Scene):
         top = max((float(v) for _, v in items), default=1.0) or 1.0
         labels = [fit(T(str(name), 16, P.CREAM), 1.3) for name, _ in items]
         column = max((m.width for m in labels), default=0.5)
-        axis_x = TEXT_X + column + 0.2
+        axis_x = self.TEXT_LEFT + column + 0.2
         rows = VGroup()
         y = self.panel_y - 0.15
         for label, (_, value) in zip(labels, items):
@@ -786,8 +805,15 @@ class Lecture(Scene):
         rows.set_z_index(Z_PANEL_TEXT)
         self.panel_items.add(rows)
         self.panel_y = rows.get_bottom()[1] - 0.3
-        return LaggedStart(*[AnimationGroup(FadeIn(r[0]), GrowFromEdge(r[1], LEFT), FadeIn(r[2]))
+        anim = LaggedStart(*[AnimationGroup(FadeIn(r[0]), GrowFromEdge(r[1], LEFT), FadeIn(r[2]))
                              for r in rows], lag_ratio=0.2)
+        anim.panel_item = True
+        return anim
+
+    def add_panel(self, run_time: float = 0.8) -> None:
+        """Put the panel up on its own, for a chapter with no map."""
+        self.panel = self.panel_bg()
+        self.play(FadeIn(self.panel), run_time=run_time)
 
     def clear_panel(self):
         old = self.panel_items
@@ -917,6 +943,8 @@ class MapLecture(Lecture):
     REGION: dict = dict(country="India")
     MAP_CENTER = (-3.0, 0.2)
     MAP_SIZE = (6.3, 6.5)
+    TEXT_LEFT = TEXT_X
+    PANEL_BOX = (PANEL_X, 7.05)
 
     # ---------------- region ----------------
     @property

@@ -155,7 +155,8 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
     surface = cairo.ImageSurface(cairo.FORMAT_RGB24, width, height)
     ctx = cairo.Context(surface)
 
-    ctx.set_source_rgb(0, 0, 0)
+    r, g, b = getattr(ir, "background", (0, 0, 0))
+    ctx.set_source_rgb(r / 255.0, g / 255.0, b / 255.0)
     ctx.paint()
 
     # Work in scene coordinates: y up, origin centred. Line widths are then in

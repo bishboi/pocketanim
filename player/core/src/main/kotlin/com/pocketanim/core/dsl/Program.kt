@@ -119,6 +119,8 @@ class Program(
     val timeline: List<Step>,
     /** Declared draw order by name. Absent means 0. */
     val z: Map<String, Double> = emptyMap(),
+    /** The clear colour, ARGB, from `bg=` on the scene line. */
+    val background: Int = 0xFF000000.toInt(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -129,6 +131,7 @@ class Program(
             var phi = 0.0
             var theta = 0.0
             var zoom = 1.0
+            var background = 0xFF000000.toInt()
             val shapes = LinkedHashMap<String, ShapeSpec>()
             val assets = LinkedHashMap<String, Pair<String, String>>()
             val surfaces = ArrayList<SurfaceSpec>()
@@ -158,6 +161,7 @@ class Program(
                     "scene" -> {
                         fps = args["fps"]?.toInt() ?: 30
                         if (positional.isNotEmpty()) mode = positional[0]
+                        args["bg"]?.let { background = hexRgb(it) or 0xFF000000.toInt() }
                     }
                     "circle", "square", "rect" -> shapes[positional[0]] = ShapeSpec(
                         kind = verb,
@@ -273,7 +277,7 @@ class Program(
                 }
             }
 
-            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z)
+            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background)
         }
 
         private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom")

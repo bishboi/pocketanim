@@ -244,6 +244,8 @@ export type SceneIR =
   | {
       mode: "2d";
       fps: number;
+      /** The program's clear colour, "#RRGGBB". Absent means black. */
+      background?: string;
       shapes: number[][];
       pieces: Instance[][];
       runs: [number, number[]][];

@@ -116,8 +116,11 @@ export function drawFrame(
   instances: Instance[],
   width: number,
   height: number,
+  background = "#000000",
 ) {
-  ctx.fillStyle = "#000000";
+  // The program's own clear colour. A paper or whiteboard style on black is
+  // a different picture.
+  ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
   const scaleX = width / FRAME_WIDTH;
   const scaleY = height / FRAME_HEIGHT;

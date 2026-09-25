@@ -205,7 +205,10 @@ class PanimView @JvmOverloads constructor(
                 val surface = surfaceCanvas ?: continue
                 val canvas = surface.acquire() ?: continue
                 try {
-                    val depth = sink.begin(canvas, widthPx, heightPx, backgroundColorArgb)
+                    // The scene's own clear colour: a paper or whiteboard style
+                    // drawn on black is a different picture, not a letterbox.
+                    val clear = if (active.background != BLACK) active.background else backgroundColorArgb
+                    val depth = sink.begin(canvas, widthPx, heightPx, clear)
                     try {
                         // Options, not defaults: the only one that depends on
                         // the target is level of detail, and half a pixel is a
@@ -239,3 +242,5 @@ class PanimView @JvmOverloads constructor(
         }
     }
 }
+
+private val BLACK = 0xFF000000.toInt()

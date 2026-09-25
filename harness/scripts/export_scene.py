@@ -31,6 +31,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
+# The lecture engine, so a scene can `from pocket_lecture import *`.
+sys.path.insert(0, str(REPO / "harness" / "lecture"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 FIXED_LAYOUT = re.compile(
@@ -232,6 +235,13 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         assets = sorted(p.name for p in Path("dsl/generated/assets").glob("*.panm")) \
             if Path("dsl/generated/assets").is_dir() else []
         result["assets"] = assets
+        if rec.sounds:
+            from dsl.export_dsl import PROGRAM_FPS
+            from dsl.interpret import parse, timeline_frames
+            from narration import mix
+
+            frames = timeline_frames(parse(program)["timeline"], PROGRAM_FPS)
+            result["narration"] = mix(rec.sounds, frames / PROGRAM_FPS, Path("narration.wav").resolve())
         return result
     finally:
         os.chdir(previous)

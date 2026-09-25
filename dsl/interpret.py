@@ -196,6 +196,8 @@ def parse(text: str) -> dict:
 
         if verb == "scene":
             scene["fps"] = int(args.get("fps", 30))
+            if "bg" in args:
+                scene["background"] = hex_rgb(args["bg"])
             if positional:
                 scene["mode"] = positional[0]
         elif verb in ("circle", "square", "rect"):
@@ -557,7 +559,7 @@ def build_2d(scene: dict) -> DecodedIR:
             full = objects[name]["points"]
             yield BEGUN
             for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / (duration * fps))
+                alpha = rate((frame_index + 1) / max(int(duration * fps), 1))
                 if removing:
                     alpha = 1.0 - alpha
                 objects[name]["points"] = pointwise_become_partial(full, 0.0, alpha)
@@ -625,7 +627,7 @@ def build_2d(scene: dict) -> DecodedIR:
             c1 = np.array(target_spec["stroke"], dtype=float)
             yield BEGUN
             for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / (duration * fps))
+                alpha = rate((frame_index + 1) / max(int(duration * fps), 1))
                 delta = end_pts - start_pts
                 bulge = math.sin(math.pi * alpha) * arc
                 perp = np.column_stack([
@@ -692,7 +694,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
             yield BEGUN
             for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
                 scale = 1.0 + (factor - 1.0) * alpha
                 # Manim scales about the object's centre, then translates.
                 step_linear = np.identity(3) * scale
@@ -867,7 +869,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
             yield BEGUN
             for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
                 built = []
                 for si, di in pairs:
                     a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
@@ -938,7 +940,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 asset_centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
             yield BEGUN
             for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+                alpha = smooth((frame_index + 1) / max(int(duration * fps), 1))
                 shown = alpha if fading_in else 1.0 - alpha
                 scale = from_scale + (1.0 - from_scale) * shown
                 offset = sign * shift * (1.0 - shown)
@@ -1151,75 +1153,9 @@ def build_2d(scene: dict) -> DecodedIR:
                 yield
 
     def frames_of(node) -> int:
-        """How many frames a (possibly folded) step occupies.
+        return step_frames(node, fps)
 
-        Mirrors each branch of play_step: most verbs run int(t * fps) frames,
-        and the ones that guard with max(..., 1) run at least one.
-        """
-        kind = node[0]
-        if kind == "parallel":
-            return max((frames_of(m) for m in node[1]), default=0)
-        if kind == "sequence":
-            return sum(frames_of(m) for m in node[1])
-        if kind == "laggroup":
-            return int(node[2] * fps)
-        if kind in ("show", "hide"):
-            return 0
-        if kind == "wait":
-            return int(node[1] * fps)
-        if kind in ("move", "spin"):
-            return int(node[3 if kind == "move" else 2] * fps)
-        if kind in ("grow", "indicate", "unwrite"):
-            return max(int(node[2] * fps), 1)
-        if kind in ("stroke", "fill"):
-            return max(int(node[-1] * fps), 1)
-        if kind == "rotate":
-            return max(int(node[4] * fps), 1)
-        if kind == "xform":
-            return int(node[4] * fps)
-        if kind == "laggedgrow":
-            return int(node[4] * fps)
-        if kind in ("transform", "morph"):
-            return int(node[3] * fps)
-        return int(node[2] * fps)
-
-    def fold(steps):
-        """Fold `par` and `lag` headers into nodes, as the phone's builder does.
-
-        Both headers claim the lines after them, and a `lag` can sit inside a
-        `par` -- a beat that pops a marker while the panel changes. This used
-        to understand `lag` only at the top level, so a nested one played its
-        children all at once. Show and hide are not verbs: inside a `par`
-        window they are carried out to follow it.
-        """
-        out = []
-        cursor = 0
-        while cursor < len(steps):
-            step = steps[cursor]
-            cursor += 1
-            if step[0] == "par":
-                members, carried = [], []
-                while len(members) < step[1] and cursor < len(steps):
-                    nxt = steps[cursor]
-                    cursor += 1
-                    (carried if nxt[0] in ("show", "hide") else members).append(nxt)
-                if members:
-                    out.append(("parallel", fold(members)))
-                out.extend(carried)
-            elif step[0] == "lag":
-                children = []
-                for run in step[3]:
-                    inner = fold(steps[cursor:cursor + run])
-                    cursor += run
-                    if len(inner) == 1:
-                        children.append(inner[0])
-                    elif inner:
-                        children.append(("sequence", inner))
-                if children:
-                    out.append(("laggroup", step[2], step[4], children))
-            else:
-                out.append(step)
-        return out
+    fold = fold_steps
 
     def play_node(node):
         """A folded step as a generator: BEGUN once set up, then one per frame."""
@@ -1331,8 +1267,102 @@ def build_2d(scene: dict) -> DecodedIR:
             emit()
 
     return DecodedIR(
-        fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None
+        fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None,
+        background=tuple(scene.get("background", (0, 0, 0))),
     )
+
+
+def step_frames(node, fps: int) -> int:
+    """How many frames a (possibly folded) step occupies.
+
+    Mirrors each branch of play_step: most verbs run int(t * fps) frames,
+    and the ones that guard with max(..., 1) run at least one.
+    """
+    kind = node[0]
+    if kind == "parallel":
+        return max((step_frames(m, fps) for m in node[1]), default=0)
+    if kind == "sequence":
+        return sum(step_frames(m, fps) for m in node[1])
+    if kind == "laggroup":
+        return int(node[2] * fps)
+    if kind in ("show", "hide"):
+        return 0
+    if kind == "wait":
+        return int(node[1] * fps)
+    if kind in ("move", "spin"):
+        return int(node[3 if kind == "move" else 2] * fps)
+    if kind in ("grow", "indicate", "unwrite"):
+        return max(int(node[2] * fps), 1)
+    if kind in ("stroke", "fill"):
+        return max(int(node[-1] * fps), 1)
+    if kind == "rotate":
+        return max(int(node[4] * fps), 1)
+    if kind == "xform":
+        return int(node[4] * fps)
+    if kind == "laggedgrow":
+        return int(node[4] * fps)
+    if kind in ("transform", "morph"):
+        return int(node[3] * fps)
+    return int(node[2] * fps)
+
+def fold_steps(steps):
+    """Fold `par` and `lag` headers into nodes, as the phone's builder does.
+
+    Both headers claim the lines after them, and a `lag` can sit inside a
+    `par` -- a beat that pops a marker while the panel changes. This used
+    to understand `lag` only at the top level, so a nested one played its
+    children all at once. Show and hide are not verbs: inside a `par`
+    window they are carried out to follow it.
+    """
+    out = []
+    cursor = 0
+    while cursor < len(steps):
+        step = steps[cursor]
+        cursor += 1
+        if step[0] == "par":
+            members, carried = [], []
+            while len(members) < step[1] and cursor < len(steps):
+                nxt = steps[cursor]
+                cursor += 1
+                (carried if nxt[0] in ("show", "hide") else members).append(nxt)
+            if members:
+                out.append(("parallel", fold_steps(members)))
+            out.extend(carried)
+        elif step[0] == "lag":
+            children = []
+            for run in step[3]:
+                inner = fold_steps(steps[cursor:cursor + run])
+                cursor += run
+                if len(inner) == 1:
+                    children.append(inner[0])
+                elif inner:
+                    children.append(("sequence", inner))
+            if children:
+                out.append(("laggroup", step[2], step[4], children))
+        else:
+            out.append(step)
+    return out
+
+
+
+def timeline_frames(timeline: list, fps: int) -> int:
+    """Frames a parsed timeline occupies, without expanding any geometry.
+
+    The same count build_2d produces: Manim's opening frame once there is
+    anything to play, then each folded step. The exporter places narration
+    with it, so a sound starts on the frame its beat does rather than at a
+    wall-clock time that drifts a frame per verb from the program.
+    """
+    total = 0
+    opened = False
+    for node in fold_steps(timeline):
+        if node[0] in ("show", "hide"):
+            continue
+        if not opened:
+            opened = True
+            total += 1
+        total += step_frames(node, fps)
+    return total
 
 
 def build(scene: dict) -> DecodedIR:

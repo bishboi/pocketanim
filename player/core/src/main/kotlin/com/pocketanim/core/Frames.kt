@@ -14,6 +14,9 @@ interface Frames {
     val fps: Int
     val frameCount: Int
 
+    /** The clear colour, ARGB. A sampled container has none and means black. */
+    val background: Int get() = 0xFF000000.toInt()
+
     fun shape(atlasId: Int): FloatArray
 
     /** The camera for this frame, or null for a 2D scene. */

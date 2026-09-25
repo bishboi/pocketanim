@@ -75,6 +75,18 @@ class Recorder:
         self.covered: set[int] = set()
         # `hide` lines owed before the next verb; see absorb().
         self.pending: list[str] = []
+        # Program time in seconds, advanced by every play and wait, and the
+        # sounds the scene started along the way: (seconds, path, gain). A
+        # narrated lecture calls add_sound once per beat; the program has no
+        # audio verb, so these travel beside it as one mixed track.
+        self.clock = 0.0
+        self.background: str | None = None
+        # The Group an AnimationGroup or LaggedStart wraps its children in.
+        # Manim adds it to the scene for the length of the play; it is
+        # plumbing, not content. Baked, it froze the old fact panel and the
+        # new title into one asset that no removal ever named.
+        self.containers: dict[int, object] = {}
+        self.sounds: list[tuple[float, str, float]] = []
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -705,8 +717,12 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
     return pack(anim, duration)
 
 
+# The rate every program is emitted at; see emit().
+PROGRAM_FPS = 30
+
+
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
-    from manim import Scene, tempconfig
+    from manim import Scene, config, tempconfig
     from manim.renderer.cairo_renderer import CairoRenderer
     from manim.animation.creation import Create, DrawBorderThenFill
     from manim.animation.creation import Write
@@ -735,6 +751,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         "add": Scene.add,
         "remove": Scene.remove,
         "clear": Scene.clear,
+        "add_sound": Scene.add_sound,
         "move_camera": ThreeDScene.move_camera,
         "set_orientation": ThreeDScene.set_camera_orientation,
         "begin_spin": ThreeDScene.begin_ambient_camera_rotation,
@@ -769,8 +786,23 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             if not np.isclose(float(anim.lag_ratio), min(4.0 / children, 0.2)):
                 rec.blockers.append(f"{name} with lag_ratio={float(anim.lag_ratio):g}")
 
+    def remember_containers(anims) -> None:
+        for anim in anims:
+            children = getattr(anim, "animations", None)
+            if children is None:
+                continue
+            group = getattr(anim, "group", None)
+            if group is not None:
+                rec.containers[id(group)] = group
+            remember_containers(children)
+
     def patched_play(self, *animations, **kwargs):
+        remember_containers(animations)
         run_time = kwargs.get("run_time")
+        if not state["in_camera_move"]:
+            spans = [run_time if run_time is not None else float(getattr(a, "run_time", 1.0) or 0.0)
+                     for a in animations]
+            rec.clock += max(spans, default=0.0)
         emitted_before = len(rec.timeline)
         flat = []
         sequential = False
@@ -1026,7 +1058,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # Objects put on stage directly rather than animated in. Missing these
         # produced a program that claimed tier 1 while drawing nothing.
         for mob in mobjects:
-            if id(mob) in rec.covered:
+            if id(mob) in rec.covered or id(mob) in rec.containers:
                 continue
             name = rec.declare(mob)
             rec.flush()
@@ -1135,6 +1167,27 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         state["spin_rate"] = None
         return originals["stop_spin"](self, **kw)
 
+    def patched_add_sound(self, sound_file, time_offset=0, gain=None, **kw):
+        from pathlib import Path as _Path
+
+        from dsl.interpret import parse, timeline_frames
+
+        path = _Path(str(sound_file))
+        if path.is_file():
+            # The frame the program has reached, not the wall clock: verbs run
+            # whole frames, and a lecture of a few hundred beats would drift
+            # seconds out of sync the other way.
+            reached = timeline_frames(parse("\n".join(rec.timeline))["timeline"], PROGRAM_FPS)
+            rec.sounds.append((reached / PROGRAM_FPS + float(time_offset or 0), str(path.resolve()),
+                               float(gain) if gain is not None else 0.0))
+        try:
+            return originals["add_sound"](self, sound_file, time_offset=time_offset, gain=gain, **kw)
+        except Exception:
+            # Recording only needs the placement; a sound Manim cannot open
+            # must not end the export.
+            return None
+
+    Scene.add_sound = patched_add_sound
     Scene.play = patched_play
     Scene.add = patched_add
     Scene.clear = patched_clear
@@ -1176,7 +1229,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 "disable_caching": True,
             }
         ):
-            getattr(module, scene_class)().render()
+            scene = getattr(module, scene_class)()
+            scene.render()
+            rec.background = _colour_text(
+                getattr(scene.camera, "background_color", None) or config.background_color
+            )[:7]
     finally:
         CairoRenderer.play = original_cairo_play
         TransformMatchingAbstractBase.__init__ = matching_init
@@ -1184,6 +1241,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         Scene.add = originals["add"]
         Scene.remove = originals["remove"]
         Scene.clear = originals["clear"]
+        Scene.add_sound = originals["add_sound"]
         ThreeDScene.move_camera = originals["move_camera"]
         ThreeDScene.set_camera_orientation = originals["set_orientation"]
         ThreeDScene.begin_ambient_camera_rotation = originals["begin_spin"]
@@ -1268,7 +1326,12 @@ def decimate_assets(rec: Recorder, program: str) -> dict:
 
 
 def emit(rec: Recorder, mode: str, fps: int = 30) -> str:
-    lines = [f"scene {mode} fps={fps}"] + rec.declarations + rec.timeline
+    # The clear colour, when the scene set one. Every renderer painted black,
+    # so a light style -- paper, whiteboard, kraft -- came out on black.
+    header = f"scene {mode} fps={fps}"
+    if rec.background and rec.background.upper() != "#000000":
+        header += f" bg={rec.background.upper()}"
+    lines = [header] + rec.declarations + rec.timeline
     return "\n".join(lines) + "\n"
 
 

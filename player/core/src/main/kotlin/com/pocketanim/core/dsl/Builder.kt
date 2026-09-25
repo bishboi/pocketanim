@@ -21,6 +21,7 @@ private const val OUTLINE_STROKE_WIDTH = 2.0
 internal class Builder(private val program: Program, private val loader: AssetLoader) {
 
     val fps = program.fps
+    val background = program.background
     val is3d = program.is3d
     private val shapes = ArrayList<DoubleArray>()
     private val objects = LinkedHashMap<String, Obj>()

@@ -230,6 +230,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     if engine_path:
         out.append(f"sys.path.insert(0, {_q(engine_path)})")
     out += [
+        "from manim import *  # noqa: E402,F403",
         "from pocket_lecture import *  # noqa: E402,F403",
         "",
         "",
@@ -272,13 +273,27 @@ def main() -> int:
     ap.add_argument("script")
     ap.add_argument("-o", "--out")
     ap.add_argument("--check", action="store_true", help="lint only; print errors and warnings as JSON")
+    ap.add_argument("--json", action="store_true",
+                    help="print {source, errors, warnings} as one JSON object, for the harness app")
     ap.add_argument("--class", dest="scene_class", default="GeneratedScene")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
     text = sys.stdin.read() if args.script == "-" else Path(args.script).read_text()
-    script = json.loads(text)
+    try:
+        script = json.loads(text)
+        if not isinstance(script, dict):
+            raise ValueError("the script must be a JSON object")
+    except ValueError as error:
+        if args.json:
+            print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
+            return 1
+        raise
     errors, warnings = lint(script)
+    if args.json:
+        source = None if errors else compile_script(script, args.scene_class)
+        print(json.dumps({"source": source, "errors": errors, "warnings": warnings}))
+        return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))
         return 1 if errors else 0

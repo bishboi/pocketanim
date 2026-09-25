@@ -24,6 +24,7 @@ type ExportState = {
   frames?: number;
   error?: string;
   stored?: { configured: boolean; reason?: string; error?: string };
+  narrationUrl?: string | null;
 };
 
 type TraceEvent = {
@@ -259,7 +260,20 @@ export default function Home() {
     }
     const fixed = exported.source ?? source;
     setVersions((all) =>
-      all.map((v, i) => (i === index ? { ...v, exported, ir, sceneClass: played, source: fixed } : v)),
+      all.map((v, i) =>
+        i === index
+          ? {
+              ...v,
+              exported,
+              ir,
+              sceneClass: played,
+              source: fixed,
+              // The scene's own narration, when it has one, is the track that
+              // matches this build; a Kokoro voiceover belongs to # voice: lines.
+              voiceUrl: exported.narrationUrl ?? v.voiceUrl,
+            }
+          : v,
+      ),
     );
     setFrame(0);
   }
@@ -346,17 +360,22 @@ export default function Home() {
       }
       if (!source.trim())
         throw new Error("The agent finished without a scene.");
-      setBusy("Recording the voiceover…");
-      const spoken = await post("/api/voice", { source, templateId: styleId });
-      if (spoken.source) source = spoken.source;
-      setVersions((all) =>
-        all.map((item, i) =>
-          i === index
-            ? { ...item, source, voiceUrl: spoken.audioUrl ?? null }
-            : item,
-        ),
-      );
-      if (!spoken.ok && spoken.error) setError(spoken.error);
+      // Only a scene with # voice: lines is voiced here. A lecture speaks its
+      // own beats during export, and asking Kokoro for lines it does not have
+      // put an error over every lecture.
+      if (/^\s*# voice:/m.test(source)) {
+        setBusy("Recording the voiceover…");
+        const spoken = await post("/api/voice", { source, templateId: styleId });
+        if (spoken.source) source = spoken.source;
+        setVersions((all) =>
+          all.map((item, i) =>
+            i === index
+              ? { ...item, source, voiceUrl: spoken.audioUrl ?? null }
+              : item,
+          ),
+        );
+        if (!spoken.ok && spoken.error) setError(spoken.error);
+      }
       await attachBuild(index, source, next.instruction, modelName);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -388,7 +407,7 @@ export default function Home() {
     setFrame(0);
     try {
       let source = raw;
-      if (/^# voice:/m.test(source)) {
+      if (/^\s*# voice:/m.test(source)) {
         setBusy("Recording the voiceover…");
         const spoken = await post("/api/voice", { source, templateId });
         if (spoken.source) source = spoken.source;

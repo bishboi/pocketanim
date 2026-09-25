@@ -107,6 +107,8 @@ export type ExportResult = {
   container_bytes?: number;
   container_error?: string;
   error?: string;
+  /** A mixed narration track the scene's own add_sound calls produced. */
+  narration?: { file: string; clips: number; seconds: number };
 };
 
 function quietStderr(stderr: string): string {
@@ -129,6 +131,9 @@ function run(
         PYTHONWARNINGS: [process.env.PYTHONWARNINGS, "ignore:resource_tracker:UserWarning"]
           .filter(Boolean)
           .join(","),
+        // Narration a lecture synthesises is cached by its text across builds,
+        // so an edit re-speaks only the lines that changed.
+        PANIM_AUDIO_DIR: process.env.PANIM_AUDIO_DIR ?? path.join(REPO, "harness", "app", ".voice", "cache"),
       },
     });
     const out: Buffer[] = [];

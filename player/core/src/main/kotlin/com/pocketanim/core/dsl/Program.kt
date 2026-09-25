@@ -30,7 +30,11 @@ class SurfaceSpec(
 )
 
 sealed class Step {
-    class Create(val name: String, val seconds: Double, val rate: String, val removing: Boolean = false) : Step()
+    /** [lag] is Create's lag_ratio over an asset's children; null means Manim's 1.0. */
+    class Create(
+        val name: String, val seconds: Double, val rate: String, val removing: Boolean = false,
+        val lag: Double? = null,
+    ) : Step()
     class Transform(
         val source: String, val target: String, val seconds: Double, val rate: String,
         val arc: Double = 0.0,
@@ -51,7 +55,9 @@ sealed class Step {
     /** Write run backwards, then the object leaves the stage. */
     class Unwrite(val name: String, val seconds: Double) : Step()
     /** Rewritten from Create on an asset; Manim's Create lags a group's children. */
-    class RevealSequence(val name: String, val seconds: Double) : Step()
+    class RevealSequence(val name: String, val seconds: Double, val lag: Double = 1.0) : Step()
+    /** `.animate.set_fill`. Null fields are left as they are. */
+    class Fill(val name: String, val color: Int?, val opacity: Double?, val seconds: Double) : Step()
     class Xform(val name: String, val factor: Double, val offsetXy: DoubleArray, val seconds: Double) : Step()
     /** `.animate.set_stroke`. Null fields are left as they are. */
     class Stroke(
@@ -111,6 +117,8 @@ class Program(
     val assets: Map<String, Pair<String, String>>,
     val surfaces: List<SurfaceSpec>,
     val timeline: List<Step>,
+    /** Declared draw order by name. Absent means 0. */
+    val z: Map<String, Double> = emptyMap(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -125,6 +133,7 @@ class Program(
             val assets = LinkedHashMap<String, Pair<String, String>>()
             val surfaces = ArrayList<SurfaceSpec>()
             val timeline = ArrayList<Step>()
+            val z = HashMap<String, Double>()
 
             for (raw in text.lineSequence()) {
                 val line = raw.trim()
@@ -142,6 +151,8 @@ class Program(
 
                 fun t() = args.getValue("t").toDouble()
                 fun rate() = args["rate"] ?: "smooth"
+
+                if (verb in DECLARATIONS) args["z"]?.let { z[positional[0]] = it.toDouble() }
 
                 when (verb) {
                     "scene" -> {
@@ -175,7 +186,10 @@ class Program(
                         zoom = (args["zoom"] ?: "1").toDouble()
                     }
                     "create", "uncreate" -> timeline.add(
-                        Step.Create(positional[0], t(), rate(), removing = verb == "uncreate")
+                        Step.Create(
+                            positional[0], t(), rate(), removing = verb == "uncreate",
+                            lag = args["lag"]?.toDouble(),
+                        )
                     )
                     "transform" -> timeline.add(
                         Step.Transform(
@@ -190,6 +204,14 @@ class Program(
                     "fadeout" -> timeline.add(Step.FadeOut(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))
                     "write" -> timeline.add(Step.Write(positional[0], t()))
                     "unwrite" -> timeline.add(Step.Unwrite(positional[0], t()))
+                    "fill" -> timeline.add(
+                        Step.Fill(
+                            positional[0],
+                            args["color"]?.let { hexRgb(it) },
+                            args["opacity"]?.toDouble(),
+                            t(),
+                        )
+                    )
                     "stroke" -> timeline.add(
                         Step.Stroke(
                             positional[0],
@@ -251,8 +273,10 @@ class Program(
                 }
             }
 
-            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline)
+            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z)
         }
+
+        private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom")
 
         private fun shiftOf(args: Map<String, String>): DoubleArray {
             val parts = (args["shift"] ?: "0,0").split(",")

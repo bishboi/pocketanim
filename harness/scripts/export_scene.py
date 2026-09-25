@@ -33,6 +33,12 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 
+FIXED_LAYOUT = re.compile(
+    r"^\s*#\s*panim:\s*fixed-layout\b|^\s*def beat\(self|^from\s+pocket_lecture\s+import",
+    re.M,
+)
+
+
 def _install_layout(scene_file: Path) -> None:
     """Run the label pass before this scene is imported for export.
 
@@ -42,6 +48,11 @@ def _install_layout(scene_file: Path) -> None:
     """
     source = scene_file.read_text()
     if "layout_guard" in source:
+        return
+    # A lecture engine lays out its own panel, captions and labels on a grid
+    # it computes; the guard is for placements a model guessed. Run over a
+    # designed layout it shrank panel titles and pushed stacked facts apart.
+    if FIXED_LAYOUT.search(source):
         return
     guard = Path(__file__).with_name("layout_guard.py")
     preamble = (

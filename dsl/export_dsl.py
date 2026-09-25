@@ -66,17 +66,26 @@ class Recorder:
         self.timeline: list[str] = []
         self.blockers: list[str] = []
         self.names: dict[int, str] = {}
+        self.keep: list = []
         self.counter = 0
         # Mobjects whose geometry is already inside a declared group asset.
         # Manim's introducer animations add each child to the scene on
         # clean-up, and declaring those again would put every atom on stage
         # twice -- once through the group, once on its own.
         self.covered: set[int] = set()
+        # `hide` lines owed before the next verb; see absorb().
+        self.pending: list[str] = []
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
         one name in a 26-declaration scene, so names extend past Z."""
         if id(mob) not in self.names:
+            # Hold the mobject for the life of the recording. Names are keyed
+            # by id(), and CPython reuses the id of a collected object: a
+            # lecture's panel groups are built, faded and dropped every beat,
+            # so a new group inherited a dead one's name -- and its baked
+            # asset -- and old panel text came back on stage.
+            self.keep.append(mob)
             index = self.counter
             letter = chr(ord("A") + index % 26)
             suffix = index // 26
@@ -152,6 +161,52 @@ class Recorder:
             return "#FFFFFF"
 
     def declare(self, mob) -> str | None:
+        """Declare `mob`, carrying its z_index as the declaration's draw order.
+
+        Manim draws by z_index, stably. A lecture leans on that -- a caption at
+        z=60 over a map added after it, a panel over the map's edge -- and the
+        program used to draw in declaration order, so the caption went under
+        the map. Only a non-zero z is written, so every program that never set
+        one is byte-for-byte what it was.
+        """
+        before = len(self.declarations)
+        name = self._declare(mob)
+        if name and len(self.declarations) > before:
+            z = z_order(mob)
+            if z:
+                self.declarations[-1] += f" z={z:g}"
+        if name:
+            self.absorb(mob, name)
+        return name
+
+    def absorb(self, mob, name: str) -> None:
+        """Take a group's members off stage when the group itself is drawn.
+
+        A chapter card is animated in child by child -- four objects -- and
+        faded out as one group, which bakes a fifth. The four stayed on stage
+        under the fading group and were never removed, so every chapter card
+        and every panel title of a lecture piled up on top of the next. The
+        group owns those pixels now; Manim draws a mobject once however many
+        families it is in.
+        """
+        for sub in mob.get_family()[1:]:
+            other = self.names.get(id(sub))
+            if other and other != name and self.declared(other):
+                line = f"hide {other}"
+                if line not in self.pending:
+                    self.pending.append(line)
+
+    def flush(self, at: int | None = None) -> None:
+        """Put pending hides on the timeline, at `at` or at the end."""
+        if not self.pending:
+            return
+        if at is None:
+            self.timeline.extend(self.pending)
+        else:
+            self.timeline[at:at] = self.pending
+        self.pending = []
+
+    def _declare(self, mob) -> str | None:
         """Emit a declaration for a mobject, or record why we cannot."""
         import hashlib
 
@@ -287,6 +342,28 @@ class Recorder:
 
         self.blockers.append(f"unsupported mobject: {type(mob).__name__}")
         return None
+
+
+def z_order(mob) -> float:
+    """The z a baked mobject draws at: the highest among its drawn members.
+
+    Manim sorts each family member on its own, so a group whose children
+    disagree cannot be one object at one depth. set_z_index sets the whole
+    family, which is how every scene here uses it, and then they agree.
+    """
+    values = [
+        float(getattr(sub, "z_index", 0) or 0)
+        for sub in mob.get_family()
+        if getattr(sub, "points", None) is not None and len(sub.points) >= 4
+    ]
+    return max(values) if values else float(getattr(mob, "z_index", 0) or 0)
+
+
+def _colour_text(value) -> str:
+    text = str(value).upper()
+    if hasattr(value, "to_hex"):
+        text = value.to_hex().upper()
+    return text if text.startswith("#") else "#" + text
 
 
 def _arc_extra(anim) -> str:
@@ -427,6 +504,7 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
 
     parts = []
     stroke = []
+    fill = []
     extra = []
     for entry in methods:
         name = entry.method.__name__
@@ -454,17 +532,32 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
             delta = dest - origin
             parts.append(f"by_xy={delta[0]:g},{delta[1]:g}")
         elif name == "set_opacity" and entry.args:
+            # Manim's set_opacity sets fill and stroke opacity together. Only
+            # the stroke used to move, so a filled shape never dimmed.
             opacity = float(entry.args[0])
             if opacity <= 0:
                 extra.append(f"fadeout {target} t={duration:g}")
             else:
                 stroke.append(f"opacity={opacity:g}")
+                fill.append(f"opacity={opacity:g}")
         elif name == "set_fill":
+            # The dim-then-highlight pattern: `.animate.set_fill(opacity=0.15)`.
+            # This used to be written as a *stroke* opacity, so the fill -- the
+            # thing being dimmed -- never changed.
             kw = getattr(entry, "kwargs", None) or {}
-            if kw.get("opacity") is not None:
-                stroke.append(f"opacity={float(kw['opacity']):g}")
-            elif not entry.args:
+            args = getattr(entry, "args", ()) or ()
+            color = kw.get("color", args[0] if args else None)
+            opacity = kw.get("opacity", args[1] if len(args) > 1 else None)
+            if color is None and opacity is None:
                 return None
+            if color is not None:
+                fill.append(f"color={_colour_text(color)}")
+            if opacity is not None:
+                fill.append(f"opacity={float(opacity):g}")
+        elif name == "set_color" and entry.args:
+            colour = _colour_text(entry.args[0])
+            fill.append(f"color={colour}")
+            stroke.append(f"color={colour}")
         else:
             return None
     verbs = []
@@ -472,8 +565,52 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
         verbs.append(f"xform {target} " + " ".join(parts) + f" t={duration:g}")
     if stroke:
         verbs.append(f"stroke {target} " + " ".join(stroke) + f" t={duration:g}")
+    if fill:
+        verbs.append(f"fill {target} " + " ".join(fill) + f" t={duration:g}")
     verbs.extend(extra)
     return verbs or None
+
+
+def _grow_line(rec, anim, duration: float) -> str | None:
+    """GrowFromCenter / GrowFromPoint as one verb, or None if undeclarable.
+
+    A primitive grows as `grow`. A baked group grows as one `laggedgrow`
+    group -- one run over all its instances, so it scales about the group's
+    centre as Manim's single interpolation does. Emitting `grow` for a group
+    inside a LaggedStart (a map marker's dot) sent the phone's builder down
+    the primitive path, which has no points for an asset.
+    """
+    import numpy as np
+
+    point = np.asarray(anim.point, dtype=float).reshape(3)
+    centre = np.asarray(anim.mobject.get_center(), dtype=float).reshape(3)
+    at = ""
+    if not np.allclose(point, centre, atol=1e-6):
+        at = f" at={point[0]:g},{point[1]:g},{point[2]:g}"
+    name = rec.declare(anim.mobject)
+    if not name:
+        return None
+    kind, _bytes = _declared_kind(rec, name)
+    count = sum(
+        1 for sub in anim.mobject.get_family()
+        if getattr(sub, "points", None) is not None and len(sub.points) >= 4
+    )
+    if kind in ("geom", "text", "circle", "square", "rect"):
+        rec.covered.update(id(sub) for sub in anim.mobject.get_family())
+    if kind in ("geom", "text") and count:
+        return f"laggedgrow {name} lag=0 groups={count} t={duration:g}{at}"
+    if kind in ("circle", "square", "rect"):
+        return f"grow {name} t={duration:g}{at}"
+    return None
+
+
+def _staggers(anim) -> bool:
+    """An AnimationGroup whose children do not all start together."""
+    import numpy as np
+
+    return type(anim).__name__ in ("AnimationGroup", "LaggedStart") and not np.isclose(
+        float(getattr(anim, "lag_ratio", 0.0)), 0.0
+    )
 
 
 def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
@@ -492,8 +629,10 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
 
     def leaf(a, dur: float) -> list[str] | None:
         kind = type(a).__name__
-        if isinstance(a, LaggedStart):
+        if isinstance(a, LaggedStart) or _staggers(a):
             return pack(a, dur)
+        if isinstance(a, (FadeIn, FadeOut)) and not a.mobject.family_members_with_points():
+            return [f"wait t={dur:g}"]
         if kind == "Succession":
             out = []
             for sub in a.animations:
@@ -521,13 +660,19 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
         if isinstance(a, (FadeIn, FadeOut)):
             verb = "fade" if isinstance(a, FadeIn) else "fadeout"
             return [f"{verb} {name} t={dur:g}{_fade_extra(a)}"]
-        if isinstance(a, (Create, DrawBorderThenFill)):
+        if isinstance(a, (Create, DrawBorderThenFill)) and not isinstance(a, Write):
             verb = "uncreate" if getattr(a, "remover", False) else "create"
-            return [f"{verb} {name} t={dur:g}{suffix}"]
+            lag = ""
+            if verb == "create" and rec.is_asset(name) and float(getattr(a, "lag_ratio", 1.0)) != 1.0:
+                lag = f" lag={float(a.lag_ratio):g}"
+            return [f"{verb} {name} t={dur:g}{suffix}{lag}"]
         if isinstance(a, Write):
+            if not rec.is_asset(name):
+                return [f"create {name} t={dur:g}{suffix}"]
             return [f"write {name} t={dur:g}"]
         if isinstance(a, GrowFromPoint):
-            return [f"grow {name} t={dur:g}"]
+            line = _grow_line(rec, a, dur)
+            return [line] if line else None
         if isinstance(a, Indicate):
             return [f"indicate {name} t={dur:g}"]
         if isinstance(a, Transform) and getattr(a, "target_mobject", None) is not None:
@@ -611,7 +756,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             rec.blockers.append(f"{name} with target_position=")
 
         if isinstance(anim, Create):
-            if not np.isclose(float(anim.lag_ratio), 1.0):
+            # A lagged Create is carried as `lag=` on a baked group, which both
+            # interpreters stagger by. A lone path has no children to lag.
+            children = len(anim.mobject.family_members_with_points())
+            if not np.isclose(float(anim.lag_ratio), 1.0) and children > 1 \
+                    and type(anim).__name__ not in ("Create", "Uncreate"):
                 rec.blockers.append(f"{name} with lag_ratio={float(anim.lag_ratio):g}")
         elif isinstance(anim, Write):
             # Both interpreters recompute Manim's default rather than reading
@@ -630,7 +779,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             if kind == "Succession":
                 sequential = True
                 flat.extend(list(anim.animations))
-            elif kind == "AnimationGroup":
+            elif kind == "AnimationGroup" and not _staggers(anim):
                 flat.extend(list(anim.animations))
             else:
                 flat.append(anim)
@@ -682,7 +831,10 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.blockers.append(
                         "TransformMatchingTex operands could not be declared"
                     )
-            elif isinstance(anim, LaggedStart):
+            elif isinstance(anim, LaggedStart) or _staggers(anim):
+                # An AnimationGroup with a lag_ratio is a LaggedStart by
+                # another name (the lecture panel's fade-old-then-show-new).
+                # Flattening it played both halves at once.
                 lines = _lag_lines(rec, anim, duration, suffix)
                 if lines:
                     rec.timeline.extend(lines)
@@ -703,6 +855,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.timeline.append(f"unwrite {name} t={duration:g}")
                 else:
                     rec.timeline.append(f"write {name} t={duration:g}")
+            elif isinstance(anim, (FadeIn, FadeOut)) and not anim.mobject.family_members_with_points():
+                # Fading an empty group -- a panel with nothing on it yet, a
+                # bare Mobject placeholder -- draws nothing. It still takes its
+                # run time, so it is a hold rather than a blocker.
+                rec.timeline.append(f"wait t={duration:g}")
             elif isinstance(anim, FadeOut):
                 name = rec.declare(anim.mobject)
                 if name:
@@ -721,7 +878,14 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 name = rec.declare(anim.mobject)
                 if name:
                     verb = "uncreate" if getattr(anim, "remover", False) else "create"
-                    rec.timeline.append(f"{verb} {name} t={duration:g}{suffix}")
+                    import numpy as np
+
+                    lag = ""
+                    if verb == "create" and rec.is_asset(name) and not np.isclose(
+                        float(getattr(anim, "lag_ratio", 1.0)), 1.0
+                    ):
+                        lag = f" lag={float(anim.lag_ratio):g}"
+                    rec.timeline.append(f"{verb} {name} t={duration:g}{suffix}{lag}")
                 else:
                     rec.blockers.append("Create target could not be declared")
             elif isinstance(anim, GrowFromPoint):
@@ -731,36 +895,13 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 # does not have, and used to block the whole scene.
                 import numpy as np
 
-                point = np.asarray(anim.point, dtype=float).reshape(3)
-                centre = np.asarray(anim.mobject.get_center(), dtype=float).reshape(3)
-                at = ""
-                if not np.allclose(point, centre, atol=1e-6):
-                    at = f" at={point[0]:g},{point[1]:g},{point[2]:g}"
-                name = rec.declare(anim.mobject)
-                if not name:
-                    rec.blockers.append("GrowFromCenter target could not be declared")
+                line = _grow_line(rec, anim, duration)
+                if line:
+                    rec.timeline.append(line)
+                elif rec.names.get(id(anim.mobject)):
+                    rec.blockers.append(f"GrowFromCenter on {type(anim.mobject).__name__}")
                 else:
-                    kind, _bytes = _declared_kind(rec, name)
-                    count = sum(
-                        1
-                        for sub in anim.mobject.get_family()
-                        if getattr(sub, "points", None) is not None
-                        and len(sub.points) >= 4
-                    )
-                    if kind in ("geom", "text") and count:
-                        rec.timeline.append(
-                            f"laggedgrow {name} lag=0 groups={count} t={duration:g}{at}"
-                        )
-                    elif kind in ("circle", "square", "rect"):
-                        rec.timeline.append(f"grow {name} t={duration:g}{at}")
-                    else:
-                        rec.blockers.append(
-                            f"GrowFromCenter on {kind or type(anim.mobject).__name__}"
-                        )
-                    if kind in ("geom", "text", "circle", "square", "rect"):
-                        rec.covered.update(
-                            id(sub) for sub in anim.mobject.get_family()
-                        )
+                    rec.blockers.append("GrowFromCenter target could not be declared")
             elif type(anim).__name__ in ("Rotate", "Rotating"):
                 # Rotate subclasses Transform. The Transform branch looks for a
                 # second operand this animation does not have.
@@ -869,6 +1010,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.timeline.insert(
                     emitted_before, f"par n={produced} t={max(spans):g}"
                 )
+        # Hides go ahead of the play's verbs and of its `par` header: a `par`
+        # claims the next n lines, and a hide inside one is not a verb.
+        rec.flush(at=emitted_before)
         try:
             return originals["play"](self, *animations, **kwargs)
         except Exception:
@@ -885,6 +1029,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             if id(mob) in rec.covered:
                 continue
             name = rec.declare(mob)
+            rec.flush()
             if name:
                 # Declaring a thing is not the same as it being on stage.
                 # Without this, every asset drew from frame 0.
@@ -903,10 +1048,15 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # Only things already named and declared: Manim removes internal copies
         # (TransformMatchingTex's fade target, for one) that were never on our
         # stage, and declaring one here would invent an asset out of a removal.
+        # Manim removes the whole family (restructure_mobjects extracts it),
+        # so members that went on stage as objects of their own leave too.
         for mob in mobjects:
-            name = rec.names.get(id(mob))
-            if name and rec.declared(name):
-                rec.timeline.append(f"hide {name}")
+            for sub in mob.get_family():
+                name = rec.names.get(id(sub))
+                if name and rec.declared(name):
+                    line = f"hide {name}"
+                    if not rec.timeline or rec.timeline[-1] != line:
+                        rec.timeline.append(line)
         return originals["remove"](self, *mobjects, **kw)
 
     def patched_clear(self):

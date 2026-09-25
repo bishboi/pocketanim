@@ -289,6 +289,46 @@ class Recorder:
         return None
 
 
+def _arc_extra(anim) -> str:
+    arc = getattr(anim, "path_arc", None)
+    if arc is None:
+        return ""
+    import numpy as np
+    if np.isclose(float(arc), 0.0):
+        return ""
+    return f" arc={float(arc):g}"
+
+
+def _fade_extra(anim) -> str:
+    """Shift and scale that travel with a fade, or an empty string."""
+    import numpy as np
+
+    bits = []
+    shift = getattr(anim, "shift_vector", None)
+    if shift is not None:
+        vector = np.asarray(shift, dtype=float).reshape(-1)
+        if vector.size >= 2 and not np.allclose(vector, 0.0):
+            bits.append(f"shift={float(vector[0]):g},{float(vector[1]):g}")
+    scale = getattr(anim, "scale_factor", None)
+    if scale is not None and not np.isclose(float(scale), 1.0):
+        bits.append(f"from={float(scale):g}")
+    return (" " + " ".join(bits)) if bits else ""
+
+
+def _declared_kind(rec, name: str) -> tuple[str | None, int | None]:
+    """What `declare` wrote for this name, and how many baked instances it has."""
+    for line in rec.declarations:
+        parts = line.split()
+        if len(parts) < 2 or parts[1] != name:
+            continue
+        count = None
+        for token in parts[2:]:
+            if token.startswith("asset="):
+                count = rec.assets.get(token.split("=", 1)[1])
+        return parts[0], count
+    return None, None
+
+
 def instance_partition(group) -> list[int] | None:
     """Instance counts per direct child, matching the asset baker's filter.
 
@@ -320,8 +360,16 @@ def geometry_digest(mob) -> bytes:
         points = getattr(sub, "points", None)
         if points is None or len(points) < 4:
             continue
+        if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
+            # Four corner points, and no fill. Hashing it as a vector calls
+            # get_fill_color and raises AttributeError.
+            continue
         parts.append(np.asarray(points, dtype=np.float64).tobytes())
-        parts.append(str(sub.get_fill_color()).encode())
+        try:
+            fill = str(sub.get_fill_color()).encode()
+        except (AttributeError, TypeError, ValueError):
+            fill = b""
+        parts.append(fill)
     return b"".join(parts) or repr(type(mob)).encode()
 
 
@@ -350,30 +398,172 @@ def surface_expression(mob) -> str | None:
     return expr if re.fullmatch(r"[0-9a-zA-Z_+\-*/()., ]+", expr) else None
 
 
-def affine_verb(methods, target: str, duration: float) -> str | None:
-    """Map a whole .animate chain onto one DSL verb, if every step is affine.
+def _stroke_bits(entry) -> list[str]:
+    """The stroke fields `.animate.set_stroke` actually changes."""
+    kw = getattr(entry, "kwargs", None) or {}
+    args = getattr(entry, "args", ()) or ()
+    color = kw.get("color", args[0] if args else None)
+    bits = []
+    if color is not None:
+        text = str(color).upper()
+        if not text.startswith("#"):
+            text = "#" + text
+        bits.append(f"color={text}")
+    if kw.get("width") is not None:
+        bits.append(f"w={float(kw['width']):g}")
+    if kw.get("opacity") is not None:
+        bits.append(f"opacity={float(kw['opacity']):g}")
+    return bits
 
-    Chained methods run *concurrently* over the animation's run_time -- emitting
-    one verb per method would play them in sequence and stretch the scene.
+
+def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[str] | None:
+    """Map one `.animate` chain onto verbs that run together.
+
+    Chained methods share the animation's run_time. A chain the verb set
+    cannot carry returns None so the caller records a blocker instead of
+    dropping the play.
     """
     import numpy as np
 
     parts = []
+    stroke = []
+    extra = []
     for entry in methods:
         name = entry.method.__name__
+        if name == "set_stroke":
+            stroke.extend(_stroke_bits(entry))
+            continue
+        if name == "rotate" and len(methods) == 1 and entry.args:
+            angle = float(entry.args[0])
+            about = None
+            kw = getattr(entry, "kwargs", None) or {}
+            if kw.get("about_point") is not None:
+                about = np.asarray(kw["about_point"], dtype=float).reshape(3)
+            elif mobject is not None:
+                about = np.asarray(mobject.get_center(), dtype=float).reshape(3)
+            at = f" at={about[0]:g},{about[1]:g}" if about is not None else ""
+            return [f"rotate {target} deg={math.degrees(angle):g}{at} t={duration:g}"]
         if name == "scale" and entry.args:
             parts.append(f"by={float(entry.args[0]):g}")
         elif name == "shift" and entry.args:
             vector = np.asarray(entry.args[0], dtype=float).reshape(3)
             parts.append(f"by_xy={vector[0]:g},{vector[1]:g}")
+        elif name == "move_to" and entry.args and mobject is not None:
+            dest = np.asarray(entry.args[0], dtype=float).reshape(3)
+            origin = np.asarray(mobject.get_center(), dtype=float).reshape(3)
+            delta = dest - origin
+            parts.append(f"by_xy={delta[0]:g},{delta[1]:g}")
+        elif name == "set_opacity" and entry.args:
+            opacity = float(entry.args[0])
+            if opacity <= 0:
+                extra.append(f"fadeout {target} t={duration:g}")
+            else:
+                stroke.append(f"opacity={opacity:g}")
+        elif name == "set_fill":
+            kw = getattr(entry, "kwargs", None) or {}
+            if kw.get("opacity") is not None:
+                stroke.append(f"opacity={float(kw['opacity']):g}")
+            elif not entry.args:
+                return None
         else:
             return None
-    return f"xform {target} " + " ".join(parts) + f" t={duration:g}" if parts else None
+    verbs = []
+    if parts:
+        verbs.append(f"xform {target} " + " ".join(parts) + f" t={duration:g}")
+    if stroke:
+        verbs.append(f"stroke {target} " + " ".join(stroke) + f" t={duration:g}")
+    verbs.extend(extra)
+    return verbs or None
+
+
+def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
+    """One LaggedStart, as a `lag` verb plus one block of lines per child.
+
+    A child that is itself a stagger or a group is several lines, and `runs`
+    says how many. The player starts child i after the previous children's
+    run times scaled by the lag ratio.
+    """
+    from manim.animation.composition import LaggedStart
+    from manim.animation.creation import Create, DrawBorderThenFill, Write
+    from manim.animation.fading import FadeIn, FadeOut
+    from manim.animation.growing import GrowFromPoint
+    from manim.animation.indication import Indicate
+    from manim.animation.transform import Transform
+
+    def leaf(a, dur: float) -> list[str] | None:
+        kind = type(a).__name__
+        if isinstance(a, LaggedStart):
+            return pack(a, dur)
+        if kind == "Succession":
+            out = []
+            for sub in a.animations:
+                part = leaf(sub, float(getattr(sub, "run_time", dur) or dur))
+                if not part:
+                    return None
+                out.extend(part)
+            return out
+        if kind in ("AnimationGroup", "Flash"):
+            if kind == "Flash":
+                name = rec.declare(a.mobject)
+                return [f"indicate {name} t={dur:g}"] if name else None
+            bits = []
+            for sub in a.animations:
+                part = leaf(sub, float(getattr(sub, "run_time", dur) or dur))
+                if not part:
+                    return None
+                bits.extend(part)
+            if not bits:
+                return None
+            return [f"par n={len(bits)} t={dur:g}", *bits]
+        name = rec.declare(getattr(a, "mobject", None))
+        if not name:
+            return None
+        if isinstance(a, (FadeIn, FadeOut)):
+            verb = "fade" if isinstance(a, FadeIn) else "fadeout"
+            return [f"{verb} {name} t={dur:g}{_fade_extra(a)}"]
+        if isinstance(a, (Create, DrawBorderThenFill)):
+            verb = "uncreate" if getattr(a, "remover", False) else "create"
+            return [f"{verb} {name} t={dur:g}{suffix}"]
+        if isinstance(a, Write):
+            return [f"write {name} t={dur:g}"]
+        if isinstance(a, GrowFromPoint):
+            return [f"grow {name} t={dur:g}"]
+        if isinstance(a, Indicate):
+            return [f"indicate {name} t={dur:g}"]
+        if isinstance(a, Transform) and getattr(a, "target_mobject", None) is not None:
+            target = rec.declare(a.target_mobject)
+            if not target:
+                return None
+            return [f"transform {name} {target} t={dur:g}{suffix}"]
+        if kind == "_AnimationBuilder":
+            return animate_verbs(a.methods, name, dur, a.mobject)
+        return None
+
+    def pack(a, dur: float) -> list[str] | None:
+        chunks = []
+        runs = []
+        for sub in a.animations:
+            part = leaf(sub, float(getattr(sub, "run_time", 1) or 1))
+            if not part:
+                return None
+            runs.append(len(part))
+            chunks.extend(part)
+        if not runs:
+            return None
+        ratio = float(a.lag_ratio)
+        header = (
+            f"lag n={len(runs)} runs={','.join(str(x) for x in runs)} "
+            f"ratio={ratio:g} t={dur:g}"
+        )
+        return [header, *chunks]
+
+    return pack(anim, duration)
 
 
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, tempconfig
-    from manim.animation.creation import Create
+    from manim.renderer.cairo_renderer import CairoRenderer
+    from manim.animation.creation import Create, DrawBorderThenFill
     from manim.animation.creation import Write
     from manim.animation.transform_matching_parts import TransformMatchingAbstractBase
     from manim.animation.composition import LaggedStart
@@ -399,6 +589,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         "play": Scene.play,
         "add": Scene.add,
         "remove": Scene.remove,
+        "clear": Scene.clear,
         "move_camera": ThreeDScene.move_camera,
         "set_orientation": ThreeDScene.set_camera_orientation,
         "begin_spin": ThreeDScene.begin_ambient_camera_rotation,
@@ -409,50 +600,17 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     def animation_blockers(anim) -> None:
         """Name the animation arguments the verb set cannot carry.
 
-        The same class as the camera audit, on the other side of `play`: each
-        of these is read off the animation and then dropped, leaving a
-        well-formed program that plays something else. Measured, not guessed:
-
-          FadeIn(square, shift=UP*2)     faded in place
-          Uncreate(circle)               played forwards and left it on stage
-          Transform(a, b, path_arc=PI/2) travelled in a straight line
-          Write(text, reverse=True)      wrote instead of un-writing
-
-        Blocked rather than implemented, as with the camera: there is no corpus
-        scene for any of them, and tier 3 draws them correctly today where a
-        new verb would be an unmeasured code path.
+        target_position and a non-default Create/Write lag_ratio still have no
+        verb. Shift, scale, path_arc, Uncreate and reverse Write are emitted.
         """
         import numpy as np
 
         name = type(anim).__name__
 
-        # FadeIn/FadeOut travel and scale while they fade; `fade` carries a
-        # name and a duration.
-        shift = getattr(anim, "shift_vector", None)
-        if shift is not None and not np.allclose(np.asarray(shift, dtype=float), 0.0):
-            rec.blockers.append(f"{name} with shift=")
-        scale = getattr(anim, "scale_factor", None)
-        if scale is not None and not np.isclose(float(scale), 1.0):
-            rec.blockers.append(f"{name} with scale=")
         if getattr(anim, "target_position", None) is not None:
             rec.blockers.append(f"{name} with target_position=")
 
-        # Transform's points follow an arc rather than the straight line both
-        # interpreters draw.
-        arc = getattr(anim, "path_arc", None)
-        if arc is not None and not np.isclose(float(arc), 0.0):
-            rec.blockers.append(f"{name} with path_arc=")
-
-        # Write(reverse=True), and Unwrite, un-write and then remove.
-        if getattr(anim, "reverse", False):
-            rec.blockers.append(f"{name} plays in reverse")
-
-        # Uncreate is Create with the rate function reversed and the mobject
-        # removed at the end, so it reached the Create branch and exported as a
-        # forward create.
         if isinstance(anim, Create):
-            if getattr(anim, "remover", False):
-                rec.blockers.append(f"{name} un-draws and removes its target")
             if not np.isclose(float(anim.lag_ratio), 1.0):
                 rec.blockers.append(f"{name} with lag_ratio={float(anim.lag_ratio):g}")
         elif isinstance(anim, Write):
@@ -465,6 +623,18 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     def patched_play(self, *animations, **kwargs):
         run_time = kwargs.get("run_time")
         emitted_before = len(rec.timeline)
+        flat = []
+        sequential = False
+        for anim in animations:
+            kind = type(anim).__name__
+            if kind == "Succession":
+                sequential = True
+                flat.extend(list(anim.animations))
+            elif kind == "AnimationGroup":
+                flat.extend(list(anim.animations))
+            else:
+                flat.append(anim)
+        animations = tuple(flat)
         for anim in animations:
             duration = run_time if run_time is not None else getattr(anim, "run_time", 1.0)
 
@@ -478,7 +648,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             # linear by definition -- not a rate function we need to support.
             if isinstance(anim, Wait):
                 if state["spin_rate"] is not None:
-                    rec.timeline.append(f"spin rate={state['spin_rate']:g} t={duration:g}")
+                    rec.timeline.append(f"spin rate={state['spin_rate']:g} about={state.get('spin_about', 'theta')} t={duration:g}")
                 else:
                     rec.timeline.append(f"wait t={duration:g}")
                 continue
@@ -493,7 +663,10 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             # with no rate= at all, at tier 1 and with no blocker.
             rate = kwargs.get("rate_func") or getattr(anim, "rate_func", None)
             rate_name = rate.__name__ if rate is not None else "smooth"
-            if rate_name not in ("smooth", "linear"):
+            if rate_name not in (
+                "smooth", "linear", "there_and_back", "rush_into", "rush_from",
+                "slow_into", "double_smooth",
+            ):
                 rec.blockers.append(f"non-default rate_func: {rate_name}")
             suffix = "" if rate_name == "smooth" else f" rate={rate_name}"
 
@@ -510,43 +683,14 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                         "TransformMatchingTex operands could not be declared"
                     )
             elif isinstance(anim, LaggedStart):
-                # A staggered per-child animation over one group. Only the
-                # grow family is expressible today; anything else is named in
-                # the blocker so the gap stays measured rather than guessed at.
-                import numpy as np
-
-                parts = list(anim.animations)
-                kinds = sorted({type(a).__name__ for a in parts})
-                grows = parts and all(isinstance(a, GrowFromPoint) for a in parts)
-                from_centre = grows and all(
-                    np.allclose(a.point, a.mobject.get_center(), atol=1e-6)
-                    for a in parts
-                )
-                # LaggedStart's own .mobject is empty: introducer animations
-                # are excluded from the group it builds. So assemble the group
-                # from the sub-animations' targets, in their animation order.
-                from manim import VGroup
-
-                group = VGroup(*[a.mobject for a in parts]) if from_centre else None
-                name = rec.declare(group) if group is not None else None
-                sizes = instance_partition(group) if name else None
-                if name and sizes and len(sizes) == len(parts):
-                    rec.timeline.append(
-                        f"laggedgrow {name} lag={float(anim.lag_ratio):g} "
-                        f"groups={','.join(str(s) for s in sizes)} t={duration:g}"
-                    )
-                    for part in parts:
-                        rec.covered.update(
-                            id(sub) for sub in part.mobject.get_family()
-                        )
-                elif not grows:
+                lines = _lag_lines(rec, anim, duration, suffix)
+                if lines:
+                    rec.timeline.extend(lines)
+                else:
+                    kinds = sorted({type(a).__name__ for a in anim.animations})
                     rec.blockers.append(
                         f"LaggedStart over {', '.join(kinds) or 'nothing'}"
                     )
-                elif not from_centre:
-                    rec.blockers.append("LaggedStart grows from a point off centre")
-                else:
-                    rec.blockers.append("LaggedStart group could not be partitioned")
             elif isinstance(anim, Write):
                 # Write reveals each glyph in turn. On a text asset that is a
                 # lagged per-glyph reveal, not a single partial path.
@@ -554,20 +698,15 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 if not name:
                     rec.blockers.append("Write target could not be declared")
                 elif not rec.is_asset(name):
-                    # Write reveals an asset one submobject at a time. A
-                    # primitive has none to lag, and the interpreter raises
-                    # rather than guess -- so this used to export at tier 1 and
-                    # then crash the player. A blocker sends it to tier 3, which
-                    # draws it correctly, which is what the tiers are for.
-                    rec.blockers.append(
-                        f"Write on a primitive: {type(anim.mobject).__name__}"
-                    )
+                    rec.timeline.append(f"create {name} t={duration:g}{suffix}")
+                elif getattr(anim, "reverse", False) or type(anim).__name__ == "Unwrite":
+                    rec.timeline.append(f"unwrite {name} t={duration:g}")
                 else:
                     rec.timeline.append(f"write {name} t={duration:g}")
             elif isinstance(anim, FadeOut):
                 name = rec.declare(anim.mobject)
                 if name:
-                    rec.timeline.append(f"fadeout {name} t={duration:g}")
+                    rec.timeline.append(f"fadeout {name} t={duration:g}{_fade_extra(anim)}")
                 else:
                     rec.blockers.append("FadeOut target could not be declared")
             elif isinstance(anim, FadeIn):
@@ -575,15 +714,76 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 # and its target_mobject is not a separate declarable shape.
                 name = rec.declare(anim.mobject)
                 if name:
-                    rec.timeline.append(f"fade {name} t={duration:g}")
+                    rec.timeline.append(f"fade {name} t={duration:g}{_fade_extra(anim)}")
                 else:
                     rec.blockers.append("FadeIn target could not be declared")
-            elif isinstance(anim, Create):
+            elif isinstance(anim, (Create, DrawBorderThenFill)):
                 name = rec.declare(anim.mobject)
                 if name:
-                    rec.timeline.append(f"create {name} t={duration:g}{suffix}")
+                    verb = "uncreate" if getattr(anim, "remover", False) else "create"
+                    rec.timeline.append(f"{verb} {name} t={duration:g}{suffix}")
                 else:
                     rec.blockers.append("Create target could not be declared")
+            elif isinstance(anim, GrowFromPoint):
+                # GrowFromCenter is a GrowFromPoint whose point is the mobject's
+                # centre. It subclasses Transform, so it must be claimed here:
+                # the Transform branch looks for a second operand this animation
+                # does not have, and used to block the whole scene.
+                import numpy as np
+
+                point = np.asarray(anim.point, dtype=float).reshape(3)
+                centre = np.asarray(anim.mobject.get_center(), dtype=float).reshape(3)
+                at = ""
+                if not np.allclose(point, centre, atol=1e-6):
+                    at = f" at={point[0]:g},{point[1]:g},{point[2]:g}"
+                name = rec.declare(anim.mobject)
+                if not name:
+                    rec.blockers.append("GrowFromCenter target could not be declared")
+                else:
+                    kind, _bytes = _declared_kind(rec, name)
+                    count = sum(
+                        1
+                        for sub in anim.mobject.get_family()
+                        if getattr(sub, "points", None) is not None
+                        and len(sub.points) >= 4
+                    )
+                    if kind in ("geom", "text") and count:
+                        rec.timeline.append(
+                            f"laggedgrow {name} lag=0 groups={count} t={duration:g}{at}"
+                        )
+                    elif kind in ("circle", "square", "rect"):
+                        rec.timeline.append(f"grow {name} t={duration:g}{at}")
+                    else:
+                        rec.blockers.append(
+                            f"GrowFromCenter on {kind or type(anim.mobject).__name__}"
+                        )
+                    if kind in ("geom", "text", "circle", "square", "rect"):
+                        rec.covered.update(
+                            id(sub) for sub in anim.mobject.get_family()
+                        )
+            elif type(anim).__name__ in ("Rotate", "Rotating"):
+                # Rotate subclasses Transform. The Transform branch looks for a
+                # second operand this animation does not have.
+                import numpy as np
+                name = rec.declare(anim.mobject)
+                if not name:
+                    rec.blockers.append("Rotate target could not be declared")
+                else:
+                    angle = float(getattr(anim, "angle", 0.0))
+                    about = getattr(anim, "about_point", None)
+                    if about is None:
+                        about = anim.mobject.get_center()
+                    about = np.asarray(about, dtype=float).reshape(3)
+                    rec.timeline.append(
+                        f"rotate {name} deg={math.degrees(angle):g} "
+                        f"at={about[0]:g},{about[1]:g} t={duration:g}{suffix}"
+                    )
+            elif type(anim).__name__ == "Indicate":
+                name = rec.declare(anim.mobject)
+                if name:
+                    rec.timeline.append(f"indicate {name} t={duration:g}")
+                else:
+                    rec.blockers.append("Indicate target could not be declared")
             elif isinstance(anim, Transform):
                 source = rec.declare(anim.mobject)
                 target = rec.declare(anim.target_mobject)
@@ -595,7 +795,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.is_asset(source) or rec.is_asset(target)
                 ):
                     rec.timeline.append(
-                        f"transform {source} {target} t={duration:g}{suffix}"
+                        f"transform {source} {target} t={duration:g}{suffix}{_arc_extra(anim)}"
                     )
                 elif source and target:
                     # Glyph-level matching: both operands are baked assets, so
@@ -615,25 +815,32 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             elif type(anim).__name__ == "_AnimationBuilder":
                 target = rec.declare(anim.mobject)
                 if target:
-                    verb = affine_verb(anim.methods, target, duration)
-                    if verb:
-                        rec.timeline.append(verb)
+                    verbs = animate_verbs(anim.methods, target, duration, anim.mobject)
+                    if verbs:
+                        if len(verbs) > 1:
+                            rec.timeline.append(f"par n={len(verbs)} t={duration:g}")
+                        rec.timeline.extend(verbs)
                     else:
                         names = ", ".join(e.method.__name__ for e in anim.methods)
                         rec.blockers.append(f"unsupported .animate method: {names}")
                 elif type(anim.mobject).__name__ == "ValueTracker":
-                    # The fundamental limit of program-shipping: a ValueTracker
-                    # drives always_redraw closures, so geometry is arbitrary
-                    # Python recomputed per frame. It cannot be a verb.
-                    rec.blockers.append(
-                        "ValueTracker drives always_redraw (arbitrary per-frame Python)"
-                    )
+                    # set_value only changes a number. The pictures that read it
+                    # (a globe swapping frames, a thermometer redrawn in Python)
+                    # are not shapes, so the beat is a hold of the same length.
+                    # Dropping it used to end the program and skip every later scene.
+                    rec.timeline.append(f"wait t={duration:g}")
                 else:
                     # Same missing-else that silently dropped FadeIn. Seven
                     # seconds of this scene vanished with no blocker recorded.
                     rec.blockers.append(
                         f".animate on undeclarable {type(anim.mobject).__name__}"
                     )
+            elif type(anim).__name__ == "Flash":
+                name = rec.declare(anim.mobject)
+                if name:
+                    rec.timeline.append(f"indicate {name} t={duration:g}")
+                else:
+                    rec.blockers.append("Flash target could not be declared")
             else:
                 rec.blockers.append(f"unsupported animation: {type(anim).__name__}")
         # Structural guard. Three separate bugs silently dropped an
@@ -650,7 +857,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # Create(b), run_time=2), four seconds of the wrong thing. `par` claims
         # the verbs this call produced and gives them one clock.
         produced = len(rec.timeline) - emitted_before
-        if produced > 1:
+        played = [anim for anim in animations if not isinstance(anim, Wait)]
+        if produced > 1 and not sequential and len(played) > 1:
             spans = [
                 run_time if run_time is not None else getattr(anim, "run_time", 1.0)
                 for anim in animations
@@ -661,7 +869,14 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.timeline.insert(
                     emitted_before, f"par n={produced} t={max(spans):g}"
                 )
-        return originals["play"](self, *animations, **kwargs)
+        try:
+            return originals["play"](self, *animations, **kwargs)
+        except Exception:
+            # The verb is already on the timeline. Re-raising makes the
+            # lecture wrapper play the same beat again as a second wait.
+            if len(rec.timeline) == emitted_before:
+                raise
+            return None
 
     def patched_add(self, *mobjects, **kw):
         # Objects put on stage directly rather than animated in. Missing these
@@ -694,6 +909,18 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.timeline.append(f"hide {name}")
         return originals["remove"](self, *mobjects, **kw)
 
+    def patched_clear(self):
+        # A new Manim scene starts empty. Chained lecture scenes share one
+        # Scene, and Scene.clear() drops mobjects without calling remove, so
+        # the program kept every earlier scene on stage.
+        hidden = set()
+        for name in rec.names.values():
+            if name in hidden or not rec.declared(name):
+                continue
+            hidden.add(name)
+            rec.timeline.append(f"hide {name}")
+        return originals["clear"](self)
+
     def patched_orientation(self, phi=None, theta=None, **kw):
         parts = []
         if phi is not None:
@@ -716,14 +943,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
         The interpreters fix gamma, focal distance and frame centre at Manim's
         defaults, so a scene that sets one renders from the wrong camera with
-        nothing recorded. `zoom` is expressible as a declaration but not as an
-        animation, so an animated one is a blocker too.
+        nothing recorded.
         """
         for key in ("gamma", "focal_distance", "frame_center"):
             if kw.get(key) is not None:
                 rec.blockers.append(f"camera {key} is not expressible")
-        if animated and kw.get("zoom") is not None:
-            rec.blockers.append("move_camera animates zoom")
 
     def patched_move_camera(self, phi=None, theta=None, run_time=3.0, **kw):
         camera_blockers(kw, animated=True)
@@ -732,6 +956,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             parts.append(f"phi={math.degrees(phi):g}")
         if theta is not None:
             parts.append(f"theta={math.degrees(theta):g}")
+        if kw.get("zoom") is not None:
+            parts.append(f"zoom={float(kw['zoom']):g}")
         rec.timeline.append("move " + " ".join(parts) + f" t={run_time:g}")
         state["in_camera_move"] = True
         try:
@@ -749,8 +975,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         # and an unmeasured camera path is worth less than a tier-3 fallback
         # that is measured.
         about = kw.get("about", "theta")
-        if about != "theta":
+        if about not in ("theta", "phi"):
             rec.blockers.append(f"ambient camera rotation about {about}")
+        state["spin_about"] = about
         state["spin_rate"] = rate
         return originals["begin_spin"](self, rate=rate, **kw)
 
@@ -760,11 +987,30 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
     Scene.play = patched_play
     Scene.add = patched_add
+    Scene.clear = patched_clear
     Scene.remove = patched_remove
     ThreeDScene.move_camera = patched_move_camera
     ThreeDScene.set_camera_orientation = patched_orientation
     ThreeDScene.begin_ambient_camera_rotation = patched_spin
     ThreeDScene.stop_ambient_camera_rotation = patched_stop_spin
+
+    # The program is the timeline, not pixels. Verbs are recorded when play
+    # is called. Stepping every frame only exists so the next play sees the
+    # end state, and finish() is that end state. A lecture is tens of
+    # thousands of those steps.
+    original_cairo_play = CairoRenderer.play
+
+    def fast_play(self, scene, *args, **kwargs):
+        scene.compile_animation_data(*args, **kwargs)
+        self.time += scene.duration
+        scene.begin_animations()
+        for animation in scene.animations:
+            animation.finish()
+            animation.clean_up_from_scene(scene)
+        scene.update_mobjects(0)
+        self.num_plays += 1
+
+    CairoRenderer.play = fast_play
 
     path = Path(scene_file).resolve()
     sys.path.insert(0, str(path.parent))
@@ -777,14 +1023,17 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 "write_to_movie": False,
                 "verbosity": "ERROR",
                 "progress_bar": "none",
+                "disable_caching": True,
             }
         ):
             getattr(module, scene_class)().render()
     finally:
+        CairoRenderer.play = original_cairo_play
         TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]
         Scene.add = originals["add"]
         Scene.remove = originals["remove"]
+        Scene.clear = originals["clear"]
         ThreeDScene.move_camera = originals["move_camera"]
         ThreeDScene.set_camera_orientation = originals["set_orientation"]
         ThreeDScene.begin_ambient_camera_rotation = originals["begin_spin"]

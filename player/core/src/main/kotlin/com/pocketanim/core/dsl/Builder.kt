@@ -27,7 +27,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     private var phi = program.phi
     private var theta = program.theta
-    private val zoom = program.zoom
+    private var zoom = program.zoom
 
     /** The frame just produced, held so the renderer can read it. */
     private var current: Array<Instance> = emptyArray()
@@ -280,6 +280,46 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     val frameCount: Int get() = starts.last()
 
+    private fun foldComposites(steps: List<Step>): List<Step> {
+        val folded = ArrayList<Step>()
+        var cursor = 0
+        while (cursor < steps.size) {
+            val step = steps[cursor]
+            cursor++
+            when (step) {
+                is Step.Par -> {
+                    val members = ArrayList<Step>()
+                    val carried = ArrayList<Step>()
+                    while (members.size < step.count && cursor < steps.size) {
+                        val next = steps[cursor]
+                        cursor++
+                        if (next is Step.Show || next is Step.Hide) carried.add(next) else members.add(next)
+                    }
+                    if (members.isNotEmpty()) folded.add(Step.Parallel(foldComposites(members)))
+                    folded.addAll(carried)
+                }
+                is Step.LagHeader -> {
+                    val members = ArrayList<Step>()
+                    for (run in step.runs) {
+                        val slice = ArrayList<Step>()
+                        var left = run
+                        while (left > 0 && cursor < steps.size) {
+                            slice.add(steps[cursor])
+                            cursor++
+                            left--
+                        }
+                        val inner = foldComposites(slice)
+                        if (inner.size == 1) members.add(inner[0])
+                        else if (inner.isNotEmpty()) members.add(Step.Sequence(inner))
+                    }
+                    if (members.isNotEmpty()) folded.add(Step.Lag(step.ratio, step.seconds, members))
+                }
+                else -> folded.add(step)
+            }
+        }
+        return folded
+    }
+
     fun prepare() {
         declareSurfaces()
         declareAssets()
@@ -288,36 +328,11 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         // the rewrite to the list being iterated pushed every asset reveal to
         // the end, so camera moves ran before the things they were looking at.
         val rewritten = program.timeline.map { step ->
-            if (step is Step.Create && isAsset(step.name)) Step.RevealSequence(step.name, step.seconds)
+            if (step is Step.Create && !step.removing && isAsset(step.name)) Step.RevealSequence(step.name, step.seconds)
             else step
         }
 
-        // Fold `par` groups before anything is scheduled, so a group is one
-        // step from here on and the show-attachment below keeps its indices.
-        val folded = ArrayList<Step>()
-        var cursor = 0
-        while (cursor < rewritten.size) {
-            val step = rewritten[cursor]
-            cursor++
-            if (step !is Step.Par) {
-                folded.add(step)
-                continue
-            }
-            // Take the next `count` verbs. A `show` produces no frame and is
-            // not a member, so it is carried past the group rather than into
-            // it -- the exporter does not interleave them, and relying on that
-            // silently would be the kind of assumption this file keeps paying
-            // for.
-            val members = ArrayList<Step>()
-            val carried = ArrayList<Step>()
-            while (members.size < step.count && cursor < rewritten.size) {
-                val next = rewritten[cursor]
-                cursor++
-                if (next is Step.Show || next is Step.Hide) carried.add(next) else members.add(next)
-            }
-            if (members.isNotEmpty()) folded.add(Step.Parallel(members))
-            folded.addAll(carried)
-        }
+        val folded = foldComposites(rewritten)
 
         // `show` and `hide` produce no frame, so they are attached to the verb
         // that follows rather than being verbs themselves. Manim also renders
@@ -449,17 +464,24 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Create -> createRunner(step)
         is Step.Transform -> transformRunner(step)
         is Step.Xform -> xformRunner(step)
+        is Step.Stroke -> strokeRunner(step)
+        is Step.Grow -> growRunner(step)
         is Step.Write -> revealRunner(step.name, step.seconds, sequential = false)
+        is Step.Unwrite -> unwriteRunner(step)
         is Step.RevealSequence -> revealRunner(step.name, step.seconds, sequential = true)
         is Step.LaggedGrow -> laggedGrowRunner(step)
-        is Step.Fade -> fadeRunner(step.name, step.seconds, fadingIn = true)
-        is Step.FadeOut -> fadeRunner(step.name, step.seconds, fadingIn = false)
+        is Step.Fade -> fadeRunner(step.name, step.seconds, fadingIn = true, step.shift, step.from)
+        is Step.FadeOut -> fadeRunner(step.name, step.seconds, fadingIn = false, step.shift, step.from)
+        is Step.Rotate -> rotateRunner(step)
+        is Step.Indicate -> indicateRunner(step)
         is Step.Morph -> morphRunner(step)
         is Step.Move -> moveRunner(step)
         is Step.Spin -> spinRunner(step)
         is Step.Wait -> holdRunner(step.seconds)
         is Step.Parallel -> parallelRunner(step.members.map { runnerFor(it) })
-        is Step.Par -> holdRunner(0.0)  // folded away in prepare; never reached
+        is Step.Lag -> lagRunner(step)
+        is Step.Sequence -> sequenceRunner(step.members.map { runnerFor(it) })
+        is Step.Par, is Step.LagHeader -> holdRunner(0.0)
         is Step.Show, is Step.Hide -> holdRunner(0.0)
     }
 
@@ -471,6 +493,48 @@ internal class Builder(private val program: Program, private val loader: AssetLo
      * frame rather than disappearing, which is what Manim does when one
      * animation in a `play()` finishes before another.
      */
+    private fun sequenceRunner(children: List<Runner>) = object : Runner {
+        override val frames = children.sumOf { it.frames }
+        override fun enter() = children.forEach { it.enter() }
+        override fun render(k: Int) {
+            var left = k
+            for (child in children) {
+                if (child.frames <= 0) continue
+                if (left < child.frames) {
+                    child.render(left)
+                    return
+                }
+                child.render(child.frames - 1)
+                left -= child.frames
+            }
+        }
+        override fun exit() = children.forEach { it.exit() }
+    }
+
+    private fun lagRunner(step: Step.Lag): Runner {
+        val children = step.members.map { runnerFor(it) }
+        return object : Runner {
+            override val frames = frames(step.seconds)
+            override fun enter() = children.forEach { it.enter() }
+            override fun render(k: Int) {
+                val runTimes = children.map { it.frames.toDouble() / fps }
+                val starts = DoubleArray(children.size)
+                for (i in 1 until children.size) {
+                    starts[i] = starts[i - 1] + runTimes[i - 1] * step.ratio
+                }
+                val maxEnd = children.indices.maxOfOrNull { starts[it] + runTimes[it] } ?: 1.0
+                val internal = (k + 1).toDouble() / frames.coerceAtLeast(1) * maxEnd.coerceAtLeast(1e-6)
+                children.forEachIndexed { i, child ->
+                    if (child.frames <= 0 || runTimes[i] <= 0.0) return@forEachIndexed
+                    val local = ((internal - starts[i]) / runTimes[i]).coerceIn(0.0, 1.0)
+                    if (local <= 0.0) return@forEachIndexed
+                    child.render(((local * child.frames).toInt() - 1).coerceIn(0, child.frames - 1))
+                }
+            }
+            override fun exit() = children.forEach { it.exit() }
+        }
+    }
+
     private fun parallelRunner(children: List<Runner>) = object : Runner {
         override val frames = children.maxOfOrNull { it.frames } ?: 0
         override fun enter() = children.forEach { it.enter() }
@@ -502,12 +566,19 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
 
         override fun render(k: Int) {
-            obj.points = Verbs.pointwiseBecomePartial(full, 0.0, rate((k + 1).toDouble() / frames))
+            var alpha = rate((k + 1).toDouble() / frames)
+            if (step.removing) alpha = 1.0 - alpha
+            obj.points = Verbs.pointwiseBecomePartial(full, 0.0, alpha)
             emit()
         }
 
         override fun exit() {
-            obj.points = full
+            if (step.removing) {
+                obj.points = DoubleArray(full.size)
+                obj.visible = false
+            } else {
+                obj.points = full
+            }
         }
     }
 
@@ -532,9 +603,135 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
         override fun render(k: Int) {
             val alpha = rate((k + 1).toDouble() / frames)
-            obj.points = DoubleArray(startPts.size) { startPts[it] + (endPts[it] - startPts[it]) * alpha }
+            val bulge = kotlin.math.sin(Math.PI * alpha) * step.arc
+            val out = DoubleArray(startPts.size)
+            var i = 0
+            while (i < out.size) {
+                val dx = endPts[i] - startPts[i]
+                val dy = endPts[i + 1] - startPts[i + 1]
+                out[i] = startPts[i] + dx * alpha - dy * bulge
+                out[i + 1] = startPts[i + 1] + dy * alpha + dx * bulge
+                out[i + 2] = startPts[i + 2] + (endPts[i + 2] - startPts[i + 2]) * alpha
+                i += 3
+            }
+            obj.points = out
             obj.strokeRgb = (0 until 3).fold(0) { acc, i ->
                 (acc shl 8) or pyRound(c0[i] + (c1[i] - c0[i]) * alpha).coerceIn(0, 255)
+            }
+            emit()
+        }
+
+        override fun exit() {}
+    }
+
+    /** GrowFromCenter on a primitive: points scale up from its own centre. */
+    private fun growRunner(step: Step.Grow) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private lateinit var base: DoubleArray
+        private lateinit var centre: DoubleArray
+
+        override fun enter() {
+            if (step.name !in objects) {
+                val spec = program.shapes.getValue(step.name)
+                objects[step.name] = Obj(
+                    kind = "shape", visible = true, points = geometryFor(spec), alpha = 1.0,
+                    strokeRgb = spec.stroke, width = spec.width,
+                )
+            }
+            obj = objects.getValue(step.name)
+            obj.visible = true
+            base = obj.points!!.copyOf()
+            var minX = base[0]; var minY = base[1]; var minZ = base[2]
+            var maxX = minX; var maxY = minY; var maxZ = minZ
+            var i = 3
+            while (i < base.size) {
+                if (base[i] < minX) minX = base[i]
+                if (base[i] > maxX) maxX = base[i]
+                if (base[i + 1] < minY) minY = base[i + 1]
+                if (base[i + 1] > maxY) maxY = base[i + 1]
+                if (base[i + 2] < minZ) minZ = base[i + 2]
+                if (base[i + 2] > maxZ) maxZ = base[i + 2]
+                i += 3
+            }
+            val forced = step.at
+            centre = if (forced != null) {
+                doubleArrayOf(forced[0], forced[1], if (forced.size > 2) forced[2] else 0.0)
+            } else {
+                doubleArrayOf((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
+            }
+        }
+
+        override fun render(k: Int) {
+            val scale = Verbs.smooth((k + 1).toDouble() / frames)
+            val out = base.copyOf()
+            var i = 0
+            while (i < out.size) {
+                out[i] = centre[0] + (base[i] - centre[0]) * scale
+                out[i + 1] = centre[1] + (base[i + 1] - centre[1]) * scale
+                out[i + 2] = centre[2] + (base[i + 2] - centre[2]) * scale
+                i += 3
+            }
+            obj.points = out
+            emit()
+        }
+
+        override fun exit() {
+            obj.points = base
+        }
+    }
+
+    private fun strokeRunner(step: Step.Stroke) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private var startRgb = IntArray(3)
+        private var startWidth = 0.0
+        private var startAlpha = 1.0
+        private var base: List<Inst>? = null
+
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            if (obj.kind == "shape") {
+                startRgb = intArrayOf(
+                    (obj.strokeRgb shr 16) and 0xFF,
+                    (obj.strokeRgb shr 8) and 0xFF,
+                    obj.strokeRgb and 0xFF,
+                )
+                startWidth = obj.width
+                startAlpha = obj.alpha
+            } else {
+                base = obj.instances.toList()
+            }
+        }
+
+        override fun render(k: Int) {
+            val alpha = Verbs.smooth((k + 1).toDouble() / frames)
+            if (obj.kind == "shape") {
+                val end = step.color
+                val rgb = IntArray(3) { i ->
+                    val target = if (end == null) startRgb[i] else (end shr (16 - 8 * i)) and 0xFF
+                    pyRound(startRgb[i] + (target - startRgb[i]) * alpha)
+                }
+                obj.strokeRgb = (rgb[0] shl 16) or (rgb[1] shl 8) or rgb[2]
+                val width = step.width ?: startWidth
+                obj.width = startWidth + (width - startWidth) * alpha
+                val opacity = step.opacity ?: startAlpha
+                obj.alpha = startAlpha + (opacity - startAlpha) * alpha
+            } else {
+                obj.instances = base!!.mapTo(ArrayList()) { inst ->
+                    val rgb = IntArray(3) { i ->
+                        val target = step.color?.let { (it shr (16 - 8 * i)) and 0xFF } ?: inst.stroke[i]
+                        pyRound(inst.stroke[i] + (target - inst.stroke[i]) * alpha)
+                    }
+                    val channel = if (step.opacity == null) inst.stroke[3]
+                    else pyRound(inst.stroke[3] + (step.opacity * 255 - inst.stroke[3]) * alpha)
+                    val width = if (step.width == null) inst.width
+                    else inst.width + (step.width - inst.width) * alpha
+                    Inst(
+                        inst.atlasId, inst.transform, inst.fill,
+                        intArrayOf(rgb[0], rgb[1], rgb[2], channel), width,
+                    )
+                }
             }
             emit()
         }
@@ -762,8 +959,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             }
             spans = built
 
-            // Centres are measured, not shipped: the geometry already knows them.
-            centres = spans.map { span -> boundsCentre(base, span[0], span[1]) }
+            val forced = step.at
+            centres = if (forced != null) {
+                val point = doubleArrayOf(forced[0], forced[1], if (forced.size > 2) forced[2] else 0.0)
+                spans.map { point }
+            } else {
+                spans.map { span -> boundsCentre(base, span[0], span[1]) }
+            }
             window = 1.0 / (1.0 + step.lag * (maxOf(spans.size, 1) - 1))
         }
 
@@ -803,10 +1005,15 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
     }
 
-    private fun fadeRunner(name: String, seconds: Double, fadingIn: Boolean) = object : Runner {
+    private fun fadeRunner(
+        name: String, seconds: Double, fadingIn: Boolean,
+        shift: DoubleArray, from: Double,
+    ) = object : Runner {
         override val frames = frames(seconds)
         private lateinit var obj: Obj
         private var base: List<Inst>? = null
+        private var rest: DoubleArray? = null
+        private var centre = doubleArrayOf(0.0, 0.0, 0.0)
 
         override fun enter() {
             objects[name]?.visible = true
@@ -821,6 +1028,10 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             }
             obj = objects.getValue(name)
             base = if (obj.kind == "asset") obj.instances.toList() else null
+            if (obj.kind == "shape") {
+                rest = obj.points!!.copyOf()
+                centre = boundsOfPoints(rest!!)
+            }
         }
 
         override fun render(k: Int) {
@@ -829,6 +1040,20 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             val held = base
             if (held == null) {
                 obj.alpha = alpha
+                val points = rest
+                if (points != null) {
+                    val scale = from + (1.0 - from) * alpha
+                    val travel = 1.0 - alpha
+                    val out = points.copyOf()
+                    var i = 0
+                    while (i < out.size) {
+                        out[i] = centre[0] + (points[i] - centre[0]) * scale + shift[0] * travel
+                        out[i + 1] = centre[1] + (points[i + 1] - centre[1]) * scale + shift[1] * travel
+                        out[i + 2] = centre[2] + (points[i + 2] - centre[2]) * scale
+                        i += 3
+                    }
+                    obj.points = out
+                }
             } else {
                 obj.instances = held.mapTo(ArrayList()) { inst ->
                     Inst(
@@ -845,7 +1070,10 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         override fun exit() {
             val held = base
             if (held == null) {
-                if (fadingIn) obj.alpha = 1.0 else objects.remove(name)
+                if (fadingIn) {
+                    obj.alpha = 1.0
+                    rest?.let { obj.points = it }
+                } else objects.remove(name)
             } else {
                 obj.instances = if (fadingIn) held.toMutableList() else ArrayList()
             }
@@ -955,16 +1183,19 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         override val frames = frames(step.seconds)
         private var startPhi = 0.0
         private var startTheta = 0.0
+        private var startZoom = 1.0
 
         override fun enter() {
             startPhi = phi
             startTheta = theta
+            startZoom = zoom
         }
 
         override fun render(k: Int) {
             val alpha = Verbs.smooth((k + 1).toDouble() / frames)
-            phi = startPhi + (step.phi - startPhi) * alpha
-            theta = startTheta + (step.theta - startTheta) * alpha
+            step.phi?.let { phi = startPhi + (it - startPhi) * alpha }
+            step.theta?.let { theta = startTheta + (it - startTheta) * alpha }
+            step.zoom?.let { zoom = startZoom + (it - startZoom) * alpha }
             emit()
         }
 
@@ -983,19 +1214,172 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private fun spinRunner(step: Step.Spin) = object : Runner {
         override val frames = frames(step.seconds)
         private var startTheta = 0.0
+        private var startPhi = 0.0
 
         override fun enter() {
             startTheta = theta
+            startPhi = phi
         }
 
         override fun render(k: Int) {
             val advances = minOf(k + 1, maxOf(frames - 1, 0))
-            theta = startTheta + advances * step.rate / fps
+            val turned = advances * step.rate / fps
+            if (step.about == "phi") phi = startPhi + turned else theta = startTheta + turned
             emit()
         }
 
         override fun exit() {
-            theta = startTheta + maxOf(frames - 1, 0) * step.rate / fps
+            val turned = maxOf(frames - 1, 0) * step.rate / fps
+            if (step.about == "phi") phi = startPhi + turned else theta = startTheta + turned
+        }
+    }
+
+    private fun boundsOfPoints(points: DoubleArray): DoubleArray {
+        var minX = points[0]; var minY = points[1]; var minZ = points[2]
+        var maxX = minX; var maxY = minY; var maxZ = minZ
+        var i = 3
+        while (i < points.size) {
+            if (points[i] < minX) minX = points[i]
+            if (points[i] > maxX) maxX = points[i]
+            if (points[i + 1] < minY) minY = points[i + 1]
+            if (points[i + 1] > maxY) maxY = points[i + 1]
+            if (points[i + 2] < minZ) minZ = points[i + 2]
+            if (points[i + 2] > maxZ) maxZ = points[i + 2]
+            i += 3
+        }
+        return doubleArrayOf((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
+    }
+
+    private fun rotateRunner(step: Step.Rotate) = object : Runner {
+        override val frames = frames(step.seconds)
+        private val rate = Verbs.rate(step.rate)
+        private lateinit var obj: Obj
+        private var basePoints: DoubleArray? = null
+        private var baseInst: List<Inst>? = null
+
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            if (obj.kind == "shape") basePoints = obj.points!!.copyOf()
+            else baseInst = obj.instances.toList()
+        }
+
+        override fun render(k: Int) {
+            val ang = step.radians * rate((k + 1).toDouble() / frames)
+            val c = kotlin.math.cos(ang)
+            val s = kotlin.math.sin(ang)
+            val ox = step.at[0]
+            val oy = if (step.at.size > 1) step.at[1] else 0.0
+            val points = basePoints
+            if (points != null) {
+                val out = points.copyOf()
+                var i = 0
+                while (i < out.size) {
+                    val x = points[i] - ox
+                    val y = points[i + 1] - oy
+                    out[i] = c * x - s * y + ox
+                    out[i + 1] = s * x + c * y + oy
+                    i += 3
+                }
+                obj.points = out
+            } else {
+                val rot = doubleArrayOf(
+                    c, -s, 0.0, ox * (1 - c) + oy * s,
+                    s, c, 0.0, oy * (1 - c) - ox * s,
+                    0.0, 0.0, 1.0, 0.0,
+                )
+                obj.instances = baseInst!!.mapTo(ArrayList()) { inst ->
+                    Inst(inst.atlasId, compose(rot, inst.transform), inst.fill, inst.stroke, inst.width)
+                }
+            }
+            emit()
+        }
+
+        override fun exit() {
+            basePoints?.let { obj.points = it }
+            baseInst?.let { obj.instances = it.toMutableList() }
+        }
+    }
+
+    private fun indicateRunner(step: Step.Indicate) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private var basePoints: DoubleArray? = null
+        private var baseInst: List<Inst>? = null
+        private var centre = doubleArrayOf(0.0, 0.0, 0.0)
+
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            if (obj.kind == "shape") {
+                basePoints = obj.points!!.copyOf()
+                centre = boundsOfPoints(basePoints!!)
+            } else {
+                baseInst = obj.instances.toList()
+                centre = boundsCentre(baseInst!!, 0, baseInst!!.size)
+            }
+        }
+
+        override fun render(k: Int) {
+            val pulse = Verbs.thereAndBack((k + 1).toDouble() / frames)
+            val scale = 1.0 + 0.2 * pulse
+            val points = basePoints
+            if (points != null) {
+                val out = points.copyOf()
+                var i = 0
+                while (i < out.size) {
+                    out[i] = centre[0] + (points[i] - centre[0]) * scale
+                    out[i + 1] = centre[1] + (points[i + 1] - centre[1]) * scale
+                    out[i + 2] = centre[2] + (points[i + 2] - centre[2]) * scale
+                    i += 3
+                }
+                obj.points = out
+            } else {
+                val grow = doubleArrayOf(
+                    scale, 0.0, 0.0, (1 - scale) * centre[0],
+                    0.0, scale, 0.0, (1 - scale) * centre[1],
+                    0.0, 0.0, scale, (1 - scale) * centre[2],
+                )
+                obj.instances = baseInst!!.mapTo(ArrayList()) { inst ->
+                    Inst(inst.atlasId, compose(grow, inst.transform), inst.fill, inst.stroke, inst.width)
+                }
+            }
+            emit()
+        }
+
+        override fun exit() {
+            basePoints?.let { obj.points = it }
+            baseInst?.let { obj.instances = it.toMutableList() }
+        }
+    }
+
+    private fun unwriteRunner(step: Step.Unwrite) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private lateinit var base: List<Inst>
+
+        override fun enter() {
+            obj = objects.getValue(step.name)
+            obj.visible = true
+            base = obj.instances.toList()
+        }
+
+        override fun render(k: Int) {
+            val count = maxOf(base.size, 1)
+            val lag = minOf(4.0 / count, 0.2)
+            val span = 1.0 / (1.0 + lag * (count - 1))
+            val alpha = 1.0 - (k + 1).toDouble() / frames
+            val revealed = ArrayList<Inst>()
+            for ((i, inst) in base.withIndex()) {
+                val start = i * lag * span
+                val local = ((alpha - start) / span).coerceIn(0.0, 1.0)
+                if (local > 0.0) revealed.add(inst)
+            }
+            obj.instances = revealed
+            emit()
+        }
+
+        override fun exit() {
+            obj.instances = ArrayList()
+            obj.visible = false
         }
     }
 

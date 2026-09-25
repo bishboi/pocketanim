@@ -103,6 +103,10 @@ def snapshot_family(mob) -> list[tuple]:
     solid = closed_solid_centres(mob)
     out = []
     for sub in mob.get_family():
+        if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
+            # Not a vector. Its four corners are a placement quad, and reading
+            # fill_color raises AttributeError.
+            continue
         points = getattr(sub, "points", None)
         if points is None or len(points) < 4:
             continue

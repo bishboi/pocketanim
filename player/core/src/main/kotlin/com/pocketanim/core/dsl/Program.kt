@@ -30,21 +30,47 @@ class SurfaceSpec(
 )
 
 sealed class Step {
-    class Create(val name: String, val seconds: Double, val rate: String) : Step()
-    class Transform(val source: String, val target: String, val seconds: Double, val rate: String) : Step()
+    class Create(val name: String, val seconds: Double, val rate: String, val removing: Boolean = false) : Step()
+    class Transform(
+        val source: String, val target: String, val seconds: Double, val rate: String,
+        val arc: Double = 0.0,
+    ) : Step()
     class Morph(val source: String, val target: String, val seconds: Double) : Step()
     class Show(val name: String) : Step()
     /** The other half of [Show]: what Manim's Scene.remove took off stage. */
     class Hide(val name: String) : Step()
-    class Fade(val name: String, val seconds: Double) : Step()
-    class FadeOut(val name: String, val seconds: Double) : Step()
+    class Fade(
+        val name: String, val seconds: Double,
+        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0,
+    ) : Step()
+    class FadeOut(
+        val name: String, val seconds: Double,
+        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0,
+    ) : Step()
     class Write(val name: String, val seconds: Double) : Step()
+    /** Write run backwards, then the object leaves the stage. */
+    class Unwrite(val name: String, val seconds: Double) : Step()
     /** Rewritten from Create on an asset; Manim's Create lags a group's children. */
     class RevealSequence(val name: String, val seconds: Double) : Step()
     class Xform(val name: String, val factor: Double, val offsetXy: DoubleArray, val seconds: Double) : Step()
-    class LaggedGrow(val name: String, val lag: Double, val groups: IntArray, val seconds: Double) : Step()
-    class Move(val phi: Double, val theta: Double, val seconds: Double) : Step()
-    class Spin(val rate: Double, val seconds: Double) : Step()
+    /** `.animate.set_stroke`. Null fields are left as they are. */
+    class Stroke(
+        val name: String, val color: Int?, val width: Double?, val opacity: Double?, val seconds: Double,
+    ) : Step()
+    /** GrowFromCenter on a circle, square or rectangle. Assets use [LaggedGrow]. */
+    class Grow(val name: String, val seconds: Double, val at: DoubleArray? = null) : Step()
+    class LaggedGrow(
+        val name: String, val lag: Double, val groups: IntArray, val seconds: Double,
+        val at: DoubleArray? = null,
+    ) : Step()
+    /** A 2D rotation by [radians] about [at]. */
+    class Rotate(
+        val name: String, val radians: Double, val at: DoubleArray, val seconds: Double, val rate: String,
+    ) : Step()
+    /** A there-and-back scale pulse to 1.2. */
+    class Indicate(val name: String, val seconds: Double) : Step()
+    class Move(val phi: Double?, val theta: Double?, val seconds: Double, val zoom: Double? = null) : Step()
+    class Spin(val rate: Double, val seconds: Double, val about: String = "theta") : Step()
     class Wait(val seconds: Double) : Step()
 
     /**
@@ -56,6 +82,18 @@ sealed class Step {
      * these into [Parallel] before anything is scheduled.
      */
     class Par(val count: Int, val seconds: Double) : Step()
+
+    /**
+     * A staggered group. [runs] is how many following steps belong to each
+     * child. The builder folds this into [Lag] before scheduling.
+     */
+    class LagHeader(val runs: IntArray, val ratio: Double, val seconds: Double) : Step()
+
+    /** Folded [LagHeader]. Children start one after another by [ratio]. */
+    class Lag(val ratio: Double, val seconds: Double, val members: List<Step>) : Step()
+
+    /** Several steps played in order, as one child of a [Lag]. */
+    class Sequence(val members: List<Step>) : Step()
 
     /** A folded [Par] group. Never parsed; only ever built. */
     class Parallel(val members: List<Step>) : Step()
@@ -136,14 +174,31 @@ class Program(
                         theta = Math.toRadians((args["theta"] ?: "0").toDouble())
                         zoom = (args["zoom"] ?: "1").toDouble()
                     }
-                    "create" -> timeline.add(Step.Create(positional[0], t(), rate()))
-                    "transform" -> timeline.add(Step.Transform(positional[0], positional[1], t(), rate()))
+                    "create", "uncreate" -> timeline.add(
+                        Step.Create(positional[0], t(), rate(), removing = verb == "uncreate")
+                    )
+                    "transform" -> timeline.add(
+                        Step.Transform(
+                            positional[0], positional[1], t(), rate(),
+                            arc = args["arc"]?.toDouble() ?: 0.0,
+                        )
+                    )
                     "morph" -> timeline.add(Step.Morph(positional[0], positional[1], t()))
                     "show" -> timeline.add(Step.Show(positional[0]))
                     "hide" -> timeline.add(Step.Hide(positional[0]))
-                    "fade" -> timeline.add(Step.Fade(positional[0], t()))
-                    "fadeout" -> timeline.add(Step.FadeOut(positional[0], t()))
+                    "fade" -> timeline.add(Step.Fade(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))
+                    "fadeout" -> timeline.add(Step.FadeOut(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))
                     "write" -> timeline.add(Step.Write(positional[0], t()))
+                    "unwrite" -> timeline.add(Step.Unwrite(positional[0], t()))
+                    "stroke" -> timeline.add(
+                        Step.Stroke(
+                            positional[0],
+                            args["color"]?.let { hexRgb(it) },
+                            args["w"]?.toDouble(),
+                            args["opacity"]?.toDouble(),
+                            t(),
+                        )
+                    )
                     "xform" -> {
                         val by = (args["by_xy"] ?: "0,0").split(",")
                         timeline.add(
@@ -153,20 +208,41 @@ class Program(
                             )
                         )
                     }
+                    "grow" -> timeline.add(Step.Grow(positional[0], t(), pointOf(args["at"])))
                     "laggedgrow" -> timeline.add(
                         Step.LaggedGrow(
                             positional[0], args.getValue("lag").toDouble(),
                             args.getValue("groups").split(",").map { it.toInt() }.toIntArray(), t(),
+                            pointOf(args["at"]),
                         )
                     )
+                    "rotate" -> timeline.add(
+                        Step.Rotate(
+                            positional[0],
+                            Math.toRadians(args.getValue("deg").toDouble()),
+                            (args["at"] ?: "0,0").split(",").map { it.toDouble() }.toDoubleArray(),
+                            t(), rate(),
+                        )
+                    )
+                    "indicate" -> timeline.add(Step.Indicate(positional[0], t()))
                     "move" -> timeline.add(
                         Step.Move(
-                            Math.toRadians(args.getValue("phi").toDouble()),
-                            Math.toRadians(args.getValue("theta").toDouble()),
+                            args["phi"]?.let { Math.toRadians(it.toDouble()) },
+                            args["theta"]?.let { Math.toRadians(it.toDouble()) },
+                            t(),
+                            args["zoom"]?.toDouble(),
+                        )
+                    )
+                    "spin" -> timeline.add(
+                        Step.Spin(args.getValue("rate").toDouble(), t(), args["about"] ?: "theta")
+                    )
+                    "lag" -> timeline.add(
+                        Step.LagHeader(
+                            args.getValue("runs").split(",").map { it.toInt() }.toIntArray(),
+                            args.getValue("ratio").toDouble(),
                             t(),
                         )
                     )
-                    "spin" -> timeline.add(Step.Spin(args.getValue("rate").toDouble(), t()))
                     "par" -> timeline.add(
                         Step.Par(args.getValue("n").toInt(), t())
                     )
@@ -176,6 +252,17 @@ class Program(
             }
 
             return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline)
+        }
+
+        private fun shiftOf(args: Map<String, String>): DoubleArray {
+            val parts = (args["shift"] ?: "0,0").split(",")
+            return doubleArrayOf(parts[0].toDouble(), parts.getOrElse(1) { "0" }.toDouble())
+        }
+
+        private fun pointOf(text: String?): DoubleArray? {
+            if (text == null) return null
+            val parts = text.split(",").map { it.toDouble() }
+            return doubleArrayOf(parts[0], parts[1], parts.getOrElse(2) { 0.0 })
         }
 
         private fun hexRgb(text: String): Int {

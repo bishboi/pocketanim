@@ -1,0 +1,9 @@
+# The exporter executes scenes under Manim 0.21. A newer Manim changes
+# mobject internals the exporter was measured against.
+manim==0.21.0
+pillow
+cartopy
+geopandas
+kokoro-onnx
+soundfile
+numpy

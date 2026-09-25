@@ -20,6 +20,10 @@ corpus/ir/
 # Player build output and its downloaded toolchain
 player/build/
 
+# Kokoro weights and generated narration
+harness/models/
+harness/app/.voice/
+
 # Scene library packed into the apps at build time
 player/benchmark/src/main/assets/
 player/app/src/main/assets/

@@ -30,6 +30,23 @@ function client(): SupabaseClient | null {
   return cached;
 }
 
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [record.message, record.details, record.hint, record.code].filter(
+      (part): part is string => typeof part === "string" && part.length > 0,
+    );
+    if (parts.length) return parts.join(" — ");
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "storage request failed";
+    }
+  }
+  return String(error);
+}
+
 export function storeConfigured(): boolean {
   return client() !== null;
 }
@@ -78,7 +95,7 @@ export async function saveVersion(input: {
       .insert({
         scene_version_id: version.id,
         state: succeeded ? "succeeded" : "failed",
-        tier: input.result.tier ?? null,
+        tier: input.result.tier === 1 ? "tier1" : input.result.tier === 3 ? "tier3" : null,
         program_path: succeeded ? `${input.sceneClass}.panim` : null,
         error: succeeded
           ? null
@@ -94,7 +111,7 @@ export async function saveVersion(input: {
     // still on screen and still exportable.
     return {
       configured: true,
-      error: error instanceof Error ? error.message : String(error),
+      error: describeError(error),
     };
   }
 }

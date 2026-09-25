@@ -38,11 +38,18 @@ has to show a human.
 ## Running it
 
 ```sh
+harness/scripts/setup-python.sh   # creates .venv and installs Manim 0.21
 cd harness/app
 npm install
 cp .env.example .env.local     # optional: a key and a project
 npm run dev                    # http://localhost:3000
 ```
+
+`setup-python.sh` is required. Export executes the generated scene, so a
+machine Python without Manim fails with `ModuleNotFoundError: No module named
+'manim'`. The script picks Python 3.11+ (Homebrew `python@3.13` is the one
+that has Manim's wheels), creates `.venv` at the repo root, and installs
+`harness/requirements.txt`. The app uses that interpreter.
 
 Nothing in `.env.local` is required. With no `OPENROUTER_API_KEY` the app uses
 an offline fixture provider that returns real, exportable Manim, so export,
@@ -50,7 +57,9 @@ preview and the edit loop all work with no network and no account. With no
 Supabase project, the pipeline runs and simply writes nothing down.
 
 The app needs the repo's Python environment, because export and preview are the
-repo's own tools: `lib/pocketanim.ts` prefers `../../.venv/bin/python`.
+repo's own tools: `lib/pocketanim.ts` prefers `.venv/bin/python`, found by
+walking up from the process directory. `/api/status` reports whether that
+interpreter can import Manim. LaTeX is optional and only required for MathTex.
 
 The five steps on the page are the brief's pipeline: content and a template in,
 a scene source you can edit by hand, an export that reports its tier and its

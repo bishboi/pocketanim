@@ -5,11 +5,36 @@ import type { SceneIR } from "@/lib/pocketanim";
 import { drawFrame } from "@/lib/draw";
 import { Button } from "@/components/ui/button";
 
-export function Player({ ir }: { ir: Extract<SceneIR, { mode: "2d" }> }) {
+export function Player({
+  ir,
+  autoPlay = false,
+  audioSrc = null,
+}: {
+  ir: Extract<SceneIR, { mode: "2d" }>;
+  autoPlay?: boolean;
+  audioSrc?: string | null;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [frame, setFrame] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const total = ir.frames.length;
+  const [playing, setPlaying] = useState(autoPlay);
+  const total = ir.frames;
+
+  const pictureAt = useCallback(
+    (index: number) => {
+      let cursor = index;
+      for (const [count, indexes] of ir.runs) {
+        if (cursor < count) {
+          const picture = [];
+          for (const piece of indexes) picture.push(...ir.pieces[piece]);
+          return picture;
+        }
+        cursor -= count;
+      }
+      return [];
+    },
+    [ir.runs, ir.pieces],
+  );
 
   const draw = useCallback(
     (index: number) => {
@@ -19,9 +44,9 @@ export function Player({ ir }: { ir: Extract<SceneIR, { mode: "2d" }> }) {
       if (!ctx) return;
 
       const { width, height } = canvas;
-      drawFrame(ctx, ir.shapes, ir.frames[index] ?? [], width, height);
+      drawFrame(ctx, ir.shapes, pictureAt(index), width, height);
     },
-    [ir],
+    [ir.shapes, pictureAt],
   );
 
   useEffect(() => {
@@ -31,7 +56,14 @@ export function Player({ ir }: { ir: Extract<SceneIR, { mode: "2d" }> }) {
   // Play on a wall clock rather than per animation frame, so playback runs at
   // the program's own fps on any display.
   useEffect(() => {
-    if (!playing) return;
+    if (!playing) {
+      audioRef.current?.pause();
+      return;
+    }
+    if (audioRef.current) {
+      audioRef.current.currentTime = frame / ir.fps;
+      void audioRef.current.play().catch(() => {});
+    }
     const started = performance.now();
     const from = frame;
     let raf = 0;
@@ -58,10 +90,11 @@ export function Player({ ir }: { ir: Extract<SceneIR, { mode: "2d" }> }) {
     <div className="flex flex-col gap-3">
       <canvas
         ref={canvasRef}
-        width={640}
-        height={360}
-        className="w-full rounded border border-neutral-800 bg-black"
+        width={1280}
+        height={720}
+        className="aspect-video h-auto w-full rounded border border-neutral-800 bg-black"
       />
+      {audioSrc && <audio ref={audioRef} src={audioSrc} preload="auto" />}
       <div className="flex items-center gap-3">
         <Button
           size="sm"

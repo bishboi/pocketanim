@@ -36,7 +36,21 @@ object Verbs {
     /** Manim's linear rate function -- the default for Write and Wait. */
     fun linear(t: Double) = t
 
-    fun rate(name: String): (Double) -> Double = if (name == "linear") ::linear else { t -> smooth(t) }
+    fun thereAndBack(t: Double) = smooth(if (t < 0.5) 2 * t else 2 * (1 - t))
+    fun rushInto(t: Double) = 2 * smooth(t / 2)
+    fun rushFrom(t: Double) = 2 * smooth(t / 2 + 0.5) - 1
+    fun slowInto(t: Double) = kotlin.math.sqrt((1 - (1 - t) * (1 - t)).coerceAtLeast(0.0))
+    fun doubleSmooth(t: Double) = if (t < 0.5) 0.5 * smooth(2 * t) else 0.5 * (1 + smooth(2 * t - 1))
+
+    fun rate(name: String): (Double) -> Double = when (name) {
+        "linear" -> ::linear
+        "there_and_back" -> ::thereAndBack
+        "rush_into" -> ::rushInto
+        "rush_from" -> ::rushFrom
+        "slow_into" -> ::slowInto
+        "double_smooth" -> ::doubleSmooth
+        else -> { t -> smooth(t) }
+    }
 
     private fun comb(n: Int, k: Int): Double {
         var result = 1.0

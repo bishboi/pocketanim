@@ -241,7 +241,15 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
             from narration import mix
 
             frames = timeline_frames(parse(program)["timeline"], PROGRAM_FPS)
-            result["narration"] = mix(rec.sounds, frames / PROGRAM_FPS, Path("narration.wav").resolve())
+            # Beside the program, where tools/build_library looks for it.
+            track = Path(f"dsl/generated/{scene_class}.narration.wav")
+            result["narration"] = mix(rec.sounds, frames / PROGRAM_FPS, track.resolve())
+            result["narration"]["file"] = str(track)
+        # The exporter's verdict, as `export_dsl --write` records it: the
+        # library builder ships a program only with one, so a build from here
+        # can be packed for the phone as it stands.
+        Path(f"dsl/generated/{scene_class}.tier.json").write_text(json.dumps(
+            {k: result[k] for k in ("scene", "tier", "blockers", "program_bytes")}, indent=2) + "\n")
         return result
     finally:
         os.chdir(previous)

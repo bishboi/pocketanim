@@ -86,7 +86,9 @@ class PanimView @JvmOverloads constructor(
     fun load(scene: Frames) {
         releaseAudio()
         this.scene = scene
-        this.playback = Playback(scene)
+        this.playback = Playback(scene).also { playback ->
+            playback.onLoop = { index -> audio?.seekTo(index.toDouble() / scene.fps) }
+        }
     }
 
     /**

@@ -37,6 +37,26 @@ function findRepo(start: string): string {
 
 export const REPO = findRepo(process.cwd());
 
+const BUILD_PREFIX = "panim-build-";
+
+/**
+ * A build directory this app made, or an error.
+ *
+ * The preview routes take the directory and the scene class from the query
+ * string, and both used to reach Python unchecked -- the class name inside a
+ * source string, so `?scene=x")...` ran whatever followed. Builds live in the
+ * temp directory under one prefix; scene classes are Python identifiers.
+ */
+export function checkBuild(buildDir: string, sceneClass: string): { buildDir: string; sceneClass: string } {
+  const resolved = path.resolve(buildDir);
+  const parent = path.resolve(tmpdir());
+  if (path.dirname(resolved) !== parent || !path.basename(resolved).startsWith(BUILD_PREFIX)) {
+    throw new Error("not a build directory");
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(sceneClass)) throw new Error("not a scene class name");
+  return { buildDir: resolved, sceneClass };
+}
+
 /** Prefer the repo's venv, which is where Manim lives. */
 export function python(): string {
   const fromEnv = process.env.PYTHON?.trim();
@@ -172,7 +192,8 @@ export async function exportScene(
   source: string,
   sceneClass: string,
 ): Promise<{ result: ExportResult; buildDir: string }> {
-  const buildDir = await mkdtemp(path.join(tmpdir(), "panim-build-"));
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(sceneClass)) sceneClass = "GeneratedScene";
+  const buildDir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(buildDir, "scene.py");
   await writeFile(scenePath, source, "utf8");
 
@@ -217,6 +238,12 @@ export async function renderFrame(
   frame: number,
   width = 640,
 ): Promise<Buffer | { error: string }> {
+  try {
+    ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+  const program = JSON.stringify(`dsl/generated/${sceneClass}.panim`);
   const script = `
 import io, sys
 sys.path.insert(0, ${JSON.stringify(REPO)})
@@ -227,7 +254,7 @@ from exporter.reference_render import render_frame
 from PIL import Image
 
 panm = Path(${JSON.stringify(sceneClass + ".panm")})
-ir = load(panm.read_bytes()) if panm.is_file() else load_program("dsl/generated/${sceneClass}.panim")
+ir = load(panm.read_bytes()) if panm.is_file() else load_program(${program})
 index = max(0, min(int(${frame}), len(ir.records) - 1))
 width = int(${width})
 array = render_frame(ir, index, width, round(width * 9 / 16))
@@ -278,6 +305,11 @@ export async function sceneIR(
   buildDir: string,
   sceneClass: string,
 ): Promise<SceneIR> {
+  try {
+    ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
   const { stdout, stderr, code } = await run(
     [path.join(REPO, "harness", "scripts", "scene_ir.py"), buildDir, sceneClass],
     { timeoutMs: 300_000 },
@@ -309,12 +341,48 @@ export async function frameCount(
   buildDir: string,
   sceneClass: string,
 ): Promise<number> {
+  ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  const program = JSON.stringify(`dsl/generated/${sceneClass}.panim`);
   const script = `
 import sys
 sys.path.insert(0, ${JSON.stringify(REPO)})
 from dsl.interpret import load_program
-print(len(load_program("dsl/generated/${sceneClass}.panim").records))
+print(len(load_program(${program}).records))
 `;
   const { stdout, code } = await run(["-c", script], { cwd: buildDir, timeoutMs: 60_000 });
   return code === 0 ? parseInt(stdout.toString().trim(), 10) || 0 : 0;
+}
+
+/**
+ * Pack a build as a phone library and zip it.
+ *
+ * The same layout the APK ships (tools/build_library), so the player opens it
+ * as it opens its own: unzip and `adb push` it to the app's files directory.
+ * Narration the scene produced travels with it.
+ */
+export async function bundleLibrary(
+  buildDir: string,
+  sceneClass: string,
+): Promise<{ zip: string } | { error: string }> {
+  try {
+    ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+  const out = path.join(buildDir, "library");
+  const packed = await run(
+    ["-m", "tools.build_library", "--source", path.join(buildDir, "dsl", "generated"), "--out", out],
+    { timeoutMs: 300_000 },
+  );
+  if (packed.code !== 0) {
+    return { error: packed.stderr.trim().split("\n").slice(-4).join("\n") || `exit ${packed.code}` };
+  }
+  const zipped = await run(
+    ["-c", "import shutil, sys; print(shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'library'))",
+     path.join(buildDir, `${sceneClass}-library`), buildDir],
+    { timeoutMs: 120_000 },
+  );
+  const zip = zipped.stdout.toString().trim().split("\n").pop() ?? "";
+  if (zipped.code !== 0 || !zip) return { error: zipped.stderr || "could not zip the library" };
+  return { zip };
 }

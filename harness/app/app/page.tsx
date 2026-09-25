@@ -825,6 +825,20 @@ export default function Home() {
                     )}
                   </>
                 )}
+                {exported.tier === 1 && exported.buildDir && (
+                  <div className="text-xs text-neutral-400">
+                    <a
+                      className="text-sky-300 underline-offset-2 hover:underline"
+                      href={`/api/bundle?build=${encodeURIComponent(exported.buildDir)}&scene=${version?.sceneClass ?? SCENE}`}
+                    >
+                      Download for the phone
+                    </a>{" "}
+                    — a library the player opens as it opens its own. Unzip, then{" "}
+                    <code className="text-neutral-300">
+                      adb push library /sdcard/Android/data/com.pocketanim.player/files/
+                    </code>
+                  </div>
+                )}
                 {exported.stored && !exported.stored.configured && (
                   <p className="text-xs text-neutral-500">
                     Not stored: {exported.stored.reason}

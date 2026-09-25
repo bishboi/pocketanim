@@ -60,6 +60,9 @@ class AudioClock(
     fun play() = track.play()
     fun pause() = track.pause()
 
+    /** Whether the track is running, as opposed to paused or stopped. */
+    val playing: Boolean get() = track.playState == AudioTrack.PLAYSTATE_PLAYING
+
     /** Feed decoded PCM. Blocking; call from the audio thread, not the renderer. */
     fun write(pcm: ByteArray, offset: Int, size: Int): Int =
         track.write(pcm, offset, size)

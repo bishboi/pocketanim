@@ -15,10 +15,14 @@ not a protocol.
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
       assets/<digest>.panm  baked geometry, shared
-      audio/<name>.m4a      narration, fetched on demand (§5.3)
+      audio/<name>.wav      narration, fetched on demand (§5.3)
 
 Usage:
-    python -m tools.build_library [--out library]
+    python -m tools.build_library [--out library] [--source dsl/generated]
+
+--source packs another export -- a harness build's dsl/generated -- instead of
+the corpus. A scene's narration is `<source>/<name>.narration.wav`, which the
+harness exporter writes when the scene narrates itself.
 """
 
 from __future__ import annotations
@@ -127,15 +131,32 @@ def frame_count(program: Path) -> int | None:
     and a `par` or `lag` header owns the steps that follow it -- and got each
     new one wrong. Expanding the program is exact by construction.
     """
+    import os
+
     from dsl.interpret import load_program
 
-    return len(load_program(str(program)).records)
+    # The interpreter finds assets under dsl/generated/assets relative to the
+    # working directory, so it runs from the export's own root.
+    root = PROGRAMS.resolve().parent.parent
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        return len(load_program(str(program.resolve())).records)
+    finally:
+        os.chdir(previous)
 
 
 def main() -> int:
+    global PROGRAMS, ASSETS, GLYPHS, CONTAINERS
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="library")
+    ap.add_argument("--source", default=None, help="an export's dsl/generated directory (default: the corpus)")
     args = ap.parse_args()
+    if args.source:
+        PROGRAMS = Path(args.source)
+        ASSETS = PROGRAMS / "assets"
+        GLYPHS = PROGRAMS / "library.atlas"
+        CONTAINERS = PROGRAMS / "containers"
 
     out = Path(args.out)
     for sub in ("scenes", "assets", "audio"):
@@ -172,6 +193,12 @@ def main() -> int:
             wanted_assets.update(Path(a).name for a in entry["assets"])
         if container:
             shutil.copy(container, out / "scenes" / f"{name}.panm")
+
+        narration = PROGRAMS / f"{name}.narration.wav"
+        if narration.exists():
+            shutil.copy(narration, out / "audio" / f"{name}.wav")
+            entry["audio"] = f"audio/{name}.wav"
+            entry["audio_bytes"] = narration.stat().st_size
 
         (out / "scenes" / f"{name}.json").write_text(json.dumps(entry, indent=2) + "\n")
         scenes.append(entry)

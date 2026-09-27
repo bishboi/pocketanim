@@ -182,6 +182,40 @@ TH: dict = {}
 STYLE = ""
 
 
+# Semantic roles. A script says `tone: enemy`, never a colour; each style
+# decides what enemy looks like. These defaults read a role off the palette,
+# and a style pack may set any of them outright.
+ROLE_DEFAULTS = {
+    "ink": "CREAM", "muted": "MUTED", "accent": "SAND", "highlight": "GOLD",
+    "friendly": "RIVER", "enemy": "ROSE", "ally": "GREEN", "neutral": "MUTED",
+    "water": "RIVER", "land": "SAND",
+}
+ROLES = tuple(ROLE_DEFAULTS)
+
+
+def role(name: str) -> str:
+    """The current style's colour for a semantic role (or a palette key, or #hex)."""
+    if isinstance(name, str) and name.startswith("#"):
+        return name
+    value = getattr(P, f"role_{name}", None) or getattr(P, str(name).upper(), None)
+    if value is None:
+        raise KeyError(f"no role or colour named {name!r}")
+    return value
+
+
+def register_style(name: str, theme: dict) -> None:
+    """Add a style resolved elsewhere -- a Lecture Forge style pack -- to THEMES.
+
+    `theme` has the THEMES keys, plus optional `base` (a THEMES entry to start
+    from) and `roles` (semantic role -> #hex).
+    """
+    base = dict(THEMES.get(theme.get("base", "atlas"), THEMES["atlas"]))
+    pal = dict(base["pal"])
+    pal.update(theme.get("pal") or {})
+    merged = {**base, **{k: v for k, v in theme.items() if k not in ("pal", "base")}, "pal": pal}
+    THEMES[name] = merged
+
+
 def use_style(name: str) -> dict:
     """Switch every colour, font and treatment to one entry of THEMES."""
     global TH, STYLE
@@ -194,6 +228,11 @@ def use_style(name: str) -> dict:
     P.BG = TH["bg"]
     P.PANEL = TH["panel"]
     P.TITLE = TH["title_col"]
+    roles = TH.get("roles") or {}
+    for key, source in ROLE_DEFAULTS.items():
+        setattr(P, f"role_{key}", roles.get(key) or TH["pal"].get(source) or TH["pal"]["CREAM"])
+    if TH.get("land") and "land" not in roles:
+        P.role_land = TH["land"]
     config.background_color = TH["bg"]
     return TH
 
@@ -212,6 +251,11 @@ def T(text: str, size: float = 24, color: str | None = None, font: str | None = 
     if font == "Permanent Marker":
         text = text.replace("≈", "~")
     return Text(text, font=font, font_size=size, color=color or P.CREAM, weight=weight, **kw)
+
+
+def tok(name: str, default: float) -> float:
+    """A style token -- a size a style pack may retune without code."""
+    return float((TH.get("tokens") or {}).get(name, default))
 
 
 def wrap(text: str, width: int) -> str:
@@ -607,6 +651,22 @@ class Lecture(Scene):
             self.add(back)
         self.section(self.SECTION)
 
+    # ---------------- beat log ----------------
+    def _log(self, kind: str, **fields) -> None:
+        """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
+
+        Rendered time, not script time: subtitles, chapter marks and the
+        contact sheet read this, and it is what the video actually did.
+        """
+        target = os.environ.get("PANIM_BEAT_LOG")
+        if not target:
+            return
+        import json
+
+        start = float(getattr(getattr(self, "renderer", None), "time", 0.0) or 0.0)
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"kind": kind, "start": round(start, 3), **fields}) + "\n")
+
     # ---------------- chrome ----------------
     def section(self, index: int) -> None:
         """Show the progress bar and chapter tag for section `index`."""
@@ -635,6 +695,7 @@ class Lecture(Scene):
         the rest of the line plus a short pause is a hold.
         """
         wav, seconds = narrate(text)
+        self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         cap = self.caption(text)
         if wav:
             self.add_sound(wav)
@@ -668,7 +729,7 @@ class Lecture(Scene):
         lines = textwrap.wrap(text, 92)
         if len(lines) > 2:
             lines = textwrap.wrap(text, int(len(text) / 2) + 8)
-        t = fit(T("\n".join(lines), 19, TH["cap_fg"], line_spacing=0.9), 13.2)
+        t = fit(T("\n".join(lines), tok("caption_size", 19), TH["cap_fg"], line_spacing=0.9), 13.2)
         box = RoundedRectangle(corner_radius=0.03 if TH["upper"] else 0.12, width=t.width + 0.5,
                                height=t.height + 0.3, fill_color=TH["cap_bg"], fill_opacity=TH["cap_op"],
                                stroke_width=1.2 if STYLE == "blueprint" else 0, stroke_color=P.MUTED)
@@ -732,7 +793,7 @@ class Lecture(Scene):
     def panel_title(self, title: str, sub: str | None = None):
         """Clear the panel and head it. Returns the animation."""
         old = self.panel_items
-        t = T(title.upper() if TH["upper"] else title, 34, P.TITLE, font=TH["serif"], weight=BOLD)
+        t = T(title.upper() if TH["upper"] else title, tok("panel_title_size", 34), P.TITLE, font=TH["serif"], weight=BOLD)
         t.move_to(RIGHT * self.TEXT_LEFT + UP * 3.05, aligned_edge=LEFT)
         if t.width > 5.2:
             t.scale_to_fit_width(5.2).align_to(RIGHT * self.TEXT_LEFT, LEFT)
@@ -770,7 +831,7 @@ class Lecture(Scene):
     def fact(self, text: str, color: str | None = None, bullet: str | None = None, size: float = 20):
         """A bulleted line in the panel, wrapped at 36 characters."""
         dot = Dot(radius=0.05, color=bullet or P.SAND)
-        t = fit(T(wrap(text, 36), size, color or P.CREAM, line_spacing=0.85), 4.95)
+        t = fit(T(wrap(text, 36), tok("fact_size", size), color or P.CREAM, line_spacing=0.85), 4.95)
         t.next_to(dot, RIGHT, buff=0.18, aligned_edge=UP)
         dot.shift(DOWN * 0.1)
         group = self._stack(VGroup(dot, t), 0.22)
@@ -778,7 +839,7 @@ class Lecture(Scene):
 
     def big_stat(self, value: str, label: str, color: str | None = None):
         """A large number with a small label under it."""
-        v = fit(T(value, 44, color or P.GOLD, font=TH["serif"], weight=BOLD), 5.1)
+        v = fit(T(value, tok("stat_size", 44), color or P.GOLD, font=TH["serif"], weight=BOLD), 5.1)
         lab = fit(T(wrap(label, 40), 17, P.MUTED), TEXT_W)
         lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
         group = self._stack(VGroup(v, lab), 0.3)
@@ -864,6 +925,7 @@ class Lecture(Scene):
         """
         if self.on_stage():
             self.outro_fade(0.6)
+        self._log("chapter", number=num, title=title)
         if self.SECTIONS:
             self.section(num)
         card = self.chapter_card(num, title, sub)
@@ -912,6 +974,82 @@ class Lecture(Scene):
             self.beat(line, FadeIn(card, shift=UP * 0.2, scale=0.95), rt=1.0)
         self.play(FadeOut(cards, shift=UP * 0.3), run_time=1.0)
         self.clear_caption()
+
+    # ---------------- panel diagrams ----------------
+    def compare(self, left: tuple, right: tuple, left_tone: str = "friendly", right_tone: str = "enemy"):
+        """Two big numbers side by side: (value, label) each."""
+        cols = VGroup()
+        for (value, label), tone in ((left, left_tone), (right, right_tone)):
+            v = fit(T(str(value), 38, role(tone), font=TH["serif"], weight=BOLD), 2.4)
+            lab = fit(T(wrap(str(label), 18), 15, P.MUTED), 2.4)
+            lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
+            cols.add(VGroup(v, lab))
+        cols.arrange(RIGHT, buff=0.4, aligned_edge=UP)
+        group = self._stack(cols, 0.3)
+        return self.reveal(group, None)
+
+    def timeline(self, events, tone: str = "accent"):
+        """A horizontal time line in the panel: [(date, label), ...], labels alternating."""
+        events = list(events)[:6]
+        width = 4.8
+        line = Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=2)
+        parts = VGroup(line)
+        for i, (date, label) in enumerate(events):
+            x = -width / 2 + width * (i + 0.5) / max(len(events), 1)
+            tick = Dot([x, 0, 0], radius=0.06, color=role(tone))
+            d = T(str(date), 14, role(tone), weight=BOLD)
+            lab = fit(T(wrap(str(label), 14), 12, P.CREAM, line_spacing=0.8), 1.2)
+            if i % 2 == 0:
+                d.next_to(tick, UP, buff=0.1)
+                lab.next_to(d, UP, buff=0.05)
+            else:
+                d.next_to(tick, DOWN, buff=0.1)
+                lab.next_to(d, DOWN, buff=0.05)
+            parts.add(VGroup(tick, d, lab))
+        group = self._stack(parts, 0.3)
+        return AnimationGroup(Create(line), LaggedStart(*[FadeIn(p, shift=UP * 0.05) for p in parts[1:]],
+                                                         lag_ratio=0.2), lag_ratio=0.3)
+
+    def network(self, nodes, edges=(), tone: str = "accent"):
+        """People and alliances: labelled nodes on a ring, edges between them.
+
+        nodes: names, or (name, tone) pairs. edges: (a, b) or (a, b, label).
+        """
+        nodes = [(n, tone) if isinstance(n, str) else (n[0], n[1] if len(n) > 1 else tone) for n in list(nodes)[:7]]
+        radius = 1.25
+        centre = np.array([self.TEXT_LEFT + 2.5, self.panel_y - 1.55, 0])
+        at = {}
+        dots = VGroup()
+        for i, (name, node_tone) in enumerate(nodes):
+            angle = PI / 2 + 2 * PI * i / max(len(nodes), 1)
+            p = centre + radius * np.array([math.cos(angle), math.sin(angle), 0])
+            at[name] = p
+            dot = Circle(radius=0.13, color=role(node_tone), fill_color=role(node_tone), fill_opacity=0.85,
+                         stroke_width=1.5).move_to(p)
+            lab = fit(T(str(name), 13, P.CREAM), 1.6)
+            lab.next_to(dot, UP if p[1] >= centre[1] else DOWN, buff=0.06)
+            dots.add(VGroup(dot, lab))
+        lines = VGroup()
+        for edge in edges:
+            a, b = edge[0], edge[1]
+            if a not in at or b not in at:
+                continue
+            ln = Line(at[a], at[b], color=P.MUTED, stroke_width=2).set_opacity(0.8)
+            ln.set_z_index(Z_PANEL_TEXT - 1)
+            parts = VGroup(ln)
+            if len(edge) > 2 and edge[2]:
+                parts.add(fit(T(str(edge[2]), 11, P.MUTED), 1.4).move_to(ln.get_center() + UP * 0.12))
+            lines.add(parts)
+        dots.set_z_index(Z_PANEL_TEXT)
+        lines.set_z_index(Z_PANEL_TEXT - 1)
+        self.panel_items.add(VGroup(lines, dots))
+        self.panel_y = centre[1] - radius - 0.55
+        anim = AnimationGroup(LaggedStart(*[GrowFromCenter(d[0]) for d in dots], lag_ratio=0.15),
+                              LaggedStart(*[FadeIn(d[1]) for d in dots], lag_ratio=0.15),
+                              LaggedStart(*[Create(e[0]) for e in lines], lag_ratio=0.15),
+                              *[FadeIn(e[1]) for e in lines if len(e) > 1])
+        anim.panel_item = True
+        return anim
 
     def credits(self, line: str, note: str = "Some boundaries and figures are simplified or approximate for teaching.",
                 seconds: float = 3.0) -> None:
@@ -962,20 +1100,39 @@ class MapLecture(Lecture):
         g = self.focus
         return max(g.geoms, key=lambda p: p.area) if g.geom_type == "MultiPolygon" else g
 
+    # A lon/lat box to fit the map to instead of the whole focus: a
+    # battlefield a few kilometres across inside its province.
+    FRAME_BBOX: tuple | None = None
+
     @property
     def frame(self) -> MapFrame:
         if not hasattr(self, "_frame"):
             height, width = self.MAP_SIZE
-            self._frame = MapFrame(self.mainland, center=self.MAP_CENTER, height=height, width=width)
+            fit_to = _box(self.FRAME_BBOX) if self.FRAME_BBOX else self.mainland
+            self._frame = MapFrame(fit_to, center=self.MAP_CENTER, height=height, width=width)
         return self._frame
 
+    def use_frame(self, bbox: tuple | None = None) -> None:
+        """Refit the map: to a box, or back to the whole focus. Units stay behind."""
+        self.FRAME_BBOX = tuple(bbox) if bbox else None
+        if hasattr(self, "_frame"):
+            del self._frame
+        self.units = {}
+
     def lonlat_bounds(self, margin=None):
+        if self.FRAME_BBOX:
+            lon0, lat0, lon1, lat1 = self.FRAME_BBOX
+            pad = max(lon1 - lon0, lat1 - lat0) * (0.6 if margin is None else margin)
+            return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
         lon0, lat0, lon1, lat1 = self.focus.bounds
         pad = margin if margin is not None else max(lon1 - lon0, lat1 - lat0) * 0.45
         return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
 
     def at(self, where) -> tuple[float, float]:
-        """A place name, or a (lon, lat) pair, as (lon, lat)."""
+        """An anchor, a place name, or a (lon, lat) pair, as (lon, lat)."""
+        if isinstance(where, str) and where in self.ANCHORS:
+            lon, lat = self.ANCHORS[where]
+            return float(lon), float(lat)
         if isinstance(where, str):
             return place(where, self.REGION.get("country"))
         lon, lat = where
@@ -1129,6 +1286,156 @@ class MapLecture(Lecture):
         """Fade every filled layer except `keep` down to `opacity`."""
         fills = [m for m in self.mobjects if getattr(m, "z_index", 0) == Z_FILL and m not in keep]
         return [m.animate.set_fill(opacity=opacity) for m in fills]
+
+    # ---------------- battle operations ----------------
+    # Named points a script can use instead of lon/lat: battlefield anchors
+    # from a region pack. `at()` looks here before the gazetteer.
+    ANCHORS: dict = {}
+
+    UNIT_W, UNIT_H = 0.52, 0.34
+
+    def unit(self, uid: str, where, label: str | None = None, side: str = "friendly", kind: str = "infantry",
+             strength: str | None = None):
+        """A unit counter: a filled box in the side's colour with a symbol, labelled below."""
+        if not hasattr(self, "units"):
+            self.units = {}
+        colour = role(side)
+        p = self.frame.pt(*self.at(where))
+        unit_w, unit_h = tok("unit_width", self.UNIT_W), tok("unit_height", self.UNIT_H)
+        box = Rectangle(width=unit_w, height=unit_h, fill_color=colour, fill_opacity=0.9,
+                        stroke_color=P.role_ink, stroke_width=1.5).move_to(p)
+        w, h = unit_w / 2 - 0.05, unit_h / 2 - 0.04
+        ink = P.BG
+        if kind == "cavalry":
+            symbol = VGroup(Line(p + [-w, -h, 0], p + [w, h, 0], color=ink, stroke_width=2))
+        elif kind == "artillery":
+            symbol = VGroup(Dot(p, radius=0.06, color=ink))
+        elif kind == "navy":
+            symbol = VGroup(Line(p + [-w, 0, 0], p + [w, 0, 0], color=ink, stroke_width=2),
+                            Line(p + [0, -h, 0], p + [0, h, 0], color=ink, stroke_width=2))
+        else:  # infantry: the crossed box
+            symbol = VGroup(Line(p + [-w, -h, 0], p + [w, h, 0], color=ink, stroke_width=2),
+                            Line(p + [-w, h, 0], p + [w, -h, 0], color=ink, stroke_width=2))
+        text = fit(T(label or uid, 13, colour, weight=BOLD), 1.8).next_to(box, DOWN, buff=0.06)
+        parts = VGroup(box, symbol, text)
+        if strength:
+            parts.add(T(str(strength), 11, P.MUTED).next_to(text, DOWN, buff=0.02))
+        parts.set_z_index(Z_MARK + 1)
+        self.units[uid] = parts
+        return FadeIn(parts, scale=0.8)
+
+    def _unit(self, uid: str):
+        found = getattr(self, "units", {}).get(uid)
+        if found is None:
+            raise KeyError(f"no unit {uid!r} on the map; place it with unit first")
+        return found
+
+    def move_unit(self, uid: str, where):
+        """Move a unit so its box sits at a place, anchor or (lon, lat)."""
+        parts = self._unit(uid)
+        target = self.frame.pt(*self.at(where))
+        return parts.animate.shift(target - parts[0].get_center())
+
+    def charge(self, uid: str, where):
+        """A move the length of which is the point: the same as move, faster."""
+        return self.move_unit(uid, where)
+
+    def rout(self, uid: str, direction=(0.0, -1.0)):
+        """A unit breaks: it falls back and fades."""
+        parts = self._unit(uid)
+        return parts.animate.shift(np.array([direction[0], direction[1], 0.0]) * 0.6).set_opacity(0.25)
+
+    def volley(self, source: str, target=None, tone: str | None = None):
+        """Fire from a unit: short dashed lines toward the target, flashing out."""
+        parts = self._unit(source)
+        start = parts[0].get_center()
+        if target is None:
+            end = start + RIGHT * 1.2
+        elif isinstance(target, str) and target in getattr(self, "units", {}):
+            end = self.units[target][0].get_center()
+        else:
+            end = self.frame.pt(*self.at(target))
+        direction = end - start
+        normal = np.array([-direction[1], direction[0], 0.0])
+        length = np.linalg.norm(direction) or 1.0
+        normal = normal / length * 0.12
+        shots = VGroup(*[
+            DashedVMobject(Line(start + normal * k, start + direction * 0.85 + normal * k,
+                                color=role(tone or "highlight"), stroke_width=2.5), num_dashes=8)
+            for k in (-1, 0, 1)
+        ])
+        shots.set_z_index(Z_MARK + 2)
+        return AnimationGroup(Create(shots), FadeOut(shots), lag_ratio=1.0)
+
+    def clock(self, time: str):
+        """A clock in the map's corner, its hands turning to `time` (HH:MM)."""
+        hours, minutes = (int(x) for x in str(time).split(":")[:2])
+        centre = np.array([-6.35, 2.95, 0.0])
+        if not hasattr(self, "_clock"):
+            face = Circle(radius=0.36, color=P.role_ink, stroke_width=2, fill_color=P.BG, fill_opacity=0.85)
+            face.move_to(centre)
+            ticks = VGroup(*[Line(centre + 0.3 * np.array([math.cos(a), math.sin(a), 0]),
+                                  centre + 0.36 * np.array([math.cos(a), math.sin(a), 0]),
+                                  color=P.MUTED, stroke_width=1.5)
+                             for a in np.linspace(0, 2 * PI, 12, endpoint=False)])
+            hour = Line(centre, centre + UP * 0.2, color=P.role_ink, stroke_width=3)
+            minute = Line(centre, centre + UP * 0.3, color=P.role_accent, stroke_width=2)
+            label = T(f"{hours:02d}:{minutes:02d}", 13, P.role_ink, weight=BOLD).next_to(face, RIGHT, buff=0.12)
+            self._clock = SimpleNamespace(face=VGroup(face, ticks), hour=hour, minute=minute, label=label,
+                                          at=(0, 0))
+            for m in (self._clock.face, hour, minute, label):
+                m.set_z_index(Z_CHROME - 1)
+            # Start at 12:00 and turn to the first time.
+            anims = [FadeIn(self._clock.face), FadeIn(hour), FadeIn(minute), FadeIn(label)]
+            first = self._turn(hours, minutes)
+            return AnimationGroup(AnimationGroup(*anims), first, lag_ratio=1.0)
+        return self._turn(hours, minutes)
+
+    def _turn(self, hours: int, minutes: int):
+        from manim import Rotate
+
+        c = self._clock
+        h0, m0 = c.at
+        total0 = h0 * 60 + m0
+        total1 = hours * 60 + minutes
+        if total1 < total0:
+            total1 += 12 * 60
+        delta = total1 - total0
+        c.at = (hours % 12, minutes)
+        centre = c.face[0].get_center()
+        new_label = T(f"{hours:02d}:{minutes:02d}", 13, P.role_ink, weight=BOLD).move_to(c.label)
+        new_label.set_z_index(Z_CHROME - 1)
+        old = c.label
+        c.label = new_label
+        return AnimationGroup(
+            Rotate(c.minute, angle=-2 * PI * delta / 60, about_point=centre),
+            Rotate(c.hour, angle=-2 * PI * delta / 720, about_point=centre),
+            FadeOut(old), FadeIn(new_label),
+        )
+
+    def route(self, points, tone: str = "accent", labels=None):
+        """A dated route through places or (lon, lat): a curved arrow, waypoint labels."""
+        lonlats = [self.at(p) for p in points]
+        anim = self.flow(lonlats, role(tone))
+        tags = VGroup()
+        for p, label in zip(lonlats, labels or []):
+            if not label:
+                continue
+            tag = T(str(label), 12, role(tone), weight=BOLD).next_to(self.frame.pt(*p), UP, buff=0.08)
+            tags.add(tag)
+        if not len(tags):
+            return anim
+        tags.set_z_index(Z_MARK)
+        return AnimationGroup(anim, LaggedStart(*[FadeIn(t) for t in tags], lag_ratio=0.3), lag_ratio=0.4)
+
+    def highlight(self, target):
+        """Draw the eye: a unit or a marker pulses."""
+        if isinstance(target, str) and target in getattr(self, "units", {}):
+            return Indicate(self.units[target][0], color=P.role_highlight, scale_factor=1.25)
+        p = self.frame.pt(*self.at(target))
+        ring = Circle(radius=0.28, color=P.role_highlight, stroke_width=3).move_to(p)
+        ring.set_z_index(Z_MARK + 2)
+        return AnimationGroup(Create(ring), FadeOut(ring, scale=1.6), lag_ratio=1.0)
 
 
 def _box(bounds):

@@ -1,0 +1,10 @@
+id: decisive_charge
+description: One side charges; it is repulsed or breaks through.
+slots: {attacker: unit, target: unit, outcome: "repulsed|breakthrough"}
+beats:
+  - say: "{setup}"
+    do: [{op: highlight, target: "{attacker}"}]
+  - say: "{charge}"
+    do: [{op: charge, unit: "{attacker}", to: "{target}"}]
+  - say: "{result}"
+    do: [{op: volley, from: "{target}", to: "{attacker}"}, {op: "{outcome == repulsed ? rout : move}", unit: "{attacker}", to: "{target}"}]

@@ -1,0 +1,30 @@
+id: whiteboard
+version: 1.0.0
+label: Whiteboard
+description: "Marker on a board: wobbly lines, titles that write on."
+extends: vox
+engine_theme: whiteboard   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#1B1B1B"
+  muted: "#5F6368"
+  accent: "#D9730D"
+  highlight: "#B26A00"
+  friendly: "#1565C0"
+  enemy: "#C62828"
+  ally: "#2E7D32"
+  water: "#1565C0"
+  land: "#ECECE6"
+motion:
+  entrance: write
+ops: ["*"]
+scripts: [Latn]
+voice:
+  engine: auto            # espeak | kokoro | auto (kokoro when it can run)
+  name: am_adam
+  speed: 1.0
+music:
+  preset: none          # drone | martial | none
+  volume: 0.07
+  duck_db: 15
+fonts:
+  Latn: {title: null, body: null}   # null: the engine theme's fonts

@@ -1,0 +1,14 @@
+id: geography_lecture
+version: 1.0.0
+label: Geography lecture
+description: A region explained chapter by chapter over its map, with a fact panel.
+requires_ops: [panel, fact, stat, marker, river]
+requires_roles: [ink, accent, water, land]
+compatible_styles: ["*"]
+target_minutes: {min: 3, default: 10, max: 30}
+words_per_minute: 143
+beat_words: {min: 8, max: 40}
+layouts:
+  map_panel: {map: true, panel: true}
+  panel: {map: false, panel: true}
+default_layout: map_panel

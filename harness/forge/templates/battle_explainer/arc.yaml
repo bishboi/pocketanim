@@ -1,0 +1,51 @@
+slots:
+  - id: prologue
+    title: Prologue
+    purpose: Hook and stakes.
+    share: 0.07
+    required: [title]
+    keywords: [changed, turning, history, fate, empire, stakes]
+  - id: context
+    title: The Land and its Powers
+    purpose: Region, powers, wealth.
+    share: 0.13
+    required: [map, marker]
+    keywords: [province, kingdom, trade, wealth, company, nawab, ruler, capital, rich, powers]
+  - id: road_to_war
+    title: The Road to War
+    purpose: Causes as a sequence.
+    share: 0.15
+    required: [route]
+    keywords: [war, attack, captured, seized, marched, conflict, dispute, fort, treaty, cause]
+  - id: intrigue
+    title: Intrigue
+    purpose: People and alliances.
+    share: 0.09
+    required: [network]
+    keywords: [conspiracy, alliance, betray, betrayal, plot, secret, bribe, agreed, promised, commander]
+  - id: march
+    title: The March
+    purpose: Movement to the field.
+    share: 0.1
+    required: [route]
+    keywords: [march, marched, crossed, advanced, arrived, camp, camped, river]
+  - id: forces
+    title: The Forces
+    purpose: Strength comparison.
+    share: 0.07
+    required: [bars]
+    keywords: [troops, soldiers, men, guns, cannon, cavalry, infantry, army, armies, strength]
+  - id: battle
+    title: The Battle
+    purpose: Phase-by-phase action on the battlefield.
+    share: 0.28
+    required: [map, unit, move, volley, clock]
+    min_phases: 4
+    layout: battlefield
+    keywords: [fire, fired, charge, charged, rain, cannonade, attack, retreat, fled, morning, noon, afternoon, killed]
+  - id: aftermath
+    title: Aftermath
+    purpose: Consequences and legacy.
+    share: 0.11
+    required: [map, timeline]
+    keywords: [after, afterwards, consequence, legacy, rule, control, later, years]

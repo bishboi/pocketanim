@@ -1,0 +1,6 @@
+id: opening_fire
+description: The first exchange of fire, with the time.
+slots: {attacker: unit, target: unit, time: time}
+beats:
+  - say: "{line}"
+    do: [{op: clock, time: "{time}"}, {op: volley, from: "{attacker}", to: "{target}"}]

@@ -1,0 +1,31 @@
+id: vox
+version: 1.0.0
+label: Vox
+description: "Editorial explainer: warm paper, black type, yellow highlighter."
+extends: atlas
+engine_theme: vox   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#161616"
+  muted: "#6B665C"
+  accent: "#C8870E"
+  highlight: "#A87700"
+  friendly: "#1F6FB2"
+  enemy: "#C0392B"
+  ally: "#4E7F2F"
+  neutral: "#6B665C"
+  water: "#1F6FB2"
+  land: "#FBF8F1"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn]
+voice:
+  engine: auto            # espeak | kokoro | auto (kokoro when it can run)
+  name: af_bella
+  speed: 1.0
+music:
+  preset: drone          # drone | martial | none
+  volume: 0.07
+  duck_db: 15
+fonts:
+  Latn: {title: null, body: null}   # null: the engine theme's fonts

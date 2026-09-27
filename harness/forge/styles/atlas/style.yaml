@@ -1,0 +1,30 @@
+id: atlas
+version: 1.0.0
+label: Atlas
+description: "Dark cartographic: navy vignette, sand outlines, serif titles."
+engine_theme: atlas   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#F4E9D8"
+  muted: "#8A93A6"
+  accent: "#E3B25A"
+  highlight: "#F2C14E"
+  friendly: "#5AB4F0"
+  enemy: "#E06C75"
+  ally: "#86B86A"
+  neutral: "#8A93A6"
+  water: "#5AB4F0"
+  land: "#E3B25A"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn]
+voice:
+  engine: auto            # espeak | kokoro | auto (kokoro when it can run)
+  name: bf_emma
+  speed: 1.0
+music:
+  preset: drone          # drone | martial | none
+  volume: 0.07
+  duck_db: 15
+fonts:
+  Latn: {title: null, body: null}   # null: the engine theme's fonts

@@ -1,0 +1,14 @@
+id: battle_explainer
+version: 1.0.0
+label: Battle explainer
+description: A documentary about one battle -- stakes, road to war, forces, the fight phase by phase, aftermath.
+requires_ops: [panel, fact, stat, marker, route, network, bars, unit, move, volley, clock, timeline]
+requires_roles: [ink, accent, friendly, enemy]
+compatible_styles: ["*"]
+target_minutes: {min: 4, default: 12, max: 30}
+words_per_minute: 150
+beat_words: {min: 8, max: 40}
+layouts:
+  map_panel: {map: true, panel: true}
+  battlefield: {map: true, panel: true, zoom: battlefield}
+default_layout: map_panel

@@ -1,0 +1,6 @@
+id: place_intro
+description: Put a place on the map and say one thing about it.
+slots: {place: place, fact: text}
+beats:
+  - say: "{line}"
+    do: [{op: marker, place: "{place}"}, {op: fact, text: "{fact}"}]

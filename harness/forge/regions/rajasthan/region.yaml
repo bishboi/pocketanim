@@ -1,0 +1,11 @@
+id: rajasthan
+version: 1.0.0
+name: Rajasthan
+focus: {state: Rajasthan, country: India}
+aliases: [rajasthan, thar, marwar, mewar, aravalli]
+anchors: {}
+features:
+  paths:
+    aravalli: [[72.35, 24.15], [73.3, 24.95], [74.25, 25.95], [75.2, 26.95], [76.2, 27.75], [77.15, 28.55]]
+    luni: [[74.6, 26.5], [73.7, 26.05], [72.7, 25.9], [71.95, 25.5], [71.35, 24.7], [71.1, 24.35]]
+    indira_gandhi_canal: [[74.95, 31.15], [74.2, 30.0], [73.45, 29.05], [72.55, 28.1], [71.55, 27.4]]

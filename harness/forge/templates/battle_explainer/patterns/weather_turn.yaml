@@ -1,0 +1,6 @@
+id: weather_turn
+description: Weather changes the fight.
+slots: {affected: unit, time: time}
+beats:
+  - say: "{line}"
+    do: [{op: clock, time: "{time}"}, {op: highlight, target: "{affected}"}]

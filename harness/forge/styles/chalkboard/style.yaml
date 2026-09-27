@@ -1,0 +1,30 @@
+id: chalkboard
+version: 1.0.0
+label: Chalkboard
+description: "Chalk on a green board, pale yellow titles."
+extends: atlas
+engine_theme: chalkboard   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#F4F0E4"
+  muted: "#B9C8BE"
+  accent: "#F2E27A"
+  highlight: "#F2E27A"
+  friendly: "#9FD4E0"
+  enemy: "#F4A6A6"
+  ally: "#C5E1A5"
+  water: "#9FD4E0"
+  land: "#224536"
+motion:
+  entrance: write
+ops: ["*"]
+scripts: [Latn]
+voice:
+  engine: auto            # espeak | kokoro | auto (kokoro when it can run)
+  name: am_michael
+  speed: 1.0
+music:
+  preset: none          # drone | martial | none
+  volume: 0.07
+  duck_db: 15
+fonts:
+  Latn: {title: null, body: null}   # null: the engine theme's fonts

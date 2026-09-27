@@ -1,0 +1,313 @@
+{
+  "engine": "0.4.0",
+  "ops": [
+    "bars",
+    "charge",
+    "clear",
+    "clock",
+    "compare",
+    "dim",
+    "fact",
+    "graticule",
+    "highlight",
+    "marker",
+    "move",
+    "network",
+    "panel",
+    "path",
+    "river",
+    "rout",
+    "route",
+    "stat",
+    "state",
+    "timeline",
+    "unit",
+    "volley"
+  ],
+  "styles": {
+    "atlas": {
+      "version": "1.0.0",
+      "extends": null,
+      "label": "Atlas",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "blueprint": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Blueprint",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "campaign": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Campaign",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "cardboard": {
+      "version": "1.0.0",
+      "extends": "vox",
+      "label": "Cardboard",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "chalkboard": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Chalkboard",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "vox": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Vox",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    },
+    "whiteboard": {
+      "version": "1.0.0",
+      "extends": "vox",
+      "label": "Whiteboard",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn"
+      ],
+      "status": "released"
+    }
+  },
+  "templates": {
+    "battle_explainer": {
+      "version": "1.0.0",
+      "label": "Battle explainer",
+      "requires_ops": [
+        "panel",
+        "fact",
+        "stat",
+        "marker",
+        "route",
+        "network",
+        "bars",
+        "unit",
+        "move",
+        "volley",
+        "clock",
+        "timeline"
+      ],
+      "requires_roles": [
+        "ink",
+        "accent",
+        "friendly",
+        "enemy"
+      ],
+      "engine": ">=0.4"
+    },
+    "explainer": {
+      "version": "1.0.0",
+      "label": "Explainer",
+      "requires_ops": [
+        "panel",
+        "fact",
+        "stat"
+      ],
+      "requires_roles": [
+        "ink",
+        "accent"
+      ],
+      "engine": ">=0.4"
+    },
+    "geography_lecture": {
+      "version": "1.0.0",
+      "label": "Geography lecture",
+      "requires_ops": [
+        "panel",
+        "fact",
+        "stat",
+        "marker",
+        "river"
+      ],
+      "requires_roles": [
+        "ink",
+        "accent",
+        "water",
+        "land"
+      ],
+      "engine": ">=0.4"
+    }
+  },
+  "regions": {
+    "bengal_lower": {
+      "version": "1.0.0",
+      "name": "Lower Bengal",
+      "focus": {
+        "state": "West Bengal",
+        "country": "India"
+      },
+      "aliases": [
+        "bengal",
+        "plassey",
+        "palashi",
+        "murshidabad",
+        "calcutta",
+        "hooghly",
+        "bhagirathi"
+      ],
+      "battlefield": true
+    },
+    "india": {
+      "version": "1.0.0",
+      "name": "India",
+      "focus": {
+        "country": "India",
+        "view": "ind"
+      },
+      "aliases": [
+        "india",
+        "indian",
+        "subcontinent"
+      ],
+      "battlefield": false
+    },
+    "rajasthan": {
+      "version": "1.0.0",
+      "name": "Rajasthan",
+      "focus": {
+        "state": "Rajasthan",
+        "country": "India"
+      },
+      "aliases": [
+        "rajasthan",
+        "thar",
+        "marwar",
+        "mewar",
+        "aravalli"
+      ],
+      "battlefield": false
+    }
+  }
+}

@@ -1,0 +1,6 @@
+id: river_system
+description: Draw a river and give its length.
+slots: {river: river, length: text}
+beats:
+  - say: "{line}"
+    do: [{op: river, name: "{river}"}, {op: stat, value: "{length}", label: "{river}", tone: water}]

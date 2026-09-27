@@ -113,20 +113,24 @@ def sources_search(job=None, query: str = "", limit: int = 6, **_):
 
 
 @tool("lexicon.suggest", "Respellings for proper nouns the voice may say wrongly.", {"nouns": "array"})
-def lexicon_suggest(nouns=None, **_):
+def lexicon_suggest(nouns=None, job=None, **_):
+    """Known respellings: the job's lexicon first, then the engine's SAY table.
+
+    Nouns with no entry come back unchanged, listed so the planner can add
+    them to lexicon.yaml; the phoneme audit catches what still goes wrong.
+    """
     import pocket_lecture as pl
 
-    out = {}
+    lexicon = job.lexicon if job else {}
+    out, unknown = {}, []
     for noun in nouns or []:
-        if noun in pl.SAY:
+        if noun in lexicon:
+            out[noun] = lexicon[noun]
+        elif noun in pl.SAY:
             out[noun] = pl.SAY[noun]
-            continue
-        # A cheap heuristic for Indic names read by an English voice: long
-        # vowels written double, which espeak and Kokoro both honour.
-        guess = re.sub(r"a(?=[^aeiou]+[aeiou])", "aa", noun, count=1) if re.search(r"[aeiou]{0}", noun) else noun
-        if guess != noun and len(noun) > 4 and not noun.isupper():
-            out[noun] = guess
-    return out
+        else:
+            unknown.append(noun)
+    return {"respellings": out, "unknown": unknown}
 
 
 def read_only_tools() -> list[Tool]:

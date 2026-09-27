@@ -24,8 +24,8 @@ features:
 battlefield:
   bbox: [88.20, 23.76, 88.31, 23.85]
   units:
-    - {id: company, label: "Clive's army", side: friendly, at: mango_grove, kind: infantry, strength: "about 3,000"}
-    - {id: french, label: "French guns", side: enemy, at: french_guns, kind: artillery}
+    - {id: company, label: "Clive's army", side: friendly, at: mango_grove, kind: infantry, strength: "about 3,000", aliases: [Company, English, British, Clive]}
+    - {id: french, label: "French guns", side: enemy, at: french_guns, kind: artillery, aliases: [French]}
     - {id: mir_madan, label: "Mir Madan", side: enemy, at: small_tank, kind: cavalry}
     - {id: mir_jafar, label: "Mir Jafar", side: ally, at: nawab_left, kind: cavalry}
-    - {id: nawab, label: "Nawab's camp", side: enemy, at: nawab_camp, kind: infantry, strength: "about 50,000"}
+    - {id: nawab, label: "Nawab's camp", side: enemy, at: nawab_camp, kind: infantry, strength: "about 50,000", aliases: [Nawab, Siraj]}

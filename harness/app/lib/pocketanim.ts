@@ -8,7 +8,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -196,6 +196,9 @@ export async function exportScene(
   const buildDir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(buildDir, "scene.py");
   await writeFile(scenePath, source, "utf8");
+  // The exporter patches scene.py for playback (a silent voice, a layout
+  // pass); the video is rendered from the source as written.
+  await writeFile(path.join(buildDir, "source.py"), source, "utf8");
 
   const { stdout, stderr, code } = await run(
     [
@@ -385,4 +388,41 @@ export async function bundleLibrary(
   const zip = zipped.stdout.toString().trim().split("\n").pop() ?? "";
   if (zipped.code !== 0 || !zip) return { error: zipped.stderr || "could not zip the library" };
   return { zip };
+}
+
+const VIDEO_QUALITY: Record<string, string> = { l: "480p15", m: "720p30", h: "1080p60" };
+
+/**
+ * The build's scene rendered by Manim itself, with its narration, as an MP4.
+ *
+ * The phone plays the program; this is the file to publish. Rendered once
+ * per build and quality, then served from the build directory.
+ */
+export async function renderVideo(
+  buildDir: string,
+  sceneClass: string,
+  quality = "m",
+): Promise<{ file: string } | { error: string }> {
+  try {
+    ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+  if (!(quality in VIDEO_QUALITY)) quality = "m";
+  const out = path.join(buildDir, "video", `${sceneClass}-${quality}.mp4`);
+  if (existsSync(out)) return { file: out };
+  const source = existsSync(path.join(buildDir, "source.py")) ? "source.py" : "scene.py";
+  const media = path.join(buildDir, "media");
+  const { code, stderr } = await run(
+    ["-m", "manim", "render", `-q${quality}`, "--disable_caching", "--progress_bar", "none",
+     "--media_dir", media, "-o", `${sceneClass}.mp4`, source, sceneClass],
+    { cwd: buildDir, timeoutMs: 1_800_000 },
+  );
+  const produced = path.join(media, "videos", path.parse(source).name, VIDEO_QUALITY[quality], `${sceneClass}.mp4`);
+  if (code !== 0 || !existsSync(produced)) {
+    return { error: stderr.trim().split("\n").slice(-6).join("\n") || `manim exited ${code}` };
+  }
+  await mkdir(path.dirname(out), { recursive: true });
+  await rename(produced, out);
+  return { file: out };
 }

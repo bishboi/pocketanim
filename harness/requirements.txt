@@ -8,3 +8,4 @@ kokoro-onnx
 soundfile
 numpy
 pyyaml
+pytest

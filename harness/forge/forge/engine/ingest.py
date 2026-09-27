@@ -14,7 +14,7 @@ from pathlib import Path
 
 from forge.util import sentences, write_json
 
-PASSAGE_CHARS = 700
+PASSAGE_CHARS = 380    # a few sentences: small enough that one passage has one topic
 
 
 def _clean_html(raw: str) -> str:

@@ -89,6 +89,26 @@ The linter rejects unknown operations, map operations without a region, and
 missing fields, and warns about captions past two lines and a panel that runs
 into the caption.
 
+## Place names
+
+A marker's `place` is looked up in this order:
+
+1. Natural Earth's populated places. This is about 7,300 towns worldwide, the same data the maps are drawn from.
+2. The same lookup under a renamed city's other name, e.g. Prayagraj ⇄ Allahabad or Bengaluru ⇄ Bangalore (`PLACE_ALIASES`).
+3. `data/places_extra.csv`, a short hand-kept list of district towns and parks.
+4. The GeoNames gazetteer: about 150,000 towns, with old, new and non-Latin names. Download it once:
+
+   ```
+   .venv/bin/python harness/scripts/fetch_gazetteer.py
+   ```
+
+   `setup-python.sh` does this for you.
+5. OpenStreetMap's Nominatim, when online. Each answer is cached in `.cache/geocode.json`. Set `PANIM_GEOCODE=0` to turn this off.
+
+`compile_lecture.py --check` reports a place none of these can find as an error. The fix is to give `lonlat` for that marker instead.
+
+A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Devanagari text is laid out large and scaled down, so small captions keep their shaping.
+
 ## Voice
 
 `PANIM_VOICE` picks it: `auto` (espeak-ng when installed, else silent), `espeak`,

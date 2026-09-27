@@ -423,7 +423,24 @@ def _records(name: str, category: str = "cultural", resolution: str = "10m") -> 
 
 
 def _norm(value) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    """A name for matching: lower case, words only, accents off Latin letters.
+
+    Letters of every script are kept ("प्रयागराज" stays itself); only a mark on
+    a Latin letter is dropped, so "Zürich" and "Zurich" match.
+    """
+    import unicodedata
+
+    out: list[str] = []
+    for c in unicodedata.normalize("NFKD", str(value or "")).lower():
+        kind = unicodedata.category(c)
+        if kind.startswith("M"):
+            if out and ord(out[-1]) >= 0x250:
+                out.append(c)
+        elif kind[0] in "LN":
+            out.append(c)
+        else:
+            out.append(" ")
+    return " ".join("".join(out).split())
 
 
 def _valid(geom):
@@ -524,6 +541,8 @@ def _extra_places() -> dict:
 
 def _natural_earth_place(name: str, scope: str | None):
     wanted = _norm(name)
+    if not wanted:
+        return None
     best = None
     for attrs, _geom in _records("populated_places"):
         if wanted not in (_norm(attrs.get("NAME")), _norm(attrs.get("NAMEASCII")), _norm(attrs.get("NAME_EN"))):
@@ -534,6 +553,58 @@ def _natural_earth_place(name: str, scope: str | None):
         if best is None or pop > best[0]:
             best = (pop, float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))
     return (best[1], best[2]) if best else None
+
+
+GEONAMES = HERE / "data" / "geonames" / "cities.txt"
+
+
+@lru_cache(None)
+def _country_codes() -> dict:
+    """Country name (normalised) -> ISO 3166 alpha-2, from Natural Earth's countries."""
+    out = {}
+    for attrs, _geom in _records("admin_0_countries"):
+        code = attrs.get("ISO_A2_EH") or attrs.get("ISO_A2")
+        if code and code != "-99":
+            for key in ("NAME", "ADMIN", "NAME_LONG", "FORMAL_EN"):
+                if attrs.get(key):
+                    out[_norm(attrs[key])] = code
+    return out
+
+
+@lru_cache(None)
+def _geonames() -> dict:
+    """GeoNames cities: every name and alternate name (normalised) -> [(population, lon, lat, country code)].
+
+    Absent until harness/scripts/fetch_gazetteer.py has run; then an empty dict.
+    """
+    index: dict = {}
+    if not GEONAMES.exists():
+        return index
+    with GEONAMES.open(encoding="utf-8") as handle:
+        for line in handle:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 15:
+                continue
+            row = (int(f[14] or 0), float(f[5]), float(f[4]), f[8])
+            names = {f[1], f[2]} | {a for a in f[3].split(",") if a}
+            for name in names:
+                key = _norm(name)
+                if key:
+                    index.setdefault(key, []).append(row)
+    return index
+
+
+def _geonames_place(name: str, country_name: str | None):
+    rows = _geonames().get(_norm(name))
+    if not rows:
+        return None
+    if country_name:
+        code = _country_codes().get(_norm(country_name))
+        rows = [r for r in rows if r[3] == code] if code else rows
+    if not rows:
+        return None
+    best = max(rows, key=lambda r: r[0])
+    return best[1], best[2]
 
 
 def _geocode_cache_path() -> Path:
@@ -583,8 +654,9 @@ def place(name: str, country_name: str | None = None) -> tuple[float, float]:
     """(lon, lat) of a place.
 
     In order: Natural Earth's populated places (the most populous match),
-    under the name or its renamed form; data/places_extra.csv; then
-    OpenStreetMap, cached. Raises KeyError when none knows it.
+    under the name or its renamed form; data/places_extra.csv; the GeoNames
+    gazetteer when fetch_gazetteer.py has downloaded it; then OpenStreetMap,
+    cached. Raises KeyError when none knows it.
     """
     scope = _norm(country_name) if country_name else None
     names = [name]
@@ -602,10 +674,15 @@ def place(name: str, country_name: str | None = None) -> tuple[float, float]:
         row = extra.get(_norm(candidate))
         if row and (not scope or row[2] == scope):
             return row[0], row[1]
+    for candidate in names:
+        found = _geonames_place(candidate, country_name)
+        if found:
+            return found
     found = _geocode(name, country_name)
     if found:
         return found
-    raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else ""))
+    hint = "" if GEONAMES.exists() else " (run harness/scripts/fetch_gazetteer.py to add 150,000 more towns)"
+    raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else "") + hint)
 
 
 class MapFrame:

@@ -44,3 +44,4 @@ harness/forge/cache/
 
 # Geocoded place names, cached per machine
 harness/lecture/.cache/
+harness/lecture/data/geonames/

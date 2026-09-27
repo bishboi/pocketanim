@@ -63,12 +63,12 @@ export function voiceEngine(): "kokoro" | "espeak" | "none" {
 const fetching = new Map<string, Promise<boolean>>();
 
 /** Run a download script once (concurrent callers share it); true when `ready` holds afterwards. */
-function fetchOnce(script: string, ready: () => boolean): Promise<boolean> {
+function fetchOnce(script: string, ready: () => boolean, args: string[] = []): Promise<boolean> {
   if (ready()) return Promise.resolve(true);
   let running = fetching.get(script);
   if (!running) {
     running = new Promise<boolean>((resolve) => {
-      const child = spawn(python(), [path.join(REPO, "harness", "scripts", script)], { cwd: REPO });
+      const child = spawn(python(), [path.join(REPO, "harness", "scripts", script), ...args], { cwd: REPO });
       child.on("close", () => resolve(ready()));
       child.on("error", () => resolve(false));
     }).finally(() => fetching.delete(script));
@@ -86,8 +86,13 @@ export function ensureKokoro(): Promise<boolean> {
   return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
 }
 
+// The icon sets fetch_icons.py downloads by default (icons.REQUIRED): colour first, silhouettes last.
+const ICON_SETS = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
+  "meteocons", "game-icons", "mdi", "healthicons"];
+
+/** Every default icon set is downloaded (a library from before the colour sets counts as incomplete). */
 export function iconsReady(): boolean {
-  return existsSync(path.join(REPO, "harness", "lecture", "data", "icons", "game-icons.json"));
+  return ICON_SETS.every((set) => existsSync(path.join(REPO, "harness", "lecture", "data", "icons", `${set}.json`)));
 }
 
 /**
@@ -95,7 +100,7 @@ export function iconsReady(): boolean {
  * Without it a lecture has no illustrations and no icons on its maps.
  */
 export function ensureIcons(): Promise<boolean> {
-  return fetchOnce("fetch_icons.py", iconsReady);
+  return fetchOnce("fetch_icons.py", iconsReady, ["--missing"]);
 }
 
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
@@ -113,7 +118,7 @@ export function resources(): Resource[] {
         : "NONE: lecture videos will be silent. Download Kokoro-82M (350 MB)",
       install: voice === "kokoro" ? undefined : "voice" },
     { id: "icons", label: "Icons", ready: icons,
-      detail: icons ? "about 25,000 icons for illustrations" : "NONE: lectures show text instead of illustrations until downloaded (53 MB; fetched on the next lecture)",
+      detail: icons ? "about 45,000 icons, colour first" : "missing colour sets: illustrations are incomplete until downloaded (about 75 MB; fetched on the next lecture)",
       install: icons ? undefined : "icons" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",

@@ -29,7 +29,7 @@ The script:
 - installs `harness/requirements.txt` (Manim, Cartopy, RDKit, kokoro-onnx and the rest);
 - runs `fetch_all.py`, which downloads the libraries below.
 
-It takes a few minutes and about 450 MB the first time. Run it again whenever you like: anything already
+It takes a few minutes and about 475 MB the first time. Run it again whenever you like: anything already
 downloaded is skipped.
 
 To fetch the libraries again, or only some of them:
@@ -44,7 +44,7 @@ To fetch the libraries again, or only some of them:
 
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
-| Icons | About 25,000 SVGs. Silhouettes come from game-icons, Material Design Icons and Health Icons. Flat colour emoji come from Fluent Emoji, OpenMoji and Noto. They are used for **illustrations**, icons on maps, and panel icons. | `harness/lecture/data/icons/` | 53 MB |
+| Icons | About 45,000 SVGs, colour first: Fluent Emoji, Twemoji, Streamline Emojis, Noto, EmojiOne, OpenMoji, Firefox emoji and Meteocons. Silhouettes (game-icons, Material Design Icons, Health Icons) are the fallback. They are used for **illustrations**, icons on maps, and panel icons. `PANIM_ICON_FAMILY` picks the family that comes first. | `harness/lecture/data/icons/` | 75 MB |
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
 | Voice | Kokoro-82M, the narration voice, and the `kokoro-onnx` package. | `harness/models/` | 350 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
@@ -74,6 +74,7 @@ Put your keys in `.env.local`. All of them are optional.
 | `OPENROUTER_MODEL` | Which model writes them. |
 | `DATALAB_API_KEY` | Clean PDF conversion, with figures cut out properly. Without it, pypdf is used. |
 | `PANIM_IMAGES=0` | Turn off internet photos. |
+| `PANIM_ICON_FAMILY` | The icon family to prefer, e.g. `twemoji`, or `fluent-emoji` for shaded 3-D emoji (`fetch_icons.py --sets fluent-emoji`). |
 
 ## 4. Check that everything is in place
 

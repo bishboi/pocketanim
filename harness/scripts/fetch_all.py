@@ -1,11 +1,11 @@
 """Download every library a lecture draws on, once, and report what is ready.
 
-    .venv/bin/python harness/scripts/fetch_all.py            # everything (about 450 MB)
+    .venv/bin/python harness/scripts/fetch_all.py            # everything (about 475 MB)
     .venv/bin/python harness/scripts/fetch_all.py --skip voice
 
 What it gets, and where it goes:
 
-  icons      about 25,000 SVG icons and flat colour emoji   harness/lecture/data/icons/     ~53 MB
+  icons      about 45,000 icons, colour emoji first       harness/lecture/data/icons/     ~75 MB
   gazetteer  GeoNames towns (about 150,000 place names)     harness/lecture/data/geonames/  ~10 MB
   voice      Kokoro-82M narration voice (+ kokoro-onnx)     harness/models/                 ~350 MB
   maps       Natural Earth borders, states, rivers, towns   Cartopy's data folder            ~40 MB

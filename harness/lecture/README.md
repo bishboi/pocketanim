@@ -169,17 +169,35 @@ gets a molecule or an equation, and a history chapter opens on a timeline of the
 ## Icons
 
 `{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.
-Without a place, it goes in the fact panel beside its `label`. Names are searched in about 25,000 openly
-licensed icons:
-- Single-colour silhouettes: game-icons, Material Design Icons, Health Icons. These are filled with the
-  style's colour, or with `color`.
-- Flat colour emoji: Fluent Emoji Flat, OpenMoji, Noto. These keep their own colours.
+Without a place, it goes in the fact panel beside its `label`. Illustrations and map icons come in **colour**.
 
-The app and Forge download the icons before the first lecture when they are missing. Without them a lecture
-has no illustrations (molecules, equations and timelines still appear). To download them by hand (about 53 MB):
+Colour sets are searched first:
+
+| Set | Look | Licence |
+|---|---|---|
+| Fluent Emoji Flat | Microsoft's flat colour emoji; the main family | MIT |
+| Twemoji | bold, flat colour | CC BY 4.0 |
+| Streamline Emojis | illustration-like, soft colours | CC BY 4.0 |
+| Noto | Google's emoji; gradients are flattened so they draw in Manim | Apache 2.0 |
+| EmojiOne | glossy flat colour | CC BY 4.0 |
+| OpenMoji | outlined flat colour | CC BY-SA 4.0 |
+| Firefox emoji | flat colour | Apache 2.0 |
+| Meteocons | colour weather icons | MIT |
+
+Single-colour silhouettes (game-icons, Material Design Icons, Health Icons) are used only when no colour icon fits,
+such as sugarcane, wheat or coal. They are filled with one of the style's colours, a different one per icon.
+
+To make one family come first, set `PANIM_ICON_FAMILY`:
+- `PANIM_ICON_FAMILY=twemoji`, for example;
+- `PANIM_ICON_FAMILY=fluent-emoji` for Microsoft's shaded 3-D emoji, an optional 100 MB download:
+  `fetch_icons.py --sets fluent-emoji`.
+
+The app and Forge download the icons before the first lecture when they are missing, and an older library
+is topped up with the new colour sets. By hand (about 75 MB):
 
 ```
-.venv/bin/python harness/scripts/fetch_icons.py
+.venv/bin/python harness/scripts/fetch_icons.py              # all default sets
+.venv/bin/python harness/scripts/fetch_icons.py --missing    # only the ones not here yet
 .venv/bin/python harness/lecture/icons.py sugarcane coal tiger     # search from the shell
 ```
 

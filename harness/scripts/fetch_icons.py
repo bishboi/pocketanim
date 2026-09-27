@@ -1,8 +1,9 @@
 """Download the icon sets lectures draw from (Iconify JSON packages, from npm).
 
-About 30,000 icons: single-colour silhouettes (game-icons, mdi, healthicons),
-which a lecture fills with its style's colours, and flat colour emoji
-(fluent-emoji-flat, openmoji, noto). Each set keeps its own licence; a lecture
+About 45,000 icons. Colour sets come first: Fluent Emoji, Twemoji, Streamline Emojis,
+Noto, EmojiOne, OpenMoji, Firefox emoji and Meteocons (weather). Single-colour
+silhouettes (game-icons, mdi, healthicons) are a fallback that a lecture fills
+with its style's colours. Each set keeps its own licence; a lecture
 that uses one credits it.
 
     .venv/bin/python harness/scripts/fetch_icons.py [--sets game-icons,fluent-emoji-flat,...]
@@ -20,7 +21,10 @@ from pathlib import Path
 
 TARGET = Path(__file__).resolve().parents[1] / "lecture" / "data" / "icons"
 REGISTRY = "https://registry.npmjs.org/@iconify-json/{name}/latest"
-DEFAULT = ["game-icons", "fluent-emoji-flat", "openmoji", "noto", "mdi", "healthicons"]
+# Colour sets first (illustrations and map icons), then single-colour silhouettes as a fallback.
+# fluent-emoji (Microsoft's shaded 3-D emoji, 100 MB) is optional: --sets fluent-emoji
+DEFAULT = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
+           "meteocons", "game-icons", "mdi", "healthicons"]
 
 
 def _get(url: str) -> bytes:
@@ -43,10 +47,14 @@ def fetch(name: str) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--sets", default=",".join(DEFAULT))
+    ap.add_argument("--missing", action="store_true", help="only the default sets not downloaded yet")
     args = ap.parse_args()
     TARGET.mkdir(parents=True, exist_ok=True)
     failed = 0
-    for name in [s.strip() for s in args.sets.split(",") if s.strip()]:
+    names = [s.strip() for s in args.sets.split(",") if s.strip()]
+    if args.missing:
+        names = [n for n in names if not (TARGET / f"{n}.json").exists()]
+    for name in names:
         try:
             row = fetch(name)
             print(f"{row['set']:20} {row['icons']:6,} icons  {row['license']}", flush=True)

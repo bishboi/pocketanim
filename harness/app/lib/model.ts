@@ -937,7 +937,7 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
 async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
   // Illustrations and map icons are drawn from the icon library: fetch it before the lecture is written.
   if (!iconsReady()) {
-    emit({ type: "message", role: "status", text: "Downloading the icon library for illustrations (53 MB, once)…" });
+    emit({ type: "message", role: "status", text: "Downloading the colour icon library for illustrations (once)…" });
     const ok = await ensureIcons();
     emit({ type: "message", role: "status", text: ok
       ? "Icon library ready."

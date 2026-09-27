@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from functools import lru_cache
@@ -22,13 +23,25 @@ HERE = Path(__file__).resolve().parent
 ICONS = HERE / "data" / "icons"
 CACHE = HERE / ".cache" / "icons"
 
-# Search order: silhouettes first (they take the style's colour), then colour emoji.
-SETS = ["game-icons", "fluent-emoji-flat", "openmoji", "noto", "mdi", "healthicons"]
+# Search order: colour sets first, so illustrations and map icons come in colour. PANIM_ICON_FAMILY puts
+# one set ahead of the rest (e.g. fluent-emoji for Microsoft's shaded 3-D style, an optional 100 MB download).
+COLOUR = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
+          "meteocons", "fluent-emoji"]
+# Single-colour silhouettes: used only when no colour icon fits, filled with a colour from the style's palette.
+MONO = ["game-icons", "mdi", "healthicons"]
+_first = os.environ.get("PANIM_ICON_FAMILY", "").strip()
+SETS = ([_first] if _first else []) + [s for s in COLOUR + MONO if s != _first]
 CREDITS = {
     "game-icons": "game-icons.net (CC BY 3.0)", "fluent-emoji-flat": "Microsoft Fluent Emoji (MIT)",
+    "fluent-emoji": "Microsoft Fluent Emoji (MIT)", "twemoji": "Twemoji by X/Twitter (CC BY 4.0)",
+    "streamline-emojis": "Streamline Emojis (CC BY 4.0)", "emojione": "EmojiOne (CC BY 4.0)",
+    "fxemoji": "Firefox OS Emoji (Apache 2.0)", "meteocons": "Meteocons by Bas Milius (MIT)",
     "openmoji": "OpenMoji (CC BY-SA 4.0)", "noto": "Google Noto Emoji (Apache 2.0)",
     "mdi": "Material Design Icons (Apache 2.0)", "healthicons": "Health Icons (MIT)",
 }
+# What fetch_icons.py downloads by default; a library missing any of these is fetched again.
+REQUIRED = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
+            "meteocons", "game-icons", "mdi", "healthicons"]
 # Words a lecture uses that the icon names spell differently.
 SYNONYMS = {
     "sugarcane": "sugar-cane", "maize": "corn", "paddy": "sheaf-of-rice", "rice": "sheaf-of-rice",
@@ -39,6 +52,13 @@ SYNONYMS = {
     "tourism": "camera", "port": "anchor", "railway": "train", "pilgrimage": "hindu-temple",
     "textiles": "sewing-machine", "textile": "sewing-machine", "jute": "sheaf-of-rice", "pulses": "beans",
     "oilseeds": "sunflower", "mustard": "flower", "sugar": "sugar-cane", "wheat": "wheat",
+    "tree": "deciduous-tree", "trees": "deciduous-tree", "forest": "deciduous-tree", "woods": "deciduous-tree",
+    "water": "droplet", "villagers": "family", "villager": "person", "village": "hut", "rain": "cloud-with-rain",
+    "storm": "cloud-with-lightning-and-rain", "sun": "sun", "sunlight": "sun", "plant": "potted-plant",
+    "plants": "seedling", "seed": "seedling", "seeds": "seedling", "bird": "bird", "birds": "bird",
+    "temple": "hindu-temple", "temples": "hindu-temple", "fort": "castle", "forts": "castle",
+    "leaves": "leaf-fluttering-in-wind", "leaf": "leaf-fluttering-in-wind",
+    "insects": "bug", "insect": "bug", "bacteria": "microbe", "microbes": "microbe", "germs": "microbe",
 }
 
 
@@ -54,6 +74,11 @@ def _set(name: str) -> dict:
 
 def available() -> list[str]:
     return [s for s in SETS if (ICONS / f"{s}.json").exists()]
+
+
+def missing() -> list[str]:
+    """The default sets not downloaded yet (an older library lacks the newer colour sets)."""
+    return [s for s in REQUIRED if not (ICONS / f"{s}.json").exists()]
 
 
 @lru_cache(None)
@@ -135,6 +160,8 @@ def _search(query: str, limit: int = 8) -> list[dict]:
                 continue
             if name.endswith(("-dark", "-light", "-medium", "-medium-dark", "-medium-light")):
                 score -= 20
+            if prefix in MONO:
+                score -= 30    # a silhouette only when no colour icon fits well
             scored.append((score - rank * 0.5, prefix, name))
     scored.sort(key=lambda row: -row[0])
     out, seen = [], set()
@@ -154,16 +181,23 @@ def _row(prefix: str, name: str) -> dict:
 
 # Sets whose names are things (a tiger, a factory). mdi and healthicons are
 # interface symbols ("crop" is the crop tool), so an automatic pick skips them.
-PICTORIAL = ["game-icons", "fluent-emoji-flat", "openmoji", "noto"]
+PICTORIAL = [s for s in SETS if s not in ("mdi", "healthicons")]
+# Sets an automatic pick may use: Unicode emoji (concrete things) and game-icons. OpenMoji and Firefox emoji
+# add logos and UI glyphs ("edge" is a browser, "down" a pointing hand), so only an explicit search finds those.
+AUTO = [s for s in PICTORIAL if s not in ("openmoji", "fxemoji", "meteocons")]
+# Names that are symbols, gestures or signs rather than things to picture.
+SYMBOLIC = re.compile(r"(^|-)(arrow|arrows|button|sign|symbol|keycap|flag|letter|finger|pointing|hand|hands|"
+                      r"backhand|index|up|down|left|right|logo|squared|circled|mark)(-|$)")
 
 
 @lru_cache(None)
 def _exact_index() -> dict[str, str]:
     index: dict[str, str] = {}
     names = _names()
-    for prefix in PICTORIAL:
+    for prefix in AUTO:
         for name in names.get(prefix, []):
-            index.setdefault(name, f"{prefix}:{name}")
+            if not SYMBOLIC.search(name):
+                index.setdefault(name, f"{prefix}:{name}")
     return index
 
 
@@ -177,6 +211,7 @@ center centre face hand head key home light power star back front top bottom end
 spring rest ground field base range cover mark sign show order note cross close open wide deep rich poor great good
 bad new old young big little best better same other another since until after before during between across along
 around among against without within above below near far even rather quite almost always never often sometimes
+edge down up out off break keep make made give take get got put let tiny huge whole half full empty
 """.split())
 
 
@@ -216,7 +251,7 @@ TOPICS = {
     "war": "crossed-swords", "battle": "crossed-swords", "forces": "crossed-swords", "science": "atom-symbol",
     "biology": "dna", "location": "world-map", "extent": "world-map", "introduction": "open-book",
     "recap": "memo", "intrigue": "spy", "march": "footprints", "wildlife": "tiger", "vegetation": "deciduous-tree",
-    "forests": "forest", "industry": "factory", "industries": "factory",
+    "forests": "deciduous-tree", "forest": "deciduous-tree", "industry": "factory", "industries": "factory",
 }
 
 
@@ -232,7 +267,7 @@ def topic(title: str) -> list[str]:
             continue
         if word.lower() in VAGUE:
             continue
-        hit = next((r["id"] for r in search(word, 12) if r["set"] in PICTORIAL), None)
+        hit = next((r["id"] for r in search(word, 12) if r["set"] in AUTO and not SYMBOLIC.search(r["name"])), None)
         if hit and hit not in out:
             out.append(hit)
     return out[:3]
@@ -244,6 +279,63 @@ def resolve(name: str) -> str | None:
     return found[0]["id"] if found else None
 
 
+_GRADIENT = re.compile(r"<(linearGradient|radialGradient)\b([^>]*?)(/>|>(.*?)</\1>)", re.S)
+_STOP = re.compile(r"<stop\b[^>]*>", re.S)
+
+
+def _hex(colour: str) -> tuple[int, int, int] | None:
+    c = colour.strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{3}", c):
+        c = "".join(ch * 2 for ch in c)
+    if re.fullmatch(r"[0-9a-fA-F]{6}", c):
+        return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+    m = re.fullmatch(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+).*\)", colour.strip())
+    return (int(m[1]), int(m[2]), int(m[3])) if m else None
+
+
+def flatten_gradients(body: str) -> str:
+    """Gradient fills as one solid colour each (their stops' mean), so Manim draws them.
+
+    Manim's SVG loader has no gradients: a gradient-filled shape comes out
+    black or empty. Shaded sets (Noto, Fluent Emoji) keep their colours this way.
+    """
+    if "Gradient" not in body:
+        return body
+    stops: dict[str, list[tuple[int, int, int]]] = {}
+    links: dict[str, str] = {}
+    for m in _GRADIENT.finditer(body):
+        attrs, inner = m[2], m[4] or ""
+        gid = re.search(r'\bid="([^"]+)"', attrs)
+        if not gid:
+            continue
+        href = re.search(r'href="#([^"]+)"', attrs)
+        if href:
+            links[gid[1]] = href[1]
+        colours = []
+        for stop in _STOP.findall(inner):
+            c = re.search(r'stop-color[=:]\s*"?([^";]+)', stop)
+            rgb = _hex(c[1]) if c else None
+            if rgb:
+                colours.append(rgb)
+        stops[gid[1]] = colours
+
+    def mean(gid: str, depth: int = 0) -> str | None:
+        colours = stops.get(gid) or []
+        if not colours and gid in links and depth < 5:
+            return mean(links[gid], depth + 1)
+        if not colours:
+            return None
+        r, g, b = (round(sum(c[i] for c in colours) / len(colours)) for i in range(3))
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def swap(m):
+        solid = mean(m[1])
+        return solid or "none"
+
+    body = _GRADIENT.sub("", body)
+    return re.sub(r"url\(\s*['\"]?#([^)'\"]+)['\"]?\s*\)", swap, body)
+
+
 def svg_file(icon_id: str, color: str | None = None) -> Path:
     """The icon as an SVG file, a single-colour one filled with `color`. Cached by content."""
     prefix, name = icon_id.split(":", 1)
@@ -251,6 +343,7 @@ def svg_file(icon_id: str, color: str | None = None) -> Path:
     if not found:
         raise KeyError(f"no icon {icon_id!r}")
     body, width, height = found
+    body = flatten_gradients(body)
     if color:
         body = body.replace("currentColor", color)
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" '

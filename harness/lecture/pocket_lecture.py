@@ -311,11 +311,20 @@ def tok(name: str, default: float) -> float:
 USED_ICONS: set[str] = set()
 
 
+TINTS = ("accent", "highlight", "friendly", "ally", "enemy")
+
+
+def _tint(icon_id: str) -> str:
+    """A single-colour icon's colour: one of the style's lively roles, the same one every time for the same icon."""
+    return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
+
+
 def icon_mob(name: str, color: str | None = None, height: float = 0.5):
     """An icon from the downloaded sets (icons.py) as a vector mobject.
 
-    A single-colour icon is filled with `color` (a role, palette name or #hex;
-    the style's accent by default); a colour emoji keeps its own colours.
+    Colour icons keep their own colours (gradients flattened, icons.svg_file).
+    A single-colour silhouette is filled with `color` (a role, palette name or
+    #hex), or else with one of the style's lively roles, picked per icon.
     """
     import icons
 
@@ -323,7 +332,7 @@ def icon_mob(name: str, color: str | None = None, height: float = 0.5):
     if icon_id is None:
         hint = "" if icons.available() else " (run harness/scripts/fetch_icons.py)"
         raise KeyError(f"no icon for {name!r}{hint}")
-    fill = role(color or "accent") if icons.is_mono(icon_id) else None
+    fill = role(color or _tint(icon_id)) if icons.is_mono(icon_id) else None
     mob = SVGMobject(str(icons.svg_file(icon_id, fill)), height=height, stroke_width=0)
     USED_ICONS.add(icon_id)
     return mob

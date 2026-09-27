@@ -4,6 +4,7 @@ import path from "node:path";
 import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
+import { voiceEngine } from "@/lib/version";
 
 export const runtime = "nodejs";
 // An export runs Manim, which is slow the first time in a cold container.
@@ -44,7 +45,18 @@ export async function POST(request: NextRequest) {
       narrationUrl = `/api/audio?file=${encodeURIComponent(name)}`;
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl });
+    // A lecture with no narration means no voice could speak here: say so,
+    // rather than hand back a video that is silent for no visible reason.
+    let voiceWarning: string | null = null;
+    if (!narrationUrl && /pocket_lecture/.test(source)) {
+      const engine = voiceEngine();
+      voiceWarning = engine === "none"
+        ? "This lecture has no audio: no voice is installed. Click download next to Voice at the top " +
+          "(Kokoro, 350 MB) or install espeak-ng, then build again."
+        : `This lecture has no audio although ${engine} is installed. Check the dev server log for the voice error.`;
+    }
+
+    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

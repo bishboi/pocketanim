@@ -25,6 +25,7 @@ type ExportState = {
   buildDir?: string;
   frames?: number;
   error?: string;
+  voiceWarning?: string | null;
   stored?: { configured: boolean; reason?: string; error?: string };
   narrationUrl?: string | null;
 };
@@ -274,6 +275,7 @@ export default function Home() {
     } else if (exported.error) {
       setError(exported.error);
     }
+    if (exported.voiceWarning) setError(exported.voiceWarning);
     const fixed = exported.source ?? source;
     setVersions((all) =>
       all.map((v, i) =>

@@ -6,9 +6,13 @@ import { REPO, python } from "@/lib/pocketanim";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
-const SCRIPTS: Record<string, string> = { icons: "fetch_icons.py", gazetteer: "fetch_gazetteer.py" };
+const SCRIPTS: Record<string, string> = {
+  icons: "fetch_icons.py",
+  gazetteer: "fetch_gazetteer.py",
+  voice: "fetch_voice.py",
+};
 
-/** POST {what: "icons" | "gazetteer"}: run the download script, wait, report its output. */
+/** POST {what: "icons" | "gazetteer" | "voice"}: run the download script, wait, report its output. */
 export async function POST(request: NextRequest) {
   const { what } = await request.json().catch(() => ({ what: "" }));
   const script = SCRIPTS[String(what)];

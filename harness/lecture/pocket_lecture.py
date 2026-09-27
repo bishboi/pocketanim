@@ -396,16 +396,71 @@ def spoken_lang(text: str) -> str:
     return "en"
 
 
-def narrate(text: str) -> tuple[str | None, float]:
-    """(wav path or None, seconds) for one line, cached by its spoken text.
+# The Kokoro voice each style speaks in (the editor's lecture templates name the same).
+STYLE_VOICES = {"atlas": "bf_emma", "vox": "af_bella", "cardboard": "am_michael", "whiteboard": "am_adam",
+                "blueprint": "am_eric", "chalkboard": "am_michael", "parchment": "bm_george", "lab": "af_sarah",
+                "cosmos": "am_adam"}
+KOKORO_WEIGHTS = (HERE.parent / "models" / "kokoro-v1.0.onnx", HERE.parent / "models" / "voices-v1.0.bin")
 
-    PANIM_VOICE picks the voice: `auto` (espeak-ng if installed, else
-    silent), `espeak`, `silent`, or `kokoro:<voice>` for the harness's
-    Kokoro. A voice that is missing is an estimate, not a crash: the beat
-    still holds for as long as the sentence would take.
+
+def kokoro_ready() -> bool:
+    """Kokoro can speak here: the package is installed and its weights are downloaded."""
+    import importlib.util
+
+    return importlib.util.find_spec("kokoro_onnx") is not None and all(
+        w.exists() and w.stat().st_size > 1_000_000 for w in KOKORO_WEIGHTS)
+
+
+def _espeak_binary() -> str | None:
+    return shutil.which("espeak-ng") or shutil.which("espeak")
+
+
+def voice_mode() -> str:
+    """The voice lines are actually spoken in: kokoro:<voice>, espeak or silent.
+
+    PANIM_VOICE asks for one: `auto` (the default) is Kokoro when it is ready,
+    else espeak-ng when installed, else silent; `kokoro[:voice]` falls back the
+    same way. The answer is part of each line's cache key, so installing a
+    better voice re-speaks lines an older one cached.
+    """
+    mode = os.environ.get("PANIM_VOICE", "auto")
+    if mode == "silent":
+        return "silent"
+    if mode in ("auto", "kokoro") or mode.startswith("kokoro:"):
+        if kokoro_ready():
+            voice = mode.split(":", 1)[1] if ":" in mode else STYLE_VOICES.get(STYLE, "af_sarah")
+            return f"kokoro:{voice}"
+    return "espeak" if _espeak_binary() else "silent"
+
+
+@lru_cache(None)
+def _kokoro():
+    from kokoro_onnx import Kokoro
+
+    return Kokoro(str(KOKORO_WEIGHTS[0]), str(KOKORO_WEIGHTS[1]))
+
+
+def _finish(raw: Path, out: Path, echo: bool = False) -> None:
+    """The house treatment every line gets: band-limit, level, 44.1 kHz stereo (as is without ffmpeg)."""
+    if not shutil.which("ffmpeg"):
+        raw.replace(out)
+        return
+    chain = "highpass=f=70,lowpass=f=7500,aecho=0.8:0.6:35:0.12," if echo else "highpass=f=70,"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
+                    chain + "loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(out)],
+                   check=True, timeout=120)
+    raw.unlink(missing_ok=True)
+
+
+def narrate(text: str) -> tuple[str | None, float]:
+    """(wav path or None, seconds) for one line, cached by its voice and spoken text.
+
+    The voice is voice_mode()'s. A voice that fails is an estimate, not a
+    crash: the beat still holds for as long as the sentence would take, and
+    the beat log records wav=None so the app can say the lecture is silent.
     """
     spoken = speechify(text)
-    mode = os.environ.get("PANIM_VOICE", "auto")
+    mode = voice_mode()
     if mode == "silent":
         return None, estimate_seconds(spoken)
     digest = hashlib.md5(f"{mode}|{spoken}".encode()).hexdigest()[:12]
@@ -414,41 +469,29 @@ def narrate(text: str) -> tuple[str | None, float]:
         return str(out), _wav_seconds(out)
 
     lang = spoken_lang(spoken)
-    if mode.startswith("kokoro"):
-        voice = mode.split(":", 1)[1] if ":" in mode else TH.get("voice", "af_sarah")
+    raw = out.with_name(out.stem + "_raw.wav")
+    if mode.startswith("kokoro:"):
+        voice = mode.split(":", 1)[1]
         if lang != "en" and not voice.startswith(lang[0]):
             voice = KOKORO_VOICES[lang]
-        script = HERE.parent / "scripts" / "kokoro_speak.py"
         try:
-            import json
+            import soundfile as sf
 
-            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out),
-                              "lang": lang if lang != "en" else "en-us"})
-            result = subprocess.run([sys.executable, str(script)], input=job, capture_output=True,
-                                    text=True, timeout=300)
-            reply = json.loads(result.stdout.strip().splitlines()[-1])
-            if reply.get("ok") and out.exists():
-                return str(out), _wav_seconds(out)
-        except Exception:  # noqa: BLE001 -- fall through to espeak or silence
-            pass
+            samples, rate = _kokoro().create(spoken, voice=voice, speed=1.0, lang=lang if lang != "en" else
+                                             ("en-gb" if voice.startswith("b") else "en-us"))
+            sf.write(str(raw), np.asarray(samples, dtype=np.float32), rate, subtype="PCM_16")
+            _finish(raw, out)
+            return str(out), _wav_seconds(out)
+        except Exception as error:  # noqa: BLE001 -- fall through to espeak or silence
+            print(f"pocket_lecture: Kokoro could not speak ({error}); trying espeak", file=sys.stderr)
 
-    espeak = shutil.which("espeak-ng") or shutil.which("espeak")
-    if espeak and mode in ("auto", "espeak") or (espeak and mode.startswith("kokoro")):
+    espeak = _espeak_binary()
+    if espeak:
         voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
-        raw = out.with_name(out.stem + "_raw.wav")
         try:
             subprocess.run([espeak, "-v", voice, "-s", "148", "-p", "42", "-g", "4", "-w", str(raw), spoken],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-            if shutil.which("ffmpeg"):
-                subprocess.run(
-                    ["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
-                     "highpass=f=70,lowpass=f=7500,aecho=0.8:0.6:35:0.12,loudnorm=I=-17:TP=-2,apad=pad_dur=0.1",
-                     "-ar", "44100", "-ac", "2", str(out)],
-                    check=True, timeout=120,
-                )
-                raw.unlink(missing_ok=True)
-            else:
-                raw.replace(out)
+            _finish(raw, out, echo=True)
             return str(out), _wav_seconds(out)
         except Exception:  # noqa: BLE001
             pass

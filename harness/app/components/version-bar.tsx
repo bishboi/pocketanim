@@ -41,7 +41,8 @@ export function VersionBar() {
         {v?.date ? ` · ${v.date}` : ""}
       </span>
       {missing.map((r) => (
-        <span key={r.id} className="text-amber-300/90" title={r.detail}>
+        <span key={r.id} title={r.detail} data-testid={`resource-${r.id}`}
+          className={r.detail.startsWith("NONE") ? "font-semibold text-red-400" : "text-amber-300/90"}>
           {r.label}: {r.detail}
           {r.install && (
             <button type="button" disabled={!!busy} onClick={() => install(r.install!)}

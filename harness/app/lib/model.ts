@@ -15,6 +15,7 @@ import { ICON_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, f
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
+import { ensureIcons, iconsReady } from "./version";
 
 export type Generated = {
   source: string;
@@ -933,6 +934,14 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
 
 /** The content's subject, announced in the trace so the choice is visible. */
 async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
+  // Illustrations and map icons are drawn from the icon library: fetch it before the lecture is written.
+  if (!iconsReady()) {
+    emit({ type: "message", role: "status", text: "Downloading the icon library for illustrations (53 MB, once)…" });
+    const ok = await ensureIcons();
+    emit({ type: "message", role: "status", text: ok
+      ? "Icon library ready."
+      : "Could not download the icon library: this lecture will have no illustrations. Try the download button at the top." });
+  }
   const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`);
   emit({
     type: "message",

@@ -140,6 +140,9 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     warnings: list[str] = []
     if script.get("style", "atlas") not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
+    if script.get("region") and not isinstance(script["region"], dict):
+        errors.append('region must be an object, e.g. {"country": "India", "view": "ind"}, or left out for no map')
+        script = {**script, "region": None}
     has_map = bool(script.get("region"))
     chapters = script.get("chapters") or []
     places: list[tuple[str, str]] = []
@@ -472,8 +475,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     import icons
 
     beats = chapter.get("beats") or []
-    if not icons.available():
-        return [None] * len(beats)
+    # Without the icon library there are no illustrations, but molecules, equations and timelines still come.
+    have_icons = bool(icons.available())
     out: list[dict | None] = []
     showing: set[str] = set()
     hold = 0
@@ -508,6 +511,9 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                 kit_op, showing = {"op": "timeline", "events": events}, {"timeline"}
         if kit_op:
             out.append(kit_op)
+            continue
+        if not have_icons:
+            out.append(None)
             continue
         found = icons.picture_words(say)
         if not found and index == 0 and not showing:

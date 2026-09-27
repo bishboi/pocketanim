@@ -60,23 +60,42 @@ export function voiceEngine(): "kokoro" | "espeak" | "none" {
   return which("espeak-ng") || which("espeak") ? "espeak" : "none";
 }
 
-let fetching: Promise<boolean> | null = null;
+const fetching = new Map<string, Promise<boolean>>();
+
+/** Run a download script once (concurrent callers share it); true when `ready` holds afterwards. */
+function fetchOnce(script: string, ready: () => boolean): Promise<boolean> {
+  if (ready()) return Promise.resolve(true);
+  let running = fetching.get(script);
+  if (!running) {
+    running = new Promise<boolean>((resolve) => {
+      const child = spawn(python(), [path.join(REPO, "harness", "scripts", script)], { cwd: REPO });
+      child.on("close", () => resolve(ready()));
+      child.on("error", () => resolve(false));
+    }).finally(() => fetching.delete(script));
+    fetching.set(script, running);
+  }
+  return running;
+}
 
 /**
  * Kokoro-82M, downloaded (and kokoro-onnx installed) if it is missing, so a
- * lecture is voiced by it rather than by espeak-ng. One download at a time;
- * false when it could not be fetched (offline), and espeak-ng speaks instead.
+ * lecture is voiced by it rather than by espeak-ng. False when it could not be
+ * fetched (offline), and espeak-ng speaks instead.
  */
 export function ensureKokoro(): Promise<boolean> {
-  if (voiceEngine() === "kokoro") return Promise.resolve(true);
-  fetching ??= new Promise<boolean>((resolve) => {
-    const child = spawn(python(), [path.join(REPO, "harness", "scripts", "fetch_voice.py")], { cwd: REPO });
-    child.on("close", () => resolve(voiceEngine() === "kokoro"));
-    child.on("error", () => resolve(false));
-  }).finally(() => {
-    fetching = null;
-  });
-  return fetching;
+  return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
+}
+
+export function iconsReady(): boolean {
+  return existsSync(path.join(REPO, "harness", "lecture", "data", "icons", "game-icons.json"));
+}
+
+/**
+ * The icon library (about 25,000 SVGs, 53 MB), downloaded if it is missing.
+ * Without it a lecture has no illustrations and no icons on its maps.
+ */
+export function ensureIcons(): Promise<boolean> {
+  return fetchOnce("fetch_icons.py", iconsReady);
 }
 
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
@@ -84,7 +103,7 @@ export type Resource = { id: string; label: string; ready: boolean; detail: stri
 /** The downloaded libraries and keys a lecture draws on, and how to get the missing ones. */
 export function resources(): Resource[] {
   const data = path.join(REPO, "harness", "lecture", "data");
-  const icons = existsSync(path.join(data, "icons", "game-icons.json"));
+  const icons = iconsReady();
   const gazetteer = existsSync(path.join(data, "geonames", "cities.txt"));
   const voice = voiceEngine();
   return [
@@ -94,7 +113,7 @@ export function resources(): Resource[] {
         : "NONE: lecture videos will be silent. Download Kokoro-82M (350 MB)",
       install: voice === "kokoro" ? undefined : "voice" },
     { id: "icons", label: "Icons", ready: icons,
-      detail: icons ? "about 25,000 icons for illustrations" : "illustrations and icon ops are off until downloaded (53 MB)",
+      detail: icons ? "about 25,000 icons for illustrations" : "NONE: lectures show text instead of illustrations until downloaded (53 MB; fetched on the next lecture)",
       install: icons ? undefined : "icons" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",

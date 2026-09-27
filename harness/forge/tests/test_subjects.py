@@ -85,3 +85,17 @@ def test_forge_auto_picks_template_and_style(tmp_path):
     spec = job.spec
     assert (spec["genre"], spec["template"], spec["style"]) == ("chemistry", "science_explainer", "lab")
     assert spec.get("region_id") is None
+
+
+def test_kit_visuals_without_icon_library(monkeypatch):
+    """No icon library means no illustrations, but molecules and equations still come."""
+    import icons
+    from compile_lecture import auto_visuals
+
+    monkeypatch.setattr(icons, "available", lambda: [])
+    chapter = {"title": "Burning", "beats": [
+        {"say": "Methane burns: CH4 + 2O2 -> CO2 + 2H2O releases heat.", "do": []},
+        {"say": "Sugarcane and wheat grow on the plains.", "do": []}]}
+    fills = auto_visuals(chapter, genre="chemistry")
+    assert fills[0] and fills[0]["op"] in ("equation", "molecule")
+    assert fills[1] is None

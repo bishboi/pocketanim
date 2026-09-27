@@ -175,7 +175,8 @@ licensed icons:
   style's colour, or with `color`.
 - Flat colour emoji: Fluent Emoji Flat, OpenMoji, Noto. These keep their own colours.
 
-Download the icons once (about 53 MB):
+The app and Forge download the icons before the first lecture when they are missing. Without them a lecture
+has no illustrations (molecules, equations and timelines still appear). To download them by hand (about 53 MB):
 
 ```
 .venv/bin/python harness/scripts/fetch_icons.py

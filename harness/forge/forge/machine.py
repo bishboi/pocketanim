@@ -78,6 +78,7 @@ class Run:
 
     def resolve(self):
         self._auto()
+        self._icons()
         spec = self.spec
         template = self.template()
         style = self.style()
@@ -114,6 +115,26 @@ class Run:
     GENRE_TEMPLATE = {"geography": "geography_lecture", "history": "history_lecture", "biology": "science_explainer",
                       "chemistry": "science_explainer", "physics": "science_explainer",
                       "mathematics": "science_explainer", "economics": "explainer", "general": "explainer"}
+
+    def _icons(self):
+        """The icon library the writer and the illustrations draw from, downloaded once when missing.
+
+        FORGE_FETCH_ICONS=0 turns the download off; without icons a job still runs, with no illustrations.
+        """
+        import os
+        import subprocess
+        import sys
+
+        import icons   # harness/lecture
+
+        if icons.available() or os.environ.get("FORGE_FETCH_ICONS", "1") == "0":
+            return
+        self.job.log("icons: downloading the icon library (53 MB, once)")
+        script = Path(__file__).resolve().parents[2] / "scripts" / "fetch_icons.py"
+        subprocess.run([sys.executable, str(script)], timeout=1800)
+        for cached in (icons._set, icons._names, icons._exact_index):
+            cached.cache_clear()     # they remembered an empty library
+        self.job.log("icons: " + ("ready" if icons.available() else "download failed; no illustrations"))
 
     def _auto(self):
         from genre import classify   # harness/lecture

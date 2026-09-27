@@ -18,6 +18,8 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Node-side check script: CommonJS on purpose, run with plain `node`.
+      "scripts/**/*.cjs",
     ],
   },
 ];

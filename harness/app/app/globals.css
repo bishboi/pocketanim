@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
+/* The page is styled dark throughout (neutral-200 text on neutral-900 cards).
+   Following the system's light scheme put that text on white, unreadable. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 @theme inline {

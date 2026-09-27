@@ -1,0 +1,6 @@
+id: rout
+description: A side breaks and flees.
+slots: {unit: unit, time: time}
+beats:
+  - say: "{line}"
+    do: [{op: clock, time: "{time}"}, {op: rout, unit: "{unit}"}]

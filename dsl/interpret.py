@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,44 @@ ZOOM = 1.0
 GAMMA = 0.0
 FRAME_CENTRE = np.zeros(3)
 LIGHT_SOURCE = np.array([-7.0, -9.0, 10.0])
+
+# Yielded once by every verb when its set-up is done and before its first
+# frame. Manim begins every animation in a play() before it interpolates any,
+# so two verbs on one object -- Create and Indicate on a river -- each capture
+# the object as it was before either moved. A `par` begins all its members
+# through this; a sequence begins each member when it is reached.
+BEGUN = object()
+
+
+def play_frames(seconds: float, fps: int) -> int:
+    """Frames Manim renders for an animation: len(np.arange(0, t, 1/fps)).
+
+    A ceiling. int(t * fps) is the same for a whole number of frames, which is
+    all the corpus had; a narrated beat never is, and every animated play of
+    one came out a frame short, so a lecture ran seconds ahead of its video.
+    """
+    if seconds <= 0:
+        return 0
+    return math.ceil(seconds / (1.0 / fps))
+
+
+def wait_frames(seconds: float, fps: int) -> int:
+    """Frames Manim writes for a static wait: freeze_current_frame's int(d / dt)."""
+    if seconds <= 0:
+        return 0
+    return int(seconds / (1.0 / fps))
+
+
+def begin(generator):
+    """Run a verb's set-up. Returns the generator, positioned at frame 0."""
+    try:
+        first = next(generator)
+    except StopIteration:
+        return iter(())
+    if first is not BEGUN:
+        raise RuntimeError("verb yielded a frame before beginning")
+    return generator
+
 
 SAFE_FUNCS = {
     "sin": np.sin, "cos": np.cos, "tan": np.tan, "exp": np.exp,
@@ -155,6 +194,10 @@ def parse(text: str) -> dict:
         "timeline": [],
         "phi": 0.0,
         "theta": 0.0,
+        # Draw order. Manim sorts what it draws by z_index, stably, so a
+        # caption at z=60 sits over a map added after it. Absent means 0,
+        # which keeps every program written before `z=` existed unchanged.
+        "z": {},
     }
     for raw in text.splitlines():
         line = raw.strip()
@@ -172,6 +215,8 @@ def parse(text: str) -> dict:
 
         if verb == "scene":
             scene["fps"] = int(args.get("fps", 30))
+            if "bg" in args:
+                scene["background"] = hex_rgb(args["bg"])
             if positional:
                 scene["mode"] = positional[0]
         elif verb in ("circle", "square", "rect"):
@@ -184,11 +229,18 @@ def parse(text: str) -> dict:
                 "width": float(args.get("w", 4)),
                 "at": [float(x) for x in args.get("at", "0,0").split(",")],
             }
+            if "z" in args:
+                scene["z"][name] = float(args["z"])
         elif verb in ("text", "geom"):
             scene["assets"][positional[0]] = (verb, args["asset"])
+            if "z" in args:
+                scene["z"][positional[0]] = float(args["z"])
         elif verb in ("create", "uncreate"):
+            # `lag` is Create's lag_ratio across a group's children. Only an
+            # asset has children; a primitive is one path and ignores it.
             scene["timeline"].append(
-                (verb, positional[0], float(args["t"]), args.get("rate", "smooth"))
+                (verb, positional[0], float(args["t"]), args.get("rate", "smooth"),
+                 float(args["lag"]) if "lag" in args else None)
             )
         elif verb == "transform":
             scene["timeline"].append(
@@ -250,6 +302,13 @@ def parse(text: str) -> dict:
             )
         elif verb == "indicate":
             scene["timeline"].append(("indicate", positional[0], float(args["t"])))
+        elif verb == "fill":
+            color = hex_rgb(args["color"]) if "color" in args else None
+            scene["timeline"].append((
+                "fill", positional[0], color,
+                float(args["opacity"]) if "opacity" in args else None,
+                float(args["t"]),
+            ))
         elif verb == "stroke":
             color = hex_rgb(args["color"]) if "color" in args else None
             scene["timeline"].append((
@@ -392,6 +451,15 @@ def build_2d(scene: dict) -> DecodedIR:
             # Library-relative ids, kept so two assets can be matched glyph for
             # glyph even though each is offset into the combined shape list.
             "glyph_ids": [inst.atlas_id for inst in instances],
+            "z": scene["z"].get(name, 0.0),
+        }
+
+    def new_shape(name: str, alpha: float = 1.0) -> dict:
+        spec = scene["shapes"][name]
+        return {
+            "kind": "shape", "visible": True, "points": geometry_for(spec),
+            "alpha": alpha, "stroke": spec["stroke"], "width": spec["width"],
+            "fill": (0, 0, 0, 0), "z": scene["z"].get(name, 0.0),
         }
 
     class _Snapshot(list):
@@ -400,15 +468,21 @@ def build_2d(scene: dict) -> DecodedIR:
     def emit():
         frame = _Snapshot()
         groups = []
-        for obj in objects.values():
-            if not obj.get("visible", True):
-                continue
+        staged = [obj for obj in objects.values() if obj.get("visible", True)]
+        staged.sort(key=lambda obj: obj.get("z", 0.0))
+        for obj in staged:
             if obj["kind"] == "asset":
                 # Position and glyph list are replaced, not edited, when they
                 # change. An object that sits still is the same picture every
                 # frame, so a lecture does not recompose its map 30 times a
                 # second.
-                token = (id(obj["instances"]), id(obj["xform"]))
+                # The slot offset is part of the token: slots are frame-wide
+                # (DecodedIR.frame resolves instances by slot), so an object's
+                # cached list is only reusable while the same number of
+                # instances precedes it. Numbering each object from zero made
+                # every object after the first overwrite the one before it.
+                offset = len(frame)
+                token = (id(obj["instances"]), id(obj["xform"]), offset)
                 drawn = obj.get("_drawn")
                 if drawn is None or drawn[0] != token:
                     normals = obj.get("normals")
@@ -424,7 +498,7 @@ def build_2d(scene: dict) -> DecodedIR:
                             flag = SHADE_IN_3D if normal is not None else 0
                         built.append(
                             DecodedInstance(
-                                slot=index,
+                                slot=offset + index,
                                 atlas_id=atlas_id,
                                 transform=compose(obj["xform"], transform),
                                 fill=fill,
@@ -439,16 +513,24 @@ def build_2d(scene: dict) -> DecodedIR:
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
             else:
-                token = (id(obj["points"]), tuple(obj["stroke"]), obj.get("alpha", 1.0), obj["width"])
+                offset = len(frame)
+                token = (id(obj["points"]), tuple(obj["stroke"]), obj.get("alpha", 1.0),
+                         obj["width"], tuple(obj.get("fill", (0, 0, 0, 0))))
                 drawn = obj.get("_drawn")
+                if drawn is not None and drawn[0] == token and drawn[1][0].slot != offset:
+                    # Same picture, new position in the draw order: keep the
+                    # atlas entry, renumber the slot.
+                    drawn = (token, [replace(drawn[1][0], slot=offset)])
+                    obj["_drawn"] = drawn
                 if drawn is None or drawn[0] != token:
                     shapes.append(obj["points"])
                     drawn = (token, [
                         DecodedInstance(
-                            slot=0,
+                            slot=offset,
                             atlas_id=len(shapes) - 1,
                             transform=identity.copy(),
-                            fill=(0, 0, 0, 0),
+                            fill=(*obj.get("fill", (0, 0, 0, 0))[:3],
+                                  int(obj.get("fill", (0, 0, 0, 0))[3] * obj.get("alpha", 1.0))),
                             stroke=(*obj["stroke"], int(255 * obj.get("alpha", 1.0))),
                             stroke_width=obj["width"],
                         )
@@ -470,7 +552,8 @@ def build_2d(scene: dict) -> DecodedIR:
         if step[0] == "create" and name_is_asset(objects, step[1]):
             # Manim's Create on a group lags its children, which is the same
             # reveal Write performs on glyphs.
-            timeline_steps.append(("revealseq", step[1], step[2]))
+            lag = step[4] if len(step) > 4 and step[4] is not None else 1.0
+            timeline_steps.append(("revealseq", step[1], step[2], lag))
         else:
             timeline_steps.append(step)
 
@@ -491,14 +574,11 @@ def build_2d(scene: dict) -> DecodedIR:
             _, name, duration, rate_name = step[:4]
             removing = step[0] == "uncreate"
             rate = RATE_FUNCS[rate_name]
-            spec = scene["shapes"][name]
-            full = geometry_for(spec)
-            objects[name] = {
-                "kind": "shape", "visible": True, "points": full, "alpha": 1.0,
-                "stroke": spec["stroke"], "width": spec["width"],
-            }
-            for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / (duration * fps))
+            objects[name] = new_shape(name)
+            full = objects[name]["points"]
+            yield BEGUN
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = rate((frame_index + 1) / max(play_frames(duration, fps), 1))
                 if removing:
                     alpha = 1.0 - alpha
                 objects[name]["points"] = pointwise_become_partial(full, 0.0, alpha)
@@ -512,15 +592,10 @@ def build_2d(scene: dict) -> DecodedIR:
             _, name, duration, *rest = step
             forced = rest[0] if rest else None
             if name not in objects:
-                spec = scene["shapes"][name]
-                objects[name] = {
-                    "kind": "shape", "visible": True, "points": geometry_for(spec),
-                    "alpha": 1.0,
-                    "stroke": spec["stroke"], "width": spec["width"],
-                }
+                objects[name] = new_shape(name)
             obj = objects[name]
             obj["visible"] = True
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "asset":
                 base = [tuple(inst) for inst in obj["instances"]]
                 if forced is not None:
@@ -535,6 +610,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     ]
                     stacked = np.vstack(corners) if corners else np.zeros((1, 3))
                     centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
+                yield BEGUN
                 for frame_index in range(total):
                     scale = smooth((frame_index + 1) / total)
                     grow = np.hstack([
@@ -553,6 +629,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     centre = np.array([forced[0], forced[1], forced[2] if len(forced) > 2 else 0.0])
                 else:
                     centre = (base_points.min(axis=0) + base_points.max(axis=0)) / 2.0
+                yield BEGUN
                 for frame_index in range(total):
                     scale = smooth((frame_index + 1) / total)
                     obj["points"] = centre + (base_points - centre) * scale
@@ -567,8 +644,9 @@ def build_2d(scene: dict) -> DecodedIR:
             start_pts, end_pts = align(objects[source]["points"], geometry_for(target_spec))
             c0 = np.array(objects[source]["stroke"], dtype=float)
             c1 = np.array(target_spec["stroke"], dtype=float)
-            for frame_index in range(int(duration * fps)):
-                alpha = rate((frame_index + 1) / (duration * fps))
+            yield BEGUN
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = rate((frame_index + 1) / max(play_frames(duration, fps), 1))
                 delta = end_pts - start_pts
                 bulge = math.sin(math.pi * alpha) * arc
                 perp = np.column_stack([
@@ -583,7 +661,7 @@ def build_2d(scene: dict) -> DecodedIR:
         elif step[0] == "stroke":
             _, name, color, width, opacity, duration = step
             obj = objects[name]
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 c0 = np.array(obj["stroke"], dtype=float)
                 w0 = float(obj["width"])
@@ -591,6 +669,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 c1 = np.array(color if color is not None else obj["stroke"], dtype=float)
                 w1 = w0 if width is None else float(width)
                 a1 = a0 if opacity is None else float(opacity)
+                yield BEGUN
                 for frame_index in range(total):
                     alpha = smooth((frame_index + 1) / total)
                     obj["stroke"] = tuple(int(round(x)) for x in c0 + (c1 - c0) * alpha)
@@ -599,6 +678,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     yield
             else:
                 base = [tuple(i) for i in obj["instances"]]
+                yield BEGUN
                 for frame_index in range(total):
                     alpha = smooth((frame_index + 1) / total)
                     grown = []
@@ -631,8 +711,9 @@ def build_2d(scene: dict) -> DecodedIR:
                 base = obj["xform"].copy()
                 centre = obj.get("centre", np.zeros(3))
 
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+            yield BEGUN
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 scale = 1.0 + (factor - 1.0) * alpha
                 # Manim scales about the object's centre, then translates.
                 step_linear = np.identity(3) * scale
@@ -654,7 +735,7 @@ def build_2d(scene: dict) -> DecodedIR:
         elif step[0] in ("write", "revealseq"):
             # Manim lags each submobject. Write uses lag_ratio min(4/n, 0.2);
             # Create on a group uses 1.0, i.e. strictly one child at a time.
-            _, name, duration = step
+            _, name, duration, *rest = step
             obj = objects[name]
             # Revealing a thing puts it on stage. Without this the object
             # stayed hidden for the whole reveal and only appeared at its
@@ -663,9 +744,13 @@ def build_2d(scene: dict) -> DecodedIR:
             base = [tuple(inst) for inst in obj["instances"]]
             count = max(len(base), 1)
             sequential = step[0] == "revealseq"
-            lag = 1.0 if sequential else min(4.0 / count, 0.2)
+            if sequential:
+                lag = rest[0] if rest else 1.0
+            else:
+                lag = min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
+            yield BEGUN
             for frame_index in range(total):
                 alpha = (frame_index + 1) / total
                 revealed = []
@@ -738,7 +823,8 @@ def build_2d(scene: dict) -> DecodedIR:
 
             count = max(len(spans), 1)
             window = 1.0 / (1.0 + lag * (count - 1))
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
+            yield BEGUN
             for frame_index in range(total):
                 alpha = (frame_index + 1) / total
                 grown = []
@@ -800,8 +886,9 @@ def build_2d(scene: dict) -> DecodedIR:
             src_base = [tuple(i) for i in src["instances"]]
             dst_base = [tuple(i) for i in dst["instances"]]
 
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+            yield BEGUN
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 built = []
                 for si, di in pairs:
                     a_id, a_t, a_fill, a_stroke, a_w = src_base[si]
@@ -850,28 +937,44 @@ def build_2d(scene: dict) -> DecodedIR:
             # A declared shape only enters the scene when something animates
             # it in; fade is one of those entry points, not just create.
             if name not in objects:
-                spec = scene["shapes"][name]
-                objects[name] = {
-                    "kind": "shape", "visible": True, "points": geometry_for(spec),
-                    "alpha": 0.0,
-                    "stroke": spec["stroke"], "width": spec["width"],
-                }
+                objects[name] = new_shape(name, alpha=0.0)
             obj = objects[name]
             from_scale = float(rest[1]) if len(rest) > 1 else 1.0
+            # Manim's _Fade interpolates from a faded copy that FadeIn shifts
+            # by -shift and FadeOut by +shift, scaled about its own centre.
+            # Point by point that is c + (p - c)*scale + sign*shift*(1 - shown).
+            # FadeIn used to travel +shift: things rose into place from above.
+            sign = -1.0 if fading_in else 1.0
             rest_points = obj["points"].copy() if obj["kind"] == "shape" else None
             base = [tuple(i) for i in obj["instances"]] if obj["kind"] == "asset" else None
-            for frame_index in range(int(duration * fps)):
-                alpha = smooth((frame_index + 1) / (duration * fps))
+            base_xform = obj["xform"].copy() if base is not None else None
+            moves = bool(np.any(shift) or from_scale != 1.0)
+            if base is not None and moves:
+                corners = [
+                    shapes[aid] @ compose(base_xform, transform)[:, :3].T
+                    + compose(base_xform, transform)[:, 3]
+                    for aid, transform, _, _, _ in base
+                ]
+                stacked = np.vstack(corners) if corners else np.zeros((1, 3))
+                asset_centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
+            yield BEGUN
+            for frame_index in range(play_frames(duration, fps)):
+                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
                 shown = alpha if fading_in else 1.0 - alpha
+                scale = from_scale + (1.0 - from_scale) * shown
+                offset = sign * shift * (1.0 - shown)
                 if base is None:
                     obj["alpha"] = shown
                     if rest_points is not None:
                         centre = (rest_points.min(axis=0) + rest_points.max(axis=0)) / 2.0
-                        scale = from_scale + (1.0 - from_scale) * shown
-                        obj["points"] = (
-                            centre + (rest_points - centre) * scale + shift * (1.0 - shown)
-                        )
+                        obj["points"] = centre + (rest_points - centre) * scale + offset
                 else:
+                    if moves:
+                        motion = np.hstack([
+                            np.identity(3) * scale,
+                            ((1 - scale) * asset_centre + offset).reshape(3, 1),
+                        ])
+                        obj["xform"] = compose(motion, base_xform)
                     obj["instances"] = [
                         (aid, transform,
                          (*fill[:3], int(fill[3] * shown)),
@@ -888,15 +991,53 @@ def build_2d(scene: dict) -> DecodedIR:
                     obj["visible"] = False
             else:
                 obj["instances"] = base
+                obj["xform"] = base_xform
                 if not fading_in:
                     obj["visible"] = False
+
+        elif step[0] == "fill":
+            # `.animate.set_fill`. On an asset every instance's fill moves to
+            # the colour and/or opacity given -- set_fill applies to the whole
+            # family, including members that had no fill, as Manim's does.
+            _, name, color, opacity, duration = step
+            obj = objects[name]
+            total = max(play_frames(duration, fps), 1)
+            if obj["kind"] == "shape":
+                f0 = np.array(obj.get("fill", (0, 0, 0, 0)), dtype=float)
+                f1 = f0.copy()
+                if color is not None:
+                    f1[:3] = color
+                if opacity is not None:
+                    f1[3] = opacity * 255
+                yield BEGUN
+                for frame_index in range(total):
+                    alpha = smooth((frame_index + 1) / total)
+                    obj["fill"] = tuple(int(x + 0.5) for x in f0 + (f1 - f0) * alpha)
+                    yield
+            else:
+                base = [tuple(i) for i in obj["instances"]]
+                yield BEGUN
+                for frame_index in range(total):
+                    alpha = smooth((frame_index + 1) / total)
+                    changed = []
+                    for aid, transform, fill, stroke, width in base:
+                        rgb = fill[:3] if color is None else tuple(
+                            int(a + (b - a) * alpha + 0.5) for a, b in zip(fill[:3], color)
+                        )
+                        channel = fill[3] if opacity is None else int(
+                            fill[3] + (opacity * 255 - fill[3]) * alpha + 0.5
+                        )
+                        changed.append((aid, transform, (*rgb, channel), stroke, width))
+                    obj["instances"] = changed
+                    yield
 
         elif step[0] == "move":
             _, target_phi, target_theta, duration, *rest = step
             target_zoom = rest[0] if rest else None
             start_phi, start_theta = camera_state["phi"], camera_state["theta"]
             start_zoom = scene.get("zoom", ZOOM)
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
+            yield BEGUN
             for frame_index in range(total):
                 alpha = smooth((frame_index + 1) / total)
                 if target_phi is not None:
@@ -915,7 +1056,8 @@ def build_2d(scene: dict) -> DecodedIR:
             # compares the hold, so it would not have shown up there.
             _, rate, duration, *rest = step
             about = rest[0] if rest else "theta"
-            total = int(duration * fps)
+            total = play_frames(duration, fps)
+            yield BEGUN
             for frame_index in range(total):
                 if frame_index < total - 1:
                     if about == "phi":
@@ -929,9 +1071,10 @@ def build_2d(scene: dict) -> DecodedIR:
             rate_fn = RATE_FUNCS[rate_name]
             obj = objects[name]
             origin = np.array([at[0], at[1], 0.0])
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 base_points = obj["points"].copy()
+                yield BEGUN
                 for frame_index in range(total):
                     ang = radians_total * rate_fn((frame_index + 1) / total)
                     c, s = math.cos(ang), math.sin(ang)
@@ -944,6 +1087,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     yield
             else:
                 base_inst = [tuple(i) for i in obj["instances"]]
+                yield BEGUN
                 for frame_index in range(total):
                     ang = radians_total * rate_fn((frame_index + 1) / total)
                     c, s = math.cos(ang), math.sin(ang)
@@ -964,10 +1108,11 @@ def build_2d(scene: dict) -> DecodedIR:
             # A short there-and-back scale to 1.2 about the object's centre.
             _, name, duration = step
             obj = objects[name]
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
             if obj["kind"] == "shape":
                 base_points = obj["points"].copy()
                 centre = (base_points.min(axis=0) + base_points.max(axis=0)) / 2.0
+                yield BEGUN
                 for frame_index in range(total):
                     pulse = there_and_back((frame_index + 1) / total)
                     scale = 1.0 + 0.2 * pulse
@@ -982,6 +1127,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 ]
                 stacked = np.vstack(corners) if corners else np.zeros((1, 3))
                 centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
+                yield BEGUN
                 for frame_index in range(total):
                     pulse = there_and_back((frame_index + 1) / total)
                     scale = 1.0 + 0.2 * pulse
@@ -1004,7 +1150,8 @@ def build_2d(scene: dict) -> DecodedIR:
             count = max(len(base), 1)
             lag = min(4.0 / count, 0.2)
             span = 1.0 / (1.0 + lag * (count - 1))
-            total = max(int(duration * fps), 1)
+            total = max(play_frames(duration, fps), 1)
+            yield BEGUN
             for frame_index in range(total):
                 alpha = 1.0 - (frame_index + 1) / total
                 revealed = []
@@ -1020,55 +1167,90 @@ def build_2d(scene: dict) -> DecodedIR:
             obj["visible"] = False
 
         elif step[0] == "wait":
-            for _ in range(int(step[1] * fps)):
+            yield BEGUN
+            for _ in range(wait_frames(step[1], fps)):
                 yield
 
-    def _step_seconds(step) -> float:
-        kind = step[0]
-        if kind == "lag":
-            return float(step[4])
-        if kind == "par":
-            return float(step[2])
-        if kind == "wait":
-            return float(step[1])
-        if kind in ("fade", "fadeout", "create", "uncreate", "write", "unwrite", "grow", "indicate"):
-            return float(step[2])
-        if kind in ("xform", "rotate", "laggedgrow", "stroke"):
-            return float(step[-1] if kind != "rotate" else step[4])
-        for item in reversed(step):
-            if isinstance(item, float):
-                return item
-        return 1.0
+    def frames_of(node) -> int:
+        return step_frames(node, fps)
 
-    def _drive(steps):
-        cursor = 0
-        while cursor < len(steps):
-            step = steps[cursor]
-            cursor += 1
-            if step[0] == "par":
-                group = steps[cursor:cursor + step[1]]
-                cursor += step[1]
-                running = [play_step(member) for member in group]
-                while running:
-                    alive = []
-                    for runner in running:
+    fold = fold_steps
+
+    def play_node(node):
+        """A folded step as a generator: BEGUN once set up, then one per frame."""
+        kind = node[0]
+        if kind == "parallel":
+            running = [begin(play_node(member)) for member in node[1]]
+            yield BEGUN
+            while running:
+                alive = []
+                for runner in running:
+                    try:
+                        next(runner)
+                        alive.append(runner)
+                    except StopIteration:
+                        pass  # its epilogue has run; it holds its last state
+                if alive:
+                    yield
+                running = alive
+        elif kind == "sequence":
+            yield BEGUN
+            for member in node[1]:
+                yield from begin(play_node(member))
+        elif kind == "laggroup":
+            # Manim's LaggedStart: child i starts after the earlier children's
+            # run times times the ratio, and the whole is stretched onto the
+            # group's own run time. Frame for frame what the phone does. A
+            # child begins when its turn comes: begun early, a fade-in would
+            # put its object on stage at full opacity before it had started.
+            _, ratio, duration, children = node
+            counts = [frames_of(child) for child in children]
+            run_times = [count / fps for count in counts]
+            starts_at = [0.0]
+            for i in range(len(children) - 1):
+                starts_at.append(starts_at[-1] + run_times[i] * ratio)
+            max_end = max(
+                (starts_at[i] + run_times[i] for i in range(len(children))), default=1.0
+            )
+            total = play_frames(duration, fps)
+            runners = [None] * len(children)
+            produced = [0] * len(children)
+            yield BEGUN
+            for frame in range(total):
+                internal = (frame + 1) / max(total, 1) * max(max_end, 1e-6)
+                for i, child in enumerate(children):
+                    if counts[i] <= 0 or run_times[i] <= 0:
+                        continue
+                    local = min(max((internal - starts_at[i]) / run_times[i], 0.0), 1.0)
+                    if local <= 0:
+                        continue
+                    if runners[i] is None:
+                        runners[i] = begin(play_node(child))
+                    target = min(max(int(local * counts[i]) - 1, 0), counts[i] - 1)
+                    while produced[i] <= target:
                         try:
-                            next(runner)
-                            alive.append(runner)
+                            next(runners[i])
                         except StopIteration:
-                            pass
-                    if alive:
-                        yield
-                    running = alive
-                continue
-            for _ in play_step(step):
+                            produced[i] = counts[i]
+                            break
+                        produced[i] += 1
                 yield
+            for i, child in enumerate(children):
+                # Settle every child's end state, as the phone's exit() does.
+                runner = runners[i] if runners[i] is not None else begin(play_node(child))
+                for _ in runner:
+                    pass
+        elif kind in ("show", "hide"):
+            obj = objects.get(node[1])
+            if obj is not None:
+                obj["visible"] = kind == "show"
+            yield BEGUN
+        else:
+            generator = begin(play_step(node))
+            yield BEGUN
+            yield from generator
 
-    index = 0
-    while index < len(timeline_steps):
-        step = timeline_steps[index]
-        index += 1
-
+    for step in fold(timeline_steps):
         if step[0] in ("show", "hide"):
             # `hide` names something Manim took off stage. It may name an object
             # this interpreter never put on one -- a fadeout drops its object
@@ -1091,7 +1273,7 @@ def build_2d(scene: dict) -> DecodedIR:
         # frame count Manim would have rendered without copying the scene
         # thousands of times. A lecture is mostly these holds.
         if step[0] == "wait":
-            n = int(step[1] * fps)
+            n = wait_frames(step[1], fps)
             if n > 0:
                 emit()
                 last = records[-1]
@@ -1100,70 +1282,106 @@ def build_2d(scene: dict) -> DecodedIR:
                     cameras.extend((cameras[-1],) * (n - 1))
             continue
 
-        if step[0] == "lag":
-            # Child i starts after the sum of earlier run times times the ratio,
-            # which is Manim's LaggedStart. `runs` is how many following steps
-            # belong to each child; a child of several steps plays in order.
-            _, ratio, runs, duration = step[1], step[2], step[3], step[4]
-            children = []
-            for run in runs:
-                children.append(timeline_steps[index:index + run])
-                index += run
-            run_times = [sum(_step_seconds(s) for s in child) for child in children]
-            starts_at = [0.0]
-            for i in range(len(run_times) - 1):
-                starts_at.append(starts_at[-1] + run_times[i] * ratio)
-            max_end = max(
-                (starts_at[i] + run_times[i] for i in range(len(run_times))),
-                default=0.0,
-            ) or 1.0
-            total = max(int(duration * fps), 1)
-            generators = [_drive(child) for child in children]
-            produced = [0 for _ in children]
-            for frame in range(1, total + 1):
-                internal = frame / total * max_end
-                for i, gen in enumerate(generators):
-                    if run_times[i] <= 0:
-                        continue
-                    local = min(max((internal - starts_at[i]) / run_times[i], 0.0), 1.0)
-                    want = int(round(local * max(int(run_times[i] * fps), 1)))
-                    while produced[i] < want:
-                        try:
-                            next(gen)
-                        except StopIteration:
-                            break
-                        produced[i] += 1
-                emit()
-            continue
-
-        if step[0] == "par":
-            # `par n=N t=T` claims the next N verbs and runs them together.
-            # Manim's play(A(), B()) animates both at once; emitting them as
-            # consecutive verbs played the scene for twice its run_time and
-            # showed them one after the other.
-            group = timeline_steps[index : index + step[1]]
-            index += step[1]
-            running = [play_step(member) for member in group]
-            while running:
-                alive = []
-                for runner in running:
-                    try:
-                        next(runner)
-                        alive.append(runner)
-                    except StopIteration:
-                        pass  # its epilogue has run; it just has no more frames
-                if alive:
-                    emit()
-                running = alive
-            continue
-
-        for _ in play_step(step):
+        for _ in begin(play_node(step)):
             emit()
 
-
     return DecodedIR(
-        fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None
+        fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None,
+        background=tuple(scene.get("background", (0, 0, 0))),
     )
+
+
+def step_frames(node, fps: int) -> int:
+    """How many frames a (possibly folded) step occupies.
+
+    Mirrors each branch of play_step: most verbs run int(t * fps) frames,
+    and the ones that guard with max(..., 1) run at least one.
+    """
+    kind = node[0]
+    if kind == "parallel":
+        return max((step_frames(m, fps) for m in node[1]), default=0)
+    if kind == "sequence":
+        return sum(step_frames(m, fps) for m in node[1])
+    if kind == "laggroup":
+        return play_frames(node[2], fps)
+    if kind in ("show", "hide"):
+        return 0
+    if kind == "wait":
+        return wait_frames(node[1], fps)
+    if kind in ("move", "spin"):
+        return play_frames(node[3 if kind == "move" else 2], fps)
+    if kind in ("grow", "indicate", "unwrite"):
+        return max(play_frames(node[2], fps), 1)
+    if kind in ("stroke", "fill"):
+        return max(play_frames(node[-1], fps), 1)
+    if kind == "rotate":
+        return max(play_frames(node[4], fps), 1)
+    if kind == "xform":
+        return play_frames(node[4], fps)
+    if kind == "laggedgrow":
+        return play_frames(node[4], fps)
+    if kind in ("transform", "morph"):
+        return play_frames(node[3], fps)
+    return play_frames(node[2], fps)
+
+def fold_steps(steps):
+    """Fold `par` and `lag` headers into nodes, as the phone's builder does.
+
+    Both headers claim the lines after them, and a `lag` can sit inside a
+    `par` -- a beat that pops a marker while the panel changes. This used
+    to understand `lag` only at the top level, so a nested one played its
+    children all at once. Show and hide are not verbs: inside a `par`
+    window they are carried out to follow it.
+    """
+    out = []
+    cursor = 0
+    while cursor < len(steps):
+        step = steps[cursor]
+        cursor += 1
+        if step[0] == "par":
+            members, carried = [], []
+            while len(members) < step[1] and cursor < len(steps):
+                nxt = steps[cursor]
+                cursor += 1
+                (carried if nxt[0] in ("show", "hide") else members).append(nxt)
+            if members:
+                out.append(("parallel", fold_steps(members)))
+            out.extend(carried)
+        elif step[0] == "lag":
+            children = []
+            for run in step[3]:
+                inner = fold_steps(steps[cursor:cursor + run])
+                cursor += run
+                if len(inner) == 1:
+                    children.append(inner[0])
+                elif inner:
+                    children.append(("sequence", inner))
+            if children:
+                out.append(("laggroup", step[2], step[4], children))
+        else:
+            out.append(step)
+    return out
+
+
+
+def timeline_frames(timeline: list, fps: int) -> int:
+    """Frames a parsed timeline occupies, without expanding any geometry.
+
+    The same count build_2d produces: Manim's opening frame once there is
+    anything to play, then each folded step. The exporter places narration
+    with it, so a sound starts on the frame its beat does rather than at a
+    wall-clock time that drifts a frame per verb from the program.
+    """
+    total = 0
+    opened = False
+    for node in fold_steps(timeline):
+        if node[0] in ("show", "hide"):
+            continue
+        if not opened:
+            opened = True
+            total += 1
+        total += step_frames(node, fps)
+    return total
 
 
 def build(scene: dict) -> DecodedIR:

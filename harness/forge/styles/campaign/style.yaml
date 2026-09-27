@@ -1,0 +1,49 @@
+id: campaign
+version: 1.0.0
+label: Campaign
+description: "Dark war map: charcoal land, crimson and steel-blue armies, brass accents."
+extends: atlas
+roles:
+  ink: "#EDE6D6"
+  muted: "#8C8577"
+  accent: "#C9A227"
+  highlight: "#F2C14E"
+  friendly: "#4F8FD1"
+  enemy: "#C8413B"
+  ally: "#7FA650"
+  neutral: "#8C8577"
+  water: "#3E6F8E"
+  land: "#2A2723"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn]
+theme:                    # engine settings this pack changes from its parent
+  bg: "#16181A"
+  texture: vignette
+  panel: "#1E2124"
+  panel_style: solid
+  title_col: "#C9A227"
+  cap_bg: "#0B0C0D"
+  cap_fg: "#EDE6D6"
+  nb_fill: "#1C1E20"
+  nb_stroke: "#3A3D40"
+  nb_hi: "#2B2122"
+  st_stroke: "#3A3D40"
+  st_hi: "#6A6255"
+  land: "#2A2723"
+  track: "#2A2D30"
+  pal: {SAND: "#C9A227", CREAM: "#EDE6D6", MUTED: "#8C8577", GOLD: "#F2C14E", RIVER: "#3E6F8E", ROSE: "#C8413B", TEAL: "#5E9C8F", GREEN: "#7FA650"}
+per_template:
+  battle_explainer:
+    motion: {entrance: fade}
+voice:
+  engine: auto            # espeak | kokoro | auto (kokoro when it can run)
+  name: bm_george
+  speed: 1.0
+music:
+  preset: martial          # drone | martial | none
+  volume: 0.07
+  duck_db: 15
+fonts:
+  Latn: {title: null, body: null}   # null: the engine theme's fonts

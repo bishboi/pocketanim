@@ -1,0 +1,6 @@
+id: deploy
+description: Place both sides on the battlefield.
+slots: {friendly: unit, enemy: unit}
+beats:
+  - say: "{line}"
+    do: [{op: unit, id: "{friendly}"}, {op: unit, id: "{enemy}"}]

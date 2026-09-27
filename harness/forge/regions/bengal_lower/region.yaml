@@ -1,0 +1,31 @@
+id: bengal_lower
+version: 1.0.0
+name: Lower Bengal
+focus: {state: West Bengal, country: India}
+aliases: [bengal, plassey, palashi, murshidabad, calcutta, hooghly, bhagirathi]
+# Named points a script uses instead of lon/lat. Approximate, for teaching.
+anchors:
+  calcutta: [88.36, 22.57]
+  chandernagore: [88.37, 22.86]
+  hooghly: [88.39, 22.91]
+  katwa: [88.13, 23.65]
+  plassey: [88.25, 23.80]
+  murshidabad: [88.27, 24.18]
+  cossimbazar: [88.27, 24.12]
+  mango_grove: [88.244, 23.789]
+  hunting_lodge: [88.240, 23.796]
+  small_tank: [88.258, 23.802]
+  nawab_camp: [88.272, 23.822]
+  nawab_left: [88.286, 23.806]
+  french_guns: [88.262, 23.807]
+features:
+  paths:
+    bhagirathi: [[88.13, 23.70], [88.18, 23.74], [88.225, 23.775], [88.238, 23.80], [88.25, 23.83], [88.27, 23.87]]
+battlefield:
+  bbox: [88.20, 23.76, 88.31, 23.85]
+  units:
+    - {id: company, label: "Clive's army", side: friendly, at: mango_grove, kind: infantry, strength: "about 3,000", aliases: [Company, English, British, Clive]}
+    - {id: french, label: "French guns", side: enemy, at: french_guns, kind: artillery, aliases: [French]}
+    - {id: mir_madan, label: "Mir Madan", side: enemy, at: small_tank, kind: cavalry}
+    - {id: mir_jafar, label: "Mir Jafar", side: ally, at: nawab_left, kind: cavalry}
+    - {id: nawab, label: "Nawab's camp", side: enemy, at: nawab_camp, kind: infantry, strength: "about 50,000", aliases: [Nawab, Siraj]}

@@ -154,6 +154,7 @@ def build(build_dir: Path, scene_class: str) -> dict:
         return {
             "mode": "2d",
             "fps": ir.fps,
+            "background": "#%02X%02X%02X" % tuple(ir.background),
             "shapes": shapes,
             "pieces": pieces,
             "runs": runs,

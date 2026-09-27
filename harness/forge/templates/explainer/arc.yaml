@@ -1,0 +1,31 @@
+slots:
+  - id: intro
+    title: Introduction
+    purpose: The question and why it matters.
+    share: 0.12
+    required: [title]
+    keywords: [why, what, question, introduction]
+  - id: background
+    title: Background
+    purpose: What you need to know first.
+    share: 0.25
+    required: []
+    keywords: [first, background, history, began, before, origin]
+  - id: core
+    title: How it Works
+    purpose: The main idea, step by step.
+    share: 0.43
+    required: [fact]
+    keywords: [because, works, process, step, causes, means, therefore]
+  - id: implications
+    title: Why it Matters
+    purpose: Consequences.
+    share: 0.15
+    required: []
+    keywords: [matters, result, effect, impact, future, today]
+  - id: recap
+    title: Recap
+    purpose: The ideas to remember.
+    share: 0.05
+    required: [recap]
+    keywords: []

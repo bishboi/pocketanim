@@ -39,10 +39,9 @@ def kotlin_dump(program: Path, frame: int) -> list[str]:
     return [line for line in out.splitlines() if line and line[0].isupper()]
 
 
-def python_dump(program: Path, frame: int) -> list[str]:
+def python_dump(ir, frame: int) -> list[str]:
     import numpy as np
 
-    ir = load_program(str(program))
     lines = [
         "H %d %d %d" % (ir.fps, len(ir.records), 1 if ir.cameras is not None else 0)
     ]
@@ -80,23 +79,34 @@ def python_dump(program: Path, frame: int) -> list[str]:
     return lines
 
 
+# Where in the timeline to compare. The middle alone let a nested `lag`, a
+# fade's travel and a stale panel all through: each lives in a stretch the
+# midpoint happened not to land in.
+PROBES = (0.2, 0.5, 0.8, 1.0)
+
+
 def check(program: Path) -> bool:
     ir = load_program(str(program))
-    # Probe mid-timeline: most verbs are partway through something there, which
-    # an endpoint-only check would not exercise.
-    frame = len(ir.records) // 2
-    py = python_dump(program, frame)
-    kt = kotlin_dump(program, frame)
-    problems = compare(py, kt)
+    frames = sorted({min(int(len(ir.records) * f), len(ir.records) - 1) for f in PROBES})
+    problems = []
+    lines = 0
+    for frame in frames:
+        py = python_dump(ir, frame)
+        kt = kotlin_dump(program, frame)
+        lines += len(py)
+        found = compare(py, kt)
+        if found:
+            problems.append(f"frame {frame}:")
+            problems.extend(found)
 
     label = f"{program.name} (frames={len(ir.records)} shapes={len(ir.shapes)} " \
-            f"camera={ir.cameras is not None} probe={frame})"
+            f"camera={ir.cameras is not None} probes={','.join(map(str, frames))})"
     if problems:
         print(f"FAIL {label}")
-        for problem in problems:
+        for problem in problems[:40]:
             print("  " + problem.replace("\n", "\n  "))
         return False
-    print(f"ok   {label}: {len(py)} lines agree")
+    print(f"ok   {label}: {lines} lines agree")
     return True
 
 

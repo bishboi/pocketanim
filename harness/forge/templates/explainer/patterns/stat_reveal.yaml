@@ -1,0 +1,6 @@
+id: stat_reveal
+description: A number, then what it means.
+slots: {value: text, label: text}
+beats:
+  - say: "{line}"
+    do: [{op: stat, value: "{value}", label: "{label}"}]

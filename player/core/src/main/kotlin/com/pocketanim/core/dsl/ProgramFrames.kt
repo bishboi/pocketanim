@@ -19,6 +19,7 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
 
     override val fps: Int get() = builder.fps
     override val frameCount: Int get() = builder.frameCount
+    override val background: Int get() = builder.background
 
     private var positioned = -1
 

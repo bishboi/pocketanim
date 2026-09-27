@@ -104,7 +104,7 @@ private fun render(
     val g = image.createGraphics()
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
-    g.color = Color.BLACK
+    g.color = Color(scene.background, false)
     g.fillRect(0, 0, width, height)
 
     // Scene coordinates: y up, origin centred, stroke widths in scene units --

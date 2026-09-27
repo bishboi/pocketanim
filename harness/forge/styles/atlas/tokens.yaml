@@ -1,0 +1,8 @@
+# Every number a component reads. A style retunes here, not in code.
+caption_size: 19
+panel_title_size: 34
+fact_size: 20
+stat_size: 44
+label_size: 15
+unit_width: 0.52
+unit_height: 0.34

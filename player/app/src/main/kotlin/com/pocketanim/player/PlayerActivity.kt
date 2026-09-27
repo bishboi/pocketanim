@@ -3,6 +3,8 @@ package com.pocketanim.player
 import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,9 +17,12 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import com.pocketanim.android.AssetStorage
+import com.pocketanim.android.FileStorage
 import com.pocketanim.android.PanimView
 import com.pocketanim.core.Library
 import com.pocketanim.core.SceneEntry
+import com.pocketanim.core.Storage
+import java.io.File
 import java.util.Locale
 
 /**
@@ -45,6 +50,7 @@ class PlayerActivity : Activity() {
     private lateinit var titleLabel: TextView
 
     private lateinit var library: Library
+    private lateinit var storage: Storage
     private var entries: List<SceneEntry> = emptyList()
     private var current: SceneEntry? = null
 
@@ -66,8 +72,13 @@ class PlayerActivity : Activity() {
 
         setContentView(buildUi())
 
+        // A library pushed next to the app wins over the one inside it, so a
+        // scene built in the harness plays without rebuilding the APK:
+        //   adb push <library> /sdcard/Android/data/com.pocketanim.player/files/library
+        val pushed = getExternalFilesDir(null)?.let { File(it, "library") }
+        storage = if (pushed != null && File(pushed, "library.json").isFile) FileStorage(pushed) else AssetStorage(assets)
         library = try {
-            Library.load(AssetStorage(assets))
+            Library.load(storage)
         } catch (e: Exception) {
             fail("cannot open the library: ${e.message}")
             return
@@ -184,8 +195,41 @@ class PlayerActivity : Activity() {
             humanBytes(entry.playableBytes),
         )
         showTime(0)
+        entry.audio?.let { attachNarration(entry.name, it) }
         view.play()
         playButton.text = PAUSE
+    }
+
+    /**
+     * Play the scene's narration against its frames.
+     *
+     * The player decodes from a file, and an APK asset is not one, so the
+     * track is copied out to the cache once. A scene whose narration is
+     * missing or unreadable still plays, silently -- audio is optional by
+     * design (§5.3), and the picture keeps the system clock.
+     */
+    private fun attachNarration(name: String, path: String) {
+        try {
+            val file = File(cacheDir, "narration-$name-${path.substringAfterLast('/')}")
+            if (!file.isFile) file.writeBytes(storage.read(path))
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(file.absolutePath)
+                val format = (0 until extractor.trackCount)
+                    .map { extractor.getTrackFormat(it) }
+                    .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+                    ?: return
+                view.attachAudio(
+                    file,
+                    format.getInteger(MediaFormat.KEY_SAMPLE_RATE),
+                    format.getInteger(MediaFormat.KEY_CHANNEL_COUNT),
+                )
+            } finally {
+                extractor.release()
+            }
+        } catch (e: Exception) {
+            titleLabel.text = "${titleLabel.text}  ·  narration unavailable: ${e.message}"
+        }
     }
 
     private fun togglePlay() {

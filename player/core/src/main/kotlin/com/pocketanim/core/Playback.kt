@@ -55,6 +55,13 @@ class Playback(
     var playing = false
         private set
 
+    /**
+     * Called with the frame playback wrapped to when a looping scene passes
+     * its end. The picture wraps by itself; narration has to be told, or it
+     * plays on past the end (and as the master clock, holds the picture there).
+     */
+    var onLoop: ((Int) -> Unit)? = null
+
     private var lastFrame = -1
 
     val frameCount: Int get() = scene.frameCount
@@ -87,6 +94,10 @@ class Playback(
         if (index >= scene.frameCount) {
             if (looping && scene.frameCount > 0) {
                 index %= scene.frameCount
+                // Re-anchor the wall clock at the wrapped frame, so it -- the
+                // fallback while audio restarts -- agrees with the picture.
+                system.seekTo(index.toDouble() / scene.fps)
+                onLoop?.invoke(index)
             } else {
                 index = scene.frameCount - 1
                 playing = false

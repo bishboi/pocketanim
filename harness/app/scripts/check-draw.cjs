@@ -58,6 +58,20 @@ Image.fromarray(render_frame(ir, ${n}, ${WIDTH}, ${HEIGHT})).save(${JSON.stringi
   execFileSync(python(), ["-c", script], { cwd: buildDir });
 }
 
+/**
+ * One frame's instance list from the preview payload, as the player builds it:
+ * `runs` are [how many frames, which pieces], `pieces` the reused groups.
+ * The payload used to carry a list per frame, and this read that shape.
+ */
+function pictureAt(ir, index) {
+  let cursor = index;
+  for (const [count, indexes] of ir.runs) {
+    if (cursor < count) return indexes.flatMap((piece) => ir.pieces[piece]);
+    cursor -= count;
+  }
+  return [];
+}
+
 async function main() {
   const [irPath, buildDir, sceneClass, ...rest] = process.argv.slice(2);
   if (!irPath || !buildDir || !sceneClass) {
@@ -70,15 +84,16 @@ async function main() {
     return 0;
   }
   const drawFrame = loadDraw();
-  const frames = rest.length
-    ? rest.map(Number)
-    : [0, ir.frames.length >> 2, ir.frames.length >> 1, ir.frames.length - 1];
+  const total = ir.frames;
+  const frames = rest.length ? rest.map(Number) : [0, total >> 2, total >> 1, total - 1];
+  const background = ir.background || "#000000";
+  const clear = [1, 3, 5].map((i) => parseInt(background.slice(i, i + 2), 16));
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "panim-draw-"));
   let worst = 0;
   for (const n of frames) {
     const canvas = createCanvas(WIDTH, HEIGHT);
-    drawFrame(canvas.getContext("2d"), ir.shapes, ir.frames[n] || [], WIDTH, HEIGHT);
+    drawFrame(canvas.getContext("2d"), ir.shapes, pictureAt(ir, n), WIDTH, HEIGHT, background);
 
     const oraclePath = path.join(tmp, `oracle_${n}.png`);
     oracleFrame(buildDir, sceneClass, n, oraclePath);
@@ -98,7 +113,8 @@ async function main() {
         Math.abs(a[i + 2] - b[i + 2]),
       );
       if (da > 24) differing++;
-      if (Math.max(b[i], b[i + 1], b[i + 2]) > 24) ink++;
+      // Ink is what differs from the background, which is not always black.
+      if (Math.max(Math.abs(b[i] - clear[0]), Math.abs(b[i + 1] - clear[1]), Math.abs(b[i + 2] - clear[2])) > 24) ink++;
     }
     const pixels = (differing / (WIDTH * HEIGHT)) * 100;
     const relative = ink > 0 ? (differing / ink) * 100 : 0;

@@ -10,7 +10,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { Template, explainWith, filmBrief, layoutContract, templateById } from "./templates";
+import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
+import { LECTURE_TOOL, compileLecture, fixtureScript, lecturePrompt, resolveRegion } from "./lecture";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -105,6 +106,20 @@ function userPrompt(request: GenerateRequest): string {
     "",
     request.content,
   ].join("\n");
+}
+
+function lectureUserPrompt(request: GenerateRequest): string {
+  if (request.instruction && request.previousSource) {
+    return [
+      "Here is the current lecture scene, compiled from a beat script:",
+      "",
+      request.previousSource,
+      "",
+      "Change it as follows. Small changes: edit_scene on this file. Large ones: write_lecture with a new script.",
+      request.instruction,
+    ].join("\n");
+  }
+  return ["Write a narrated lecture on the following content with write_lecture.", "", request.content].join("\n");
 }
 
 /**
@@ -209,11 +224,14 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL;
+
 async function streamCompletion(
   key: string,
   model: string,
   messages: ChatMessage[],
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
+  tools: ToolSpec[] = TOOLS,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -224,7 +242,7 @@ async function streamCompletion(
     body: JSON.stringify({
       model,
       messages,
-      tools: TOOLS,
+      tools,
       tool_choice: "auto",
       stream: true,
       usage: { include: true },
@@ -280,7 +298,7 @@ async function streamCompletion(
       if (args) {
         calls[index].arguments += args;
         const tool = calls[index].name || "tool";
-        if (tool === "write_scene" || tool === "edit_scene") deltas.push("assistant", args);
+        if (tool === "write_scene" || tool === "edit_scene" || tool === "write_lecture") deltas.push("assistant", args);
       }
     }
   };
@@ -364,10 +382,11 @@ async function completionWithRetry(
   messages: ChatMessage[],
   emit: (event: AgentEvent) => void,
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
+  tools: ToolSpec[] = TOOLS,
 ): Promise<{ message: ChatMessage; usage?: Usage }> {
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
     try {
-      const result = await streamCompletion(key, model, messages, onDelta);
+      const result = await streamCompletion(key, model, messages, onDelta, tools);
       const text = result.message.content?.trim() ?? "";
       const calls = result.message.tool_calls ?? [];
       if (!text && calls.length === 0) {
@@ -396,8 +415,11 @@ async function viaOpenRouter(
   const key = process.env.OPENROUTER_API_KEY!;
   const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
   const template = templateById(request.templateId);
-  const system = systemPrompt(template);
-  const user = userPrompt(request);
+  const lecture = isLecture(template);
+  const system = lecture ? lecturePrompt(template) : systemPrompt(template);
+  const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
+  const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
+  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, EDIT_TOOL] : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -413,7 +435,7 @@ async function viaOpenRouter(
     for (const message of messages) {
       if (message.role === "assistant" && message.tool_calls) {
         for (const call of message.tool_calls) {
-          if (call.function.name === "write_scene" || call.function.name === "edit_scene" || call.function.name === "find_map") {
+          if (["write_scene", "edit_scene", "find_map", "write_lecture"].includes(call.function.name)) {
             call.function.arguments = "{}";
           }
         }
@@ -491,7 +513,7 @@ async function viaOpenRouter(
         sawDelta = true;
         lastDelta = Date.now();
         emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text });
-      });
+      }, tools);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/idle timeout|upstream/i.test(message)) throw error;
@@ -553,6 +575,7 @@ async function viaOpenRouter(
         source?: string;
         old_string?: string;
         new_string?: string;
+        script?: unknown;
       } = {};
       try {
         args = JSON.parse(call.function.arguments || "{}");
@@ -560,9 +583,24 @@ async function viaOpenRouter(
         args = {};
       }
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
-      const edited = applySceneTool(scene, call.function.name, args);
-      const output = edited ? edited.message : await runTool(call.function.name, args);
-      if (edited) scene = edited.source;
+      let output: string;
+      if (call.function.name === "write_lecture") {
+        const compiled = await compileLecture(args.script ?? {});
+        if (compiled.source) {
+          scene = compiled.source;
+          output = [
+            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim).`,
+            ...compiled.warnings.map((w) => `warning: ${w}`),
+            compiled.warnings.length ? "Fix the warnings with another write_lecture if they matter; otherwise stop." : "Stop calling tools and reply in one sentence.",
+          ].join("\n");
+        } else {
+          output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
+        }
+      } else {
+        const edited = applySceneTool(scene, call.function.name, args);
+        output = edited ? edited.message : await runTool(call.function.name, args);
+        if (edited) scene = edited.source;
+      }
       emit({ type: "tool_result", name: call.function.name, text: output });
       messages.push({ role: "tool", tool_call_id: call.id, content: output });
     }
@@ -583,6 +621,7 @@ async function viaFixture(
   emit: (event: AgentEvent) => void,
 ): Promise<Generated> {
   const template = templateById(request.templateId);
+  if (isLecture(template)) return lectureFixture(request, template, emit);
   const brief = [request.content, request.instruction].filter(Boolean).join("\n");
   const place = (request.content.trim().split("\n")[0] || brief).slice(0, 80);
   emit({ type: "input", role: "user", text: userPrompt(request) });
@@ -606,6 +645,29 @@ async function viaFixture(
   emit({ type: "message", role: "assistant", text: `Writing a ${template.name.toLowerCase()} scene.` });
   return { source: sceneFixture(request, template), sceneClass: SCENE_CLASS, model: "fixture agent", inputTokens: 0, outputTokens: 0, costUsd: 0 };
 }
+/** The offline lecture: a beat script built from the content, compiled. */
+async function lectureFixture(
+  request: GenerateRequest,
+  template: Template,
+  emit: (event: AgentEvent) => void,
+): Promise<Generated> {
+  emit({ type: "input", role: "user", text: lectureUserPrompt(request) });
+  emit({ type: "message", role: "assistant", text: "Offline agent. No model tokens." });
+  const region = await resolveRegion(request.content);
+  emit({ type: "message", role: "status", text: region ? `Map: ${region.state ?? region.country}` : "No place named; a lecture without a map." });
+  const script = fixtureScript(request.content, template, region, request.instruction);
+  const args = JSON.stringify({ script });
+  emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
+  const compiled = await compileLecture(script);
+  if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
+  emit({
+    type: "tool_result",
+    name: "write_lecture",
+    text: [`Compiled ${script.chapters.length} chapter(s).`, ...compiled.warnings.map((w) => `warning: ${w}`)].join("\n"),
+  });
+  return { source: compiled.source, sceneClass: SCENE_CLASS, model: "fixture agent", inputTokens: 0, outputTokens: 0, costUsd: 0 };
+}
+
 function sceneFixture(request: GenerateRequest, template: Template): string {
   const lines = request.content
     .split(/\n+/)
@@ -788,7 +850,11 @@ export async function generate(
 ): Promise<Generated> {
   const template = templateById(request.templateId);
   const result = usingFixture() ? await viaFixture(request, emit) : await viaOpenRouter(request, emit, stopped);
-  result.source = exposeMapProject(sanitizeScene(enforceStyle(result.source, template)));
+  // A lecture's look belongs to the engine: its style sets the background on
+  // import, and a config line pasted above it would only be overridden.
+  result.source = isLecture(template)
+    ? sanitizeScene(result.source)
+    : exposeMapProject(sanitizeScene(enforceStyle(result.source, template)));
   if (!usingFixture()) {
     const broken = await syntaxError(result.source);
     if (broken) {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,7 @@ type ExportState = {
   frames?: number;
   error?: string;
   stored?: { configured: boolean; reason?: string; error?: string };
+  narrationUrl?: string | null;
 };
 
 type TraceEvent = {
@@ -183,6 +185,10 @@ export default function Home() {
   const [status, setStatus] = useState<Status | null>(null);
   const [showProgram, setShowProgram] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [video, setVideo] = useState<{ busy: boolean; error?: string; quality: string }>({
+    busy: false,
+    quality: "m",
+  });
   const logRef = useRef<HTMLDivElement>(null);
 
   const version = current >= 0 ? versions[current] : undefined;
@@ -259,7 +265,20 @@ export default function Home() {
     }
     const fixed = exported.source ?? source;
     setVersions((all) =>
-      all.map((v, i) => (i === index ? { ...v, exported, ir, sceneClass: played, source: fixed } : v)),
+      all.map((v, i) =>
+        i === index
+          ? {
+              ...v,
+              exported,
+              ir,
+              sceneClass: played,
+              source: fixed,
+              // The scene's own narration, when it has one, is the track that
+              // matches this build; a Kokoro voiceover belongs to # voice: lines.
+              voiceUrl: exported.narrationUrl ?? v.voiceUrl,
+            }
+          : v,
+      ),
     );
     setFrame(0);
   }
@@ -346,17 +365,22 @@ export default function Home() {
       }
       if (!source.trim())
         throw new Error("The agent finished without a scene.");
-      setBusy("Recording the voiceover…");
-      const spoken = await post("/api/voice", { source, templateId: styleId });
-      if (spoken.source) source = spoken.source;
-      setVersions((all) =>
-        all.map((item, i) =>
-          i === index
-            ? { ...item, source, voiceUrl: spoken.audioUrl ?? null }
-            : item,
-        ),
-      );
-      if (!spoken.ok && spoken.error) setError(spoken.error);
+      // Only a scene with # voice: lines is voiced here. A lecture speaks its
+      // own beats during export, and asking Kokoro for lines it does not have
+      // put an error over every lecture.
+      if (/^\s*# voice:/m.test(source)) {
+        setBusy("Recording the voiceover…");
+        const spoken = await post("/api/voice", { source, templateId: styleId });
+        if (spoken.source) source = spoken.source;
+        setVersions((all) =>
+          all.map((item, i) =>
+            i === index
+              ? { ...item, source, voiceUrl: spoken.audioUrl ?? null }
+              : item,
+          ),
+        );
+        if (!spoken.ok && spoken.error) setError(spoken.error);
+      }
       await attachBuild(index, source, next.instruction, modelName);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -388,7 +412,7 @@ export default function Home() {
     setFrame(0);
     try {
       let source = raw;
-      if (/^# voice:/m.test(source)) {
+      if (/^\s*# voice:/m.test(source)) {
         setBusy("Recording the voiceover…");
         const spoken = await post("/api/voice", { source, templateId });
         if (spoken.source) source = spoken.source;
@@ -424,6 +448,33 @@ export default function Home() {
     }
   }
 
+  /** Render the build with Manim and hand the MP4 to the browser as a download. */
+  async function downloadVideo() {
+    if (!exported?.buildDir) return;
+    const scene = version?.sceneClass ?? SCENE;
+    setVideo((v) => ({ ...v, busy: true, error: undefined }));
+    try {
+      const response = await fetch(
+        `/api/video?build=${encodeURIComponent(exported.buildDir)}&scene=${scene}&quality=${video.quality}`,
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        throw new Error(body.error ?? `HTTP ${response.status}`);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${scene}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setVideo((v) => ({ ...v, busy: false }));
+    } catch (e) {
+      setVideo((v) => ({ ...v, busy: false, error: e instanceof Error ? e.message : String(e) }));
+    }
+  }
+
   const frames = exported?.frames ?? 0;
   const frameSrc =
     exported?.buildDir && frames > 0 && (exported.tier === 1 || exported.container)
@@ -443,7 +494,10 @@ export default function Home() {
             style.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/forge" className="text-sm text-sky-300 underline-offset-2 hover:underline">
+            Lecture Forge →
+          </Link>
           {status?.manim ? (
             <Badge tone="good">Manim {status.manim}</Badge>
           ) : (
@@ -805,6 +859,49 @@ export default function Home() {
                       </pre>
                     )}
                   </>
+                )}
+                {exported.buildDir && (
+                  <div className="flex flex-col gap-1 text-xs text-neutral-400">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" onClick={downloadVideo} disabled={video.busy} data-testid="download-video">
+                        {video.busy ? "Rendering video…" : "Download video"}
+                      </Button>
+                      <select
+                        aria-label="Video quality"
+                        className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200"
+                        value={video.quality}
+                        disabled={video.busy}
+                        onChange={(e) => setVideo((v) => ({ ...v, quality: e.target.value }))}
+                      >
+                        <option value="l">480p</option>
+                        <option value="m">720p</option>
+                        <option value="h">1080p</option>
+                      </select>
+                    </div>
+                    <span>
+                      The finished MP4, rendered by Manim with its narration. The first render of a
+                      build takes a while; after that it downloads at once.
+                    </span>
+                    {video.error && (
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-neutral-900 p-2 text-rose-300">
+                        {video.error}
+                      </pre>
+                    )}
+                  </div>
+                )}
+                {exported.tier === 1 && exported.buildDir && (
+                  <div className="text-xs text-neutral-400">
+                    <a
+                      className="text-sky-300 underline-offset-2 hover:underline"
+                      href={`/api/bundle?build=${encodeURIComponent(exported.buildDir)}&scene=${version?.sceneClass ?? SCENE}`}
+                    >
+                      Download for the phone
+                    </a>{" "}
+                    — a library the player opens as it opens its own. Unzip, then{" "}
+                    <code className="text-neutral-300">
+                      adb push library /sdcard/Android/data/com.pocketanim.player/files/
+                    </code>
+                  </div>
                 )}
                 {exported.stored && !exported.stored.configured && (
                   <p className="text-xs text-neutral-500">

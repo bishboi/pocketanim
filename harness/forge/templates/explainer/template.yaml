@@ -1,0 +1,13 @@
+id: explainer
+version: 1.0.0
+label: Explainer
+description: Any idea explained in chapters on a fact panel, without a map.
+requires_ops: [panel, fact, stat]
+requires_roles: [ink, accent]
+compatible_styles: ["*"]
+target_minutes: {min: 1, default: 5, max: 30}
+words_per_minute: 143
+beat_words: {min: 8, max: 40}
+layouts:
+  panel: {map: false, panel: true}
+default_layout: panel

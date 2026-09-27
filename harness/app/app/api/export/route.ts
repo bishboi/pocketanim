@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportScene, frameCount } from "@/lib/pocketanim";
+import { copyFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
 
@@ -30,7 +32,19 @@ export async function POST(request: NextRequest) {
       result,
     });
 
-    return NextResponse.json({ ...result, buildDir, frames, stored, source });
+    // A scene that narrates itself (a lecture's beats call add_sound) comes
+    // back with one mixed track beside the program. It is served like the
+    // Kokoro voiceover so the player plays it against its own frames.
+    let narrationUrl: string | null = null;
+    if (result.narration?.file) {
+      const voiceDir = path.join(REPO, "harness", "app", ".voice");
+      await mkdir(voiceDir, { recursive: true });
+      const name = `narration-${Date.now()}.wav`;
+      await copyFile(path.join(buildDir, result.narration.file), path.join(voiceDir, name));
+      narrationUrl = `/api/audio?file=${encodeURIComponent(name)}`;
+    }
+
+    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

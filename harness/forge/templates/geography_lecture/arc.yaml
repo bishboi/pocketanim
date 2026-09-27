@@ -1,0 +1,52 @@
+# Chapter slots, in order. share is the part of the runtime a slot should take;
+# required are the elements the template-fit gate insists on. keywords route
+# source passages to slots when there is no model to plan.
+slots:
+  - id: prologue
+    title: Introduction
+    purpose: Hook the viewer and name the place.
+    share: 0.08
+    required: [title]
+    keywords: [welcome, introduction, overview, known, famous]
+  - id: location
+    title: Location & Extent
+    purpose: Where it is, how big, what borders it.
+    share: 0.15
+    required: [map, marker]
+    keywords: [located, lies, area, border, borders, latitude, longitude, capital, neighbour, neighbors, neighbours, extent, km²]
+  - id: physical
+    title: The Land
+    purpose: Relief and physical divisions.
+    share: 0.2
+    required: [map]
+    keywords: [mountain, mountains, plateau, plain, plains, desert, range, hill, hills, peak, relief, valley, dunes]
+  - id: climate
+    title: Climate
+    purpose: Seasons, rainfall and temperature.
+    share: 0.15
+    required: [map]
+    keywords: [rain, rainfall, monsoon, climate, temperature, season, seasons, wind, winds, dry, humid, heat]
+  - id: water
+    title: Rivers & Water
+    purpose: Rivers, lakes and coasts.
+    share: 0.12
+    required: [map]
+    keywords: [river, rivers, lake, lakes, delta, sea, coast, water, canal, flows]
+  - id: living
+    title: Soils, Forests & Farms
+    purpose: What grows and lives there.
+    share: 0.12
+    required: []
+    keywords: [forest, forests, soil, soils, wildlife, crop, crops, agriculture, farm, farming, tiger, reserve]
+  - id: people
+    title: Resources & People
+    purpose: Population, cities, economy.
+    share: 0.13
+    required: [stat]
+    keywords: [population, people, city, cities, census, language, economy, industry, mineral, minerals, coal, oil]
+  - id: recap
+    title: Recap
+    purpose: The ideas to remember.
+    share: 0.05
+    required: [recap]
+    keywords: []

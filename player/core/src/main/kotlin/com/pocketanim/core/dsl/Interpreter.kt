@@ -63,6 +63,10 @@ internal class Obj(
     var alpha: Double = 1.0,
     var strokeRgb: Int = 0xFFFFFF,
     var width: Double = 0.0,
+    /** A primitive's fill, RGBA. Only `fill` changes it; declarations have none. */
+    var fill: IntArray = intArrayOf(0, 0, 0, 0),
+    /** Draw order: emitted in ascending z, stably, as Manim sorts by z_index. */
+    var z: Double = 0.0,
 ) {
     /**
      * A checkpoint copy.
@@ -75,7 +79,7 @@ internal class Obj(
     fun copy() = Obj(
         kind, visible, centre.copyOf(), xform.copyOf(), ArrayList(instances),
         flags?.copyOf(), normals?.copyOf(), glyphIds?.copyOf(),
-        points?.copyOf(), alpha, strokeRgb, width,
+        points?.copyOf(), alpha, strokeRgb, width, fill.copyOf(), z,
     )
 }
 

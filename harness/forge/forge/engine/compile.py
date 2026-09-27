@@ -109,6 +109,8 @@ class Places:
         self.units = {u["id"]: dict(u) for u in ((self.pack.get("battlefield") or {}).get("units") or [])}
         self.pos: dict[str, tuple] = {}
         self.figures: dict[str, dict] = {}
+        self.photos: dict[str, dict] = {}      # Commons rows used, for the credits
+        self.icons: set[str] = set()
 
     def lonlat(self, where):
         if isinstance(where, (list, tuple)) and len(where) == 2:
@@ -229,6 +231,11 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         target = "None" if to is None else (repr(to) if to in places.pos else _ll(places.lonlat(to)))
         return f"self.volley({op['from']!r}, {target}, {op.get('tone', 'highlight')!r})"
     if kind == "icon":
+        import icons
+
+        found = icons.resolve(str(op.get("name", "")))
+        if found:
+            places.icons.add(found)
         tone = _tone(op)
         extra = (f", {tone}" if tone else ", None")
         if op.get("places") and has_map:
@@ -237,12 +244,35 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
             label = f", label={op['label']!r}" if op.get("label") else ""
             return f"self.icon({op['name']!r}, [{spots}]{extra}{size}{label})"
         return f"self.panel_icon({op['name']!r}, {op.get('label', '')!r}{extra})"
+    if kind == "photo":
+        import images
+
+        row = images.fetch(op.get("image"), op.get("query"))
+        if not row:
+            raise KeyError(f"no reusable photo for {op.get('image') or op.get('query')!r}")
+        places.photos[row["id"]] = row
+        where = op.get("where", "stage")
+        if where == "stage":
+            return f"self.stage_image({row['file']!r}, {op.get('caption', '')!r}, credit={row['credit']!r})"
+        return f"self.figure({row['file']!r}, {op.get('caption', '')!r}, where={where!r})"
+    if kind == "illustration":
+        import icons
+
+        items = [(i, "") if isinstance(i, str) else (i[0], i[1] if len(i) > 1 else "") for i in op.get("items") or []]
+        for name in [op["icon"]] + [i[0] for i in items]:
+            found = icons.resolve(name)
+            if found is None:
+                raise KeyError(f"no icon for {name!r}")
+            places.icons.add(found)
+        title = f", title={op['title']!r}" if op.get("title") else ""
+        color = f", color={_tone(op)}" if _tone(op) else ""
+        return f"self.illustration({op['icon']!r}, {items!r}{title}{color})"
     if kind == "figure":
         figure = places.figures.get(op["id"])
         if not figure:
             raise KeyError(f"no figure {op['id']!r}")
         caption = op.get("caption") or figure.get("caption", "")
-        return f"self.figure({figure['file']!r}, {caption!r}, where={op.get('where', 'panel')!r})"
+        return f"self.figure({figure['file']!r}, {caption!r}, where={op.get('where', 'stage')!r})"
     if kind == "clock":
         return f"self.clock({op['time']!r})"
     if kind == "highlight":
@@ -259,13 +289,24 @@ def class_name(chapter_id: str) -> str:
     return chapter_id.upper()
 
 
-def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict) -> str:
+def points_at_map(op: dict) -> bool:
+    return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(op.get("places")))
+
+
+STAGE_OPS = {"photo", "illustration"}
+
+
+def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,
+                   places: "Places | None" = None) -> str:
     spec = job.spec
     region_id = spec.get("region_id")
-    places = Places(region_id)
+    places = places or Places(region_id)
     places.figures = {f["id"]: f for f in (job.read("bundle.json") or {}).get("figures", [])}
     layout = (template.get("layouts") or {}).get(chapter.get("layout") or "", {}) or {}
-    has_map = bool(region_id) and layout.get("map", True)
+    # The map is drawn only when a beat points at it; every other chapter is
+    # carried by the stage: photos, figures, illustrations.
+    has_map = bool(region_id) and layout.get("map", True) and any(
+        points_at_map(op) for b in script.get("beats", []) for op in b.get("do", []))
     battlefield = has_map and layout.get("zoom") == "battlefield" and (places.pack.get("battlefield") or {}).get("bbox")
     numbers = numbering(outline)
     sections = ["Introduction"] + [c["title"] for c in outline["chapters"] if not is_prologue(c)]
@@ -273,7 +314,7 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
     style_key = f"forge_{style['id']}"
     lexicon = job.lexicon
     focus = dict(places.pack.get("focus") or {}) if region_id else {}
-    base = "MapLecture" if has_map else "Lecture"
+    base = "MapLecture"             # its layout: map or stage on the left, the panel on the right
     cls = class_name(chapter["id"])
 
     out = [
@@ -326,10 +367,34 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
                     f"{card_line(num, chapter['title'])!r})")
         if beats:
             stage()
+    # Photos are fetched now (cached); one that cannot be found is dropped here,
+    # so the automatic illustrations below fill its beat instead.
+    import images
+
     for beat in beats:
+        kept = []
+        for op in beat.get("do", []):
+            if op.get("op") == "photo" and not images.fetch(op.get("image"), op.get("query")):
+                job.log(f"compile {chapter['id']}.{beat.get('id')}: no photo for {op.get('image') or op.get('query')!r}")
+                continue
+            kept.append(op)
+        beat["do"] = kept
+    from compile_lecture import auto_visuals   # harness/lecture: the editor's rule for bare beats
+
+    fills = auto_visuals({"beats": beats, "title": chapter.get("title", "")}, points_at_map)
+    staged = False
+    for index, beat in enumerate(beats):
         calls = []
         # Panel heads first: the engine clears the old panel when the head is built.
         ordered = sorted(beat.get("do", []), key=lambda o: o.get("op") not in ("panel", "clear"))
+        if index < len(fills) and fills[index]:
+            ordered.append(fills[index])
+        if staged and has_map and any(points_at_map(op) for op in ordered):
+            calls.append("self.clear_stage()")
+            staged = False
+        if any(op.get("op") in STAGE_OPS or (op.get("op") == "figure" and op.get("where", "stage") == "stage")
+               for op in ordered):
+            staged = True
         for op in ordered:
             try:
                 call = op_call(op, places, has_map)
@@ -351,14 +416,30 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
 
 
 def compile_job(job, template: dict, style: dict) -> dict:
-    """Write build/<chapter>.py for every chapter; return {chapter: {file, class, digest}}."""
+    """Write build/<chapter>.py for every chapter; return {chapter: {file, class, digest}}.
+
+    Photos and icons are credited at the end of the last chapter and in
+    build/credits.json, which the deliver stage turns into out/credits.txt.
+    """
+    import icons
+    import images
+
     outline = job.read("outline.json")
     build = job.path("build")
     build.mkdir(exist_ok=True)
     manifest = {}
+    places = Places(job.spec.get("region_id"))
+    sources = {}
     for chapter in outline["chapters"]:
-        script = job.script(chapter["id"])
-        source = chapter_source(job, template, style, outline, chapter, script)
+        sources[chapter["id"]] = chapter_source(job, template, style, outline, chapter, job.script(chapter["id"]), places)
+    credits = {"photos": images.credit(places.photos.values()), "icons": icons.credit(places.icons)}
+    write_json(build / "credits.json", {**credits, "rows": list(places.photos.values())})
+    if credits["photos"] and outline["chapters"]:
+        last = outline["chapters"][-1]["id"]
+        line = "Map data: Natural Earth · Animation: Manim" if job.spec.get("region_id") else "Animation: Manim"
+        sources[last] += f"        self.credits({line!r}, extra={credits['photos']!r})\n"
+    for chapter in outline["chapters"]:
+        source = sources[chapter["id"]]
         path = build / f"{chapter['id']}.py"
         if not path.exists() or path.read_text(encoding="utf-8") != source:
             path.write_text(source, encoding="utf-8")

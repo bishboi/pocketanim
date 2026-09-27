@@ -147,6 +147,12 @@ def deliver(job, template: dict, style: dict, renders: dict, gate_report: dict |
     (out / "chapters.txt").write_text("".join(f"{_stamp(t, srt=False)} {title}\n" for t, title in marks),
                                       encoding="utf-8")
 
+    # ---- credits: what the photos' and icons' licences ask a publisher to say ----
+    credit_rows = job.read("build/credits.json") or {}
+    lines = [line for line in (credit_rows.get("photos"), credit_rows.get("icons")) if line]
+    if lines:
+        (out / "credits.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     # ---- thumbnail and contact sheet ----
     first = renders[order[0]]["video"]
     qa.frame(first, min(2.6, lengths[order[0]] / 2), out / "thumbnail.png", width=1280)

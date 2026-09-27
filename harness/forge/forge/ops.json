@@ -227,13 +227,34 @@
   }
  },
  "figure": {
-  "doc": "A figure from a source document, by id: in the panel, or across the frame for one beat.",
+  "doc": "A figure from a source document, by id: on the stage (default), in the panel, or across the frame for one beat.",
   "required": {
    "id": "str"
   },
   "optional": {
    "caption": "str",
    "where": "str"
+  }
+ },
+ "photo": {
+  "doc": "A real photograph from Wikimedia Commons (reusable licences only), on the stage, full frame or in the panel.",
+  "required": {},
+  "optional": {
+   "image": "str",
+   "query": "str",
+   "caption": "str",
+   "where": "str"
+  }
+ },
+ "illustration": {
+  "doc": "An illustration from icons on the stage: one large, up to four small with labels.",
+  "required": {
+   "icon": "str"
+  },
+  "optional": {
+   "items": "list",
+   "title": "str",
+   "tone": "tone"
   }
  }
 }

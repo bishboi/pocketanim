@@ -109,6 +109,33 @@ A marker's `place` is looked up in this order:
 
 A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Devanagari text is laid out large and scaled down, so small captions keep their shaping.
 
+## The stage: the map only when it is needed
+
+The left half of the frame is the stage, and the fact panel is on the right.
+
+A chapter draws the map only if one of its beats points at it: a marker, a river, a state, an arrow, or an
+icon placed at a town. Otherwise the stage shows pictures:
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"photo","image":"File:….jpg" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A Wikimedia Commons photo. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
+| `{"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"]],"title"?}` | One large icon with up to four small ones. |
+| `{"op":"figure","id":"fig2","where":"stage"}` | A diagram from the uploaded PDF. |
+
+On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it.
+
+A beat left without a picture gets an automatic illustration drawn from its own words: sugarcane, tigers,
+tractors. A beat whose opening line has nothing to picture gets an illustration of the chapter's topic
+instead (Climate, Population, …). Set `"auto_visuals": false` in the script to turn this off.
+
+Photos are downloaded when the script compiles, into `.cache/images`. To search from the shell:
+
+```
+.venv/bin/python harness/lecture/images.py "sugarcane field India"
+```
+
+Set `PANIM_IMAGES=0` to turn internet photos off.
+
 ## Icons
 
 `{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.

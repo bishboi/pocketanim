@@ -99,6 +99,8 @@ def _panel_height(op: dict) -> float:
         return 0.87
     if kind == "figure" and op.get("where", "panel") == "panel":
         return 3.2
+    if kind == "photo" and op.get("where") == "panel":
+        return 3.2
     return 0.0
 
 
@@ -141,6 +143,7 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     chapters = script.get("chapters") or []
     places: list[tuple[str, str]] = []
     icon_names: list[tuple[str, str]] = []
+    photos: list[tuple[str, dict]] = []
     if not chapters:
         errors.append("a lecture needs at least one chapter")
     for ci, chapter in enumerate(chapters, 1):
@@ -161,12 +164,13 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                 warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
                 kind = op.get("op")
-                if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure"} | MAP_OPS:
+                if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo",
+                                "illustration"} | MAP_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
                     continue
                 if kind in MAP_OPS and not has_map:
                     errors.append(f"{at}: '{kind}' needs a map; give the script a region")
-                if kind in MAP_OPS and not (chapter.get("map", True)):
+                if kind in MAP_OPS and chapter.get("map") is False:
                     errors.append(f"{at}: '{kind}' in a chapter with map=false")
                 need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
                         "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"]}
@@ -187,6 +191,20 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                         errors.append(f"{at}: an icon at a place needs a map; give the script a region, or drop place")
                     elif spots:
                         places.extend((at, str(p)) for p in spots if isinstance(p, str))
+                if kind == "photo":
+                    if not (op.get("image") or op.get("query")):
+                        errors.append(f"{at}: 'photo' needs image (a Commons title from find_image) or query")
+                    else:
+                        photos.append((at, op))
+                if kind == "illustration":
+                    if not op.get("icon"):
+                        errors.append(f"{at}: 'illustration' needs icon (the large one)")
+                    else:
+                        icon_names.append((at, str(op["icon"])))
+                    for item in op.get("items") or []:
+                        name = item if isinstance(item, str) else (item[0] if item else "")
+                        if name:
+                            icon_names.append((at, str(name)))
                 if kind == "figure":
                     figure = (script.get("figures") or {}).get(str(op.get("id")))
                     if not figure:
@@ -210,6 +228,8 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                     used = _panel_height(op)
     errors += _unknown_places(places, (script.get("region") or {}).get("country"))
     errors += _unknown_icons(icon_names)
+    errors += _unfetched_photos(photos)
+    warnings += _bare_stretches(script)
     minutes = estimate_minutes(script)
     if min_minutes and chapters and minutes < min_minutes * 0.85:
         beats = sum(len(c.get("beats") or []) for c in chapters)
@@ -220,6 +240,114 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                       "more beats in each chapter and more chapters, each beat a new fact from the content, "
                       "not repetition. Keep every existing beat that is right.")
     return errors, warnings
+
+
+script_photos: dict = {}
+
+
+def _photo_key(op: dict) -> str:
+    return f"{op.get('image') or ''}|{op.get('query') or ''}"
+
+
+def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
+    """Download every photo now (cached), so the scene draws local files; report the ones that failed."""
+    if not photos:
+        return []
+    import images
+
+    out = []
+    for at, op in photos:
+        key = _photo_key(op)
+        if key in script_photos:
+            continue
+        row = images.fetch(op.get("image"), op.get("query")) if images.enabled() else None
+        if row:
+            script_photos[key] = row
+        elif not images.enabled():
+            out.append(f"{at}: internet photos are off here; use an illustration, an icon or a document figure")
+        else:
+            what = op.get("image") or f"query {op.get('query')!r}"
+            out.append(f"{at}: no reusable photo for {what}; use find_image and pick a title it returns, "
+                       "or use an illustration instead")
+    return out
+
+
+VISUAL_OPS = {"photo", "figure", "illustration"}
+
+
+def _map_chapter(chapter: dict, has_region: bool) -> bool:
+    """A chapter draws its map only when a beat points at the map, and never when told not to."""
+    if not has_region or chapter.get("map") is False:
+        return False
+    return any(op.get("op") in MAP_OPS or (op.get("op") == "icon" and _icon_spots(op))
+               for b in chapter.get("beats") or [] for op in b.get("do") or [])
+
+
+def _bare_stretches(script: dict) -> list[str]:
+    """Advice: long runs of beats in a map-less chapter with no picture."""
+    out = []
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        if _map_chapter(chapter, bool(script.get("region"))):
+            continue
+        run = 0
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            if any(op.get("op") in VISUAL_OPS for op in beat.get("do") or []):
+                run = 0
+                continue
+            run += 1
+            if run == 4:
+                out.append(f"chapter {ci} beat {bi}: four beats without a picture; add a photo, a figure or an "
+                           "illustration (the compiler fills gaps with icons, but a chosen picture is better)")
+    return out
+
+
+def _points_at_map(op: dict) -> bool:
+    return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(_icon_spots(op)))
+
+
+def auto_visuals(chapter: dict, is_map_op=None) -> list[dict | None]:
+    """An illustration for each beat that needs one, else None.
+
+    On a map chapter, a beat that points at the map keeps it; a beat about
+    something else (a crop, an animal, a machine) covers it with a picture,
+    and the next map beat brings it back.
+
+    The stage follows the narration: a beat that names picturable things the
+    stage is not already showing gets an illustration of them (its concrete
+    nouns, as icons). A picture the script chose itself stays up through the next
+    beat before an automatic one replaces it.
+    """
+    import icons
+
+    beats = chapter.get("beats") or []
+    if not icons.available():
+        return [None] * len(beats)
+    out: list[dict | None] = []
+    showing: set[str] = set()
+    hold = 0
+    is_map_op = is_map_op or _points_at_map
+    for index, beat in enumerate(beats):
+        if any(is_map_op(op) for op in beat.get("do") or []):
+            # A beat about where things are: the map is the picture.
+            out.append(None)
+            showing, hold = set(), 0
+            continue
+        if any(op.get("op") in VISUAL_OPS for op in beat.get("do") or []):
+            out.append(None)
+            showing, hold = set(), 1
+            continue
+        found = icons.picture_words(beat.get("say", ""))
+        if not found and index == 0 and not showing:
+            # An opening line with nothing to picture: picture the chapter's subject instead.
+            found = icons.picture_words(chapter.get("title", "")) or icons.topic(chapter.get("title", ""))
+        fresh = [f for f in found if f not in showing]
+        if fresh and hold <= 0:
+            out.append({"op": "illustration", "icon": fresh[0], "items": [[r, ""] for r in found if r != fresh[0]][:3]})
+            showing = set(found)
+        else:
+            out.append(None)
+            hold -= 1
+    return out
 
 
 def _icon_spots(op: dict) -> list:
@@ -311,6 +439,19 @@ def _op_call(op: dict) -> str:
         where = ", ".join(_q(p) if isinstance(p, str) else f"({float(p[0])}, {float(p[1])})" for p in spots)
         size = f", size={float(op['size']):g}" if op.get("size") else ""
         return f"self.icon({_q(op['name'])}, [{where}]{color}{size}{label})"
+    if kind == "photo":
+        row = script_photos[_photo_key(op)]
+        where = op.get("where", "stage")
+        caption = op.get("caption") or ""
+        if where == "stage":
+            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(row['credit'])})"
+        return f"self.figure({_q(row['file'])}, {_q(caption)}, where={_q(where)})"
+    if kind == "illustration":
+        items = ", ".join(f"({_q(i if isinstance(i, str) else i[0])}, {_q('' if isinstance(i, str) else (i[1] if len(i) > 1 else ''))})"
+                          for i in op.get("items") or [])
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
+        return f"self.illustration({_q(op['icon'])}, [{items}]{title}{color})"
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
@@ -340,7 +481,9 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     sections = ["Introduction"] + [c["title"] for c in chapters]
     if script.get("recap"):
         sections.append("Recap")
-    base = "MapLecture" if region else "Lecture"
+    # MapLecture's layout (the stage or map on the left, the panel on the right)
+    # serves a lecture with no region too; it only draws a map when told to.
+    base = "MapLecture"
 
     out = [
         f'"""{script.get("title", "Lecture")}: compiled from a beat script by harness/lecture/compile_lecture.py."""',
@@ -370,12 +513,24 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out += ["", f"        # {index:02d}  {chapter['title']}"]
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter['narration'])})")
-        if region and chapter.get("map", True):
-            out.append("        self.show_map()")
-        else:
-            out.append("        self.add_panel()")
-        for beat in chapter.get("beats") or []:
-            calls = [_op_call(op) for op in beat.get("do") or []]
+        on_map = _map_chapter(chapter, bool(region))
+        out.append("        self.show_map()" if on_map else "        self.add_panel()")
+        fills = auto_visuals(chapter) if script.get("auto_visuals", True) else []
+        staged = False
+        for bi, beat in enumerate(chapter.get("beats") or []):
+            ops = list(beat.get("do") or [])
+            if bi < len(fills) and fills[bi]:
+                ops.append(fills[bi])
+            points_at_map = any(op.get("op") in MAP_OPS or (op.get("op") == "icon" and _icon_spots(op)) for op in ops)
+            calls = []
+            if staged and points_at_map:
+                calls.append("self.clear_stage()")      # back to the map
+                staged = False
+            for op in ops:
+                if op.get("op") in ("photo", "illustration") and op.get("where", "stage") == "stage" or \
+                        op.get("op") == "figure" and op.get("where") == "stage":
+                    staged = True
+            calls += [_op_call(op) for op in ops]
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
             out.append(f"        self.beat({_q(beat['say'])}{args}{rt})")
@@ -385,10 +540,14 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         points = ", ".join(f"({_q(h)}, {_q(b)})" for h, b in script["recap"])
         out.append(f"        self.section({len(sections) - 1})")
         out.append(f"        self.recap([{points}])")
-    uses_icons = any(op.get("op") == "icon" for c in chapters for b in c.get("beats") or [] for op in b.get("do") or [])
-    if script.get("credits") or uses_icons:
+    uses_icons = any(op.get("op") in ("icon", "illustration") for c in chapters for b in c.get("beats") or []
+                     for op in b.get("do") or []) or any("illustration" in line for line in out)
+    if script.get("credits") or uses_icons or script_photos:
+        import images
+
         line = script.get("credits") or ("Map data: Natural Earth · Animation: Manim" if region else "Animation: Manim")
-        out.append(f"        self.credits({_q(line)})")
+        photos = images.credit(script_photos.values())
+        out.append(f"        self.credits({_q(line)}" + (f", extra={_q(photos)}" if photos else "") + ")")
     return "\n".join(out) + "\n"
 
 

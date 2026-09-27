@@ -131,6 +131,92 @@ def _row(prefix: str, name: str) -> dict:
     return {"id": icon_id, "set": prefix, "name": name, "mono": is_mono(icon_id)}
 
 
+# Sets whose names are things (a tiger, a factory). mdi and healthicons are
+# interface symbols ("crop" is the crop tool), so an automatic pick skips them.
+PICTORIAL = ["game-icons", "fluent-emoji-flat", "openmoji", "noto"]
+
+
+@lru_cache(None)
+def _exact_index() -> dict[str, str]:
+    index: dict[str, str] = {}
+    names = _names()
+    for prefix in PICTORIAL:
+        for name in names.get(prefix, []):
+            index.setdefault(name, f"{prefix}:{name}")
+    return index
+
+
+# Words too general to picture on their own.
+VAGUE = set("""
+state area part region people time year years way place world side line point form type kind number level one two
+three four five first last main large small high low long north south east west chapter about and the with for from
+into onto over under many much more most some any all each every this that these those there here their they them
+its his her our your who what when where which while also only very just even still such than then thus heart belt
+center centre face hand head key home light power star back front top bottom end start case use set run turn fall
+spring rest ground field base range cover mark sign show order note cross close open wide deep rich poor great good
+bad new old young big little best better same other another since until after before during between across along
+around among against without within above below near far even rather quite almost always never often sometimes
+""".split())
+
+
+def exact(word: str) -> str | None:
+    """The icon whose name is this word (or its synonym, or its singular), fast; None otherwise."""
+    w = str(word).lower().strip()
+    if len(w) < 3 or w in VAGUE:
+        return None
+    index = _exact_index()
+    for candidate in (SYNONYMS.get(w, w), w[:-3] + "y" if w.endswith("ies") else None,
+                      w[:-1] if w.endswith("s") else None, w[:-2] if w.endswith("es") else None):
+        if candidate and _norm(candidate) in index:
+            return index[_norm(candidate)]
+    return None
+
+
+def picture_words(text: str, limit: int = 5) -> list[str]:
+    """Icons for the concrete nouns of a sentence, in order: what an auto-illustration draws."""
+    out: list[str] = []
+    for word in re.findall(r"[A-Za-z][A-Za-z-]{2,}", text or ""):
+        found = exact(word)
+        if found and found not in out:
+            out.append(found)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# Lecture headings and the picture that stands for each (all present in the downloaded sets).
+TOPICS = {
+    "climate": "sun-behind-cloud", "weather": "sun-behind-cloud", "population": "family", "people": "family",
+    "resources": "gem-stone", "minerals": "gem-stone", "economy": "money-bag", "history": "scroll",
+    "aftermath": "scroll", "culture": "performing-arts", "water": "water-drop", "rivers": "water-wave",
+    "land": "mountains", "landforms": "mountains", "relief": "mountains", "soils": "seedling", "soil": "seedling",
+    "agriculture": "farmer", "farming": "farmer", "farms": "farmer", "transport": "train", "trade": "cargo-ship",
+    "cities": "cityscape", "health": "hospital", "education": "books", "energy": "high-voltage",
+    "war": "crossed-swords", "battle": "crossed-swords", "forces": "crossed-swords", "science": "atom-symbol",
+    "biology": "dna", "location": "world-map", "extent": "world-map", "introduction": "open-book",
+    "recap": "memo", "intrigue": "spy", "march": "footprints", "wildlife": "tiger", "vegetation": "deciduous-tree",
+    "forests": "forest", "industry": "factory", "industries": "factory",
+}
+
+
+def topic(title: str) -> list[str]:
+    """Icons for a heading ("Climate", "Resources & People"): the topic table, then the best pictorial match."""
+    out = []
+    index = _exact_index()
+    for word in re.findall(r"[A-Za-z]{3,}", title or ""):
+        named = TOPICS.get(word.lower())
+        if named and named in index:
+            if index[named] not in out:
+                out.append(index[named])
+            continue
+        if word.lower() in VAGUE:
+            continue
+        hit = next((r["id"] for r in search(word, 12) if r["set"] in PICTORIAL), None)
+        if hit and hit not in out:
+            out.append(hit)
+    return out[:3]
+
+
 def resolve(name: str) -> str | None:
     """The icon id a script's name means, or None."""
     found = search(name, limit=1)

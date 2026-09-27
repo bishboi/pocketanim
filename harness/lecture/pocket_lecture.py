@@ -875,6 +875,7 @@ class Lecture(Scene):
         self.cap = None
         self.panel_items = VGroup()
         self.panel_images = Group()     # figures: images cannot join a VGroup
+        self.stage_items = Group()      # the picture on the stage: a photo, a figure or an illustration
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
@@ -1135,8 +1136,81 @@ class Lecture(Scene):
         self.panel_y = 2.35
         return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
 
+    # ---------------- the stage: pictures where the map would be ----------------
+    # Centre x, centre y, width, height: the map's half of the frame, left of the panel.
+    STAGE = (-3.05, 0.3, 6.5, 6.1)
+
+    def _stage_card(self):
+        """What a stage picture sits on: opaque over a map, invisible on the bare backdrop."""
+        cx, cy, w, h = self.STAGE
+        covering = bool(getattr(self, "layers", None)) and getattr(self, "_map_on", False)
+        card = Rectangle(width=w + 0.5, height=h + 0.6, fill_color=P.BG, fill_opacity=1 if covering else 0,
+                         stroke_width=0)
+        return card.move_to([cx, cy, 0])
+
+    def _to_stage(self, group):
+        """Put a picture on the stage, over the map; the one there before fades."""
+        old = self.stage_items
+        new = Group(self._stage_card(), group)
+        new.set_z_index(Z_MARK + 10)
+        self.stage_items = new
+        show = FadeIn(new, scale=1.02)
+        return AnimationGroup(FadeOut(old), show, lag_ratio=0.4) if len(old) else show
+
+    def clear_stage(self):
+        """Take the stage picture away, showing the map again. None when there is none."""
+        old = self.stage_items
+        self.stage_items = Group()
+        return FadeOut(old) if len(old) else None
+
+    def stage_image(self, path: str, caption: str = "", credit: str = ""):
+        """A photo or a document's figure, large, on the stage."""
+        cx, cy, w, h = self.STAGE
+        image = ImageMobject(path)
+        room = h - (0.55 if caption else 0) - (0.3 if credit else 0)
+        image.scale_to_fit_width(w)
+        if image.height > room:
+            image.scale_to_fit_height(room)
+        frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
+        parts = [image, frame]
+        if caption:
+            parts.append(fit(T(caption, 16, P.CREAM), w).next_to(image, DOWN, buff=0.14))
+        if credit:
+            parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
+        group = Group(*parts).move_to([cx, cy, 0])
+        return self._to_stage(group)
+
+    def illustration(self, hero: str, items=(), title: str | None = None, color: str | None = None):
+        """An illustration built from icons: one large, up to four small ones labelled beneath."""
+        cx, cy, w, h = self.STAGE
+        big = icon_mob(hero, color, height=2.5)
+        parts = VGroup(big)
+        if title:
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+        parts.arrange(DOWN, buff=0.3)
+        row = VGroup()
+        for item in list(items)[:4]:
+            name, label = (item, "") if isinstance(item, str) else (item[0], item[1] if len(item) > 1 else "")
+            small = icon_mob(name, color, height=0.85)
+            cell = VGroup(small)
+            if label:
+                cell.add(fit(T(label, 15, P.CREAM), 1.5).next_to(small, DOWN, buff=0.1))
+            row.add(cell)
+        if len(row):
+            row.arrange(RIGHT, buff=0.45, aligned_edge=UP)
+            fit(row, w - 0.4)
+            composition = VGroup(parts, row).arrange(DOWN, buff=0.55)
+        else:
+            composition = parts
+        if composition.height > h - 0.2:
+            composition.scale_to_fit_height(h - 0.2)
+        composition.move_to([cx, cy, 0])
+        return self._to_stage(Group(composition))
+
     def figure(self, path: str, caption: str = "", where: str = "panel"):
         """A figure from a source document: in the panel, or across the frame for one beat."""
+        if where == "stage":
+            return self.stage_image(path, caption)
         image = ImageMobject(path)
         if where == "full":
             image.scale_to_fit_height(5.4)
@@ -1336,17 +1410,21 @@ class Lecture(Scene):
         return anim
 
     def credits(self, line: str, note: str = "Some boundaries and figures are simplified or approximate for teaching.",
-                seconds: float = 3.0) -> None:
+                seconds: float = 3.0, extra: str = "") -> None:
+        """The closing credits. `extra` carries photo attributions, which their licences require."""
         self.clear_caption()
         if USED_ICONS:
             import icons
 
             note = f"{note}  {icons.credit(USED_ICONS)}."
-        credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 2.3)
+        credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 1.9)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
-        self.play(FadeIn(credit), FadeIn(small), run_time=1.0)
-        self.wait(seconds)
-        self.play(FadeOut(credit), FadeOut(small), run_time=0.8)
+        parts = [credit, small]
+        if extra:
+            parts.append(fit(T(wrap(extra, 150), 11, P.MUTED, line_spacing=0.8), 13).next_to(small, DOWN, buff=0.15))
+        self.play(*[FadeIn(p) for p in parts], run_time=1.0)
+        self.wait(seconds + (2.0 if extra else 0.0))
+        self.play(*[FadeOut(p) for p in parts], run_time=0.8)
 
     def outro_fade(self, run_time: float = 1.0) -> None:
         """Fade everything a chapter added; keep the backdrop and chrome."""
@@ -1356,7 +1434,9 @@ class Lecture(Scene):
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
         self.panel_items = VGroup()
         self.panel_images = Group()
+        self.stage_items = Group()
         self._full_figure = self._new_figure = None
+        self._map_on = False
         self.panel_y = 2.35
 
 
@@ -1477,6 +1557,7 @@ class MapLecture(Lecture):
 
     def show_map(self, panel: bool = True, run_time: float = 1.4) -> None:
         """Draw the base map (and the panel) in one move."""
+        self._map_on = True
         nb, inner, outline = self.base()
         anims = [FadeIn(nb), Create(outline)]
         if len(inner):

@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ICON_TOOL, LECTURE_TOOL, compileLecture, findIcon, fixtureScript, lecturePrompt, resolveRegion, targetMinutes } from "./lecture";
+import { ICON_TOOL, IMAGE_TOOL, LECTURE_TOOL, compileLecture, findIcon, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -227,7 +227,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL | typeof IMAGE_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -424,7 +424,7 @@ async function viaOpenRouter(
   const system = lecture ? lecturePrompt(template, minutes) + (doc ? figurePrompt(doc) : "") : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
-  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, EDIT_TOOL] : TOOLS;
+  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, IMAGE_TOOL, EDIT_TOOL] : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -605,6 +605,8 @@ async function viaOpenRouter(
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
         }
+      } else if (call.function.name === "find_image") {
+        output = await findImage((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_icon") {
         output = await findIcon((args as { queries?: unknown }).queries);
       } else {

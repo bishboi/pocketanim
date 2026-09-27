@@ -94,6 +94,19 @@ mineral, industry or animal, at the place named in the same sentence.
 
 The web page's **Upload lecture PDF** button makes the PDF the job's source.
 
+## The stage
+
+A chapter draws its map only if its beats point at the map. Everything else plays on the stage:
+- `photo`: a Wikimedia Commons photo with a reusable licence;
+- `illustration`: a composition of icons;
+- `figure`: a diagram from a source PDF.
+
+The offline writer does map work only in slots about the map. Each map-free chapter opens on a photo of
+its subject when one can be found.
+
+Beats without a picture are illustrated from their own words, as in the editor. Photo and icon credits
+go at the end of the video and in `out/credits.txt`.
+
 ## Libraries
 
 - `styles/<id>/`: `style.yaml` (with `extends:`, roles, theme, voice, music, fonts, `per_template`), `tokens.yaml`, `writing.md`.

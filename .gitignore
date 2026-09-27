@@ -41,3 +41,6 @@ harness/app/.next/
 # Lecture Forge working folders: jobs and the content-hash cache
 harness/forge/jobs/
 harness/forge/cache/
+
+# Geocoded place names, cached per machine
+harness/lecture/.cache/

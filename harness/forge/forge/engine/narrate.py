@@ -71,7 +71,7 @@ def _finish(raw: Path, out: Path) -> None:
                    check=True, timeout=120)
 
 
-def _kokoro_batch(job, voice: str, todo: list[tuple[str, Path]]) -> list[str]:
+def _kokoro_batch(job, voice: str, todo: list[tuple[str, Path]], lang: str = "en-us") -> list[str]:
     """Speak lines with Kokoro, BATCH at a time. Returns the lines it could not speak."""
     failed = []
     scratch = job.path("audio", "_batch")
@@ -79,7 +79,7 @@ def _kokoro_batch(job, voice: str, todo: list[tuple[str, Path]]) -> list[str]:
     for start in range(0, len(todo), BATCH):
         chunk = todo[start:start + BATCH]
         out = scratch / f"b{start:04d}.wav"
-        request = json.dumps({"voice": voice, "lines": [s for s, _ in chunk], "out": str(out)})
+        request = json.dumps({"voice": voice, "lines": [s for s, _ in chunk], "out": str(out), "lang": lang})
         try:
             result = subprocess.run([sys.executable, str(KOKORO_SCRIPT)], input=request, capture_output=True,
                                     text=True, timeout=1800)
@@ -130,7 +130,15 @@ def narrate_job(job, template: dict, style: dict) -> dict:
     job.log(f"narrate: {sum(len(v) for v in per_chapter.values())} lines, {len(todo)} to speak ({mode})")
     left = list(todo.items())
     if left and mode.startswith("kokoro"):
-        failed = set(_kokoro_batch(job, mode.split(":", 1)[1], left))
+        failed = set()
+        voice = mode.split(":", 1)[1]
+        for lang in sorted({pl.spoken_lang(sp) for sp, _ in left}):
+            group = [(sp, p) for sp, p in left if pl.spoken_lang(sp) == lang]
+            if lang == "en":
+                failed |= set(_kokoro_batch(job, voice, group))
+            else:
+                own = voice if voice.startswith(lang[0]) else pl.KOKORO_VOICES[lang]
+                failed |= set(_kokoro_batch(job, own, group, lang))
         left = [(s, p) for s, p in left if s in failed]
     if left:
         # espeak through the engine's own path, which writes the same cache

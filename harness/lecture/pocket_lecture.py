@@ -244,12 +244,26 @@ use_style(os.environ.get("LECTURE_STYLE", "atlas"))
 # ════════════════════════════════════════════════════════════════════════
 
 
+# Scripts whose glyphs combine (a vowel sign on a consonant, a conjunct):
+# Pango rounds glyph positions to whole units at small sizes, which pulls
+# these clusters apart, so such text is laid out large and scaled down.
+COMPLEX_SCRIPTS = ((0x0900, 0x0DFF), (0x0600, 0x06FF), (0x0E00, 0x0E7F))
+LAYOUT_SIZE = 48
+
+
+def _complex(text: str) -> bool:
+    return any(lo <= ord(c) <= hi for c in text for lo, hi in COMPLEX_SCRIPTS)
+
+
 def T(text: str, size: float = 24, color: str | None = None, font: str | None = None,
       weight=NORMAL, **kw) -> Text:
     """Text in the style's body font. Characters a font lacks are swapped."""
     font = font or TH["sans"]
     if font == "Permanent Marker":
         text = text.replace("≈", "~")
+    if size < LAYOUT_SIZE and _complex(text):
+        mob = Text(text, font=font, font_size=LAYOUT_SIZE, color=color or P.CREAM, weight=weight, **kw)
+        return mob.scale(size / LAYOUT_SIZE)
     return Text(text, font=font, font_size=size, color=color or P.CREAM, weight=weight, **kw)
 
 
@@ -309,6 +323,22 @@ def _wav_seconds(path: Path) -> float:
         return handle.getnframes() / float(handle.getframerate())
 
 
+# Scripts a line may be written in, and the voice each needs. A Hindi line
+# read by an English voice comes out as noise, so the language is taken from
+# the line itself, whatever voice the style names.
+SCRIPT_LANGS = (("hi", 0x0900, 0x097F),)
+KOKORO_VOICES = {"hi": "hf_alpha"}
+
+
+def spoken_lang(text: str) -> str:
+    """'hi' when most letters are Devanagari, else 'en'."""
+    letters = [c for c in text if c.isalpha()]
+    for lang, lo, hi in SCRIPT_LANGS:
+        if letters and sum(lo <= ord(c) <= hi for c in letters) / len(letters) > 0.4:
+            return lang
+    return "en"
+
+
 def narrate(text: str) -> tuple[str | None, float]:
     """(wav path or None, seconds) for one line, cached by its spoken text.
 
@@ -326,13 +356,17 @@ def narrate(text: str) -> tuple[str | None, float]:
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
 
+    lang = spoken_lang(spoken)
     if mode.startswith("kokoro"):
         voice = mode.split(":", 1)[1] if ":" in mode else TH.get("voice", "af_sarah")
+        if lang != "en" and not voice.startswith(lang[0]):
+            voice = KOKORO_VOICES[lang]
         script = HERE.parent / "scripts" / "kokoro_speak.py"
         try:
             import json
 
-            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out)})
+            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out),
+                              "lang": lang if lang != "en" else "en-us"})
             result = subprocess.run([sys.executable, str(script)], input=job, capture_output=True,
                                     text=True, timeout=300)
             reply = json.loads(result.stdout.strip().splitlines()[-1])
@@ -343,7 +377,7 @@ def narrate(text: str) -> tuple[str | None, float]:
 
     espeak = shutil.which("espeak-ng") or shutil.which("espeak")
     if espeak and mode in ("auto", "espeak") or (espeak and mode.startswith("kokoro")):
-        voice = os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak)
+        voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
         raw = out.with_name(out.stem + "_raw.wav")
         try:
             subprocess.run([espeak, "-v", voice, "-s", "148", "-p", "42", "-g", "4", "-w", str(raw), spoken],
@@ -459,10 +493,37 @@ def river(name: str, bounds=None):
     return geom.intersection(box(*bounds)) if bounds else geom
 
 
-def place(name: str, country_name: str | None = None) -> tuple[float, float]:
-    """(lon, lat) of a populated place; the most populous match wins."""
+# Renamed places: a script may use either name; Natural Earth knows one of them.
+PLACE_ALIASES = {
+    "Prayagraj": "Allahabad", "Bangalore": "Bengaluru", "Calcutta": "Kolkata", "Bombay": "Mumbai",
+    "Madras": "Chennai", "Poona": "Pune", "Benares": "Varanasi", "Banaras": "Varanasi", "Kashi": "Varanasi",
+    "Gauhati": "Guwahati", "Cawnpore": "Kanpur", "Cochin": "Kochi", "Trivandrum": "Thiruvananthapuram",
+    "Baroda": "Vadodara", "Simla": "Shimla", "Gurugram": "Gurgaon", "Mysuru": "Mysore",
+    "Puducherry": "Pondicherry", "Belagavi": "Belgaum", "Mangaluru": "Mangalore", "Hubballi": "Hubli",
+    "Kalaburagi": "Gulbarga", "Trichy": "Tiruchirappalli", "Tiruchchirappalli": "Tiruchirappalli",
+    "Delhi": "New Delhi", "Peking": "Beijing", "Canton": "Guangzhou", "Rangoon": "Yangon", "Saigon": "Ho Chi Minh City",
+}
+
+
+@lru_cache(None)
+def _extra_places() -> dict:
+    """data/places_extra.csv: name or alias (normalised) -> (lon, lat, country)."""
+    import csv
+
+    out = {}
+    path = HERE / "data" / "places_extra.csv"
+    if not path.exists():
+        return out
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    for row in csv.DictReader(rows):
+        entry = (float(row["lon"]), float(row["lat"]), _norm(row["country"]))
+        for name in [row["name"]] + [a for a in (row.get("aliases") or "").split("|") if a]:
+            out.setdefault(_norm(name), entry)
+    return out
+
+
+def _natural_earth_place(name: str, scope: str | None):
     wanted = _norm(name)
-    scope = _norm(country_name) if country_name else None
     best = None
     for attrs, _geom in _records("populated_places"):
         if wanted not in (_norm(attrs.get("NAME")), _norm(attrs.get("NAMEASCII")), _norm(attrs.get("NAME_EN"))):
@@ -472,9 +533,79 @@ def place(name: str, country_name: str | None = None) -> tuple[float, float]:
         pop = float(attrs.get("POP_MAX") or 0)
         if best is None or pop > best[0]:
             best = (pop, float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))
-    if best is None:
-        raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else ""))
-    return best[1], best[2]
+    return (best[1], best[2]) if best else None
+
+
+def _geocode_cache_path() -> Path:
+    return Path(os.environ.get("PANIM_GEOCODE_CACHE") or (HERE / ".cache" / "geocode.json"))
+
+
+def _geocode(name: str, country_name: str | None):
+    """OpenStreetMap's Nominatim, once per name, cached on disk. PANIM_GEOCODE=0 turns it off.
+
+    The cache makes a render reproducible and offline after the first lookup;
+    a failed lookup is cached too, so a missing name costs one request.
+    """
+    import json
+
+    if os.environ.get("PANIM_GEOCODE", "1") == "0":
+        return None
+    key = f"{_norm(name)}|{_norm(country_name)}"
+    path = _geocode_cache_path()
+    try:
+        cache = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        cache = {}
+    if key in cache:
+        return tuple(cache[key]) if cache[key] else None
+    found = None
+    try:
+        import urllib.parse
+        import urllib.request
+
+        query = urllib.parse.urlencode({"q": f"{name}, {country_name}" if country_name else name, "format": "json",
+                                        "limit": 1})
+        request = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?{query}",
+                                         headers={"User-Agent": "pocketanim-lecture/0.4 (map lectures)"})
+        with urllib.request.urlopen(request, timeout=8) as response:
+            rows = json.loads(response.read().decode())
+        if rows:
+            found = (round(float(rows[0]["lon"]), 4), round(float(rows[0]["lat"]), 4))
+    except Exception:  # noqa: BLE001 -- offline, blocked or rate limited: not cached, tried again next time
+        return None
+    cache[key] = list(found) if found else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cache, indent=1, ensure_ascii=False))
+    return found
+
+
+def place(name: str, country_name: str | None = None) -> tuple[float, float]:
+    """(lon, lat) of a place.
+
+    In order: Natural Earth's populated places (the most populous match),
+    under the name or its renamed form; data/places_extra.csv; then
+    OpenStreetMap, cached. Raises KeyError when none knows it.
+    """
+    scope = _norm(country_name) if country_name else None
+    names = [name]
+    for old, new in PLACE_ALIASES.items():
+        if _norm(name) == _norm(old):
+            names.append(new)
+        elif _norm(name) == _norm(new):
+            names.append(old)
+    for candidate in names:
+        found = _natural_earth_place(candidate, scope)
+        if found:
+            return found
+    extra = _extra_places()
+    for candidate in names:
+        row = extra.get(_norm(candidate))
+        if row and (not scope or row[2] == scope):
+            return row[0], row[1]
+    found = _geocode(name, country_name)
+    if found:
+        return found
+    raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else ""))
 
 
 class MapFrame:

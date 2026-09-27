@@ -112,6 +112,7 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
         errors.append(f"style must be one of {', '.join(STYLES)}")
     has_map = bool(script.get("region"))
     chapters = script.get("chapters") or []
+    places: list[tuple[str, str]] = []
     if not chapters:
         errors.append("a lecture needs at least one chapter")
     for ci, chapter in enumerate(chapters, 1):
@@ -146,6 +147,8 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                         errors.append(f"{at}: '{kind}' needs {field}")
                 if kind == "marker" and not (op.get("place") or op.get("lonlat")):
                     errors.append(f"{at}: 'marker' needs place or lonlat")
+                elif kind == "marker" and op.get("place") and has_map:
+                    places.append((at, str(op["place"])))
                 if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
                     errors.append(f"{at}: 'graticule' needs lat or lon")
                 for field in ("color",):
@@ -160,7 +163,26 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                 if used > PANEL_ROOM:
                     warnings.append(f"{at}: the panel overflows into the caption; start a new panel")
                     used = _panel_height(op)
+    errors += _unknown_places(places, (script.get("region") or {}).get("country"))
     return errors, warnings
+
+
+def _unknown_places(places: list[tuple[str, str]], country: str | None) -> list[str]:
+    """Marker places the gazetteer cannot find: caught here, not halfway through a render."""
+    if not places:
+        return []
+    try:
+        from pocket_lecture import place
+    except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
+        return []
+    out = []
+    for at, name in places:
+        try:
+            place(name, country)
+        except KeyError:
+            out.append(f"{at}: no place named {name!r}" + (f" in {country}" if country else "")
+                       + "; use a nearby larger town, or give its position as lonlat [lon, lat] instead of place")
+    return out
 
 
 def _op_call(op: dict) -> str:

@@ -190,6 +190,8 @@ export function lecturePrompt(template: Template): string {
     '  {"op":"dim","opacity"?}                fade filled areas down before highlighting one',
     "",
     "A panel holds a title and about five facts; start a new panel before it fills. Use real place names; the",
-    "compiler looks them up. Keep lon/lat for arrows and paths to places you are sure of.",
+    "compiler looks them up. A marker's place is a town or city in English (\"Prayagraj\", not \"प्रयागराज\");",
+    "put the name in the script's own language in label. For a district, park or village the gazetteer may not",
+    "know, give lonlat instead. Keep lon/lat for arrows and paths to places you are sure of.",
   ].join("\n");
 }

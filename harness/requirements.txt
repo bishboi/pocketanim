@@ -10,3 +10,4 @@ numpy
 pyyaml
 pytest
 pypdf
+rdkit   # molecule layouts for chemistry and biology lectures

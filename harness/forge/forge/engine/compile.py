@@ -173,6 +173,24 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
     if kind == "compare":
         return (f"self.compare({tuple(op['left'])!r}, {tuple(op['right'])!r}, "
                 f"{op.get('left_tone', 'friendly')!r}, {op.get('right_tone', 'enemy')!r})")
+    if kind == "timeline" and op.get("where") == "stage":
+        events = [(str(d), str(label)) for d, label in op["events"]][:7]
+        title = f", {op['title']!r}" if op.get("title") else ""
+        return f"self.big_timeline({events!r}{title})"
+    if kind == "molecule":
+        return f"self.molecule({op['name']!r}" + (f", {op['label']!r}" if op.get("label") else "") + ")"
+    if kind == "equation":
+        return f"self.equation({op['tex']!r}" + (f", {op['label']!r}" if op.get("label") else "") + ")"
+    if kind == "plot":
+        exprs = op.get("exprs") or [op["expr"]]
+        x = op.get("x") or [-5, 5]
+        return (f"self.plot({[str(e) for e in exprs]!r}, ({float(x[0])}, {float(x[1])}), {op.get('label')!r}, "
+                f"{op.get('x_label', 'x')!r}, {op.get('y_label', 'y')!r}, {list(op.get('names') or [])!r})")
+    if kind == "process":
+        return (f"self.process({[str(x) for x in op['steps']][:8]!r}, {op.get('title')!r}, "
+                f"cycle={bool(op.get('cycle'))})")
+    if kind == "quote":
+        return f"self.quote({op['text']!r}, {op.get('who', '')!r})"
     if kind == "timeline":
         events = [(str(d), str(label)) for d, label in op["events"]][:6]
         return f"self.timeline({events!r}, {op.get('tone', 'accent')!r})"
@@ -293,7 +311,7 @@ def points_at_map(op: dict) -> bool:
     return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(op.get("places")))
 
 
-STAGE_OPS = {"photo", "illustration"}
+STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,
@@ -363,7 +381,9 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
             stage()
     else:
         num = numbers[chapter["id"]]
-        body.append(f"self.chapter({num}, {chapter['title']!r}, {chapter.get('purpose', '')!r}, "
+        slot_note = next((a.get("purpose") for a in template.get("arc", []) if a["id"] == chapter["slot"]), None)
+        sub = chapter.get("purpose") if chapter.get("purpose") != slot_note else ""
+        body.append(f"self.chapter({num}, {chapter['title']!r}, {sub or ''!r}, "
                     f"{card_line(num, chapter['title'])!r})")
         if beats:
             stage()
@@ -381,7 +401,7 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
         beat["do"] = kept
     from compile_lecture import auto_visuals   # harness/lecture: the editor's rule for bare beats
 
-    fills = auto_visuals({"beats": beats, "title": chapter.get("title", "")}, points_at_map)
+    fills = auto_visuals({"beats": beats, "title": chapter.get("title", "")}, points_at_map, spec.get("genre"))
     staged = False
     for index, beat in enumerate(beats):
         calls = []
@@ -393,7 +413,7 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
             calls.append("self.clear_stage()")
             staged = False
         if any(op.get("op") in STAGE_OPS or (op.get("op") == "figure" and op.get("where", "stage") == "stage")
-               for op in ordered):
+               or (op.get("op") == "timeline" and op.get("where") == "stage") for op in ordered):
             staged = True
         for op in ordered:
             try:
@@ -429,9 +449,19 @@ def compile_job(job, template: dict, style: dict) -> dict:
     build.mkdir(exist_ok=True)
     manifest = {}
     places = Places(job.spec.get("region_id"))
+    scripts = {c["id"]: job.script(c["id"]) for c in outline["chapters"]}
+    # Every figure of the sources is shown somewhere: the ones no beat asked
+    # for go where the narration talks about them (harness/lecture's rule).
+    figures = {f["id"]: f for f in (job.read("bundle.json") or {}).get("figures", [])}
+    if figures:
+        from compile_lecture import place_figures
+
+        placed = place_figures({"figures": figures, "chapters": [scripts[c["id"]] for c in outline["chapters"]]})
+        if placed:
+            job.log(f"compile: placed {placed} source figure(s) no beat showed")
     sources = {}
     for chapter in outline["chapters"]:
-        sources[chapter["id"]] = chapter_source(job, template, style, outline, chapter, job.script(chapter["id"]), places)
+        sources[chapter["id"]] = chapter_source(job, template, style, outline, chapter, scripts[chapter["id"]], places)
     credits = {"photos": images.credit(places.photos.values()), "icons": icons.credit(places.icons)}
     write_json(build / "credits.json", {**credits, "rows": list(places.photos.values())})
     if credits["photos"] and outline["chapters"]:

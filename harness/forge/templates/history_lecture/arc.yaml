@@ -1,0 +1,44 @@
+slots:
+  - id: prologue
+    title: Introduction
+    purpose: The question this history answers.
+    share: 0.08
+    required: [title]
+    keywords: [history, story, remembered, known, famous]
+  - id: setting
+    title: The World Before
+    purpose: Where and when; the powers and people at the start.
+    share: 0.16
+    required: []
+    layout: map_panel
+    keywords: [region, kingdom, capital, ruled, land, before, lived, people, state, territory]
+  - id: rise
+    title: The Rise
+    purpose: How it began and grew, in order.
+    share: 0.2
+    required: [timeline]
+    keywords: [founded, began, rise, rose, built, established, conquered, expanded, grew, first]
+  - id: turning_point
+    title: The Turning Point
+    purpose: The decisive event and the people in it.
+    share: 0.2
+    required: []
+    keywords: [battle, war, revolt, crisis, decisive, defeat, victory, turning, treaty, revolution]
+  - id: consequences
+    title: Consequences
+    purpose: What changed, cause by cause.
+    share: 0.18
+    required: []
+    keywords: [after, result, consequence, changed, led, collapse, fell, decline, afterwards]
+  - id: legacy
+    title: Legacy
+    purpose: What remains today.
+    share: 0.12
+    required: []
+    keywords: [legacy, today, remains, remembered, influence, modern, still]
+  - id: recap
+    title: Recap
+    purpose: The ideas to remember.
+    share: 0.06
+    required: [recap]
+    keywords: []

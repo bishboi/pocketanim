@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { VersionBar } from "@/components/version-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -511,6 +512,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-8 text-neutral-200">
+      <VersionBar />
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-neutral-100">

@@ -12,4 +12,4 @@ content into a template's structure; they never write styling or code.
     forge/registry.py    styles, templates and region packs, resolved
 """
 
-ENGINE_VERSION = "0.4.0"
+ENGINE_VERSION = "0.6.0"

@@ -1,0 +1,37 @@
+slots:
+  - id: prologue
+    title: Introduction
+    purpose: The question, and why it matters.
+    share: 0.1
+    required: [title]
+    keywords: [why, what, how, question, wonder]
+  - id: key_idea
+    title: The Key Idea
+    purpose: The central concept in plain words.
+    share: 0.18
+    required: []
+    keywords: [is, called, defined, means, concept, idea, law, principle]
+  - id: mechanism
+    title: How It Works
+    purpose: The mechanism, step by step.
+    share: 0.28
+    required: []
+    keywords: [process, step, then, reaction, energy, cycle, converts, forms, produces, releases, absorbs]
+  - id: evidence
+    title: The Evidence
+    purpose: Measurements, experiments and graphs.
+    share: 0.18
+    required: []
+    keywords: [experiment, measured, data, observed, evidence, graph, shows, found, results]
+  - id: examples
+    title: Where You See It
+    purpose: Examples and applications.
+    share: 0.18
+    required: []
+    keywords: [example, used, everyday, applications, industry, nature, life, found in]
+  - id: recap
+    title: Recap
+    purpose: The ideas to remember.
+    share: 0.08
+    required: [recap]
+    keywords: []

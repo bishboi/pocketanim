@@ -1,0 +1,29 @@
+id: parchment
+version: 1.0.0
+label: Parchment
+description: "History: an old page, brown ink, Roman capitals."
+extends: atlas
+engine_theme: parchment   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#3B2A1A"
+  muted: "#7A6650"
+  accent: "#8C5A2B"
+  highlight: "#A0781E"
+  friendly: "#2E86AB"
+  enemy: "#C0392B"
+  ally: "#43A047"
+  neutral: "#7A6650"
+  water: "#2E86AB"
+  land: "#F6ECD4"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn, Deva]
+voice:
+  engine: auto
+  name: bm_george
+  speed: 1.0
+music:
+  preset: none
+  volume: 0.07
+  duck_db: 15

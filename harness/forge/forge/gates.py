@@ -122,6 +122,17 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
+            if name in ("molecule", "equation", "plot", "process", "quote"):
+                import sys as _sys
+
+                from forge.util import LECTURE
+                if str(LECTURE) not in _sys.path:
+                    _sys.path.insert(0, str(LECTURE))
+                from compile_lecture import _kit_problem
+
+                problem = _kit_problem(op)
+                if problem:
+                    errors.append(_err("schema", chapter["id"], bid, problem, True))
             if name == "photo" and not (op.get("image") or op.get("query")):
                 errors.append(_err("schema", chapter["id"], bid, "photo needs image or query", True))
             if name == "illustration":

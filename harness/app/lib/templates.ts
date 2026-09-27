@@ -66,8 +66,62 @@ const LECTURE_EXAMPLE = [
   "The monsoon brings about 75% of the year's rain between June and September.",
 ].join("\n");
 
-/** Lecture templates: one per pocket_lecture style. */
+/** Lecture templates: one per pocket_lecture style, and Auto, which picks the style from the subject. */
 const LECTURES: Template[] = [
+  {
+    id: "lecture-auto", kind: "lecture", style: "auto", name: "Auto lecture",
+    summary: "Reads the content, picks the subject kit: maps for geography, timelines for history, molecules, equations and graphs for science.",
+    palette: ["#0F8B8D", "#8C5A2B", "#7DD3FC"], background: "#F4F8F8", ink: "#12303A", voice: "af_sarah",
+    direction: "A narrated lecture whose style and pictures follow its subject.",
+    example: [
+      "Photosynthesis",
+      "Plants make their own food from light, water and carbon dioxide.",
+      "In the chloroplasts, chlorophyll captures sunlight.",
+      "The overall reaction: 6CO2 + 6H2O -> C6H12O6 + 6O2.",
+      "The glucose made is stored as starch or burned for energy in respiration.",
+    ].join("\n"),
+    preview: lecturePreview("#FFFFFF", "#0F8B8D", "#F4F8F8", "#0F8B8D", "#12303A", "#2E86AB", "#12303A", "#FFFFFF"),
+  },
+  {
+    id: "lecture-parchment", kind: "lecture", style: "parchment", name: "Parchment lecture",
+    summary: "History: an old page, brown ink, Roman capitals, timelines and quotes.",
+    palette: ["#6B2E1A", "#8C5A2B", "#2F5D7C"], background: "#EFE3C6", ink: "#3B2A1A", voice: "bm_george",
+    direction: "A narrated history lecture in the parchment style.",
+    example: [
+      "The Mughal Empire",
+      "Babur founded the Mughal Empire after winning the battle of Panipat in 1526.",
+      "Akbar, who ruled from 1556 to 1605, built an empire across northern India.",
+      "Shah Jahan built the Taj Mahal in Agra in memory of Mumtaz Mahal.",
+      "After Aurangzeb died in 1707 the empire slowly broke apart.",
+    ].join("\n"),
+    preview: lecturePreview("#F6ECD4", "#6B2E1A", "#E9DBB8", "#6B2E1A", "#3B2A1A", "#2F5D7C", "#3B2A1A", "#F6EEDC"),
+  },
+  {
+    id: "lecture-lab", kind: "lecture", style: "lab", name: "Lab lecture",
+    summary: "Biology and chemistry: clean white, teal, molecules and reactions drawn out.",
+    palette: ["#0F8B8D", "#D1495B", "#2E86AB"], background: "#F4F8F8", ink: "#12303A", voice: "af_sarah",
+    direction: "A narrated science lecture in the lab style.",
+    example: [
+      "Combustion",
+      "When methane burns it reacts with oxygen from the air.",
+      "The equation is CH4 + 2O2 -> CO2 + 2H2O.",
+      "Carbon dioxide and water are the products, and heat is released.",
+    ].join("\n"),
+    preview: lecturePreview("#FFFFFF", "#0F8B8D", "#F4F8F8", "#0F8B8D", "#12303A", "#D1495B", "#12303A", "#FFFFFF"),
+  },
+  {
+    id: "lecture-cosmos", kind: "lecture", style: "cosmos", name: "Cosmos lecture",
+    summary: "Physics and space: night sky, cyan light, equations and graphs.",
+    palette: ["#7DD3FC", "#F472B6", "#FDE68A"], background: "#0A0E1F", ink: "#E6ECFF", voice: "am_adam",
+    direction: "A narrated physics lecture in the cosmos style.",
+    example: [
+      "Gravity",
+      "Every mass attracts every other mass.",
+      "Newton wrote it as F = G m1 m2 / r^2.",
+      "Near the Earth a falling object gains about 9.8 metres per second every second.",
+    ].join("\n"),
+    preview: lecturePreview("#121836", "#7DD3FC", "#0F1530", "#7DD3FC", "#E6ECFF", "#F472B6", "#05070F", "#E6ECFF"),
+  },
   {
     id: "lecture-atlas", kind: "lecture", style: "atlas", name: "Atlas lecture",
     summary: "Dark cartographic lecture: map, fact panel, captions, narration.",

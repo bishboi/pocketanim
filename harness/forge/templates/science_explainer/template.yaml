@@ -1,0 +1,13 @@
+id: science_explainer
+version: 1.0.0
+label: Science explainer
+description: A scientific idea -- the question, the key idea, the mechanism, the evidence, examples -- with molecules, equations, graphs and processes.
+requires_ops: [panel, fact]
+requires_roles: [ink, accent]
+compatible_styles: ["*"]
+target_minutes: {min: 2, default: 8, max: 30}
+words_per_minute: 140
+beat_words: {min: 8, max: 40}
+layouts:
+  stage: {map: false, panel: true}
+default_layout: stage

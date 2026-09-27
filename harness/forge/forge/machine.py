@@ -77,6 +77,7 @@ class Run:
         return "resolve"
 
     def resolve(self):
+        self._auto()
         spec = self.spec
         template = self.template()
         style = self.style()
@@ -108,6 +109,27 @@ class Run:
         self.job.log(f"resolve: {template['id']} x {style['id']} (via {' < '.join(style['chain'])}), "
                      f"region {region_id or 'none'}")
         return "plan"
+
+    # The subject decides the template and style when the job leaves them to it.
+    GENRE_TEMPLATE = {"geography": "geography_lecture", "history": "history_lecture", "biology": "science_explainer",
+                      "chemistry": "science_explainer", "physics": "science_explainer",
+                      "mathematics": "science_explainer", "economics": "explainer", "general": "explainer"}
+
+    def _auto(self):
+        from genre import classify   # harness/lecture
+
+        spec = self.spec
+        bundle = self.job.read("bundle.json") or {}
+        text = " ".join(p["text"] for p in bundle.get("passages", []))[:40000] or spec.get("brief", "")
+        subject = classify(text)
+        changes = {"genre": subject["genre"]}
+        if spec.get("template") == "auto":
+            changes["template"] = self.GENRE_TEMPLATE[subject["genre"]]
+        if spec.get("style") == "auto":
+            changes["style"] = subject["style"] if subject["style"] in registry.styles() else "vox"
+        self.job.update_spec(**changes)
+        self.job.log(f"subject: {subject['label']} ({', '.join(subject['why']) or 'vocabulary'}) -> "
+                     f"{changes.get('template', spec['template'])}, {changes.get('style', spec['style'])}")
 
     def plan(self):
         notes = self.notes().get("outline", "")

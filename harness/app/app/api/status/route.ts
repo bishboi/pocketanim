@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { toolchain } from "@/lib/pocketanim";
 import { usingFixture } from "@/lib/model";
 import { kokoroReady } from "@/lib/voice";
+import { resources, versionInfo } from "@/lib/version";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,8 @@ export async function GET() {
   return NextResponse.json({
     ...tools,
     kokoro,
+    version: versionInfo(),
+    resources: resources(),
     fixture: usingFixture(),
     model: usingFixture()
       ? "fixture"

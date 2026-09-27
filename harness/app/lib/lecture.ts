@@ -69,7 +69,12 @@ function runPython(args: string[], input?: string): Promise<{ code: number; stdo
  */
 export async function compileLecture(
   script: unknown,
-  options: { style?: string; minMinutes?: number; figures?: Record<string, { file: string; caption: string }> } = {},
+  options: {
+    style?: string;
+    minMinutes?: number;
+    figures?: Record<string, { file: string; caption: string }>;
+    genre?: string;
+  } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
   // The figures table comes from the uploaded document, never from the model.
@@ -79,6 +84,7 @@ export async function compileLecture(
           ...script,
           ...(options.style ? { style: options.style } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
+          ...(options.genre ? { genre: options.genre } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
@@ -88,6 +94,26 @@ export async function compileLecture(
     return JSON.parse(stdout.trim().split("\n").pop() || "") as Compiled;
   } catch {
     return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
+  }
+}
+
+export type Subject = {
+  genre: string;
+  label: string;
+  style: string;
+  map: "often" | "sometimes" | "rarely" | "never";
+  kit: string[];
+  guidance: string;
+  why: string[];
+};
+
+/** The content's subject and its kit (harness/lecture/genre.py): style, map policy, pictures to prefer. */
+export async function classifySubject(text: string): Promise<Subject> {
+  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "genre.py")], text.slice(0, 20000));
+  try {
+    return JSON.parse(stdout) as Subject;
+  } catch {
+    return { genre: "general", label: "General", style: "vox", map: "sometimes", kit: [], guidance: "", why: [] };
   }
 }
 
@@ -296,7 +322,7 @@ export const LECTURE_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES): string {
+export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES, subject?: Subject): string {
   const words = Math.round(minutes * 140);
   const beats = Math.round((minutes * 60) / 11);
   return [
@@ -304,6 +330,13 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
     "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
+    ...(subject
+      ? [
+          `SUBJECT. This is a ${subject.label} lecture. ${subject.guidance}`,
+          `The map is used ${subject.map} in ${subject.label.toLowerCase()} lectures. Favour: ${subject.kit.join(", ")}.`,
+          "",
+        ]
+      : []),
     `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
     `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
     "returns an error when the script is well short; then add beats and chapters with new material, never padding.",
@@ -332,6 +365,12 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"],["sheaf-of-rice","Kharif"]],"title"?,"color"?}',
     "                                          an illustration built from icons: one large, up to four small, labelled",
     '  {"op":"figure","id":"fig2","where":"stage"}   a diagram from the uploaded document, large',
+    '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula, atoms in CPK colours',
+    '  {"op":"equation","tex":"6CO_2 + 6H_2O -> C_6H_{12}O_6 + 6O_2","label"?}   a law or a reaction, large',
+    '  {"op":"plot","expr":"x^2/2" | "exprs":["x^2","3*x"],"x":[0,6],"x_label"?,"y_label"?,"names"?,"label"?}   graphs of x',
+    '  {"op":"process","steps":["Evaporation","Condensation","Rain"],"cycle"?:true,"title"?}   steps joined by arrows',
+    '  {"op":"timeline","events":[["1526","Panipat"],["1556","Akbar"]],"title"?}   an era across the stage',
+    '  {"op":"quote","text":"...","who":"Akbar"}   a primary source, in its own words',
     "Call find_image for photos (describe the scene: 'sugarcane field India', 'Ganges ghats Varanasi') and use a",
     "title it returns. A map chapter may still show a photo: it covers the map until the next map operation.",
     "Beats you leave without a picture get an automatic illustration from their words, so choose the important ones.",

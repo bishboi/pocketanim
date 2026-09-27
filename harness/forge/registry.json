@@ -7,14 +7,23 @@
     "clock",
     "compare",
     "dim",
+    "equation",
     "fact",
+    "figure",
     "graticule",
     "highlight",
+    "icon",
+    "illustration",
     "marker",
+    "molecule",
     "move",
     "network",
     "panel",
     "path",
+    "photo",
+    "plot",
+    "process",
+    "quote",
     "river",
     "rout",
     "route",
@@ -150,6 +159,84 @@
       ],
       "status": "released"
     },
+    "cosmos": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Cosmos",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn",
+        "Deva"
+      ],
+      "status": "released"
+    },
+    "lab": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Lab",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn",
+        "Deva"
+      ],
+      "status": "released"
+    },
+    "parchment": {
+      "version": "1.0.0",
+      "extends": "atlas",
+      "label": "Parchment",
+      "engine": ">=0.4",
+      "roles": [
+        "accent",
+        "ally",
+        "enemy",
+        "friendly",
+        "highlight",
+        "ink",
+        "land",
+        "muted",
+        "neutral",
+        "water"
+      ],
+      "ops": [
+        "*"
+      ],
+      "scripts": [
+        "Latn",
+        "Deva"
+      ],
+      "status": "released"
+    },
     "vox": {
       "version": "1.0.0",
       "extends": "atlas",
@@ -256,6 +343,33 @@
         "accent",
         "water",
         "land"
+      ],
+      "engine": ">=0.4"
+    },
+    "history_lecture": {
+      "version": "1.0.0",
+      "label": "History lecture",
+      "requires_ops": [
+        "panel",
+        "fact",
+        "timeline"
+      ],
+      "requires_roles": [
+        "ink",
+        "accent"
+      ],
+      "engine": ">=0.4"
+    },
+    "science_explainer": {
+      "version": "1.0.0",
+      "label": "Science explainer",
+      "requires_ops": [
+        "panel",
+        "fact"
+      ],
+      "requires_roles": [
+        "ink",
+        "accent"
       ],
       "engine": ">=0.4"
     }

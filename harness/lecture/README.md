@@ -25,7 +25,7 @@ examples/india.json  the reference India lecture, condensed
   subclass with a `REGION` and a `construct` of beats — or a JSON script the
   compiler turns into one.
 * **Styles are one table.** `THEMES` holds atlas, vox, cardboard, whiteboard,
-  blueprint and chalkboard: palette, fonts, panel treatment, caption box, map
+  blueprint, chalkboard, parchment, lab and cosmos: palette, fonts, panel treatment, caption box, map
   colours, text entrance. `LECTURE_STYLE` (or `use_style`) picks one.
 * The screen layout and z-order of the guide: map left of x = 1.05, panel to
   the right, captions at y = −3.45 on z 60, chapter cards on z 40.
@@ -136,6 +136,36 @@ Photos are downloaded when the script compiles, into `.cache/images`. To search 
 
 Set `PANIM_IMAGES=0` to turn internet photos off.
 
+## Subjects: the content decides the kind of lecture
+
+`genre.py` reads the content and picks its subject: geography, history, biology, chemistry, physics,
+mathematics, economics or general. It scores the vocabulary and also counts dates, chemical formulas and
+maths signs. The subject sets:
+- **the style:** vox for geography, parchment for history, lab for biology and chemistry, cosmos for
+  physics, chalkboard for mathematics, atlas for economics;
+- **the map:** often for geography; sometimes for history and economics; rarely for biology; never for
+  chemistry, physics and mathematics;
+- **the kit:** which stage pictures the model is told to use.
+
+```
+.venv/bin/python harness/lecture/genre.py < content.txt
+```
+
+In the app, the **Lecture · Auto** template (style `auto`) uses the subject's style. The subject is
+reported in the log. The kit operations draw on the stage:
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). |
+| `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | MathTex when LaTeX is installed, else the same equation set in Unicode. |
+| `{"op":"plot","exprs":["sin(x)"],"x_range":[-3,3],"x_label"?,"y_label"?}` | Graphs of functions of x (a safe subset of numpy). |
+| `{"op":"process","steps":["…","…"],"cycle"?:true,"title"?}` | A chain of steps, or a cycle. |
+| `{"op":"timeline","events":[["1526","Panipat"]],"where":"stage","title"?}` | A large timeline. |
+| `{"op":"quote","text":"…","who":"…"}` | A primary-source quote. |
+
+Automatic pictures follow the subject too. A science beat that names a molecule or writes an equation
+gets a molecule or an equation, and a history chapter opens on a timeline of the years it mentions.
+
 ## Icons
 
 `{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.
@@ -166,6 +196,10 @@ A lecture that uses icons credits their sets in its closing line.
 A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`. The app supplies the
 `figures` table (id → image file); the model only names ids. A figure is a raster image, so the phone
 export marks such a scene as blocked and plays sampled frames.
+
+Figures the script does not show itself are placed automatically: each goes on the beat whose words best
+match its caption, or in document order, at most one every two beats and never over a map beat. Set
+`"place_figures": false` to turn this off.
 
 ## Voice
 

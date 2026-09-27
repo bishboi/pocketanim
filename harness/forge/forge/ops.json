@@ -49,12 +49,14 @@
   }
  },
  "timeline": {
-  "doc": "A time line in the panel: [[date, label], ...], at most 6.",
+  "doc": "A time line: [[date, label], ...], at most 6 in the panel, 7 across the stage (where: stage).",
   "required": {
    "events": "items"
   },
   "optional": {
-   "tone": "tone"
+   "tone": "tone",
+   "where": "str",
+   "title": "str"
   }
  },
  "network": {
@@ -255,6 +257,56 @@
    "items": "list",
    "title": "str",
    "tone": "tone"
+  }
+ },
+ "molecule": {
+  "doc": "A structural formula on the stage: a name, formula (H2O) or SMILES.",
+  "required": {
+   "name": "str"
+  },
+  "optional": {
+   "label": "str"
+  }
+ },
+ "equation": {
+  "doc": "A law or reaction, large on the stage (LaTeX-style: E = mc^2, H_2O, ->).",
+  "required": {
+   "tex": "str"
+  },
+  "optional": {
+   "label": "str"
+  }
+ },
+ "plot": {
+  "doc": "Graphs of functions of x on the stage.",
+  "required": {},
+  "optional": {
+   "expr": "str",
+   "exprs": "list",
+   "x": "list",
+   "label": "str",
+   "x_label": "str",
+   "y_label": "str",
+   "names": "list"
+  }
+ },
+ "process": {
+  "doc": "Steps joined by arrows on the stage; cycle for cycles.",
+  "required": {
+   "steps": "list"
+  },
+  "optional": {
+   "title": "str",
+   "cycle": "bool"
+  }
+ },
+ "quote": {
+  "doc": "A primary source in its own words, on the stage.",
+  "required": {
+   "text": "str"
+  },
+  "optional": {
+   "who": "str"
   }
  }
 }

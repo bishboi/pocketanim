@@ -18,6 +18,16 @@ cd harness/forge
 ../../.venv/bin/python -m forge restyle plassey blueprint && ../../.venv/bin/python -m forge make plassey
 ```
 
+`--template` and `--style` default to `auto`. The resolve state reads the sources, classifies the subject
+(`harness/lecture/genre.py`) and picks the template and style: `history_lecture` + parchment for history,
+`science_explainer` + lab, cosmos or chalkboard for the sciences and maths, `geography_lecture` + vox for
+geography, and `explainer` for economics and anything else. A subject that
+never uses a map gets no region. `examples/combustion.md` is a chemistry example:
+
+```
+../../.venv/bin/python -m forge new combustion --brief-file examples/combustion.md   # science_explainer, lab
+```
+
 The same commands are available over HTTP in the harness app at `/forge`
 (`/api/forge`, `/api/forge/<id>`, `/api/forge/<id>/file`).
 
@@ -100,6 +110,10 @@ A chapter draws its map only if its beats point at the map. Everything else play
 - `photo`: a Wikimedia Commons photo with a reusable licence;
 - `illustration`: a composition of icons;
 - `figure`: a diagram from a source PDF.
+
+Science and history kits add `molecule`, `equation`, `plot`, `process`, `quote`, and `timeline` with
+`"where":"stage"` (see `harness/lecture/README.md`). PDF figures the script leaves out are placed on the
+best-matching beats automatically.
 
 The offline writer does map work only in slots about the map. Each map-free chapter opens on a photo of
 its subject when one can be found.

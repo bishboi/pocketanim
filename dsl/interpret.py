@@ -1257,6 +1257,10 @@ def build_2d(scene: dict) -> DecodedIR:
             # outright -- so a hide for an absent name is a no-op rather than an
             # error.
             obj = objects.get(step[1])
+            if obj is None and step[0] == "show" and step[1] in scene["shapes"]:
+                # A declared shape whose animation was dropped (a blocker in a
+                # tier-3 program) is still on stage in Manim: put it there.
+                obj = objects[step[1]] = new_shape(step[1])
             if obj is not None:
                 obj["visible"] = step[0] == "show"
             elif step[0] == "show":

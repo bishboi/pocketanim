@@ -30,7 +30,7 @@ def ensure(path: Path, url: str) -> None:
     urllib.request.urlretrieve(url, path)
 
 
-def espeak_lines(lines: list[str], out: Path) -> dict | None:
+def espeak_lines(lines: list[str], out: Path, espeak_voice: str = "en-gb") -> dict | None:
     """The same result from espeak-ng, when Kokoro cannot run here.
 
     Robotic, but offline and instant, and a scene with a voice beats a scene
@@ -48,7 +48,7 @@ def espeak_lines(lines: list[str], out: Path) -> dict | None:
     rate = 22050
     for index, line in enumerate(lines):
         part = out.with_name(f"{out.stem}-{index:03d}.wav")
-        subprocess.run([binary, "-v", "en-gb", "-s", "148", "-w", str(part), line], check=True,
+        subprocess.run([binary, "-v", espeak_voice, "-s", "148", "-w", str(part), line], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         with wave.open(str(part)) as handle:
             rate = handle.getframerate()
@@ -65,8 +65,8 @@ def espeak_lines(lines: list[str], out: Path) -> dict | None:
             "out": str(out)}
 
 
-def fallback(lines: list[str], out: Path, reason: str) -> int:
-    result = espeak_lines(lines, out)
+def fallback(lines: list[str], out: Path, reason: str, lang: str = "en-us") -> int:
+    result = espeak_lines(lines, out, "hi" if lang.startswith("hi") else "en-gb")
     if result is None:
         print(json.dumps({"ok": False, "error": reason}))
         return 0
@@ -97,12 +97,13 @@ def main() -> int:
         return 1
 
     out = Path(str(job.get("out") or "/tmp/pocketanim-narration.wav"))
+    lang = str(job.get("lang") or "en-us")
     try:
         import numpy as np
         import soundfile as sf
         from kokoro_onnx import Kokoro
     except ImportError as error:
-        return fallback(lines, out, f"{error}. Install with: .venv/bin/pip install kokoro-onnx soundfile")
+        return fallback(lines, out, f"{error}. Install with: .venv/bin/pip install kokoro-onnx soundfile", lang)
 
     model = WEIGHTS / "kokoro-v1.0.onnx"
     voices = WEIGHTS / "voices-v1.0.bin"
@@ -114,9 +115,10 @@ def main() -> int:
         for weight in (model, voices):
             if weight.exists() and weight.stat().st_size < 1_000_000:
                 weight.unlink()
-        return fallback(lines, out, f"could not fetch Kokoro weights: {error}")
+        return fallback(lines, out, f"could not fetch Kokoro weights: {error}", lang)
 
     voice = str(job.get("voice") or "af_sarah")
+    # lang is Kokoro's language code: "hi" for Hindi lines, spoken by a Hindi voice (hf_/hm_).
     kokoro = Kokoro(str(model), str(voices))
     chunks = []
     durations = []
@@ -124,7 +126,7 @@ def main() -> int:
     sample_rate = 24000
     out.parent.mkdir(parents=True, exist_ok=True)
     for index, line in enumerate(lines):
-        samples, sample_rate = kokoro.create(line, voice=voice, speed=1.0, lang="en-us")
+        samples, sample_rate = kokoro.create(line, voice=voice, speed=1.0, lang=lang)
         samples = np.asarray(samples, dtype=np.float32)
         gap = np.zeros(int(sample_rate * 0.55), dtype=np.float32)
         chunks.append(gap)

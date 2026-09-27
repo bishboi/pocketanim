@@ -244,18 +244,54 @@ use_style(os.environ.get("LECTURE_STYLE", "atlas"))
 # ════════════════════════════════════════════════════════════════════════
 
 
+# Scripts whose glyphs combine (a vowel sign on a consonant, a conjunct):
+# Pango rounds glyph positions to whole units at small sizes, which pulls
+# these clusters apart, so such text is laid out large and scaled down.
+COMPLEX_SCRIPTS = ((0x0900, 0x0DFF), (0x0600, 0x06FF), (0x0E00, 0x0E7F))
+LAYOUT_SIZE = 48
+
+
+def _complex(text: str) -> bool:
+    return any(lo <= ord(c) <= hi for c in text for lo, hi in COMPLEX_SCRIPTS)
+
+
 def T(text: str, size: float = 24, color: str | None = None, font: str | None = None,
       weight=NORMAL, **kw) -> Text:
     """Text in the style's body font. Characters a font lacks are swapped."""
     font = font or TH["sans"]
     if font == "Permanent Marker":
         text = text.replace("≈", "~")
+    if size < LAYOUT_SIZE and _complex(text):
+        mob = Text(text, font=font, font_size=LAYOUT_SIZE, color=color or P.CREAM, weight=weight, **kw)
+        return mob.scale(size / LAYOUT_SIZE)
     return Text(text, font=font, font_size=size, color=color or P.CREAM, weight=weight, **kw)
 
 
 def tok(name: str, default: float) -> float:
     """A style token -- a size a style pack may retune without code."""
     return float((TH.get("tokens") or {}).get(name, default))
+
+
+# Icons a scene drew, for the credits line (their sets' licences ask for it).
+USED_ICONS: set[str] = set()
+
+
+def icon_mob(name: str, color: str | None = None, height: float = 0.5):
+    """An icon from the downloaded sets (icons.py) as a vector mobject.
+
+    A single-colour icon is filled with `color` (a role, palette name or #hex;
+    the style's accent by default); a colour emoji keeps its own colours.
+    """
+    import icons
+
+    icon_id = icons.resolve(name)
+    if icon_id is None:
+        hint = "" if icons.available() else " (run harness/scripts/fetch_icons.py)"
+        raise KeyError(f"no icon for {name!r}{hint}")
+    fill = role(color or "accent") if icons.is_mono(icon_id) else None
+    mob = SVGMobject(str(icons.svg_file(icon_id, fill)), height=height, stroke_width=0)
+    USED_ICONS.add(icon_id)
+    return mob
 
 
 def wrap(text: str, width: int) -> str:
@@ -309,6 +345,22 @@ def _wav_seconds(path: Path) -> float:
         return handle.getnframes() / float(handle.getframerate())
 
 
+# Scripts a line may be written in, and the voice each needs. A Hindi line
+# read by an English voice comes out as noise, so the language is taken from
+# the line itself, whatever voice the style names.
+SCRIPT_LANGS = (("hi", 0x0900, 0x097F),)
+KOKORO_VOICES = {"hi": "hf_alpha"}
+
+
+def spoken_lang(text: str) -> str:
+    """'hi' when most letters are Devanagari, else 'en'."""
+    letters = [c for c in text if c.isalpha()]
+    for lang, lo, hi in SCRIPT_LANGS:
+        if letters and sum(lo <= ord(c) <= hi for c in letters) / len(letters) > 0.4:
+            return lang
+    return "en"
+
+
 def narrate(text: str) -> tuple[str | None, float]:
     """(wav path or None, seconds) for one line, cached by its spoken text.
 
@@ -326,13 +378,17 @@ def narrate(text: str) -> tuple[str | None, float]:
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
 
+    lang = spoken_lang(spoken)
     if mode.startswith("kokoro"):
         voice = mode.split(":", 1)[1] if ":" in mode else TH.get("voice", "af_sarah")
+        if lang != "en" and not voice.startswith(lang[0]):
+            voice = KOKORO_VOICES[lang]
         script = HERE.parent / "scripts" / "kokoro_speak.py"
         try:
             import json
 
-            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out)})
+            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out),
+                              "lang": lang if lang != "en" else "en-us"})
             result = subprocess.run([sys.executable, str(script)], input=job, capture_output=True,
                                     text=True, timeout=300)
             reply = json.loads(result.stdout.strip().splitlines()[-1])
@@ -343,7 +399,7 @@ def narrate(text: str) -> tuple[str | None, float]:
 
     espeak = shutil.which("espeak-ng") or shutil.which("espeak")
     if espeak and mode in ("auto", "espeak") or (espeak and mode.startswith("kokoro")):
-        voice = os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak)
+        voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
         raw = out.with_name(out.stem + "_raw.wav")
         try:
             subprocess.run([espeak, "-v", voice, "-s", "148", "-p", "42", "-g", "4", "-w", str(raw), spoken],
@@ -389,7 +445,24 @@ def _records(name: str, category: str = "cultural", resolution: str = "10m") -> 
 
 
 def _norm(value) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    """A name for matching: lower case, words only, accents off Latin letters.
+
+    Letters of every script are kept ("प्रयागराज" stays itself); only a mark on
+    a Latin letter is dropped, so "Zürich" and "Zurich" match.
+    """
+    import unicodedata
+
+    out: list[str] = []
+    for c in unicodedata.normalize("NFKD", str(value or "")).lower():
+        kind = unicodedata.category(c)
+        if kind.startswith("M"):
+            if out and ord(out[-1]) >= 0x250:
+                out.append(c)
+        elif kind[0] in "LN":
+            out.append(c)
+        else:
+            out.append(" ")
+    return " ".join("".join(out).split())
 
 
 def _valid(geom):
@@ -459,10 +532,39 @@ def river(name: str, bounds=None):
     return geom.intersection(box(*bounds)) if bounds else geom
 
 
-def place(name: str, country_name: str | None = None) -> tuple[float, float]:
-    """(lon, lat) of a populated place; the most populous match wins."""
+# Renamed places: a script may use either name; Natural Earth knows one of them.
+PLACE_ALIASES = {
+    "Prayagraj": "Allahabad", "Bangalore": "Bengaluru", "Calcutta": "Kolkata", "Bombay": "Mumbai",
+    "Madras": "Chennai", "Poona": "Pune", "Benares": "Varanasi", "Banaras": "Varanasi", "Kashi": "Varanasi",
+    "Gauhati": "Guwahati", "Cawnpore": "Kanpur", "Cochin": "Kochi", "Trivandrum": "Thiruvananthapuram",
+    "Baroda": "Vadodara", "Simla": "Shimla", "Gurugram": "Gurgaon", "Mysuru": "Mysore",
+    "Puducherry": "Pondicherry", "Belagavi": "Belgaum", "Mangaluru": "Mangalore", "Hubballi": "Hubli",
+    "Kalaburagi": "Gulbarga", "Trichy": "Tiruchirappalli", "Tiruchchirappalli": "Tiruchirappalli",
+    "Delhi": "New Delhi", "Peking": "Beijing", "Canton": "Guangzhou", "Rangoon": "Yangon", "Saigon": "Ho Chi Minh City",
+}
+
+
+@lru_cache(None)
+def _extra_places() -> dict:
+    """data/places_extra.csv: name or alias (normalised) -> (lon, lat, country)."""
+    import csv
+
+    out = {}
+    path = HERE / "data" / "places_extra.csv"
+    if not path.exists():
+        return out
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    for row in csv.DictReader(rows):
+        entry = (float(row["lon"]), float(row["lat"]), _norm(row["country"]))
+        for name in [row["name"]] + [a for a in (row.get("aliases") or "").split("|") if a]:
+            out.setdefault(_norm(name), entry)
+    return out
+
+
+def _natural_earth_place(name: str, scope: str | None):
     wanted = _norm(name)
-    scope = _norm(country_name) if country_name else None
+    if not wanted:
+        return None
     best = None
     for attrs, _geom in _records("populated_places"):
         if wanted not in (_norm(attrs.get("NAME")), _norm(attrs.get("NAMEASCII")), _norm(attrs.get("NAME_EN"))):
@@ -472,9 +574,137 @@ def place(name: str, country_name: str | None = None) -> tuple[float, float]:
         pop = float(attrs.get("POP_MAX") or 0)
         if best is None or pop > best[0]:
             best = (pop, float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))
-    if best is None:
-        raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else ""))
+    return (best[1], best[2]) if best else None
+
+
+GEONAMES = HERE / "data" / "geonames" / "cities.txt"
+
+
+@lru_cache(None)
+def _country_codes() -> dict:
+    """Country name (normalised) -> ISO 3166 alpha-2, from Natural Earth's countries."""
+    out = {}
+    for attrs, _geom in _records("admin_0_countries"):
+        code = attrs.get("ISO_A2_EH") or attrs.get("ISO_A2")
+        if code and code != "-99":
+            for key in ("NAME", "ADMIN", "NAME_LONG", "FORMAL_EN"):
+                if attrs.get(key):
+                    out[_norm(attrs[key])] = code
+    return out
+
+
+@lru_cache(None)
+def _geonames() -> dict:
+    """GeoNames cities: every name and alternate name (normalised) -> [(population, lon, lat, country code)].
+
+    Absent until harness/scripts/fetch_gazetteer.py has run; then an empty dict.
+    """
+    index: dict = {}
+    if not GEONAMES.exists():
+        return index
+    with GEONAMES.open(encoding="utf-8") as handle:
+        for line in handle:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 15:
+                continue
+            row = (int(f[14] or 0), float(f[5]), float(f[4]), f[8])
+            names = {f[1], f[2]} | {a for a in f[3].split(",") if a}
+            for name in names:
+                key = _norm(name)
+                if key:
+                    index.setdefault(key, []).append(row)
+    return index
+
+
+def _geonames_place(name: str, country_name: str | None):
+    rows = _geonames().get(_norm(name))
+    if not rows:
+        return None
+    if country_name:
+        code = _country_codes().get(_norm(country_name))
+        rows = [r for r in rows if r[3] == code] if code else rows
+    if not rows:
+        return None
+    best = max(rows, key=lambda r: r[0])
     return best[1], best[2]
+
+
+def _geocode_cache_path() -> Path:
+    return Path(os.environ.get("PANIM_GEOCODE_CACHE") or (HERE / ".cache" / "geocode.json"))
+
+
+def _geocode(name: str, country_name: str | None):
+    """OpenStreetMap's Nominatim, once per name, cached on disk. PANIM_GEOCODE=0 turns it off.
+
+    The cache makes a render reproducible and offline after the first lookup;
+    a failed lookup is cached too, so a missing name costs one request.
+    """
+    import json
+
+    if os.environ.get("PANIM_GEOCODE", "1") == "0":
+        return None
+    key = f"{_norm(name)}|{_norm(country_name)}"
+    path = _geocode_cache_path()
+    try:
+        cache = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        cache = {}
+    if key in cache:
+        return tuple(cache[key]) if cache[key] else None
+    found = None
+    try:
+        import urllib.parse
+        import urllib.request
+
+        query = urllib.parse.urlencode({"q": f"{name}, {country_name}" if country_name else name, "format": "json",
+                                        "limit": 1})
+        request = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?{query}",
+                                         headers={"User-Agent": "pocketanim-lecture/0.4 (map lectures)"})
+        with urllib.request.urlopen(request, timeout=8) as response:
+            rows = json.loads(response.read().decode())
+        if rows:
+            found = (round(float(rows[0]["lon"]), 4), round(float(rows[0]["lat"]), 4))
+    except Exception:  # noqa: BLE001 -- offline, blocked or rate limited: not cached, tried again next time
+        return None
+    cache[key] = list(found) if found else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cache, indent=1, ensure_ascii=False))
+    return found
+
+
+def place(name: str, country_name: str | None = None) -> tuple[float, float]:
+    """(lon, lat) of a place.
+
+    In order: Natural Earth's populated places (the most populous match),
+    under the name or its renamed form; data/places_extra.csv; the GeoNames
+    gazetteer when fetch_gazetteer.py has downloaded it; then OpenStreetMap,
+    cached. Raises KeyError when none knows it.
+    """
+    scope = _norm(country_name) if country_name else None
+    names = [name]
+    for old, new in PLACE_ALIASES.items():
+        if _norm(name) == _norm(old):
+            names.append(new)
+        elif _norm(name) == _norm(new):
+            names.append(old)
+    for candidate in names:
+        found = _natural_earth_place(candidate, scope)
+        if found:
+            return found
+    extra = _extra_places()
+    for candidate in names:
+        row = extra.get(_norm(candidate))
+        if row and (not scope or row[2] == scope):
+            return row[0], row[1]
+    for candidate in names:
+        found = _geonames_place(candidate, country_name)
+        if found:
+            return found
+    found = _geocode(name, country_name)
+    if found:
+        return found
+    hint = "" if GEONAMES.exists() else " (run harness/scripts/fetch_gazetteer.py to add 150,000 more towns)"
+    raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else "") + hint)
 
 
 class MapFrame:
@@ -644,6 +874,9 @@ class Lecture(Scene):
     def setup(self):
         self.cap = None
         self.panel_items = VGroup()
+        self.panel_images = Group()     # figures: images cannot join a VGroup
+        self._full_figure = None        # the full-frame figure on screen, faded at the next beat
+        self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
         self.chrome = VGroup()
         back = backdrop()
@@ -694,6 +927,10 @@ class Lecture(Scene):
         (1.2 to 3.2 s) so motion lands while the sentence is still going, and
         the rest of the line plus a short pause is a hold.
         """
+        if self._full_figure is not None:
+            self.play(FadeOut(self._full_figure), run_time=0.4)
+            self._full_figure = None
+        self._full_figure, self._new_figure = self._new_figure, None
         wav, seconds = narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         cap = self.caption(text)
@@ -817,7 +1054,11 @@ class Lecture(Scene):
         items.set_z_index(Z_PANEL_TEXT)
         self.panel_items = VGroup(items)
         show = Write(items) if TH["anim"] == "write" else FadeIn(items, shift=RIGHT * 0.2)
-        anim = AnimationGroup(FadeOut(old), show, lag_ratio=0.5) if len(old) else show
+        going = [FadeOut(old)] if len(old) else []
+        if len(self.panel_images):
+            going.append(FadeOut(self.panel_images))
+            self.panel_images = Group()
+        anim = AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.5) if going else show
         anim.panel_head = True
         return anim
 
@@ -844,6 +1085,17 @@ class Lecture(Scene):
         lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
         group = self._stack(VGroup(v, lab), 0.3)
         return self.reveal(group, v)
+
+    def panel_icon(self, name: str, label: str = "", color: str | None = None):
+        """An icon with a line beside it in the panel: "sugarcane -- the west's cash crop"."""
+        mob = icon_mob(name, color, height=0.62)
+        row = VGroup(mob)
+        if label:
+            text = fit(T(wrap(label, 30), tok("fact_size", 20), P.CREAM, line_spacing=0.85), 4.1)
+            text.next_to(mob, RIGHT, buff=0.22)
+            row.add(text)
+        group = self._stack(row, 0.25)
+        return self.reveal(group, row[1] if label else None)
 
     def bar_chart(self, items, color: str | None = None, unit: str = "", width: float = 3.0):
         """Horizontal bars in the panel, each growing from a shared axis."""
@@ -877,10 +1129,42 @@ class Lecture(Scene):
         self.play(FadeIn(self.panel), run_time=run_time)
 
     def clear_panel(self):
-        old = self.panel_items
+        old = [m for m in (self.panel_items, self.panel_images) if len(m)]
         self.panel_items = VGroup()
+        self.panel_images = Group()
         self.panel_y = 2.35
-        return FadeOut(old) if len(old) else None
+        return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
+
+    def figure(self, path: str, caption: str = "", where: str = "panel"):
+        """A figure from a source document: in the panel, or across the frame for one beat."""
+        image = ImageMobject(path)
+        if where == "full":
+            image.scale_to_fit_height(5.4)
+            if image.width > 12.4:
+                image.scale_to_fit_width(12.4)
+            back = Rectangle(width=config.frame_width, height=config.frame_height, fill_color=P.BG,
+                             fill_opacity=0.96, stroke_width=0)
+            parts = [back, image.move_to(UP * 0.45)]
+            if caption:
+                parts.append(fit(T(caption, 16, P.MUTED), 12.4).next_to(image, DOWN, buff=0.15))
+            group = Group(*parts)
+            group.set_z_index(Z_CARD)
+            self._new_figure = group
+            return FadeIn(group)
+        image.scale_to_fit_width(TEXT_W - 0.1)
+        if image.height > 2.6:
+            image.scale_to_fit_height(2.6)
+        image.move_to(RIGHT * self.TEXT_LEFT + UP * self.panel_y, aligned_edge=UL)
+        group = Group(image)
+        if caption:
+            group.add(fit(T(wrap(caption, 44), 13, P.MUTED, line_spacing=0.85), TEXT_W - 0.1)
+                      .next_to(image, DOWN, aligned_edge=LEFT, buff=0.08))
+        group.set_z_index(Z_PANEL_TEXT)
+        self.panel_y = group.get_bottom()[1] - 0.3
+        self.panel_images.add(group)
+        anim = FadeIn(group, shift=UP * 0.12)
+        anim.panel_item = True
+        return anim
 
     # ---------------- cards ----------------
     def chapter_card(self, num: int, title: str, sub: str) -> VGroup:
@@ -1054,6 +1338,10 @@ class Lecture(Scene):
     def credits(self, line: str, note: str = "Some boundaries and figures are simplified or approximate for teaching.",
                 seconds: float = 3.0) -> None:
         self.clear_caption()
+        if USED_ICONS:
+            import icons
+
+            note = f"{note}  {icons.credit(USED_ICONS)}."
         credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 2.3)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
         self.play(FadeIn(credit), FadeIn(small), run_time=1.0)
@@ -1067,6 +1355,8 @@ class Lecture(Scene):
         if going:
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
         self.panel_items = VGroup()
+        self.panel_images = Group()
+        self._full_figure = self._new_figure = None
         self.panel_y = 2.35
 
 
@@ -1427,6 +1717,24 @@ class MapLecture(Lecture):
             return anim
         tags.set_z_index(Z_MARK)
         return AnimationGroup(anim, LaggedStart(*[FadeIn(t) for t in tags], lag_ratio=0.3), lag_ratio=0.4)
+
+    def icon(self, name: str, where=None, color: str | None = None, size: float = 0.6, label: str | None = None):
+        """An icon on the map at a place, or one at each of several places.
+
+        where: a place name, (lon, lat), or a list of either -- "sugarcane in
+        Meerut, Muzaffarnagar and Saharanpur" is three icons that pop in turn.
+        """
+        spots = where if isinstance(where, (list, tuple)) and where and not isinstance(where[0], (int, float)) else [where]
+        group = VGroup()
+        for spot in spots:
+            mob = icon_mob(name, color, height=size)
+            mob.move_to(self.frame.pt(*self.at(spot)))
+            group.add(mob)
+        if label:
+            tag = T(label, 14, role(color or "ink"), weight=BOLD).next_to(group[0], DOWN, buff=0.06)
+            group.add(tag)
+        group.set_z_index(Z_MARK + 1)
+        return LaggedStart(*[GrowFromCenter(m) for m in group], lag_ratio=0.2)
 
     def highlight(self, target):
         """Draw the eye: a unit or a marker pulses."""

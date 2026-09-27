@@ -231,6 +231,11 @@ class Recorder:
         # form a cubic, which is the same filter the sampled exporter uses.
         points = getattr(mob, "points", None)
         drawable = points is not None and len(points) >= 4
+        # A raster image has no vector form; packing its group as geometry
+        # silently dropped the picture while the scene still claimed tier 1.
+        if any(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in mob.get_family()):
+            self.blockers.append("raster image (ImageMobject): the phone plays sampled frames")
+            return None
         if not drawable and not mob.submobjects:
             return None
 
@@ -857,7 +862,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 # onto exactly the morph verb.
                 source = rec.declare(anim._panim_source)
                 target = rec.declare(anim._panim_target)
-                if source and target:
+                if source and target and not (rec.is_asset(source) and rec.is_asset(target)):
+                    rec.blockers.append("glyph matching between a shape and text: no morph verb for it")
+                elif source and target:
                     rec.timeline.append(f"morph {source} {target} t={duration:g}")
                 else:
                     rec.blockers.append(
@@ -970,6 +977,12 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.timeline.append(
                         f"transform {source} {target} t={duration:g}{suffix}{_arc_extra(anim)}"
                     )
+                elif source and target and not (rec.is_asset(source) and rec.is_asset(target)):
+                    # One side is a primitive (a Circle) and the other baked
+                    # (Text): morph matches instances by glyph id, and a
+                    # primitive has none. The verb crashed both interpreters
+                    # (KeyError 'glyph_ids') while the scene claimed tier 1.
+                    rec.blockers.append("Transform between a shape and text or a baked asset")
                 elif source and target:
                     # Glyph-level matching: both operands are baked assets, so
                     # match their instances by atlas id -- the shared library

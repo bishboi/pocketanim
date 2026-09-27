@@ -141,7 +141,7 @@ function quietStderr(stderr: string): string {
 
 function run(
   args: string[],
-  options: { cwd?: string; binary?: string; timeoutMs?: number } = {},
+  options: { cwd?: string; binary?: string; timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ code: number; stdout: Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(options.binary ?? python(), args, {
@@ -154,6 +154,7 @@ function run(
         // Narration a lecture synthesises is cached by its text across builds,
         // so an edit re-speaks only the lines that changed.
         PANIM_AUDIO_DIR: process.env.PANIM_AUDIO_DIR ?? path.join(REPO, "harness", "app", ".voice", "cache"),
+        ...options.env,
       },
     });
     const out: Buffer[] = [];
@@ -416,7 +417,17 @@ export async function renderVideo(
   const { code, stderr } = await run(
     ["-m", "manim", "render", `-q${quality}`, "--disable_caching", "--progress_bar", "none",
      "--media_dir", media, "-o", `${sceneClass}.mp4`, source, sceneClass],
-    { cwd: buildDir, timeoutMs: 1_800_000 },
+    {
+      cwd: buildDir,
+      timeoutMs: 1_800_000,
+      // A lecture imports the engine by name; export_scene.py puts it on the
+      // path for the phone export, and a plain `manim render` needs it too.
+      env: {
+        PYTHONPATH: [path.join(REPO, "harness", "lecture"), REPO, process.env.PYTHONPATH]
+          .filter(Boolean)
+          .join(path.delimiter),
+      },
+    },
   );
   const produced = path.join(media, "videos", path.parse(source).name, VIDEO_QUALITY[quality], `${sceneClass}.mp4`);
   if (code !== 0 || !existsSync(produced)) {

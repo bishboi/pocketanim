@@ -33,3 +33,14 @@ fi
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r harness/requirements.txt
 .venv/bin/python -c 'import manim; print("manim", manim.__version__)'
+
+# The place-name gazetteer lectures look towns up in (about 10 MB, once).
+# A failed download is not fatal: the engine falls back to Natural Earth.
+if [ ! -s harness/lecture/data/geonames/cities.txt ]; then
+  .venv/bin/python harness/scripts/fetch_gazetteer.py || echo "Gazetteer not downloaded; rerun harness/scripts/fetch_gazetteer.py later."
+fi
+
+# The icon library lectures draw crops, minerals and animals from (about 53 MB, once).
+if [ ! -s harness/lecture/data/icons/game-icons.json ]; then
+  .venv/bin/python harness/scripts/fetch_icons.py || echo "Icons not downloaded; rerun harness/scripts/fetch_icons.py later."
+fi

@@ -95,10 +95,37 @@ def _panel_height(op: dict) -> float:
         return 1.05
     if kind == "bars":
         return len(op.get("items") or []) * 0.42 + 0.3
+    if kind == "icon" and not _icon_spots(op):
+        return 0.87
+    if kind == "figure" and op.get("where", "panel") == "panel":
+        return 3.2
     return 0.0
 
 
-def lint(script: dict) -> tuple[list[str], list[str]]:
+WORD_SECONDS = 0.42      # about 143 words a minute: pocket_lecture.estimate_seconds
+BEAT_PAD = 0.45          # the hold after each beat (Lecture.beat)
+
+
+def _say_seconds(text: str) -> float:
+    return max(1.2, len(str(text).split()) * WORD_SECONDS) + BEAT_PAD
+
+
+def estimate_minutes(script: dict) -> float:
+    """How long the lecture will run: narration at speaking pace plus cards, map draws and fades."""
+    seconds = 0.0
+    if script.get("title"):
+        seconds += _say_seconds(script.get("intro") or script["title"]) + 1.6
+    for chapter in script.get("chapters") or []:
+        seconds += _say_seconds(chapter.get("narration", "")) + 0.8 + 1.4 + 1.0     # card, map, outro
+        seconds += sum(_say_seconds(b.get("say", "")) for b in chapter.get("beats") or [])
+    for head, body in script.get("recap") or []:
+        seconds += _say_seconds(f"{head}. {body}")
+    if script.get("credits"):
+        seconds += 5.0
+    return seconds / 60
+
+
+def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
 
     The checks the guide asks for before any render: unknown operations,
@@ -112,6 +139,8 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
         errors.append(f"style must be one of {', '.join(STYLES)}")
     has_map = bool(script.get("region"))
     chapters = script.get("chapters") or []
+    places: list[tuple[str, str]] = []
+    icon_names: list[tuple[str, str]] = []
     if not chapters:
         errors.append("a lecture needs at least one chapter")
     for ci, chapter in enumerate(chapters, 1):
@@ -132,7 +161,7 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                 warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
                 kind = op.get("op")
-                if kind not in {"panel", "fact", "stat", "bars", "clear"} | MAP_OPS:
+                if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure"} | MAP_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
                     continue
                 if kind in MAP_OPS and not has_map:
@@ -146,6 +175,25 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                         errors.append(f"{at}: '{kind}' needs {field}")
                 if kind == "marker" and not (op.get("place") or op.get("lonlat")):
                     errors.append(f"{at}: 'marker' needs place or lonlat")
+                elif kind == "marker" and op.get("place") and has_map:
+                    places.append((at, str(op["place"])))
+                if kind == "icon":
+                    if not op.get("name"):
+                        errors.append(f"{at}: 'icon' needs name")
+                    else:
+                        icon_names.append((at, str(op["name"])))
+                    spots = _icon_spots(op)
+                    if spots and not has_map:
+                        errors.append(f"{at}: an icon at a place needs a map; give the script a region, or drop place")
+                    elif spots:
+                        places.extend((at, str(p)) for p in spots if isinstance(p, str))
+                if kind == "figure":
+                    figure = (script.get("figures") or {}).get(str(op.get("id")))
+                    if not figure:
+                        known = ", ".join(sorted(script.get("figures") or {})) or "none (no document was uploaded)"
+                        errors.append(f"{at}: no figure {op.get('id')!r}; the figures are: {known}")
+                    elif not Path(str(figure.get("file", ""))).is_file():
+                        errors.append(f"{at}: figure {op.get('id')!r} has no image file")
                 if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
                     errors.append(f"{at}: 'graticule' needs lat or lon")
                 for field in ("color",):
@@ -160,7 +208,62 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                 if used > PANEL_ROOM:
                     warnings.append(f"{at}: the panel overflows into the caption; start a new panel")
                     used = _panel_height(op)
+    errors += _unknown_places(places, (script.get("region") or {}).get("country"))
+    errors += _unknown_icons(icon_names)
+    minutes = estimate_minutes(script)
+    if min_minutes and chapters and minutes < min_minutes * 0.85:
+        beats = sum(len(c.get("beats") or []) for c in chapters)
+        words = sum(len(str(b.get("say", "")).split()) for c in chapters for b in c.get("beats") or [])
+        need = int((min_minutes * 60 - (minutes * 60 - words * WORD_SECONDS)) / WORD_SECONDS) - words
+        errors.append(f"the lecture runs about {minutes:.1f} min ({beats} beats, {words} words of narration); "
+                      f"it must run at least {min_minutes:g} min. Add about {max(need, 50)} more words of narration: "
+                      "more beats in each chapter and more chapters, each beat a new fact from the content, "
+                      "not repetition. Keep every existing beat that is right.")
     return errors, warnings
+
+
+def _icon_spots(op: dict) -> list:
+    """Where an icon op puts its icons on the map: [] for the panel."""
+    if op.get("places"):
+        return list(op["places"])
+    if op.get("place"):
+        return [op["place"]]
+    if op.get("lonlat"):
+        return [tuple(op["lonlat"])]
+    return []
+
+
+def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
+    if not names:
+        return []
+    import icons
+
+    if not icons.available():
+        return [f"{names[0][0]}: icons are not installed; run harness/scripts/fetch_icons.py, or drop the icon ops"]
+    out = []
+    for at, name in names:
+        if icons.resolve(name) is None:
+            out.append(f"{at}: no icon for {name!r}; search with find_icon and use a name it returns, "
+                       "or a simpler word (wheat, factory, cow, dam)")
+    return out
+
+
+def _unknown_places(places: list[tuple[str, str]], country: str | None) -> list[str]:
+    """Marker places the gazetteer cannot find: caught here, not halfway through a render."""
+    if not places:
+        return []
+    try:
+        from pocket_lecture import place
+    except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
+        return []
+    out = []
+    for at, name in places:
+        try:
+            place(name, country)
+        except KeyError:
+            out.append(f"{at}: no place named {name!r}" + (f" in {country}" if country else "")
+                       + "; use a nearby larger town, or give its position as lonlat [lon, lat] instead of place")
+    return out
 
 
 def _op_call(op: dict) -> str:
@@ -199,6 +302,20 @@ def _op_call(op: dict) -> str:
         return f"self.fill_state({_q(op['name'])}, {color}, {float(op.get('opacity', 0.6)):g})"
     if kind == "dim":
         return f"*self.dim(opacity={float(op.get('opacity', 0.15)):g})"
+    if kind == "icon":
+        color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
+        label = f", label={_q(op['label'])}" if op.get("label") else ""
+        spots = _icon_spots(op)
+        if not spots:
+            return f"self.panel_icon({_q(op['name'])}{label}{color})"
+        where = ", ".join(_q(p) if isinstance(p, str) else f"({float(p[0])}, {float(p[1])})" for p in spots)
+        size = f", size={float(op['size']):g}" if op.get("size") else ""
+        return f"self.icon({_q(op['name'])}, [{where}]{color}{size}{label})"
+    if kind == "figure":
+        figure = script_figures[str(op["id"])]
+        caption = op.get("caption") or figure.get("caption") or ""
+        return (f"self.figure({_q(figure['file'])}, {_q(caption)}, "
+                f"where={_q(op.get('where', 'panel'))})")
     if kind == "graticule":
         axis = f"lat={float(op['lat']):g}" if op.get("lat") is not None else f"lon={float(op['lon']):g}"
         color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
@@ -207,11 +324,16 @@ def _op_call(op: dict) -> str:
     raise ValueError(kind)
 
 
+script_figures: dict = {}
+
+
 def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_path: str | None = None) -> str:
     """The Manim source for a script. Raises ValueError with the lint errors."""
     errors, _ = lint(script)
     if errors:
         raise ValueError("\n".join(errors))
+    script_figures.clear()
+    script_figures.update(script.get("figures") or {})
     style = script.get("style", "atlas")
     region = script.get("region")
     chapters = script["chapters"]
@@ -263,8 +385,10 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         points = ", ".join(f"({_q(h)}, {_q(b)})" for h, b in script["recap"])
         out.append(f"        self.section({len(sections) - 1})")
         out.append(f"        self.recap([{points}])")
-    if script.get("credits"):
-        out.append(f"        self.credits({_q(script['credits'])})")
+    uses_icons = any(op.get("op") == "icon" for c in chapters for b in c.get("beats") or [] for op in b.get("do") or [])
+    if script.get("credits") or uses_icons:
+        line = script.get("credits") or ("Map data: Natural Earth · Animation: Manim" if region else "Animation: Manim")
+        out.append(f"        self.credits({_q(line)})")
     return "\n".join(out) + "\n"
 
 
@@ -276,6 +400,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true",
                     help="print {source, errors, warnings} as one JSON object, for the harness app")
     ap.add_argument("--class", dest="scene_class", default="GeneratedScene")
+    ap.add_argument("--min-minutes", type=float, default=None,
+                    help="an error when the script's estimated running time is well under this")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
@@ -289,10 +415,11 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
-    errors, warnings = lint(script)
+    errors, warnings = lint(script, args.min_minutes)
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
-        print(json.dumps({"source": source, "errors": errors, "warnings": warnings}))
+        print(json.dumps({"source": source, "errors": errors, "warnings": warnings,
+                          "minutes": round(estimate_minutes(script), 2)}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

@@ -1,0 +1,50 @@
+# Places Natural Earth's populated_places lacks, for teaching maps.
+# Coordinates are approximate (about 0.05 degrees); a district name maps to its headquarters.
+name,country,lon,lat,aliases
+Lakhimpur,India,80.78,27.95,Lakhimpur Kheri|Kheri
+Dudhwa,India,80.66,28.48,Dudhwa National Park
+Robertsganj,India,83.07,24.69,Sonbhadra
+Ayodhya,India,82.20,26.80,Faizabad
+Banda,India,80.34,25.48,
+Lalitpur,India,78.41,24.69,
+Orai,India,79.45,25.99,Jalaun
+Ghazipur,India,83.58,25.58,
+Azamgarh,India,83.18,26.07,
+Ballia,India,84.15,25.76,
+Noida,India,77.39,28.54,Gautam Buddh Nagar
+Rae Bareli,India,81.23,26.23,Raebareli
+Sultanpur,India,82.07,26.26,
+Gonda,India,81.96,27.13,
+Basti,India,82.73,26.80,
+Deoria,India,83.78,26.50,
+Jaunpur,India,82.69,25.75,
+Hardoi,India,80.13,27.40,
+Unnao,India,80.49,26.55,
+Chitrakoot,India,80.90,25.20,Karwi
+Mahoba,India,79.87,25.29,
+Hamirpur,India,80.15,25.95,
+Bijnor,India,78.13,29.37,
+Etah,India,78.66,27.56,
+Mainpuri,India,79.02,27.23,
+Kasganj,India,78.64,27.81,
+Kannauj,India,79.92,27.05,
+Auraiya,India,79.51,26.46,
+Amethi,India,81.81,26.15,
+Bhadohi,India,82.57,25.40,Sant Ravidas Nagar
+Chandauli,India,83.27,25.26,
+Kushinagar,India,83.89,26.74,
+Maharajganj,India,83.56,27.13,
+Siddharthnagar,India,83.09,27.25,
+Shravasti,India,82.05,27.52,
+Balrampur,India,82.18,27.43,
+Jim Corbett National Park,India,78.77,29.53,Corbett
+Kaziranga,India,93.17,26.58,Kaziranga National Park
+Sundarbans,India,88.90,21.95,
+Gir,India,70.82,21.12,Gir National Park|Gir Forest
+Ranthambore,India,76.50,26.02,Ranthambhore
+Kanha,India,80.61,22.33,Kanha National Park
+Mount Abu,India,72.71,24.59,
+Guru Shikhar,India,72.78,24.65,
+Mawsynram,India,91.58,25.30,
+Cherrapunji,India,91.72,25.28,Sohra
+Shivamogga,India,75.57,13.93,Shimoga

@@ -185,6 +185,16 @@ export default function Home() {
   const [status, setStatus] = useState<Status | null>(null);
   const [showProgram, setShowProgram] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [doc, setDoc] = useState<{
+    busy: boolean;
+    error?: string;
+    id?: string;
+    name?: string;
+    source?: string;
+    pages?: number;
+    note?: string | null;
+    figures?: { id: string; caption: string; url: string }[];
+  }>({ busy: false });
   const [video, setVideo] = useState<{ busy: boolean; error?: string; quality: string }>({
     busy: false,
     quality: "m",
@@ -311,6 +321,7 @@ export default function Home() {
           templateId: styleId,
           previousSource: edit ? version?.source : undefined,
           instruction: edit ? instruction : undefined,
+          documentId: doc.id,
         }),
       });
       if (!response.ok || !response.body) {
@@ -448,6 +459,23 @@ export default function Home() {
     }
   }
 
+  /** Upload a lecture PDF: its text becomes the content, its figures become figure ops. */
+  async function uploadDocument(file: File) {
+    setDoc({ busy: true, name: file.name });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/document", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setDoc({ busy: false, id: data.id, name: file.name, source: data.source, pages: data.pages, note: data.note,
+        figures: data.figures });
+      setContent(`${file.name.replace(/\.pdf$/i, "")}\n${data.markdown}`);
+    } catch (e) {
+      setDoc({ busy: false, name: file.name, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   /** Render the build with Manim and hand the MP4 to the browser as a download. */
   async function downloadVideo() {
     if (!exported?.buildDir) return;
@@ -580,6 +608,47 @@ export default function Home() {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
               />
+              <div className="flex flex-col gap-2 rounded border border-neutral-800 p-2 text-xs text-neutral-400">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <span className="rounded bg-neutral-800 px-2 py-1 text-neutral-200 hover:bg-neutral-700">
+                    {doc.busy ? "Reading the PDF…" : "Upload lecture PDF"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="hidden"
+                    data-testid="pdf-upload"
+                    disabled={doc.busy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) uploadDocument(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <span>
+                    {doc.id
+                      ? `${doc.name}: ${doc.pages} pages, ${doc.figures?.length ?? 0} figures (${doc.source})`
+                      : "Its text becomes the content; its diagrams are shown in the lecture."}
+                  </span>
+                  {doc.id && (
+                    <button type="button" className="ml-auto underline-offset-2 hover:underline"
+                      onClick={() => setDoc({ busy: false })}>
+                      remove
+                    </button>
+                  )}
+                </label>
+                {doc.note && <span className="text-amber-300/80">{doc.note}</span>}
+                {doc.error && <span className="text-rose-300">{doc.error}</span>}
+                {!!doc.figures?.length && (
+                  <div className="flex gap-2 overflow-x-auto" data-testid="pdf-figures">
+                    {doc.figures.map((f) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={f.id} src={f.url} alt={f.caption} title={`${f.id}: ${f.caption}`}
+                        className="h-16 rounded border border-neutral-700 bg-white object-contain" />
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="flex items-center justify-end">
                 <button
                   type="button"

@@ -402,11 +402,51 @@ def _beats_from_sentences(texts: list[str], lo: int, hi: int) -> list[str]:
     return out
 
 
+FIGURE_MARK = re.compile(r"\[FIGURE ([\w]+): ([^\]]*)\]")
+# Words that have a good icon, as the offline writer spots them in a beat.
+ICON_WORDS = ["sugarcane", "wheat", "rice", "paddy", "cotton", "jute", "tea", "coffee", "maize", "potato", "mango",
+              "banana", "coal", "gold", "iron ore", "oil", "petroleum", "factory", "industry", "cattle", "dairy",
+              "fish", "tiger", "elephant", "forest", "dam", "monsoon", "rainfall", "desert", "tractor", "railway",
+              "port", "textile", "salt", "copper", "mica", "bauxite"]
+
+
+def _icon_word(line: str) -> str | None:
+    for word in ICON_WORDS:
+        if re.search(r"\b" + re.escape(word) + r"s?\b", line, re.I):
+            return word
+    return None
+
+
+def _segments(texts: list[str], lo: int, hi: int) -> list[str]:
+    """Narration lines, with each figure marker a line of its own."""
+    out, run = [], []
+    for text in texts:
+        marks = list(FIGURE_MARK.finditer(text))
+        if not marks:
+            run.append(text)
+            continue
+        rest = FIGURE_MARK.sub(" ", text).strip()
+        if rest:
+            run.append(rest)
+        out += _beats_from_sentences(run, lo, hi) if run else []
+        run = []
+        out += [m.group(0) for m in marks]
+    return out + (_beats_from_sentences(run, lo, hi) if run else [])
+
+
 def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict) -> dict:
     ctx = Context(job, template)
     budget = template.get("beat_words", {"min": 8, "max": 40})
     texts = [s for p in bundle["passages"] if p["id"] in chapter["passages"] for s in sentences(p["text"])]
-    lines = _beats_from_sentences(texts, budget["min"], budget["max"])
+    lines = _segments(texts, budget["min"], budget["max"])
+    captions = {m.group(2).strip().lower() for line in lines for m in FIGURE_MARK.finditer(line)}
+    lines = [line for line in lines if line.strip().lower() not in captions]
+    try:
+        import icons
+
+        have_icons = bool(icons.available())
+    except ImportError:
+        have_icons = False
     is_map = registry.load_template(template["id"])["layouts"].get(chapter["layout"], {}).get("map", True) \
         and bool(job.spec.get("region_id"))
     battle = "unit" in chapter.get("required", [])
@@ -417,6 +457,13 @@ def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict
         ops: list[dict] = []
         if index == 0 and chapter["slot"] not in ("prologue", "intro"):
             ops.append({"op": "panel", "title": chapter["title"]})
+        figure = FIGURE_MARK.fullmatch(line.strip())
+        if figure:
+            caption = figure.group(2).strip() or "Here is the figure from the source."
+            beats.append({"id": f"b{index + 1:02d}", "say": caption,
+                          "do": ops + [{"op": "panel", "title": chapter["title"]}, {"op": "figure", "id": figure.group(1)}],
+                          "sources": []})
+            continue
         if battle and ctx.units and not deployed:
             ops += [{"op": "unit", "id": u["id"]} for u in ctx.units]
             deployed = True
@@ -436,6 +483,15 @@ def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict
                 break
         if battle and ctx.units:
             ops += _battle_ops(ctx, line)
+        word = _icon_word(line) if have_icons and not battle else None
+        if word:
+            # The places named nearest the word: "mills cluster around Meerut", not the capital before it.
+            here = next((x for x in sentences(line) if re.search(r"\b" + re.escape(word), x, re.I)), line)
+            at = re.search(r"\b" + re.escape(word), here, re.I).start()
+            named = (ctx.places_in(here) or ctx.places_in(line)) if is_map else []
+            spots = sorted(named, key=lambda p: abs(here.lower().find(p.replace("_", " ").lower()) - at))[:1]
+            ops.append({"op": "icon", "name": word, "places": spots} if spots and is_map
+                       else {"op": "icon", "name": word, "label": word.title()})
         numeric = any(line.startswith(c[:40]) or c in line for c in fact_claims if NUMBER_RE.search(c))
         stat = _stat_of(line) if numeric else None
         if stat:

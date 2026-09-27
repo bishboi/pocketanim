@@ -21,6 +21,7 @@ stopped: a review point, a budget run out, a crash.
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 import json
 import re
 import time
@@ -32,6 +33,8 @@ from forge.job import REPAIRS_PER_BEAT, RETRIES_PER_CHAPTER, STATES, Job
 from forge.util import digest, write_json
 
 UNTIL = {"outline": "plan", "script": "validate", "preview": "preview"}
+# The workers' own code is an input of their output: a better writer rewrites cached scripts.
+WORKERS = digest(Path(workers.__file__))
 
 
 class Stop(Exception):
@@ -108,7 +111,7 @@ class Run:
 
     def plan(self):
         notes = self.notes().get("outline", "")
-        key = digest("plan", self.job.read("bundle.json"), self.template().get("version"), self.spec.get("region_id"),
+        key = digest("plan", WORKERS, self.job.read("bundle.json"), self.template().get("version"), self.spec.get("region_id"),
                      self.spec.get("target_minutes"), notes, llm.available())
         outline = self.job.read("outline.json")
         if not outline or outline.get("key") != key:
@@ -148,7 +151,7 @@ class Run:
 
     def _write(self, template, style, chapter, bundle, facts, outline, note, force=False):
         raw_name = f"script/{chapter['id']}.raw.json"
-        key = digest("script", chapter, facts, template.get("version"), note, llm.available())
+        key = digest("script", WORKERS, chapter, facts, template.get("version"), note, llm.available())
         raw = self.job.read(raw_name)
         if raw and raw.get("key") == key and not force:
             return raw

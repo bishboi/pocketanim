@@ -11,7 +11,8 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { LECTURE_TOOL, compileLecture, fixtureScript, lecturePrompt, resolveRegion } from "./lecture";
+import { ICON_TOOL, LECTURE_TOOL, compileLecture, findIcon, fixtureScript, lecturePrompt, resolveRegion, targetMinutes } from "./lecture";
+import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -29,6 +30,8 @@ export type GenerateRequest = {
   templateId: string;
   previousSource?: string;
   instruction?: string;
+  /** An uploaded lecture PDF (lib/document.ts): its figures are offered to the model. */
+  documentId?: string;
 };
 
 const SCENE_CLASS = "GeneratedScene";
@@ -224,7 +227,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -416,10 +419,12 @@ async function viaOpenRouter(
   const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
-  const system = lecture ? lecturePrompt(template) : systemPrompt(template);
+  const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`);
+  const doc = await documentOf(request);
+  const system = lecture ? lecturePrompt(template, minutes) + (doc ? figurePrompt(doc) : "") : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
-  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, EDIT_TOOL] : TOOLS;
+  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, EDIT_TOOL] : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -585,17 +590,23 @@ async function viaOpenRouter(
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
       let output: string;
       if (call.function.name === "write_lecture") {
-        const compiled = await compileLecture(args.script ?? {});
+        const compiled = await compileLecture(args.script ?? {}, {
+          style: template.style,
+          minMinutes: minutes,
+          figures: doc ? scriptFigures(doc) : undefined,
+        });
         if (compiled.source) {
           scene = compiled.source;
           output = [
-            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim).`,
+            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
             ...compiled.warnings.map((w) => `warning: ${w}`),
             compiled.warnings.length ? "Fix the warnings with another write_lecture if they matter; otherwise stop." : "Stop calling tools and reply in one sentence.",
           ].join("\n");
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
         }
+      } else if (call.function.name === "find_icon") {
+        output = await findIcon((args as { queries?: unknown }).queries);
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);
@@ -656,9 +667,10 @@ async function lectureFixture(
   const region = await resolveRegion(request.content);
   emit({ type: "message", role: "status", text: region ? `Map: ${region.state ?? region.country}` : "No place named; a lecture without a map." });
   const script = fixtureScript(request.content, template, region, request.instruction);
+  const doc = await documentOf(request);
   const args = JSON.stringify({ script });
   emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
-  const compiled = await compileLecture(script);
+  const compiled = await compileLecture(script, { style: template.style, figures: doc ? scriptFigures(doc) : undefined });
   if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
   emit({
     type: "tool_result",
@@ -897,4 +909,14 @@ export async function generate(
     costUsd: result.costUsd,
   });
   return result;
+}
+
+/** The request's uploaded document, if it names one that still exists. */
+async function documentOf(request: GenerateRequest): Promise<DocumentManifest | null> {
+  if (!request.documentId) return null;
+  try {
+    return await loadDocument(request.documentId);
+  } catch {
+    return null;
+  }
 }

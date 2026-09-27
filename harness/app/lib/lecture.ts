@@ -33,7 +33,18 @@ export type LectureScript = {
   credits?: string;
 };
 
-export type Compiled = { source: string | null; errors: string[]; warnings: string[] };
+export type Compiled = { source: string | null; errors: string[]; warnings: string[]; minutes?: number };
+
+/** A lecture runs this long unless the request names a length. */
+export const DEFAULT_LECTURE_MINUTES = 8;
+
+/** The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". */
+export function targetMinutes(text: string): number {
+  const digits = text.replace(/[०-९]/g, (d) => String("०१२३४५६७८९".indexOf(d)));
+  const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
+  const minutes = found ? parseFloat(found[1]) : DEFAULT_LECTURE_MINUTES;
+  return Math.min(40, Math.max(1, minutes));
+}
 
 function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -49,10 +60,30 @@ function runPython(args: string[], input?: string): Promise<{ code: number; stdo
   });
 }
 
-/** Lint and compile a beat script. Errors come back as data, never thrown. */
-export async function compileLecture(script: unknown): Promise<Compiled> {
+/**
+ * Lint and compile a beat script. Errors come back as data, never thrown.
+ *
+ * `style` is the picked template's and overrides whatever the script says (a
+ * model often leaves it out, and the compiler's default is atlas).
+ * `minMinutes` makes a script that would run well short of it an error.
+ */
+export async function compileLecture(
+  script: unknown,
+  options: { style?: string; minMinutes?: number; figures?: Record<string, { file: string; caption: string }> } = {},
+): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
-  const { stdout, stderr } = await runPython([compiler, "-", "--json"], JSON.stringify(script));
+  // The figures table comes from the uploaded document, never from the model.
+  const body =
+    script && typeof script === "object"
+      ? {
+          ...script,
+          ...(options.style ? { style: options.style } : {}),
+          ...(options.figures ? { figures: options.figures } : {}),
+        }
+      : script;
+  const args = [compiler, "-", "--json"];
+  if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
+  const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
     return JSON.parse(stdout.trim().split("\n").pop() || "") as Compiled;
   } catch {
@@ -88,6 +119,42 @@ function headingOf(line: string, fallback: string): string {
   return words.map((w) => (w[0] ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
 }
 
+const FIGURE_LINE = /^\[FIGURE (fig\d+): ([^\]]*)\]$/;
+
+/**
+ * Content lines as beats. Text from a PDF breaks lines mid-sentence, so a
+ * line that does not end a sentence joins the next, and the joined text is
+ * cut again at sentence ends. A figure's caption line, which the figure
+ * marker repeats, is dropped.
+ */
+function reflow(content: string): string[] {
+  const raw = content
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => !/^#+\s*page \d+$/i.test(line))
+    .map((line) => line.replace(/^#+\s*/, ""));
+  const captions = new Set(
+    raw.map((line) => line.match(FIGURE_LINE)?.[2]?.trim().toLowerCase()).filter(Boolean) as string[],
+  );
+  const joined: string[] = [];
+  let open = false;
+  for (const line of raw) {
+    if (!line) {
+      open = false;
+      continue;
+    }
+    if (captions.has(line.toLowerCase())) continue;
+    const marker = FIGURE_LINE.test(line);
+    if (open && !marker && joined.length) joined[joined.length - 1] += ` ${line}`;
+    else joined.push(line);
+    open = !marker && !/[.!?:।]$/.test(line);
+  }
+  // The first line is the title; the rest are cut at sentence ends.
+  return joined.flatMap((line, index) =>
+    index === 0 || FIGURE_LINE.test(line) ? [line] : line.split(/(?<=[.!?।])\s+(?=\S)/).filter(Boolean),
+  );
+}
+
 /**
  * A beat script built from the content itself, for the offline provider.
  *
@@ -96,10 +163,7 @@ function headingOf(line: string, fallback: string): string {
  * beats make a panel. With a region the lecture draws its map.
  */
 export function fixtureScript(content: string, template: Template, region: LectureRegion | null, instruction?: string): LectureScript {
-  const lines = content
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = reflow(content);
   const title = (lines[0] || "Untitled").slice(0, 60);
   const body = lines.slice(1).length ? lines.slice(1) : [title];
   const chunks: string[][] = [];
@@ -114,6 +178,8 @@ export function fixtureScript(content: string, template: Template, region: Lectu
       narration: `Chapter ${index + 1}. ${heading}.`,
       map: Boolean(region),
       beats: chunk.map((line, j) => {
+        const marked = line.match(FIGURE_LINE);
+        if (marked) return { say: marked[2] || "Here is the figure.", do: [{ op: "figure", id: marked[1] }] };
         const ops: BeatOp[] = [];
         if (j === 0) ops.push({ op: "panel", title: heading });
         const found = line.match(NUMBER);
@@ -138,6 +204,37 @@ export function fixtureScript(content: string, template: Template, region: Lectu
   return script;
 }
 
+export const ICON_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "find_icon",
+    description:
+      "Search the icon library (about 25,000 icons: crops, animals, industry, weather, transport, buildings) for words. Returns the names an icon op may use; single-colour ones take the style's colours.",
+    parameters: {
+      type: "object",
+      properties: { queries: { type: "array", items: { type: "string" }, description: "Words, e.g. [\"sugarcane\", \"coal\", \"tiger\"]" } },
+      required: ["queries"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** find_icon: the best few icon names for each word. */
+export async function findIcon(queries: unknown): Promise<string> {
+  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 40)).filter(Boolean).slice(0, 12);
+  if (!words.length) return "Give queries: a list of words.";
+  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), ...words]);
+  try {
+    const found = JSON.parse(stdout.trim().split("\n").pop() || "{}");
+    if (found.error) return String(found.error);
+    return Object.entries(found as Record<string, { id: string; mono: boolean }[]>)
+      .map(([q, rows]) => `${q}: ${rows.length ? rows.slice(0, 5).map((r) => `${r.id}${r.mono ? "" : " (colour)"}`).join(", ") : "nothing; try a simpler word"}`)
+      .join("\n");
+  } catch {
+    return "The icon library is not installed (harness/scripts/fetch_icons.py).";
+  }
+}
+
 export const LECTURE_TOOL = {
   type: "function" as const,
   function: {
@@ -159,15 +256,21 @@ export const LECTURE_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-export function lecturePrompt(template: Template): string {
+export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES): string {
+  const words = Math.round(minutes * 140);
+  const beats = Math.round((minutes * 60) / 11);
   return [
     "You write narrated map lectures for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
     "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
+    `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
+    `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
+    "returns an error when the script is well short; then add beats and chapters with new material, never padding.",
+    "",
     "A beat is one narration line (say) and the operations that go with it (do). One idea per beat, at most two caption lines",
-    "(under about 180 characters), at most four operations. 10-20 beats per chapter, 3-8 chapters for a long lecture,",
-    "fewer for a short idea. Every number you state must be in the content you were given; say 'about' for rough figures.",
+    "(under about 180 characters, 15-30 words), at most four operations. Every number you state must be in the content you",
+    "were given or be well established; say 'about' for rough figures.",
     "",
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
@@ -188,8 +291,15 @@ export function lecturePrompt(template: Template): string {
     '  {"op":"path","points":[[lon,lat],...],"color"?}      a hand-drawn line: a ridge, a canal',
     '  {"op":"graticule","lat":23.44 | "lon":82.5,"label"?,"color"?}',
     '  {"op":"dim","opacity"?}                fade filled areas down before highlighting one',
+    '  {"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"] | "place" | "lonlat","color"?,"size"?,"label"?}',
+    "                                          icons on the map where something is grown, mined, made or lives",
+    "Panel icon (no place): {\"op\":\"icon\",\"name\":\"wheat\",\"label\":\"Rabi: wheat\",\"color\"?} -- an icon with a short line.",
+    "Call find_icon first and use the names it returns. Use icons often for crops, minerals, industries, animals",
+    "and weather: a picture beside a word is what makes a map lecture memorable.",
     "",
     "A panel holds a title and about five facts; start a new panel before it fills. Use real place names; the",
-    "compiler looks them up. Keep lon/lat for arrows and paths to places you are sure of.",
+    "compiler looks them up. A marker's place is a town or city in English (\"Prayagraj\", not \"प्रयागराज\");",
+    "put the name in the script's own language in label. For a district, park or village the gazetteer may not",
+    "know, give lonlat instead. Keep lon/lat for arrows and paths to places you are sure of.",
   ].join("\n");
 }

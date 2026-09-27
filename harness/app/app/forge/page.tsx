@@ -290,6 +290,11 @@ export default function ForgePage() {
                     {has("out/chapters.txt") && <a className="text-sky-300 hover:underline" href={file("out/chapters.txt", true)}>Chapters</a>}
                     {has("out/thumbnail.png") && <a className="text-sky-300 hover:underline" href={file("out/thumbnail.png", true)}>Thumbnail</a>}
                     {has("qa/report.json") && <a className="text-sky-300 hover:underline" href={file("qa/report.json")}>QA report</a>}
+                    {has(`out/${view.id}-phone.zip`) && (
+                      <a className="text-sky-300 hover:underline" href={file(`out/${view.id}-phone.zip`, true)}>
+                        Phone library (.zip)
+                      </a>
+                    )}
                   </div>
                 )}
                 {view.report?.output && (

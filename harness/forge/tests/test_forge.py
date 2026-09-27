@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import ast
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
 
-os.environ.pop("OPENROUTER_API_KEY", None)          # the offline workers, always
+os.environ.pop("OPENROUTER_API_KEY", None)          # the offline workers here; test_llm_path mocks a model
 
 from forge import gates, machine, patterns, registry  # noqa: E402
 from forge.engine import compile as compile_  # noqa: E402

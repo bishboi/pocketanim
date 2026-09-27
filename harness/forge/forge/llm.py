@@ -18,7 +18,7 @@ import urllib.request
 
 from forge import tools
 
-URL = "https://openrouter.ai/api/v1/chat/completions"
+URL = os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
 
 
 def available() -> bool:

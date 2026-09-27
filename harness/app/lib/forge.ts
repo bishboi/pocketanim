@@ -128,6 +128,7 @@ const TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
   ".json": "application/json",
   ".png": "image/png",
+  ".zip": "application/zip",
 };
 
 /** A deliverable of a job: only out/ and qa/, only the types above. */

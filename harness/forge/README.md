@@ -80,7 +80,7 @@ After render, the output gate measures loudness (−17 LUFS ±1), music at least
 - `thumbnail.png`
 - `contact_sheet.png`: one frame per beat, labelled with the id `revise` takes.
 - `report.json`
-- `phone/<chapter>/`: `.panim` programs, when the job asks for them.
+- `phone/library/` and `<id>-phone.zip`: every chapter as a `.panim` program in one library the phone player opens (unzip, `adb push library …`), with the job's own narration. Only when the job asks for phone output (`forge new` without `--no-phone`).
 
 ## Libraries
 
@@ -98,5 +98,10 @@ drafts a template from an example outline. Drafts are marked `status: draft`.
 ## Tests
 
 ```
-../../.venv/bin/python -m pytest tests -q     # offline: plan, script, gates, compile, revise
+../../.venv/bin/python -m pytest tests -q
 ```
+
+`test_forge.py` runs the offline workers (plan, script, gates, compile, revise).
+`test_llm_path.py` runs the model workers against `tests/mock_openrouter.py`, which
+checks tool calls, a reply retried after failing its check, pattern beats and a beat repair.
+Set `OPENROUTER_URL` to point the workers at any OpenRouter-compatible endpoint.

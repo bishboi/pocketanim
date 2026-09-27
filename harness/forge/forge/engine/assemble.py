@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -185,21 +186,41 @@ def deliver(job, template: dict, style: dict, renders: dict, gate_report: dict |
 
 
 def export_phone(job, order: list[str]) -> dict:
-    """Each chapter as a .panim program for the phone player (best effort)."""
+    """The chapters as one phone library: out/phone/library, plus a zip of it.
+
+    Each chapter scene is exported to a .panim program in one shared export
+    directory (so they share a glyph atlas and assets), speaking from the
+    job's own voice cache, then packed with tools.build_library -- the layout
+    the player opens: unzip and `adb push library ...`.
+    """
     script = REPO / "harness" / "scripts" / "export_scene.py"
+    export_dir = job.path("build", "phone")
+    shutil.rmtree(export_dir, ignore_errors=True)
+    export_dir.mkdir(parents=True)
+    env = dict(os.environ)
+    env.update({"PANIM_AUDIO_DIR": str(job.path("audio")),
+                "PANIM_VOICE": (job.read("timeline.json") or {}).get("voice") or env.get("PANIM_VOICE", "auto")})
     results = {}
     for cid in order:
-        target = job.path("out", "phone", cid)
-        target.mkdir(parents=True, exist_ok=True)
-        scene = job.path("build", f"{cid}.py")
-        copy = target / f"{cid}.py"
-        shutil.copy(scene, copy)
+        copy = export_dir / f"{cid}.py"
+        shutil.copy(job.path("build", f"{cid}.py"), copy)
         try:
-            result = subprocess.run([sys.executable, str(script), str(copy), cid.upper(), str(target)],
-                                    capture_output=True, text=True, timeout=3600)
+            result = subprocess.run([sys.executable, str(script), str(copy), cid.upper(), str(export_dir)],
+                                    capture_output=True, text=True, timeout=3600, env=env)
             reply = json.loads(result.stdout.strip().splitlines()[-1]) if result.stdout.strip() else {}
-            results[cid] = {"ok": result.returncode == 0, "tier": reply.get("tier"),
-                            "blockers": reply.get("blockers", [])[:5]}
+            results[cid] = {"ok": result.returncode == 0 and not reply.get("error"), "tier": reply.get("tier"),
+                            "blockers": reply.get("blockers", [])[:5], "error": reply.get("error")}
         except Exception as error:  # noqa: BLE001 -- the video is the deliverable; the phone copy is extra
             results[cid] = {"ok": False, "error": str(error)}
-    return results
+    library = job.path("out", "phone", "library")
+    shutil.rmtree(library.parent, ignore_errors=True)
+    packed = subprocess.run([sys.executable, "-m", "tools.build_library", "--source",
+                             str(export_dir / "dsl" / "generated"), "--out", str(library)],
+                            cwd=REPO, capture_output=True, text=True, timeout=1800)
+    out = {"chapters": results, "library": None}
+    if packed.returncode == 0 and library.exists():
+        out["library"] = str(library)
+        out["zip"] = shutil.make_archive(str(job.path("out", f"{job.id}-phone")), "zip", library.parent, "library")
+    else:
+        out["error"] = (packed.stderr or packed.stdout)[-1500:]
+    return out

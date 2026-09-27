@@ -94,7 +94,9 @@ export async function compileLecture(
   if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
-    return JSON.parse(stdout.trim().split("\n").pop() || "") as Compiled;
+    const compiled = scriptJson<Compiled>(stdout);
+    if (!compiled) throw new Error("no JSON");
+    return compiled;
   } catch {
     return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
   }
@@ -114,7 +116,9 @@ export type Subject = {
 export async function classifySubject(text: string): Promise<Subject> {
   const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "genre.py")], text.slice(0, 20000));
   try {
-    return JSON.parse(stdout) as Subject;
+    const subject = scriptJson<Subject>(stdout);
+    if (!subject) throw new Error("no JSON");
+    return subject;
   } catch {
     return { genre: "general", label: "General", style: "vox", map: "sometimes", kit: [], guidance: "", why: [] };
   }
@@ -125,7 +129,7 @@ export async function resolveRegion(text: string): Promise<LectureRegion | null>
   const script = path.join(REPO, "harness", "lecture", "resolve_region.py");
   const { stdout } = await runPython([script, text.slice(0, 4000)]);
   try {
-    return (JSON.parse(stdout.trim().split("\n").pop() || "{}").region as LectureRegion) ?? null;
+    return scriptJson<{ region?: LectureRegion }>(stdout)?.region ?? null;
   } catch {
     return null;
   }
@@ -251,19 +255,41 @@ export const ICON_TOOL = {
 };
 
 /** find_icon: the best few icon names for each word. */
+/**
+ * The JSON a script printed: the whole output, or else its last line that parses
+ * (a script may log before its answer, and may print its answer across lines).
+ */
+export function scriptJson<T = unknown>(stdout: string): T | null {
+  const text = stdout.trim();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // fall through: look for a one-line answer after other output
+  }
+  for (const line of text.split("\n").reverse()) {
+    try {
+      return JSON.parse(line) as T;
+    } catch {
+      // not this line
+    }
+  }
+  return null;
+}
+
 export async function findIcon(queries: unknown): Promise<string> {
   const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 40)).filter(Boolean).slice(0, 12);
   if (!words.length) return "Give queries: a list of words.";
-  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), ...words]);
-  try {
-    const found = JSON.parse(stdout.trim().split("\n").pop() || "{}");
-    if (found.error) return String(found.error);
-    return Object.entries(found as Record<string, { id: string; mono: boolean }[]>)
-      .map(([q, rows]) => `${q}: ${rows.length ? rows.slice(0, 5).map((r) => `${r.id}${r.mono ? "" : " (colour)"}`).join(", ") : "nothing; try a simpler word"}`)
-      .join("\n");
-  } catch {
-    return "The icon library is not installed (harness/scripts/fetch_icons.py).";
+  const { stdout, stderr } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), ...words]);
+  const found = scriptJson<Record<string, { id: string; mono: boolean }[]> & { error?: string }>(stdout);
+  if (!found) {
+    // Say what actually went wrong: this is not always a missing library.
+    return `The icon search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
   }
+  if (found.error) return String(found.error);
+  return Object.entries(found)
+    .filter((entry): entry is [string, { id: string; mono: boolean }[]] => Array.isArray(entry[1]))
+    .map(([q, rows]) => `${q}: ${rows.length ? rows.slice(0, 5).map((r) => `${r.id}${r.mono ? "" : " (colour)"}`).join(", ") : "nothing; try a simpler word"}`)
+    .join("\n");
 }
 
 export const IMAGE_TOOL = {

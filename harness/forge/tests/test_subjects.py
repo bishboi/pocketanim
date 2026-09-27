@@ -144,3 +144,11 @@ def test_boxes_of_words_are_an_error_and_qr_codes_are_not_figures():
     place_figures(script)
     shown = [op["id"] for c in script["chapters"] for b in c["beats"] for op in b["do"] if op["op"] == "figure"]
     assert shown == ["fig2"]
+
+
+def test_icon_search_falls_back_to_simpler_words():
+    import icons
+
+    if not icons.available():
+        return
+    assert icons.search("farmers") and icons.search("villagers")

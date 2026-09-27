@@ -89,7 +89,28 @@ def is_mono(icon_id: str) -> bool:
     return not colours
 
 
+def _variants(word: str) -> list[str]:
+    """Simpler forms of a word to try when it finds nothing: villagers -> villager -> village, berries -> berry."""
+    w = str(word).lower().strip()
+    out = []
+    for suffix, repl in (("ies", "y"), ("es", ""), ("s", ""), ("ers", ""), ("er", ""), ("ing", "")):
+        if w.endswith(suffix) and len(w) - len(suffix) >= 3:
+            out.append(w[: -len(suffix)] + repl)
+    return [v for i, v in enumerate(out) if v != w and v not in out[:i]]
+
+
 def search(query: str, limit: int = 8) -> list[dict]:
+    """Icons for a word or phrase, best first; a plural or -er word falls back to its simpler form."""
+    found = _search(query, limit)
+    if not found and ":" not in str(query) and " " not in str(query).strip():
+        for variant in _variants(query):
+            found = _search(variant, limit)
+            if found:
+                break
+    return found
+
+
+def _search(query: str, limit: int = 8) -> list[dict]:
     """Icons for a word or phrase, best first: exact name, then every word, then any word."""
     q = _norm(SYNONYMS.get(str(query).lower().strip(), query))
     if not q:

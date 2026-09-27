@@ -231,6 +231,11 @@ class Recorder:
         # form a cubic, which is the same filter the sampled exporter uses.
         points = getattr(mob, "points", None)
         drawable = points is not None and len(points) >= 4
+        # A raster image has no vector form; packing its group as geometry
+        # silently dropped the picture while the scene still claimed tier 1.
+        if any(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in mob.get_family()):
+            self.blockers.append("raster image (ImageMobject): the phone plays sampled frames")
+            return None
         if not drawable and not mob.submobjects:
             return None
 

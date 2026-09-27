@@ -69,10 +69,18 @@ function runPython(args: string[], input?: string): Promise<{ code: number; stdo
  */
 export async function compileLecture(
   script: unknown,
-  options: { style?: string; minMinutes?: number } = {},
+  options: { style?: string; minMinutes?: number; figures?: Record<string, { file: string; caption: string }> } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
-  const body = script && typeof script === "object" && options.style ? { ...script, style: options.style } : script;
+  // The figures table comes from the uploaded document, never from the model.
+  const body =
+    script && typeof script === "object"
+      ? {
+          ...script,
+          ...(options.style ? { style: options.style } : {}),
+          ...(options.figures ? { figures: options.figures } : {}),
+        }
+      : script;
   const args = [compiler, "-", "--json"];
   if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
@@ -111,6 +119,42 @@ function headingOf(line: string, fallback: string): string {
   return words.map((w) => (w[0] ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
 }
 
+const FIGURE_LINE = /^\[FIGURE (fig\d+): ([^\]]*)\]$/;
+
+/**
+ * Content lines as beats. Text from a PDF breaks lines mid-sentence, so a
+ * line that does not end a sentence joins the next, and the joined text is
+ * cut again at sentence ends. A figure's caption line, which the figure
+ * marker repeats, is dropped.
+ */
+function reflow(content: string): string[] {
+  const raw = content
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => !/^#+\s*page \d+$/i.test(line))
+    .map((line) => line.replace(/^#+\s*/, ""));
+  const captions = new Set(
+    raw.map((line) => line.match(FIGURE_LINE)?.[2]?.trim().toLowerCase()).filter(Boolean) as string[],
+  );
+  const joined: string[] = [];
+  let open = false;
+  for (const line of raw) {
+    if (!line) {
+      open = false;
+      continue;
+    }
+    if (captions.has(line.toLowerCase())) continue;
+    const marker = FIGURE_LINE.test(line);
+    if (open && !marker && joined.length) joined[joined.length - 1] += ` ${line}`;
+    else joined.push(line);
+    open = !marker && !/[.!?:।]$/.test(line);
+  }
+  // The first line is the title; the rest are cut at sentence ends.
+  return joined.flatMap((line, index) =>
+    index === 0 || FIGURE_LINE.test(line) ? [line] : line.split(/(?<=[.!?।])\s+(?=\S)/).filter(Boolean),
+  );
+}
+
 /**
  * A beat script built from the content itself, for the offline provider.
  *
@@ -119,10 +163,7 @@ function headingOf(line: string, fallback: string): string {
  * beats make a panel. With a region the lecture draws its map.
  */
 export function fixtureScript(content: string, template: Template, region: LectureRegion | null, instruction?: string): LectureScript {
-  const lines = content
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = reflow(content);
   const title = (lines[0] || "Untitled").slice(0, 60);
   const body = lines.slice(1).length ? lines.slice(1) : [title];
   const chunks: string[][] = [];
@@ -137,6 +178,8 @@ export function fixtureScript(content: string, template: Template, region: Lectu
       narration: `Chapter ${index + 1}. ${heading}.`,
       map: Boolean(region),
       beats: chunk.map((line, j) => {
+        const marked = line.match(FIGURE_LINE);
+        if (marked) return { say: marked[2] || "Here is the figure.", do: [{ op: "figure", id: marked[1] }] };
         const ops: BeatOp[] = [];
         if (j === 0) ops.push({ op: "panel", title: heading });
         const found = line.match(NUMBER);
@@ -159,6 +202,37 @@ export function fixtureScript(content: string, template: Template, region: Lectu
     credits: region ? "Map data: Natural Earth · Projections: Cartopy · Animation: Manim" : undefined,
   };
   return script;
+}
+
+export const ICON_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "find_icon",
+    description:
+      "Search the icon library (about 25,000 icons: crops, animals, industry, weather, transport, buildings) for words. Returns the names an icon op may use; single-colour ones take the style's colours.",
+    parameters: {
+      type: "object",
+      properties: { queries: { type: "array", items: { type: "string" }, description: "Words, e.g. [\"sugarcane\", \"coal\", \"tiger\"]" } },
+      required: ["queries"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** find_icon: the best few icon names for each word. */
+export async function findIcon(queries: unknown): Promise<string> {
+  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 40)).filter(Boolean).slice(0, 12);
+  if (!words.length) return "Give queries: a list of words.";
+  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), ...words]);
+  try {
+    const found = JSON.parse(stdout.trim().split("\n").pop() || "{}");
+    if (found.error) return String(found.error);
+    return Object.entries(found as Record<string, { id: string; mono: boolean }[]>)
+      .map(([q, rows]) => `${q}: ${rows.length ? rows.slice(0, 5).map((r) => `${r.id}${r.mono ? "" : " (colour)"}`).join(", ") : "nothing; try a simpler word"}`)
+      .join("\n");
+  } catch {
+    return "The icon library is not installed (harness/scripts/fetch_icons.py).";
+  }
 }
 
 export const LECTURE_TOOL = {
@@ -217,6 +291,11 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"path","points":[[lon,lat],...],"color"?}      a hand-drawn line: a ridge, a canal',
     '  {"op":"graticule","lat":23.44 | "lon":82.5,"label"?,"color"?}',
     '  {"op":"dim","opacity"?}                fade filled areas down before highlighting one',
+    '  {"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"] | "place" | "lonlat","color"?,"size"?,"label"?}',
+    "                                          icons on the map where something is grown, mined, made or lives",
+    "Panel icon (no place): {\"op\":\"icon\",\"name\":\"wheat\",\"label\":\"Rabi: wheat\",\"color\"?} -- an icon with a short line.",
+    "Call find_icon first and use the names it returns. Use icons often for crops, minerals, industries, animals",
+    "and weather: a picture beside a word is what makes a map lecture memorable.",
     "",
     "A panel holds a title and about five facts; start a new panel before it fills. Use real place names; the",
     "compiler looks them up. A marker's place is a town or city in English (\"Prayagraj\", not \"प्रयागराज\");",

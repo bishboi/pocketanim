@@ -112,6 +112,20 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                         errors.append(_err("schema", chapter["id"], bid, f"{name}: no feature {points!r}", True))
                 elif not points or any(not _resolvable(p, job) for p in points):
                     errors.append(_err("schema", chapter["id"], bid, f"{name}: a point cannot be found", True))
+            if name == "icon":
+                import icons
+
+                if not icons.available():
+                    errors.append(_err("schema", chapter["id"], bid, "icons are not installed (fetch_icons.py)", True))
+                elif icons.resolve(str(op.get("name", ""))) is None:
+                    errors.append(_err("schema", chapter["id"], bid, f"no icon for {op.get('name')!r}", True))
+                for spot in op.get("places") or []:
+                    if not _resolvable(spot, job):
+                        errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
+            if name == "figure":
+                known = {f["id"] for f in (job.read("bundle.json") or {}).get("figures", [])}
+                if op.get("id") not in known:
+                    errors.append(_err("schema", chapter["id"], bid, f"no figure {op.get('id')!r} in the sources", True))
             if name == "clock" and not re.fullmatch(r"\d{1,2}:\d{2}", str(op.get("time", ""))):
                 errors.append(_err("schema", chapter["id"], bid, f"clock time {op.get('time')!r} is not HH:MM", True))
     return errors
@@ -277,6 +291,10 @@ def glyph_gate(job, template, style, chapter, script, facts):
 
 def _panel_height(op: dict) -> float:
     kind = op.get("op")
+    if kind == "icon":
+        return 0.0 if op.get("places") else 0.87
+    if kind == "figure":
+        return 3.2 if op.get("where", "panel") == "panel" else 0.0
     return {"panel": 1.3 if op.get("sub") else 0.95, "stat": 1.05, "compare": 1.2, "timeline": 1.6,
             "network": 3.3}.get(kind, (max(1, -(-len(str(op.get("text", ""))) // 36)) * 0.33 + 0.22) if kind == "fact"
                                 else len(op.get("items") or []) * 0.42 + 0.3 if kind == "bars" else 0.0)

@@ -108,6 +108,7 @@ class Places:
         self.features = dict(((self.pack.get("features") or {}).get("paths") or {}))
         self.units = {u["id"]: dict(u) for u in ((self.pack.get("battlefield") or {}).get("units") or [])}
         self.pos: dict[str, tuple] = {}
+        self.figures: dict[str, dict] = {}
 
     def lonlat(self, where):
         if isinstance(where, (list, tuple)) and len(where) == 2:
@@ -227,6 +228,21 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         to = op.get("to")
         target = "None" if to is None else (repr(to) if to in places.pos else _ll(places.lonlat(to)))
         return f"self.volley({op['from']!r}, {target}, {op.get('tone', 'highlight')!r})"
+    if kind == "icon":
+        tone = _tone(op)
+        extra = (f", {tone}" if tone else ", None")
+        if op.get("places") and has_map:
+            spots = ", ".join(_ll(places.lonlat(p)) for p in op["places"])
+            size = f", size={float(op['size']):g}" if op.get("size") else ""
+            label = f", label={op['label']!r}" if op.get("label") else ""
+            return f"self.icon({op['name']!r}, [{spots}]{extra}{size}{label})"
+        return f"self.panel_icon({op['name']!r}, {op.get('label', '')!r}{extra})"
+    if kind == "figure":
+        figure = places.figures.get(op["id"])
+        if not figure:
+            raise KeyError(f"no figure {op['id']!r}")
+        caption = op.get("caption") or figure.get("caption", "")
+        return f"self.figure({figure['file']!r}, {caption!r}, where={op.get('where', 'panel')!r})"
     if kind == "clock":
         return f"self.clock({op['time']!r})"
     if kind == "highlight":
@@ -247,6 +263,7 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
     spec = job.spec
     region_id = spec.get("region_id")
     places = Places(region_id)
+    places.figures = {f["id"]: f for f in (job.read("bundle.json") or {}).get("figures", [])}
     layout = (template.get("layouts") or {}).get(chapter.get("layout") or "", {}) or {}
     has_map = bool(region_id) and layout.get("map", True)
     battlefield = has_map and layout.get("zoom") == "battlefield" and (places.pack.get("battlefield") or {}).get("bbox")
@@ -295,7 +312,10 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
 
     if is_prologue(chapter):
         first = beats.pop(0) if beats else {"say": title_line(job)}
-        sub = spec.get("subtitle") or chapter.get("purpose") or template.get("label", "")
+        # The slot's purpose is a note to the planner ("Hook the viewer"), not a subtitle.
+        slot_note = next((a.get("purpose") for a in template.get("arc", []) if a["id"] == chapter["slot"]), None)
+        planned = chapter.get("purpose") if chapter.get("purpose") != slot_note else None
+        sub = spec.get("subtitle") or planned or ""
         tag = (template.get("label") or "An illustrated lecture").upper()
         body.append(f"self.title_slide({spec['title']!r}, {sub!r}, tag={tag!r}, narration={caption(first)!r})")
         if beats:

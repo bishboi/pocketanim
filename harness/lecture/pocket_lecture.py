@@ -272,6 +272,28 @@ def tok(name: str, default: float) -> float:
     return float((TH.get("tokens") or {}).get(name, default))
 
 
+# Icons a scene drew, for the credits line (their sets' licences ask for it).
+USED_ICONS: set[str] = set()
+
+
+def icon_mob(name: str, color: str | None = None, height: float = 0.5):
+    """An icon from the downloaded sets (icons.py) as a vector mobject.
+
+    A single-colour icon is filled with `color` (a role, palette name or #hex;
+    the style's accent by default); a colour emoji keeps its own colours.
+    """
+    import icons
+
+    icon_id = icons.resolve(name)
+    if icon_id is None:
+        hint = "" if icons.available() else " (run harness/scripts/fetch_icons.py)"
+        raise KeyError(f"no icon for {name!r}{hint}")
+    fill = role(color or "accent") if icons.is_mono(icon_id) else None
+    mob = SVGMobject(str(icons.svg_file(icon_id, fill)), height=height, stroke_width=0)
+    USED_ICONS.add(icon_id)
+    return mob
+
+
 def wrap(text: str, width: int) -> str:
     return "\n".join(textwrap.wrap(text, width)) or text
 
@@ -852,6 +874,9 @@ class Lecture(Scene):
     def setup(self):
         self.cap = None
         self.panel_items = VGroup()
+        self.panel_images = Group()     # figures: images cannot join a VGroup
+        self._full_figure = None        # the full-frame figure on screen, faded at the next beat
+        self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
         self.chrome = VGroup()
         back = backdrop()
@@ -902,6 +927,10 @@ class Lecture(Scene):
         (1.2 to 3.2 s) so motion lands while the sentence is still going, and
         the rest of the line plus a short pause is a hold.
         """
+        if self._full_figure is not None:
+            self.play(FadeOut(self._full_figure), run_time=0.4)
+            self._full_figure = None
+        self._full_figure, self._new_figure = self._new_figure, None
         wav, seconds = narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         cap = self.caption(text)
@@ -1025,7 +1054,11 @@ class Lecture(Scene):
         items.set_z_index(Z_PANEL_TEXT)
         self.panel_items = VGroup(items)
         show = Write(items) if TH["anim"] == "write" else FadeIn(items, shift=RIGHT * 0.2)
-        anim = AnimationGroup(FadeOut(old), show, lag_ratio=0.5) if len(old) else show
+        going = [FadeOut(old)] if len(old) else []
+        if len(self.panel_images):
+            going.append(FadeOut(self.panel_images))
+            self.panel_images = Group()
+        anim = AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.5) if going else show
         anim.panel_head = True
         return anim
 
@@ -1052,6 +1085,17 @@ class Lecture(Scene):
         lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
         group = self._stack(VGroup(v, lab), 0.3)
         return self.reveal(group, v)
+
+    def panel_icon(self, name: str, label: str = "", color: str | None = None):
+        """An icon with a line beside it in the panel: "sugarcane -- the west's cash crop"."""
+        mob = icon_mob(name, color, height=0.62)
+        row = VGroup(mob)
+        if label:
+            text = fit(T(wrap(label, 30), tok("fact_size", 20), P.CREAM, line_spacing=0.85), 4.1)
+            text.next_to(mob, RIGHT, buff=0.22)
+            row.add(text)
+        group = self._stack(row, 0.25)
+        return self.reveal(group, row[1] if label else None)
 
     def bar_chart(self, items, color: str | None = None, unit: str = "", width: float = 3.0):
         """Horizontal bars in the panel, each growing from a shared axis."""
@@ -1085,10 +1129,42 @@ class Lecture(Scene):
         self.play(FadeIn(self.panel), run_time=run_time)
 
     def clear_panel(self):
-        old = self.panel_items
+        old = [m for m in (self.panel_items, self.panel_images) if len(m)]
         self.panel_items = VGroup()
+        self.panel_images = Group()
         self.panel_y = 2.35
-        return FadeOut(old) if len(old) else None
+        return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
+
+    def figure(self, path: str, caption: str = "", where: str = "panel"):
+        """A figure from a source document: in the panel, or across the frame for one beat."""
+        image = ImageMobject(path)
+        if where == "full":
+            image.scale_to_fit_height(5.4)
+            if image.width > 12.4:
+                image.scale_to_fit_width(12.4)
+            back = Rectangle(width=config.frame_width, height=config.frame_height, fill_color=P.BG,
+                             fill_opacity=0.96, stroke_width=0)
+            parts = [back, image.move_to(UP * 0.45)]
+            if caption:
+                parts.append(fit(T(caption, 16, P.MUTED), 12.4).next_to(image, DOWN, buff=0.15))
+            group = Group(*parts)
+            group.set_z_index(Z_CARD)
+            self._new_figure = group
+            return FadeIn(group)
+        image.scale_to_fit_width(TEXT_W - 0.1)
+        if image.height > 2.6:
+            image.scale_to_fit_height(2.6)
+        image.move_to(RIGHT * self.TEXT_LEFT + UP * self.panel_y, aligned_edge=UL)
+        group = Group(image)
+        if caption:
+            group.add(fit(T(wrap(caption, 44), 13, P.MUTED, line_spacing=0.85), TEXT_W - 0.1)
+                      .next_to(image, DOWN, aligned_edge=LEFT, buff=0.08))
+        group.set_z_index(Z_PANEL_TEXT)
+        self.panel_y = group.get_bottom()[1] - 0.3
+        self.panel_images.add(group)
+        anim = FadeIn(group, shift=UP * 0.12)
+        anim.panel_item = True
+        return anim
 
     # ---------------- cards ----------------
     def chapter_card(self, num: int, title: str, sub: str) -> VGroup:
@@ -1262,6 +1338,10 @@ class Lecture(Scene):
     def credits(self, line: str, note: str = "Some boundaries and figures are simplified or approximate for teaching.",
                 seconds: float = 3.0) -> None:
         self.clear_caption()
+        if USED_ICONS:
+            import icons
+
+            note = f"{note}  {icons.credit(USED_ICONS)}."
         credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 2.3)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
         self.play(FadeIn(credit), FadeIn(small), run_time=1.0)
@@ -1275,6 +1355,8 @@ class Lecture(Scene):
         if going:
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
         self.panel_items = VGroup()
+        self.panel_images = Group()
+        self._full_figure = self._new_figure = None
         self.panel_y = 2.35
 
 
@@ -1635,6 +1717,24 @@ class MapLecture(Lecture):
             return anim
         tags.set_z_index(Z_MARK)
         return AnimationGroup(anim, LaggedStart(*[FadeIn(t) for t in tags], lag_ratio=0.3), lag_ratio=0.4)
+
+    def icon(self, name: str, where=None, color: str | None = None, size: float = 0.6, label: str | None = None):
+        """An icon on the map at a place, or one at each of several places.
+
+        where: a place name, (lon, lat), or a list of either -- "sugarcane in
+        Meerut, Muzaffarnagar and Saharanpur" is three icons that pop in turn.
+        """
+        spots = where if isinstance(where, (list, tuple)) and where and not isinstance(where[0], (int, float)) else [where]
+        group = VGroup()
+        for spot in spots:
+            mob = icon_mob(name, color, height=size)
+            mob.move_to(self.frame.pt(*self.at(spot)))
+            group.add(mob)
+        if label:
+            tag = T(label, 14, role(color or "ink"), weight=BOLD).next_to(group[0], DOWN, buff=0.06)
+            group.add(tag)
+        group.set_z_index(Z_MARK + 1)
+        return LaggedStart(*[GrowFromCenter(m) for m in group], lag_ratio=0.2)
 
     def highlight(self, target):
         """Draw the eye: a unit or a marker pulses."""

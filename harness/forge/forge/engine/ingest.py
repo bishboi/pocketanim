@@ -34,10 +34,31 @@ def read_source(source: str, base: Path) -> tuple[str, str]:
     path = Path(source)
     if not path.is_absolute():
         path = base / path
+    if path.suffix.lower() == ".pdf":
+        raise ValueError("a PDF is read with read_pdf")
     text = path.read_text(encoding="utf-8", errors="replace")
     if path.suffix.lower() in (".html", ".htm"):
         text = _clean_html(text)
     return path.name, text
+
+
+def read_pdf(source: str, base: Path, source_id: str, out: Path) -> tuple[str, str, list[dict], dict]:
+    """(title, text, figures, manifest) of a PDF, via harness/lecture/pdf_source.py.
+
+    Figure ids are prefixed with the source id (s2_fig3), in the text's
+    [FIGURE ...] markers too, so two documents never collide.
+    """
+    import pdf_source
+
+    path = Path(source) if Path(source).is_absolute() else base / source
+    manifest = pdf_source.convert(path, out / source_id)
+    text = Path(manifest["markdown"]).read_text(encoding="utf-8")
+    figures = []
+    for fig in manifest["figures"]:
+        fid = f"{source_id}_{fig['id']}"
+        text = text.replace(f"[FIGURE {fig['id']}:", f"[FIGURE {fid}:")
+        figures.append({**fig, "id": fid, "source": source_id})
+    return path.name, text, figures, manifest
 
 
 def passages_of(text: str, source_id: str, start: int) -> list[dict]:
@@ -67,9 +88,16 @@ def intake(job) -> dict:
     items = []
     if spec.get("brief"):
         items.append(("brief", "brief", spec["brief"]))
+    figures = []
     for index, source in enumerate(spec.get("sources") or [], 1):
         try:
-            title, text = read_source(source, job.dir)
+            if str(source).lower().endswith(".pdf"):
+                title, text, found, manifest = read_pdf(source, job.dir, f"s{index}", sources_dir)
+                figures += found
+                if manifest.get("note"):
+                    problems.append(f"{source}: {manifest['note']}")
+            else:
+                title, text = read_source(source, job.dir)
             items.append((f"s{index}", title, text))
         except Exception as error:  # noqa: BLE001 -- reported, and the job continues
             problems.append(f"{source}: {type(error).__name__}: {error}")
@@ -79,7 +107,7 @@ def intake(job) -> dict:
         sources.append({"id": source_id, "title": title, "passages": [p["id"] for p in found]})
     for p in passages:
         (sources_dir / f"{p['id']}.txt").write_text(p["text"] + "\n", encoding="utf-8")
-    bundle = {"passages": passages, "sources": sources, "problems": problems,
+    bundle = {"passages": passages, "sources": sources, "problems": problems, "figures": figures,
               "words": sum(len(p["text"].split()) for p in passages)}
     write_json(job.path("bundle.json"), bundle)
     return bundle

@@ -82,6 +82,18 @@ After render, the output gate measures loudness (−17 LUFS ±1), music at least
 - `report.json`
 - `phone/library/` and `<id>-phone.zip`: every chapter as a `.panim` program in one library the phone player opens (unzip, `adb push library …`), with the job's own narration. Only when the job asks for phone output (`forge new` without `--no-phone`).
 
+## PDFs, figures and icons
+
+A `--source` ending in `.pdf` is read by `harness/lecture/pdf_source.py`: Datalab when `DATALAB_API_KEY`
+is set, pypdf otherwise. Its figures join `bundle.json` as `s1_fig3` and so on. A script shows one with
+`{"op":"figure","id":"s1_fig3"}`, and the offline writer puts each figure where its marker sits in the text.
+
+`{"op":"icon","name":"sugarcane","places":[...]}` draws icons from the library that
+`harness/scripts/fetch_icons.py` downloads. The offline writer adds one when a beat names a crop,
+mineral, industry or animal, at the place named in the same sentence.
+
+The web page's **Upload lecture PDF** button makes the PDF the job's source.
+
 ## Libraries
 
 - `styles/<id>/`: `style.yaml` (with `extends:`, roles, theme, voice, music, fonts, `per_template`), `tokens.yaml`, `writing.md`.

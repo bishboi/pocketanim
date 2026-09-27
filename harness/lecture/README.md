@@ -109,6 +109,37 @@ A marker's `place` is looked up in this order:
 
 A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Devanagari text is laid out large and scaled down, so small captions keep their shaping.
 
+## Icons
+
+`{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.
+Without a place, it goes in the fact panel beside its `label`. Names are searched in about 25,000 openly
+licensed icons:
+- Single-colour silhouettes: game-icons, Material Design Icons, Health Icons. These are filled with the
+  style's colour, or with `color`.
+- Flat colour emoji: Fluent Emoji Flat, OpenMoji, Noto. These keep their own colours.
+
+Download the icons once (about 53 MB):
+
+```
+.venv/bin/python harness/scripts/fetch_icons.py
+.venv/bin/python harness/lecture/icons.py sugarcane coal tiger     # search from the shell
+```
+
+A lecture that uses icons credits their sets in its closing line.
+
+## Lecture PDFs and figures
+
+`pdf_source.py` turns a PDF into Markdown plus its figures. Each figure is marked in the text as
+`[FIGURE fig3: caption]`.
+- With `DATALAB_API_KEY` set, it uses Datalab's conversion API: `POST /api/v1/convert`, then it polls the
+  `request_check_url` it gets back.
+- Without a key, it uses pypdf, offline.
+- Conversions are cached by the PDF's content, so the same PDF is converted only once.
+
+A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`. The app supplies the
+`figures` table (id → image file); the model only names ids. A figure is a raster image, so the phone
+export marks such a scene as blocked and plays sampled frames.
+
 ## Voice
 
 `PANIM_VOICE` picks it: `auto` (espeak-ng when installed, else silent), `espeak`,

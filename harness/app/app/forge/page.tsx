@@ -61,6 +61,25 @@ export default function ForgePage() {
     minutes: "", quality: "m", brief: "", reviewOutline: false, reviewPreview: false, phone: false,
   });
   const [note, setNote] = useState("");
+  const [doc, setDoc] = useState<{ busy: boolean; id?: string; name?: string; summary?: string; error?: string }>({
+    busy: false,
+  });
+
+  async function upload(file: File) {
+    setDoc({ busy: true, name: file.name });
+    const upload = new FormData();
+    upload.append("file", file);
+    try {
+      const response = await fetch("/api/document", { method: "POST", body: upload });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setDoc({ busy: false, id: data.id, name: file.name,
+        summary: `${data.pages} pages, ${data.figures.length} figures (${data.source})${data.note ? ` -- ${data.note}` : ""}` });
+      setForm((f) => ({ ...f, title: f.title || file.name.replace(/\.pdf$/i, "") }));
+    } catch (e) {
+      setDoc({ busy: false, name: file.name, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   const [restyleTo, setRestyleTo] = useState("");
 
   const loadJobs = useCallback(async () => {
@@ -116,7 +135,7 @@ export default function ForgePage() {
   }
 
   async function create() {
-    const data = await send("/api/forge", { ...form, id: form.id || form.title });
+    const data = await send("/api/forge", { ...form, id: form.id || form.title, documentId: doc.id });
     if (data?.id) {
       setSelected(data.id);
       loadJobs();
@@ -200,6 +219,21 @@ export default function ForgePage() {
                   <option value="h">1080p</option>
                 </select>
               </div>
+              <label className="flex cursor-pointer flex-wrap items-center gap-2 text-xs text-neutral-400">
+                <span className="rounded bg-neutral-800 px-2 py-1 text-neutral-200 hover:bg-neutral-700">
+                  {doc.busy ? "Reading the PDF…" : "Upload lecture PDF"}
+                </span>
+                <input type="file" accept="application/pdf,.pdf" className="hidden" data-testid="forge-pdf"
+                  disabled={doc.busy}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) upload(file);
+                    e.target.value = "";
+                  }} />
+                <span className={doc.error ? "text-rose-300" : ""}>
+                  {doc.error ?? (doc.id ? `${doc.name}: ${doc.summary}` : "text and figures become the lecture's source")}
+                </span>
+              </label>
               <Textarea rows={9} placeholder="The content: notes, an article, a chapter. Every number in the video will come from here."
                 value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} />
               <div className="flex flex-col gap-1 text-xs text-neutral-400">
@@ -219,7 +253,7 @@ export default function ForgePage() {
                   Also export the chapters for the phone player
                 </label>
               </div>
-              <Button onClick={create} disabled={busy || !form.brief.trim() || !(form.id || form.title)}>
+              <Button onClick={create} disabled={busy || (!form.brief.trim() && !doc.id) || !(form.id || form.title)}>
                 Make the video
               </Button>
             </CardContent>

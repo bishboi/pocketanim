@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
       ? String(body.previousSource)
       : undefined,
     instruction: body.instruction ? String(body.instruction) : undefined,
+    documentId: typeof body.documentId === "string" ? body.documentId : undefined,
   };
 
   const encoder = new TextEncoder();

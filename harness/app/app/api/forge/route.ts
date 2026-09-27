@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { documentPdf } from "@/lib/document";
 import { forge, libraries, startMake } from "@/lib/forge";
 
 export const runtime = "nodejs";
@@ -21,8 +22,20 @@ export async function POST(request: NextRequest) {
   if (!str(body.template) || !str(body.style)) {
     return NextResponse.json({ error: "choose a template and a style" }, { status: 400 });
   }
-  if (!str(body.brief)) return NextResponse.json({ error: "paste the content (the brief)" }, { status: 400 });
-  const args = ["new", id, "--template", str(body.template), "--style", str(body.style), "--brief", str(body.brief)];
+  let pdf: string | null = null;
+  if (str(body.documentId)) {
+    try {
+      pdf = documentPdf(str(body.documentId));
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    }
+  }
+  if (!str(body.brief) && !pdf) {
+    return NextResponse.json({ error: "paste the content, or upload a lecture PDF" }, { status: 400 });
+  }
+  const args = ["new", id, "--template", str(body.template), "--style", str(body.style)];
+  if (str(body.brief)) args.push("--brief", str(body.brief));
+  if (pdf) args.push("--source", pdf);
   if (str(body.title)) args.push("--title", str(body.title));
   if (str(body.subtitle)) args.push("--subtitle", str(body.subtitle));
   if (str(body.region)) args.push("--region", str(body.region));

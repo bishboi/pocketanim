@@ -39,3 +39,8 @@ fi
 if [ ! -s harness/lecture/data/geonames/cities.txt ]; then
   .venv/bin/python harness/scripts/fetch_gazetteer.py || echo "Gazetteer not downloaded; rerun harness/scripts/fetch_gazetteer.py later."
 fi
+
+# The icon library lectures draw crops, minerals and animals from (about 53 MB, once).
+if [ ! -s harness/lecture/data/icons/game-icons.json ]; then
+  .venv/bin/python harness/scripts/fetch_icons.py || echo "Icons not downloaded; rerun harness/scripts/fetch_icons.py later."
+fi

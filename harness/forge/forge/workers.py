@@ -155,6 +155,17 @@ class Context:
 #  Plan
 # ════════════════════════════════════════════════════════════════════════
 
+EXPLAIN_SIMPLY = (
+    "EXPLAIN SIMPLY. You are a teacher explaining the sources to a 12-year-old, not reading them aloud. The sources "
+    "may use difficult, formal language; the narration must not. Say each idea in everyday spoken words and short "
+    "sentences (under about 20 words). Before using a hard term, say what it means in plain words, then give an "
+    "example or comparison from daily life. Never copy a source sentence word for word. Take more beats to explain "
+    "one hard idea well rather than covering every line; skip QR codes, page furniture and exercise instructions. "
+    "In Hindi use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words; say the book's term once and "
+    "explain it. Show pictures (photos, figures, illustrations, icons) rather than boxes of words."
+)
+
+
 def _prefix(job, template: dict, style: dict, role: str) -> str:
     """The cached prefix: identical across calls for this template and style."""
     return "\n\n".join([
@@ -162,6 +173,7 @@ def _prefix(job, template: dict, style: dict, role: str) -> str:
         "styling or code. Reply with one JSON object and nothing else.",
         "TEMPLATE\n" + json.dumps(tools.call("template.describe", template=template["id"]), ensure_ascii=False),
         template["prompts"].get("planner" if role == "planner" else "writer", ""),
+        EXPLAIN_SIMPLY,
         "STYLE\n" + json.dumps(tools.call("style.vocabulary", style=style["id"], template=template["id"]),
                                ensure_ascii=False),
     ])

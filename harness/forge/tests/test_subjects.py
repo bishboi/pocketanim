@@ -99,3 +99,48 @@ def test_kit_visuals_without_icon_library(monkeypatch):
     fills = auto_visuals(chapter, genre="chemistry")
     assert fills[0] and fills[0]["op"] in ("equation", "molecule")
     assert fills[1] is None
+
+
+def test_hindi_chapter_is_classified_by_its_words():
+    from genre import classify
+
+    text = ("# वन एवं वन्य जीव संसाधन\nभारत में वन और वन्य जीव संसाधन। 1972 में वन्यजीव अधिनियम लागू हुआ। 1973 में "
+            "प्रोजेक्ट टाइगर। राष्ट्रीय उद्यान और अभयारण्य बनाए गए। मध्य प्रदेश राज्य में स्थायी वन क्षेत्र सबसे अधिक है। "
+            "राजस्थान के अलवर जिले में वन भूमि का संरक्षण। हिमालय क्षेत्र में चिपको आंदोलन। 1988 में ओडिशा।")
+    assert classify(text)["genre"] == "geography"
+
+
+def test_reading_the_book_aloud_is_an_error():
+    from compile_lecture import lint
+
+    book = ("यह पूरा आवासीय स्थल जिस पर हम रहते हैं, अत्यधिक जैव-विविधताओं से भरा हुआ है। वन पारिस्थितिकी तंत्र "
+            "में महत्वपूर्ण भूमिका निभाते हैं क्योंकि ये प्राथमिक उत्पादक हैं जिन पर दूसरे सभी जीव निर्भर करते हैं।")
+    copied = {"say": "वन पारिस्थितिकी तंत्र में महत्वपूर्ण भूमिका निभाते हैं क्योंकि ये प्राथमिक उत्पादक हैं।", "do": []}
+    simple = {"say": "जंगल एक बड़े साझा घर जैसा है। पेड़ खाना बनाते हैं, और बाकी सब जीव उसी पर जीते हैं।", "do": []}
+    script = {"title": "वन", "source_text": book,
+              "chapters": [{"title": "वन", "narration": "अध्याय एक।", "beats": [copied] * 4 + [simple] * 4}]}
+    errors, _ = lint(script)
+    assert any("word for word" in e for e in errors)
+    script["chapters"][0]["beats"] = [simple] * 8
+    errors, _ = lint(script)
+    assert not any("word for word" in e for e in errors)
+
+
+def test_boxes_of_words_are_an_error_and_qr_codes_are_not_figures():
+    from compile_lecture import lint, place_figures
+
+    box = {"say": "Plants make food, animals eat plants, and bigger animals eat them.",
+           "do": [{"op": "process", "steps": ["Plants", "Deer", "Tiger"]}]}
+    script = {"title": "Forests", "chapters": [{"title": "Food", "narration": "Chapter one.", "beats": [box] * 8}]}
+    errors, _ = lint(script)
+    assert any("boxes of words" in e for e in errors)
+
+    script = {"figures": {"fig1": {"file": "q.png", "caption": "QR code linking to the content"},
+                          "fig2": {"file": "t.png", "caption": "A tiger in the forest"}},
+              "chapters": [{"title": "t", "beats": [{"say": "The tiger lives in the forest.", "do": []},
+                                                    {"say": "It hunts deer at night.", "do": []},
+                                                    {"say": "Forests give it cover.", "do": []},
+                                                    {"say": "Its numbers fell.", "do": []}]}]}
+    place_figures(script)
+    shown = [op["id"] for c in script["chapters"] for b in c["beats"] for op in b["do"] if op["op"] == "figure"]
+    assert shown == ["fig2"]

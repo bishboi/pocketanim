@@ -74,6 +74,8 @@ export async function compileLecture(
     minMinutes?: number;
     figures?: Record<string, { file: string; caption: string }>;
     genre?: string;
+    /** The content the lecture is written from: the compiler flags lines read out of it word for word. */
+    sourceText?: string;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -85,6 +87,7 @@ export async function compileLecture(
           ...(options.style ? { style: options.style } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
+          ...(options.sourceText ? { source_text: options.sourceText } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
@@ -326,7 +329,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
   const words = Math.round(minutes * 140);
   const beats = Math.round((minutes * 60) / 11);
   return [
-    "You write narrated map lectures for a phone renderer, as a beat script that a compiler turns into Manim.",
+    "You write narrated lectures that explain a topic simply, for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
     "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
@@ -337,6 +340,23 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
           "",
         ]
       : []),
+    "EXPLAIN SIMPLY. You are a teacher explaining the book to a 12-year-old, not reading it aloud. The source may",
+    "be written in difficult, formal language; your narration must not be. For every idea:",
+    "  - say it in everyday spoken words and short sentences (under about 20 words each);",
+    "  - when a hard term must be used (biodiversity, ecosystem, primary producer), first say what it means in plain words,",
+    "    then use it; give an example or comparison from daily life (a forest is like a big shared house...);",
+    "  - never copy a sentence of the source; the compiler rejects a script that reads the book word for word;",
+    "  - it is fine to take more beats to explain one hard idea well. Explaining clearly matters more than covering",
+    "    every line. Skip what is not content: QR codes, page furniture, exercise instructions.",
+    "In a Hindi lecture use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words: say 'जंगल' and",
+    "'जीव-जंतु' rather than 'वनस्पतिजात' and 'प्राणिजात'; when the book's term matters, say it once and explain it,",
+    "and you may add the familiar English word in brackets.",
+    "",
+    "PICTURES, NOT BOXES OF WORDS. The stage should nearly always show a picture: an illustration of icons, a photo,",
+    "a document figure, icons on the map, a molecule or a graph. process and quote are boxes of words: use process only",
+    "for a real sequence of steps (at most two per chapter) and quote rarely. find_icon takes English words (tiger,",
+    "forest, deer, river, farmer) even for a Hindi lecture; give the label in the lecture's language.",
+    "",
     `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
     `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
     "returns an error when the script is well short; then add beats and chapters with new material, never padding.",

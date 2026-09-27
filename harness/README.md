@@ -56,6 +56,9 @@ has to show a human.
 
 ## Running it
 
+**Full local setup, including every downloadable library (icons, place names, voice, maps, fonts) and
+troubleshooting: [SETUP.md](SETUP.md).**
+
 ```sh
 harness/scripts/setup-python.sh   # creates .venv and installs Manim 0.21
 cd harness/app

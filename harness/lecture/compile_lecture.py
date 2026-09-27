@@ -238,6 +238,12 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     errors += _unknown_icons(icon_names)
     errors += _unfetched_photos(photos)
     warnings += _bare_stretches(script)
+    e, w = _plain_language(script)
+    errors += e
+    warnings += w
+    e, w = _text_heavy(script)
+    errors += e
+    warnings += w
     minutes = estimate_minutes(script)
     if min_minutes and chapters and minutes < min_minutes * 0.85:
         beats = sum(len(c.get("beats") or []) for c in chapters)
@@ -324,6 +330,79 @@ def _kit_problem(op: dict) -> str | None:
     return None
 
 
+# ---------------- explaining, not reading out the book ----------------
+COPY_RUN = 8            # this many words in a row, word for word from the source, is reading the book aloud
+LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
+TEXT_OPS = {"process", "quote"}
+PICTURE_OPS = {"photo", "figure", "illustration", "icon", "molecule", "equation", "plot", "bars"}
+NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
+
+
+def _word_list(text: str) -> list[str]:
+    """Lower-case words in any script (Devanagari's vowel signs are marks, so \\w alone would split them)."""
+    return re.findall(r"[\w\u0900-\u097F]+", str(text).lower())
+
+
+def _copied(say: str, grams: set) -> str | None:
+    """The first run of COPY_RUN words the line shares with the source, or None."""
+    words = _word_list(say)
+    for i in range(len(words) - COPY_RUN + 1):
+        if tuple(words[i:i + COPY_RUN]) in grams:
+            return " ".join(words[i:i + COPY_RUN])
+    return None
+
+
+def _plain_language(script: dict) -> tuple[list[str], list[str]]:
+    """Lines read out of the source book, and sentences too long to follow by ear.
+
+    A lecture explains: it says a textbook sentence in everyday words, with an
+    example. A few quoted phrases are fine; a script that is mostly the book's
+    own sentences is an error.
+    """
+    errors, warnings = [], []
+    source = _word_list(script.get("source_text") or "")
+    grams = {tuple(source[i:i + COPY_RUN]) for i in range(len(source) - COPY_RUN + 1)}
+    beats = [(f"chapter {ci + 1} beat {bi + 1}", b) for ci, c in enumerate(script.get("chapters") or [])
+             for bi, b in enumerate(c.get("beats") or [])]
+    copied = []
+    for at, beat in beats:
+        say = str(beat.get("say", ""))
+        run = _copied(say, grams) if grams else None
+        if run:
+            copied.append(f"{at} (\"{run}\")")
+        for sentence in re.split(r"[.!?।]+", say):
+            if len(sentence.split()) > LONG_SENTENCE:
+                warnings.append(f"{at}: a {len(sentence.split())}-word sentence is hard to follow by ear; "
+                                "split it into two short ones")
+                break
+    if copied and len(copied) > max(2, len(beats) // 5):
+        errors.append(f"{len(copied)} of {len(beats)} beats read the book word for word, e.g. {'; '.join(copied[:4])}. "
+                      "Explain instead: say each idea in simple everyday words, as a teacher would to a 12-year-old, "
+                      "with short sentences, a plain meaning for every hard term, and an example from daily life.")
+    else:
+        warnings += [f"{c}: word for word from the book; say it in simpler words" for c in copied]
+    return errors, warnings
+
+
+def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
+    """A lecture whose stage is mostly boxes of words (process, quote) instead of pictures."""
+    beats = [b for c in script.get("chapters") or [] for b in c.get("beats") or []]
+    if len(beats) < 6:
+        return [], []
+    wordy = [b for b in beats if {op.get("op") for op in b.get("do") or []} & TEXT_OPS
+             and not {op.get("op") for op in b.get("do") or []} & PICTURE_OPS]
+    figures = script.get("figures") or {}
+    warnings = [f"figure {op.get('id')} is a QR code or logo, not a diagram; drop it"
+                for b in beats for op in b.get("do") or []
+                if op.get("op") == "figure" and NOT_A_FIGURE.search(str((figures.get(str(op.get("id"))) or {}).get("caption", "")))]
+    if len(wordy) > max(3, len(beats) * 0.3):
+        return [f"{len(wordy)} of {len(beats)} beats show only boxes of words (process or quote) on the stage. "
+                "Show pictures instead: an illustration of icons (call find_icon with English words, even in a Hindi "
+                "lecture), a photo (find_image), a document figure, or icons on the map. Keep process for at most "
+                "two real sequences per chapter."], warnings
+    return [], warnings
+
+
 def _map_chapter(chapter: dict, has_region: bool) -> bool:
     """A chapter draws its map only when a beat points at the map, and never when told not to."""
     if not has_region or chapter.get("map") is False:
@@ -370,7 +449,8 @@ def place_figures(script: dict) -> int:
     if not figures or not beats:
         return 0
     used = {str(op.get("id")) for _, _, b in beats for op in b.get("do") or [] if op.get("op") == "figure"}
-    waiting = [fid for fid in figures if fid not in used]
+    waiting = [fid for fid in figures if fid not in used
+               and not NOT_A_FIGURE.search(str((figures[fid] or {}).get("caption", "")))]
     budget = max(0, len(beats) // 2 - len(used))
     taken = {i for i, (_, _, b) in enumerate(beats)
              if any(op.get("op") in VISUAL_OPS or _points_at_map(op) for op in b.get("do") or [])}

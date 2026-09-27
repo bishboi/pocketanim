@@ -600,13 +600,14 @@ async function viaOpenRouter(
           genre: subject?.genre,
           minMinutes: minutes,
           figures: doc ? scriptFigures(doc) : undefined,
+          sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
         });
         if (compiled.source) {
           scene = compiled.source;
           output = [
             `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
             ...compiled.warnings.map((w) => `warning: ${w}`),
-            compiled.warnings.length ? "Fix the warnings with another write_lecture if they matter; otherwise stop." : "Stop calling tools and reply in one sentence.",
+            compiled.warnings.length ? "Fix the warnings with another write_lecture (lines copied from the book and long sentences always matter); otherwise stop." : "Stop calling tools and reply in one sentence.",
           ].join("\n");
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");

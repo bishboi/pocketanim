@@ -20,7 +20,8 @@ VOCAB = {
     "geography": """river rivers mountain mountains plateau plain plains desert climate rainfall monsoon latitude
         longitude border borders state states region regions capital population district coast coastal delta
         forest forests soil soils crop crops agriculture irrigation relief terrain map continent ocean lake
-        lakes valley himalaya ganga ganges yamuna mineral minerals km area landforms tributary basin""",
+        lakes valley himalaya ganga ganges yamuna mineral minerals km area landforms tributary basin wildlife
+        conservation biodiversity resource resources sanctuary sanctuaries reserve reserves park parks""",
     "history": """empire emperor king kings queen dynasty war wars battle battles revolt revolution rebellion
         treaty kingdom sultan mughal british colonial independence century centuries ancient medieval reign
         ruled ruler rulers conquered invasion army armies freedom movement partition president parliament
@@ -45,6 +46,26 @@ VOCAB = {
     "economics": """economy economic market markets price prices demand supply inflation gdp growth trade
         export exports import imports tax taxes bank banks money investment income employment unemployment
         industry industries budget fiscal monetary interest profit cost costs""",
+}
+# The same subjects in Hindi (NCERT's vocabulary), so a Hindi chapter is classified by its words, not only its dates.
+VOCAB_HI = {
+    "geography": """नदी नदियाँ नदियों पर्वत पहाड़ पठार मैदान मरुस्थल जलवायु वर्षा मानसून अक्षांश देशांतर सीमा राज्य राज्यों
+        क्षेत्र क्षेत्रों प्रदेश राजधानी जनसंख्या जिला जिले जिलों तट तटीय डेल्टा वन वनों जंगल जंगलों मृदा मिट्टी फसल फसलें
+        कृषि सिंचाई भूमि महाद्वीप महासागर झील घाटी हिमालय गंगा यमुना खनिज संसाधन संसाधनों वन्य संरक्षण अभयारण्य उद्यान
+        आवास पर्यावरण भूगोल मानचित्र""",
+    "history": """साम्राज्य सम्राट राजा राजाओं रानी वंश राजवंश युद्ध युद्धों लड़ाई विद्रोह क्रांति संधि सुल्तान मुगल ब्रिटिश
+        अंग्रेज़ अंग्रेज औपनिवेशिक स्वतंत्रता आज़ादी शताब्दी सदी प्राचीन मध्यकालीन शासन शासक शासकों आक्रमण सेना विभाजन
+        संविधान सभ्यता इतिहास इतिहासकार किला राष्ट्रवाद""",
+    "biology": """कोशिका कोशिकाएँ ऊतक अंग संश्लेषण श्वसन आनुवंशिक गुणसूत्र प्रोटीन एंजाइम जीवाणु विषाणु विकास हृदय रक्त
+        पाचन तंत्रिका हार्मोन पौधे पौधा जंतु पत्ती पत्तियाँ जड़ प्रजनन केंद्रक""",
+    "chemistry": """परमाणु अणु यौगिक तत्व अभिक्रिया अभिक्रियाएँ अम्ल क्षार लवण आबंध आयन इलेक्ट्रॉन संयोजकता ऑक्सीकरण अपचयन
+        उत्प्रेरक विलयन धातु धातुएँ कार्बन हाइड्रोजन ऑक्सीजन नाइट्रोजन रासायनिक दहन""",
+    "physics": """बल गति वेग चाल त्वरण द्रव्यमान ऊर्जा संवेग गुरुत्वाकर्षण तरंग तरंगें ध्वनि आवृत्ति तरंगदैर्ध्य विद्युत
+        धारा विभव प्रतिरोध चुंबकीय घर्षण दाब ऊष्मा ताप लेंस दर्पण अपवर्तन परावर्तन ग्रह तारा""",
+    "mathematics": """समीकरण फलन ग्राफ अवकलज समाकलन बीजगणित ज्यामिति त्रिभुज वृत्त कोण प्रमेय उपपत्ति अभाज्य संख्या
+        संख्याएँ भिन्न प्रायिकता सांख्यिकी आव्यूह सदिश बहुपद द्विघात रैखिक घातांक लघुगणक अनुक्रम श्रेणी गुणनफल अनुपात""",
+    "economics": """अर्थव्यवस्था आर्थिक बाज़ार बाजार मूल्य कीमत माँग मांग आपूर्ति मुद्रास्फीति जीडीपी व्यापार निर्यात आयात
+        बैंक मुद्रा निवेश आय रोज़गार रोजगार बेरोज़गारी उद्योग बजट ब्याज लाभ लागत""",
 }
 PROFILES = {
     "geography": {
@@ -99,7 +120,7 @@ PROFILES = {
                     "only for where.",
     },
 }
-WORDS = {genre: set(v.split()) for genre, v in VOCAB.items()}
+WORDS = {genre: set(v.split()) | set(VOCAB_HI.get(genre, "").split()) for genre, v in VOCAB.items()}
 FORMULA = re.compile(r"\b(?:[A-Z][a-z]?\d*){2,}\b")
 YEAR = re.compile(r"\b(1[0-9]{3}|20[0-2][0-9])\b|\b\d{1,2}(?:st|nd|rd|th) century\b", re.I)
 MATHS = re.compile(r"[=^√∫∑π]|\b(sin|cos|tan|log|dx|dy)\b")
@@ -108,7 +129,7 @@ MATHS = re.compile(r"[=^√∫∑π]|\b(sin|cos|tan|log|dx|dy)\b")
 def classify(text: str) -> dict:
     """{genre, label, style, map, kit, guidance, scores, confidence, why}."""
     low = (text or "").lower()
-    tokens = re.findall(r"[a-z]+", low)
+    tokens = re.findall(r"[a-z]+|[\u0900-\u097F]+", low)
     total = max(len(tokens), 1)
     scores = {g: sum(1 for t in tokens if t in words) / total * 100 for g, words in WORDS.items()}
     why = []

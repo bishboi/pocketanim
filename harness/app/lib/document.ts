@@ -107,13 +107,17 @@ export function scriptFigures(doc: DocumentManifest): Record<string, { file: str
 }
 
 /** The lines of the prompt that tell the model which figures it may show. */
+/** QR codes, logos and the like: images in a document that are not diagrams to teach from. */
+const NOT_A_FIGURE = /\b(QR|bar ?code|logo|watermark)\b|क्यूआर/i;
+
 export function figurePrompt(doc: DocumentManifest): string {
-  if (!doc.figures.length) return "";
+  const figures = doc.figures.filter((f) => !NOT_A_FIGURE.test(f.caption));
+  if (!figures.length) return "";
   return [
     "",
-    `FIGURES from the uploaded document (${doc.figures.length}). Show each where the text explains it, with`,
+    `FIGURES from the uploaded document (${figures.length}). Show each where the text explains it, with`,
     '{"op":"figure","id":"fig1","caption"?,"where"?:"panel"|"full"}: "panel" (default) beside the map, "full" across the',
     "frame for one beat when the detail matters. The text marks where each figure sits as [FIGURE figN: caption].",
-    ...doc.figures.map((f) => `  ${f.id}: ${f.caption}${f.page ? ` (page ${f.page})` : ""}`),
+    ...figures.map((f) => `  ${f.id}: ${f.caption}${f.page ? ` (page ${f.page})` : ""}`),
   ].join("\n");
 }

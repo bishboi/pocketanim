@@ -32,11 +32,15 @@ def cmd_new(args) -> int:
         brief = Path(args.brief_file).read_text(encoding="utf-8")
     sources = [str(Path(s).resolve()) if not s.startswith("http") else s for s in args.source or []]
     job_id = slug(args.id)
-    template = registry.load_template(args.template)
-    style = registry.resolve_style(args.style, args.template)
-    problems = registry.check_compat(template, style, args.lang)
+    auto = args.template == "auto" or args.style == "auto"
+    problems = []
+    if not auto:
+        # "auto" is decided from the sources at the resolve state, where compatibility is checked.
+        template = registry.load_template(args.template)
+        style = registry.resolve_style(args.style, args.template)
+        problems = registry.check_compat(template, style, args.lang)
     if problems:
-        nearest = registry.nearest_compatible(template, args.style, args.lang)
+        nearest = registry.nearest_compatible(template, args.style, args.lang)  # noqa: F821 -- set when not auto
         print("incompatible: " + "; ".join(problems) + (f" (try --style {nearest})" if nearest else ""),
               file=sys.stderr)
         return 2
@@ -141,8 +145,8 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("new", help="create a job")
     p.add_argument("id")
-    p.add_argument("--template", required=True)
-    p.add_argument("--style", required=True)
+    p.add_argument("--template", default="auto", help="a template id, or auto: chosen from the content's subject")
+    p.add_argument("--style", default="auto", help="a style pack id, or auto: the subject's style")
     p.add_argument("--title")
     p.add_argument("--subtitle")
     p.add_argument("--brief")

@@ -69,7 +69,12 @@ function runPython(args: string[], input?: string): Promise<{ code: number; stdo
  */
 export async function compileLecture(
   script: unknown,
-  options: { style?: string; minMinutes?: number; figures?: Record<string, { file: string; caption: string }> } = {},
+  options: {
+    style?: string;
+    minMinutes?: number;
+    figures?: Record<string, { file: string; caption: string }>;
+    genre?: string;
+  } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
   // The figures table comes from the uploaded document, never from the model.
@@ -79,6 +84,7 @@ export async function compileLecture(
           ...script,
           ...(options.style ? { style: options.style } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
+          ...(options.genre ? { genre: options.genre } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
@@ -88,6 +94,26 @@ export async function compileLecture(
     return JSON.parse(stdout.trim().split("\n").pop() || "") as Compiled;
   } catch {
     return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
+  }
+}
+
+export type Subject = {
+  genre: string;
+  label: string;
+  style: string;
+  map: "often" | "sometimes" | "rarely" | "never";
+  kit: string[];
+  guidance: string;
+  why: string[];
+};
+
+/** The content's subject and its kit (harness/lecture/genre.py): style, map policy, pictures to prefer. */
+export async function classifySubject(text: string): Promise<Subject> {
+  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "genre.py")], text.slice(0, 20000));
+  try {
+    return JSON.parse(stdout) as Subject;
+  } catch {
+    return { genre: "general", label: "General", style: "vox", map: "sometimes", kit: [], guidance: "", why: [] };
   }
 }
 
@@ -160,7 +186,9 @@ function reflow(content: string): string[] {
  *
  * The first line is the title; every later line is a beat. A line that
  * carries a number shows it as a big stat, anything else as a fact; three
- * beats make a panel. With a region the lecture draws its map.
+ * beats make a panel. The first beat shows the region on the map; after
+ * that the stage carries the document's figures and the illustrations the
+ * compiler draws from each beat's words.
  */
 export function fixtureScript(content: string, template: Template, region: LectureRegion | null, instruction?: string): LectureScript {
   const lines = reflow(content);
@@ -176,12 +204,12 @@ export function fixtureScript(content: string, template: Template, region: Lectu
       title: heading,
       sub: title,
       narration: `Chapter ${index + 1}. ${heading}.`,
-      map: Boolean(region),
       beats: chunk.map((line, j) => {
         const marked = line.match(FIGURE_LINE);
-        if (marked) return { say: marked[2] || "Here is the figure.", do: [{ op: "figure", id: marked[1] }] };
+        if (marked) return { say: marked[2] || "Here is the figure.", do: [{ op: "figure", id: marked[1], where: "stage" }] };
         const ops: BeatOp[] = [];
         if (j === 0) ops.push({ op: "panel", title: heading });
+        if (index === 0 && j === 0 && region?.state) ops.push({ op: "state", name: region.state, color: "SAND", opacity: 0.5 });
         const found = line.match(NUMBER);
         if (found && found[0].trim().length > 1) {
           ops.push({ op: "stat", value: found[0].trim(), label: short(line, 70) });
@@ -235,6 +263,44 @@ export async function findIcon(queries: unknown): Promise<string> {
   }
 }
 
+export const IMAGE_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "find_image",
+    description:
+      "Search Wikimedia Commons for reusable photographs (public domain, CC0, CC BY, CC BY-SA only). Returns titles to use in a photo op, with what each shows.",
+    parameters: {
+      type: "object",
+      properties: { queries: { type: "array", items: { type: "string" }, description: "Scenes, e.g. [\"sugarcane field India\", \"Dudhwa tiger\"]" } },
+      required: ["queries"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** find_image: a few reusable photos per query, as lines the model can choose from. */
+export async function findImage(queries: unknown): Promise<string> {
+  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 80)).filter(Boolean).slice(0, 6);
+  if (!words.length) return "Give queries: a list of scene descriptions.";
+  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "images.py"), ...words]);
+  try {
+    const found = JSON.parse(stdout.trim() || "{}") as Record<
+      string,
+      { id: string; description: string; width: number; height: number; license: string }[]
+    >;
+    return Object.entries(found)
+      .map(([q, rows]) =>
+        `${q}:\n` +
+        (rows.length
+          ? rows.map((r) => `  ${r.id} (${r.width}x${r.height}, ${r.license}) ${r.description.slice(0, 100)}`).join("\n")
+          : "  nothing reusable found (or no internet here); use an illustration instead"),
+      )
+      .join("\n");
+  } catch {
+    return "Image search is unavailable; use illustrations and icons.";
+  }
+}
+
 export const LECTURE_TOOL = {
   type: "function" as const,
   function: {
@@ -256,7 +322,7 @@ export const LECTURE_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES): string {
+export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES, subject?: Subject): string {
   const words = Math.round(minutes * 140);
   const beats = Math.round((minutes * 60) / 11);
   return [
@@ -264,6 +330,13 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
     "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
+    ...(subject
+      ? [
+          `SUBJECT. This is a ${subject.label} lecture. ${subject.guidance}`,
+          `The map is used ${subject.map} in ${subject.label.toLowerCase()} lectures. Favour: ${subject.kit.join(", ")}.`,
+          "",
+        ]
+      : []),
     `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
     `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
     "returns an error when the script is well short; then add beats and chapters with new material, never padding.",
@@ -274,7 +347,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "",
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
-    ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...", "map": true,',
+    ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...",',
     '   "beats": [{"say": "...", "do": [ops]}]}], "recap": [["Head", "short body"]], "credits": "..."}',
     "",
     "Operations (colour = palette name SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
@@ -283,6 +356,25 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"stat","value","label","color"?} a big number with a label',
     '  {"op":"bars","items":[["label",n]...],"unit"?,"color"?}  a small bar chart, at most 6 bars',
     '  {"op":"clear"}                         empty the panel',
+    "THE STAGE. The left half of the frame shows one picture at a time; the panel on the right holds the words.",
+    "Make it immersive: most beats should change or build the picture. Use the MAP only for beats about where",
+    "something is (a place, a route, a spread across a region); a chapter with no map operation has no map at all.",
+    "Otherwise put a picture on the stage:",
+    '  {"op":"photo","image":"File:....jpg" (from find_image) | "query":"sugarcane harvest","caption"?,"where"?:"stage"|"full"|"panel"}',
+    "                                          a real photograph from Wikimedia Commons, credited automatically",
+    '  {"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"],["sheaf-of-rice","Kharif"]],"title"?,"color"?}',
+    "                                          an illustration built from icons: one large, up to four small, labelled",
+    '  {"op":"figure","id":"fig2","where":"stage"}   a diagram from the uploaded document, large',
+    '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula, atoms in CPK colours',
+    '  {"op":"equation","tex":"6CO_2 + 6H_2O -> C_6H_{12}O_6 + 6O_2","label"?}   a law or a reaction, large',
+    '  {"op":"plot","expr":"x^2/2" | "exprs":["x^2","3*x"],"x":[0,6],"x_label"?,"y_label"?,"names"?,"label"?}   graphs of x',
+    '  {"op":"process","steps":["Evaporation","Condensation","Rain"],"cycle"?:true,"title"?}   steps joined by arrows',
+    '  {"op":"timeline","events":[["1526","Panipat"],["1556","Akbar"]],"title"?}   an era across the stage',
+    '  {"op":"quote","text":"...","who":"Akbar"}   a primary source, in its own words',
+    "Call find_image for photos (describe the scene: 'sugarcane field India', 'Ganges ghats Varanasi') and use a",
+    "title it returns. A map chapter may still show a photo: it covers the map until the next map operation.",
+    "Beats you leave without a picture get an automatic illustration from their words, so choose the important ones.",
+    "",
     "Map operations (only with a region):",
     '  {"op":"marker","place":"Jaipur" | "lonlat":[lon,lat],"label"?,"color"?,"side"?:"left|right|up|down"}',
     '  {"op":"river","name":"Ganges","color"?}   a Natural Earth river by its English name',

@@ -447,21 +447,27 @@ def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict
         have_icons = bool(icons.available())
     except ImportError:
         have_icons = False
-    is_map = registry.load_template(template["id"])["layouts"].get(chapter["layout"], {}).get("map", True) \
+    # Map work only where the slot is about the map; elsewhere the stage carries
+    # the chapter (figures, illustrations), and the map is not drawn at all.
+    wants_map = bool({"map", "marker", "route", "river", "unit"} & set(chapter.get("required", [])))
+    is_map = wants_map and registry.load_template(template["id"])["layouts"].get(chapter["layout"], {}).get("map", True) \
         and bool(job.spec.get("region_id"))
     battle = "unit" in chapter.get("required", [])
     fact_claims = {f["claim"] for f in facts["facts"]}
     beats, seen_places, seen_rivers = [], set(), set()
     deployed = False
+    region_name = (ctx.pack or {}).get("name", "") if ctx.pack else ""
     for index, line in enumerate(lines):
         ops: list[dict] = []
         if index == 0 and chapter["slot"] not in ("prologue", "intro"):
             ops.append({"op": "panel", "title": chapter["title"]})
+
         figure = FIGURE_MARK.fullmatch(line.strip())
         if figure:
             caption = figure.group(2).strip() or "Here is the figure from the source."
             beats.append({"id": f"b{index + 1:02d}", "say": caption,
-                          "do": ops + [{"op": "panel", "title": chapter["title"]}, {"op": "figure", "id": figure.group(1)}],
+                          "do": ops + [{"op": "panel", "title": chapter["title"]},
+                                       {"op": "figure", "id": figure.group(1), "where": "stage"}],
                           "sources": []})
             continue
         if battle and ctx.units and not deployed:
@@ -503,6 +509,16 @@ def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict
         beats.append({"id": f"b{index + 1:02d}", "say": line, "do": placed + rest[:5],
                       "sources": [p["id"] for p in bundle["passages"] if p["id"] in chapter["passages"]
                                   and line[:30] in p["text"]][:1]})
+    # A chapter that ended up with nothing on the map opens on a photograph of
+    # its subject, when one can be found (compile drops it otherwise, and
+    # illustrates the beat instead).
+    from forge.engine.compile import points_at_map
+
+    if beats and not battle and chapter["slot"] not in ("prologue", "intro") and \
+            not any(points_at_map(op) for b in beats for op in b["do"]) and \
+            not any(op["op"] in ("figure", "photo") for op in beats[0]["do"]):
+        subject = re.sub(r"[^\w\s]", " ", chapter["title"]).strip()
+        beats[0]["do"].insert(1, {"op": "photo", "query": f"{region_name} {subject}".strip(), "caption": chapter["title"]})
     return {"beats": beats}
 
 

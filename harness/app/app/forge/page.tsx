@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { VersionBar } from "@/components/version-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,7 +58,7 @@ export default function ForgePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
-    id: "", title: "", subtitle: "", template: "geography_lecture", style: "atlas", region: "",
+    id: "", title: "", subtitle: "", template: "auto", style: "auto", region: "",
     minutes: "", quality: "m", brief: "", reviewOutline: false, reviewPreview: false, phone: false,
   });
   const [note, setNote] = useState("");
@@ -152,6 +153,7 @@ export default function ForgePage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-8 text-neutral-200">
+      <VersionBar />
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-neutral-100">Lecture Forge</h1>
@@ -187,6 +189,7 @@ export default function ForgePage() {
                   Template
                   <select className={input} value={form.template} aria-label="Template"
                     onChange={(e) => setForm({ ...form, template: e.target.value })}>
+                    <option value="auto">Auto (from the content)</option>
                     {Object.entries(registry.templates ?? {}).map(([id, t]) => (
                       <option key={id} value={id}>{t.label ?? id}</option>
                     ))}
@@ -196,6 +199,7 @@ export default function ForgePage() {
                   Style
                   <select className={input} value={form.style} aria-label="Style"
                     onChange={(e) => setForm({ ...form, style: e.target.value })}>
+                    <option value="auto">Auto (the subject&apos;s style)</option>
                     {Object.entries(registry.styles ?? {}).map(([id, s]) => (
                       <option key={id} value={id}>{(s.label ?? id) + (s.status === "draft" ? " (draft)" : "")}</option>
                     ))}

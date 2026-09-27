@@ -1,0 +1,29 @@
+id: cosmos
+version: 1.0.0
+label: Cosmos
+description: "Physics and space: night sky, cyan light."
+extends: atlas
+engine_theme: cosmos   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#E6ECFF"
+  muted: "#8B95B8"
+  accent: "#7DD3FC"
+  highlight: "#FDE68A"
+  friendly: "#2E86AB"
+  enemy: "#C0392B"
+  ally: "#43A047"
+  neutral: "#8B95B8"
+  water: "#2E86AB"
+  land: "#121836"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn, Deva]
+voice:
+  engine: auto
+  name: am_adam
+  speed: 1.0
+music:
+  preset: drone
+  volume: 0.07
+  duck_db: 15

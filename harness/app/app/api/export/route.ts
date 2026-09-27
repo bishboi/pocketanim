@@ -4,6 +4,7 @@ import path from "node:path";
 import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
+import { ensureKokoro, voiceEngine } from "@/lib/version";
 
 export const runtime = "nodejs";
 // An export runs Manim, which is slow the first time in a cold container.
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
+    // A lecture is voiced by Kokoro-82M: fetch it first if this machine lacks it.
+    if (/pocket_lecture/.test(source)) await ensureKokoro();
     const { result, buildDir } = await exportScene(source, sceneClass);
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
@@ -44,7 +47,18 @@ export async function POST(request: NextRequest) {
       narrationUrl = `/api/audio?file=${encodeURIComponent(name)}`;
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl });
+    // A lecture with no narration means no voice could speak here: say so,
+    // rather than hand back a video that is silent for no visible reason.
+    let voiceWarning: string | null = null;
+    if (!narrationUrl && /pocket_lecture/.test(source)) {
+      const engine = voiceEngine();
+      voiceWarning = engine === "none"
+        ? "This lecture has no audio: Kokoro-82M could not be downloaded (are you offline?). Click download " +
+          "next to Voice at the top, or run harness/scripts/fetch_voice.py, then build again."
+        : `This lecture has no audio although ${engine} is installed. Check the dev server log for the voice error.`;
+    }
+
+    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

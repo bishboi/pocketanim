@@ -18,6 +18,16 @@ cd harness/forge
 ../../.venv/bin/python -m forge restyle plassey blueprint && ../../.venv/bin/python -m forge make plassey
 ```
 
+`--template` and `--style` default to `auto`. The resolve state reads the sources, classifies the subject
+(`harness/lecture/genre.py`) and picks the template and style: `history_lecture` + parchment for history,
+`science_explainer` + lab, cosmos or chalkboard for the sciences and maths, `geography_lecture` + vox for
+geography, and `explainer` for economics and anything else. A subject that
+never uses a map gets no region. `examples/combustion.md` is a chemistry example:
+
+```
+../../.venv/bin/python -m forge new combustion --brief-file examples/combustion.md   # science_explainer, lab
+```
+
 The same commands are available over HTTP in the harness app at `/forge`
 (`/api/forge`, `/api/forge/<id>`, `/api/forge/<id>/file`).
 
@@ -58,6 +68,11 @@ sources alone. Every line they narrate is a source sentence, and every number
 on screen is one of that sentence's numbers. So the whole pipeline runs, and
 is tested, with no network.
 
+## Voice
+
+Narration is spoken by Kokoro-82M in the style's voice. The narrate stage downloads it when it is missing
+(`FORGE_FETCH_VOICE=0` turns that off; `FORGE_VOICE=espeak` forces espeak-ng).
+
 ## Gates (`forge/gates.py`, `forge/engine/qa.py`)
 
 Before render, the gates check:
@@ -93,6 +108,23 @@ is set, pypdf otherwise. Its figures join `bundle.json` as `s1_fig3` and so on. 
 mineral, industry or animal, at the place named in the same sentence.
 
 The web page's **Upload lecture PDF** button makes the PDF the job's source.
+
+## The stage
+
+A chapter draws its map only if its beats point at the map. Everything else plays on the stage:
+- `photo`: a Wikimedia Commons photo with a reusable licence;
+- `illustration`: a composition of icons;
+- `figure`: a diagram from a source PDF.
+
+Science and history kits add `molecule`, `equation`, `plot`, `process`, `quote`, and `timeline` with
+`"where":"stage"` (see `harness/lecture/README.md`). PDF figures the script leaves out are placed on the
+best-matching beats automatically.
+
+The offline writer does map work only in slots about the map. Each map-free chapter opens on a photo of
+its subject when one can be found.
+
+Beats without a picture are illustrated from their own words, as in the editor. Photo and icon credits
+go at the end of the video and in `out/credits.txt`.
 
 ## Libraries
 

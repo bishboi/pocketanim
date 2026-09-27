@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ICON_TOOL, LECTURE_TOOL, compileLecture, findIcon, fixtureScript, lecturePrompt, resolveRegion, targetMinutes } from "./lecture";
+import { ICON_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIcon, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -227,7 +227,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL | typeof IMAGE_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -421,10 +421,14 @@ async function viaOpenRouter(
   const lecture = isLecture(template);
   const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`);
   const doc = await documentOf(request);
-  const system = lecture ? lecturePrompt(template, minutes) + (doc ? figurePrompt(doc) : "") : systemPrompt(template);
+  const subject = lecture ? await subjectOf(request, emit) : null;
+  const style = lecture ? effectiveStyle(template, subject) : template.style;
+  const system = lecture
+    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined) + (doc ? figurePrompt(doc) : "")
+    : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
-  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, EDIT_TOOL] : TOOLS;
+  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, IMAGE_TOOL, EDIT_TOOL] : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -591,7 +595,8 @@ async function viaOpenRouter(
       let output: string;
       if (call.function.name === "write_lecture") {
         const compiled = await compileLecture(args.script ?? {}, {
-          style: template.style,
+          style,
+          genre: subject?.genre,
           minMinutes: minutes,
           figures: doc ? scriptFigures(doc) : undefined,
         });
@@ -605,6 +610,8 @@ async function viaOpenRouter(
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
         }
+      } else if (call.function.name === "find_image") {
+        output = await findImage((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_icon") {
         output = await findIcon((args as { queries?: unknown }).queries);
       } else {
@@ -664,13 +671,16 @@ async function lectureFixture(
 ): Promise<Generated> {
   emit({ type: "input", role: "user", text: lectureUserPrompt(request) });
   emit({ type: "message", role: "assistant", text: "Offline agent. No model tokens." });
-  const region = await resolveRegion(request.content);
-  emit({ type: "message", role: "status", text: region ? `Map: ${region.state ?? region.country}` : "No place named; a lecture without a map." });
-  const script = fixtureScript(request.content, template, region, request.instruction);
+  const subject = await subjectOf(request, emit);
+  const style = effectiveStyle(template, subject);
+  // Subjects that rarely need a map (chemistry, physics, maths, biology) do without one.
+  const region = subject.map === "never" || subject.map === "rarely" ? null : await resolveRegion(request.content);
+  emit({ type: "message", role: "status", text: region ? `Map: ${region.state ?? region.country}` : "No map for this lecture." });
+  const script = fixtureScript(request.content, { ...template, style }, region, request.instruction);
   const doc = await documentOf(request);
   const args = JSON.stringify({ script });
   emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
-  const compiled = await compileLecture(script, { style: template.style, figures: doc ? scriptFigures(doc) : undefined });
+  const compiled = await compileLecture(script, { style, genre: subject.genre, figures: doc ? scriptFigures(doc) : undefined });
   if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
   emit({
     type: "tool_result",
@@ -919,4 +929,20 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
   } catch {
     return null;
   }
+}
+
+/** The content's subject, announced in the trace so the choice is visible. */
+async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
+  const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`);
+  emit({
+    type: "message",
+    role: "status",
+    text: `Subject: ${subject.label} (map ${subject.map}; ${subject.style} style${subject.why.length ? `; ${subject.why.join(", ")}` : ""})`,
+  });
+  return subject;
+}
+
+/** The engine style: the template's, or the subject's when the template is Auto. */
+function effectiveStyle(template: Template, subject: Subject | null): string | undefined {
+  return template.style === "auto" ? subject?.style ?? "vox" : template.style;
 }

@@ -1,0 +1,14 @@
+id: history_lecture
+version: 1.0.0
+label: History lecture
+description: A period or event told as a story -- setting, rise, turning point, consequences, legacy -- with timelines, quotes and sources.
+requires_ops: [panel, fact, timeline]
+requires_roles: [ink, accent]
+compatible_styles: ["*"]
+target_minutes: {min: 3, default: 10, max: 30}
+words_per_minute: 145
+beat_words: {min: 8, max: 40}
+layouts:
+  stage: {map: false, panel: true}
+  map_panel: {map: true, panel: true}
+default_layout: stage

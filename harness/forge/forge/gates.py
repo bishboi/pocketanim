@@ -122,6 +122,25 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
+            if name in ("molecule", "equation", "plot", "process", "quote"):
+                import sys as _sys
+
+                from forge.util import LECTURE
+                if str(LECTURE) not in _sys.path:
+                    _sys.path.insert(0, str(LECTURE))
+                from compile_lecture import _kit_problem
+
+                problem = _kit_problem(op)
+                if problem:
+                    errors.append(_err("schema", chapter["id"], bid, problem, True))
+            if name == "photo" and not (op.get("image") or op.get("query")):
+                errors.append(_err("schema", chapter["id"], bid, "photo needs image or query", True))
+            if name == "illustration":
+                import icons
+
+                for icon_name in [op.get("icon")] + [i if isinstance(i, str) else i[0] for i in op.get("items") or []]:
+                    if icons.available() and icons.resolve(str(icon_name or "")) is None:
+                        errors.append(_err("schema", chapter["id"], bid, f"no icon for {icon_name!r}", True))
             if name == "figure":
                 known = {f["id"] for f in (job.read("bundle.json") or {}).get("figures", [])}
                 if op.get("id") not in known:
@@ -293,8 +312,8 @@ def _panel_height(op: dict) -> float:
     kind = op.get("op")
     if kind == "icon":
         return 0.0 if op.get("places") else 0.87
-    if kind == "figure":
-        return 3.2 if op.get("where", "panel") == "panel" else 0.0
+    if kind in ("figure", "photo"):
+        return 3.2 if op.get("where") == "panel" else 0.0
     return {"panel": 1.3 if op.get("sub") else 0.95, "stat": 1.05, "compare": 1.2, "timeline": 1.6,
             "network": 3.3}.get(kind, (max(1, -(-len(str(op.get("text", ""))) // 36)) * 0.33 + 0.22) if kind == "fact"
                                 else len(op.get("items") or []) * 0.42 + 0.3 if kind == "bars" else 0.0)

@@ -126,6 +126,39 @@ THEMES: dict[str, dict] = {
         nb_fill="#224536", nb_stroke="#3E6B58", nb_hi="#2E5A47", st_stroke="#4F7D69", st_hi="#9FC7B5",
         track="#2E5243", anim="write", map_stroke="#F4F0E4", jitter=0.01, voice="am_michael",
     ),
+    # History: an old page. Brown ink, a serif for reading, capitals for titles.
+    "parchment": dict(
+        label="Parchment",
+        pal=dict(_INK, SAND="#8C5A2B", DUNE="#9C6B3A", TERRA="#8E3B2E", CREAM="#3B2A1A", MUTED="#7A6650",
+                 GOLD="#A0781E", ROSE="#8E2C23", RIVER="#2F5D7C", TEAL="#3E6E63", GREEN="#566B2E",
+                 HI="#2A1B0E", VIOLET="#5D3A6E", MOUNT="#8A7A62"),
+        bg="#EFE3C6", texture="parchment", sans="EB Garamond", serif="Cinzel", upper=False,
+        title_col="#6B2E1A", panel="#E9DBB8", panel_style="rule", cap_bg="#3B2A1A", cap_fg="#F6EEDC",
+        cap_op=0.9, nb_fill="#E2D3AE", nb_stroke="#C2AE85", nb_hi="#E9C9A8", st_stroke="#B8A47C",
+        st_hi="#8C7650", track="#D8C79F", anim="fade", land="#F6ECD4", map_stroke="#5A4128", voice="bm_george",
+    ),
+    # Biology and chemistry: a clean bench. White, teal, a sans throughout.
+    "lab": dict(
+        label="Lab",
+        pal=dict(_INK, SAND="#0F8B8D", DUNE="#E07A5F", TERRA="#C8553D", CREAM="#12303A", MUTED="#5B7480",
+                 GOLD="#E8A33D", ROSE="#D1495B", RIVER="#2E86AB", TEAL="#0F8B8D", GREEN="#43A047",
+                 HI="#0B1F26", VIOLET="#7B61FF", MOUNT="#90A4AE"),
+        bg="#F4F8F8", texture="dots", sans="Poppins", serif="Poppins", upper=False,
+        title_col="#0F8B8D", panel="#FFFFFF", panel_style="solid", cap_bg="#12303A", cap_fg="#FFFFFF",
+        cap_op=0.92, nb_fill="#E3ECEC", nb_stroke="#C5D3D3", nb_hi="#D6EEEE", st_stroke="#C5D3D3",
+        st_hi="#8FAFB0", track="#DCE6E6", anim="fade", land="#FFFFFF", map_stroke="#12303A", voice="af_sarah",
+    ),
+    # Physics and space: a night sky. Cyan light on deep blue.
+    "cosmos": dict(
+        label="Cosmos",
+        pal=dict(_DARK, SAND="#7DD3FC", DUNE="#F9A8D4", TERRA="#FB923C", CREAM="#E6ECFF", MUTED="#8B95B8",
+                 GOLD="#FDE68A", ROSE="#F472B6", RIVER="#60A5FA", TEAL="#5EEAD4", GREEN="#86EFAC",
+                 HI="#FFFFFF", VIOLET="#C4B5FD", MOUNT="#A5B4FC"),
+        bg="#0A0E1F", texture="stars", sans="Poppins", serif="Poppins", upper=True,
+        title_col="#7DD3FC", panel="#0F1530", panel_style="solid", cap_bg="#05070F", cap_fg="#E6ECFF",
+        cap_op=0.85, nb_fill="#121836", nb_stroke="#2A3566", nb_hi="#1E2750", st_stroke="#2F3B70",
+        st_hi="#6D7BC4", track="#1B2350", anim="fade", map_stroke="#A5B4FC", voice="am_adam",
+    ),
 }
 
 # Fonts the styles name. Missing ones fall back through Pango; the glyphs are
@@ -139,6 +172,8 @@ FONTS = {
     "PatrickHand-Regular.ttf": "ofl/patrickhand/PatrickHand-Regular.ttf",
     "PermanentMarker-Regular.ttf": "apache/permanentmarker/PermanentMarker-Regular.ttf",
     "Oswald[wght].ttf": "ofl/oswald/Oswald%5Bwght%5D.ttf",
+    "EBGaramond[wght].ttf": "ofl/ebgaramond/EBGaramond%5Bwght%5D.ttf",
+    "Cinzel[wght].ttf": "ofl/cinzel/Cinzel%5Bwght%5D.ttf",
     "LibreFranklin[wght].ttf": "ofl/librefranklin/LibreFranklin%5Bwght%5D.ttf",
     "IBMPlexMono-Regular.ttf": "ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
     "IBMPlexMono-Bold.ttf": "ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
@@ -361,16 +396,71 @@ def spoken_lang(text: str) -> str:
     return "en"
 
 
-def narrate(text: str) -> tuple[str | None, float]:
-    """(wav path or None, seconds) for one line, cached by its spoken text.
+# The Kokoro voice each style speaks in (the editor's lecture templates name the same).
+STYLE_VOICES = {"atlas": "bf_emma", "vox": "af_bella", "cardboard": "am_michael", "whiteboard": "am_adam",
+                "blueprint": "am_eric", "chalkboard": "am_michael", "parchment": "bm_george", "lab": "af_sarah",
+                "cosmos": "am_adam"}
+KOKORO_WEIGHTS = (HERE.parent / "models" / "kokoro-v1.0.onnx", HERE.parent / "models" / "voices-v1.0.bin")
 
-    PANIM_VOICE picks the voice: `auto` (espeak-ng if installed, else
-    silent), `espeak`, `silent`, or `kokoro:<voice>` for the harness's
-    Kokoro. A voice that is missing is an estimate, not a crash: the beat
-    still holds for as long as the sentence would take.
+
+def kokoro_ready() -> bool:
+    """Kokoro can speak here: the package is installed and its weights are downloaded."""
+    import importlib.util
+
+    return importlib.util.find_spec("kokoro_onnx") is not None and all(
+        w.exists() and w.stat().st_size > 1_000_000 for w in KOKORO_WEIGHTS)
+
+
+def _espeak_binary() -> str | None:
+    return shutil.which("espeak-ng") or shutil.which("espeak")
+
+
+def voice_mode() -> str:
+    """The voice lines are actually spoken in: kokoro:<voice>, espeak or silent.
+
+    PANIM_VOICE asks for one: `auto` (the default) is Kokoro when it is ready,
+    else espeak-ng when installed, else silent; `kokoro[:voice]` falls back the
+    same way. The answer is part of each line's cache key, so installing a
+    better voice re-speaks lines an older one cached.
+    """
+    mode = os.environ.get("PANIM_VOICE", "auto")
+    if mode == "silent":
+        return "silent"
+    if mode in ("auto", "kokoro") or mode.startswith("kokoro:"):
+        if kokoro_ready():
+            voice = mode.split(":", 1)[1] if ":" in mode else STYLE_VOICES.get(STYLE, "af_sarah")
+            return f"kokoro:{voice}"
+    return "espeak" if _espeak_binary() else "silent"
+
+
+@lru_cache(None)
+def _kokoro():
+    from kokoro_onnx import Kokoro
+
+    return Kokoro(str(KOKORO_WEIGHTS[0]), str(KOKORO_WEIGHTS[1]))
+
+
+def _finish(raw: Path, out: Path, echo: bool = False) -> None:
+    """The house treatment every line gets: band-limit, level, 44.1 kHz stereo (as is without ffmpeg)."""
+    if not shutil.which("ffmpeg"):
+        raw.replace(out)
+        return
+    chain = "highpass=f=70,lowpass=f=7500,aecho=0.8:0.6:35:0.12," if echo else "highpass=f=70,"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
+                    chain + "loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(out)],
+                   check=True, timeout=120)
+    raw.unlink(missing_ok=True)
+
+
+def narrate(text: str) -> tuple[str | None, float]:
+    """(wav path or None, seconds) for one line, cached by its voice and spoken text.
+
+    The voice is voice_mode()'s. A voice that fails is an estimate, not a
+    crash: the beat still holds for as long as the sentence would take, and
+    the beat log records wav=None so the app can say the lecture is silent.
     """
     spoken = speechify(text)
-    mode = os.environ.get("PANIM_VOICE", "auto")
+    mode = voice_mode()
     if mode == "silent":
         return None, estimate_seconds(spoken)
     digest = hashlib.md5(f"{mode}|{spoken}".encode()).hexdigest()[:12]
@@ -379,41 +469,29 @@ def narrate(text: str) -> tuple[str | None, float]:
         return str(out), _wav_seconds(out)
 
     lang = spoken_lang(spoken)
-    if mode.startswith("kokoro"):
-        voice = mode.split(":", 1)[1] if ":" in mode else TH.get("voice", "af_sarah")
+    raw = out.with_name(out.stem + "_raw.wav")
+    if mode.startswith("kokoro:"):
+        voice = mode.split(":", 1)[1]
         if lang != "en" and not voice.startswith(lang[0]):
             voice = KOKORO_VOICES[lang]
-        script = HERE.parent / "scripts" / "kokoro_speak.py"
         try:
-            import json
+            import soundfile as sf
 
-            job = json.dumps({"voice": voice, "lines": [spoken], "out": str(out),
-                              "lang": lang if lang != "en" else "en-us"})
-            result = subprocess.run([sys.executable, str(script)], input=job, capture_output=True,
-                                    text=True, timeout=300)
-            reply = json.loads(result.stdout.strip().splitlines()[-1])
-            if reply.get("ok") and out.exists():
-                return str(out), _wav_seconds(out)
-        except Exception:  # noqa: BLE001 -- fall through to espeak or silence
-            pass
+            samples, rate = _kokoro().create(spoken, voice=voice, speed=1.0, lang=lang if lang != "en" else
+                                             ("en-gb" if voice.startswith("b") else "en-us"))
+            sf.write(str(raw), np.asarray(samples, dtype=np.float32), rate, subtype="PCM_16")
+            _finish(raw, out)
+            return str(out), _wav_seconds(out)
+        except Exception as error:  # noqa: BLE001 -- fall through to espeak or silence
+            print(f"pocket_lecture: Kokoro could not speak ({error}); trying espeak", file=sys.stderr)
 
-    espeak = shutil.which("espeak-ng") or shutil.which("espeak")
-    if espeak and mode in ("auto", "espeak") or (espeak and mode.startswith("kokoro")):
+    espeak = _espeak_binary()
+    if espeak:
         voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
-        raw = out.with_name(out.stem + "_raw.wav")
         try:
             subprocess.run([espeak, "-v", voice, "-s", "148", "-p", "42", "-g", "4", "-w", str(raw), spoken],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-            if shutil.which("ffmpeg"):
-                subprocess.run(
-                    ["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
-                     "highpass=f=70,lowpass=f=7500,aecho=0.8:0.6:35:0.12,loudnorm=I=-17:TP=-2,apad=pad_dur=0.1",
-                     "-ar", "44100", "-ac", "2", str(out)],
-                    check=True, timeout=120,
-                )
-                raw.unlink(missing_ok=True)
-            else:
-                raw.replace(out)
+            _finish(raw, out, echo=True)
             return str(out), _wav_seconds(out)
         except Exception:  # noqa: BLE001
             pass
@@ -818,6 +896,66 @@ Z_BACK, Z_LAND, Z_FILL, Z_LINES, Z_OUTLINE, Z_MARK = -100, 0.5, 2, 4, 5, 10
 Z_PANEL, Z_PANEL_TEXT, Z_CARD, Z_CHROME, Z_CAPTION = 20, 25, 40, 50, 60
 
 
+_SUPER = str.maketrans("0123456789+-=()ni", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ")
+_SUB = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+_TEX_WORDS = {r"\times": "×", r"\cdot": "·", r"\pm": "±", r"\div": "÷", r"\leq": "≤", r"\geq": "≥",
+              r"\neq": "≠", r"\approx": "≈", r"\infty": "∞", r"\rightarrow": "→", r"\to": "→",
+              r"\leftrightarrow": "↔", r"\rightleftharpoons": "⇌", r"\Delta": "Δ", r"\delta": "δ",
+              r"\pi": "π", r"\theta": "θ", r"\lambda": "λ", r"\alpha": "α", r"\beta": "β", r"\gamma": "γ",
+              r"\omega": "ω", r"\Omega": "Ω", r"\mu": "μ", r"\sigma": "σ", r"\rho": "ρ", r"\phi": "φ",
+              r"\sum": "Σ", r"\int": "∫", r"\partial": "∂", r"\nabla": "∇", r"\degree": "°", r"\circ": "°"}
+
+
+def unicode_math(tex: str) -> str:
+    """LaTeX-ish maths as plain Unicode, for machines without LaTeX: E = mc^2 -> E = mc², H_2O -> H₂O."""
+    text = str(tex)
+    # Innermost first, until nothing changes: a square root inside a fraction.
+    for _ in range(6):
+        before = text
+        text = re.sub(r"\\sqrt\{([^{}]*)\}", r"√(\1)", text)
+        text = re.sub(r"\\frac\{([^{}]*)\}\{([^{}]*)\}", r"(\1)/(\2)", text)
+        text = re.sub(r"\^\{([^{}]*)\}", lambda m: m.group(1).translate(_SUPER), text)
+        text = re.sub(r"_\{([^{}]*)\}", lambda m: m.group(1).translate(_SUB), text)
+        if text == before:
+            break
+    # A command swallows the space after it, as in LaTeX.
+    for word in sorted(_TEX_WORDS, key=len, reverse=True):
+        symbol = _TEX_WORDS[word]
+        swallow = " ?" if symbol.isalpha() else ""      # Greek letters join the next symbol; operators keep space
+        text = re.sub(re.escape(word) + r"(?![a-zA-Z])" + swallow, symbol, text)
+    text = text.replace("\\sqrt", "√")
+    text = re.sub(r"\^([0-9n+\-i])", lambda m: m.group(1).translate(_SUPER), text)
+    text = re.sub(r"_([0-9])", lambda m: m.group(1).translate(_SUB), text)
+    text = text.replace("<=>", "⇌").replace("->", "→").replace("*", "·").replace("{", "").replace("}", "")
+    return re.sub(r"\\([a-zA-Z]+)", r"\1", text)
+
+
+_SAFE = {name: getattr(np, name) for name in ("sin", "cos", "tan", "exp", "log", "log10", "log2", "sqrt", "abs",
+                                               "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "floor", "ceil")}
+_SAFE.update(pi=np.pi, e=np.e, ln=np.log)
+
+
+def safe_function(expr: str):
+    """f(x) from an expression like "x^2 - 3*x" or "sin(x)*exp(-x/5)": numpy names only, nothing else."""
+    import ast as _ast
+
+    source = str(expr).replace("^", "**").strip()
+    tree = _ast.parse(source, mode="eval")
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Name) and node.id != "x" and node.id not in _SAFE:
+            raise ValueError(f"unknown name {node.id!r} in {expr!r}")
+        if isinstance(node, (_ast.Attribute, _ast.Subscript, _ast.Lambda, _ast.Call)) and not (
+                isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name)):
+            raise ValueError(f"not a plain expression: {expr!r}")
+    code = compile(tree, "<plot>", "eval")
+
+    def f(x):
+        with np.errstate(all="ignore"):
+            return eval(code, {"__builtins__": {}}, {**_SAFE, "x": x})  # noqa: S307 -- names checked above
+
+    return f
+
+
 def backdrop() -> VGroup:
     """The style's texture, as a few vector shapes baked into one asset."""
     w, h = config.frame_width, config.frame_height
@@ -853,6 +991,25 @@ def backdrop() -> VGroup:
             major = abs(y / 2.5 - round(y / 2.5)) < 1e-6
             parts.add(Line([-w / 2, y, 0], [w / 2, y, 0], stroke_color="#3F74A8",
                            stroke_width=1.2 if major else 0.6, stroke_opacity=0.55 if major else 0.3))
+    elif texture == "parchment":
+        # Age spots and a ruled double frame, like a page from an old atlas.
+        for _ in range(9):
+            parts.add(Circle(radius=rng.uniform(0.8, 2.4), stroke_width=0, fill_color="#D9C39A",
+                             fill_opacity=rng.uniform(0.05, 0.11)).stretch(rng.uniform(0.5, 0.9), 1)
+                      .move_to([rng.uniform(-6.5, 6.5), rng.uniform(-3.6, 3.6), 0]))
+        parts.add(Rectangle(width=w - 0.25, height=h - 0.25, stroke_color="#8C6E45", stroke_width=2.5, fill_opacity=0))
+        parts.add(Rectangle(width=w - 0.45, height=h - 0.45, stroke_color="#8C6E45", stroke_width=0.8, fill_opacity=0))
+    elif texture == "dots":
+        for x in np.arange(-7.0, 7.01, 0.5):
+            for y in np.arange(-4.0, 4.01, 0.5):
+                parts.add(Dot([x, y, 0], radius=0.012, color="#B8CCCC", fill_opacity=0.8))
+    elif texture == "stars":
+        for _ in range(140):
+            parts.add(Dot([rng.uniform(-w / 2, w / 2), rng.uniform(-h / 2, h / 2), 0],
+                          radius=rng.uniform(0.006, 0.022), color="#FFFFFF", fill_opacity=rng.uniform(0.25, 0.9)))
+        for i, r in enumerate((5.5, 4.0)):
+            parts.add(Circle(radius=r, stroke_width=0, fill_color="#3B2F7A", fill_opacity=0.08 + 0.04 * i)
+                      .move_to(LEFT * 2.5 + UP * 1.2))
     elif texture == "chalk":
         for _ in range(8):
             parts.add(Circle(radius=rng.uniform(0.9, 2.6), stroke_width=0, fill_color="#2A5242", fill_opacity=0.35)
@@ -875,6 +1032,7 @@ class Lecture(Scene):
         self.cap = None
         self.panel_items = VGroup()
         self.panel_images = Group()     # figures: images cannot join a VGroup
+        self.stage_items = Group()      # the picture on the stage: a photo, a figure or an illustration
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
@@ -1135,8 +1293,269 @@ class Lecture(Scene):
         self.panel_y = 2.35
         return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
 
+    # ---------------- the stage: pictures where the map would be ----------------
+    # Centre x, centre y, width, height: the map's half of the frame, left of the panel.
+    STAGE = (-3.05, 0.3, 6.5, 6.1)
+
+    def _stage_card(self):
+        """What a stage picture sits on: opaque over a map, invisible on the bare backdrop."""
+        cx, cy, w, h = self.STAGE
+        covering = bool(getattr(self, "layers", None)) and getattr(self, "_map_on", False)
+        card = Rectangle(width=w + 0.5, height=h + 0.6, fill_color=P.BG, fill_opacity=1 if covering else 0,
+                         stroke_width=0)
+        return card.move_to([cx, cy, 0])
+
+    def _to_stage(self, group):
+        """Put a picture on the stage, over the map; the one there before fades."""
+        old = self.stage_items
+        new = Group(self._stage_card(), group)
+        new.set_z_index(Z_MARK + 10)
+        self.stage_items = new
+        show = FadeIn(new, scale=1.02)
+        return AnimationGroup(FadeOut(old), show, lag_ratio=0.4) if len(old) else show
+
+    def clear_stage(self):
+        """Take the stage picture away, showing the map again. None when there is none."""
+        old = self.stage_items
+        self.stage_items = Group()
+        return FadeOut(old) if len(old) else None
+
+    def stage_image(self, path: str, caption: str = "", credit: str = ""):
+        """A photo or a document's figure, large, on the stage."""
+        cx, cy, w, h = self.STAGE
+        image = ImageMobject(path)
+        room = h - (0.55 if caption else 0) - (0.3 if credit else 0)
+        image.scale_to_fit_width(w)
+        if image.height > room:
+            image.scale_to_fit_height(room)
+        frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
+        parts = [image, frame]
+        if caption:
+            parts.append(fit(T(caption, 16, P.CREAM), w).next_to(image, DOWN, buff=0.14))
+        if credit:
+            parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
+        group = Group(*parts).move_to([cx, cy, 0])
+        return self._to_stage(group)
+
+    def illustration(self, hero: str, items=(), title: str | None = None, color: str | None = None):
+        """An illustration built from icons: one large, up to four small ones labelled beneath."""
+        cx, cy, w, h = self.STAGE
+        big = icon_mob(hero, color, height=2.5)
+        parts = VGroup(big)
+        if title:
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+        parts.arrange(DOWN, buff=0.3)
+        row = VGroup()
+        for item in list(items)[:4]:
+            name, label = (item, "") if isinstance(item, str) else (item[0], item[1] if len(item) > 1 else "")
+            small = icon_mob(name, color, height=0.85)
+            cell = VGroup(small)
+            if label:
+                cell.add(fit(T(label, 15, P.CREAM), 1.5).next_to(small, DOWN, buff=0.1))
+            row.add(cell)
+        if len(row):
+            row.arrange(RIGHT, buff=0.45, aligned_edge=UP)
+            fit(row, w - 0.4)
+            composition = VGroup(parts, row).arrange(DOWN, buff=0.55)
+        else:
+            composition = parts
+        if composition.height > h - 0.2:
+            composition.scale_to_fit_height(h - 0.2)
+        composition.move_to([cx, cy, 0])
+        return self._to_stage(Group(composition))
+
+    # ---------------- subject kits: drawings for science, maths and history ----------------
+    def _fit_stage(self, mob, margin: float = 0.3):
+        cx, cy, w, h = self.STAGE
+        if mob.width > w - margin:
+            mob.scale_to_fit_width(w - margin)
+        if mob.height > h - margin:
+            mob.scale_to_fit_height(h - margin)
+        return mob.move_to([cx, cy, 0])
+
+    def molecule(self, name: str, label: str | None = None, hydrogens: str = "auto"):
+        """A structural formula, laid out by RDKit: atoms in CPK colours, bonds with their order."""
+        import molecules
+
+        smiles = molecules.resolve(name)
+        if smiles is None:
+            raise KeyError(f"no molecule {name!r}")
+        shape = molecules.layout(smiles, hydrogens)
+        unit = 0.95
+        points = {i: np.array([a["x"] * unit, a["y"] * unit, 0.0]) for i, a in enumerate(shape["atoms"])}
+        bonds = VGroup()
+        for bond in shape["bonds"]:
+            a, b = points[bond["a"]], points[bond["b"]]
+            normal = np.array([-(b - a)[1], (b - a)[0], 0.0])
+            normal = normal / (np.linalg.norm(normal) or 1.0) * 0.07
+            offsets = {1: [0.0], 2: [-1.0, 1.0], 3: [-1.6, 0.0, 1.6]}.get(bond["order"], [0.0])
+            for k in offsets:
+                bonds.add(Line(a + normal * k, b + normal * k, color=P.MUTED, stroke_width=5))
+        atoms = VGroup()
+        for i, atom in enumerate(shape["atoms"]):
+            small = atom["symbol"] == "H"
+            ball = Circle(radius=0.17 if small else 0.27, fill_color=atom["colour"], fill_opacity=1,
+                          stroke_color=P.role_ink, stroke_width=1.5).move_to(points[i])
+            ink = "#111111" if atom["symbol"] in ("H", "S", "Cl", "F", "Ca", "Mg", "Si") else "#FFFFFF"
+            text = atom["symbol"] + ("+" if atom["charge"] > 0 else "−" if atom["charge"] < 0 else "")
+            atoms.add(VGroup(ball, T(text, 13 if small else 17, ink, weight=BOLD).move_to(points[i])))
+        drawing = VGroup(bonds, atoms)
+        cx, cy, w, h = self.STAGE
+        self._fit_stage(drawing, 1.4)
+        title = VGroup(T(label or name.title(), 26, P.TITLE, font=TH["serif"], weight=BOLD),
+                       T(molecules.formula(smiles), 20, P.MUTED)).arrange(RIGHT, buff=0.3)
+        fit(title, w - 0.3).next_to(drawing, DOWN, buff=0.35)
+        group = VGroup(drawing, title)
+        self._fit_stage(group)
+        anim = self._to_stage(Group(group))
+        # Bonds draw, then the atoms pop on: the eye follows the structure being built.
+        group.set_opacity(1)
+        return anim
+
+    def equation(self, tex: str, label: str | None = None):
+        """An equation, large: typeset by LaTeX when installed, readable Unicode maths otherwise."""
+        cx, cy, w, h = self.STAGE
+        if shutil.which("latex"):
+            body = MathTex(tex, color=P.CREAM).scale(1.4)
+        else:
+            body = T(unicode_math(tex), 56, P.CREAM, font=TH["serif"])
+        parts = VGroup(body)
+        if label:
+            parts.add(fit(T(label, 20, P.MUTED), w - 0.4))
+        parts.arrange(DOWN, buff=0.45)
+        self._fit_stage(parts, 0.6)
+        return self._to_stage(Group(parts))
+
+    def plot(self, exprs, x_range=(-5.0, 5.0), label: str | None = None, x_label: str = "x", y_label: str = "y",
+             names=()):
+        """Graphs of one or more functions of x on labelled axes (no LaTeX needed)."""
+        cx, cy, w, h = self.STAGE
+        exprs = [exprs] if isinstance(exprs, str) else list(exprs)
+        fns = [safe_function(e) for e in exprs]
+        xs = np.linspace(float(x_range[0]), float(x_range[1]), 200)
+        ys = np.concatenate([np.asarray(f(xs), dtype=float) for f in fns])
+        ys = ys[np.isfinite(ys)]
+        lo, hi = (float(ys.min()), float(ys.max())) if ys.size else (-1.0, 1.0)
+        if hi - lo < 1e-9:
+            lo, hi = lo - 1, hi + 1
+        pad = (hi - lo) * 0.1
+        axes = Axes(x_range=[float(x_range[0]), float(x_range[1]), (float(x_range[1]) - float(x_range[0])) / 10],
+                    y_range=[lo - pad, hi + pad, (hi - lo + 2 * pad) / 8], x_length=w - 1.0, y_length=h - 2.0,
+                    tips=False, axis_config={"color": P.MUTED, "include_numbers": False, "stroke_width": 2})
+        tones = [P.SAND, P.ROSE, P.RIVER, P.GREEN]
+        curves = VGroup(*[axes.plot(f, color=tones[i % 4], stroke_width=5, use_smoothing=False,
+                                    discontinuities=None) for i, f in enumerate(fns)])
+        labels = VGroup(T(x_label, 18, P.MUTED).next_to(axes.x_axis, RIGHT, buff=0.1).shift(LEFT * 0.4 + DOWN * 0.3),
+                        T(y_label, 18, P.MUTED).next_to(axes.y_axis, UP, buff=0.1))
+        keys = VGroup(*[T(names[i] if i < len(names) else exprs[i], 16, tones[i % 4]) for i in range(len(fns))])
+        keys.arrange(RIGHT, buff=0.4)
+        body = VGroup(axes, curves, labels)
+        parts = VGroup(body, keys)
+        if label:
+            parts.add(fit(T(label, 22, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+        parts.arrange(DOWN, buff=0.25)
+        self._fit_stage(parts)
+        new = Group(parts)
+        anim = self._to_stage(Group(VGroup(axes, labels, keys, *parts[2:])))
+        # The curves draw after the axes appear.
+        self.stage_items.add(curves)
+        curves.set_z_index(Z_MARK + 11)
+        return AnimationGroup(anim, Create(curves, lag_ratio=0.2), lag_ratio=0.6)
+
+    def process(self, steps, title: str | None = None, cycle: bool = False):
+        """Steps joined by arrows: a chain (snaking into rows) or a cycle."""
+        cx, cy, w, h = self.STAGE
+        steps = [str(x) for x in list(steps)[:8]]
+        boxes = VGroup()
+        tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
+        for i, step in enumerate(steps):
+            text = T(wrap(step, 16), 18, P.CREAM, line_spacing=0.85)
+            box = RoundedRectangle(corner_radius=0.15, width=max(text.width + 0.4, 1.9), height=text.height + 0.4,
+                                   stroke_color=tones[i % 8], stroke_width=3, fill_color=tones[i % 8], fill_opacity=0.14)
+            boxes.add(VGroup(box, text.move_to(box)))
+        if cycle:
+            radius = 1.9 + 0.1 * len(boxes)
+            for i, b in enumerate(boxes):
+                angle = PI / 2 - 2 * PI * i / len(boxes)
+                b.move_to([radius * math.cos(angle), radius * 0.8 * math.sin(angle), 0])
+        else:
+            per_row = 3 if len(boxes) > 4 else len(boxes) if len(boxes) <= 3 else 2
+            rows = [boxes[i:i + per_row] for i in range(0, len(boxes), per_row)]
+            for r, row in enumerate(rows):
+                group = VGroup(*row).arrange(RIGHT if r % 2 == 0 else LEFT, buff=0.7)
+                group.move_to(DOWN * r * 1.6)
+        arrows = VGroup()
+        pairs = list(zip(boxes, boxes[1:])) + ([(boxes[-1], boxes[0])] if cycle and len(boxes) > 2 else [])
+        for a, b in pairs:
+            arrows.add(Arrow(a.get_center(), b.get_center(), buff=0.0, color=P.MUTED, stroke_width=4,
+                             max_tip_length_to_length_ratio=0.2)
+                       .put_start_and_end_on(*self._edge_points(a, b)))
+        drawing = VGroup(arrows, boxes)
+        parts = VGroup(drawing)
+        if title:
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+            parts.arrange(UP, buff=0.4)
+        self._fit_stage(parts)
+        return self._to_stage(Group(parts))
+
+    @staticmethod
+    def _edge_points(a, b):
+        """Where an arrow between two boxes leaves one and meets the other."""
+        start, end = a.get_center(), b.get_center()
+        direction = end - start
+        length = np.linalg.norm(direction) or 1.0
+        unit = direction / length
+
+        def exit_point(box, sign):
+            half_w, half_h = box[0].width / 2, box[0].height / 2
+            scale = min(half_w / (abs(unit[0]) or 1e-9), half_h / (abs(unit[1]) or 1e-9))
+            return box.get_center() + sign * unit * (scale + 0.08)
+
+        return exit_point(a, 1), exit_point(b, -1)
+
+    def big_timeline(self, events, title: str | None = None):
+        """A timeline across the stage: dates large, labels alternating above and below."""
+        cx, cy, w, h = self.STAGE
+        events = list(events)[:7]
+        width = w - 0.6
+        line = Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=4)
+        marks = VGroup()
+        for i, (date, label) in enumerate(events):
+            x = -width / 2 + width * (i + 0.5) / max(len(events), 1)
+            dot = Dot([x, 0, 0], radius=0.1, color=P.SAND)
+            d = T(str(date), 24, P.SAND, font=TH["serif"], weight=BOLD)
+            lab = fit(T(wrap(str(label), 14), 15, P.CREAM, line_spacing=0.85), width / max(len(events), 1) + 0.3)
+            if i % 2 == 0:
+                d.next_to(dot, UP, buff=0.15)
+                lab.next_to(d, UP, buff=0.08)
+            else:
+                d.next_to(dot, DOWN, buff=0.15)
+                lab.next_to(d, DOWN, buff=0.08)
+            marks.add(VGroup(dot, d, lab))
+        drawing = VGroup(line, marks)
+        parts = VGroup(drawing)
+        if title:
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+            parts.arrange(UP, buff=0.5)
+        self._fit_stage(parts)
+        return self._to_stage(Group(parts))
+
+    def quote(self, text: str, who: str = ""):
+        """A quotation, large, with who said it."""
+        cx, cy, w, h = self.STAGE
+        mark = T("“", 120, P.SAND, font=TH["serif"], weight=BOLD)
+        body = fit(T(wrap(text, 34), 28, P.CREAM, font=TH["serif"], line_spacing=0.95), w - 0.6)
+        parts = VGroup(mark, body)
+        if who:
+            parts.add(fit(T(f"— {who}", 20, P.MUTED), w - 0.6))
+        parts.arrange(DOWN, buff=0.25, aligned_edge=LEFT)
+        self._fit_stage(parts)
+        return self._to_stage(Group(parts))
+
     def figure(self, path: str, caption: str = "", where: str = "panel"):
         """A figure from a source document: in the panel, or across the frame for one beat."""
+        if where == "stage":
+            return self.stage_image(path, caption)
         image = ImageMobject(path)
         if where == "full":
             image.scale_to_fit_height(5.4)
@@ -1336,17 +1755,21 @@ class Lecture(Scene):
         return anim
 
     def credits(self, line: str, note: str = "Some boundaries and figures are simplified or approximate for teaching.",
-                seconds: float = 3.0) -> None:
+                seconds: float = 3.0, extra: str = "") -> None:
+        """The closing credits. `extra` carries photo attributions, which their licences require."""
         self.clear_caption()
         if USED_ICONS:
             import icons
 
             note = f"{note}  {icons.credit(USED_ICONS)}."
-        credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 2.3)
+        credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 1.9)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
-        self.play(FadeIn(credit), FadeIn(small), run_time=1.0)
-        self.wait(seconds)
-        self.play(FadeOut(credit), FadeOut(small), run_time=0.8)
+        parts = [credit, small]
+        if extra:
+            parts.append(fit(T(wrap(extra, 150), 11, P.MUTED, line_spacing=0.8), 13).next_to(small, DOWN, buff=0.15))
+        self.play(*[FadeIn(p) for p in parts], run_time=1.0)
+        self.wait(seconds + (2.0 if extra else 0.0))
+        self.play(*[FadeOut(p) for p in parts], run_time=0.8)
 
     def outro_fade(self, run_time: float = 1.0) -> None:
         """Fade everything a chapter added; keep the backdrop and chrome."""
@@ -1356,7 +1779,9 @@ class Lecture(Scene):
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
         self.panel_items = VGroup()
         self.panel_images = Group()
+        self.stage_items = Group()
         self._full_figure = self._new_figure = None
+        self._map_on = False
         self.panel_y = 2.35
 
 
@@ -1477,6 +1902,7 @@ class MapLecture(Lecture):
 
     def show_map(self, panel: bool = True, run_time: float = 1.4) -> None:
         """Draw the base map (and the panel) in one move."""
+        self._map_on = True
         nb, inner, outline = self.base()
         anims = [FadeIn(nb), Create(outline)]
         if len(inner):

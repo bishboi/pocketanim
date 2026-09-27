@@ -1,0 +1,29 @@
+id: lab
+version: 1.0.0
+label: Lab
+description: "Biology and chemistry: clean white bench, teal accents."
+extends: atlas
+engine_theme: lab   # the pocket_lecture THEMES entry this pack starts from
+roles:
+  ink: "#12303A"
+  muted: "#5B7480"
+  accent: "#0F8B8D"
+  highlight: "#E8A33D"
+  friendly: "#2E86AB"
+  enemy: "#C0392B"
+  ally: "#43A047"
+  neutral: "#5B7480"
+  water: "#2E86AB"
+  land: "#FFFFFF"
+motion:
+  entrance: fade
+ops: ["*"]
+scripts: [Latn, Deva]
+voice:
+  engine: auto
+  name: af_sarah
+  speed: 1.0
+music:
+  preset: none
+  volume: 0.07
+  duck_db: 15

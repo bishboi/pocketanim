@@ -25,7 +25,7 @@ examples/india.json  the reference India lecture, condensed
   subclass with a `REGION` and a `construct` of beats — or a JSON script the
   compiler turns into one.
 * **Styles are one table.** `THEMES` holds atlas, vox, cardboard, whiteboard,
-  blueprint and chalkboard: palette, fonts, panel treatment, caption box, map
+  blueprint, chalkboard, parchment, lab and cosmos: palette, fonts, panel treatment, caption box, map
   colours, text entrance. `LECTURE_STYLE` (or `use_style`) picks one.
 * The screen layout and z-order of the guide: map left of x = 1.05, panel to
   the right, captions at y = −3.45 on z 60, chapter cards on z 40.
@@ -109,6 +109,63 @@ A marker's `place` is looked up in this order:
 
 A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Devanagari text is laid out large and scaled down, so small captions keep their shaping.
 
+## The stage: the map only when it is needed
+
+The left half of the frame is the stage, and the fact panel is on the right.
+
+A chapter draws the map only if one of its beats points at it: a marker, a river, a state, an arrow, or an
+icon placed at a town. Otherwise the stage shows pictures:
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"photo","image":"File:….jpg" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A Wikimedia Commons photo. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
+| `{"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"]],"title"?}` | One large icon with up to four small ones. |
+| `{"op":"figure","id":"fig2","where":"stage"}` | A diagram from the uploaded PDF. |
+
+On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it.
+
+A beat left without a picture gets an automatic illustration drawn from its own words: sugarcane, tigers,
+tractors. A beat whose opening line has nothing to picture gets an illustration of the chapter's topic
+instead (Climate, Population, …). Set `"auto_visuals": false` in the script to turn this off.
+
+Photos are downloaded when the script compiles, into `.cache/images`. To search from the shell:
+
+```
+.venv/bin/python harness/lecture/images.py "sugarcane field India"
+```
+
+Set `PANIM_IMAGES=0` to turn internet photos off.
+
+## Subjects: the content decides the kind of lecture
+
+`genre.py` reads the content and picks its subject: geography, history, biology, chemistry, physics,
+mathematics, economics or general. It scores the vocabulary and also counts dates, chemical formulas and
+maths signs. The subject sets:
+- **the style:** vox for geography, parchment for history, lab for biology and chemistry, cosmos for
+  physics, chalkboard for mathematics, atlas for economics;
+- **the map:** often for geography; sometimes for history and economics; rarely for biology; never for
+  chemistry, physics and mathematics;
+- **the kit:** which stage pictures the model is told to use.
+
+```
+.venv/bin/python harness/lecture/genre.py < content.txt
+```
+
+In the app, the **Lecture · Auto** template (style `auto`) uses the subject's style. The subject is
+reported in the log. The kit operations draw on the stage:
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). |
+| `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | MathTex when LaTeX is installed, else the same equation set in Unicode. |
+| `{"op":"plot","exprs":["sin(x)"],"x_range":[-3,3],"x_label"?,"y_label"?}` | Graphs of functions of x (a safe subset of numpy). |
+| `{"op":"process","steps":["…","…"],"cycle"?:true,"title"?}` | A chain of steps, or a cycle. |
+| `{"op":"timeline","events":[["1526","Panipat"]],"where":"stage","title"?}` | A large timeline. |
+| `{"op":"quote","text":"…","who":"…"}` | A primary-source quote. |
+
+Automatic pictures follow the subject too. A science beat that names a molecule or writes an equation
+gets a molecule or an equation, and a history chapter opens on a timeline of the years it mentions.
+
 ## Icons
 
 `{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.
@@ -140,12 +197,29 @@ A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}
 `figures` table (id → image file); the model only names ids. A figure is a raster image, so the phone
 export marks such a scene as blocked and plays sampled frames.
 
+Figures the script does not show itself are placed automatically: each goes on the beat whose words best
+match its caption, or in document order, at most one every two beats and never over a map beat. Set
+`"place_figures": false` to turn this off.
+
 ## Voice
 
-`PANIM_VOICE` picks it: `auto` (espeak-ng when installed, else silent), `espeak`,
-`silent` (lengths estimated from word count), or `kokoro:<voice>`. Lines are
-cached by their spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`), and
-`SAY` respells names for the voice without touching the captions.
+Lectures are voiced by Kokoro-82M (`harness/models/kokoro-v1.0.onnx`, run through kokoro-onnx). The app and
+Forge download it before the first lecture build when it is missing. `PANIM_VOICE` picks the voice.
+`auto` (the default) uses Kokoro-82M when it is downloaded, espeak-ng when that is installed (offline, say),
+and silence with neither. Each style has its own Kokoro voice, and Hindi lines use a Hindi
+voice. The other settings are `kokoro:<voice>`, `espeak` and `silent`. With `silent`, lengths are estimated
+from the word count.
+
+Lines are cached by the voice and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`). `SAY`
+respells names for the voice without touching the captions.
+
+Get Kokoro-82M ahead of time (about 350 MB) with the **download** button next to *Voice* at the top of the app, or:
+
+```
+.venv/bin/python harness/scripts/fetch_voice.py
+```
+
+The app warns when a lecture comes back with no audio.
 
 ## Building
 

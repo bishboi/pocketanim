@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { VersionBar } from "@/components/version-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,6 +25,7 @@ type ExportState = {
   buildDir?: string;
   frames?: number;
   error?: string;
+  voiceWarning?: string | null;
   stored?: { configured: boolean; reason?: string; error?: string };
   narrationUrl?: string | null;
 };
@@ -258,7 +260,9 @@ export default function Home() {
     model: string,
   ) {
     const sceneClass = sceneClassOf(source);
-    setBusy("Running Manim and building the program…");
+    setBusy(/pocket_lecture/.test(source)
+      ? "Speaking the lecture with Kokoro-82M, running Manim and building the program…"
+      : "Running Manim and building the program…");
     const exported: ExportState = await post("/api/export", {
       source,
       sceneClass,
@@ -273,6 +277,7 @@ export default function Home() {
     } else if (exported.error) {
       setError(exported.error);
     }
+    if (exported.voiceWarning) setError(exported.voiceWarning);
     const fixed = exported.source ?? source;
     setVersions((all) =>
       all.map((v, i) =>
@@ -511,6 +516,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-8 text-neutral-200">
+      <VersionBar />
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-neutral-100">
@@ -536,7 +542,7 @@ export default function Home() {
           </Badge>
           {status && !status.latex && <Badge tone="warn">no LaTeX</Badge>}
           {status && status.kokoro === false && (
-            <Badge tone="warn">no Kokoro</Badge>
+            <Badge tone="warn">no Kokoro-82M</Badge>
           )}
         </div>
       </header>

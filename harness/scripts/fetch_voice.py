@@ -1,4 +1,4 @@
-"""Download the Kokoro voice the lectures speak with (about 350 MB), installing kokoro-onnx if needed.
+"""Download Kokoro-82M, the voice lectures speak with (about 350 MB), installing kokoro-onnx if needed.
 
 Without it a lecture falls back to espeak-ng, and with neither its video is silent.
 

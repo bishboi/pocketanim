@@ -260,7 +260,9 @@ export default function Home() {
     model: string,
   ) {
     const sceneClass = sceneClassOf(source);
-    setBusy("Running Manim and building the program…");
+    setBusy(/pocket_lecture/.test(source)
+      ? "Speaking the lecture with Kokoro-82M, running Manim and building the program…"
+      : "Running Manim and building the program…");
     const exported: ExportState = await post("/api/export", {
       source,
       sceneClass,
@@ -540,7 +542,7 @@ export default function Home() {
           </Badge>
           {status && !status.latex && <Badge tone="warn">no LaTeX</Badge>}
           {status && status.kokoro === false && (
-            <Badge tone="warn">no Kokoro</Badge>
+            <Badge tone="warn">no Kokoro-82M</Badge>
           )}
         </div>
       </header>

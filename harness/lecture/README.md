@@ -203,15 +203,17 @@ match its caption, or in document order, at most one every two beats and never o
 
 ## Voice
 
-`PANIM_VOICE` picks the voice. `auto` (the default) uses Kokoro when it is downloaded, espeak-ng when that
-is installed, and silence with neither. Each style has its own Kokoro voice, and Hindi lines use a Hindi
+Lectures are voiced by Kokoro-82M (`harness/models/kokoro-v1.0.onnx`, run through kokoro-onnx). The app and
+Forge download it before the first lecture build when it is missing. `PANIM_VOICE` picks the voice.
+`auto` (the default) uses Kokoro-82M when it is downloaded, espeak-ng when that is installed (offline, say),
+and silence with neither. Each style has its own Kokoro voice, and Hindi lines use a Hindi
 voice. The other settings are `kokoro:<voice>`, `espeak` and `silent`. With `silent`, lengths are estimated
 from the word count.
 
 Lines are cached by the voice and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`). `SAY`
 respells names for the voice without touching the captions.
 
-Get Kokoro (about 350 MB) with the **download** button next to *Voice* at the top of the app, or:
+Get Kokoro-82M ahead of time (about 350 MB) with the **download** button next to *Voice* at the top of the app, or:
 
 ```
 .venv/bin/python harness/scripts/fetch_voice.py

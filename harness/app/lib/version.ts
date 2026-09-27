@@ -3,7 +3,7 @@
  * it was started from, so a screenshot says exactly what produced a video.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import pkg from "../package.json";
@@ -60,6 +60,25 @@ export function voiceEngine(): "kokoro" | "espeak" | "none" {
   return which("espeak-ng") || which("espeak") ? "espeak" : "none";
 }
 
+let fetching: Promise<boolean> | null = null;
+
+/**
+ * Kokoro-82M, downloaded (and kokoro-onnx installed) if it is missing, so a
+ * lecture is voiced by it rather than by espeak-ng. One download at a time;
+ * false when it could not be fetched (offline), and espeak-ng speaks instead.
+ */
+export function ensureKokoro(): Promise<boolean> {
+  if (voiceEngine() === "kokoro") return Promise.resolve(true);
+  fetching ??= new Promise<boolean>((resolve) => {
+    const child = spawn(python(), [path.join(REPO, "harness", "scripts", "fetch_voice.py")], { cwd: REPO });
+    child.on("close", () => resolve(voiceEngine() === "kokoro"));
+    child.on("error", () => resolve(false));
+  }).finally(() => {
+    fetching = null;
+  });
+  return fetching;
+}
+
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
 
 /** The downloaded libraries and keys a lecture draws on, and how to get the missing ones. */
@@ -70,9 +89,9 @@ export function resources(): Resource[] {
   const voice = voiceEngine();
   return [
     { id: "voice", label: "Voice", ready: voice === "kokoro",
-      detail: voice === "kokoro" ? "Kokoro" : voice === "espeak"
-        ? "espeak-ng only (robotic); download Kokoro for a natural voice (350 MB)"
-        : "NONE: lecture videos will be silent. Download Kokoro (350 MB) or install espeak-ng",
+      detail: voice === "kokoro" ? "Kokoro-82M" : voice === "espeak"
+        ? "espeak-ng only (robotic); download Kokoro-82M (350 MB); it is also fetched on the next lecture build"
+        : "NONE: lecture videos will be silent. Download Kokoro-82M (350 MB)",
       install: voice === "kokoro" ? undefined : "voice" },
     { id: "icons", label: "Icons", ready: icons,
       detail: icons ? "about 25,000 icons for illustrations" : "illustrations and icon ops are off until downloaded (53 MB)",

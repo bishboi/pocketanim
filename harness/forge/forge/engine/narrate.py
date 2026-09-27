@@ -34,11 +34,24 @@ BATCH = 40
 
 
 def kokoro_ready() -> bool:
-    return importlib.util.find_spec("kokoro_onnx") is not None and KOKORO_WEIGHTS.exists()
+    weights = (KOKORO_WEIGHTS, KOKORO_WEIGHTS.with_name("voices-v1.0.bin"))
+    return importlib.util.find_spec("kokoro_onnx") is not None and all(
+        w.exists() and w.stat().st_size > 1_000_000 for w in weights)
+
+
+def ensure_kokoro() -> bool:
+    """Kokoro-82M, downloaded if missing (FORGE_FETCH_VOICE=0 turns that off). False when it cannot be had."""
+    if kokoro_ready():
+        return True
+    if os.environ.get("FORGE_FETCH_VOICE", "1") == "0":
+        return False
+    subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "fetch_voice.py")], timeout=3600)
+    importlib.invalidate_caches()
+    return kokoro_ready()
 
 
 def voice_mode(style: dict) -> str:
-    """The PANIM_VOICE value for this style: kokoro:<voice>, espeak or silent.
+    """The PANIM_VOICE value for this style: kokoro:<voice> (Kokoro-82M), espeak or silent.
 
     FORGE_VOICE in the environment wins (a test run can force espeak).
     """
@@ -48,7 +61,7 @@ def voice_mode(style: dict) -> str:
     voice = style.get("voice") or {}
     engine = voice.get("engine", "auto")
     espeak = bool(shutil.which("espeak-ng") or shutil.which("espeak"))
-    if engine in ("kokoro", "auto") and kokoro_ready():
+    if engine in ("kokoro", "auto") and ensure_kokoro():
         return f"kokoro:{voice.get('name', 'af_sarah')}"
     if engine == "silent":
         return "silent"

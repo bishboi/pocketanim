@@ -68,6 +68,11 @@ sources alone. Every line they narrate is a source sentence, and every number
 on screen is one of that sentence's numbers. So the whole pipeline runs, and
 is tested, with no network.
 
+## Voice
+
+Narration is spoken by Kokoro-82M in the style's voice. The narrate stage downloads it when it is missing
+(`FORGE_FETCH_VOICE=0` turns that off; `FORGE_VOICE=espeak` forces espeak-ng).
+
 ## Gates (`forge/gates.py`, `forge/engine/qa.py`)
 
 Before render, the gates check:

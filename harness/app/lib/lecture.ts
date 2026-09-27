@@ -33,7 +33,18 @@ export type LectureScript = {
   credits?: string;
 };
 
-export type Compiled = { source: string | null; errors: string[]; warnings: string[] };
+export type Compiled = { source: string | null; errors: string[]; warnings: string[]; minutes?: number };
+
+/** A lecture runs this long unless the request names a length. */
+export const DEFAULT_LECTURE_MINUTES = 8;
+
+/** The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". */
+export function targetMinutes(text: string): number {
+  const digits = text.replace(/[०-९]/g, (d) => String("०१२३४५६७८९".indexOf(d)));
+  const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
+  const minutes = found ? parseFloat(found[1]) : DEFAULT_LECTURE_MINUTES;
+  return Math.min(40, Math.max(1, minutes));
+}
 
 function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -49,10 +60,22 @@ function runPython(args: string[], input?: string): Promise<{ code: number; stdo
   });
 }
 
-/** Lint and compile a beat script. Errors come back as data, never thrown. */
-export async function compileLecture(script: unknown): Promise<Compiled> {
+/**
+ * Lint and compile a beat script. Errors come back as data, never thrown.
+ *
+ * `style` is the picked template's and overrides whatever the script says (a
+ * model often leaves it out, and the compiler's default is atlas).
+ * `minMinutes` makes a script that would run well short of it an error.
+ */
+export async function compileLecture(
+  script: unknown,
+  options: { style?: string; minMinutes?: number } = {},
+): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
-  const { stdout, stderr } = await runPython([compiler, "-", "--json"], JSON.stringify(script));
+  const body = script && typeof script === "object" && options.style ? { ...script, style: options.style } : script;
+  const args = [compiler, "-", "--json"];
+  if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
+  const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
     return JSON.parse(stdout.trim().split("\n").pop() || "") as Compiled;
   } catch {
@@ -159,15 +182,21 @@ export const LECTURE_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-export function lecturePrompt(template: Template): string {
+export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES): string {
+  const words = Math.round(minutes * 140);
+  const beats = Math.round((minutes * 60) / 11);
   return [
     "You write narrated map lectures for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
     "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
+    `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
+    `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
+    "returns an error when the script is well short; then add beats and chapters with new material, never padding.",
+    "",
     "A beat is one narration line (say) and the operations that go with it (do). One idea per beat, at most two caption lines",
-    "(under about 180 characters), at most four operations. 10-20 beats per chapter, 3-8 chapters for a long lecture,",
-    "fewer for a short idea. Every number you state must be in the content you were given; say 'about' for rough figures.",
+    "(under about 180 characters, 15-30 words), at most four operations. Every number you state must be in the content you",
+    "were given or be well established; say 'about' for rough figures.",
     "",
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',

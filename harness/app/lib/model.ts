@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { LECTURE_TOOL, compileLecture, fixtureScript, lecturePrompt, resolveRegion } from "./lecture";
+import { LECTURE_TOOL, compileLecture, fixtureScript, lecturePrompt, resolveRegion, targetMinutes } from "./lecture";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -416,7 +416,8 @@ async function viaOpenRouter(
   const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
-  const system = lecture ? lecturePrompt(template) : systemPrompt(template);
+  const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`);
+  const system = lecture ? lecturePrompt(template, minutes) : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
   const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, EDIT_TOOL] : TOOLS;
@@ -585,11 +586,11 @@ async function viaOpenRouter(
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
       let output: string;
       if (call.function.name === "write_lecture") {
-        const compiled = await compileLecture(args.script ?? {});
+        const compiled = await compileLecture(args.script ?? {}, { style: template.style, minMinutes: minutes });
         if (compiled.source) {
           scene = compiled.source;
           output = [
-            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim).`,
+            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
             ...compiled.warnings.map((w) => `warning: ${w}`),
             compiled.warnings.length ? "Fix the warnings with another write_lecture if they matter; otherwise stop." : "Stop calling tools and reply in one sentence.",
           ].join("\n");
@@ -658,7 +659,7 @@ async function lectureFixture(
   const script = fixtureScript(request.content, template, region, request.instruction);
   const args = JSON.stringify({ script });
   emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
-  const compiled = await compileLecture(script);
+  const compiled = await compileLecture(script, { style: template.style });
   if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
   emit({
     type: "tool_result",

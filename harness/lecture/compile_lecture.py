@@ -98,7 +98,30 @@ def _panel_height(op: dict) -> float:
     return 0.0
 
 
-def lint(script: dict) -> tuple[list[str], list[str]]:
+WORD_SECONDS = 0.42      # about 143 words a minute: pocket_lecture.estimate_seconds
+BEAT_PAD = 0.45          # the hold after each beat (Lecture.beat)
+
+
+def _say_seconds(text: str) -> float:
+    return max(1.2, len(str(text).split()) * WORD_SECONDS) + BEAT_PAD
+
+
+def estimate_minutes(script: dict) -> float:
+    """How long the lecture will run: narration at speaking pace plus cards, map draws and fades."""
+    seconds = 0.0
+    if script.get("title"):
+        seconds += _say_seconds(script.get("intro") or script["title"]) + 1.6
+    for chapter in script.get("chapters") or []:
+        seconds += _say_seconds(chapter.get("narration", "")) + 0.8 + 1.4 + 1.0     # card, map, outro
+        seconds += sum(_say_seconds(b.get("say", "")) for b in chapter.get("beats") or [])
+    for head, body in script.get("recap") or []:
+        seconds += _say_seconds(f"{head}. {body}")
+    if script.get("credits"):
+        seconds += 5.0
+    return seconds / 60
+
+
+def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
 
     The checks the guide asks for before any render: unknown operations,
@@ -164,6 +187,15 @@ def lint(script: dict) -> tuple[list[str], list[str]]:
                     warnings.append(f"{at}: the panel overflows into the caption; start a new panel")
                     used = _panel_height(op)
     errors += _unknown_places(places, (script.get("region") or {}).get("country"))
+    minutes = estimate_minutes(script)
+    if min_minutes and chapters and minutes < min_minutes * 0.85:
+        beats = sum(len(c.get("beats") or []) for c in chapters)
+        words = sum(len(str(b.get("say", "")).split()) for c in chapters for b in c.get("beats") or [])
+        need = int((min_minutes * 60 - (minutes * 60 - words * WORD_SECONDS)) / WORD_SECONDS) - words
+        errors.append(f"the lecture runs about {minutes:.1f} min ({beats} beats, {words} words of narration); "
+                      f"it must run at least {min_minutes:g} min. Add about {max(need, 50)} more words of narration: "
+                      "more beats in each chapter and more chapters, each beat a new fact from the content, "
+                      "not repetition. Keep every existing beat that is right.")
     return errors, warnings
 
 
@@ -298,6 +330,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true",
                     help="print {source, errors, warnings} as one JSON object, for the harness app")
     ap.add_argument("--class", dest="scene_class", default="GeneratedScene")
+    ap.add_argument("--min-minutes", type=float, default=None,
+                    help="an error when the script's estimated running time is well under this")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
@@ -311,10 +345,11 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
-    errors, warnings = lint(script)
+    errors, warnings = lint(script, args.min_minutes)
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
-        print(json.dumps({"source": source, "errors": errors, "warnings": warnings}))
+        print(json.dumps({"source": source, "errors": errors, "warnings": warnings,
+                          "minutes": round(estimate_minutes(script), 2)}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

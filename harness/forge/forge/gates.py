@@ -133,8 +133,8 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 problem = _kit_problem(op)
                 if problem:
                     errors.append(_err("schema", chapter["id"], bid, problem, True))
-            if name == "photo" and not (op.get("image") or op.get("query")):
-                errors.append(_err("schema", chapter["id"], bid, "photo needs image or query", True))
+            if name == "photo" and not (op.get("image") or op.get("query") or op.get("subject")):
+                errors.append(_err("schema", chapter["id"], bid, "photo needs image, subject or query", True))
             if name == "illustration":
                 import icons
 

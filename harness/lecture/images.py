@@ -8,8 +8,15 @@ local file, so a render never waits on the network.
 
     python harness/lecture/images.py "sugarcane field" "Ganges at Varanasi"    # search, as JSON
 
+A named subject -- a person, a movement, a monument, an event, a place -- is
+looked up on Wikipedia first (`portrait`): the picture its article leads with is
+the one people know it by. That picture is used only when it lives on Commons
+under a reusable licence (Wikipedia's local non-free posters and logos are not).
+Hindi names are looked up on Hindi Wikipedia and followed to English.
+
 PANIM_IMAGES=0 turns internet images off (a lecture then draws its stage
-from icons and document figures only). COMMONS_API overrides the endpoint.
+from icons and document figures only). COMMONS_API and WIKIPEDIA_API ("{lang}"
+stands for the language) override the endpoints.
 """
 
 from __future__ import annotations
@@ -79,6 +86,65 @@ def _query(params: dict) -> list[dict]:
     return [row for row in (_row(p) for p in pages) if row]
 
 
+def wiki_api(lang: str) -> str:
+    return os.environ.get("WIKIPEDIA_API", "https://{lang}.wikipedia.org/w/api.php").replace("{lang}", lang)
+
+
+def _wiki(lang: str, params: dict) -> dict:
+    query = urllib.parse.urlencode({"format": "json", "formatversion": "2", **params})
+    return json.loads(_get(f"{wiki_api(lang)}?{query}", timeout=15))
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[\w\u0900-\u097F]+", str(text).lower()))
+
+
+def _article(name: str, lang: str) -> dict | None:
+    """{title, image, en} for the article a name means: the exact title (or a redirect), else the top search hit
+    whose title shares most of the name's words."""
+    params = {"action": "query", "prop": "pageimages|langlinks", "piprop": "name", "lllang": "en", "redirects": "1"}
+    pages = (_wiki(lang, {**params, "titles": name}).get("query") or {}).get("pages") or []
+    page = next((p for p in pages if not p.get("missing") and not p.get("invalid")), None)
+    if page is None:
+        hits = (_wiki(lang, {"action": "query", "list": "search", "srsearch": name, "srlimit": "3"})
+                .get("query") or {}).get("search") or []
+        want = _tokens(name)
+        for hit in hits:
+            if want and len(want & _tokens(hit["title"])) >= max(1, (len(want) + 1) // 2):
+                pages = (_wiki(lang, {**params, "titles": hit["title"]}).get("query") or {}).get("pages") or []
+                page = next((p for p in pages if not p.get("missing")), None)
+                break
+    if page is None:
+        return None
+    english = next((l.get("title") for l in page.get("langlinks") or [] if l.get("lang") == "en"), None)
+    return {"title": page["title"], "image": page.get("pageimage"), "en": english}
+
+
+def portrait(name: str) -> dict | None:
+    """The picture Wikipedia's article on `name` leads with, if Commons has it under a reusable licence.
+
+    For a person that is their portrait, for a movement its best-known photo,
+    for a monument or place its photograph. None when offline, when there is
+    no such article, or when its picture is not freely reusable.
+    """
+    if not enabled() or not str(name).strip():
+        return None
+    devanagari = bool(re.search(r"[\u0900-\u097F]", str(name)))
+    try:
+        article = _article(str(name).strip(), "hi" if devanagari else "en")
+        if article and not article["image"] and article.get("en"):
+            article = _article(article["en"], "en") or article      # a Hindi article without a picture
+    except Exception:  # noqa: BLE001 -- offline or blocked: the lecture falls back to Commons search and icons
+        return None
+    if not article or not article.get("image"):
+        return None
+    row = lookup(article["image"])
+    if row:
+        row["subject"] = article["title"]
+        row["source"] = "wikipedia"
+    return row
+
+
 def search(query: str, limit: int = 6) -> list[dict]:
     """Reusable photos for a query, best first. [] when offline or disabled."""
     if not enabled():
@@ -103,20 +169,45 @@ def lookup(title: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def fetch(image: str | None = None, query: str | None = None) -> dict | None:
-    """Download an image (by title, else the best match for a query) into the cache.
+MISSES = CACHE / "_misses.json"
+
+
+def _missed(key: str, add: bool = False) -> bool:
+    """Subjects already looked up and not found, so a recompile does not ask the network again."""
+    try:
+        misses = json.loads(MISSES.read_text(encoding="utf-8")) if MISSES.exists() else []
+    except ValueError:
+        misses = []
+    if add and key not in misses:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        MISSES.write_text(json.dumps(misses[-5000:] + [key], ensure_ascii=False), encoding="utf-8")
+    return key in misses
+
+
+def fetch(image: str | None = None, query: str | None = None, subject: str | None = None) -> dict | None:
+    """Download an image into the cache: by Commons title, else the Wikipedia picture of a subject (falling back
+    to a Commons search for it), else the best match for a query.
 
     Returns its row with `file` set, or None when nothing reusable was found.
     The row is cached next to the image, so a second compile is offline.
     """
-    key = hashlib.md5(f"{image or ''}|{query or ''}".encode()).hexdigest()[:16]
+    key = hashlib.md5(f"{image or ''}|{query or ''}|{subject or ''}".encode()).hexdigest()[:16]
     meta_path = CACHE / f"{key}.json"
     if meta_path.exists():
         row = json.loads(meta_path.read_text(encoding="utf-8"))
         if row and Path(row.get("file", "")).exists():
             return row
-    row = lookup(image) if image else (search(query, 1) or [None])[0] if query else None
+    if subject and not image and _missed(key):
+        return None
+    if image:
+        row = lookup(image)
+    elif subject:
+        row = portrait(subject) or (search(subject, 1) or [None])[0]
+    else:
+        row = (search(query, 1) or [None])[0] if query else None
     if not row:
+        if subject and enabled():
+            _missed(key, add=True)
         return None
     suffix = Path(urllib.parse.urlparse(row["url"]).path).suffix.lower() or ".jpg"
     target = CACHE / f"{key}{suffix if suffix in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'}"
@@ -135,5 +226,12 @@ def credit(rows) -> str:
     return "Photos: " + "; ".join(names) if names else ""
 
 
+def find(query: str, limit: int = 6) -> list[dict]:
+    """What find_image offers: Wikipedia's picture of the query when it names something, then Commons results."""
+    rows = [r for r in [portrait(query)] if r]
+    seen = {r["id"] for r in rows}
+    return (rows + [r for r in search(query, limit) if r["id"] not in seen])[:limit]
+
+
 if __name__ == "__main__":
-    print(json.dumps({q: search(q) for q in sys.argv[1:]}, indent=1, ensure_ascii=False))
+    print(json.dumps({q: find(q) for q in sys.argv[1:]}, indent=1, ensure_ascii=False))

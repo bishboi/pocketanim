@@ -239,10 +239,11 @@
   }
  },
  "photo": {
-  "doc": "A real photograph from Wikimedia Commons (reusable licences only), on the stage, full frame or in the panel.",
+  "doc": "A real photograph, on the stage, full frame or in the panel: a Commons title, a query, or a subject (a person, movement, monument, event or place by its English name: Wikipedia's picture of it).",
   "required": {},
   "optional": {
    "image": "str",
+   "subject": "str",
    "query": "str",
    "caption": "str",
    "where": "str"

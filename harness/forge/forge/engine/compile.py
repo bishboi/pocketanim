@@ -265,9 +265,9 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
     if kind == "photo":
         import images
 
-        row = images.fetch(op.get("image"), op.get("query"))
+        row = images.fetch(op.get("image"), op.get("query"), op.get("subject"))
         if not row:
-            raise KeyError(f"no reusable photo for {op.get('image') or op.get('query')!r}")
+            raise KeyError(f"no reusable photo for {op.get('image') or op.get('subject') or op.get('query')!r}")
         places.photos[row["id"]] = row
         where = op.get("where", "stage")
         if where == "stage":
@@ -394,7 +394,7 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
     for beat in beats:
         kept = []
         for op in beat.get("do", []):
-            if op.get("op") == "photo" and not images.fetch(op.get("image"), op.get("query")):
+            if op.get("op") == "photo" and not images.fetch(op.get("image"), op.get("query"), op.get("subject")):
                 job.log(f"compile {chapter['id']}.{beat.get('id')}: no photo for {op.get('image') or op.get('query')!r}")
                 continue
             kept.append(op)

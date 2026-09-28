@@ -118,11 +118,20 @@ icon placed at a town. Otherwise the stage shows pictures:
 
 | Operation | What it shows |
 |---|---|
-| `{"op":"photo","image":"File:….jpg" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A Wikimedia Commons photo. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
+| `{"op":"photo","image":"File:….jpg" \| "subject":"Chipko movement" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A photo. `subject` is Wikipedia's picture of a person, movement, event, monument or place; `query` searches Commons. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
 | `{"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"]],"title"?}` | One large icon with up to four small ones. |
 | `{"op":"figure","id":"fig2","where":"stage"}` | A diagram from the uploaded PDF. |
 
 On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it.
+
+**People, movements and places get their picture.** A beat about a particular person, movement, event, monument
+or place gets Wikipedia's picture of it, when the book has no figure of it:
+- in English, from the proper names in its narration ("Sunderlal Bahuguna", "Battle of Plassey");
+- in any language, from the beat's `"about": "Chipko movement"`.
+
+A Hindi name is looked up on Hindi Wikipedia and followed to the English article's picture. The picture is used
+only when it is on Commons under a reusable licence; non-free posters and logos are never used. Book figures are
+placed first. At most six names are looked up per chapter, and misses are remembered.
 
 A beat left without a picture gets an automatic illustration drawn from its own words: sugarcane, tigers,
 tractors. A beat whose opening line has nothing to picture gets an illustration of the chapter's topic

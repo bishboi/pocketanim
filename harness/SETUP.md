@@ -53,7 +53,7 @@ To fetch the libraries again, or only some of them:
 These folders are not in git, so each machine downloads them once.
 
 Other pictures are fetched per lecture, as needed, and cached:
-- **Photos** come from Wikimedia Commons, reusable licences only. They are cached in `harness/lecture/.cache/images`.
+- **Photos** come from Wikimedia Commons, reusable licences only. For a named person, movement, event, monument or place, the picture its Wikipedia article leads with is used. They are cached in `harness/lecture/.cache/images`.
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
 
@@ -97,4 +97,4 @@ says so ("Downloading the icon library…").
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `registry.npmjs.org` (icons), `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `registry.npmjs.org` (icons), `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org` and `hi.wikipedia.org` (photos) |

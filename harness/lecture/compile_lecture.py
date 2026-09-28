@@ -196,8 +196,9 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                     elif spots:
                         places.extend((at, str(p)) for p in spots if isinstance(p, str))
                 if kind == "photo":
-                    if not (op.get("image") or op.get("query")):
-                        errors.append(f"{at}: 'photo' needs image (a Commons title from find_image) or query")
+                    if not (op.get("image") or op.get("query") or op.get("subject")):
+                        errors.append(f"{at}: 'photo' needs image (a Commons title from find_image), subject "
+                                      "(a person, movement, monument or place, by its English name) or query")
                     else:
                         photos.append((at, op))
                 if kind in KIT_OPS:
@@ -260,7 +261,7 @@ script_photos: dict = {}
 
 
 def _photo_key(op: dict) -> str:
-    return f"{op.get('image') or ''}|{op.get('query') or ''}"
+    return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}"
 
 
 def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
@@ -274,13 +275,13 @@ def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
         key = _photo_key(op)
         if key in script_photos:
             continue
-        row = images.fetch(op.get("image"), op.get("query")) if images.enabled() else None
+        row = images.fetch(op.get("image"), op.get("query"), op.get("subject")) if images.enabled() else None
         if row:
             script_photos[key] = row
         elif not images.enabled():
             out.append(f"{at}: internet photos are off here; use an illustration, an icon or a document figure")
         else:
-            what = op.get("image") or f"query {op.get('query')!r}"
+            what = op.get("image") or (f"subject {op['subject']!r}" if op.get("subject") else f"query {op.get('query')!r}")
             out.append(f"{at}: no reusable photo for {what}; use find_image and pick a title it returns, "
                        "or use an illustration instead")
     return out
@@ -540,6 +541,44 @@ def _timeline_of(chapter: dict) -> list[list[str]] | None:
     return events[:7] if len(events) >= 3 else None
 
 
+# Capitalised words that start sentences or name no one: not subjects to look up.
+NAME_STOP = set("""
+I A An The This That These Those It Its He She His Her They Their We Our You Your Chapter Today Here There Then
+In On At Of And But Or So As When While After Before During From To For With By Now Next Later First Finally
+Many Most Some Every Each One Two Three Let Look See Why What Who How Where Which Imagine Think Remember
+India Indian Indians Hindi English Earth Sun Moon North South East West January February March April May June
+July August September October November December Monday Tuesday Wednesday Thursday Friday Saturday Sunday
+""".split())
+_NAME = re.compile(r"[A-Z][a-zA-Z'’.-]+(?:\s+(?:of|the|de|ud|al|and|-)?\s*[A-Z][a-zA-Z'’.-]+)*")
+SUBJECT_LOOKUPS = 6          # Wikipedia lookups per chapter, at most: a compile stays quick
+
+
+def named_subjects(beat: dict, limit: int = 2) -> list[str]:
+    """What a beat is about, to look up a picture of: its `about` (a name the writer gave, in English), else the
+    proper names in its English narration (people, movements, monuments, events: "Sunderlal Bahuguna",
+    "Chipko Movement", "Battle of Plassey")."""
+    about = beat.get("about")
+    if about:
+        return [str(a) for a in (about if isinstance(about, list) else [about]) if str(a).strip()][:limit]
+    out: list[str] = []
+    for sentence in re.split(r"(?<=[.!?।;:])\s+", str(beat.get("say", ""))):
+        sentence = sentence.strip()
+        for m in _NAME.finditer(sentence):
+            words = m.group(0).split()
+            while words and words[0] in NAME_STOP:
+                words = words[1:]
+            while words and words[-1] in ("of", "the", "and", "-"):
+                words = words[:-1]
+            if not words or all(w in NAME_STOP for w in words):
+                continue
+            if len(words) == 1 and m.start() == 0 and m.group(0) == words[0]:
+                continue            # one capitalised word opening a sentence is just a capital letter
+            name = " ".join(words).rstrip(".’'")
+            if len(name) > 2 and name not in out:
+                out.append(name)
+    return out[:limit]
+
+
 def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> list[dict | None]:
     """An illustration for each beat that needs one, else None.
 
@@ -554,7 +593,10 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     """
     import icons
 
+    import images
+
     beats = chapter.get("beats") or []
+    lookups = SUBJECT_LOOKUPS
     # Without the icon library there are no illustrations, but molecules, equations and timelines still come.
     have_icons = bool(icons.available())
     out: list[dict | None] = []
@@ -589,6 +631,18 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             events = _timeline_of(chapter)
             if events:
                 kit_op, showing = {"op": "timeline", "events": events}, {"timeline"}
+        if not kit_op and lookups > 0 and images.enabled():
+            # A person, movement, monument or event the book has no picture of: Wikipedia's picture of it.
+            for subject in named_subjects(beat):
+                if f"photo:{subject}" in showing or lookups <= 0:
+                    continue
+                lookups -= 1
+                row = images.fetch(subject=subject)
+                if row:
+                    op = {"op": "photo", "subject": subject, "caption": subject}
+                    script_photos[_photo_key(op)] = row
+                    kit_op, showing = op, {f"photo:{subject}"}
+                    break
         if kit_op:
             out.append(kit_op)
             continue

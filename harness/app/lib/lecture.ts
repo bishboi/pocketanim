@@ -297,7 +297,7 @@ export const IMAGE_TOOL = {
   function: {
     name: "find_image",
     description:
-      "Search Wikimedia Commons for reusable photographs (public domain, CC0, CC BY, CC BY-SA only). Returns titles to use in a photo op, with what each shows.",
+      "Find reusable photographs (public domain, CC0, CC BY, CC BY-SA only). For a person, movement, event, monument or place give its name (English, as Wikipedia titles it): Wikipedia's picture of it comes first. For a scene, describe it. Returns titles to use in a photo op, with what each shows.",
     parameters: {
       type: "object",
       properties: { queries: { type: "array", items: { type: "string" }, description: "Scenes, e.g. [\"sugarcane field India\", \"Dudhwa tiger\"]" } },
@@ -315,13 +315,13 @@ export async function findImage(queries: unknown): Promise<string> {
   try {
     const found = JSON.parse(stdout.trim() || "{}") as Record<
       string,
-      { id: string; description: string; width: number; height: number; license: string }[]
+      { id: string; description: string; width: number; height: number; license: string; source?: string; subject?: string }[]
     >;
     return Object.entries(found)
       .map(([q, rows]) =>
         `${q}:\n` +
         (rows.length
-          ? rows.map((r) => `  ${r.id} (${r.width}x${r.height}, ${r.license}) ${r.description.slice(0, 100)}`).join("\n")
+          ? rows.map((r) => `  ${r.id} (${r.width}x${r.height}, ${r.license})${r.source === "wikipedia" ? ` [Wikipedia's picture of ${r.subject}]` : ""} ${r.description.slice(0, 100)}`).join("\n")
           : "  nothing reusable found (or no internet here); use an illustration instead"),
       )
       .join("\n");
@@ -394,7 +394,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
     ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...",',
-    '   "beats": [{"say": "...", "do": [ops]}]}], "recap": [["Head", "short body"]], "credits": "..."}',
+    '   "beats": [{"say": "...", "about"?: "Chipko movement", "do": [ops]}]}], "recap": [["Head", "short body"]], "credits": "..."}',
     "",
     "Operations (colour = palette name SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
     '  {"op":"panel","title","sub"?}          clear the side panel and head it; start each topic with one',
@@ -406,8 +406,9 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "Make it immersive: most beats should change or build the picture. Use the MAP only for beats about where",
     "something is (a place, a route, a spread across a region); a chapter with no map operation has no map at all.",
     "Otherwise put a picture on the stage:",
-    '  {"op":"photo","image":"File:....jpg" (from find_image) | "query":"sugarcane harvest","caption"?,"where"?:"stage"|"full"|"panel"}',
-    "                                          a real photograph from Wikimedia Commons, credited automatically",
+    '  {"op":"photo","image":"File:....jpg" (from find_image) | "subject":"Sunderlal Bahuguna" | "query":"sugarcane harvest","caption"?,"where"?:"stage"|"full"|"panel"}',
+    "                                          a real photograph, credited automatically; subject = Wikipedia's picture of a person,",
+    "                                          movement, event, monument or place (its English name)",
     '  {"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"],["sheaf-of-rice","Kharif"]],"title"?,"color"?}',
     "                                          an illustration built from icons: one large, up to four small, labelled",
     '  {"op":"figure","id":"fig2","where":"stage"}   a diagram from the uploaded document, large',
@@ -420,6 +421,12 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "Call find_image for photos (describe the scene: 'sugarcane field India', 'Ganges ghats Varanasi') and use a",
     "title it returns. A map chapter may still show a photo: it covers the map until the next map operation.",
     "Beats you leave without a picture get an automatic illustration from their words, so choose the important ones.",
+    "PEOPLE, MOVEMENTS AND PLACES. Whenever a beat is about a particular person (Sunderlal Bahuguna, Akbar), movement",
+    "(Chipko movement), event (Battle of Plassey), monument (Taj Mahal) or historic place and the document has no figure",
+    "of it, show its picture: {\"op\":\"photo\",\"subject\":\"Chipko movement\",\"caption\":\"चिपको आंदोलन\"}. Use the English",
+    "name Wikipedia titles it by, and the caption in the lecture's language. A document figure of it comes first.",
+    "Give such a beat \"about\":\"<English name>\" too (a Hindi beat especially): a beat you leave without a picture",
+    "then gets that picture automatically.",
     "",
     "Map operations (only with a region):",
     '  {"op":"marker","place":"Jaipur" | "lonlat":[lon,lat],"label"?,"color"?,"side"?:"left|right|up|down"}',

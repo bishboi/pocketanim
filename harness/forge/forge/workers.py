@@ -162,7 +162,11 @@ EXPLAIN_SIMPLY = (
     "example or comparison from daily life. Never copy a source sentence word for word. Take more beats to explain "
     "one hard idea well rather than covering every line; skip QR codes, page furniture and exercise instructions. "
     "In Hindi use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words; say the book's term once and "
-    "explain it. Show pictures (photos, figures, illustrations, icons) rather than boxes of words."
+    "explain it. Show pictures (photos, figures, illustrations, icons) rather than boxes of words.\n"
+    "PEOPLE, MOVEMENTS, PLACES. Whenever a beat is about a particular person, movement, event, monument or historic "
+    "place and no source figure shows it, show it with {\"op\": \"photo\", \"subject\": \"<its English name, as "
+    "Wikipedia titles it>\", \"caption\": \"<the name in the lecture's language>\"}: Wikipedia's picture of it is "
+    "fetched. Give the beat \"about\": \"<English name>\" as well when its narration is not in English."
 )
 
 

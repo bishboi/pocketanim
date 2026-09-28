@@ -112,6 +112,13 @@ A chapter draws its map only if its beats point at the map. Everything else play
 - `illustration`: an educational illustration or diagram (Wikimedia Commons, Openverse), as `{"op":"illustration","query":"water cycle diagram"}`. Lectures use no icons: an icon op compiles to a marker or a fact line.
 - `figure`: a diagram from a source PDF.
 
+Stages are planned a paragraph at a time (see "Paragraph flow" in `harness/lecture/README.md`):
+- `diagram` builds a diagram from SVG drawings, and `reveal` and `focus` build it up over the next beats;
+- `define`, `compare` with `columns`, and `gallery` show 2 to 4 pictures of people and places together.
+
+Automatic pictures fill only a paragraph's first beat. Figures removed on the upload page are left out of
+the job.
+
 Science and history kits add `molecule`, `equation`, `plot`, `process`, `quote`, and `timeline` with
 `"where":"stage"` (see `harness/lecture/README.md`). PDF figures the script leaves out are placed on the
 best-matching beats automatically.

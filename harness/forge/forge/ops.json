@@ -38,14 +38,15 @@
   }
  },
  "compare": {
-  "doc": "Two numbers side by side.",
-  "required": {
-   "left": "pair",
-   "right": "pair"
-  },
+  "doc": "Two numbers side by side. With columns: two or three kinds side by side on the stage, each {title, entity?, points}.",
+  "required": {},
   "optional": {
    "left_tone": "tone",
-   "right_tone": "tone"
+   "right_tone": "tone",
+   "columns": "list",
+   "title": "str",
+   "left": "pair",
+   "right": "pair"
   }
  },
  "timeline": {
@@ -306,6 +307,54 @@
   },
   "optional": {
    "who": "str"
+  }
+ },
+ "gallery": {
+  "doc": "Two to four pictures on the stage together, for a paragraph about several people, communities or historic places: items [{subject|image|figure|illustration, caption}].",
+  "required": {
+   "items": "list"
+  },
+  "optional": {
+   "title": "str"
+  }
+ },
+ "diagram": {
+  "doc": "A diagram built on the stage from SVG drawings of the things (entity: an English word) and arrows; kind flow|cycle|tree|hub; show some nodes now, reveal the rest across the paragraph.",
+  "required": {
+   "id": "str",
+   "nodes": "list"
+  },
+  "optional": {
+   "kind": "str",
+   "edges": "list",
+   "title": "str",
+   "show": "list"
+  }
+ },
+ "reveal": {
+  "doc": "The next nodes of a diagram drawn earlier in the chapter, with their arrows.",
+  "required": {
+   "diagram": "str",
+   "nodes": "list"
+  },
+  "optional": {}
+ },
+ "focus": {
+  "doc": "A ring around one node of a diagram while the narration talks about it.",
+  "required": {
+   "diagram": "str",
+   "node": "str"
+  },
+  "optional": {}
+ },
+ "define": {
+  "doc": "A hard word on the stage with its meaning in plain words (and a drawing of it).",
+  "required": {
+   "term": "str",
+   "meaning": "str"
+  },
+  "optional": {
+   "entity": "str"
   }
  }
 }

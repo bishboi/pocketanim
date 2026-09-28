@@ -196,6 +196,8 @@ export default function Home() {
     pages?: number;
     note?: string | null;
     figures?: { id: string; caption: string; url: string }[];
+    /** Figures removed from the lecture: kept by the server, restorable. */
+    excluded?: { id: string; caption: string; url: string }[];
   }>({ busy: false });
   const [video, setVideo] = useState<{ busy: boolean; error?: string; quality: string }>({
     busy: false,
@@ -464,6 +466,28 @@ export default function Home() {
     }
   }
 
+  /** Leave one of the PDF's figures out of the lecture (or, with null, bring them all back). */
+  async function changeFigures(figure: string | null) {
+    if (!doc.id) return;
+    const response = figure
+      ? await fetch(`/api/document?id=${doc.id}&figure=${encodeURIComponent(figure)}`, { method: "DELETE" })
+      : await fetch(`/api/document?id=${doc.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excluded: [] }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setDoc((d) => ({ ...d, error: data.error ?? `HTTP ${response.status}` }));
+      return;
+    }
+    setDoc((d) => ({ ...d, error: undefined, figures: data.figures, excluded: data.excluded }));
+    // The content box holds the PDF's text: a removed figure's marker leaves it, a restored one comes back.
+    if (figure) {
+      const marker = new RegExp(`\\[FIGURE ${figure.replace(/[^a-z0-9_]/gi, "")}:[^\\]]*\\]\\n?`, "g");
+      setContent((c) => c.replace(marker, ""));
+    } else if (data.markdown) {
+      setContent((c) => `${c.split("\n")[0]}\n${data.markdown}`);
+    }
+  }
+
   /** Upload a lecture PDF: its text becomes the content, its figures become figure ops. */
   async function uploadDocument(file: File) {
     setDoc({ busy: true, name: file.name });
@@ -474,7 +498,7 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
       setDoc({ busy: false, id: data.id, name: file.name, source: data.source, pages: data.pages, note: data.note,
-        figures: data.figures });
+        figures: data.figures, excluded: data.excluded });
       setContent(`${file.name.replace(/\.pdf$/i, "")}\n${data.markdown}`);
     } catch (e) {
       setDoc({ busy: false, name: file.name, error: e instanceof Error ? e.message : String(e) });
@@ -646,13 +670,33 @@ export default function Home() {
                 {doc.note && <span className="text-amber-300/80">{doc.note}</span>}
                 {doc.error && <span className="text-rose-300">{doc.error}</span>}
                 {!!doc.figures?.length && (
-                  <div className="flex gap-2 overflow-x-auto" data-testid="pdf-figures">
-                    {doc.figures.map((f) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={f.id} src={f.url} alt={f.caption} title={`${f.id}: ${f.caption}`}
-                        className="h-16 rounded border border-neutral-700 bg-white object-contain" />
-                    ))}
-                  </div>
+                  <>
+                    <span className="text-neutral-400">Figures in the lecture — remove any you do not want:</span>
+                    <div className="flex gap-2 overflow-x-auto pb-1" data-testid="pdf-figures">
+                      {doc.figures.map((f) => (
+                        <div key={f.id} className="relative shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={f.url} alt={f.caption} title={`${f.id}: ${f.caption}`}
+                            className="h-20 rounded border border-neutral-700 bg-white object-contain" />
+                          <button type="button" aria-label={`remove ${f.id}`} title={`Leave ${f.id} out of the lecture`}
+                            data-testid={`remove-${f.id}`}
+                            onClick={() => changeFigures(f.id)}
+                            className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-neutral-900/85 text-xs leading-5 text-white hover:bg-rose-600">
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {!!doc.excluded?.length && (
+                  <span className="text-neutral-500" data-testid="pdf-excluded">
+                    {doc.excluded.length} figure{doc.excluded.length > 1 ? "s" : ""} left out ({doc.excluded.map((f) => f.id).join(", ")}).{" "}
+                    <button type="button" className="underline underline-offset-2 hover:text-neutral-300"
+                      onClick={() => changeFigures(null)}>
+                      restore all
+                    </button>
+                  </span>
                 )}
               </div>
               <div className="flex items-center justify-end">

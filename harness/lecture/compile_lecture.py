@@ -153,6 +153,7 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
         errors.append("a lecture needs at least one chapter")
     for ci, chapter in enumerate(chapters, 1):
         where = f"chapter {ci}"
+        diagrams: dict = {}          # diagram id -> node ids, for the chapter's reveal and focus
         for key in ("title", "narration"):
             if not chapter.get(key):
                 errors.append(f"{where}: missing {key}")
@@ -170,9 +171,15 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
             for op in ops:
                 kind = op.get("op")
                 if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo",
-                                "illustration"} | KIT_OPS | MAP_OPS:
+                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
                     continue
+                if kind in BUILD_OPS | STEP_OPS:
+                    problem = _build_problem(op, diagrams, script.get("figures") or {})
+                    if problem:
+                        errors.append(f"{at}: {problem}")
+                    if kind == "gallery" and not problem:
+                        photos.extend((at, item) for item in _gallery_fetches(op))
                 if kind in MAP_OPS and not has_map:
                     errors.append(f"{at}: '{kind}' needs a map; give the script a region")
                 if kind in MAP_OPS and chapter.get("map") is False:
@@ -288,6 +295,8 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         row = images.fetch(op.get("image"), op.get("query"), op.get("subject")) if images.enabled() else None
         if row:
             script_photos[key] = row
+        elif op.get("optional"):
+            continue
         elif not images.enabled():
             out.append(f"{at}: internet photos are off here; use a document figure, a diagram you draw (process, "
                        "timeline, equation, plot) or drop the photo")
@@ -299,7 +308,82 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
 
 
 KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
-VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS
+# Built on the stage: several pictures at once, diagrams of SVG drawings, a word and its meaning, a comparison.
+BUILD_OPS = {"gallery", "diagram", "define", "compare"}
+# The next step of what is already on the stage: more of a diagram, or a ring around one of its nodes.
+STEP_OPS = {"reveal", "focus"}
+DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub"}
+VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
+
+
+def _gallery_items(op: dict) -> list[dict]:
+    """A gallery's items as fetchable operations: {op: photo, subject|image|query} or {op: illustration, query}
+    or {op: figure, id}; each keeps its caption."""
+    out = []
+    for item in list(op.get("items") or [])[:4]:
+        if not isinstance(item, dict):
+            continue
+        caption = item.get("caption") or item.get("subject") or ""
+        if item.get("figure"):
+            out.append({"op": "figure", "id": str(item["figure"]), "caption": caption})
+        elif item.get("illustration"):
+            out.append({"op": "illustration", "query": item["illustration"], "caption": caption})
+        elif item.get("subject") or item.get("image") or item.get("query"):
+            out.append({"op": "photo", **{k: item[k] for k in ("subject", "image", "query") if item.get(k)},
+                        "caption": caption})
+    return out
+
+
+def _gallery_fetches(op: dict) -> list[dict]:
+    """A gallery's pictures to download; one that cannot be found is left out of the gallery, not an error."""
+    return [{**item, "optional": True} for item in _gallery_items(op) if item["op"] != "figure"]
+
+
+def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
+    """What stops a gallery, diagram, definition, comparison, reveal or focus, if anything."""
+    kind = op["op"]
+    if kind == "gallery":
+        items = _gallery_items(op)
+        if not items:
+            return ("'gallery' needs items: 2-4 of {subject|image|query|figure|illustration, caption} "
+                    "(people, communities, places)")
+        missing = [i["id"] for i in items if i["op"] == "figure" and i["id"] not in figures]
+        if missing:
+            return f"gallery: no figure {missing[0]!r}"
+    if kind == "diagram":
+        key = str(op.get("id") or "")
+        nodes = op.get("nodes") or []
+        if not key:
+            return "'diagram' needs an id (reveal and focus refer to it)"
+        if op.get("kind", "flow") not in DIAGRAM_KINDS:
+            return f"diagram kind must be one of {', '.join(sorted(DIAGRAM_KINDS))}"
+        if not 2 <= len(nodes) <= 9 or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
+            return "'diagram' needs 2-9 nodes, each {id, label, entity?}"
+        ids = [str(n["id"]) for n in nodes]
+        if len(set(ids)) != len(ids):
+            return "diagram node ids must be different"
+        bad = [e for e in op.get("edges") or [] if not isinstance(e, list) or len(e) < 2
+               or str(e[0]) not in ids or str(e[1]) not in ids]
+        if bad:
+            return f"diagram edge {bad[0]!r} must join two node ids: [from, to, label?]"
+        unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
+        if unknown:
+            return f"diagram show: no node {unknown[0]!r}"
+        diagrams[key] = ids
+    if kind in STEP_OPS:
+        key = str(op.get("diagram") or "")
+        if key not in diagrams:
+            return f"'{kind}' needs diagram: the id of a diagram drawn earlier in this chapter"
+        wanted = [str(x) for x in (op.get("nodes") or [])] if kind == "reveal" else [str(op.get("node") or "")]
+        if not wanted or any(w not in diagrams[key] for w in wanted):
+            return f"{kind}: nodes must be ids of diagram {key!r} ({', '.join(diagrams[key])})"
+    if kind == "define" and not (op.get("term") and op.get("meaning")):
+        return "'define' needs term and meaning (in plain words)"
+    if kind == "compare":
+        columns = op.get("columns") or []
+        if not 2 <= len(columns) <= 3 or not all(isinstance(c, dict) and c.get("title") for c in columns):
+            return "'compare' needs 2-3 columns, each {title, entity?, points: [up to 4 short lines]}"
+    return None
 
 
 def _kit_problem(op: dict) -> str | None:
@@ -346,7 +430,8 @@ def _kit_problem(op: dict) -> str | None:
 COPY_RUN = 8            # this many words in a row, word for word from the source, is reading the book aloud
 LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
 TEXT_OPS = {"process", "quote"}
-PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars"}
+PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars", "gallery", "diagram",
+               "define", "compare", "reveal", "focus"}
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
@@ -407,6 +492,11 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
     warnings = [f"figure {op.get('id')} is a QR code or logo, not a diagram; drop it"
                 for b in beats for op in b.get("do") or []
                 if op.get("op") == "figure" and NOT_A_FIGURE.search(str((figures.get(str(op.get("id"))) or {}).get("caption", "")))]
+    fresh = [b for b in beats if {op.get("op") for op in b.get("do") or []} & (VISUAL_OPS - {"process", "quote"})]
+    if len(beats) >= 8 and len(fresh) > len(beats) * 0.6:
+        warnings.append(f"{len(fresh)} of {len(beats)} beats put up a new picture: that is a picture a sentence. "
+                        "Plan the stage a paragraph (3-5 beats) at a time: one diagram revealed across the "
+                        "paragraph (reveal, focus), one gallery, one map sequence; beats in between leave it up.")
     if len(wordy) > max(3, len(beats) * 0.3):
         return [f"{len(wordy)} of {len(beats)} beats show only boxes of words (process or quote) on the stage. "
                 "Show pictures instead: an educational illustration or diagram (find_illustration, described in English "
@@ -624,95 +714,112 @@ def named_subjects(beat: dict, limit: int = 2) -> list[str]:
     return out[:limit]
 
 
+PARAGRAPH_MAX = 5        # beats a picture may hold without the script asking for a new one
+
+
+def paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
+    """The beats in paragraphs: a paragraph starts at the chapter's start, at a beat marked "paragraph": true,
+    at a beat that puts up its own picture (a map, a diagram, a photo...), and after PARAGRAPH_MAX beats."""
+    is_map_op = is_map_op or _points_at_map
+    out: list[list[int]] = []
+    for index, beat in enumerate(beats):
+        ops = beat.get("do") or []
+        fresh = beat.get("paragraph") or any(op.get("op") in VISUAL_OPS or is_map_op(op) for op in ops)
+        if not out or fresh or len(out[-1]) >= PARAGRAPH_MAX:
+            out.append([index])
+        else:
+            out[-1].append(index)
+    return out
+
+
 def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> list[dict | None]:
-    """A picture for each beat that needs one, else None.
+    """What the stage shows where the script chose nothing, a paragraph at a time -- never a picture a sentence.
 
-    On a map chapter, a beat that points at the map keeps it; a beat about
-    something else covers it with a picture, and the next map beat brings it back.
-
-    In order: a molecule or equation (sciences) or a timeline (history) the
-    beat itself contains; Wikipedia's picture of a person, movement or place it
-    names; else an educational illustration or diagram of what it explains
-    (Wikimedia Commons, Openverse). No icons. A picture the script chose itself
-    stays up through the next beat before an automatic one replaces it.
+    A paragraph that opens without a picture of its own (see `paragraphs`) gets, on its first beat:
+    - a molecule or equation its beats contain (sciences), or a timeline of the chapter's years (history,
+      the first paragraph);
+    - else pictures of the people, communities and places it names (Wikipedia's picture of each; two or
+      three together as a gallery);
+    - else, only when the script sets "auto_illustrations": true, a fetched illustration of its topic;
+    - else nothing: the stage clears rather than keep the last paragraph's picture. The panel and the
+      narration carry it, and a diagram the writer builds is always better than a guessed image.
+    The picture then holds through the paragraph.
     """
     import images
 
     beats = chapter.get("beats") or []
-    lookups = SUBJECT_LOOKUPS * 2       # names (photos) and topics (illustrations) share it
-    out: list[dict | None] = []
-    showing: set[str] = set()
-    hold = 0
+    lookups = SUBJECT_LOOKUPS * 2
+    out: list[dict | None] = [None] * len(beats)
     is_map_op = is_map_op or _points_at_map
-    for index, beat in enumerate(beats):
-        if any(is_map_op(op) for op in beat.get("do") or []):
-            # A beat about where things are: the map is the picture.
-            out.append(None)
-            showing, hold = set(), 0
+    staged = False                  # something of the script's or ours is on the stage
+    for group in paragraphs(beats, is_map_op):
+        first = beats[group[0]]
+        ops = first.get("do") or []
+        if any(is_map_op(op) for op in ops):
+            staged = False          # the map is the picture (compile clears the stage for it)
             continue
-        if any(op.get("op") in VISUAL_OPS for op in beat.get("do") or []):
-            out.append(None)
-            showing, hold = set(), 1
+        if any(op.get("op") in VISUAL_OPS for op in ops):
+            staged = True
             continue
-        say = beat.get("say", "")
-        kit_op = None
-        if genre in ("chemistry", "biology", "physics", "mathematics") and hold <= 0:
-            equation = _equation_in(say)
-            named = []
-            if genre in ("chemistry", "biology"):
+        text = " ".join(str(beats[i].get("say", "")) for i in group)
+        pick = None
+        if genre in ("chemistry", "biology", "physics", "mathematics"):
+            equation = next((e for e in (_equation_in(str(beats[i].get("say", ""))) for i in group) if e), None)
+            if equation:
+                pick = {"op": "equation", "tex": equation}
+            elif genre in ("chemistry", "biology"):
                 import molecules
 
-                named = [m for m in molecules.find_in_text(say) if f"molecule:{m}" not in showing]
-            if equation and f"equation:{equation}" not in showing:
-                kit_op, showing = {"op": "equation", "tex": equation}, {f"equation:{equation}"}
-            elif named:
-                kit_op, showing = {"op": "molecule", "name": named[0]}, {f"molecule:{named[0]}"}
-        if genre == "history" and index == 0 and not any(
+                named = molecules.find_in_text(text)
+                if named:
+                    pick = {"op": "molecule", "name": named[0]}
+        if not pick and genre == "history" and group[0] == 0 and not any(
                 op.get("op") == "timeline" for b in beats for op in b.get("do") or []):
             events = _timeline_of(chapter)
             if events:
-                kit_op, showing = {"op": "timeline", "events": events}, {"timeline"}
-        if not kit_op and lookups > 0 and images.enabled():
-            # A person, movement, monument or event the book has no picture of: Wikipedia's picture of it.
-            for subject in named_subjects(beat):
-                if f"photo:{subject}" in showing or lookups <= 0:
-                    continue
+                pick = {"op": "timeline", "events": events}
+        if not pick and images.enabled():
+            # People, communities and places the paragraph names: their pictures, together.
+            found = []
+            names = []
+            for i in group:
+                names += [n for n in named_subjects(beats[i], limit=3) if n not in names]
+            for subject in names[:4]:
+                if lookups <= 0 or len(found) >= 3:
+                    break
                 lookups -= 1
                 row = images.fetch(subject=subject)
-                if row:
-                    op = {"op": "photo", "subject": subject, "caption": subject}
-                    script_photos[_photo_key(op)] = row
-                    kit_op, showing = op, {f"photo:{subject}"}
-                    break
-        if kit_op:
-            out.append(kit_op)
-            continue
-        # An educational illustration or diagram of what the beat explains (Commons, Openverse), kept up for
-        # two beats: a picture that changes every sentence is hard to read.
-        if hold <= 0 and lookups > 0 and images.enabled():
-            for query in picture_queries(beat, chapter, genre, index):
-                if f"query:{query}" in showing or lookups <= 0:
-                    continue
+                if row and row["id"] not in USED_PICTURES:
+                    item = {"op": "photo", "subject": subject, "caption": subject}
+                    script_photos[_photo_key(item)] = row
+                    USED_PICTURES.add(row["id"])
+                    found.append(item)
+            if len(found) == 1:
+                pick = found[0]
+            elif found:
+                pick = {"op": "gallery", "items": [{"subject": f["subject"], "caption": f["caption"]} for f in found]}
+        if not pick and STYLE_NOW.get("auto_illustrations") and images.enabled() and lookups > 0:
+            for query in picture_queries(first, chapter, genre, group[0]):
                 lookups -= 1
                 row = images.fetch(illustration=query, avoid=USED_PICTURES, genre=genre, style=STYLE_NOW["style"])
                 if row:
-                    op = {"op": "illustration", "query": query, "caption": ""}
-                    script_photos[_photo_key(op)] = row
+                    pick = {"op": "illustration", "query": query, "caption": ""}
+                    script_photos[_photo_key(pick)] = row
                     USED_PICTURES.add(row["id"])
-                    kit_op, showing, hold = op, {f"query:{query}"}, 1
                     break
-            if kit_op:
-                out.append(kit_op)
-                continue
-        out.append(None)
-        hold -= 1
+        if pick:
+            out[group[0]] = pick
+            staged = True
+        elif staged:
+            out[group[0]] = {"op": "unstage"}       # a new paragraph: the last one's picture goes
+            staged = False
     return out
 
 
 # Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile), and the
 # lecture's style, which an AI illustration is drawn in.
 USED_PICTURES: set = set()
-STYLE_NOW = {"style": None}
+STYLE_NOW: dict = {"style": None, "auto_illustrations": False}
 PLAIN = set("""
 about above after again against almost along also although always among another around because become before
 being below between both came come could does doing down during each even every first from further have having
@@ -880,6 +987,46 @@ def _op_call(op: dict) -> str:
         caption = op.get("caption") or figure.get("caption") or ""
         return (f"self.figure({_q(figure['file'])}, {_q(caption)}, "
                 f"where={_q(op.get('where', 'panel'))})")
+    if kind == "unstage":
+        return "self.clear_stage()"
+    if kind == "gallery":
+        shown = []
+        for item in _gallery_items(op):
+            if item["op"] == "figure":
+                figure = script_figures.get(item["id"])
+                if figure:
+                    shown.append((figure["file"], item.get("caption") or figure.get("caption", "")))
+                continue
+            row = script_photos.get(_photo_key(item))
+            if row:
+                shown.append((row["file"], item.get("caption") or ""))
+        if not shown:
+            return None
+        if len(shown) == 1:
+            return f"self.stage_image({_q(shown[0][0])}, {_q(shown[0][1])})"
+        items = ", ".join(f"({_q(f)}, {_q(c)})" for f, c in shown)
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return f"self.gallery([{items}]{title})"
+    if kind == "diagram":
+        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {})}
+                 for n in op["nodes"]]
+        edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
+        show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return (f"self.diagram({_q(str(op['id']))}, {_q(op.get('kind', 'flow'))}, {nodes!r}, {edges!r}"
+                f"{title}{show})")
+    if kind == "reveal":
+        return f"self.reveal_nodes({_q(str(op['diagram']))}, {[str(x) for x in op['nodes']]!r})"
+    if kind == "focus":
+        return f"self.spotlight({_q(str(op['diagram']))}, {_q(str(op['node']))})"
+    if kind == "define":
+        entity = f", entity={_q(op['entity'])}" if op.get("entity") else ""
+        return f"self.define({_q(op['term'])}, {_q(op['meaning'])}{entity})"
+    if kind == "compare":
+        columns = [{"title": str(c["title"]), "points": [str(p) for p in (c.get("points") or [])][:4],
+                    **({"entity": str(c["entity"])} if c.get("entity") else {})} for c in op["columns"]]
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return f"self.compare_cards({columns!r}{title})"
     if kind == "graticule":
         axis = f"lat={float(op['lat']):g}" if op.get("lat") is not None else f"lon={float(op['lon']):g}"
         color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
@@ -900,6 +1047,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     script_figures.update(script.get("figures") or {})
     USED_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")
+    STYLE_NOW["auto_illustrations"] = bool(script.get("auto_illustrations"))
     import illustrations
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
@@ -958,8 +1106,10 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 staged = False
             for op in ops:
                 if op.get("op") in ("photo", "illustration") and op.get("where", "stage") == "stage" or \
-                        op.get("op") == "figure" and op.get("where") == "stage" or op.get("op") in KIT_OPS:
+                        op.get("op") == "figure" and op.get("where") == "stage" or op.get("op") in KIT_OPS | BUILD_OPS:
                     staged = True
+                if op.get("op") == "unstage":
+                    staged = False
             calls += [call for call in (_op_call(op) for op in ops) if call]
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""

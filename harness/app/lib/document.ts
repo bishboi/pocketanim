@@ -25,6 +25,8 @@ export type DocumentManifest = {
   words: number;
   note?: string | null;
   figures: Figure[];
+  /** Figures the user removed from the lecture (kept on disk, so they can be restored). */
+  excluded: Figure[];
   markdown: string;
 };
 
@@ -72,17 +74,45 @@ export async function addDocument(bytes: Uint8Array): Promise<DocumentManifest> 
   return loadDocument(id);
 }
 
-export async function loadDocument(id: string): Promise<DocumentManifest> {
+/** The figures the user removed, beside the PDF (Forge's reader looks for the same file). */
+async function excludedIds(id: string): Promise<string[]> {
+  try {
+    const list = JSON.parse(await readFile(path.join(folder(id), "excluded.json"), "utf8"));
+    return Array.isArray(list) ? list.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remove figures from the lecture, or (with an empty list) restore them all. */
+export async function setExcluded(id: string, figures: string[]): Promise<DocumentManifest> {
+  const doc = await loadDocument(id, { all: true });
+  const known = new Set(doc.figures.map((f) => f.id));
+  await writeFile(path.join(folder(id), "excluded.json"), JSON.stringify(figures.filter((f) => known.has(f))));
+  return loadDocument(id);
+}
+
+/** A figure's marker in the Markdown: "[FIGURE fig3: caption]". */
+export function figureMarker(figure: string): RegExp {
+  return new RegExp(`\\[FIGURE ${figure.replace(/[^a-z0-9_]/gi, "")}:[^\\]]*\\]\\n?`, "g");
+}
+
+export async function loadDocument(id: string, options: { all?: boolean } = {}): Promise<DocumentManifest> {
   const out = path.join(folder(id), "out");
   const manifest = JSON.parse(await readFile(path.join(out, "manifest.json"), "utf8"));
+  const removed = new Set(options.all ? [] : await excludedIds(id));
+  let markdown = await readFile(manifest.markdown, "utf8");
+  // A removed figure leaves the text too, so the model is never told it exists.
+  for (const figure of removed) markdown = markdown.replace(figureMarker(figure), "");
   return {
     id,
     source: manifest.source,
     pages: manifest.pages,
     words: manifest.words,
     note: manifest.note,
-    figures: manifest.figures,
-    markdown: await readFile(manifest.markdown, "utf8"),
+    figures: (manifest.figures as Figure[]).filter((f) => !removed.has(f.id)),
+    excluded: (manifest.figures as Figure[]).filter((f) => removed.has(f.id)),
+    markdown,
   };
 }
 
@@ -95,7 +125,7 @@ export function documentPdf(id: string): string {
 
 /** A figure's image file, for the thumbnail route. */
 export async function figureFile(id: string, figure: string): Promise<string> {
-  const doc = await loadDocument(id);
+  const doc = await loadDocument(id, { all: true });
   const found = doc.figures.find((f) => f.id === figure);
   if (!found || !existsSync(found.file)) throw new Error("no such figure");
   return found.file;

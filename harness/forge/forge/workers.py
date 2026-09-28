@@ -168,7 +168,16 @@ EXPLAIN_SIMPLY = (
     "PEOPLE, MOVEMENTS, PLACES. Whenever a beat is about a particular person, movement, event, monument or historic "
     "place and no source figure shows it, show it with {\"op\": \"photo\", \"subject\": \"<its English name, as "
     "Wikipedia titles it>\", \"caption\": \"<the name in the lecture's language>\"}: Wikipedia's picture of it is "
-    "fetched. Give the beat \"about\": \"<English name>\" as well when its narration is not in English."
+    "fetched. Give the beat \"about\": \"<English name>\" as well when its narration is not in English.\n"
+    "PARAGRAPH FLOW. Plan the stage a paragraph (3-5 beats) at a time, never a new picture every sentence. Mark a "
+    "paragraph's first beat \"paragraph\": true and give it the paragraph's visual; later beats build on it. HOW "
+    "something works: a diagram of drawings ({\"op\": \"diagram\", \"id\", \"kind\": flow|cycle|tree|hub, \"nodes\": "
+    "[{\"id\", \"label\", \"entity\": \"<English word: tree, deer, factory>\"}], \"edges\": [[from, to, label?]], "
+    "\"show\": [first nodes]}), then {\"op\": \"reveal\", \"diagram\", \"nodes\"} and {\"op\": \"focus\", \"diagram\", "
+    "\"node\"} on the next beats. A hard word: {\"op\": \"define\", \"term\", \"meaning\"}. Kinds side by side: "
+    "{\"op\": \"compare\", \"columns\": [{\"title\", \"entity\"?, \"points\"}]}. People, communities and historic "
+    "places (only these as pictures): {\"op\": \"gallery\", \"items\": [{\"subject\", \"caption\"}, {\"figure\": \"<id>\"}]}. "
+    "WHERE something is: the map. Some paragraphs need no picture at all."
 )
 
 

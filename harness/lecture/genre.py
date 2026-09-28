@@ -70,54 +70,58 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "illustration", "photo", "figure", "bars"],
+        "kit": ["marker", "river", "state", "diagram", "figure", "gallery", "compare", "bars"],
         "guidance": "Geography: the map carries the where (markers, rivers, states); the stage carries "
-                    "what it looks like (photos of landscapes and crops, illustrations). Alternate them.",
+                    "how it works: diagrams built from drawings (how rivers feed a delta, what a crop needs), the "
+                    "document's figures, comparisons. Photos only for people, communities and historic places.",
     },
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
-        "kit": ["timeline", "quote", "photo", "figure", "process", "marker", "arrow", "illustration"],
-        "guidance": "History: open each era with a timeline on the stage; show people and places as photos (portraits, "
-                    "monuments, paintings from Commons); quote primary sources with quote; show causes and "
-                    "consequences as a process; use the map only for where events happened, routes and empires.",
+        "kit": ["timeline", "gallery", "diagram", "figure", "marker", "arrow", "quote", "compare"],
+        "guidance": "History: open each era with a timeline on the stage; show the people, communities and places of a "
+                    "paragraph together in a gallery (portraits, monuments, paintings); build causes and consequences "
+                    "as a diagram revealed step by step; quote primary sources; the map for where events happened, "
+                    "routes and empires.",
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["figure", "photo", "process", "illustration", "molecule", "equation", "bars"],
-        "guidance": "Biology: show structures (document figures, photos of organisms and microscope images), processes "
-                    "and cycles as process (cycle=true for cycles), key molecules (glucose, ATP parts, DNA bases) with "
+        "kit": ["diagram", "figure", "define", "molecule", "equation", "compare", "illustration"],
+        "guidance": "Biology: show structures with the document's figures (or "
+                    "find_illustration for a textbook diagram), build processes and cycles as diagrams of drawings "
+                    "(kind cycle for cycles, revealed a stage at a time), define hard terms, key molecules (glucose, ATP parts, DNA bases) with "
                     "molecule, and summary reactions with equation. No map unless the topic is where life lives.",
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["molecule", "equation", "process", "figure", "photo", "illustration", "bars"],
+        "kit": ["molecule", "equation", "diagram", "figure", "define", "compare"],
         "guidance": "Chemistry: draw every substance you discuss with molecule (name, formula or SMILES), write "
-                    "reactions with equation (reactants -> products, subscripts as H_2O), show procedures as process, "
-                    "and use photos of real reactions and apparatus. No map.",
+                    "reactions with equation (reactants -> products, subscripts as H_2O), build how things change as a "
+                    "diagram, define hard terms, and compare kinds side by side. No map.",
     },
     "physics": {
         "label": "Physics", "style": "cosmos", "map": "never",
-        "kit": ["equation", "plot", "process", "figure", "photo", "illustration"],
+        "kit": ["equation", "plot", "diagram", "figure", "define"],
         "guidance": "Physics: state each law as an equation, show how quantities vary with plot (a function of x, with "
-                    "axis labels), show chains of cause and effect as process, and use photos of the phenomenon. No map.",
+                    "axis labels), build chains of cause and effect as diagrams of drawings, revealed a step at a time. No map.",
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["equation", "plot", "process", "figure", "illustration"],
+        "kit": ["equation", "plot", "diagram", "define", "figure"],
         "guidance": "Mathematics: one equation per beat on the stage, built up step by step (each step its own beat), "
-                    "graphs with plot, methods as process (the steps of a proof or an algorithm). No map, few photos.",
+                    "graphs with plot, methods as a flow diagram revealed step by step. No map, no photos.",
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
-        "kit": ["bars", "plot", "process", "photo", "illustration", "stat", "marker"],
+        "kit": ["diagram", "bars", "plot", "compare", "define", "stat", "marker"],
         "guidance": "Economics: show quantities as bars and trends as plot, mechanisms (supply and demand, how inflation "
-                    "spreads) as process, and places on the map only when trade or regions are the point.",
+                    "spreads) as diagrams revealed step by step, kinds side by side with compare, and places on the map only when trade or regions are the point.",
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
-        "kit": ["photo", "illustration", "process", "figure", "timeline", "quote", "equation", "bars"],
-        "guidance": "Choose the picture that explains each beat: photos, illustrations, processes, timelines; the map "
-                    "only for where.",
+        "kit": ["diagram", "figure", "gallery", "define", "compare", "timeline", "bars"],
+        "guidance": "Give each paragraph one visual that explains it: a diagram built from drawings, the "
+                    "document's figures, a comparison, a timeline; pictures only of people and places; the map only "
+                    "for where.",
     },
 }
 WORDS = {genre: set(v.split()) | set(VOCAB_HI.get(genre, "").split()) for genre, v in VOCAB.items()}

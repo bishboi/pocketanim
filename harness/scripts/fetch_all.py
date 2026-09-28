@@ -5,6 +5,7 @@
 
 What it gets, and where it goes:
 
+  symbols    SVG drawings for diagram nodes (tree, deer...)  harness/lecture/data/icons/     ~75 MB
   openstax   OpenStax textbook figures (an index; CC BY)    harness/lecture/data/illustrations/  <1 MB
   gazetteer  GeoNames towns (about 150,000 place names)     harness/lecture/data/geonames/  ~10 MB
   voice      Kokoro-82M narration voice (+ kokoro-onnx)     harness/models/                 ~350 MB
@@ -12,7 +13,7 @@ What it gets, and where it goes:
   fonts      the styles' Google Fonts                       ~/.fonts (Linux), ~/Library/Fonts (macOS)
 
 Photos and educational illustrations (Wikimedia Commons, Wikipedia, Openverse), molecules (PubChem) and PDF
-conversion (Datalab) are fetched per lecture, as needed. Lectures use no icon library.
+conversion (Datalab) are fetched per lecture, as needed. The SVG drawings appear only inside built diagrams.
 Every step is safe to rerun: what is already here is skipped.
 """
 
@@ -25,7 +26,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("openstax", "gazetteer", "voice", "maps", "fonts")
+STEPS = ("symbols", "openstax", "gazetteer", "voice", "maps", "fonts")
 
 
 def run(script: str) -> bool:
@@ -56,7 +57,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
-    actions = {"openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
+    actions = {"symbols": lambda: run("fetch_icons.py"), "openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
                "voice": lambda: run("fetch_voice.py"), "maps": maps, "fonts": fonts}
     report = {}
     for step in STEPS:

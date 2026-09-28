@@ -14,6 +14,7 @@ import { Template, explainWith, filmBrief, isLecture, layoutContract, templateBy
 import { ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
+import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
 export type Generated = {
@@ -934,6 +935,11 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
 
 /** The content's subject, announced in the trace so the choice is visible. */
 async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
+  // Diagrams draw their nodes from the SVG drawing library: fetch it before the lecture is written.
+  if (!symbolsReady()) {
+    emit({ type: "message", role: "status", text: "Downloading the SVG drawings diagrams are built from (once)…" });
+    await ensureSymbols();
+  }
   const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`);
   emit({
     type: "message",

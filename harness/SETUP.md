@@ -44,6 +44,7 @@ To fetch the libraries again, or only some of them:
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
+| Diagram drawings | SVG drawings (a tree, a deer, a factory) that diagram nodes, definitions and comparisons draw things with. They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Voice | Kokoro-82M, the narration voice, and the `kokoro-onnx` package. | `harness/models/` | 350 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |

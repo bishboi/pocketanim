@@ -76,6 +76,7 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
     placed = set()
     pack = region.load(job.spec["region_id"]) if job.spec.get("region_id") else {}
     known_units = {u["id"] for u in ((pack.get("battlefield") or {}).get("units") or [])}
+    diagrams: dict = {}          # the chapter's diagrams, for its reveal and focus operations
     for index, beat in enumerate(script.get("beats", [])):
         bid = beat.get("id", f"b{index + 1:02d}")
         if not isinstance(beat.get("say"), str) or not beat["say"].strip():
@@ -117,6 +118,20 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
+            if name in ("gallery", "diagram", "reveal", "focus", "define") or (name == "compare" and op.get("columns")):
+                import sys as _sys
+
+                from forge.util import LECTURE
+                if str(LECTURE) not in _sys.path:
+                    _sys.path.insert(0, str(LECTURE))
+                from compile_lecture import _build_problem
+
+                figures = {f["id"]: f for f in (job.read("bundle.json") or {}).get("figures", [])}
+                problem = _build_problem(op, diagrams, figures)
+                if problem:
+                    errors.append(_err("schema", chapter["id"], bid, problem, True))
+            if name == "compare" and not op.get("columns") and not (op.get("left") and op.get("right")):
+                errors.append(_err("schema", chapter["id"], bid, "compare needs columns (stage) or left and right (panel)", True))
             if name in ("molecule", "equation", "plot", "process", "quote"):
                 import sys as _sys
 

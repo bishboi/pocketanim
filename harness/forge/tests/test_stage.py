@@ -71,15 +71,20 @@ def test_map_only_when_a_beat_points_at_it(commons):
     source = result["source"]
     first, second = source.split("# 02")
     assert "show_map" not in first and "add_panel" in first            # no map where no beat needs one
-    assert first.count("stage_image") == 2                              # a photo, then a diagram of the wheat beat
-    assert "G. Botanist" in first.split("self.beat(")[3]                # the wheat beat: the wheat plant diagram
+    assert first.count("stage_image") == 1                              # the photo holds its paragraph
     assert "self.illustration(" not in source and "self.icon(" not in source    # no icons anywhere
     assert "show_map" in second
     assert second.index("clear_stage") < second.index("self.mark(")    # the photo leaves when the map is needed
     tractor = second.split("self.beat(")[-1]
-    assert "stage_image" in tractor                                     # the tractor beat covers the map again
-    credits = source.split("self.credits(")[1]
-    assert "Photos: " in credits and "H. Drafter" in credits and "G. Botanist" in credits
+    assert "stage_image" not in tractor                                 # the map carries its paragraph
+    assert "Photos: " in source.split("self.credits(")[1]
+
+    # A new paragraph, with fetched illustrations switched on: a diagram of its topic.
+    script["auto_illustrations"] = True
+    script["chapters"][0]["beats"][1]["paragraph"] = True
+    source = _compile(script, dict(os.environ))["source"]
+    first = source.split("# 02")[0]
+    assert "G. Botanist" in first.split("self.beat(")[2]                # the wheat paragraph: the wheat diagram
     assert "Company logo" not in source
 
 
@@ -145,9 +150,10 @@ def test_named_people_and_movements_get_their_picture(wikipedia):
     assert result["errors"] == [], result["errors"]
     source = result["source"].split("# 01")[1]
     beats = source.split("self.beat(")[1:]
-    assert "stage_image" in beats[0] and "Sunderlal Bahuguna" in beats[0].split("stage_image")[1]
-    assert "stage_image" in beats[1] and "Chipko movement" in beats[1].split("stage_image")[1]
-    assert "stage_image" not in beats[2] and "stage_image" not in beats[3]
+    # One paragraph naming two: their pictures together, as a gallery on its first beat.
+    assert "self.gallery(" in beats[0]
+    assert "Sunderlal Bahuguna" in beats[0].split("self.gallery(")[1] and "Chipko movement" in beats[0]
+    assert "stage_image" not in beats[1] and "gallery" not in beats[1] and "gallery" not in beats[2]
     assert "Sunderlal Bahuguna portrait" in result["source"].split("self.credits(")[1]
 
 

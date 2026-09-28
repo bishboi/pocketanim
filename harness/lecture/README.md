@@ -230,6 +230,41 @@ The endpoints can be overridden with `NASA_IMAGES_API`, `MET_API`, `SMITHSONIAN_
 .venv/bin/python harness/lecture/illustrations.py "electric circuit" --genre physics
 ```
 
+## Paragraph flow: one visual a paragraph, built as the narration goes
+
+A lecture plans its stage a **paragraph** at a time: 3 to 5 beats that explain one idea. It never puts up a new
+picture every sentence. A paragraph starts at a beat marked `"paragraph": true`, at a beat that puts up its own
+visual, or after 5 beats. Its visual is one of these:
+- a map sequence, for where things are;
+- a diagram built on the stage and revealed across the paragraph's beats, for how things work;
+- a definition or a comparison;
+- the document's figures;
+- a gallery of the people, communities and places it names.
+
+Some paragraphs need no picture at all.
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"diagram","id":"chain","kind":"flow\|cycle\|tree\|hub","nodes":[{"id","label","entity"?}],"edges"?:[[from,to,label?]],"show"?:[ids],"title"?}` | A diagram of the things themselves. Each node is an SVG drawing of its `entity` (an English word: tree, deer, factory) with its label, and arrows join the nodes. `flow` runs in order, `cycle` goes round, `tree` runs down from the first node, and `hub` puts the first node in the middle. `show` draws some nodes first. |
+| `{"op":"reveal","diagram":"chain","nodes":["deer"]}` | The next nodes of that diagram, with the arrows that now connect them. |
+| `{"op":"focus","diagram":"chain","node":"plants"}` | A ring around one node while the narration talks about it. |
+| `{"op":"define","term","meaning","entity"?}` | A hard word, big, with its meaning in plain words. |
+| `{"op":"compare","columns":[{"title","entity"?,"points":[…]}],"title"?}` | Two or three kinds side by side. |
+| `{"op":"gallery","items":[{"subject"\|"image"\|"figure"\|"illustration","caption"}],"title"?}` | 2 to 4 pictures together. |
+
+Real pictures are only for people, communities, movements and historic places. Everything else is built: a
+diagram, a map, a definition, a comparison, or the document's figures. The diagram drawings come from the SVG
+library (`fetch_icons.py`, which the app fetches when needed). They appear only inside diagrams, definitions and
+comparisons, never as a lecture's picture. Diagrams are vector, so they stay sharp and export at tier 1.
+
+Where the script chose nothing, `auto_visuals` fills a paragraph's first beat, and only that beat:
+- with an equation or molecule, or, in history, a timeline;
+- else with pictures of the people and places it names, as a gallery when there are several;
+- else with nothing, and the last paragraph's picture leaves the stage.
+
+Fetched illustrations of a topic are off unless the script sets `"auto_illustrations": true`. The compiler
+warns when more than 60% of beats put up a new picture.
+
 ## Lecture PDFs and figures
 
 `pdf_source.py` turns a PDF into Markdown plus its figures. Each figure is marked in the text as
@@ -239,7 +274,12 @@ The endpoints can be overridden with `NASA_IMAGES_API`, `MET_API`, `SMITHSONIAN_
 - Without a key, it uses pypdf, offline.
 - Conversions are cached by the PDF's content, so the same PDF is converted only once.
 
-A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`. The app supplies the
+On the upload page, each figure has a **×** to leave it out of the lecture; **restore all** brings them back. A
+removed figure is dropped from the figure list and from the text, so the model never sees it. It is recorded
+in `excluded.json` beside the PDF, which Forge's reader honours too.
+
+A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`, or several at once in a
+gallery. The app supplies the
 `figures` table (id → image file); the model only names ids. A figure is a raster image, so the phone
 export marks such a scene as blocked and plays sampled frames.
 

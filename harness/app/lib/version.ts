@@ -86,6 +86,18 @@ export function ensureKokoro(): Promise<boolean> {
   return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
 }
 
+// The SVG drawings a diagram's nodes use (a tree, a deer, a factory): colour emoji sets and silhouettes.
+const SYMBOL_SETS = ["fluent-emoji-flat", "twemoji", "noto", "openmoji", "game-icons"];
+
+export function symbolsReady(): boolean {
+  return SYMBOL_SETS.every((set) => existsSync(path.join(REPO, "harness", "lecture", "data", "icons", `${set}.json`)));
+}
+
+/** The diagram drawings, downloaded once when missing; without them diagram nodes show their labels only. */
+export function ensureSymbols(): Promise<boolean> {
+  return fetchOnce("fetch_icons.py", symbolsReady, ["--missing"]);
+}
+
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
 
 /** The downloaded libraries and keys a lecture draws on, and how to get the missing ones. */
@@ -103,6 +115,9 @@ export function resources(): Resource[] {
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
         : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },
+    { id: "symbols", label: "Diagram drawings", ready: symbolsReady(),
+      detail: symbolsReady() ? "SVG drawings for diagram nodes" : "diagram nodes show labels only until downloaded (about 75 MB; fetched on the next lecture)",
+      install: symbolsReady() ? undefined : "icons" },
     { id: "openstax", label: "Textbook figures", ready: openstax,
       detail: openstax ? `OpenStax figures indexed${process.env.PANIM_ALLOW_NC === "1" ? " (non-commercial books allowed)" : ""}`
         : "OpenStax textbook figures not indexed yet (a few MB)", install: openstax ? undefined : "openstax" },

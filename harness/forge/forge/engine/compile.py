@@ -170,7 +170,7 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
     if kind == "bars":
         items = [(str(label), float(value)) for label, value in op["items"]][:6]
         return f"self.bar_chart({items!r}, {_tone(op) or 'None'}, {op.get('unit', '')!r})"
-    if kind == "compare":
+    if kind == "compare" and not op.get("columns"):
         return (f"self.compare({tuple(op['left'])!r}, {tuple(op['right'])!r}, "
                 f"{op.get('left_tone', 'friendly')!r}, {op.get('right_tone', 'enemy')!r})")
     if kind == "timeline" and op.get("where") == "stage":
@@ -191,6 +191,49 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
                 f"cycle={bool(op.get('cycle'))})")
     if kind == "quote":
         return f"self.quote({op['text']!r}, {op.get('who', '')!r})"
+    if kind == "unstage":
+        return "self.clear_stage()"
+    if kind == "compare" and op.get("columns"):
+        columns = [{"title": str(c["title"]), "points": [str(p) for p in (c.get("points") or [])][:4],
+                    **({"entity": str(c["entity"])} if c.get("entity") else {})} for c in op["columns"]]
+        title = f", title={op['title']!r}" if op.get("title") else ""
+        return f"self.compare_cards({columns!r}{title})"
+    if kind == "gallery":
+        import images
+        from compile_lecture import _gallery_items
+
+        shown = []
+        for item in _gallery_items(op):
+            if item["op"] == "figure":
+                figure = places.figures.get(item["id"])
+                if figure:
+                    shown.append((figure["file"], item.get("caption") or figure.get("caption", "")))
+                continue
+            row = images.fetch(item.get("image"), item.get("query"), item.get("subject")) if item["op"] == "photo" \
+                else images.fetch(illustration=item.get("query"))
+            if row:
+                places.photos[row["id"]] = row
+                shown.append((row["file"], item.get("caption") or ""))
+        if not shown:
+            return None
+        if len(shown) == 1:
+            return f"self.stage_image({shown[0][0]!r}, {shown[0][1]!r})"
+        title = f", title={op['title']!r}" if op.get("title") else ""
+        return f"self.gallery({shown!r}{title})"
+    if kind == "diagram":
+        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {})}
+                 for n in op["nodes"]]
+        edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
+        show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
+        title = f", title={op['title']!r}" if op.get("title") else ""
+        return f"self.diagram({str(op['id'])!r}, {op.get('kind', 'flow')!r}, {nodes!r}, {edges!r}{title}{show})"
+    if kind == "reveal":
+        return f"self.reveal_nodes({str(op['diagram'])!r}, {[str(x) for x in op['nodes']]!r})"
+    if kind == "focus":
+        return f"self.spotlight({str(op['diagram'])!r}, {str(op['node'])!r})"
+    if kind == "define":
+        entity = f", entity={op['entity']!r}" if op.get("entity") else ""
+        return f"self.define({op['term']!r}, {op['meaning']!r}{entity})"
     if kind == "timeline":
         events = [(str(d), str(label)) for d, label in op["events"]][:6]
         return f"self.timeline({events!r}, {op.get('tone', 'accent')!r})"
@@ -307,7 +350,7 @@ def points_at_map(op: dict) -> bool:
     return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(op.get("places")))
 
 
-STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote"}
+STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,
@@ -421,8 +464,11 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
             calls.append("self.clear_stage()")
             staged = False
         if any(op.get("op") in STAGE_OPS or (op.get("op") == "figure" and op.get("where", "stage") == "stage")
-               or (op.get("op") == "timeline" and op.get("where") == "stage") for op in ordered):
+               or (op.get("op") == "timeline" and op.get("where") == "stage")
+               or (op.get("op") == "compare" and op.get("columns")) for op in ordered):
             staged = True
+        if any(op.get("op") == "unstage" for op in ordered):
+            staged = False
         for op in ordered:
             try:
                 call = op_call(op, places, has_map)

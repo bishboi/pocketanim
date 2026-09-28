@@ -8,6 +8,7 @@ number in the video traces back to a line of a source.
 from __future__ import annotations
 
 import html
+import json
 import re
 import urllib.request
 from pathlib import Path
@@ -53,8 +54,14 @@ def read_pdf(source: str, base: Path, source_id: str, out: Path) -> tuple[str, s
     path = Path(source) if Path(source).is_absolute() else base / source
     manifest = pdf_source.convert(path, out / source_id)
     text = Path(manifest["markdown"]).read_text(encoding="utf-8")
+    # Figures the user removed on the upload page: excluded.json beside the PDF (the app writes it).
+    removed_file = path.parent / "excluded.json"
+    removed = set(json.loads(removed_file.read_text())) if removed_file.exists() else set()
     figures = []
     for fig in manifest["figures"]:
+        if fig["id"] in removed:
+            text = re.sub(r"\[FIGURE " + re.escape(fig["id"]) + r":[^\]]*\]\n?", "", text)
+            continue
         fid = f"{source_id}_{fig['id']}"
         text = text.replace(f"[FIGURE {fig['id']}:", f"[FIGURE {fid}:")
         figures.append({**fig, "id": fid, "source": source_id})

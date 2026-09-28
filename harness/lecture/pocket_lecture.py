@@ -1042,6 +1042,8 @@ class Lecture(Scene):
         self.panel_items = VGroup()
         self.panel_images = Group()     # figures: images cannot join a VGroup
         self.stage_items = Group()      # the picture on the stage: a photo, a figure or an illustration
+        self.stage_extra: list = []     # parts added to it later (a diagram's revealed nodes, a focus ring)
+        self.diagrams: dict = {}        # diagram id -> its nodes, edges and what is shown
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
@@ -1314,20 +1316,32 @@ class Lecture(Scene):
                          stroke_width=0)
         return card.move_to([cx, cy, 0])
 
+    def _stage_leaving(self) -> list:
+        """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
+        going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
+        self.stage_items = Group()
+        self.stage_extra = []
+        return going
+
     def _to_stage(self, group):
         """Put a picture on the stage, over the map; the one there before fades."""
-        old = self.stage_items
+        going = self._stage_leaving()
         new = Group(self._stage_card(), group)
         new.set_z_index(Z_MARK + 10)
         self.stage_items = new
         show = FadeIn(new, scale=1.02)
-        return AnimationGroup(FadeOut(old), show, lag_ratio=0.4) if len(old) else show
+        return AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.4) if going else show
+
+    def _stage_add(self, mob):
+        """A part added to the picture already on the stage; it leaves with it."""
+        mob.set_z_index(Z_MARK + 11)
+        self.stage_extra.append(mob)
+        return mob
 
     def clear_stage(self):
         """Take the stage picture away, showing the map again. None when there is none."""
-        old = self.stage_items
-        self.stage_items = Group()
-        return FadeOut(old) if len(old) else None
+        going = self._stage_leaving()
+        return AnimationGroup(*going) if going else None
 
     def stage_image(self, path: str, caption: str = "", credit: str = ""):
         """A photo or a document's figure, large, on the stage."""
@@ -1374,12 +1388,12 @@ class Lecture(Scene):
         return self._to_stage(Group(composition))
 
     # ---------------- subject kits: drawings for science, maths and history ----------------
-    def _fit_stage(self, mob, margin: float = 0.3):
+    def _fit_stage(self, mob, margin: float = 0.3, grow: float = 1.0):
+        """Fit a drawing to the stage: shrink it to fit, or grow it up to `grow` times to fill the stage."""
         cx, cy, w, h = self.STAGE
-        if mob.width > w - margin:
-            mob.scale_to_fit_width(w - margin)
-        if mob.height > h - margin:
-            mob.scale_to_fit_height(h - margin)
+        factor = min((w - margin) / max(mob.width, 0.01), (h - margin) / max(mob.height, 0.01), grow)
+        if factor < 1 or grow > 1:
+            mob.scale(factor)
         return mob.move_to([cx, cy, 0])
 
     def molecule(self, name: str, label: str | None = None, hydrogens: str = "auto"):
@@ -1467,8 +1481,7 @@ class Lecture(Scene):
         new = Group(parts)
         anim = self._to_stage(Group(VGroup(axes, labels, keys, *parts[2:])))
         # The curves draw after the axes appear.
-        self.stage_items.add(curves)
-        curves.set_z_index(Z_MARK + 11)
+        self._stage_add(curves)
         return AnimationGroup(anim, Create(curves, lag_ratio=0.2), lag_ratio=0.6)
 
     def process(self, steps, title: str | None = None, cycle: bool = False):
@@ -1547,6 +1560,223 @@ class Lecture(Scene):
             parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.5)
         self._fit_stage(parts)
+        return self._to_stage(Group(parts))
+
+    # ---------------- several pictures at once, and diagrams built on the stage ----------------
+    def gallery(self, items, title: str | None = None):
+        """Two to four pictures on the stage together (people, a community, places), each with its caption.
+
+        items: [(path, caption)]. They arrive one after another."""
+        cx, cy, w, h = self.STAGE
+        items = [(str(p), str(c or "")) for p, c in list(items)[:4]]
+        if not items:
+            return None
+        n = len(items)
+        cols = 1 if n == 1 else 2
+        rows = 2 if n >= 3 else 1          # three: two above, one below, each larger than three in a row
+        head = 0.6 if title else 0.0
+        cell_w = (w - 0.3 * (cols - 1)) / cols
+        cell_h = (h - head - 0.35 * (rows - 1)) / rows - 0.45       # room for the caption
+        cells = []
+        for path, caption in items:
+            image = ImageMobject(path)
+            image.scale_to_fit_width(cell_w)
+            if image.height > cell_h:
+                image.scale_to_fit_height(cell_h)
+            frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
+            parts = [image, frame]
+            if caption:
+                parts.append(fit(T(wrap(caption, 26), 14, P.CREAM, line_spacing=0.85), cell_w).next_to(image, DOWN, buff=0.1))
+            cells.append(Group(*parts))
+        grid = Group(*cells).arrange_in_grid(rows=rows, cols=cols, buff=(0.3, 0.35))
+        if n == 3:
+            cells[2].set_x(grid.get_center()[0])       # the third one centred under the two
+        body = Group(grid)
+        if title:
+            body = Group(fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD),
+                             w - 0.4), grid).arrange(DOWN, buff=0.3)
+        if body.height > h - 0.1:
+            body.scale_to_fit_height(h - 0.1)
+        body.move_to([cx, cy, 0])
+        going = self._stage_leaving()
+        card = self._stage_card()
+        card.set_z_index(Z_MARK + 10)
+        self.stage_items = Group(card)
+        # Each picture (and the title) is its own stage part: what fades in one by one fades out the same way.
+        arrivals = [FadeIn(card)]
+        if title:
+            arrivals.append(FadeIn(self._stage_add(body[0])))
+        arrivals += [FadeIn(self._stage_add(c), shift=UP * 0.15) for c in cells]
+        show = LaggedStart(*arrivals, lag_ratio=0.35)
+        return AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.4) if going else show
+
+    def _entity(self, name: str | None, height: float):
+        """An SVG drawing of what a diagram's node stands for (a tree, a factory, a cow), or None."""
+        if not name:
+            return None
+        try:
+            return icon_mob(str(name), None, height=height)
+        except Exception:  # noqa: BLE001 -- no drawing for it (or none downloaded): the label carries the node
+            return None
+
+    def _node(self, label: str, entity: str | None, tone: str, small: bool = False):
+        drawing = self._entity(entity, 0.62 if small else 0.85)
+        text = T(wrap(str(label), 14), 16 if small else 18, P.CREAM, line_spacing=0.85)
+        inner = VGroup(*([drawing] if drawing is not None else []), text).arrange(DOWN, buff=0.12)
+        box = RoundedRectangle(corner_radius=0.16, width=max(inner.width + 0.4, 1.7), height=inner.height + 0.35,
+                               stroke_color=tone, stroke_width=3, fill_color=tone, fill_opacity=0.12)
+        return VGroup(box, inner.move_to(box))
+
+    def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None):
+        """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
+
+        kind: flow (in order, left to right, wrapping), cycle (round), tree (from the first node down),
+        hub (the first node in the middle, the rest around it). nodes: [{id, label, entity?}];
+        edges: [[from, to, label?]] (a flow or cycle without edges joins its nodes in order). `show` is the
+        node ids to draw now (default all); `reveal_nodes` brings in the rest, a beat at a time."""
+        cx, cy, w, h = self.STAGE
+        nodes = [dict(n) for n in list(nodes)[:9]]
+        ids = [str(n["id"]) for n in nodes]
+        edges = [list(e) for e in edges or []]
+        if not edges and kind in ("flow", "cycle"):
+            edges = [[a, b] for a, b in zip(ids, ids[1:])] + ([[ids[-1], ids[0]]] if kind == "cycle" and len(ids) > 2 else [])
+        tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
+        small = len(nodes) > 5
+        mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small) for k, (i, n) in enumerate(zip(ids, nodes))}
+        # Layout.
+        if kind == "cycle":
+            radius = 1.7 + 0.12 * len(ids)
+            for k, i in enumerate(ids):
+                angle = PI / 2 - 2 * PI * k / len(ids)
+                mobs[i].move_to([radius * 1.15 * math.cos(angle), radius * 0.8 * math.sin(angle), 0])
+        elif kind == "hub":
+            mobs[ids[0]].move_to(ORIGIN)
+            ring = ids[1:]
+            for k, i in enumerate(ring):
+                angle = PI / 2 - 2 * PI * k / max(len(ring), 1)
+                mobs[i].move_to([3.0 * math.cos(angle), 2.1 * math.sin(angle), 0])
+            if not edges:
+                edges = [[ids[0], i] for i in ring]
+        elif kind == "tree":
+            children: dict = {}
+            for e in edges:
+                children.setdefault(str(e[0]), []).append(str(e[1]))
+            levels, seen, frontier = [], {ids[0]}, [ids[0]]
+            while frontier:
+                levels.append(frontier)
+                nxt = [c for f in frontier for c in children.get(f, []) if c not in seen]
+                seen.update(nxt)
+                frontier = nxt
+            levels[-1] += [i for i in ids if i not in seen]            # any node the edges do not reach
+            for r, level in enumerate(levels):
+                row = VGroup(*[mobs[i] for i in level]).arrange(RIGHT, buff=0.5)
+                row.move_to(DOWN * r * 2.0)
+        else:                                                           # flow
+            per_row = 3 if len(ids) > 4 else max(len(ids), 1) if len(ids) <= 3 else 2
+            for r in range(0, len(ids), per_row):
+                row = VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
+                    RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8)
+                row.move_to(DOWN * (r // per_row) * 2.0)
+        arrows = []
+        for e in edges:
+            a, b = str(e[0]), str(e[1])
+            if a not in mobs or b not in mobs:
+                continue
+            start, end = self._edge_points(mobs[a], mobs[b])
+            arrow = Arrow(start, end, buff=0.0, color=P.MUTED, stroke_width=4, max_tip_length_to_length_ratio=0.18)
+            label = None
+            if len(e) > 2 and e[2]:
+                label = T(str(e[2]), 13, P.MUTED)
+                along = end - start
+                # Beside the arrow: above a level one, to the right of a steep one.
+                side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
+                label.move_to(arrow.get_center() + side)
+            arrows.append((a, b, VGroup(arrow, *([label] if label else []))))
+        whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
+        head = None
+        if title:
+            head = fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4)
+        # Fit the finished diagram to the stage, so revealing more never moves what is already there.
+        room_h = h - (0.8 if head else 0.2)
+        scale = min(1.45, (w - 0.3) / max(whole.width, 0.01), room_h / max(whole.height, 0.01))
+        whole.scale(scale)
+        whole.move_to([cx, cy - (0.3 if head else 0), 0])
+        if head:
+            head.next_to(whole, UP, buff=0.3)
+            if head.get_top()[1] > cy + h / 2:
+                head.move_to([cx, cy + h / 2 - head.height / 2, 0])
+        shown = set(ids if show is None else [str(x) for x in show])
+        self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None}
+        first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
+        body = VGroup(*([head] if head else []), *first)
+        return self._to_stage(Group(body))
+
+    def reveal_nodes(self, key: str, nodes):
+        """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
+        d = self.diagrams.get(key)
+        if not d:
+            return None
+        new = [str(n) for n in nodes if str(n) in d["nodes"] and str(n) not in d["shown"]]
+        d["shown"].update(new)
+        anims = [FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
+        for a, b, mob in d["edges"]:
+            if (a in new or b in new) and a in d["shown"] and b in d["shown"]:
+                anims.append(Create(self._stage_add(mob)))
+        return LaggedStart(*anims, lag_ratio=0.3) if anims else None
+
+    def spotlight(self, key: str, node: str):
+        """Draw the eye to one node of a diagram: a ring around it (the last ring goes)."""
+        d = self.diagrams.get(key)
+        if not d or str(node) not in d["nodes"] or str(node) not in d["shown"]:
+            return None
+        target = d["nodes"][str(node)]
+        ring = SurroundingRectangle(target, buff=0.1, corner_radius=0.2, color=P.GOLD, stroke_width=6)
+        anims = []
+        if d["focus"] is not None:
+            anims.append(FadeOut(d["focus"]))
+            if d["focus"] in self.stage_extra:
+                self.stage_extra.remove(d["focus"])
+        d["focus"] = self._stage_add(ring)
+        anims.append(Create(ring))
+        return AnimationGroup(*anims, lag_ratio=0.3)
+
+    def define(self, term: str, meaning: str, entity: str | None = None):
+        """A hard word, big, with what it means in plain words (and a drawing of it when there is one)."""
+        cx, cy, w, h = self.STAGE
+        drawing = self._entity(entity, 1.6)
+        word = fit(T(term, 40, P.SAND, font=TH["serif"], weight=BOLD), w - 0.6)
+        rule = Line(LEFT * 1.2, RIGHT * 1.2, color=P.SAND, stroke_width=3)
+        body = fit(T(wrap(meaning, 34), 22, P.CREAM, line_spacing=0.95), w - 0.6)
+        parts = VGroup(*([drawing] if drawing is not None else []), word, rule, body).arrange(DOWN, buff=0.28)
+        self._fit_stage(parts, grow=1.25)
+        return self._to_stage(Group(parts))
+
+    def compare_cards(self, columns, title: str | None = None):
+        """Two or three things side by side: a drawing, a name and a few short points each."""
+        cx, cy, w, h = self.STAGE
+        columns = list(columns)[:3]
+        tones = [P.RIVER, P.ROSE, P.GREEN]
+        col_w = (w - 0.3 * (len(columns) - 1)) / max(len(columns), 1)
+        cards = VGroup()
+        for k, col in enumerate(columns):
+            drawing = self._entity(col.get("entity"), 0.9)
+            name = fit(T(str(col.get("title", "")), 22, tones[k], font=TH["serif"], weight=BOLD), col_w - 0.3)
+            points = VGroup(*[fit(T("• " + wrap(str(p), 20), 15, P.CREAM, line_spacing=0.85), col_w - 0.35)
+                              for p in list(col.get("points") or [])[:4]]).arrange(DOWN, aligned_edge=LEFT, buff=0.14)
+            inner = VGroup(*([drawing] if drawing is not None else []), name, points).arrange(DOWN, buff=0.2)
+            box = RoundedRectangle(corner_radius=0.18, width=col_w, height=inner.height + 0.5, stroke_color=tones[k],
+                                   stroke_width=3, fill_color=tones[k], fill_opacity=0.1)
+            cards.add(VGroup(box, inner.move_to(box).align_to(box, UP).shift(DOWN * 0.25)))
+        top = max(c[0].height for c in cards) if len(cards) else 0
+        for c in cards:
+            c[0].stretch_to_fit_height(top)
+            c[1].align_to(c[0], UP).shift(DOWN * 0.25)
+        cards.arrange(RIGHT, buff=0.3, aligned_edge=UP)
+        parts = VGroup(cards)
+        if title:
+            parts = VGroup(fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD),
+                               w - 0.4), cards).arrange(DOWN, buff=0.3)
+        self._fit_stage(parts, grow=1.4)
         return self._to_stage(Group(parts))
 
     def quote(self, text: str, who: str = ""):
@@ -1789,6 +2019,8 @@ class Lecture(Scene):
         self.panel_items = VGroup()
         self.panel_images = Group()
         self.stage_items = Group()
+        self.stage_extra = []
+        self.diagrams = {}
         self._full_figure = self._new_figure = None
         self._map_on = False
         self.panel_y = 2.35

@@ -1,7 +1,7 @@
 # Running the harness locally
 
 This guide covers everything a lecture needs on your own machine: the Python environment, the downloaded
-libraries (illustrations, icons, place names, voice, maps, fonts) and the optional keys.
+libraries (place names, voice, maps, fonts), the online picture sources and the optional keys.
 
 ## 1. Tools to install first
 
@@ -29,7 +29,7 @@ The script:
 - installs `harness/requirements.txt` (Manim, Cartopy, RDKit, kokoro-onnx and the rest);
 - runs `fetch_all.py`, which downloads the libraries below.
 
-It takes a few minutes and about 475 MB the first time. Run it again whenever you like: anything already
+It takes a few minutes and about 400 MB the first time. Run it again whenever you like: anything already
 downloaded is skipped.
 
 To fetch the libraries again, or only some of them:
@@ -37,14 +37,12 @@ To fetch the libraries again, or only some of them:
 ```sh
 .venv/bin/python harness/scripts/fetch_all.py                 # all of them; ends with a ready/FAILED table
 .venv/bin/python harness/scripts/fetch_all.py --skip voice    # leave one out
-.venv/bin/python harness/scripts/fetch_icons.py               # or one at a time
 .venv/bin/python harness/scripts/fetch_gazetteer.py
 .venv/bin/python harness/scripts/fetch_voice.py
 ```
 
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
-| Icons | About 45,000 SVGs, colour first: Fluent Emoji, Twemoji, Streamline Emojis, Noto, EmojiOne, OpenMoji, Firefox emoji and Meteocons. Silhouettes (game-icons, Material Design Icons, Health Icons) are the fallback. They are used for **illustrations**, icons on maps, and panel icons. `PANIM_ICON_FAMILY` picks the family that comes first. | `harness/lecture/data/icons/` | 75 MB |
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
 | Voice | Kokoro-82M, the narration voice, and the `kokoro-onnx` package. | `harness/models/` | 350 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
@@ -74,7 +72,6 @@ Put your keys in `.env.local`. All of them are optional.
 | `OPENROUTER_MODEL` | Which model writes them. |
 | `DATALAB_API_KEY` | Clean PDF conversion, with figures cut out properly. Without it, pypdf is used. |
 | `PANIM_IMAGES=0` | Turn off internet photos. |
-| `PANIM_ICON_FAMILY` | The icon family to prefer, e.g. `twemoji`, or `fluent-emoji` for shaded 3-D emoji (`fetch_icons.py --sets fluent-emoji`). |
 
 ## 4. Check that everything is in place
 
@@ -82,19 +79,18 @@ The bar at the top of every page shows the version and the commit, for example `
 lists anything still missing, each with a **download** button:
 
 - **Voice: Kokoro-82M** means narration is ready.
-- **Icons: NONE** means lectures would show text instead of illustrations.
+- **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
 
-The app also downloads the icons and the voice by itself before the first lecture that needs them. The log
-says so ("Downloading the icon library…").
+The app also downloads the voice by itself before the first lecture that needs it.
 
 ## Troubleshooting
 
 | You see | Cause | Fix |
 |---|---|---|
-| Text boxes where illustrations should be | The icon library isn't downloaded | `fetch_icons.py`, or the download button next to Icons |
+| Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
 | A silent video | No voice installed | `fetch_voice.py`, or the button next to Voice |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `registry.npmjs.org` (icons), `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org` and `hi.wikipedia.org` (photos) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org` (photos and illustrations) |

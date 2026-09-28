@@ -239,22 +239,21 @@ export function fixtureScript(content: string, template: Template, region: Lectu
   return script;
 }
 
-export const ICON_TOOL = {
+export const ILLUSTRATION_TOOL = {
   type: "function" as const,
   function: {
-    name: "find_icon",
+    name: "find_illustration",
     description:
-      "Search the icon library (about 25,000 icons: crops, animals, industry, weather, transport, buildings) for words. Returns the names an icon op may use; single-colour ones take the style's colours.",
+      "Search educational illustrations and diagrams (Wikimedia Commons drawings and diagrams, Openverse illustrations; reusable licences only) that explain a topic: \"water cycle\", \"leaf cross section\", \"food web forest\", \"layers of soil\". Describe the topic in English, even for a Hindi lecture. Returns titles to use in an illustration op, with what each shows.",
     parameters: {
       type: "object",
-      properties: { queries: { type: "array", items: { type: "string" }, description: "Words, e.g. [\"sugarcane\", \"coal\", \"tiger\"]" } },
+      properties: { queries: { type: "array", items: { type: "string" }, description: "Topics in English, e.g. [\"water cycle\", \"photosynthesis diagram\"]" } },
       required: ["queries"],
       additionalProperties: false,
     },
   },
 };
 
-/** find_icon: the best few icon names for each word. */
 /**
  * The JSON a script printed: the whole output, or else its last line that parses
  * (a script may log before its answer, and may print its answer across lines).
@@ -276,19 +275,20 @@ export function scriptJson<T = unknown>(stdout: string): T | null {
   return null;
 }
 
-export async function findIcon(queries: unknown): Promise<string> {
-  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 40)).filter(Boolean).slice(0, 12);
-  if (!words.length) return "Give queries: a list of words.";
-  const { stdout, stderr } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), ...words]);
-  const found = scriptJson<Record<string, { id: string; mono: boolean }[]> & { error?: string }>(stdout);
-  if (!found) {
-    // Say what actually went wrong: this is not always a missing library.
-    return `The icon search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
-  }
-  if (found.error) return String(found.error);
+/** find_illustration: a few educational illustrations or diagrams per topic, as lines the model can choose from. */
+export async function findIllustration(queries: unknown): Promise<string> {
+  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 80)).filter(Boolean).slice(0, 6);
+  if (!words.length) return "Give queries: a list of topics.";
+  const { stdout, stderr } = await runPython([path.join(REPO, "harness", "lecture", "images.py"), "--illustrations", ...words]);
+  const found = scriptJson<Record<string, { id: string; title: string; description: string; license: string }[]>>(stdout);
+  if (!found) return `The illustration search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
   return Object.entries(found)
-    .filter((entry): entry is [string, { id: string; mono: boolean }[]] => Array.isArray(entry[1]))
-    .map(([q, rows]) => `${q}: ${rows.length ? rows.slice(0, 5).map((r) => `${r.id}${r.mono ? "" : " (colour)"}`).join(", ") : "nothing; try a simpler word"}`)
+    .map(([q, rows]) =>
+      `${q}:\n` +
+      (rows.length
+        ? rows.map((r) => `  ${r.id} (${r.license}) ${(r.description || r.title).slice(0, 100)}`).join("\n")
+        : "  nothing reusable found (or no internet here); try another description, a document figure, or a process/timeline"),
+    )
     .join("\n");
 }
 
@@ -326,7 +326,7 @@ export async function findImage(queries: unknown): Promise<string> {
       )
       .join("\n");
   } catch {
-    return "Image search is unavailable; use illustrations and icons.";
+    return "Image search is unavailable; use document figures and illustrations.";
   }
 }
 
@@ -378,10 +378,10 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "'जीव-जंतु' rather than 'वनस्पतिजात' and 'प्राणिजात'; when the book's term matters, say it once and explain it,",
     "and you may add the familiar English word in brackets.",
     "",
-    "PICTURES, NOT BOXES OF WORDS. The stage should nearly always show a picture: an illustration of icons, a photo,",
-    "a document figure, icons on the map, a molecule or a graph. process and quote are boxes of words: use process only",
-    "for a real sequence of steps (at most two per chapter) and quote rarely. find_icon takes English words (tiger,",
-    "forest, deer, river, farmer) even for a Hindi lecture; give the label in the lecture's language.",
+    "PICTURES, NOT BOXES OF WORDS. The stage should nearly always show a picture: an educational illustration or",
+    "diagram, a photo, a document figure, a molecule or a graph. Never icons. process and quote are boxes of words: use",
+    "process only for a real sequence of steps (at most two per chapter) and quote rarely. find_illustration and",
+    "find_image take English descriptions even for a Hindi lecture; give captions in the lecture's language.",
     "",
     `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
     `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
@@ -394,7 +394,8 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
     ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...",',
-    '   "beats": [{"say": "...", "about"?: "Chipko movement", "do": [ops]}]}], "recap": [["Head", "short body"]], "credits": "..."}',
+    '   "beats": [{"say": "...", "about"?: "Chipko movement", "picture"?: "forest food web diagram", "do": [ops]}]}],',
+    ' "recap": [["Head", "short body"]], "credits": "..."}',
     "",
     "Operations (colour = palette name SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
     '  {"op":"panel","title","sub"?}          clear the side panel and head it; start each topic with one',
@@ -409,8 +410,9 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"photo","image":"File:....jpg" (from find_image) | "subject":"Sunderlal Bahuguna" | "query":"sugarcane harvest","caption"?,"where"?:"stage"|"full"|"panel"}',
     "                                          a real photograph, credited automatically; subject = Wikipedia's picture of a person,",
     "                                          movement, event, monument or place (its English name)",
-    '  {"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"],["sheaf-of-rice","Kharif"]],"title"?,"color"?}',
-    "                                          an illustration built from icons: one large, up to four small, labelled",
+    '  {"op":"illustration","image":"File:....svg" (from find_illustration) | "query":"water cycle diagram","caption"?}',
+    "                                          an educational illustration or diagram that explains the idea (labelled",
+    "                                          drawings from Wikimedia Commons and Openverse), credited automatically",
     '  {"op":"figure","id":"fig2","where":"stage"}   a diagram from the uploaded document, large',
     '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula, atoms in CPK colours',
     '  {"op":"equation","tex":"6CO_2 + 6H_2O -> C_6H_{12}O_6 + 6O_2","label"?}   a law or a reaction, large',
@@ -420,7 +422,8 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"quote","text":"...","who":"Akbar"}   a primary source, in its own words',
     "Call find_image for photos (describe the scene: 'sugarcane field India', 'Ganges ghats Varanasi') and use a",
     "title it returns. A map chapter may still show a photo: it covers the map until the next map operation.",
-    "Beats you leave without a picture get an automatic illustration from their words, so choose the important ones.",
+    "Beats you leave without a picture get an automatic illustration searched from their \"picture\" (give each beat",
+    "one: \"picture\":\"soil layers diagram\", in English) or their English words, so choose the important ones yourself.",
     "PEOPLE, MOVEMENTS AND PLACES. Whenever a beat is about a particular person (Sunderlal Bahuguna, Akbar), movement",
     "(Chipko movement), event (Battle of Plassey), monument (Taj Mahal) or historic place and the document has no figure",
     "of it, show its picture: {\"op\":\"photo\",\"subject\":\"Chipko movement\",\"caption\":\"चिपको आंदोलन\"}. Use the English",
@@ -436,11 +439,8 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     '  {"op":"path","points":[[lon,lat],...],"color"?}      a hand-drawn line: a ridge, a canal',
     '  {"op":"graticule","lat":23.44 | "lon":82.5,"label"?,"color"?}',
     '  {"op":"dim","opacity"?}                fade filled areas down before highlighting one',
-    '  {"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"] | "place" | "lonlat","color"?,"size"?,"label"?}',
-    "                                          icons on the map where something is grown, mined, made or lives",
-    "Panel icon (no place): {\"op\":\"icon\",\"name\":\"wheat\",\"label\":\"Rabi: wheat\",\"color\"?} -- an icon with a short line.",
-    "Call find_icon first and use the names it returns. Use icons often for crops, minerals, industries, animals",
-    "and weather: a picture beside a word is what makes a map lecture memorable.",
+    "Where something is grown, mined, made or lives: a marker at each place with a label (\"Sugarcane\"), then an",
+    "illustration or photo of the thing itself on the stage.",
     "",
     "A panel holds a title and about five facts; start a new panel before it fills. Use real place names; the",
     "compiler looks them up. A marker's place is a town or city in English (\"Prayagraj\", not \"प्रयागराज\");",

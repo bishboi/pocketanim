@@ -105,5 +105,6 @@ def test_figure_and_icon_ops_compile(tmp_path):
     out = subprocess.run([sys.executable, str(LECTURE / "compile_lecture.py"), "-", "--json"],
                          input=json.dumps(script), capture_output=True, text=True)
     source = json.loads(out.stdout.strip().splitlines()[-1])["source"]
-    assert "self.figure(" in source and 'self.icon("sugarcane", ["Meerut"]' in source
-    assert 'self.panel_icon("wheat", label="Rabi")' in source and "self.credits(" in source
+    # No icons in lectures: an icon at a place is a labelled marker, one in the panel a fact line.
+    assert "self.figure(" in source and 'self.mark("Meerut", label="Sugarcane")' in source
+    assert 'self.fact("Rabi")' in source and "self.icon(" not in source and "panel_icon" not in source

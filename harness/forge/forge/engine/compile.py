@@ -274,17 +274,13 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
             return f"self.stage_image({row['file']!r}, {op.get('caption', '')!r}, credit={row['credit']!r})"
         return f"self.figure({row['file']!r}, {op.get('caption', '')!r}, where={where!r})"
     if kind == "illustration":
-        import icons
+        import images
 
-        items = [(i, "") if isinstance(i, str) else (i[0], i[1] if len(i) > 1 else "") for i in op.get("items") or []]
-        for name in [op["icon"]] + [i[0] for i in items]:
-            found = icons.resolve(name)
-            if found is None:
-                raise KeyError(f"no icon for {name!r}")
-            places.icons.add(found)
-        title = f", title={op['title']!r}" if op.get("title") else ""
-        color = f", color={_tone(op)}" if _tone(op) else ""
-        return f"self.illustration({op['icon']!r}, {items!r}{title}{color})"
+        row = images.fetch(op.get("image"), illustration=op.get("query"))
+        if not row:
+            raise KeyError(f"no reusable illustration for {op.get('image') or op.get('query')!r}")
+        places.photos[row["id"]] = row
+        return f"self.stage_image({row['file']!r}, {op.get('caption', '')!r}, credit={row['credit']!r})"
     if kind == "figure":
         figure = places.figures.get(op["id"])
         if not figure:
@@ -387,8 +383,16 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
                     f"{card_line(num, chapter['title'])!r})")
         if beats:
             stage()
-    # Photos are fetched now (cached); one that cannot be found is dropped here,
-    # so the automatic illustrations below fill its beat instead.
+    # No icons: icon operations become markers, fact lines and illustrations (the editor's rule).
+    from compile_lecture import no_icons
+
+    no_icons({"chapters": [{"beats": beats}]})
+    for beat in beats:
+        for op in beat.get("do", []):
+            if op.get("op") == "marker" and "lonlat" in op and "place" not in op:
+                op["place"] = op.pop("lonlat")
+    # Photos and illustrations are fetched now (cached); one that cannot be found
+    # is dropped here, so the automatic pictures below fill its beat instead.
     import images
 
     for beat in beats:
@@ -396,6 +400,9 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
         for op in beat.get("do", []):
             if op.get("op") == "photo" and not images.fetch(op.get("image"), op.get("query"), op.get("subject")):
                 job.log(f"compile {chapter['id']}.{beat.get('id')}: no photo for {op.get('image') or op.get('query')!r}")
+                continue
+            if op.get("op") == "illustration" and not images.fetch(op.get("image"), illustration=op.get("query")):
+                job.log(f"compile {chapter['id']}.{beat.get('id')}: no illustration for {op.get('query')!r}")
                 continue
             kept.append(op)
         beat["do"] = kept

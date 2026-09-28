@@ -113,13 +113,13 @@ A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Dev
 
 The left half of the frame is the stage, and the fact panel is on the right.
 
-A chapter draws the map only if one of its beats points at it: a marker, a river, a state, an arrow, or an
-icon placed at a town. Otherwise the stage shows pictures:
+A chapter draws the map only if one of its beats points at it: a marker, a river, a state or an arrow.
+Otherwise the stage shows pictures. Lectures use **no icons**:
 
 | Operation | What it shows |
 |---|---|
 | `{"op":"photo","image":"File:….jpg" \| "subject":"Chipko movement" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A photo. `subject` is Wikipedia's picture of a person, movement, event, monument or place; `query` searches Commons. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
-| `{"op":"illustration","icon":"sugar-cane","items"?:[["wheat","Rabi"]],"title"?}` | One large icon with up to four small ones. |
+| `{"op":"illustration","image":"File:….svg" \| "query":"water cycle diagram","caption"?}` | An educational illustration or diagram that explains the idea: labelled drawings and diagrams from Wikimedia Commons (SVGs, rendered at 1600 px), then openly licensed illustrations from Openverse. Reusable licences only, and credited. Logos, flags and clip art are skipped. |
 | `{"op":"figure","id":"fig2","where":"stage"}` | A diagram from the uploaded PDF. |
 
 On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it.
@@ -133,9 +133,13 @@ A Hindi name is looked up on Hindi Wikipedia and followed to the English article
 only when it is on Commons under a reusable licence; non-free posters and logos are never used. Book figures are
 placed first. At most six names are looked up per chapter, and misses are remembered.
 
-A beat left without a picture gets an automatic illustration drawn from its own words: sugarcane, tigers,
-tractors. A beat whose opening line has nothing to picture gets an illustration of the chapter's topic
-instead (Climate, Population, …). Set `"auto_visuals": false` in the script to turn this off.
+A beat left without a picture gets an automatic illustration or diagram, searched in this order:
+- its `"picture": "soil layers diagram"`, in English, which the model is asked to give each beat;
+- else the key terms of its English narration, ranked by how often the chapter uses them;
+- else, on a chapter's first beat, the chapter's title.
+
+An automatic picture stays up for two beats, and the same diagram is never used twice in a lecture. Set
+`"auto_visuals": false` in the script to turn this off.
 
 Photos are downloaded when the script compiles, into `.cache/images`. To search from the shell:
 
@@ -175,42 +179,23 @@ reported in the log. The kit operations draw on the stage:
 Automatic pictures follow the subject too. A science beat that names a molecule or writes an equation
 gets a molecule or an equation, and a history chapter opens on a timeline of the years it mentions.
 
-## Icons
+## Illustrations and diagrams (no icons)
 
-`{"op":"icon","name":"sugarcane","places":["Meerut","Saharanpur"]}` puts an icon on the map at each place.
-Without a place, it goes in the fact panel beside its `label`. Illustrations and map icons come in **colour**.
+Icons were too simple to teach with, so lectures no longer use them. An older script's icon operations still
+compile:
+- an icon illustration becomes an illustration search for the same thing;
+- an icon at a place becomes a labelled marker;
+- a panel icon becomes a fact line.
 
-Colour sets are searched first:
-
-| Set | Look | Licence |
-|---|---|---|
-| Fluent Emoji Flat | Microsoft's flat colour emoji; the main family | MIT |
-| Twemoji | bold, flat colour | CC BY 4.0 |
-| Streamline Emojis | illustration-like, soft colours | CC BY 4.0 |
-| Noto | Google's emoji; gradients are flattened so they draw in Manim | Apache 2.0 |
-| EmojiOne | glossy flat colour | CC BY 4.0 |
-| OpenMoji | outlined flat colour | CC BY-SA 4.0 |
-| Firefox emoji | flat colour | Apache 2.0 |
-| Meteocons | colour weather icons | MIT |
-
-Single-colour silhouettes (game-icons, Material Design Icons, Health Icons) are used only when no colour icon fits,
-such as sugarcane, wheat or coal. They are filled with one of the style's colours, a different one per icon.
-
-To make one family come first, set `PANIM_ICON_FAMILY`:
-- `PANIM_ICON_FAMILY=twemoji`, for example;
-- `PANIM_ICON_FAMILY=fluent-emoji` for Microsoft's shaded 3-D emoji, an optional 100 MB download:
-  `fetch_icons.py --sets fluent-emoji`.
-
-The app and Forge download the icons before the first lecture when they are missing, and an older library
-is topped up with the new colour sets. By hand (about 75 MB):
+To search from the shell:
 
 ```
-.venv/bin/python harness/scripts/fetch_icons.py              # all default sets
-.venv/bin/python harness/scripts/fetch_icons.py --missing    # only the ones not here yet
-.venv/bin/python harness/lecture/icons.py sugarcane coal tiger     # search from the shell
+.venv/bin/python harness/lecture/images.py --illustrations "water cycle" "leaf cross section"
 ```
 
-A lecture that uses icons credits their sets in its closing line.
+Sources: Wikimedia Commons (SVG drawings and bitmap diagrams) and Openverse (illustrations from other open
+collections). `COMMONS_API` and `OPENVERSE_API` override the endpoints, and `PANIM_IMAGES=0` turns internet
+pictures off.
 
 ## Lecture PDFs and figures
 

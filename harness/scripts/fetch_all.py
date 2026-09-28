@@ -1,17 +1,17 @@
 """Download every library a lecture draws on, once, and report what is ready.
 
-    .venv/bin/python harness/scripts/fetch_all.py            # everything (about 475 MB)
+    .venv/bin/python harness/scripts/fetch_all.py            # everything (about 400 MB)
     .venv/bin/python harness/scripts/fetch_all.py --skip voice
 
 What it gets, and where it goes:
 
-  icons      about 45,000 icons, colour emoji first       harness/lecture/data/icons/     ~75 MB
   gazetteer  GeoNames towns (about 150,000 place names)     harness/lecture/data/geonames/  ~10 MB
   voice      Kokoro-82M narration voice (+ kokoro-onnx)     harness/models/                 ~350 MB
   maps       Natural Earth borders, states, rivers, towns   Cartopy's data folder            ~40 MB
   fonts      the styles' Google Fonts                       ~/.fonts (Linux), ~/Library/Fonts (macOS)
 
-Photos (Wikimedia Commons), molecules (PubChem) and PDF conversion (Datalab) are fetched per lecture, as needed.
+Photos and educational illustrations (Wikimedia Commons, Wikipedia, Openverse), molecules (PubChem) and PDF
+conversion (Datalab) are fetched per lecture, as needed. Lectures use no icon library.
 Every step is safe to rerun: what is already here is skipped.
 """
 
@@ -24,7 +24,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("icons", "gazetteer", "voice", "maps", "fonts")
+STEPS = ("gazetteer", "voice", "maps", "fonts")
 
 
 def run(script: str) -> bool:
@@ -55,7 +55,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
-    actions = {"icons": lambda: run("fetch_icons.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
+    actions = {"gazetteer": lambda: run("fetch_gazetteer.py"),
                "voice": lambda: run("fetch_voice.py"), "maps": maps, "fonts": fonts}
     report = {}
     for step in STEPS:

@@ -97,15 +97,11 @@ After render, the output gate measures loudness (−17 LUFS ±1), music at least
 - `report.json`
 - `phone/library/` and `<id>-phone.zip`: every chapter as a `.panim` program in one library the phone player opens (unzip, `adb push library …`), with the job's own narration. Only when the job asks for phone output (`forge new` without `--no-phone`).
 
-## PDFs, figures and icons
+## PDFs and figures
 
 A `--source` ending in `.pdf` is read by `harness/lecture/pdf_source.py`: Datalab when `DATALAB_API_KEY`
 is set, pypdf otherwise. Its figures join `bundle.json` as `s1_fig3` and so on. A script shows one with
 `{"op":"figure","id":"s1_fig3"}`, and the offline writer puts each figure where its marker sits in the text.
-
-`{"op":"icon","name":"sugarcane","places":[...]}` draws icons from the library that
-`harness/scripts/fetch_icons.py` downloads. The offline writer adds one when a beat names a crop,
-mineral, industry or animal, at the place named in the same sentence.
 
 The web page's **Upload lecture PDF** button makes the PDF the job's source.
 
@@ -113,7 +109,7 @@ The web page's **Upload lecture PDF** button makes the PDF the job's source.
 
 A chapter draws its map only if its beats point at the map. Everything else plays on the stage:
 - `photo`: a Wikimedia Commons photo with a reusable licence;
-- `illustration`: a composition of icons;
+- `illustration`: an educational illustration or diagram (Wikimedia Commons, Openverse), as `{"op":"illustration","query":"water cycle diagram"}`. Lectures use no icons: an icon op compiles to a marker or a fact line.
 - `figure`: a diagram from a source PDF.
 
 Science and history kits add `molecule`, `equation`, `plot`, `process`, `quote`, and `timeline` with
@@ -123,8 +119,8 @@ best-matching beats automatically.
 The offline writer does map work only in slots about the map. Each map-free chapter opens on a photo of
 its subject when one can be found.
 
-Beats without a picture are illustrated from their own words, as in the editor. Photo and icon credits
-go at the end of the video and in `out/credits.txt`.
+Beats without a picture get an illustration or diagram searched from their words, as in the editor. Picture
+credits go at the end of the video and in `out/credits.txt`.
 
 ## Libraries
 

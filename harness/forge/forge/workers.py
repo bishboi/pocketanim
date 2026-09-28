@@ -162,7 +162,9 @@ EXPLAIN_SIMPLY = (
     "example or comparison from daily life. Never copy a source sentence word for word. Take more beats to explain "
     "one hard idea well rather than covering every line; skip QR codes, page furniture and exercise instructions. "
     "In Hindi use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words; say the book's term once and "
-    "explain it. Show pictures (photos, figures, illustrations, icons) rather than boxes of words.\n"
+    "explain it. Show pictures (photos, document figures, illustrations and diagrams) rather than boxes of words; "
+    "never icons. For a concept, show {\"op\": \"illustration\", \"query\": \"<what it shows, in English: water "
+    "cycle diagram, leaf cross section>\"}, or give the beat \"picture\": \"<the same>\".\n"
     "PEOPLE, MOVEMENTS, PLACES. Whenever a beat is about a particular person, movement, event, monument or historic "
     "place and no source figure shows it, show it with {\"op\": \"photo\", \"subject\": \"<its English name, as "
     "Wikipedia titles it>\", \"caption\": \"<the name in the lecture's language>\"}: Wikipedia's picture of it is "
@@ -457,12 +459,7 @@ def _write_offline(job, template: dict, chapter: dict, bundle: dict, facts: dict
     lines = _segments(texts, budget["min"], budget["max"])
     captions = {m.group(2).strip().lower() for line in lines for m in FIGURE_MARK.finditer(line)}
     lines = [line for line in lines if line.strip().lower() not in captions]
-    try:
-        import icons
-
-        have_icons = bool(icons.available())
-    except ImportError:
-        have_icons = False
+    have_icons = False      # lectures use illustrations and diagrams, not icons (compile_lecture.no_icons)
     # Map work only where the slot is about the map; elsewhere the stage carries
     # the chapter (figures, illustrations), and the map is not drawn at all.
     wants_map = bool({"map", "marker", "route", "river", "unit"} & set(chapter.get("required", [])))

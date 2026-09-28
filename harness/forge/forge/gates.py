@@ -113,12 +113,7 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 elif not points or any(not _resolvable(p, job) for p in points):
                     errors.append(_err("schema", chapter["id"], bid, f"{name}: a point cannot be found", True))
             if name == "icon":
-                import icons
-
-                if not icons.available():
-                    errors.append(_err("schema", chapter["id"], bid, "icons are not installed (fetch_icons.py)", True))
-                elif icons.resolve(str(op.get("name", ""))) is None:
-                    errors.append(_err("schema", chapter["id"], bid, f"no icon for {op.get('name')!r}", True))
+                # Lectures use no icons: compile draws this as a marker (with places) or a fact line.
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
@@ -135,12 +130,9 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                     errors.append(_err("schema", chapter["id"], bid, problem, True))
             if name == "photo" and not (op.get("image") or op.get("query") or op.get("subject")):
                 errors.append(_err("schema", chapter["id"], bid, "photo needs image, subject or query", True))
-            if name == "illustration":
-                import icons
-
-                for icon_name in [op.get("icon")] + [i if isinstance(i, str) else i[0] for i in op.get("items") or []]:
-                    if icons.available() and icons.resolve(str(icon_name or "")) is None:
-                        errors.append(_err("schema", chapter["id"], bid, f"no icon for {icon_name!r}", True))
+            if name == "illustration" and not (op.get("query") or op.get("image") or op.get("icon")):
+                errors.append(_err("schema", chapter["id"], bid,
+                                   "illustration needs query (what it shows, in English) or image", True))
             if name == "figure":
                 known = {f["id"] for f in (job.read("bundle.json") or {}).get("figures", [])}
                 if op.get("id") not in known:

@@ -11,11 +11,10 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ICON_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIcon, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, type Subject } from "./lecture";
+import { ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
-import { ensureIcons, iconsReady } from "./version";
 
 export type Generated = {
   source: string;
@@ -228,7 +227,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ICON_TOOL | typeof IMAGE_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -429,7 +428,7 @@ async function viaOpenRouter(
     : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
-  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ICON_TOOL, IMAGE_TOOL, EDIT_TOOL] : TOOLS;
+  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, EDIT_TOOL] : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -614,8 +613,8 @@ async function viaOpenRouter(
         }
       } else if (call.function.name === "find_image") {
         output = await findImage((args as { queries?: unknown }).queries);
-      } else if (call.function.name === "find_icon") {
-        output = await findIcon((args as { queries?: unknown }).queries);
+      } else if (call.function.name === "find_illustration") {
+        output = await findIllustration((args as { queries?: unknown }).queries);
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);
@@ -935,14 +934,6 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
 
 /** The content's subject, announced in the trace so the choice is visible. */
 async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
-  // Illustrations and map icons are drawn from the icon library: fetch it before the lecture is written.
-  if (!iconsReady()) {
-    emit({ type: "message", role: "status", text: "Downloading the colour icon library for illustrations (once)…" });
-    const ok = await ensureIcons();
-    emit({ type: "message", role: "status", text: ok
-      ? "Icon library ready."
-      : "Could not download the icon library: this lecture will have no illustrations. Try the download button at the top." });
-  }
   const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`);
   emit({
     type: "message",

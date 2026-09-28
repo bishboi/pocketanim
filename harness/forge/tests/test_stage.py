@@ -23,6 +23,7 @@ def commons(monkeypatch, tmp_path):
     mock_commons.PORT["value"] = server.server_port
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setenv("COMMONS_API", f"http://127.0.0.1:{server.server_port}/w/api.php")
+    monkeypatch.setenv("OPENVERSE_API", f"http://127.0.0.1:{server.server_port}/openverse/")
     monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "images"))
     import images
 
@@ -47,17 +48,14 @@ def _compile(script, env):
 
 
 def test_map_only_when_a_beat_points_at_it(commons):
-    import icons
     import os
 
-    if not icons.available():
-        pytest.skip("icon sets not downloaded")
     beat = lambda say, *ops: {"say": say, "do": list(ops)}  # noqa: E731
     script = {"title": "T", "style": "vox", "region": {"state": "Uttar Pradesh", "country": "India"}, "chapters": [
         {"title": "Crops", "narration": "One.", "beats": [
             beat("Sugarcane feeds the sugar mills of the west.", {"op": "photo", "query": "sugarcane"}),
             beat("In winter the farmers sow wheat across the plain."),
-            beat("Tigers and elephants live in the Terai forests.")]},
+            beat("Wheat is the main crop of the cool season.")]},
         {"title": "Where", "narration": "Two.", "beats": [
             beat("The wheat harvest comes every April.", {"op": "photo", "query": "wheat"}),
             beat("The sugarcane belt lies around Meerut.", {"op": "marker", "place": "Meerut"}),
@@ -67,11 +65,41 @@ def test_map_only_when_a_beat_points_at_it(commons):
     source = result["source"]
     first, second = source.split("# 02")
     assert "show_map" not in first and "add_panel" in first            # no map where no beat needs one
-    assert "stage_image" in first and "self.illustration(" in first     # a photo, then pictures from the words
+    assert first.count("stage_image") == 2                              # a photo, then a diagram of the wheat beat
+    assert "G. Botanist" in first.split("self.beat(")[3]                # the wheat beat: the wheat plant diagram
+    assert "self.illustration(" not in source and "self.icon(" not in source    # no icons anywhere
     assert "show_map" in second
     assert second.index("clear_stage") < second.index("self.mark(")    # the photo leaves when the map is needed
-    assert second.count("self.illustration(") == 1                      # the tractor beat covers the map again
-    assert "Photos: " in source.split("self.credits(")[1]
+    tractor = second.split("self.beat(")[-1]
+    assert "stage_image" in tractor                                     # the tractor beat covers the map again
+    credits = source.split("self.credits(")[1]
+    assert "Photos: " in credits and "H. Drafter" in credits and "G. Botanist" in credits
+    assert "Company logo" not in source
+
+
+def test_illustrations_are_educational_and_reusable(commons):
+    rows = commons.illustrations("water cycle")
+    assert rows and rows[0]["id"] == "File:Water cycle diagram.svg" and rows[0]["license"] == "CC BY 4.0"
+    assert all("logo" not in r["title"].lower() for r in commons.illustrations("wheat tractor water"))
+    got = commons.fetch(illustration="water cycle")
+    assert got and got["file"].endswith(".png")
+    # Already shown: not offered again, even from the cache.
+    again = commons.fetch(illustration="water cycle", avoid={"File:Water cycle diagram.svg"})
+    assert again is None or again["id"] != "File:Water cycle diagram.svg"
+
+
+def test_icon_ops_become_markers_facts_and_illustrations():
+    from compile_lecture import no_icons
+
+    script = {"chapters": [{"beats": [{"say": "x", "do": [
+        {"op": "icon", "name": "game-icons:sugar-cane", "places": ["Meerut", [77.5, 29.9]]},
+        {"op": "icon", "name": "wheat", "label": "Rabi: wheat"},
+        {"op": "illustration", "icon": "fluent-emoji-flat:tractor", "title": "Machines"}]}]}]}
+    ops = no_icons(script)["chapters"][0]["beats"][0]["do"]
+    assert ops == [{"op": "marker", "place": "Meerut", "label": "Sugar cane"},
+                   {"op": "marker", "lonlat": [77.5, 29.9], "label": ""},
+                   {"op": "fact", "text": "Rabi: wheat"},
+                   {"op": "illustration", "query": "tractor", "caption": "Machines"}]
 
 
 @pytest.fixture

@@ -136,6 +136,7 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     that overflows into the caption, a beat whose animations would outlast
     its narration.
     """
+    no_icons(script)
     errors: list[str] = []
     warnings: list[str] = []
     if script.get("style", "atlas") not in STYLES:
@@ -206,14 +207,11 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                     if problem:
                         errors.append(f"{at}: {problem}")
                 if kind == "illustration":
-                    if not op.get("icon"):
-                        errors.append(f"{at}: 'illustration' needs icon (the large one)")
+                    if not (op.get("query") or op.get("image")):
+                        errors.append(f"{at}: 'illustration' needs query (what it should show, in English: "
+                                      "\"water cycle diagram\") or image (a title from find_illustration)")
                     else:
-                        icon_names.append((at, str(op["icon"])))
-                    for item in op.get("items") or []:
-                        name = item if isinstance(item, str) else (item[0] if item else "")
-                        if name:
-                            icon_names.append((at, str(name)))
+                        photos.append((at, op))
                 if kind == "figure":
                     figure = (script.get("figures") or {}).get(str(op.get("id")))
                     if not figure:
@@ -238,6 +236,9 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     errors += _unknown_places(places, (script.get("region") or {}).get("country"))
     errors += _unknown_icons(icon_names)
     errors += _unfetched_photos(photos)
+    warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
+                 "(try another description with find_illustration)" for at, op in photos
+                 if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
     warnings += _bare_stretches(script)
     e, w = _plain_language(script)
     errors += e
@@ -261,6 +262,8 @@ script_photos: dict = {}
 
 
 def _photo_key(op: dict) -> str:
+    if op.get("op") == "illustration":
+        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}"
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}"
 
 
@@ -275,15 +278,22 @@ def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
         key = _photo_key(op)
         if key in script_photos:
             continue
+        if op.get("op") == "illustration":
+            row = images.fetch(op.get("image"), illustration=op.get("query")) if images.enabled() else None
+            if row:
+                script_photos[key] = row
+            # else: dropped at compile, and said as a warning (see lint): a missing diagram is no reason to stop
+            continue
         row = images.fetch(op.get("image"), op.get("query"), op.get("subject")) if images.enabled() else None
         if row:
             script_photos[key] = row
         elif not images.enabled():
-            out.append(f"{at}: internet photos are off here; use an illustration, an icon or a document figure")
+            out.append(f"{at}: internet photos are off here; use a document figure, a diagram you draw (process, "
+                       "timeline, equation, plot) or drop the photo")
         else:
             what = op.get("image") or (f"subject {op['subject']!r}" if op.get("subject") else f"query {op.get('query')!r}")
             out.append(f"{at}: no reusable photo for {what}; use find_image and pick a title it returns, "
-                       "or use an illustration instead")
+                       "or show an illustration (find_illustration) instead")
     return out
 
 
@@ -335,7 +345,7 @@ def _kit_problem(op: dict) -> str | None:
 COPY_RUN = 8            # this many words in a row, word for word from the source, is reading the book aloud
 LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
 TEXT_OPS = {"process", "quote"}
-PICTURE_OPS = {"photo", "figure", "illustration", "icon", "molecule", "equation", "plot", "bars"}
+PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars"}
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
@@ -398,10 +408,44 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
                 if op.get("op") == "figure" and NOT_A_FIGURE.search(str((figures.get(str(op.get("id"))) or {}).get("caption", "")))]
     if len(wordy) > max(3, len(beats) * 0.3):
         return [f"{len(wordy)} of {len(beats)} beats show only boxes of words (process or quote) on the stage. "
-                "Show pictures instead: an illustration of icons (call find_icon with English words, even in a Hindi "
-                "lecture), a photo (find_image), a document figure, or icons on the map. Keep process for at most "
+                "Show pictures instead: an educational illustration or diagram (find_illustration, described in English "
+                "even in a Hindi lecture), a photo (find_image) or a document figure. Keep process for at most "
                 "two real sequences per chapter."], warnings
     return [], warnings
+
+
+# ---------------- no icons: illustrations, diagrams, markers and words instead ----------------
+def _icon_words(name: str) -> str:
+    """'game-icons:sugar-cane' -> 'sugar cane'."""
+    return re.sub(r"[-_]+", " ", str(name).split(":", 1)[-1]).strip()
+
+
+def no_icons(script: dict) -> dict:
+    """Rewrite icon operations into what a lecture shows instead of icons (in place; safe to repeat).
+
+    An icon illustration becomes an educational illustration or diagram of the same thing (Commons, Openverse);
+    an icon at a place becomes a labelled marker; an icon in the panel becomes a fact line.
+    """
+    for chapter in script.get("chapters") or []:
+        for beat in chapter.get("beats") or []:
+            out = []
+            for op in beat.get("do") or []:
+                kind = op.get("op")
+                if kind == "illustration" and op.get("icon") and not (op.get("query") or op.get("image")):
+                    out.append({"op": "illustration", "query": _icon_words(op["icon"]),
+                                "caption": op.get("title") or op.get("caption") or ""})
+                elif kind == "icon":
+                    label = op.get("label") or _icon_words(op.get("name", "")).capitalize()
+                    spots = _icon_spots(op)
+                    for spot in spots:
+                        where = {"place": spot} if isinstance(spot, str) else {"lonlat": list(spot)}
+                        out.append({"op": "marker", **where, "label": label if spot == spots[0] else ""})
+                    if not spots and label:
+                        out.append({"op": "fact", "text": label})
+                else:
+                    out.append(op)
+            beat["do"] = out
+    return script
 
 
 def _map_chapter(chapter: dict, has_region: bool) -> bool:
@@ -426,7 +470,7 @@ def _bare_stretches(script: dict) -> list[str]:
             run += 1
             if run == 4:
                 out.append(f"chapter {ci} beat {bi}: four beats without a picture; add a photo, a figure or an "
-                           "illustration (the compiler fills gaps with icons, but a chosen picture is better)")
+                           "illustration (the compiler fills gaps with diagrams, but a chosen picture is better)")
     return out
 
 
@@ -580,25 +624,21 @@ def named_subjects(beat: dict, limit: int = 2) -> list[str]:
 
 
 def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> list[dict | None]:
-    """An illustration for each beat that needs one, else None.
+    """A picture for each beat that needs one, else None.
 
     On a map chapter, a beat that points at the map keeps it; a beat about
-    something else (a crop, an animal, a machine) covers it with a picture,
-    and the next map beat brings it back.
+    something else covers it with a picture, and the next map beat brings it back.
 
-    The stage follows the narration: a beat that names picturable things the
-    stage is not already showing gets an illustration of them (its concrete
-    nouns, as icons). A picture the script chose itself stays up through the next
-    beat before an automatic one replaces it.
+    In order: a molecule or equation (sciences) or a timeline (history) the
+    beat itself contains; Wikipedia's picture of a person, movement or place it
+    names; else an educational illustration or diagram of what it explains
+    (Wikimedia Commons, Openverse). No icons. A picture the script chose itself
+    stays up through the next beat before an automatic one replaces it.
     """
-    import icons
-
     import images
 
     beats = chapter.get("beats") or []
-    lookups = SUBJECT_LOOKUPS
-    # Without the icon library there are no illustrations, but molecules, equations and timelines still come.
-    have_icons = bool(icons.available())
+    lookups = SUBJECT_LOOKUPS * 2       # names (photos) and topics (illustrations) share it
     out: list[dict | None] = []
     showing: set[str] = set()
     hold = 0
@@ -646,21 +686,67 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
         if kit_op:
             out.append(kit_op)
             continue
-        if not have_icons:
-            out.append(None)
-            continue
-        found = icons.picture_words(say)
-        if not found and index == 0 and not showing:
-            # An opening line with nothing to picture: picture the chapter's subject instead.
-            found = icons.picture_words(chapter.get("title", "")) or icons.topic(chapter.get("title", ""))
-        fresh = [f for f in found if f not in showing]
-        if fresh and hold <= 0:
-            out.append({"op": "illustration", "icon": fresh[0], "items": [[r, ""] for r in found if r != fresh[0]][:3]})
-            showing = set(found)
-        else:
-            out.append(None)
-            hold -= 1
+        # An educational illustration or diagram of what the beat explains (Commons, Openverse), kept up for
+        # two beats: a picture that changes every sentence is hard to read.
+        if hold <= 0 and lookups > 0 and images.enabled():
+            for query in picture_queries(beat, chapter, genre, index):
+                if f"query:{query}" in showing or lookups <= 0:
+                    continue
+                lookups -= 1
+                row = images.fetch(illustration=query, avoid=USED_PICTURES)
+                if row:
+                    op = {"op": "illustration", "query": query, "caption": ""}
+                    script_photos[_photo_key(op)] = row
+                    USED_PICTURES.add(row["id"])
+                    kit_op, showing, hold = op, {f"query:{query}"}, 1
+                    break
+            if kit_op:
+                out.append(kit_op)
+                continue
+        out.append(None)
+        hold -= 1
     return out
+
+
+# Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile).
+USED_PICTURES: set = set()
+PLAIN = set("""
+about above after again against almost along also although always among another around because become before
+being below between both came come could does doing down during each even every first from further have having
+here into itself just know known large like made make many more most much must near never next only other over
+own part same should since small some such than that their them then there these they thing things this those
+though three through today together under until upon very want were what when where which while whole will with
+within without would your called means mean each other people place places important different example because
+often usually really almost called across towards toward still again later early every whole across
+""".split())
+
+
+def picture_queries(beat: dict, chapter: dict, genre: str | None, index: int) -> list[str]:
+    """What to search an illustration or diagram for: the writer's `picture` (English), else the beat's key
+    terms in English narration (with the chapter's title for context), else the chapter's own title on its
+    first beat."""
+    if beat.get("picture"):
+        return [str(beat["picture"])]
+    title = str(chapter.get("title", ""))
+    latin_title = title if re.search(r"[A-Za-z]{3}", title) and not re.search(r"[\u0900-\u097F]", title) else ""
+    def stem(word: str) -> str:
+        return re.sub(r"(ies|es|s)$", "", word.lower())
+
+    words = [w.lower() for w in re.findall(r"[A-Za-z][a-z]{3,}", str(beat.get("say", ""))) if w.lower() not in PLAIN]
+    # A topic word recurs: rank a beat's words by how often the chapter uses them, then by length.
+    chapter_text = " ".join([title] + [str(b.get("say", "")) for b in chapter.get("beats") or []]).lower()
+    counts: dict[str, int] = {}
+    for w in re.findall(r"[a-z]{4,}", chapter_text):
+        counts[stem(w)] = counts.get(stem(w), 0) + 1
+    queries = []
+    if words:
+        key = sorted(dict.fromkeys(words), key=lambda w: (counts.get(stem(w), 0), len(w)), reverse=True)[:2]
+        queries.append(" ".join(key))
+        if latin_title:
+            queries.append(f"{latin_title} {key[0]}")
+    if index == 0 and latin_title:
+        queries.append(latin_title)
+    return queries[:2]
 
 
 def _icon_spots(op: dict) -> list:
@@ -782,11 +868,10 @@ def _op_call(op: dict) -> str:
     if kind == "quote":
         return f"self.quote({_q(op['text'])}, {_q(op.get('who', ''))})"
     if kind == "illustration":
-        items = ", ".join(f"({_q(i if isinstance(i, str) else i[0])}, {_q('' if isinstance(i, str) else (i[1] if len(i) > 1 else ''))})"
-                          for i in op.get("items") or [])
-        title = f", title={_q(op['title'])}" if op.get("title") else ""
-        color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
-        return f"self.illustration({_q(op['icon'])}, [{items}]{title}{color})"
+        row = script_photos.get(_photo_key(op))
+        if not row:
+            return None            # nothing reusable was found: the beat plays without it
+        return f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(row['credit'])})"
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
@@ -810,6 +895,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         raise ValueError("\n".join(errors))
     script_figures.clear()
     script_figures.update(script.get("figures") or {})
+    USED_PICTURES.clear()
     if script.get("place_figures", True):
         place_figures(script)
     style = script.get("style", "atlas")
@@ -867,7 +953,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 if op.get("op") in ("photo", "illustration") and op.get("where", "stage") == "stage" or \
                         op.get("op") == "figure" and op.get("where") == "stage" or op.get("op") in KIT_OPS:
                     staged = True
-            calls += [_op_call(op) for op in ops]
+            calls += [call for call in (_op_call(op) for op in ops) if call]
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
             out.append(f"        self.beat({_q(beat['say'])}{args}{rt})")

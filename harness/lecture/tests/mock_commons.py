@@ -18,6 +18,11 @@ FILES = {
     "File:Thar desert dunes Rajasthan.jpg": ("CC BY 2.0", "D. Traveller", "#D8A25E", "rajasthan thar desert climate"),
     "File:Chipko movement women hugging trees.jpg": ("CC BY-SA 4.0", "E. Walker", "#3C7A3E", "zz-no-search"),
     "File:Sunderlal Bahuguna portrait.jpg": ("CC BY 2.0", "F. Lens", "#8A6A4A", "zz-no-search"),
+    # Diagrams: SVG drawings, served as Commons' PNG rendering.
+    "File:Wheat plant labelled diagram.svg": ("CC BY-SA 3.0", "G. Botanist", "#E8D9A8", "wheat plant diagram crop"),
+    "File:Tractor farming illustration.svg": ("CC0", "H. Drafter", "#D6E4C8", "tractor tractors farming illustration"),
+    "File:Water cycle diagram.svg": ("CC BY 4.0", "I. Teacher", "#CFE3F2", "water cycle diagram rain"),
+    "File:Company logo.svg": ("CC0", "J. Brand", "#FFFFFF", "wheat tractor water logo"),     # not educational
 }
 # Wikipedia articles: title -> (lead image file name, English title for a Hindi article).
 WIKI = {
@@ -46,9 +51,11 @@ def _jpeg(colour: str, label: str) -> bytes:
 def _page(index: int, title: str) -> dict:
     licence, artist, _colour, _words = FILES[title]
     name = urllib.parse.quote(title.removeprefix("File:"))
+    svg = title.endswith(".svg")
+    thumb = f"http://127.0.0.1:{PORT['value']}/img/{name}" + (".png" if svg else "")
     return {"title": title, "index": index, "imageinfo": [{
-        "url": f"http://127.0.0.1:{PORT['value']}/img/{name}", "thumburl": f"http://127.0.0.1:{PORT['value']}/img/{name}",
-        "width": 1600, "height": 1000, "mime": "image/jpeg",
+        "url": f"http://127.0.0.1:{PORT['value']}/img/{name}", "thumburl": thumb,
+        "width": 512 if svg else 1600, "height": 320 if svg else 1000, "mime": "image/svg+xml" if svg else "image/jpeg",
         "extmetadata": {"LicenseShortName": {"value": licence}, "Artist": {"value": f'<a href="#">{artist}</a>'},
                         "ImageDescription": {"value": f"<p>{title[5:-4]}</p>"}}}]}
 
@@ -91,8 +98,15 @@ class Handler(BaseHTTPRequestHandler):
         if url.path.startswith("/wiki/"):
             self._wiki(url.path.split("/")[2], urllib.parse.parse_qs(url.query))
             return
+        if url.path.startswith("/openverse/"):
+            self._json({"results": []})
+            return
         if url.path.startswith("/img/"):
-            title = "File:" + urllib.parse.unquote(url.path[5:])
+            title = "File:" + urllib.parse.unquote(url.path[5:]).removesuffix(".svg.png").removesuffix(".png")
+            if title + ".svg" in FILES:
+                title += ".svg"
+            elif not title.endswith((".jpg", ".svg")) and title + ".svg" in FILES:
+                title += ".svg"
             _l, _a, colour, words = FILES[title]
             data = _jpeg(colour, words)
             self.send_response(200)
@@ -105,8 +119,12 @@ class Handler(BaseHTTPRequestHandler):
         if "titles" in q:
             titles = [t for t in (x.replace("_", " ") for x in q["titles"][0].split("|")) if t in FILES]
         else:
-            words = q.get("gsrsearch", [""])[0].replace("filetype:bitmap", "").lower().split()
-            titles = [t for t, (_l, _a, _c, keys) in FILES.items() if any(w in keys for w in words)]
+            search = q.get("gsrsearch", [""])[0]
+            drawings = "filetype:drawing" in search
+            words = search.replace("filetype:bitmap", "").replace("filetype:drawing", "").lower().split()
+            words = [w for w in words if w != "diagram" or drawings]       # "... diagram filetype:bitmap": the topic
+            titles = [t for t, (_l, _a, _c, keys) in FILES.items()
+                      if any(w in keys.split() for w in words) and t.endswith(".svg") == drawings]
         pages = {str(i): _page(i, t) for i, t in enumerate(titles, 1)}
         data = json.dumps({"query": {"pages": pages}} if pages else {}).encode()
         self.send_response(200)

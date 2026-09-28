@@ -70,8 +70,8 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "icon", "photo", "illustration", "figure", "bars"],
-        "guidance": "Geography: the map carries the where (markers, rivers, states, icons at towns); the stage carries "
+        "kit": ["marker", "river", "state", "illustration", "photo", "figure", "bars"],
+        "guidance": "Geography: the map carries the where (markers, rivers, states); the stage carries "
                     "what it looks like (photos of landscapes and crops, illustrations). Alternate them.",
     },
     "history": {

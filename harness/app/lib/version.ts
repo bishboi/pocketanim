@@ -86,29 +86,11 @@ export function ensureKokoro(): Promise<boolean> {
   return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
 }
 
-// The icon sets fetch_icons.py downloads by default (icons.REQUIRED): colour first, silhouettes last.
-const ICON_SETS = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
-  "meteocons", "game-icons", "mdi", "healthicons"];
-
-/** Every default icon set is downloaded (a library from before the colour sets counts as incomplete). */
-export function iconsReady(): boolean {
-  return ICON_SETS.every((set) => existsSync(path.join(REPO, "harness", "lecture", "data", "icons", `${set}.json`)));
-}
-
-/**
- * The icon library (about 25,000 SVGs, 53 MB), downloaded if it is missing.
- * Without it a lecture has no illustrations and no icons on its maps.
- */
-export function ensureIcons(): Promise<boolean> {
-  return fetchOnce("fetch_icons.py", iconsReady, ["--missing"]);
-}
-
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
 
 /** The downloaded libraries and keys a lecture draws on, and how to get the missing ones. */
 export function resources(): Resource[] {
   const data = path.join(REPO, "harness", "lecture", "data");
-  const icons = iconsReady();
   const gazetteer = existsSync(path.join(data, "geonames", "cities.txt"));
   const voice = voiceEngine();
   return [
@@ -117,9 +99,9 @@ export function resources(): Resource[] {
         ? "espeak-ng only (robotic); download Kokoro-82M (350 MB); it is also fetched on the next lecture build"
         : "NONE: lecture videos will be silent. Download Kokoro-82M (350 MB)",
       install: voice === "kokoro" ? undefined : "voice" },
-    { id: "icons", label: "Icons", ready: icons,
-      detail: icons ? "about 45,000 icons, colour first" : "missing colour sets: illustrations are incomplete until downloaded (about 75 MB; fetched on the next lecture)",
-      install: icons ? undefined : "icons" },
+    { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
+      detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
+        : "educational diagrams from Wikimedia Commons and Openverse, fetched per lecture" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",
       install: gazetteer ? undefined : "gazetteer" },

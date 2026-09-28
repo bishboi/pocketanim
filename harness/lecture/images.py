@@ -7,6 +7,7 @@ the compiler downloads it once into .cache/images and the scene draws the
 local file, so a render never waits on the network.
 
     python harness/lecture/images.py "sugarcane field" "Ganges at Varanasi"    # search, as JSON
+    python harness/lecture/images.py --illustrations "water cycle" "leaf cross section"
 
 A named subject -- a person, a movement, a monument, an event, a place -- is
 looked up on Wikipedia first (`portrait`): the picture its article leads with is
@@ -56,15 +57,19 @@ def _text(value) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", str(value or ""))).strip()
 
 
-def _row(page: dict) -> dict | None:
+def _row(page: dict, drawings: bool = False) -> dict | None:
     info = (page.get("imageinfo") or [{}])[0]
     meta = info.get("extmetadata") or {}
     licence = _text((meta.get("LicenseShortName") or {}).get("value"))
     if not ALLOWED.match(licence):
         return None
-    if info.get("mime") not in ("image/jpeg", "image/png", "image/webp"):
+    svg = info.get("mime") == "image/svg+xml"
+    if info.get("mime") not in ("image/jpeg", "image/png", "image/webp") and not (drawings and svg):
         return None
-    if (info.get("width") or 0) < 640:
+    # An SVG diagram is fetched as Commons' PNG rendering at 1600 px, whatever its nominal size.
+    if (info.get("width") or 0) < 640 and not svg:
+        return None
+    if svg and not info.get("thumburl"):
         return None
     artist = _text((meta.get("Artist") or {}).get("value")) or "unknown author"
     return {
@@ -78,12 +83,12 @@ def _row(page: dict) -> dict | None:
     }
 
 
-def _query(params: dict) -> list[dict]:
+def _query(params: dict, drawings: bool = False) -> list[dict]:
     base = {"action": "query", "format": "json", "prop": "imageinfo",
             "iiprop": "url|size|mime|extmetadata", "iiurlwidth": "1600"}
     data = json.loads(_get(f"{api()}?{urllib.parse.urlencode({**base, **params})}"))
     pages = sorted((data.get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 0))
-    return [row for row in (_row(p) for p in pages) if row]
+    return [row for row in (_row(p, drawings) for p in pages) if row]
 
 
 def wiki_api(lang: str) -> str:
@@ -96,7 +101,9 @@ def _wiki(lang: str, params: dict) -> dict:
 
 
 def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[\w\u0900-\u097F]+", str(text).lower()))
+    """Words, lower-cased and singular (tractors -> tractor, species kept), for matching a title to a query."""
+    words = re.findall(r"[\w\u0900-\u097F]+", str(text).lower())
+    return {re.sub(r"(?<=[a-z]{3})(ies|es|s)$", "", w) if not w.endswith("ss") else w for w in words}
 
 
 def _article(name: str, lang: str) -> dict | None:
@@ -169,6 +176,81 @@ def lookup(title: str) -> dict | None:
     return rows[0] if rows else None
 
 
+# ---------------- educational illustrations and diagrams ----------------
+# Not pictures of a subject but pictures that explain one: a labelled diagram of the water cycle, a cross-section of
+# a leaf, a food web. Wikimedia Commons holds tens of thousands (SVG drawings and bitmap diagrams from textbooks,
+# encyclopaedias and teachers); Openverse adds openly licensed illustrations from other collections.
+NOT_EDUCATIONAL = re.compile(r"\b(logo|flag|coat of arms|emblem|seal|icon|signature|stamp|banner|wordmark|"
+                             r"button|symbol|pictogram|clip ?art|cartoon|meme|screenshot)\b", re.I)
+TEACHING = re.compile(r"\b(diagram|illustration|labell?ed|cycle|structure|process|cross[- ]section|anatomy|"
+                      r"schematic|infographic|model|chart|web|layers?|parts|stages?)\b", re.I)
+
+
+def openverse_api() -> str:
+    return os.environ.get("OPENVERSE_API", "https://api.openverse.org/v1/images/")
+
+
+OPENVERSE_LICENCES = {"cc0": "CC0", "pdm": "Public domain", "by": "CC BY", "by-sa": "CC BY-SA"}
+
+
+def _openverse(query: str, limit: int = 8) -> list[dict]:
+    """Openly licensed illustrations from Openverse (reusable licences only)."""
+    params = {"q": query, "category": "illustration,digitized_artwork", "license": ",".join(OPENVERSE_LICENCES),
+              "page_size": str(limit), "mature": "false"}
+    data = json.loads(_get(f"{openverse_api()}?{urllib.parse.urlencode(params)}", timeout=15))
+    rows = []
+    for r in data.get("results") or []:
+        licence = OPENVERSE_LICENCES.get(str(r.get("license", "")).lower())
+        if not licence or (r.get("width") or 0) < 640 or not r.get("url"):
+            continue
+        if licence.startswith("CC BY"):
+            licence += f" {r.get('license_version') or ''}".rstrip()
+        artist = str(r.get("creator") or "unknown author")[:80]
+        source = str(r.get("source") or r.get("provider") or "Openverse")
+        rows.append({"id": f"openverse:{r.get('id')}", "title": str(r.get("title") or query)[:120],
+                     "description": str(r.get("title") or "")[:200], "width": r.get("width"),
+                     "height": r.get("height"), "url": r["url"], "license": licence, "artist": artist,
+                     "credit": f"{artist[:60]}, {licence}, via {source} (Openverse)"})
+    return rows
+
+
+def illustrations(query: str, limit: int = 6) -> list[dict]:
+    """Educational illustrations and diagrams for a topic, best first: Commons drawings (SVG, rendered to PNG),
+    then Commons bitmap diagrams, then Openverse. Only reusable licences. [] when offline or disabled."""
+    if not enabled() or not str(query).strip():
+        return []
+    rows: list[dict] = []
+    searches = [({"gsrsearch": f"{query} filetype:drawing"}, True),
+                ({"gsrsearch": f"{query} diagram filetype:bitmap"}, False)]
+    for params, drawings in searches:
+        try:
+            rows += _query({"generator": "search", "gsrnamespace": "6", "gsrlimit": "24", **params}, drawings)
+        except Exception:  # noqa: BLE001 -- offline or blocked: try the next source
+            pass
+    try:
+        rows += _openverse(query)
+    except Exception:  # noqa: BLE001
+        pass
+    want = _tokens(query)
+
+    def score(index_row) -> float:
+        index, row = index_row
+        title = f"{row['title']} {row.get('description', '')}"
+        overlap = len(want & _tokens(title)) / max(len(want), 1)
+        return overlap * 3 + (1.0 if TEACHING.search(title) else 0.0) - index * 0.02
+
+    seen, ranked = set(), []
+    for _, row in sorted(enumerate(rows), key=score, reverse=True):
+        if row["id"] in seen or NOT_EDUCATIONAL.search(row["title"]):
+            continue
+        if want and not want & _tokens(f"{row['title']} {row.get('description', '')}"):
+            continue            # shares no word with the topic: a search engine's guess, not a diagram of it
+        seen.add(row["id"])
+        row["source"] = row.get("source") or "illustration"
+        ranked.append(row)
+    return ranked[:limit]
+
+
 MISSES = CACHE / "_misses.json"
 
 
@@ -184,29 +266,33 @@ def _missed(key: str, add: bool = False) -> bool:
     return key in misses
 
 
-def fetch(image: str | None = None, query: str | None = None, subject: str | None = None) -> dict | None:
+def fetch(image: str | None = None, query: str | None = None, subject: str | None = None,
+          illustration: str | None = None, avoid: set | None = None) -> dict | None:
     """Download an image into the cache: by Commons title, else the Wikipedia picture of a subject (falling back
     to a Commons search for it), else the best match for a query.
 
     Returns its row with `file` set, or None when nothing reusable was found.
     The row is cached next to the image, so a second compile is offline.
     """
-    key = hashlib.md5(f"{image or ''}|{query or ''}|{subject or ''}".encode()).hexdigest()[:16]
+    key = hashlib.md5(f"{image or ''}|{query or ''}|{subject or ''}|{illustration or ''}".encode()).hexdigest()[:16]
     meta_path = CACHE / f"{key}.json"
     if meta_path.exists():
         row = json.loads(meta_path.read_text(encoding="utf-8"))
-        if row and Path(row.get("file", "")).exists():
+        if row and Path(row.get("file", "")).exists() and row.get("id") not in (avoid or set()):
             return row
-    if subject and not image and _missed(key):
+    if (subject or illustration) and not image and _missed(key):
         return None
     if image:
         row = lookup(image)
+    elif illustration:
+        # `avoid`: pictures the lecture already showed, so one diagram does not stand in for every topic.
+        row = next((r for r in illustrations(illustration) if r["id"] not in (avoid or set())), None)
     elif subject:
         row = portrait(subject) or (search(subject, 1) or [None])[0]
     else:
         row = (search(query, 1) or [None])[0] if query else None
     if not row:
-        if subject and enabled():
+        if (subject or illustration) and enabled():
             _missed(key, add=True)
         return None
     suffix = Path(urllib.parse.urlparse(row["url"]).path).suffix.lower() or ".jpg"
@@ -234,4 +320,7 @@ def find(query: str, limit: int = 6) -> list[dict]:
 
 
 if __name__ == "__main__":
-    print(json.dumps({q: find(q) for q in sys.argv[1:]}, indent=1, ensure_ascii=False))
+    if sys.argv[1:2] == ["--illustrations"]:
+        print(json.dumps({q: illustrations(q) for q in sys.argv[2:]}, indent=1, ensure_ascii=False))
+    else:
+        print(json.dumps({q: find(q) for q in sys.argv[1:]}, indent=1, ensure_ascii=False))

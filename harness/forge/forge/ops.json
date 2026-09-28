@@ -217,7 +217,7 @@
   "optional": {}
  },
  "icon": {
-  "doc": "An icon (crop, mineral, industry, animal, weather): on the map at places, or in the panel with a line.",
+  "doc": "Deprecated: lectures use no icons. Drawn as a labelled marker at its places, or as a fact line in the panel.",
   "required": {
    "name": "str"
   },
@@ -250,14 +250,12 @@
   }
  },
  "illustration": {
-  "doc": "An illustration from icons on the stage: one large, up to four small with labels.",
-  "required": {
-   "icon": "str"
-  },
+  "doc": "An educational illustration or diagram on the stage (Wikimedia Commons, Openverse; reusable licences, credited): what it shows, in English.",
+  "required": {},
   "optional": {
-   "items": "list",
-   "title": "str",
-   "tone": "tone"
+   "query": "str",
+   "image": "str",
+   "caption": "str"
   }
  },
  "molecule": {

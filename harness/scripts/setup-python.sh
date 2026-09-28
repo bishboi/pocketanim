@@ -34,7 +34,7 @@ fi
 .venv/bin/python -m pip install -r harness/requirements.txt
 .venv/bin/python -c 'import manim; print("manim", manim.__version__)'
 
-# Every library lectures draw on: icons, place names, the Kokoro-82M voice, map
-# data and fonts (about 450 MB, once). A failed download is not fatal: rerun
+# Every library lectures draw on: place names, the Kokoro-82M voice, map data
+# and fonts (about 400 MB, once). A failed download is not fatal: rerun
 # harness/scripts/fetch_all.py later, or use the download buttons in the app.
 .venv/bin/python harness/scripts/fetch_all.py || echo "Some downloads failed; rerun harness/scripts/fetch_all.py later."

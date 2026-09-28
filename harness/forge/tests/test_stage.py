@@ -115,3 +115,46 @@ def test_named_people_and_movements_get_their_picture(wikipedia):
     assert "stage_image" in beats[1] and "Chipko movement" in beats[1].split("stage_image")[1]
     assert "stage_image" not in beats[2] and "stage_image" not in beats[3]
     assert "Sunderlal Bahuguna portrait" in result["source"].split("self.credits(")[1]
+
+
+def test_preview_carries_images_and_keeps_time(tmp_path):
+    """A photo fades in with its caption and out again: the program keeps the caption and the fade's time,
+    and the image track places the photo for the preview."""
+    from forge.util import REPO
+
+    from PIL import Image
+
+    Image.new("RGB", (64, 40), "#3C7A3E").save(tmp_path / "photo.png")
+    scene = tmp_path / "photo_scene.py"
+    scene.write_text(f'''from manim import *
+
+class PhotoScene(Scene):
+    def construct(self):
+        image = ImageMobject({str(tmp_path / "photo.png")!r}).scale_to_fit_width(4).shift(LEFT * 2)
+        caption = Text("A forest").scale(0.5).next_to(image, DOWN)
+        group = Group(image, caption)
+        self.play(FadeIn(group), run_time=1)
+        self.wait(2)
+        self.play(FadeOut(group), run_time=1)
+        self.play(FadeIn(ImageMobject({str(tmp_path / "photo.png")!r})), run_time=1)
+        self.wait(1)
+''')
+    out = tmp_path / "build"
+    run = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "PhotoScene", str(out)], capture_output=True, text=True, cwd=REPO)
+    result = json.loads(run.stdout.strip().splitlines()[-1])
+    assert result["blockers"] == ["raster image (ImageMobject): the phone plays sampled frames"], result
+    assert result["images"] == 2
+    program = result["program"]
+    assert "fade " in program and "fadeout " in program            # the caption still fades in and out
+    track = json.loads((out / "dsl" / "generated" / "PhotoScene.images.json").read_text())
+    first = track[0]["keys"]
+    assert first[0][1] == 0 and max(k[1] for k in first) == 1 and first[-1][1] == 0   # fades in, then out
+    assert (out / "dsl" / "generated" / "images" / track[0]["asset"]).is_file()
+    ul_x, ul_y, ur_x = first[1][2], first[1][3], first[1][4]
+    assert abs((ur_x - ul_x) - 4) < 0.01 and ul_x < -3.9            # 4 units wide, shifted left
+
+    from dsl.interpret import parse, timeline_frames
+
+    frames = timeline_frames(parse(program)["timeline"], 30)
+    assert abs(frames / 30 - 6.0) < 0.2                              # every play kept its time, the image-only fade too

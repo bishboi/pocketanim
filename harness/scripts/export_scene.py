@@ -235,6 +235,11 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         assets = sorted(p.name for p in Path("dsl/generated/assets").glob("*.panm")) \
             if Path("dsl/generated/assets").is_dir() else []
         result["assets"] = assets
+        # Photos and figures: not in the program (no verb carries pixels), but
+        # the browser preview draws them from this track (scene_ir.py).
+        if getattr(rec, "images", None):
+            Path(f"dsl/generated/{scene_class}.images.json").write_text(json.dumps(rec.images))
+            result["images"] = len(rec.images)
         if rec.sounds:
             from dsl.export_dsl import PROGRAM_FPS
             from dsl.interpret import parse, timeline_frames

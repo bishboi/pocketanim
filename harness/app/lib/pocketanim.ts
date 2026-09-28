@@ -276,6 +276,9 @@ sys.stdout.buffer.write(buffer.getvalue())
   return stdout;
 }
 
+/** A raster image and where it is: keys are [frame, alpha, ulx, uly, urx, ury, dlx, dly] in scene units. */
+export type SceneImage = { asset: string; width: number; height: number; z: number; keys: number[][] };
+
 export type SceneIR =
   | {
       mode: "2d";
@@ -286,6 +289,10 @@ export type SceneIR =
       pieces: Instance[][];
       runs: [number, number[]][];
       frames: number;
+      /** Each piece's z, for slotting images into the draw order. */
+      pieceZ?: number[];
+      /** Photos and figures the program cannot carry, drawn by the player (scene_ir.py). */
+      images?: SceneImage[];
       error?: undefined;
     }
   | { mode: "3d"; fps: number; frames: number; error?: undefined }

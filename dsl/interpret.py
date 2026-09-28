@@ -464,10 +464,12 @@ def build_2d(scene: dict) -> DecodedIR:
 
     class _Snapshot(list):
         groups: tuple
+        zs: tuple = ()
 
     def emit():
         frame = _Snapshot()
         groups = []
+        zs = []
         staged = [obj for obj in objects.values() if obj.get("visible", True)]
         staged.sort(key=lambda obj: obj.get("z", 0.0))
         for obj in staged:
@@ -512,6 +514,7 @@ def build_2d(scene: dict) -> DecodedIR:
                     obj["_drawn"] = drawn
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
+                zs.append(obj.get("z", 0.0))
             else:
                 offset = len(frame)
                 token = (id(obj["points"]), tuple(obj["stroke"]), obj.get("alpha", 1.0),
@@ -538,7 +541,9 @@ def build_2d(scene: dict) -> DecodedIR:
                     obj["_drawn"] = drawn
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
+                zs.append(obj.get("z", 0.0))
         frame.groups = tuple(groups)
+        frame.zs = tuple(zs)
         records.append((REC_SNAPSHOT, frame))
         if is_3d:
             cameras.append(camera_record())

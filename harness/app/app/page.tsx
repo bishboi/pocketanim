@@ -830,6 +830,8 @@ export default function Home() {
                     ir={ir}
                     autoPlay
                     audioSrc={version?.voiceUrl}
+                    imageUrl={exported?.buildDir ? (asset) =>
+                      `/api/image?build=${encodeURIComponent(exported.buildDir!)}&file=${asset}` : undefined}
                   />
                 )}
               {(exported?.tier === 1 || exported?.container) &&
@@ -866,8 +868,9 @@ export default function Home() {
               )}
               {exported?.tier === 3 && ir && !exported.container && (
                 <p className="text-sm text-neutral-400">
-                  Some effects in this file are not in the preview, so those
-                  parts are missing. The rest is playing.
+                  {(exported.blockers ?? []).every((b) => b.startsWith("raster image"))
+                    ? "Photos and figures are drawn from the build's images. The phone app plays this scene as sampled frames."
+                    : "Some effects in this file are not in the preview, so those parts are missing. The rest is playing."}
                 </p>
               )}
               {exported?.container && ir && "mode" in ir && ir.mode === "2d" && (

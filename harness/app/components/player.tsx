@@ -2,17 +2,20 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SceneIR } from "@/lib/pocketanim";
-import { drawFrame } from "@/lib/draw";
+import { drawLayered, imagePlacement, type PlacedImage } from "@/lib/draw";
 import { Button } from "@/components/ui/button";
 
 export function Player({
   ir,
   autoPlay = false,
   audioSrc = null,
+  imageUrl,
 }: {
   ir: Extract<SceneIR, { mode: "2d" }>;
   autoPlay?: boolean;
   audioSrc?: string | null;
+  /** Where the build's photos and figures are served: the asset name goes on the end. */
+  imageUrl?: (asset: string) => string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -25,15 +28,50 @@ export function Player({
       let cursor = index;
       for (const [count, indexes] of ir.runs) {
         if (cursor < count) {
-          const picture = [];
-          for (const piece of indexes) picture.push(...ir.pieces[piece]);
-          return picture;
+          return indexes.map((piece) => ({ z: ir.pieceZ?.[piece] ?? 0, instances: ir.pieces[piece] }));
         }
         cursor -= count;
       }
       return [];
     },
-    [ir.runs, ir.pieces],
+    [ir.runs, ir.pieces, ir.pieceZ],
+  );
+
+  // Photos and figures: loaded once, drawn at their recorded places. A redraw
+  // follows each load, so a picture appears as soon as it arrives.
+  const loaded = useRef<Map<string, HTMLImageElement>>(new Map());
+  const [imagesReady, setImagesReady] = useState(0);
+  useEffect(() => {
+    if (!imageUrl || !ir.images?.length) return;
+    let cancelled = false;
+    for (const image of ir.images) {
+      if (loaded.current.has(image.asset)) continue;
+      const element = new Image();
+      element.onload = () => {
+        if (!cancelled) setImagesReady((n) => n + 1);
+      };
+      element.src = imageUrl(image.asset);
+      loaded.current.set(image.asset, element);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [ir.images, imageUrl]);
+
+  const imagesAt = useCallback(
+    (index: number): PlacedImage[] => {
+      const out: PlacedImage[] = [];
+      for (const image of ir.images ?? []) {
+        const element = loaded.current.get(image.asset);
+        if (!element || !element.complete || !element.naturalWidth) continue;
+        const place = imagePlacement(image.keys, index);
+        if (place) out.push({ z: image.z, image: element, width: element.naturalWidth, height: element.naturalHeight, ...place });
+      }
+      return out;
+    },
+    // imagesReady: a newly loaded picture changes what this returns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ir.images, imagesReady],
   );
 
   const draw = useCallback(
@@ -44,9 +82,9 @@ export function Player({
       if (!ctx) return;
 
       const { width, height } = canvas;
-      drawFrame(ctx, ir.shapes, pictureAt(index), width, height, ir.background);
+      drawLayered(ctx, ir.shapes, pictureAt(index), imagesAt(index), width, height, ir.background);
     },
-    [ir.shapes, ir.background, pictureAt],
+    [ir.shapes, ir.background, pictureAt, imagesAt],
   );
 
   useEffect(() => {

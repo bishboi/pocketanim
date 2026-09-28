@@ -15,6 +15,10 @@ What comes back:
     frames   per frame, a flat list of instance records:
              [shapeIndex, a,b,c,d,e,f, fillRGBA, strokeRGBA, strokeWidth]
              where a..f is the 2D affine already composed
+    pieceZ   each piece's z, for slotting images into the draw order
+    images   raster images (photos, figures): [{asset, width, height, z,
+             keys: [[frame, alpha, ulx, uly, urx, ury, dlx, dly], ...]}],
+             served from <build>/dsl/generated/images/<asset>
 
 A 3D program returns `mode: "3d"` and no geometry: projection, depth sorting
 and shading would all have to be reimplemented in the browser to draw it
@@ -80,6 +84,12 @@ def _from_container(path: Path) -> dict:
     }
 
 
+def _images(scene_class: str) -> list:
+    """The exporter's image track (dsl/generated/<Scene>.images.json), if the scene showed any images."""
+    track = Path(f"dsl/generated/{scene_class}.images.json")
+    return json.loads(track.read_text()) if track.is_file() else []
+
+
 def _flatten(instances) -> list:
     flat = []
     for inst in instances:
@@ -126,6 +136,7 @@ def build(build_dir: Path, scene_class: str) -> dict:
         # Each object is drawn once and reused. A run is how many frames that
         # combination stays on screen, which is the whole wait in a lecture.
         pieces = []
+        piece_z = []
         piece_of = {}
         runs = []
         total = 0
@@ -133,6 +144,7 @@ def build(build_dir: Path, scene_class: str) -> dict:
         for _, instances in ir.records:
             total += 1
             groups = getattr(instances, "groups", None)
+            zs = getattr(instances, "zs", ()) or ()
             if not groups:
                 groups = (instances,)
             signature = tuple(id(group) for group in groups)
@@ -141,13 +153,14 @@ def build(build_dir: Path, scene_class: str) -> dict:
                 continue
             previous_signature = signature
             indexes = []
-            for group in groups:
+            for position, group in enumerate(groups):
                 key = id(group)
                 index = piece_of.get(key)
                 if index is None:
                     index = len(pieces)
                     piece_of[key] = index
                     pieces.append(flatten(group))
+                    piece_z.append(float(zs[position]) if position < len(zs) else 0.0)
                 indexes.append(index)
             runs.append([1, indexes])
 
@@ -159,6 +172,10 @@ def build(build_dir: Path, scene_class: str) -> dict:
             "pieces": pieces,
             "runs": runs,
             "frames": total,
+            # Photos and figures, which the program cannot carry: drawn by the
+            # player between the pieces, by z (pieceZ), at their recorded places.
+            "pieceZ": piece_z,
+            "images": _images(scene_class),
         }
     finally:
         os.chdir(previous)

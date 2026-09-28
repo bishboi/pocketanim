@@ -231,11 +231,18 @@ class Recorder:
         # form a cubic, which is the same filter the sampled exporter uses.
         points = getattr(mob, "points", None)
         drawable = points is not None and len(points) >= 4
-        # A raster image has no vector form; packing its group as geometry
-        # silently dropped the picture while the scene still claimed tier 1.
-        if any(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in mob.get_family()):
+        # A raster image has no vector form. Packing its group used to drop the
+        # picture while the scene still claimed tier 1, so an image is always a
+        # blocker. The rest of its group -- a card, a caption, a backdrop -- is
+        # still declared (snapshot_family skips the image), so the preview keeps
+        # it and the program keeps the animation's time; the preview draws the
+        # image itself from the recorder's image track.
+        family = mob.get_family()
+        if any(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in family):
             self.blockers.append("raster image (ImageMobject): the phone plays sampled frames")
-            return None
+            if not any(type(sub).__name__ not in ("ImageMobject", "AbstractImageMobject")
+                       and getattr(sub, "points", None) is not None and len(sub.points) >= 4 for sub in family):
+                return None
         if not drawable and not mob.submobjects:
             return None
 
@@ -359,6 +366,12 @@ class Recorder:
 
         self.blockers.append(f"unsupported mobject: {type(mob).__name__}")
         return None
+
+
+def _only_images(mob) -> bool:
+    """A mobject whose drawable family is raster images and nothing else."""
+    family = [sub for sub in mob.get_family() if getattr(sub, "points", None) is not None and len(sub.points) >= 4]
+    return bool(family) and all(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in family)
 
 
 def z_order(mob) -> float:
@@ -903,6 +916,10 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 name = rec.declare(anim.mobject)
                 if name:
                     rec.timeline.append(f"fadeout {name} t={duration:g}{_fade_extra(anim)}")
+                elif _only_images(anim.mobject):
+                    # An image alone: the preview fades it from the image track;
+                    # the program holds for the fade so the timeline keeps time.
+                    rec.timeline.append(f"wait t={duration:g}")
                 else:
                     rec.blockers.append("FadeOut target could not be declared")
             elif isinstance(anim, FadeIn):
@@ -911,6 +928,10 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 name = rec.declare(anim.mobject)
                 if name:
                     rec.timeline.append(f"fade {name} t={duration:g}{_fade_extra(anim)}")
+                elif _only_images(anim.mobject):
+                    # An image alone: the preview fades it from the image track;
+                    # the program holds for the fade so the timeline keeps time.
+                    rec.timeline.append(f"wait t={duration:g}")
                 else:
                     rec.blockers.append("FadeIn target could not be declared")
             elif isinstance(anim, (Create, DrawBorderThenFill)):
@@ -1066,6 +1087,61 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             if len(rec.timeline) == emitted_before:
                 raise
             return None
+
+    # Raster images have no verb, so the program leaves them out. The preview
+    # draws them from a side track instead: where each image sits and whether
+    # it shows, at the start and end of every play, in program frames. The
+    # player interpolates between those, which is what a fade or a move is.
+    images: dict[int, dict] = {}
+    last_prefix = {"value": 0}
+
+    def image_snapshot(scene, prefix: int) -> None:
+        import hashlib as _hashlib
+
+        import numpy as np
+
+        seen = set()
+        for top in list(scene.mobjects):
+            for mob in top.get_family():
+                if type(mob).__name__ not in ("ImageMobject", "AbstractImageMobject") or id(mob) in seen:
+                    continue
+                seen.add(id(mob))
+                entry = images.get(id(mob))
+                if entry is None:
+                    pixels = np.asarray(mob.get_pixel_array())
+                    if pixels.ndim != 3 or pixels.size == 0:
+                        continue
+                    name = _hashlib.md5(pixels.tobytes()).hexdigest()[:16] + ".png"
+                    folder = Path("dsl/generated/images")
+                    folder.mkdir(parents=True, exist_ok=True)
+                    if not (folder / name).exists():
+                        from PIL import Image as _Image
+
+                        mode = "RGBA" if pixels.shape[2] == 4 else "RGB"
+                        _Image.fromarray(pixels.astype("uint8"), mode).save(folder / name)
+                    entry = {"asset": name, "width": int(pixels.shape[1]), "height": int(pixels.shape[0]),
+                             "keys": [], "keep": mob}
+                    images[id(mob)] = entry
+                ul, ur, dl = (np.asarray(mob.points[i][:2], dtype=float) for i in range(3))
+                entry["z"] = float(getattr(mob, "z_index", 0) or 0)
+                corners = [round(float(v), 4) for v in (*ul, *ur, *dl)]
+                if not entry["keys"] or entry["keys"][-1][1] == 0:
+                    # Arrived during the play that just ran (a FadeIn): fade in across it.
+                    entry["keys"].append((last_prefix["value"], 0.0, corners))
+                entry["keys"].append((prefix, 1.0, corners))
+        for key, entry in images.items():
+            if key not in seen and entry["keys"] and entry["keys"][-1][1] > 0:
+                entry["keys"].append((prefix, 0.0, entry["keys"][-1][2]))
+        last_prefix["value"] = prefix
+
+    play_verbs = patched_play
+
+    def patched_play(self, *animations, **kwargs):
+        image_snapshot(self, len(rec.timeline))
+        try:
+            return play_verbs(self, *animations, **kwargs)
+        finally:
+            image_snapshot(self, len(rec.timeline))
 
     def patched_add(self, *mobjects, **kw):
         # Objects put on stage directly rather than animated in. Missing these
@@ -1244,6 +1320,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         ):
             scene = getattr(module, scene_class)()
             scene.render()
+            rec.images = _image_track(rec, images)
             rec.background = _colour_text(
                 getattr(scene.camera, "background_color", None) or config.background_color
             )[:7]
@@ -1261,6 +1338,33 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         ThreeDScene.stop_ambient_camera_rotation = originals["stop_spin"]
 
     return rec
+
+
+def _image_track(rec: "Recorder", images: dict) -> list[dict]:
+    """The recorded image snapshots with timeline positions turned into program frames.
+
+    [{asset, width, height, z, keys: [[frame, alpha, ulx, uly, urx, ury, dlx, dly], ...]}], keys in frame order.
+    """
+    if not images:
+        return []
+    from dsl.interpret import parse, timeline_frames
+
+    frames_at: dict[int, int] = {}
+
+    def frame(prefix: int) -> int:
+        if prefix not in frames_at:
+            frames_at[prefix] = timeline_frames(parse("\n".join(rec.timeline[:prefix]))["timeline"], PROGRAM_FPS) \
+                if prefix else 0
+        return frames_at[prefix]
+
+    out = []
+    for entry in images.values():
+        keys = [[frame(prefix), alpha, *corners] for prefix, alpha, corners in entry["keys"]]
+        if not any(k[1] > 0 for k in keys):
+            continue
+        out.append({"asset": entry["asset"], "width": entry["width"], "height": entry["height"],
+                    "z": entry.get("z", 0.0), "keys": keys})
+    return out
 
 
 # What the decimation is aimed at. A phone's long edge at the top of the range

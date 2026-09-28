@@ -131,3 +131,80 @@ export function drawFrame(
 }
 
 export { FRAME_WIDTH, FRAME_HEIGHT, drawInstance };
+
+/** A raster image on one frame: its picture, how opaque, and where its corners are (scene units). */
+export type PlacedImage = {
+  z: number;
+  image: CanvasImageSource;
+  width: number;
+  height: number;
+  alpha: number;
+  corners: number[]; // ulx, uly, urx, ury, dlx, dly
+};
+
+/**
+ * Where an image is on a frame, from the exporter's keys
+ * ([frame, alpha, ulx, uly, urx, ury, dlx, dly], in frame order): the last key
+ * at or before the frame, eased linearly toward the next one. null when hidden.
+ */
+export function imagePlacement(keys: number[][], frame: number): { alpha: number; corners: number[] } | null {
+  let before = -1;
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] <= frame) before = i;
+    else break;
+  }
+  if (before < 0) return null;
+  const a = keys[before];
+  const b = keys[before + 1];
+  let alpha = a[1];
+  let corners = a.slice(2);
+  if (b && b[0] > a[0]) {
+    const t = Math.min(1, Math.max(0, (frame - a[0]) / (b[0] - a[0])));
+    alpha = a[1] + (b[1] - a[1]) * t;
+    corners = corners.map((v, i) => v + (b[i + 2] - v) * t);
+  }
+  return alpha > 0.004 ? { alpha, corners } : null;
+}
+
+/**
+ * Draw a frame whose pieces carry a z (vector groups in Manim's draw order),
+ * with raster images slotted in by z: an image goes after every piece at or
+ * below its z, as Manim's stable sort puts a later-added image over them.
+ */
+export function drawLayered(
+  ctx: CanvasRenderingContext2D,
+  shapes: number[][],
+  layers: { z: number; instances: Instance[] }[],
+  images: PlacedImage[],
+  width: number,
+  height: number,
+  background = "#000000",
+) {
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, width, height);
+  const scaleX = width / FRAME_WIDTH;
+  const scaleY = height / FRAME_HEIGHT;
+  const pending = [...images].sort((p, q) => p.z - q.z);
+  let next = 0;
+  const drawImage = (img: PlacedImage) => {
+    const [ulx, uly, urx, ury, dlx, dly] = img.corners;
+    const px = (x: number, y: number): [number, number] => [x * scaleX + width / 2, -y * scaleY + height / 2];
+    const [ax, ay] = px(ulx, uly);
+    const [bx, by] = px(urx, ury);
+    const [cx, cy] = px(dlx, dly);
+    ctx.save();
+    ctx.globalAlpha = img.alpha;
+    // Image pixel (u, v) -> canvas: UL + u/width * (UR - UL) + v/height * (DL - UL).
+    ctx.setTransform((bx - ax) / img.width, (by - ay) / img.width, (cx - ax) / img.height, (cy - ay) / img.height, ax, ay);
+    ctx.drawImage(img.image, 0, 0);
+    ctx.restore();
+  };
+  for (const layer of layers) {
+    while (next < pending.length && pending[next].z < layer.z) drawImage(pending[next++]);
+    for (const inst of layer.instances) {
+      const shape = shapes[inst[0]];
+      if (shape) drawInstance(ctx, shape, inst, scaleX, scaleY, width, height);
+    }
+  }
+  while (next < pending.length) drawImage(pending[next++]);
+}

@@ -663,6 +663,9 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
             return pack(a, dur)
         if isinstance(a, (FadeIn, FadeOut)) and not a.mobject.family_members_with_points():
             return [f"wait t={dur:g}"]
+        if isinstance(a, (FadeIn, FadeOut)) and _only_images(a.mobject):
+            # A picture alone: the preview fades it from the image track; the program keeps its time.
+            return [f"wait t={dur:g}"]
         if kind == "Succession":
             out = []
             for sub in a.animations:
@@ -1095,10 +1098,50 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     images: dict[int, dict] = {}
     last_prefix = {"value": 0}
 
-    def image_snapshot(scene, prefix: int) -> None:
+    def fade_timings(animations, kwargs) -> dict:
+        """When, within this play, each image fades in or out: {id(image): (start, end, "in"|"out")} as fractions
+        of the play, through nested groups, lags and successions (Manim's own anims_with_timings)."""
+        from manim.animation.fading import FadeIn as _FadeIn
+        from manim.animation.fading import FadeOut as _FadeOut
+
+        spans = [float(kwargs.get("run_time") or getattr(a, "run_time", 1.0) or 0.0) for a in animations]
+        total = max(spans, default=0.0) or 1.0
+        out: dict = {}
+
+        def walk(anim, t0: float, t1: float) -> None:
+            timings = getattr(anim, "anims_with_timings", None)
+            if timings is not None and len(timings):
+                end = float(getattr(anim, "max_end_time", 0) or 0) or 1.0
+                for child, start, stop in timings:
+                    walk(child, t0 + (t1 - t0) * float(start) / end, t0 + (t1 - t0) * float(stop) / end)
+                return
+            if isinstance(anim, _FadeOut) or getattr(anim, "remover", False):
+                kind = "out"
+            elif isinstance(anim, _FadeIn) or getattr(anim, "introducer", False):
+                kind = "in"
+            else:
+                return
+            mob = getattr(anim, "mobject", None)
+            for sub in (mob.get_family() if mob is not None else []):
+                if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
+                    out[id(sub)] = (t0, t1, kind)
+
+        for anim, span in zip(animations, spans):
+            walk(anim, 0.0, span / total)
+        return out
+
+    def image_snapshot(scene, prefix: int, timing: dict | None = None, before: int | None = None) -> None:
+        """Where each image is now. After a play (`timing`, `before`), an image that arrived or left is keyed at
+        the moments its own fade ran, not across the whole play: a picture fading out while a diagram fades in
+        must be gone when the video has it gone, or the diagram sits over it, translucent."""
         import hashlib as _hashlib
 
         import numpy as np
+
+        timing = timing or {}
+
+        def at(fraction: float):
+            return (before, prefix, round(float(fraction), 4)) if before is not None else prefix
 
         seen = set()
         for top in list(scene.mobjects):
@@ -1126,22 +1169,38 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 entry["z"] = float(getattr(mob, "z_index", 0) or 0)
                 corners = [round(float(v), 4) for v in (*ul, *ur, *dl)]
                 if not entry["keys"] or entry["keys"][-1][1] == 0:
-                    # Arrived during the play that just ran (a FadeIn): fade in across it.
-                    entry["keys"].append((last_prefix["value"], 0.0, corners))
+                    fade = timing.get(id(mob))
+                    if fade and fade[2] == "in":
+                        # Arrived by a FadeIn in the play that just ran: across that fade's own time.
+                        entry["keys"].append((at(fade[0]), 0.0, corners))
+                        entry["keys"].append((at(fade[1]), 1.0, corners))
+                    else:
+                        entry["keys"].append((last_prefix["value"], 0.0, corners))
                 entry["keys"].append((prefix, 1.0, corners))
         for key, entry in images.items():
             if key not in seen and entry["keys"] and entry["keys"][-1][1] > 0:
-                entry["keys"].append((prefix, 0.0, entry["keys"][-1][2]))
+                corners = entry["keys"][-1][2]
+                fade = timing.get(key)
+                if fade and fade[2] == "out":
+                    entry["keys"].append((at(fade[0]), 1.0, corners))
+                    entry["keys"].append((at(fade[1]), 0.0, corners))
+                else:
+                    entry["keys"].append((prefix, 0.0, corners))
         last_prefix["value"] = prefix
 
     play_verbs = patched_play
 
     def patched_play(self, *animations, **kwargs):
-        image_snapshot(self, len(rec.timeline))
+        before = len(rec.timeline)
+        image_snapshot(self, before)
+        try:
+            timing = fade_timings(animations, kwargs)
+        except Exception:  # noqa: BLE001 -- timings are a refinement; the play itself must still record
+            timing = {}
         try:
             return play_verbs(self, *animations, **kwargs)
         finally:
-            image_snapshot(self, len(rec.timeline))
+            image_snapshot(self, len(rec.timeline), timing, before)
 
     def patched_add(self, *mobjects, **kw):
         # Objects put on stage directly rather than animated in. Missing these
@@ -1357,9 +1416,16 @@ def _image_track(rec: "Recorder", images: dict) -> list[dict]:
                 if prefix else 0
         return frames_at[prefix]
 
+    def when(position) -> float:
+        """A key's frame: a timeline position, or (before, after, fraction) -- part-way through a play."""
+        if isinstance(position, tuple):
+            start, end, fraction = position
+            return round(frame(start) + fraction * (frame(end) - frame(start)), 2)
+        return frame(position)
+
     out = []
     for entry in images.values():
-        keys = [[frame(prefix), alpha, *corners] for prefix, alpha, corners in entry["keys"]]
+        keys = [[when(position), alpha, *corners] for position, alpha, corners in entry["keys"]]
         if not any(k[1] > 0 for k in keys):
             continue
         out.append({"asset": entry["asset"], "width": entry["width"], "height": entry["height"],

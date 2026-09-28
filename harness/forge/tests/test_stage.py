@@ -296,3 +296,56 @@ def test_openstax_index_keeps_own_figures_and_skips_non_commercial(monkeypatch, 
     assert index[0]["caption"].startswith("The parts of a wave") and index[0]["url"].endswith("/media/wave.png")
     assert ox.index_book("osbooks-x", "collections/bio.collection.xml", "bio", False)["skipped"]
     assert not (tmp_path / "openstax-bio").exists()
+
+
+def test_preview_fades_an_image_when_the_video_does(tmp_path):
+    """A picture fading out while a diagram fades in is gone, in the preview, when its own fade ends -- not at
+    the end of the whole play, which left new diagrams over a half-visible photo."""
+    from forge.util import REPO
+
+    from PIL import Image
+
+    Image.new("RGB", (64, 40), "#3C7A3E").save(tmp_path / "photo.png")
+    scene = tmp_path / "swap.py"
+    scene.write_text(f'''from manim import *
+
+class Swap(Scene):
+    def construct(self):
+        photo = ImageMobject({str(tmp_path / "photo.png")!r}).scale_to_fit_width(4)
+        self.play(FadeIn(photo), run_time=1)
+        self.wait(1)
+        box = Square()
+        self.play(AnimationGroup(FadeOut(photo, run_time=0.5), FadeIn(box), lag_ratio=1.0), run_time=3)
+        self.wait(1)
+''')
+    out = tmp_path / "build"
+    run = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Swap",
+                          str(out)], capture_output=True, text=True, cwd=REPO)
+    assert json.loads(run.stdout.strip().splitlines()[-1])["tier"] == 3
+    keys = json.loads((out / "dsl" / "generated" / "Swap.images.json").read_text())[0]["keys"]
+    gone = next(k[0] for k in keys if k[1] == 0 and k[0] > 10)
+    # The swap play runs from 2 s to 5 s (frames 61-151); the photo's fade is its first third.
+    assert 85 <= gone <= 95, keys
+
+
+def test_boxes_are_solid_and_a_full_figure_clears_the_stage(tmp_path):
+    import pocket_lecture as pl
+    from manim import ManimColor
+
+    pl.use_style("vox")
+    solid = pl._tint_on_bg("#FF0000", 0.12)
+    assert isinstance(solid, ManimColor) and solid.to_hex().upper() != "#FF0000"
+
+    from PIL import Image
+
+    Image.new("RGB", (64, 40), "white").save(tmp_path / "f.png")
+
+    class Probe(pl.Lecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.stage_items, scene.stage_extra = pl.Group(pl.Square()), [pl.Circle()]
+    anim = scene.figure(str(tmp_path / "f.png"), "caption", where="full")
+    assert len(scene.stage_items) == 0 and scene.stage_extra == []      # the stage leaves under the figure
+    assert len(anim.animations) == 3                                     # the figure in, the two stage parts out

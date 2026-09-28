@@ -314,6 +314,12 @@ USED_ICONS: set[str] = set()
 TINTS = ("accent", "highlight", "friendly", "ally", "enemy")
 
 
+def _tint_on_bg(colour: str, amount: float) -> ManimColor:
+    """A light wash of a colour, mixed into the background: looks like a translucent fill, but is solid, so
+    nothing left behind a box shows through it."""
+    return interpolate_color(ManimColor(P.BG), ManimColor(colour), amount)
+
+
 def _tint(icon_id: str) -> str:
     """A single-colour icon's colour: one of the style's lively roles, the same one every time for the same icon."""
     return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
@@ -1330,7 +1336,9 @@ class Lecture(Scene):
         new.set_z_index(Z_MARK + 10)
         self.stage_items = new
         show = FadeIn(new, scale=1.02)
-        return AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.4) if going else show
+        # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
+        # half-faded photo.
+        return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
     def _stage_add(self, mob):
         """A part added to the picture already on the stage; it leaves with it."""
@@ -1493,7 +1501,8 @@ class Lecture(Scene):
         for i, step in enumerate(steps):
             text = T(wrap(step, 16), 18, P.CREAM, line_spacing=0.85)
             box = RoundedRectangle(corner_radius=0.15, width=max(text.width + 0.4, 1.9), height=text.height + 0.4,
-                                   stroke_color=tones[i % 8], stroke_width=3, fill_color=tones[i % 8], fill_opacity=0.14)
+                                   stroke_color=tones[i % 8], stroke_width=3, fill_color=_tint_on_bg(tones[i % 8], 0.14),
+                                   fill_opacity=1)
             boxes.add(VGroup(box, text.move_to(box)))
         if cycle:
             radius = 1.9 + 0.1 * len(boxes)
@@ -1608,7 +1617,7 @@ class Lecture(Scene):
             arrivals.append(FadeIn(self._stage_add(body[0])))
         arrivals += [FadeIn(self._stage_add(c), shift=UP * 0.15) for c in cells]
         show = LaggedStart(*arrivals, lag_ratio=0.35)
-        return AnimationGroup(AnimationGroup(*going), show, lag_ratio=0.4) if going else show
+        return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
     def _entity(self, name: str | None, height: float):
         """An SVG drawing of what a diagram's node stands for (a tree, a factory, a cow), or None."""
@@ -1624,7 +1633,7 @@ class Lecture(Scene):
         text = T(wrap(str(label), 14), 16 if small else 18, P.CREAM, line_spacing=0.85)
         inner = VGroup(*([drawing] if drawing is not None else []), text).arrange(DOWN, buff=0.12)
         box = RoundedRectangle(corner_radius=0.16, width=max(inner.width + 0.4, 1.7), height=inner.height + 0.35,
-                               stroke_color=tone, stroke_width=3, fill_color=tone, fill_opacity=0.12)
+                               stroke_color=tone, stroke_width=3, fill_color=_tint_on_bg(tone, 0.12), fill_opacity=1)
         return VGroup(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None):
@@ -1765,7 +1774,7 @@ class Lecture(Scene):
                               for p in list(col.get("points") or [])[:4]]).arrange(DOWN, aligned_edge=LEFT, buff=0.14)
             inner = VGroup(*([drawing] if drawing is not None else []), name, points).arrange(DOWN, buff=0.2)
             box = RoundedRectangle(corner_radius=0.18, width=col_w, height=inner.height + 0.5, stroke_color=tones[k],
-                                   stroke_width=3, fill_color=tones[k], fill_opacity=0.1)
+                                   stroke_width=3, fill_color=_tint_on_bg(tones[k], 0.1), fill_opacity=1)
             cards.add(VGroup(box, inner.move_to(box).align_to(box, UP).shift(DOWN * 0.25)))
         top = max(c[0].height for c in cards) if len(cards) else 0
         for c in cards:
@@ -1808,7 +1817,9 @@ class Lecture(Scene):
             group = Group(*parts)
             group.set_z_index(Z_CARD)
             self._new_figure = group
-            return FadeIn(group)
+            # What was on the stage leaves under it, so it does not reappear when the figure goes.
+            going = self._stage_leaving()
+            return AnimationGroup(FadeIn(group), *going) if going else FadeIn(group)
         image.scale_to_fit_width(TEXT_W - 0.1)
         if image.height > 2.6:
             image.scale_to_fit_height(2.6)

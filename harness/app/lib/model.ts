@@ -614,7 +614,7 @@ async function viaOpenRouter(
       } else if (call.function.name === "find_image") {
         output = await findImage((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_illustration") {
-        output = await findIllustration((args as { queries?: unknown }).queries);
+        output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre);
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);

@@ -5,6 +5,7 @@
 
 What it gets, and where it goes:
 
+  openstax   OpenStax textbook figures (an index; CC BY)    harness/lecture/data/illustrations/  <1 MB
   gazetteer  GeoNames towns (about 150,000 place names)     harness/lecture/data/geonames/  ~10 MB
   voice      Kokoro-82M narration voice (+ kokoro-onnx)     harness/models/                 ~350 MB
   maps       Natural Earth borders, states, rivers, towns   Cartopy's data folder            ~40 MB
@@ -24,7 +25,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("gazetteer", "voice", "maps", "fonts")
+STEPS = ("openstax", "gazetteer", "voice", "maps", "fonts")
 
 
 def run(script: str) -> bool:
@@ -55,7 +56,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
-    actions = {"gazetteer": lambda: run("fetch_gazetteer.py"),
+    actions = {"openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
                "voice": lambda: run("fetch_voice.py"), "maps": maps, "fonts": fonts}
     report = {}
     for step in STEPS:

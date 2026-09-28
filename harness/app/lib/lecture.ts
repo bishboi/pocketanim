@@ -244,7 +244,7 @@ export const ILLUSTRATION_TOOL = {
   function: {
     name: "find_illustration",
     description:
-      "Search educational illustrations and diagrams (Wikimedia Commons drawings and diagrams, Openverse illustrations; reusable licences only) that explain a topic: \"water cycle\", \"leaf cross section\", \"food web forest\", \"layers of soil\". Describe the topic in English, even for a Hindi lecture. Returns titles to use in an illustration op, with what each shows.",
+      "Search educational illustrations and diagrams that explain a topic, from the sources that suit the subject (OpenStax textbook figures, NASA, The Met and Smithsonian museums, Wikimedia Commons, Openverse, and an AI illustration when nothing else fits; reusable licences only): \"water cycle\", \"leaf cross section\", \"food web forest\", \"layers of soil\". Describe the topic in English, even for a Hindi lecture. Returns titles to use in an illustration op, with what each shows.",
     parameters: {
       type: "object",
       properties: { queries: { type: "array", items: { type: "string" }, description: "Topics in English, e.g. [\"water cycle\", \"photosynthesis diagram\"]" } },
@@ -276,17 +276,20 @@ export function scriptJson<T = unknown>(stdout: string): T | null {
 }
 
 /** find_illustration: a few educational illustrations or diagrams per topic, as lines the model can choose from. */
-export async function findIllustration(queries: unknown): Promise<string> {
+export async function findIllustration(queries: unknown, genre?: string): Promise<string> {
   const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 80)).filter(Boolean).slice(0, 6);
   if (!words.length) return "Give queries: a list of topics.";
-  const { stdout, stderr } = await runPython([path.join(REPO, "harness", "lecture", "images.py"), "--illustrations", ...words]);
-  const found = scriptJson<Record<string, { id: string; title: string; description: string; license: string }[]>>(stdout);
+  const args = [path.join(REPO, "harness", "lecture", "images.py"), "--illustrations", ...words];
+  // The subject picks the sources: textbook figures for sciences, museums for history, NASA for earth and space.
+  if (genre) args.push("--genre", genre);
+  const { stdout, stderr } = await runPython(args);
+  const found = scriptJson<Record<string, { id: string; title: string; description: string; license: string; source?: string }[]>>(stdout);
   if (!found) return `The illustration search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
   return Object.entries(found)
     .map(([q, rows]) =>
       `${q}:\n` +
       (rows.length
-        ? rows.map((r) => `  ${r.id} (${r.license}) ${(r.description || r.title).slice(0, 100)}`).join("\n")
+        ? rows.map((r) => `  ${r.id} [${r.source ?? "commons"}] (${r.license}) ${(r.description || r.title).slice(0, 100)}`).join("\n")
         : "  nothing reusable found (or no internet here); try another description, a document figure, or a process/timeline"),
     )
     .join("\n");

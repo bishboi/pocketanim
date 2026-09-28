@@ -401,7 +401,8 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
             if op.get("op") == "photo" and not images.fetch(op.get("image"), op.get("query"), op.get("subject")):
                 job.log(f"compile {chapter['id']}.{beat.get('id')}: no photo for {op.get('image') or op.get('query')!r}")
                 continue
-            if op.get("op") == "illustration" and not images.fetch(op.get("image"), illustration=op.get("query")):
+            if op.get("op") == "illustration" and not images.fetch(op.get("image"), illustration=op.get("query"),
+                                                                   genre=spec.get("genre"), style=style.get("id")):
                 job.log(f"compile {chapter['id']}.{beat.get('id')}: no illustration for {op.get('query')!r}")
                 continue
             kept.append(op)

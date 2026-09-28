@@ -44,6 +44,7 @@ To fetch the libraries again, or only some of them:
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
+| Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Voice | Kokoro-82M, the narration voice, and the `kokoro-onnx` package. | `harness/models/` | 350 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
 | Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
@@ -51,6 +52,7 @@ To fetch the libraries again, or only some of them:
 These folders are not in git, so each machine downloads them once.
 
 Other pictures are fetched per lecture, as needed, and cached:
+- **Illustrations and diagrams** come from the sources that suit the subject. These are OpenStax textbook figures, NASA, The Met, the Smithsonian, Wikimedia Commons and Openverse, and, last, an AI illustration. See `harness/lecture/README.md`. To add NIH BioArt or Servier Medical Art, download their images into a folder under `harness/lecture/data/illustrations/`.
 - **Photos** come from Wikimedia Commons, reusable licences only. For a named person, movement, event, monument or place, the picture its Wikipedia article leads with is used. They are cached in `harness/lecture/.cache/images`.
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
@@ -71,7 +73,10 @@ Put your keys in `.env.local`. All of them are optional.
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
 | `OPENROUTER_MODEL` | Which model writes them. |
 | `DATALAB_API_KEY` | Clean PDF conversion, with figures cut out properly. Without it, pypdf is used. |
-| `PANIM_IMAGES=0` | Turn off internet photos. |
+| `PANIM_IMAGES=0` | Turn off internet photos and illustrations. |
+| `SMITHSONIAN_API_KEY` | A free api.data.gov key for Smithsonian pictures (history). Without it the rate-limited `DEMO_KEY` is used. |
+| `PANIM_ALLOW_NC=1` | Also use non-commercial collections (most OpenStax books). Only for non-commercial lectures. |
+| `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
 ## 4. Check that everything is in place
 
@@ -93,4 +98,4 @@ The app also downloads the voice by itself before the first lecture that needs i
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org` (photos and illustrations) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations) |

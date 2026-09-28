@@ -214,9 +214,17 @@ def _openverse(query: str, limit: int = 8) -> list[dict]:
     return rows
 
 
-def illustrations(query: str, limit: int = 6) -> list[dict]:
-    """Educational illustrations and diagrams for a topic, best first: Commons drawings (SVG, rendered to PNG),
-    then Commons bitmap diagrams, then Openverse. Only reusable licences. [] when offline or disabled."""
+def illustrations(query: str, limit: int = 6, genre: str | None = None, style: str | None = None) -> list[dict]:
+    """Educational illustrations and diagrams for a topic, best first, from the sources that suit the subject
+    (illustrations.py: textbook figures, NASA, museums, Commons, Openverse). [] when offline or disabled."""
+    import illustrations as _sources
+
+    return _sources.find(query, genre=genre, limit=limit, style=style)
+
+
+def commons_openverse(query: str, limit: int = 6) -> list[dict]:
+    """Commons drawings (SVG, rendered to PNG), then Commons bitmap diagrams, then Openverse. Reusable
+    licences only; ranked by how well each title matches the topic."""
     if not enabled() or not str(query).strip():
         return []
     rows: list[dict] = []
@@ -267,7 +275,8 @@ def _missed(key: str, add: bool = False) -> bool:
 
 
 def fetch(image: str | None = None, query: str | None = None, subject: str | None = None,
-          illustration: str | None = None, avoid: set | None = None) -> dict | None:
+          illustration: str | None = None, avoid: set | None = None, genre: str | None = None,
+          style: str | None = None) -> dict | None:
     """Download an image into the cache: by Commons title, else the Wikipedia picture of a subject (falling back
     to a Commons search for it), else the best match for a query.
 
@@ -286,7 +295,7 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
         row = lookup(image)
     elif illustration:
         # `avoid`: pictures the lecture already showed, so one diagram does not stand in for every topic.
-        row = next((r for r in illustrations(illustration) if r["id"] not in (avoid or set())), None)
+        row = next((r for r in illustrations(illustration, genre=genre, style=style) if r["id"] not in (avoid or set())), None)
     elif subject:
         row = portrait(subject) or (search(subject, 1) or [None])[0]
     else:
@@ -295,6 +304,12 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
         if (subject or illustration) and enabled():
             _missed(key, add=True)
         return None
+    if row.get("path"):
+        # A local collection's own file (a downloaded pack) or an image already written (AI): used where it is.
+        row["file"] = str(row["path"])
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+        return row
     suffix = Path(urllib.parse.urlparse(row["url"]).path).suffix.lower() or ".jpg"
     target = CACHE / f"{key}{suffix if suffix in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'}"
     try:
@@ -321,6 +336,12 @@ def find(query: str, limit: int = 6) -> list[dict]:
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--illustrations"]:
-        print(json.dumps({q: illustrations(q) for q in sys.argv[2:]}, indent=1, ensure_ascii=False))
+        args = sys.argv[2:]
+        genre = None
+        if "--genre" in args:
+            at = args.index("--genre")
+            genre = args[at + 1] if at + 1 < len(args) else None
+            del args[at:at + 2]
+        print(json.dumps({q: illustrations(q, genre=genre) for q in args}, indent=1, ensure_ascii=False))
     else:
         print(json.dumps({q: find(q) for q in sys.argv[1:]}, indent=1, ensure_ascii=False))

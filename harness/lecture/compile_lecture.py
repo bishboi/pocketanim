@@ -235,7 +235,7 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
                     used = _panel_height(op)
     errors += _unknown_places(places, (script.get("region") or {}).get("country"))
     errors += _unknown_icons(icon_names)
-    errors += _unfetched_photos(photos)
+    errors += _unfetched_photos(photos, script.get("genre"), script.get("style"))
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
                  if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
@@ -267,7 +267,7 @@ def _photo_key(op: dict) -> str:
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}"
 
 
-def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
+def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, style: str | None = None) -> list[str]:
     """Download every photo now (cached), so the scene draws local files; report the ones that failed."""
     if not photos:
         return []
@@ -279,7 +279,8 @@ def _unfetched_photos(photos: list[tuple[str, dict]]) -> list[str]:
         if key in script_photos:
             continue
         if op.get("op") == "illustration":
-            row = images.fetch(op.get("image"), illustration=op.get("query")) if images.enabled() else None
+            row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style) \
+                if images.enabled() else None
             if row:
                 script_photos[key] = row
             # else: dropped at compile, and said as a warning (see lint): a missing diagram is no reason to stop
@@ -693,7 +694,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                 if f"query:{query}" in showing or lookups <= 0:
                     continue
                 lookups -= 1
-                row = images.fetch(illustration=query, avoid=USED_PICTURES)
+                row = images.fetch(illustration=query, avoid=USED_PICTURES, genre=genre, style=STYLE_NOW["style"])
                 if row:
                     op = {"op": "illustration", "query": query, "caption": ""}
                     script_photos[_photo_key(op)] = row
@@ -708,8 +709,10 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     return out
 
 
-# Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile).
+# Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile), and the
+# lecture's style, which an AI illustration is drawn in.
 USED_PICTURES: set = set()
+STYLE_NOW = {"style": None}
 PLAIN = set("""
 about above after again against almost along also although always among another around because become before
 being below between both came come could does doing down during each even every first from further have having
@@ -896,6 +899,10 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     script_figures.clear()
     script_figures.update(script.get("figures") or {})
     USED_PICTURES.clear()
+    STYLE_NOW["style"] = script.get("style")
+    import illustrations
+
+    illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     if script.get("place_figures", True):
         place_figures(script)
     style = script.get("style", "atlas")

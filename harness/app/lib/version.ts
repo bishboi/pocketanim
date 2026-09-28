@@ -93,6 +93,7 @@ export function resources(): Resource[] {
   const data = path.join(REPO, "harness", "lecture", "data");
   const gazetteer = existsSync(path.join(data, "geonames", "cities.txt"));
   const voice = voiceEngine();
+  const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
   return [
     { id: "voice", label: "Voice", ready: voice === "kokoro",
       detail: voice === "kokoro" ? "Kokoro-82M" : voice === "espeak"
@@ -101,7 +102,10 @@ export function resources(): Resource[] {
       install: voice === "kokoro" ? undefined : "voice" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
-        : "educational diagrams from Wikimedia Commons and Openverse, fetched per lecture" },
+        : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },
+    { id: "openstax", label: "Textbook figures", ready: openstax,
+      detail: openstax ? `OpenStax figures indexed${process.env.PANIM_ALLOW_NC === "1" ? " (non-commercial books allowed)" : ""}`
+        : "OpenStax textbook figures not indexed yet (a few MB)", install: openstax ? undefined : "openstax" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",
       install: gazetteer ? undefined : "gazetteer" },

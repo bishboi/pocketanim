@@ -93,8 +93,61 @@ class Handler(BaseHTTPRequestHandler):
             pages.append(page)
         self._json({"query": {"pages": pages}})
 
+    def _sources(self, url) -> bool:
+        """NASA, The Met and the Smithsonian, as their APIs answer."""
+        q = urllib.parse.parse_qs(url.query)
+        port = PORT["value"]
+        img = lambda name: f"http://127.0.0.1:{port}/img/{urllib.parse.quote(name)}"  # noqa: E731
+        if url.path == "/nasa/search":
+            items = []
+            if "earth" in q.get("q", [""])[0].lower() or "cloud" in q.get("q", [""])[0].lower():
+                items = [{"data": [{"nasa_id": "earth01", "title": "Earth clouds from orbit",
+                                    "description": "Clouds over the Earth seen from the ISS", "center": "JSC"}],
+                          "links": [{"href": img("Earth clouds~large.jpg"), "rel": "preview"}]},
+                         {"data": [{"nasa_id": "earth02", "title": "Earth cloud art",
+                                    "description": "Copyright someone else"}],
+                          "links": [{"href": img("Earth clouds~large.jpg")}]}]
+            self._json({"collection": {"items": items}})
+            return True
+        if url.path == "/met/search":
+            self._json({"total": 2, "objectIDs": [11, 12]} if "akbar" in q.get("q", [""])[0].lower() else {"total": 0})
+            return True
+        if url.path.startswith("/met/objects/"):
+            object_id = int(url.path.rsplit("/", 1)[1])
+            self._json({"objectID": object_id, "isPublicDomain": object_id == 11, "title": "Akbar hunting",
+                        "objectDate": "ca. 1600", "artistDisplayName": "Basawan", "objectName": "Folio",
+                        "primaryImage": img("Akbar folio.jpg")})
+            return True
+        if url.path == "/si/search":
+            rows = []
+            if "sword" in q.get("q", [""])[0].lower():
+                rows = [{"id": "si1", "title": "Mughal sword", "content": {"descriptiveNonRepeating": {
+                    "data_source": "Freer Gallery of Art", "online_media": {"media": [
+                        {"type": "Images", "content": img("Mughal sword.jpg"), "usage": {"access": "CC0"}}]}}}},
+                        {"id": "si2", "title": "Mughal sword replica", "content": {"descriptiveNonRepeating": {
+                            "online_media": {"media": [{"type": "Images", "content": img("x.jpg"),
+                                                        "usage": {"access": "Usage conditions apply"}}]}}}}]
+            self._json({"response": {"rows": rows}})
+            return True
+        return False
+
+    def do_POST(self):
+        """OpenRouter's chat completions with image output: one PNG, as a data URL."""
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        from PIL import Image
+
+        out = io.BytesIO()
+        Image.new("RGB", (1024, 640), "#88AACC").save(out, format="PNG")
+        data = "data:image/png;base64," + __import__("base64").b64encode(out.getvalue()).decode()
+        PORT.setdefault("prompts", []).append(body)
+        self._json({"choices": [{"message": {"role": "assistant", "content": "",
+                                             "images": [{"type": "image_url", "image_url": {"url": data}}]}}]})
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
+        if self._sources(url):
+            return
         if url.path.startswith("/wiki/"):
             self._wiki(url.path.split("/")[2], urllib.parse.parse_qs(url.query))
             return
@@ -107,7 +160,7 @@ class Handler(BaseHTTPRequestHandler):
                 title += ".svg"
             elif not title.endswith((".jpg", ".svg")) and title + ".svg" in FILES:
                 title += ".svg"
-            _l, _a, colour, words = FILES[title]
+            _l, _a, colour, words = FILES.get(title, ("", "", "#777777", title[5:20]))
             data = _jpeg(colour, words)
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")

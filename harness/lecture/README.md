@@ -193,9 +193,42 @@ To search from the shell:
 .venv/bin/python harness/lecture/images.py --illustrations "water cycle" "leaf cross section"
 ```
 
-Sources: Wikimedia Commons (SVG drawings and bitmap diagrams) and Openverse (illustrations from other open
-collections). `COMMONS_API` and `OPENVERSE_API` override the endpoints, and `PANIM_IMAGES=0` turns internet
-pictures off.
+### Where the pictures come from
+
+`illustrations.py` asks the sources that suit the lecture's subject, in order, and uses only reusable
+pictures, crediting each:
+
+| Subject | Sources, in order |
+|---|---|
+| biology, chemistry, maths, economics | local collections (OpenStax figures, your packs) → Wikimedia Commons → Openverse → AI |
+| physics, geography | local → NASA → Commons → Openverse → AI |
+| history | The Met → Smithsonian → local → Commons → Openverse → AI |
+| anything else | local → Commons → Openverse → The Met → AI |
+
+- **OpenStax textbook figures.** `fetch_openstax.py` indexes the figures in OpenStax's free textbooks (from
+  their GitHub sources): captions and image links only, and each image is downloaded when a lecture first
+  shows it. Figures credited to someone else are skipped. Most OpenStax books are **CC BY-NC-SA 4.0
+  (non-commercial)**; only the high-school *Physics* book is CC BY 4.0. By default only the CC BY books are
+  indexed. `--non-commercial` indexes the rest, and a lecture uses them only with `PANIM_ALLOW_NC=1`.
+- **NASA** (not copyrighted; anything credited to someone else is skipped), **The Met** (public-domain
+  objects, CC0) and the **Smithsonian** (media marked CC0; `SMITHSONIAN_API_KEY`, a free api.data.gov key, or
+  the rate-limited `DEMO_KEY`).
+- **Your own packs.** Put a folder in `harness/lecture/data/illustrations/<name>/` with the images and a
+  `collection.json` such as `{"name": "NIH BioArt", "license": "Public domain", "credit": "NIH BioArt Source"}`.
+  Images are found by their file names, or by an `index.json` of `[{"file", "title", "caption"}]`. This is
+  how to add [NIH BioArt](https://bioart.niaid.nih.gov/) (public domain) or
+  [Servier Medical Art](https://smart.servier.com/) (CC BY 4.0) downloads; neither offers a search API.
+- **AI illustrations**, last and only when nothing else fits. They are drawn by an image model through
+  OpenRouter (`OPENROUTER_API_KEY`; `PANIM_IMAGE_MODEL`, default `google/gemini-2.5-flash-image`), in the
+  lecture's style, with no text and no real people. There are at most `PANIM_AI_MAX` (6) per lecture.
+  `PANIM_AI_ILLUSTRATIONS=0` turns them off.
+
+The endpoints can be overridden with `NASA_IMAGES_API`, `MET_API`, `SMITHSONIAN_API`, `COMMONS_API`,
+`OPENVERSE_API` and `OPENROUTER_URL`. `PANIM_IMAGES=0` turns internet pictures off.
+
+```
+.venv/bin/python harness/lecture/illustrations.py "electric circuit" --genre physics
+```
 
 ## Lecture PDFs and figures
 

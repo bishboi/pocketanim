@@ -24,6 +24,12 @@ def commons(monkeypatch, tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setenv("COMMONS_API", f"http://127.0.0.1:{server.server_port}/w/api.php")
     monkeypatch.setenv("OPENVERSE_API", f"http://127.0.0.1:{server.server_port}/openverse/")
+    # No collections on disk and no other sources: the tests see only the mock, whatever this machine downloaded.
+    (tmp_path / "no-collections").mkdir()
+    monkeypatch.setenv("PANIM_ILLUSTRATIONS_DIR", str(tmp_path / "no-collections"))
+    for name, path in (("NASA_IMAGES_API", "nasa"), ("MET_API", "met"), ("SMITHSONIAN_API", "si")):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{server.server_port}/{path}")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "images"))
     import images
 
@@ -186,3 +192,101 @@ class PhotoScene(Scene):
 
     frames = timeline_frames(parse(program)["timeline"], 30)
     assert abs(frames / 30 - 6.0) < 0.2                              # every play kept its time, the image-only fade too
+
+
+@pytest.fixture
+def sources(commons, monkeypatch, tmp_path):
+    """Every illustration source pointed at the mock, and a local collections folder of our own."""
+    import importlib
+
+    import mock_commons as mock
+
+    base = f"http://127.0.0.1:{mock.PORT['value']}"
+    monkeypatch.setenv("NASA_IMAGES_API", f"{base}/nasa")
+    monkeypatch.setenv("MET_API", f"{base}/met")
+    monkeypatch.setenv("SMITHSONIAN_API", f"{base}/si")
+    monkeypatch.setenv("OPENROUTER_URL", f"{base}/openrouter")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("PANIM_ALLOW_NC", raising=False)
+    local = tmp_path / "collections"
+    from PIL import Image
+
+    (local / "bioart").mkdir(parents=True)
+    Image.new("RGB", (800, 600), "white").save(local / "bioart" / "plant-cell-structure.png")
+    (local / "bioart" / "collection.json").write_text(json.dumps(
+        {"name": "NIH BioArt", "license": "Public domain", "credit": "NIH BioArt Source"}))
+    (local / "nc-book").mkdir()
+    (local / "nc-book" / "collection.json").write_text(json.dumps(
+        {"name": "Some NC book", "license": "CC BY-NC-SA 4.0", "non_commercial": True, "credit": "NC"}))
+    (local / "nc-book" / "index.json").write_text(json.dumps(
+        [{"title": "Mitochondria diagram", "caption": "The parts of a mitochondrion", "alt": "",
+          "url": f"{base}/img/Mitochondria.jpg"}]))
+    monkeypatch.setenv("PANIM_ILLUSTRATIONS_DIR", str(local))
+    import illustrations
+
+    importlib.reload(illustrations)
+    yield illustrations, mock
+
+
+def test_local_collections_and_the_non_commercial_switch(sources, monkeypatch):
+    illustrations, _ = sources
+    rows = illustrations.find("plant cell structure", genre="biology")
+    assert rows[0]["source"] == "local" and rows[0]["credit"] == "NIH BioArt Source" and rows[0]["path"].endswith(".png")
+    assert illustrations.find("mitochondria diagram", genre="biology") == [] or \
+        all(r["license"] != "CC BY-NC-SA 4.0" for r in illustrations.find("mitochondria diagram", genre="biology"))
+    monkeypatch.setenv("PANIM_ALLOW_NC", "1")
+    assert illustrations.find("mitochondria diagram", genre="biology")[0]["license"] == "CC BY-NC-SA 4.0"
+
+
+def test_the_subject_picks_the_sources(sources):
+    illustrations, _ = sources
+    history = illustrations.find("Akbar", genre="history")
+    assert history[0]["source"] == "met" and history[0]["license"] == "CC0" and "Basawan" in history[0]["credit"]
+    assert all(r["id"] != "met:12" for r in history)                    # not public domain: skipped
+    sword = illustrations.find("Mughal sword", genre="history")
+    assert [r["id"] for r in sword if r["source"] == "smithsonian"] == ["si:si1"]   # only CC0 media
+    earth = illustrations.find("earth clouds", genre="geography")
+    assert earth[0]["source"] == "nasa" and earth[0]["id"] == "nasa:earth01"        # the copyrighted one is skipped
+
+
+def test_an_ai_illustration_only_when_nothing_else_fits(sources, monkeypatch):
+    illustrations, mock = sources
+    assert illustrations.find("quantum tunnelling of a unicorn", genre="physics") == []    # no key: no AI
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    illustrations.reset()
+    rows = illustrations.find("quantum tunnelling of a unicorn", genre="physics", style="lab")
+    assert rows and rows[0]["source"] == "ai" and __import__("pathlib").Path(rows[0]["path"]).stat().st_size > 100
+    body = mock.PORT["prompts"][-1]
+    assert body["modalities"] == ["image", "text"] and "No words" in body["messages"][0]["content"]
+    assert "science-textbook" in body["messages"][0]["content"]
+    assert illustrations.find("earth clouds", genre="geography")[0]["source"] == "nasa"     # found: no AI
+
+
+def test_openstax_index_keeps_own_figures_and_skips_non_commercial(monkeypatch, tmp_path):
+    import importlib
+
+    from forge.util import REPO
+
+    sys.path.insert(0, str(REPO / "harness" / "scripts"))
+    import fetch_openstax as ox
+
+    importlib.reload(ox)
+    pages = {
+        "collections/phys.collection.xml": '<md:title>Physics</md:title><md:license url="http://creativecommons.org/'
+                                           'licenses/by/4.0/">CC</md:license><col:module document="m1"/>',
+        "collections/bio.collection.xml": '<md:title>Biology</md:title><md:license url="http://creativecommons.org/'
+                                          'licenses/by-nc-sa/4.0/">CC</md:license><col:module document="m1"/>',
+        "modules/m1/index.cnxml": '<title>Waves</title><figure id="f1"><media alt="A wave diagram">'
+                                  '<image mime-type="image/png" src="../../media/wave.png"/></media>'
+                                  '<caption>The parts of a wave: crest and trough.</caption></figure>'
+                                  '<figure id="f2"><media alt="A surfer"><image src="../../media/surf.jpg"/></media>'
+                                  '<caption>A surfer rides a wave. (credit: Someone/Flickr)</caption></figure>',
+    }
+    monkeypatch.setattr(ox, "_get", lambda url: pages[url.split("/main/", 1)[1]])
+    monkeypatch.setattr(ox, "TARGET", tmp_path)
+    row = ox.index_book("osbooks-x", "collections/phys.collection.xml", "phys", False)
+    assert row["license"] == "CC BY 4.0" and row["figures"] == 1       # the credited photo is someone else's
+    index = json.loads((tmp_path / "openstax-phys" / "index.json").read_text())
+    assert index[0]["caption"].startswith("The parts of a wave") and index[0]["url"].endswith("/media/wave.png")
+    assert ox.index_book("osbooks-x", "collections/bio.collection.xml", "bio", False)["skipped"]
+    assert not (tmp_path / "openstax-bio").exists()

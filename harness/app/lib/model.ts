@@ -39,6 +39,16 @@ export type GenerateRequest = {
 
 const SCENE_CLASS = "GeneratedScene";
 
+/**
+ * How hard the model thinks before it writes: PANIM_REASONING_EFFORT = low (the default), minimal, medium or
+ * high; "off" sends no setting (the model's own default). Low keeps a lecture quick and cheap to write.
+ */
+export function reasoningOption(): { reasoning?: { effort: string } } {
+  const effort = (process.env.PANIM_REASONING_EFFORT || "low").trim().toLowerCase();
+  if (effort === "off" || effort === "none" || effort === "default") return {};
+  return { reasoning: { effort: ["minimal", "low", "medium", "high"].includes(effort) ? effort : "low" } };
+}
+
 function systemPrompt(template: Template): string {
   return [
     "You are an agent that writes one Manim Community scene for a phone renderer.",
@@ -283,7 +293,7 @@ async function streamCompletion(
       tool_choice: "auto",
       stream: true,
       usage: { include: true },
-      reasoning: { effort: "low" },
+      ...reasoningOption(),
     }),
   });
   if (!response.ok) {

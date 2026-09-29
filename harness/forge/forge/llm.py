@@ -60,6 +60,15 @@ def parse_json(text: str):
     return json.loads(body[start:body.rfind("}" if body[start] == "{" else "]") + 1])
 
 
+def reasoning_option() -> dict:
+    """How hard the model thinks: PANIM_REASONING_EFFORT = low (the default), minimal, medium or high; "off"
+    sends no setting. The same setting as the web app's (lib/model.ts reasoningOption)."""
+    effort = (os.environ.get("PANIM_REASONING_EFFORT") or "low").strip().lower()
+    if effort in ("off", "none", "default"):
+        return {}
+    return {"reasoning": {"effort": effort if effort in ("minimal", "low", "medium", "high") else "low"}}
+
+
 def ask(job, system: str, task: str, max_turns: int = 8, check=None) -> dict:
     """One worker call. `check(obj)` returns a list of problems; empty accepts."""
     by_wire = {_wire_name(t.name): t.name for t in tools.read_only_tools()}
@@ -67,7 +76,7 @@ def ask(job, system: str, task: str, max_turns: int = 8, check=None) -> dict:
     repaired = False
     for _turn in range(max_turns):
         body = _post({"model": model_name(), "messages": messages, "tools": _tool_specs(),
-                      "tool_choice": "auto", "usage": {"include": True}})
+                      "tool_choice": "auto", "usage": {"include": True}, **reasoning_option()})
         usage = body.get("usage") or {}
         job.spend(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), float(usage.get("cost") or 0))
         message = (body.get("choices") or [{}])[0].get("message") or {}

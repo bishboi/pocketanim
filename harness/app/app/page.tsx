@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { LENGTH_CHOICES, TEMPLATES } from "@/lib/templates";
+import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
 import type { SceneIR } from "@/lib/pocketanim";
@@ -183,6 +183,8 @@ export default function Home() {
   const [instruction, setInstruction] = useState("");
   /** The lecture's length in minutes; null lets the content's size decide. */
   const [minutes, setMinutes] = useState<number | null>(null);
+  /** The subject the lecture is taught as; "auto" lets the content decide. */
+  const [subject, setSubject] = useState("auto");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
@@ -332,6 +334,7 @@ export default function Home() {
           instruction: edit ? instruction : undefined,
           documentId: doc.id,
           minutes: template.kind === "lecture" && minutes ? minutes : undefined,
+          subject: template.kind === "lecture" ? subject : undefined,
         }),
       });
       if (!response.ok || !response.body) {
@@ -733,6 +736,27 @@ export default function Home() {
                       ))}
                     </select>
                   </label>
+                  <label className="flex items-center gap-2">
+                    <span className="text-neutral-300">Subject</span>
+                    <select
+                      aria-label="Subject"
+                      data-testid="lecture-subject"
+                      className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200"
+                      value={subject}
+                      disabled={!!busy}
+                      onChange={(e) => setSubject(e.target.value)}
+                    >
+                      {SUBJECT_CHOICES.map(([id, name]) => (
+                        <option key={id} value={id}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <span>
+                    Mathematics, physics and chemistry are taught as theory, then long problems solved step by step on
+                    labelled diagrams and graphs.
+                  </span>
                   <span>
                     The topics come from your content. The length decides how deep each one goes: a longer video
                     gives more examples for each statement and asks the class more questions.

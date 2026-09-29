@@ -1094,6 +1094,11 @@ class Lecture(Scene):
         self.stage_extra: list = []     # parts added to it later (a diagram's revealed nodes, a focus ring)
         self.diagrams: dict = {}        # diagram id -> its nodes, edges and what is shown
         self._question = None           # the question on the stage: its timer track and its answer, placed
+        self.stage_body = None          # what the stage shows (without its backing card)
+        self.stage_pending: list = []   # parts of it not shown yet (a diagram's later nodes): they move with it
+        self._next_pending: list = []   # those of a picture being built, before it goes up
+        self.works: dict = {}           # worked solutions on the stage: where their next line goes
+        self._problem = None            # the problem on the board: where its solution is written
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
@@ -1248,7 +1253,9 @@ class Lecture(Scene):
         return FadeIn(group, shift=UP * 0.12)
 
     def panel_title(self, title: str, sub: str | None = None):
-        """Clear the panel and head it. Returns the animation."""
+        """Clear the panel and head it. Returns the animation. On a board: the strip's title."""
+        if self.board_mode:
+            return self.board_title(title, sub)
         old = self.panel_items
         t = T(title.upper() if TH["upper"] else title, tok("panel_title_size", 34), P.TITLE, font=TH["serif"], weight=BOLD)
         t.move_to(RIGHT * self.TEXT_LEFT + UP * 3.05, aligned_edge=LEFT)
@@ -1290,7 +1297,9 @@ class Lecture(Scene):
         return group
 
     def fact(self, text: str, color: str | None = None, bullet: str | None = None, size: float = 20):
-        """A bulleted line in the panel, wrapped at 36 characters."""
+        """A bulleted line in the panel, wrapped at 36 characters. On a board: the strip's one key point."""
+        if self.board_mode:
+            return self.board_point(text, color)
         dot = Dot(radius=0.05, color=bullet or P.SAND)
         t = fit(T(wrap(text, 36), tok("fact_size", size), color or P.CREAM, line_spacing=0.85), 4.95)
         t.next_to(dot, RIGHT, buff=0.18, aligned_edge=UP)
@@ -1300,6 +1309,8 @@ class Lecture(Scene):
 
     def big_stat(self, value: str, label: str, color: str | None = None):
         """A large number with a small label under it."""
+        if self.board_mode:
+            return self.board_stat(value, label, color)
         v = fit(T(value, tok("stat_size", 44), color or P.GOLD, font=TH["serif"], weight=BOLD), 5.1)
         lab = fit(T(wrap(label, 40), 17, P.MUTED), TEXT_W)
         lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
@@ -1308,6 +1319,8 @@ class Lecture(Scene):
 
     def panel_icon(self, name: str, label: str = "", color: str | None = None):
         """An icon with a line beside it in the panel: "sugarcane -- the west's cash crop"."""
+        if self.board_mode:
+            return self.board_point(label or name.split(":")[-1].replace("-", " "), color)
         mob = icon_mob(name, color, height=0.62)
         row = VGroup(mob)
         if label:
@@ -1318,7 +1331,9 @@ class Lecture(Scene):
         return self.reveal(group, row[1] if label else None)
 
     def bar_chart(self, items, color: str | None = None, unit: str = "", width: float = 3.0):
-        """Horizontal bars in the panel, each growing from a shared axis."""
+        """Horizontal bars in the panel, each growing from a shared axis (on a board: across the board)."""
+        if self.board_mode:
+            return self.board_bars(items, color, unit)
         items = list(items)[:7]
         top = max((float(v) for _, v in items), default=1.0) or 1.0
         labels = [fit(T(str(name), 16, P.CREAM), 1.3) for name, _ in items]
@@ -1345,10 +1360,13 @@ class Lecture(Scene):
 
     def add_panel(self, run_time: float = 0.8) -> None:
         """Put the panel up on its own, for a chapter with no map."""
+        self.leave_board()
         self.panel = self.panel_bg()
         self.play(FadeIn(self.panel), run_time=run_time)
 
     def clear_panel(self):
+        if self.board_mode:
+            return self._strip(clear=True)
         old = [m for m in (self.panel_items, self.panel_images) if len(m)]
         self.panel_items = VGroup()
         self.panel_images = Group()
@@ -1373,6 +1391,10 @@ class Lecture(Scene):
         self.stage_items = Group()
         self.stage_extra = []
         self._question = None
+        self.stage_body = None
+        self.stage_pending = []
+        self.works = {}
+        self._problem = None
         return going
 
     def _to_stage(self, group):
@@ -1381,6 +1403,8 @@ class Lecture(Scene):
         new = Group(self._stage_card(), group)
         new.set_z_index(Z_MARK + 10)
         self.stage_items = new
+        self.stage_body = group
+        self.stage_pending, self._next_pending = self._next_pending, []
         show = FadeIn(new, scale=1.02)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
@@ -1763,6 +1787,8 @@ class Lecture(Scene):
         shown = set(ids if show is None else [str(x) for x in show])
         self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None}
         first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
+        self._next_pending.extend([mobs[i] for i in ids if i not in shown]
+                                  + [m for a, b, m in arrows if not (a in shown and b in shown)])
         body = VGroup(*([head] if head else []), *first)
         return self._to_stage(Group(body))
 
@@ -1773,7 +1799,12 @@ class Lecture(Scene):
             return None
         new = [str(n) for n in nodes if str(n) in d["nodes"] and str(n) not in d["shown"]]
         d["shown"].update(new)
-        anims = [FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
+        drawn = [d["nodes"][i] for i in new] + [mob for a, b, mob in d["edges"]
+                                                 if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
+        self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
+        # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
+        anims = [Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
+                 FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
         for a, b, mob in d["edges"]:
             if (a in new or b in new) and a in d["shown"] and b in d["shown"]:
                 anims.append(Create(self._stage_add(mob)))
@@ -1803,7 +1834,7 @@ class Lecture(Scene):
         rule = Line(LEFT * 1.2, RIGHT * 1.2, color=P.SAND, stroke_width=3)
         body = fit(T(wrap(meaning, 34), 22, P.CREAM, line_spacing=0.95), w - 0.6)
         parts = VGroup(*([drawing] if drawing is not None else []), word, rule, body).arrange(DOWN, buff=0.28)
-        self._fit_stage(parts, grow=1.25)
+        self._fit_stage(parts, grow=1.8 if self.board_mode else 1.25)
         return self._to_stage(Group(parts))
 
     def compare_cards(self, columns, title: str | None = None):
@@ -1844,6 +1875,7 @@ class Lecture(Scene):
         under the heading.
         """
         cx, cy, w, h = self.STAGE
+        w = min(w, 9.0)             # on the board, a card of reading width rather than the whole frame
         head = T(title or self.QUESTION_HEADS.get(spoken_lang(text), self.QUESTION_HEADS["en"]), 20, P.SAND,
                  weight=BOLD)
         mark = Circle(radius=0.26, fill_color=P.SAND, fill_opacity=1, stroke_width=0)
@@ -1864,21 +1896,18 @@ class Lecture(Scene):
             parts.add(options.arrange(DOWN, buff=0.16))
         shown = None
         if isinstance(answer, int) and 0 <= answer < len(options):
-            box = options[answer][0]
-            ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
-                                    stroke_color=P.GREEN, stroke_width=5)
-            tick = T("✓", 30, P.GREEN, weight=BOLD)
-            shown = (ring, tick, answer)
+            shown = answer             # the ring is drawn once the card has its final size
         elif isinstance(answer, str) and answer.strip():
             said = fit(T(wrap(answer, 34), 22, P.GREEN, line_spacing=0.9), w - 0.6)
             parts.add(said)             # laid out with the card, then held back until answer()
         parts.arrange(DOWN, buff=0.3)
         head.align_to(track, LEFT)
         self._fit_stage(parts, grow=1.2)
-        if shown:
-            ring, tick, index = shown
-            ring.move_to(options[index][0])
-            tick.next_to(ring, RIGHT, buff=-0.55)
+        if isinstance(shown, int):
+            box = options[shown][0]
+            ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
+                                    stroke_color=P.GREEN, stroke_width=5).move_to(box)
+            tick = T("✓", 30, P.GREEN, weight=BOLD).move_to(ring).align_to(ring, RIGHT).shift(LEFT * 0.25)
             shown = VGroup(ring, tick)
         elif isinstance(answer, str) and answer.strip():
             shown = parts[-1]
@@ -1922,6 +1951,8 @@ class Lecture(Scene):
 
     def figure(self, path: str, caption: str = "", where: str = "panel"):
         """A figure from a source document: in the panel, or across the frame for one beat."""
+        if where == "panel" and self.board_mode:
+            where = "stage"
         if where == "stage":
             return self.stage_image(path, caption)
         image = ImageMobject(path)
@@ -2155,9 +2186,15 @@ class Lecture(Scene):
         self._full_figure = self._new_figure = None
         self._map_on = False
         self.panel_y = 2.35
+        self.stage_body, self.stage_pending, self._next_pending = None, [], []
+        self.works, self._problem, self._question = {}, None, None
+        self.strip = {"title": None, "point": None}
 
 
-class MapLecture(Lecture):
+from stem import BoardMixin  # noqa: E402 -- the board layout and the STEM drawings
+
+
+class MapLecture(BoardMixin, Lecture):
     """A lecture over one region's map, with neighbours, state lines and markers.
 
     REGION names the focus: dict(country="India"), dict(country="India",
@@ -2274,6 +2311,7 @@ class MapLecture(Lecture):
 
     def show_map(self, panel: bool = True, run_time: float = 1.4) -> None:
         """Draw the base map (and the panel) in one move."""
+        self.leave_board()
         self._map_on = True
         nb, inner, outline = self.base()
         anims = [FadeIn(nb), Create(outline)]

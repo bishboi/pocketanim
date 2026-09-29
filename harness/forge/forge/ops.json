@@ -373,5 +373,179 @@
   "doc": "Show the answer to the question on the stage, on the beat that explains it.",
   "required": {},
   "optional": {}
+ },
+ "incline": {
+  "doc": "A block on a wedge: angle, friction, forces [mg, N, f, F], components (mg sinθ, mg cosθ), applied (up|down). Parts: ground, wedge, theta, block, mg, N, f, F, mg_sin, mg_cos. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "angle": "num",
+   "friction": "bool",
+   "forces": "list",
+   "components": "bool",
+   "applied": "str",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "pulley": {
+  "doc": "kind atwood (two hanging masses) or table (a block on a table and a hanging mass). Parts: ceiling|table, pulley, rope, m1, m2, T1, T2, W1, W2, N, f, a1, a2. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "kind": "str",
+   "forces": "list",
+   "friction": "bool",
+   "accel": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "piston": {
+  "doc": "A gas under a piston. Parts: cylinder, gas, piston, rod, F, P, Q. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "force": "bool",
+   "heat": "bool",
+   "pressure": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "spring": {
+  "doc": "A block on a spring from a wall. Parts: wall, ground, spring, block, F, x. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "displacement": "bool",
+   "force": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "pendulum": {
+  "doc": "A bob on a string. Parts: support, rest, string, theta, swing, bob, T, mg. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "angle": "num",
+   "forces": "list",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "projectile": {
+  "doc": "A launch at an angle. Parts: ground, path, u, ux, uy, theta, top, H, R. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "angle": "num",
+   "components": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "circuit": {
+  "doc": "A battery and resistors, kind series|parallel. Parts: battery, wire, R1, R2, R3, I. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "kind": "str",
+   "resistors": "list",
+   "current": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "lever": {
+  "doc": "A beam on a fulcrum with two loads. Parts: ground, fulcrum, beam, L1, L2, d1, d2. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "loads": "list",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "lens": {
+  "doc": "A thin lens forming an image. Parts: axis, lens, F1, F2, object, ray1, ray2, image. Reveal parts with reveal/focus by these ids.",
+  "required": {
+   "id": "str"
+  },
+  "optional": {
+   "kind": "str",
+   "rays": "bool",
+   "labels": "dict",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "sketch": {
+  "doc": "A labelled diagram from primitives in a 10 x 6 box (y up): line, arrow, rect, circle, polygon, spring, ground, angle, dim, dot, text, curve; each {id?, type, from/to|at|points, label?, color?, fill?, dashed?}.",
+  "required": {
+   "id": "str",
+   "items": "list"
+  },
+  "optional": {
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "graph": {
+  "doc": "Axes with items [{id, kind: curve|point|vline|hline|area|tangent|segment|data|label, ...}] revealed a beat at a time.",
+  "required": {
+   "id": "str",
+   "items": "list"
+  },
+  "optional": {
+   "x": "list",
+   "y": "list",
+   "x_label": "str",
+   "y_label": "str",
+   "show": "list",
+   "title": "str"
+  }
+ },
+ "work": {
+  "doc": "Lines of a worked solution (TeX), added under the last ones; box rings the answer.",
+  "required": {
+   "id": "str",
+   "lines": "list"
+  },
+  "optional": {
+   "title": "str",
+   "box": "bool"
+  }
+ },
+ "problem": {
+  "doc": "A long question: statement across the top, its figure (a sketch, graph or preset op) on the left, its solution (work with the same id) on the right.",
+  "required": {
+   "id": "str",
+   "text": "str"
+  },
+  "optional": {
+   "title": "str",
+   "given": "list",
+   "find": "str",
+   "figure": "dict",
+   "think": "num"
+  }
  }
 }

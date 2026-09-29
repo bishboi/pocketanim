@@ -137,7 +137,8 @@ def _beat_seconds(beats: list) -> float:
     """The chapter's beats: their lines, the longer pause closing each paragraph, questions' time to think."""
     seconds = sum(_say_seconds(b.get("say", "")) + _pause(b) for b in beats)
     seconds += (PARAGRAPH_PAD - BEAT_PAD) * len(paragraphs(beats))
-    seconds += sum(_think_seconds(op) for b in beats for op in b.get("do") or [] if op.get("op") == "question")
+    seconds += sum(_think_seconds(op) for b in beats for op in b.get("do") or []
+                   if op.get("op") == "question" or op.get("op") == "problem" and op.get("think"))
     return seconds
 
 
@@ -157,7 +158,7 @@ def estimate_minutes(script: dict) -> float:
 
 
 def lint(script: dict, min_minutes: float | None = None, min_questions: int | None = None,
-         min_examples: int | None = None) -> tuple[list[str], list[str]]:
+         min_examples: int | None = None, min_problems: int | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
 
     The checks the guide asks for before any render: unknown operations,
@@ -200,10 +201,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
             for op in ops:
                 kind = op.get("op")
                 if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo",
-                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS:
+                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
                     continue
-                if kind in BUILD_OPS | STEP_OPS:
+                if kind in BUILD_OPS | STEP_OPS | WORK_OPS:
                     problem = _build_problem(op, diagrams, script.get("figures") or {})
                     if problem:
                         errors.append(f"{at}: {problem}")
@@ -282,11 +283,14 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _text_heavy(script)
     errors += e
     warnings += w
-    e, w = _teaching(script, min_questions, min_examples)
+    e, w = _teaching(script, min_questions, min_examples, min_problems)
+    e2, w2 = _panel_text(script)
+    e, w = e + e2, w + w2
     # A written lecture (one given a length to reach) must teach; elsewhere (an offline test script, a hand-made
     # one) the same checks are advice.
     errors += e if min_minutes else []
     warnings += w + ([] if min_minutes else e)
+    # (_panel_text rides with them: an offline test script puts every line in the panel.)
     minutes = estimate_minutes(script)
     if min_minutes and chapters and minutes < min_minutes * 0.85:
         beats = sum(len(c.get("beats") or []) for c in chapters)
@@ -345,8 +349,16 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
 
 KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
 # Built on the stage: several pictures at once, diagrams of SVG drawings, a word and its meaning, a comparison,
-# a question for the class.
-BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"}
+# a question for the class; and for mathematics and the sciences (stem.py): labelled sketches, the physics
+# presets (incline, pulley...), graphs and long problems.
+from stem import PRESETS  # noqa: E402
+
+STEM_OPS = {"sketch", "graph", "problem"} | set(PRESETS)
+BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS
+# A worked solution: lines added beside the figure on the stage (or on a problem's solution side).
+WORK_OPS = {"work"}
+# Subjects taught on the board (no side panel) unless the script says otherwise.
+BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
 # to the question.
 STEP_OPS = {"reveal", "focus", "answer"}
@@ -409,6 +421,8 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if unknown:
             return f"diagram show: no node {unknown[0]!r}"
         diagrams[key] = ids
+    if kind in STEM_OPS | WORK_OPS:
+        return _stem_problem(op, diagrams)
     if kind == "question":
         choices = op.get("choices") or []
         if not str(op.get("text") or "").strip():
@@ -436,6 +450,50 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         columns = op.get("columns") or []
         if not 2 <= len(columns) <= 3 or not all(isinstance(c, dict) and c.get("title") for c in columns):
             return "'compare' needs 2-3 columns, each {title, entity?, points: [up to 4 short lines]}"
+    return None
+
+
+def _stem_problem(op: dict, diagrams: dict) -> str | None:
+    """What stops a sketch, preset, graph, worked solution or problem; records the parts reveal can show."""
+    import stem
+
+    kind = op["op"]
+    if kind == "work":
+        if not op.get("id"):
+            return "'work' needs an id (later lines of the same solution use it)"
+        lines = op.get("lines")
+        if not isinstance(lines, list) or not lines or not all(isinstance(x, str) and x.strip() for x in lines):
+            return "'work' needs lines: [\"F = ma\", \"a = F/m\"] (TeX for maths; a line with words is shown as text)"
+        return None
+    key = str(op.get("id") or "")
+    if not key:
+        return f"'{kind}' needs an id (reveal and focus refer to it)"
+    if kind == "problem":
+        if not str(op.get("text") or "").strip():
+            return "'problem' needs text: the question, in full"
+        figure = op.get("figure")
+        if figure is not None:
+            if not isinstance(figure, dict) or figure.get("op") not in {"sketch", "graph"} | set(stem.PRESETS):
+                return "a problem's figure is a sketch, a graph or a preset: {\"op\":\"incline\",\"angle\":30,...}"
+            inner = _stem_problem({**figure, "id": figure.get("id") or f"{key}_figure"}, diagrams)
+            if inner:
+                return f"problem figure: {inner}"
+        diagrams[key] = []
+        return None
+    if kind == "graph":
+        problem = stem.graph_problem(op)
+        if problem:
+            return problem
+        ids = [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
+    else:
+        problem = stem.sketch_problem(op)
+        if problem:
+            return problem
+        ids = stem.element_ids(stem.op_elements(op))
+    unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
+    if unknown:
+        return f"{kind} {key} show: no part {unknown[0]!r} (its parts: {', '.join(ids) or 'none named'})"
+    diagrams[key] = ids
     return None
 
 
@@ -501,7 +559,7 @@ COPY_RUN = 8            # this many words in a row, word for word from the sourc
 LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
 TEXT_OPS = {"process", "quote"}
 PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars", "gallery", "diagram",
-               "define", "compare", "reveal", "focus"}
+               "define", "compare", "reveal", "focus", "work"} | STEM_OPS
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
@@ -562,7 +620,7 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
     warnings = [f"figure {op.get('id')} is a QR code or logo, not a diagram; drop it"
                 for b in beats for op in b.get("do") or []
                 if op.get("op") == "figure" and NOT_A_FIGURE.search(str((figures.get(str(op.get("id"))) or {}).get("caption", "")))]
-    fresh = [b for b in beats if {op.get("op") for op in b.get("do") or []} & (VISUAL_OPS - {"process", "quote", "question"})]
+    fresh = [b for b in beats if {op.get("op") for op in b.get("do") or []} & (VISUAL_OPS - {"process", "quote", "question", "problem"})]
     if len(beats) >= 8 and len(fresh) > len(beats) * 0.6:
         warnings.append(f"{len(fresh)} of {len(beats)} beats put up a new picture: that is a picture a sentence. "
                         "Plan the stage a paragraph (3-5 beats) at a time: one diagram revealed across the "
@@ -593,16 +651,47 @@ def teaching_plan(minutes: float, source_words: int = 0) -> dict:
         topics = min(12, max(2, round(minutes / 3)))
     per_topic = minutes / topics
     examples = 1 if per_topic < 1.5 else 2 if per_topic < 3 else 3 if per_topic < 5 else 4
+    problems = 1 if per_topic < 2 else 2 if per_topic < 4 else 3
     questions = 0.5 if per_topic < 2 else 1 if per_topic < 4 else 2 if per_topic < 7 else 3
     return {"minutes": minutes, "topics": topics, "examples": examples, "questions_per_topic": questions,
             # A short video of a long chapter cannot ask a question every topic: at most one every 2 minutes,
             # and an example beat every 50 seconds or so.
             "min_questions": min(max(1, round(topics * questions)), max(1, int(minutes // 2))),
-            "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2)))}
+            "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2))),
+            "problems_per_topic": problems,
+            "min_problems": min(topics * problems, max(1, int(minutes // 2.5)))}
 
 
-def _teaching(script: dict, min_questions: int | None = None,
-              min_examples: int | None = None) -> tuple[list[str], list[str]]:
+PANEL_FACTS = 3          # key points a side panel (a map chapter's) holds under its title
+PANEL_FACT_CHARS = 70
+
+
+def _panel_text(script: dict) -> tuple[list[str], list[str]]:
+    """Too much text beside the map: more than PANEL_FACTS points under one panel title, or long ones. (On the
+    board a fact is one line in the strip, replaced by the next.)"""
+    errors = []
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        if not _map_chapter(chapter, bool(script.get("region"))):
+            continue
+        count = 0
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            for op in beat.get("do") or []:
+                if op.get("op") in ("panel", "clear"):
+                    count = 0
+                if op.get("op") in ("fact", "stat"):
+                    count += 1
+                    text = str(op.get("text") or op.get("label") or "")
+                    if count == PANEL_FACTS + 1:
+                        errors.append(f"chapter {ci} beat {bi}: more than {PANEL_FACTS} points in one panel; the "
+                                      "narration says the rest (or start a new panel for a new topic)")
+                    if len(text) > PANEL_FACT_CHARS:
+                        errors.append(f"chapter {ci} beat {bi}: a panel point of {len(text)} characters; keep it "
+                                      f"under {PANEL_FACT_CHARS}, a few words the narration expands on")
+    return errors, []
+
+
+def _teaching(script: dict, min_questions: int | None = None, min_examples: int | None = None,
+              min_problems: int | None = None) -> tuple[list[str], list[str]]:
     """A lecture that teaches rather than recites: questions for the class between topics, examples; as many
     as the chosen length's teaching plan asks for, when there is one."""
     errors, warnings = [], []
@@ -610,7 +699,14 @@ def _teaching(script: dict, min_questions: int | None = None,
     beats = [b for c in chapters for b in c.get("beats") or []]
     if len(beats) < 12:
         return errors, warnings
-    asked = [op for b in beats for op in b.get("do") or [] if op.get("op") == "question"]
+    # A long worked problem is a question for the class too.
+    asked = [op for b in beats for op in b.get("do") or [] if op.get("op") in ("question", "problem")]
+    problems = [op for op in asked if op.get("op") == "problem"]
+    if min_problems and len(problems) < min_problems:
+        errors.append(f"the lecture works {len(problems)} long problem(s); at this length it should work at least "
+                      f"{min_problems}: after each concept's theory, 2-3 problems ({{\"op\":\"problem\",...}} with its "
+                      "figure), each solved in detail over several beats ({\"op\":\"work\",...}, one step a beat, the "
+                      "answer boxed).")
     if asked and min_questions and len(asked) < min_questions:
         errors.append(f"the lecture asks the class {len(asked)} question(s); at this length it should ask at least "
                       f"{min_questions}. Add questions after the topics that have none, each answered and explained "
@@ -621,7 +717,8 @@ def _teaching(script: dict, min_questions: int | None = None,
                       'then answer it on the next beat ({"op":"answer"}) and explain why: at least one per chapter.')
     for ci, chapter in enumerate(chapters, 1):
         ops = [op for b in chapter.get("beats") or [] for op in b.get("do") or []]
-        if asked and len(chapter.get("beats") or []) >= 6 and not any(op.get("op") == "question" for op in ops):
+        if asked and len(chapter.get("beats") or []) >= 6 and not any(op.get("op") in ("question", "problem")
+                                                                     for op in ops):
             warnings.append(f"chapter {ci}: no question for the class; ask one after its main idea")
         if any(op.get("op") == "question" and op.get("answer") is not None for op in ops) and \
                 not any(op.get("op") == "answer" for op in ops):
@@ -689,7 +786,8 @@ def _bare_stretches(script: dict) -> list[str]:
             continue
         run = 0
         for bi, beat in enumerate(chapter.get("beats") or [], 1):
-            if any(op.get("op") in VISUAL_OPS for op in beat.get("do") or []):
+            # Revealing more of a drawing, or adding to a worked solution, keeps the picture going.
+            if any(op.get("op") in VISUAL_OPS | STEP_OPS | WORK_OPS for op in beat.get("do") or []):
                 run = 0
                 continue
             run += 1
@@ -853,13 +951,17 @@ PARAGRAPH_MAX = 5        # beats a picture may hold without the script asking fo
 
 def paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
     """The beats in paragraphs: a paragraph starts at the chapter's start, at a beat marked "paragraph": true,
-    at a beat that puts up its own picture (a map, a diagram, a photo...), and after PARAGRAPH_MAX beats."""
+    at a beat that puts up its own picture (a map, a diagram, a photo...), and after PARAGRAPH_MAX beats unless
+    the beat goes on with the picture already up."""
     is_map_op = is_map_op or _points_at_map
     out: list[list[int]] = []
     for index, beat in enumerate(beats):
         ops = beat.get("do") or []
         fresh = beat.get("paragraph") or any(op.get("op") in VISUAL_OPS or is_map_op(op) for op in ops)
-        if not out or fresh or len(out[-1]) >= PARAGRAPH_MAX:
+        # A beat that goes on with the picture (reveals more of it, rings a part, adds working) stays in its
+        # paragraph however long it runs: splitting there cleared the picture in the middle of its build.
+        continues = any(op.get("op") in STEP_OPS | WORK_OPS for op in ops)
+        if not out or fresh or (len(out[-1]) >= PARAGRAPH_MAX and not continues):
             out.append([index])
         else:
             out[-1].append(index)
@@ -917,6 +1019,9 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             found = []
             names = []
             for i in group:
+                # Mathematics and the sciences build their pictures: a photo only of someone the writer names.
+                if genre in BOARD_GENRES and not beats[i].get("about"):
+                    continue
                 names += [n for n in named_subjects(beats[i], limit=3) if n not in names]
             for subject in names[:4]:
                 if lookups <= 0 or len(found) >= 3:
@@ -1156,6 +1261,8 @@ def _op_call(op: dict) -> str:
     if kind == "define":
         entity = f", entity={_q(op['entity'])}" if op.get("entity") else ""
         return f"self.define({_q(op['term'])}, {_q(op['meaning'])}{entity})"
+    if kind in STEM_OPS | WORK_OPS:
+        return _stem_call(op)
     if kind == "question":
         choices = [str(c) for c in op.get("choices") or []][:4]
         answer = _answer_index(op) if choices else (str(op["answer"]) if op.get("answer") else None)
@@ -1179,6 +1286,58 @@ def _op_call(op: dict) -> str:
 
 
 script_figures: dict = {}
+
+
+def _clean(value):
+    """A value for the scene source: plain data only (dicts, lists, strings, numbers, booleans, None)."""
+    if isinstance(value, dict):
+        return {str(k): _clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clean(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _stem_call(op: dict) -> str:
+    import stem
+
+    kind = op["op"]
+    key = str(op.get("id") or "")
+    title = f", title={_q(op['title'])}" if op.get("title") else ""
+    show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
+    if kind == "work":
+        box = ", box=True" if op.get("box") else ""
+        return f"self.work({_q(key)}, {_clean(op['lines'])!r}{title}{box})"
+    if kind == "sketch":
+        return f"self.sketch({_q(key)}, {_clean(op['items'])!r}{show}{title})"
+    if kind == "graph":
+        spec = _clean({k: v for k, v in op.items() if k not in ("op", "id", "title")})
+        return f"self.graph({_q(key)}, {spec!r}{title})"
+    if kind == "problem":
+        extra = ""
+        if op.get("given"):
+            extra += f", given={[str(g) for g in op['given']]!r}"
+        if op.get("find"):
+            extra += f", find={_q(op['find'])}"
+        if op.get("figure"):
+            figure = _clean({**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"})
+            extra += f", figure={figure!r}"
+        return f"self.problem({_q(key)}, {_q(op['text'])}{title}{extra})"
+    params = _clean({k: v for k, v in op.items() if k not in ("op", "id", "show", "title")})
+    assert kind in stem.PRESETS
+    return f"self.preset({_q(key)}, {_q(kind)}, {params!r}{show}{title})"
+
+
+def board_chapter(script: dict, chapter: dict) -> bool:
+    """A chapter taught on the board: the whole frame for its pictures, and a one-line key-point strip instead of
+    a side panel of text. Every chapter without a map is, whatever the style, unless the script sets
+    "layout": "panel" (and then a chapter building STEM drawings still is). A map chapter keeps its panel."""
+    if _map_chapter(chapter, bool(script.get("region"))):
+        return False
+    if script.get("layout") == "panel":
+        return any(op.get("op") in STEM_OPS | WORK_OPS for b in chapter.get("beats") or [] for op in b.get("do") or [])
+    return True
 
 
 def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_path: str | None = None) -> str:
@@ -1235,7 +1394,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter['narration'])})")
         on_map = _map_chapter(chapter, bool(region))
-        out.append("        self.show_map()" if on_map else "        self.add_panel()")
+        out.append("        self.show_map()" if on_map else
+                   "        self.board()" if board_chapter(script, chapter) else "        self.add_panel()")
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
         staged = False
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
@@ -1253,6 +1413,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 if op.get("op") in ("photo", "illustration") and op.get("where", "stage") == "stage" or \
                         op.get("op") == "figure" and op.get("where") == "stage" or op.get("op") in KIT_OPS | BUILD_OPS:
                     staged = True
+                if op.get("op") in STEM_OPS | WORK_OPS:
+                    staged = True
                 if op.get("op") == "unstage":
                     staged = False
             calls += [call for call in (_op_call(op) for op in ops) if call]
@@ -1264,7 +1426,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
             pad = f", pad={pad}" if pad else ""
             out.append(f"        self.beat({_q(beat['say'])}{args}{rt}{pad})")
             for op in ops:
-                if op.get("op") == "question":
+                if op.get("op") == "question" or op.get("op") == "problem" and op.get("think"):
                     out.append(f"        self.think({_think_seconds(op):g})")
         out.append("        self.outro_fade()")
     if script.get("recap"):
@@ -1297,6 +1459,8 @@ def main() -> int:
                     help="with --min-minutes: an error when the lecture asks the class fewer questions")
     ap.add_argument("--min-examples", type=int, default=None,
                     help="with --min-minutes: an error when fewer beats give an example")
+    ap.add_argument("--min-problems", type=int, default=None,
+                    help="with --min-minutes: an error when the lecture works fewer long problems")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
@@ -1310,7 +1474,7 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
-    errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples)
+    errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples, args.min_problems)
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
         print(json.dumps({"source": source, "errors": errors, "warnings": warnings,

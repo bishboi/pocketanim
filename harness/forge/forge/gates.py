@@ -118,7 +118,9 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
-            if name in ("gallery", "diagram", "reveal", "focus", "define", "question") or (name == "compare" and op.get("columns")):
+            if name in ("gallery", "diagram", "reveal", "focus", "define", "question", "sketch", "graph", "problem",
+                        "work", "incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever",
+                        "lens") or (name == "compare" and op.get("columns")):
                 import sys as _sys
 
                 from forge.util import LECTURE

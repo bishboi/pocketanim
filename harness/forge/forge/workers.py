@@ -190,7 +190,19 @@ EXPLAIN_SIMPLY = (
     "\"node\"} on the next beats. A hard word: {\"op\": \"define\", \"term\", \"meaning\"}. Kinds side by side: "
     "{\"op\": \"compare\", \"columns\": [{\"title\", \"entity\"?, \"points\"}]}. People, communities and historic "
     "places (only these as pictures): {\"op\": \"gallery\", \"items\": [{\"subject\", \"caption\"}, {\"figure\": \"<id>\"}]}. "
-    "WHERE something is: the map. Some paragraphs need no picture at all."
+    "WHERE something is: the map. Some paragraphs need no picture at all.\n"
+    "LITTLE TEXT ON SCREEN. Without a map the chapter is a board: the whole frame is the picture; panel is the topic "
+    "heading and fact is ONE key point of a few words, replacing the last. Beside a map, at most 3 short points "
+    "per panel. The narration explains; the screen shows pictures, diagrams, graphs and working.\n"
+    "DRAWN IN MANIM, for mathematics and the sciences above all: the physics presets (incline, pulley, piston, "
+    "spring, pendulum, projectile, circuit, lever, lens: see OPERATIONS for their parts), sketch for any other "
+    "labelled diagram, graph for curves, points, areas and tangents, work for a worked solution (TeX lines, one step "
+    "a beat, box the answer), problem for a long question with its figure. Reveal parts with reveal/focus as the "
+    "narration names them. Build a picture in Manim whenever it can be built.\n"
+    "THEORY, THEN PROBLEMS (mathematics, physics, chemistry): each concept first as theory built on the board, then "
+    "2-3 long exam-style problems on it, each over 8-15 beats: the problem op (statement, given, find, figure, "
+    "think), what is asked and which idea solves it, the quantities revealed on the figure, the solution with work a "
+    "step a beat, units checked, the answer boxed, what it taught."
 )
 
 
@@ -254,7 +266,8 @@ def plan(job, template: dict, style: dict, bundle: dict, notes: str = "") -> dic
         sys.path.insert(0, str(LECTURE))
     from compile_lecture import teaching_plan
 
-    outline["teaching"] = teaching_plan(target, total_words)
+    outline["teaching"] = {**teaching_plan(target, total_words),
+                           "stem": spec.get("genre") in ("mathematics", "physics", "chemistry")}
     for index, chapter in enumerate(chapters, 1):
         slot = arc[chapter["slot"]]
         outline["chapters"].append({
@@ -378,7 +391,10 @@ def _depth_rules(outline: dict, chapter: dict) -> list[str]:
             f"and why it matters. Give {plan['examples']} example(s) from daily life for each important statement, "
             "each in a beat of its own.",
             f"Ask the class {questions} question(s) in this chapter (op question), each answered and explained on "
-            "the next beat (op answer)."]
+            "the next beat (op answer)."] + ([
+            f"Work {max(1, round(plan.get('problems_per_topic', 2) * share * plan['topics']))} long problem(s) in this "
+            "chapter (op problem, then op work with the same id over many beats)."]
+            if plan.get("stem") else [])
 
 
 def write_chapter(job, template: dict, style: dict, chapter: dict, bundle: dict, facts: dict,

@@ -70,7 +70,7 @@ def test_map_only_when_a_beat_points_at_it(commons):
     assert result["errors"] == []
     source = result["source"]
     first, second = source.split("# 02")
-    assert "show_map" not in first and "add_panel" in first            # no map where no beat needs one
+    assert "show_map" not in first and "self.board()" in first         # no map where no beat needs one: the board
     assert first.count("stage_image") == 1                              # the photo holds its paragraph
     assert "self.illustration(" not in source and "self.icon(" not in source    # no icons anywhere
     assert "show_map" in second

@@ -331,3 +331,11 @@ export function layoutContract(): string {
 /** The lecture lengths the page offers, in minutes. The length decides how deep a lecture goes into its topics:
  * how many examples each statement gets and how many questions the class is asked (lib/lecture.ts teachingPlan). */
 export const LENGTH_CHOICES = [5, 10, 15, 20, 30, 40];
+
+/** The subjects a lecture can be taught as (the page's Subject menu); "auto" lets the content decide. Mathematics,
+ * physics and chemistry are taught as theory, then long problems solved step by step, on diagrams and graphs. */
+export const SUBJECT_CHOICES: [string, string][] = [
+  ["auto", "Automatic (from the content)"], ["mathematics", "Mathematics"], ["physics", "Physics"],
+  ["chemistry", "Chemistry"], ["biology", "Biology"], ["history", "History"], ["geography", "Geography"],
+  ["economics", "Economics"], ["general", "General"],
+];

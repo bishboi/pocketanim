@@ -35,9 +35,13 @@ export type GenerateRequest = {
   documentId?: string;
   /** The lecture's length, chosen on the page; without it, the request's words or the content's size decide. */
   minutes?: number;
+  /** The subject, chosen on the page (lib/lecture.ts SUBJECTS); without it, the content decides. */
+  subject?: string;
 };
 
 const SCENE_CLASS = "GeneratedScene";
+/** Subjects taught with theory, then long worked problems (compile_lecture.BOARD_GENRES). */
+const STEM_GENRES = ["mathematics", "physics", "chemistry"];
 
 /**
  * How hard the model thinks before it writes: PANIM_REASONING_EFFORT = low (the default), minimal, medium or
@@ -484,7 +488,7 @@ async function viaOpenRouter(
     emit({
       type: "message",
       role: "status",
-      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class`,
+      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class${STEM_GENRES.includes(subject?.genre ?? "") ? `, ${plan.problemsPerTopic} long worked problem${plan.problemsPerTopic > 1 ? "s" : ""} per topic (at least ${plan.minProblems})` : ""}`,
     });
   }
   let scene = request.previousSource ?? "";
@@ -540,6 +544,7 @@ async function viaOpenRouter(
     genre: subject?.genre,
     minMinutes: minutes,
     plan,
+    stem: STEM_GENRES.includes(subject?.genre ?? ""),
     figures: doc ? scriptFigures(doc) : undefined,
     sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
   });
@@ -1025,7 +1030,7 @@ async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => 
     emit({ type: "message", role: "status", text: "Downloading the SVG drawings diagrams are built from (once)…" });
     await ensureSymbols();
   }
-  const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`);
+  const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`, request.subject);
   emit({
     type: "message",
     role: "status",

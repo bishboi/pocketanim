@@ -153,6 +153,9 @@ def _tone(op: dict, default: str | None = None, key: str = "tone") -> str | None
     return f"role({tone!r})" if tone else None
 
 
+from compile_lecture import STEM_OPS, WORK_OPS  # noqa: E402 -- harness/lecture is on the path (forge.util)
+
+
 def op_call(op: dict, places: Places, has_map: bool) -> str | None:
     """The engine call for one operation, or None when it has no place here."""
     kind = op["op"]
@@ -231,6 +234,10 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         return f"self.reveal_nodes({str(op['diagram'])!r}, {[str(x) for x in op['nodes']]!r})"
     if kind == "focus":
         return f"self.spotlight({str(op['diagram'])!r}, {str(op['node'])!r})"
+    if kind in STEM_OPS | WORK_OPS:
+        from compile_lecture import _stem_call
+
+        return _stem_call(op)
     if kind == "question":
         from compile_lecture import _answer_index
 
@@ -361,7 +368,9 @@ def points_at_map(op: dict) -> bool:
 
 
 STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define",
-             "question"}
+             "question",
+             "sketch", "graph", "problem", "work", "incline", "pulley", "piston", "spring", "pendulum",
+             "projectile", "circuit", "lever", "lens"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,
@@ -414,10 +423,14 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
     body = []
     beats = list(script.get("beats", []))
 
+    # A chapter without a map is taught on the board: the whole frame for its pictures, a one-line key-point
+    # strip instead of a side panel of text (compile_lecture.board_chapter).
+    board = not has_map
+
     def stage():
         if battlefield:
             body.append(f"self.use_frame({tuple(battlefield)!r})")
-        body.append("self.show_map()" if has_map else "self.add_panel()")
+        body.append("self.show_map()" if has_map else "self.board()" if board else "self.add_panel()")
 
     if is_prologue(chapter):
         first = beats.pop(0) if beats else {"say": title_line(job)}
@@ -496,7 +509,8 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
         if _pause(beat):
             pad = f"{pad or 'BEAT_PAD'} + {_pause(beat):g}"
         body.append(f"self.beat({caption(beat)!r}{args}" + (f", pad={pad}" if pad else "") + ")")
-        body += [f"self.think({_think_seconds(op):g})" for op in ordered if op.get("op") == "question"]
+        body += [f"self.think({_think_seconds(op):g})" for op in ordered
+                 if op.get("op") == "question" or op.get("op") == "problem" and op.get("think")]
     if beats:
         body.append("self.outro_fade()")
     if script.get("recap"):

@@ -265,6 +265,36 @@ Where the script chose nothing, `auto_visuals` fills a paragraph's first beat, a
 Fetched illustrations of a topic are off unless the script sets `"auto_illustrations": true`. The compiler
 warns when more than 60% of beats put up a new picture.
 
+## The board, and drawing STEM in Manim
+
+**Little text on screen.** Every chapter without a map is taught on the **board**, whatever the style: the whole
+frame holds the picture, and the only words on screen are a strip over it with the topic heading (`panel`) and
+one key point (`fact` or `stat`; each replaces the last). A chapter with a map keeps its side panel, holding at
+most 3 short points (under 70 characters) under its title; the compiler rejects more in a model-written
+lecture. Set `"layout": "panel"` on a script for the old side panel everywhere.
+
+**Drawn in Manim** (`stem.py`), each with an `id`, its parts revealed by `reveal` and ringed by `focus` as the
+narration names them, and `show` for the parts drawn first:
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"incline","id","angle","friction"?,"components"?,"forces"?:["mg","N"],"applied"?}` | A block on a wedge. Parts: ground, wedge, theta, block, mg, N, f, F, mg_sin, mg_cos. |
+| `{"op":"pulley","id","kind":"atwood"\|"table","friction"?,"accel"?}` | Masses over a pulley. Parts: ceiling or table, pulley, rope, m1, m2, T1, T2, W1, W2, N, f, a1, a2. |
+| `piston`, `spring`, `pendulum`, `projectile`, `circuit` (series or parallel), `lever`, `lens` | The other physics presets. `stem.preset_elements(kind, {})` lists their parts. |
+| `{"op":"sketch","id","items":[...]}` | Any other labelled diagram, from primitives in a 10 × 6 box (y up): `line`, `arrow`, `rect`, `circle`, `polygon`, `spring`, `ground` (hatched), `angle` (an arc with its label), `dim` (a dimension line), `dot`, `text`, `curve`. |
+| `{"op":"graph","id","x","y"?,"x_label","y_label","items":[...]}` | Axes with numbers, and items `curve`, `point` (with guides), `vline`, `hline`, `area`, `tangent`, `segment`, `data`, `label`. |
+| `{"op":"work","id","lines":[TeX...],"title"?,"box"?}` | A worked solution. The same id adds lines under the last; `box` rings the answer. With a picture on the stage, it moves left and the working opens beside it. When the working reaches the bottom, it scrolls up. |
+| `{"op":"problem","id","text","given"?,"find"?,"figure"?,"think"?}` | A long question: its statement across the top, its figure (a preset, sketch or graph; reveal it as `<id>_figure`) on the left, and its solution (`work` with the same id) on the right. |
+
+Maths in `work` lines is typeset by LaTeX when it is installed, and drawn as Unicode text otherwise (`nolatex.py`).
+
+**Theory, then problems.** Mathematics, physics and chemistry (the page's **Subject** menu, or detected from the
+content) teach each concept first as theory built on the board, then as 2 or 3 long, exam-style problems. Each
+is solved in detail over 8 to 15 beats. The chosen length sets how many problems there are (the teaching plan's
+`problems_per_topic`), and the compiler checks the count (`--min-problems`). Photos are only for a scientist the
+lecture names. The styles follow the subject: chalkboard for mathematics, blueprint for physics, lab for
+chemistry.
+
 ## Teaching in depth: pace, pauses and questions for the class
 
 A lecture teaches each topic slowly, the way a teacher does in class. It does not read the book out or

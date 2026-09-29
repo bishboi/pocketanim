@@ -93,22 +93,44 @@ PROFILES = {
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["molecule", "equation", "diagram", "figure", "define", "compare"],
+        "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare"],
         "guidance": "Chemistry: draw every substance you discuss with molecule (name, formula or SMILES), write "
-                    "reactions with equation (reactants -> products, subscripts as H_2O), build how things change as a "
-                    "diagram, define hard terms, and compare kinds side by side. No map.",
+                    "reactions with equation (reactants -> products, subscripts as H_2O), plot rates, concentrations "
+                    "and energy profiles with graph, draw apparatus (a beaker, a gas syringe, a burette) with sketch and "
+                    "gases with piston. Numerical problems (moles, concentration, gas laws, equilibrium) are solved "
+                    "with problem and work. "
+                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
+                    "long problems on it (problem op: the full question, its figure, given and find), each "
+                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
+                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "lecture names.",
     },
     "physics": {
-        "label": "Physics", "style": "cosmos", "map": "never",
-        "kit": ["equation", "plot", "diagram", "figure", "define"],
-        "guidance": "Physics: state each law as an equation, show how quantities vary with plot (a function of x, with "
-                    "axis labels), build chains of cause and effect as diagrams of drawings, revealed a step at a time. No map.",
+        "label": "Physics", "style": "blueprint", "map": "never",
+        "kit": ["incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
+                "sketch", "graph", "problem", "work", "equation", "define"],
+        "guidance": "Physics: draw every situation as a labelled diagram (the presets incline, pulley, piston, spring, "
+                    "pendulum, projectile, circuit, lever, lens, or a sketch for anything else), then reveal its "
+                    "forces, velocities and lengths one by one as the narration names them; graph how quantities "
+                    "vary (v against t, and the area under it, x against t, P against V); state each law as an "
+                    "equation. "
+                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
+                    "long problems on it (problem op: the full question, its figure, given and find), each "
+                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
+                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "lecture names.",
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["equation", "plot", "diagram", "define", "figure"],
-        "guidance": "Mathematics: one equation per beat on the stage, built up step by step (each step its own beat), "
-                    "graphs with plot, methods as a flow diagram revealed step by step. No map, no photos.",
+        "kit": ["graph", "sketch", "work", "problem", "equation", "define"],
+        "guidance": "Mathematics: graph every function you discuss (curves, points, tangents, areas, roots marked); "
+                    "draw geometry with sketch (triangles and circles with their angles and lengths labelled); derive "
+                    "and solve with work, one step per beat, each step said and justified. "
+                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
+                    "long problems on it (problem op: the full question, its figure, given and find), each "
+                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
+                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "lecture names.",
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
@@ -161,5 +183,16 @@ def classify(text: str) -> dict:
             "why": why}
 
 
+def profile(genre: str) -> dict:
+    """The profile of a subject chosen by hand (the page's Subject menu), in classify()'s shape."""
+    genre = genre if genre in PROFILES else "general"
+    return {"genre": genre, **PROFILES[genre], "scores": {}, "confidence": 1.0, "why": ["chosen"]}
+
+
 if __name__ == "__main__":
-    print(json.dumps(classify(sys.stdin.read()), indent=1))
+    # genre.py < text            the subject the text is about
+    # genre.py --genre physics   a subject's profile
+    if len(sys.argv) > 2 and sys.argv[1] == "--genre":
+        print(json.dumps(profile(sys.argv[2]), indent=1))
+    else:
+        print(json.dumps(classify(sys.stdin.read()), indent=1))

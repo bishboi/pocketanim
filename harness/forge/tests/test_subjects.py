@@ -32,7 +32,7 @@ SAMPLES = {
 def test_classify(expected):
     result = genre.classify(SAMPLES[expected])
     assert result["genre"] == expected
-    assert result["style"] in ("vox", "parchment", "lab", "cosmos", "chalkboard", "atlas")
+    assert result["style"] in ("vox", "parchment", "lab", "cosmos", "chalkboard", "atlas", "blueprint")
 
 
 def test_equations_and_timelines_from_narration():

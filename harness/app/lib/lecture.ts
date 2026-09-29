@@ -67,6 +67,9 @@ export type TeachingPlan = {
   /** At least this many questions in the lecture, and beats giving an example. */
   minQuestions: number;
   minExamples: number;
+  /** Long worked problems per topic (mathematics and the sciences), and at least this many in the lecture. */
+  problemsPerTopic: number;
+  minProblems: number;
 };
 
 export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
@@ -87,6 +90,9 @@ export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
     // About two key statements a topic, each with its examples; half of them counted, as the check reads
     // only the words an example starts with ("for example", "imagine", "जैसे"). At most one every 50 seconds.
     minExamples: Math.min(Math.max(2, Math.round(topics * 2 * examples * 0.5)), Math.max(2, Math.round(minutes * 1.2))),
+    // A long problem solved step by step takes about 2 minutes: at most one per 2.5 minutes of the lecture.
+    problemsPerTopic: perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3,
+    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 2.5))),
   };
 }
 
@@ -122,6 +128,8 @@ export async function compileLecture(
     sourceText?: string;
     /** The teaching plan for the chosen length: fewer questions or examples than it asks for is an error. */
     plan?: TeachingPlan;
+    /** Mathematics or a science: the plan's long problems are required too. */
+    stem?: boolean;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -140,6 +148,7 @@ export async function compileLecture(
   if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
   if (options.plan) {
     args.push("--min-questions", String(options.plan.minQuestions), "--min-examples", String(options.plan.minExamples));
+    if (options.stem) args.push("--min-problems", String(options.plan.minProblems));
   }
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
@@ -162,8 +171,14 @@ export type Subject = {
 };
 
 /** The content's subject and its kit (harness/lecture/genre.py): style, map policy, pictures to prefer. */
-export async function classifySubject(text: string): Promise<Subject> {
-  const { stdout } = await runPython([path.join(REPO, "harness", "lecture", "genre.py")], text.slice(0, 20000));
+/** The subjects the page offers; "auto" lets the content decide (genre.py). */
+export const SUBJECTS = ["mathematics", "physics", "chemistry", "biology", "history", "geography", "economics", "general"];
+
+export async function classifySubject(text: string, chosen?: string): Promise<Subject> {
+  const script = path.join(REPO, "harness", "lecture", "genre.py");
+  const { stdout } = chosen && SUBJECTS.includes(chosen)
+    ? await runPython([script, "--genre", chosen])
+    : await runPython([script], text.slice(0, 20000));
   try {
     const subject = scriptJson<Subject>(stdout);
     if (!subject) throw new Error("no JSON");
@@ -466,6 +481,23 @@ export function lecturePrompt(
     "what it means and why it matters, as if the student has never heard of it. Prefer three short sentences that",
     "explain to one long one that assumes.",
     "",
+    ...(subject && ["mathematics", "physics", "chemistry"].includes(subject.genre)
+      ? [
+          `THEORY, THEN PROBLEMS (${subject.label}). Teach each concept in two parts:`,
+          "  1. THEORY: build it on the board a piece at a time. Draw the situation (a preset or a sketch) and reveal its",
+          "     parts as you name them; graph how the quantities vary; derive the law with work, one step a beat, saying",
+          "     why each step follows; define every symbol; give everyday examples.",
+          `  2. PROBLEMS: then ${plan.problemsPerTopic === 1 ? "one long problem" : `${plan.problemsPerTopic} long problems`} on that concept (at least ${plan.minProblems} in the lecture), each harder`,
+          "     than the last, of the kind an exam asks and that needs a long explanation. For each: the problem op",
+          "     (the full statement, given, find, its labelled figure, think: 5); read it out; say what is asked and",
+          "     which idea solves it; reveal the forces or quantities on the figure one by one; write the solution with",
+          "     work over many beats (a step a beat: the equation, then what it means); check the units and whether the",
+          "     answer is sensible; box the answer; then say what the problem taught. A problem takes 8-15 beats.",
+          "  Use numbers that work out cleanly. Say every symbol in words in the narration (\"m g sine theta\").",
+          "  No photos: every picture is drawn in Manim (a scientist the lecture names may have a photo).",
+          "",
+        ]
+      : []),
     "PAUSES. The video pauses after every line and longer at the end of each paragraph by itself. After a line that",
     "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",
     "In a Hindi lecture use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words: say 'जंगल' and",
@@ -493,12 +525,16 @@ export function lecturePrompt(
     ' "recap": [["Head", "short body"]], "credits": "..."}',
     "",
     "Operations (colour = palette name SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
-    '  {"op":"panel","title","sub"?}          clear the side panel and head it; start each topic with one',
-    '  {"op":"fact","text","color"?}          a bulleted line in the panel (under 90 characters)',
-    '  {"op":"stat","value","label","color"?} a big number with a label',
-    '  {"op":"bars","items":[["label",n]...],"unit"?,"color"?}  a small bar chart, at most 6 bars',
-    '  {"op":"clear"}                         empty the panel',
-    "THE STAGE. The left half of the frame is the stage; the panel on the right holds the words. Plan the stage a",
+    '  {"op":"panel","title","sub"?}          the topic heading; start each topic with one',
+    '  {"op":"fact","text","color"?}          ONE key point, a few words (under 60 characters); it replaces the last',
+    '  {"op":"stat","value","label","color"?} a key number with a label, in the same place',
+    '  {"op":"bars","items":[["label",n]...],"unit"?,"color"?}  a bar chart, at most 8 bars',
+    '  {"op":"clear"}                         clear the heading and key point',
+    "LITTLE TEXT ON SCREEN. A chapter without a map is taught on a BOARD: the whole frame is the picture, and the words",
+    "on screen are only the topic heading and one key point over it. With a map, the map takes the left and a side",
+    "panel holds at most 3 short points under its title (the compiler rejects more). The narration carries the",
+    "explanation; the screen shows pictures, diagrams, graphs and working, not paragraphs.",
+    "THE STAGE (the board, or the left half beside a map). Plan the stage a",
     "PARAGRAPH at a time (3-5 beats that explain one idea), never a new picture every sentence. Mark the first beat of",
     "each paragraph with \"paragraph\": true and give it the paragraph's visual; the beats after it build on that",
     "visual (reveal the next part of a diagram, focus on a node, add a marker) or simply leave it up. A paragraph may",
@@ -526,7 +562,8 @@ export function lecturePrompt(
     '   One of them alone: {"op":"photo","subject":"Chipko movement","caption":"चिपको आंदोलन"}.',
     "  THE DOCUMENT'S OWN FIGURES come first whenever one shows what the paragraph explains:",
     '  {"op":"figure","id":"fig2","where":"stage"} (or put several in a gallery).',
-    "  SCIENCE -> molecule, equation, plot; HISTORY -> timeline (see below).",
+    "  SCIENCE -> molecule, equation, graph, sketch and the physics presets (DRAWN IN MANIM, below); HISTORY ->",
+    "  timeline (see below). Build a picture in Manim whenever it can be built; fetch an image only when it cannot.",
     "  A TEXTBOOK DIAGRAM you cannot build (the parts of a cell, a cross-section) -> find_illustration, then",
     '  {"op":"illustration","image":"<title it returned>" | "query":"leaf cross section","caption"?}.',
     "Other stage operations:",
@@ -538,6 +575,46 @@ export function lecturePrompt(
     '  {"op":"quote","text":"...","who":"Akbar"}   a primary source, in its own words',
     "Give a beat about a person, movement or place \"about\":\"<English name>\" (a Hindi beat especially): a paragraph",
     "left without a visual then gets their pictures automatically. Do not invent a picture for every sentence.",
+    "",
+    "DRAWN IN MANIM: diagrams, graphs and worked solutions, labelled, revealed a part a beat as the narration names it.",
+    "Each has an id; reveal and focus take it (\"diagram\": id, \"nodes\": [part ids]); \"show\" lists the parts drawn",
+    "first (default: all). Labels may use Unicode or TeX-ish m_1, v^2, \\theta (shown as m₁, v², θ).",
+    '  {"op":"incline","id":"ramp","angle":30,"friction":true,"components":true,"forces":["mg","N"],"applied"?:"up",',
+    '   "labels"?:{"block":"5 kg"},"show":["ground","wedge","theta","block"]}   a block on a wedge. Parts: ground, wedge,',
+    "   theta, block, mg, N, f (friction), F (applied), mg_sin, mg_cos (the weight's components).",
+    '  {"op":"pulley","id":"p","kind":"atwood"|"table","friction"?,"accel"?,"forces"?:["T","W","N"]}  Parts: ceiling|table,',
+    "   pulley, rope, m1, m2, T1, T2, W1, W2, N, f, a1, a2.",
+    '  {"op":"piston","id":"g","heat"?:true}  a gas under a piston. Parts: cylinder, gas, piston, rod, F, P, Q.',
+    '  {"op":"spring","id":"s"}  Parts: wall, ground, spring, block, F, x.   {"op":"pendulum","id":"pd","angle":25}',
+    "   Parts: support, rest, string, theta, swing, bob, T, mg.   {\"op\":\"projectile\",\"id\":\"pr\",\"angle\":45} Parts:",
+    "   ground, path, u, ux, uy, theta, top, H, R.   {\"op\":\"circuit\",\"id\":\"c\",\"kind\":\"series\"|\"parallel\",",
+    '   "resistors":["R₁","R₂"]} Parts: battery, wire, R1, R2, R3, I.   {"op":"lever","id":"l","loads":["W₁","W₂"]}',
+    '   Parts: ground, fulcrum, beam, L1, L2, d1, d2.   {"op":"lens","id":"ln"} Parts: axis, lens, F1, F2, object,',
+    "   ray1, ray2, image.   Every preset takes \"labels\": {part: text} to rename a label (\"mg\": \"50 N\").",
+    '  {"op":"sketch","id":"tri","items":[...]}   ANY OTHER DIAGRAM, from primitives in a 10 x 6 box (x right, y up):',
+    '   {"id"?,"type":"line"|"arrow","from":[x,y],"to":[x,y],"label"?,"color"?,"dashed"?}  (arrows: forces, velocities)',
+    '   {"type":"rect","at":[x,y],"w","h","angle"?,"fill"?,"label"?}  {"type":"circle","at","r","fill"?,"label"?}',
+    '   {"type":"polygon","points":[[x,y],...],"fill"?,"label"?}  {"type":"spring","from","to"}  {"type":"ground","from","to"}',
+    '   {"type":"angle","at":vertex,"from":[x,y],"to":[x,y],"label":"θ"}  {"type":"dim","from","to","label":"4 m"}',
+    '   {"type":"dot","at","label"?}  {"type":"text","at","text"}  {"type":"curve","points":[...],"dashed"?,"sharp"?}',
+    "   Give every part the narration will point at an id. Colours: palette names (ROSE for forces, GREEN for",
+    "   velocities, GOLD for angles, RIVER/DUNE fills). A triangle with its sides and angles, a beaker, a ray",
+    "   diagram, a cell: all sketches.",
+    '  {"op":"graph","id":"vt","x":[0,5],"y"?:[0,20],"x_label":"t (s)","y_label":"v (m/s)","title"?,"show":["v"],',
+    '   "items":[{"id":"v","kind":"curve","expr":"4*x","label":"v = 4t"},{"id":"p","kind":"point","at":[3,12],"label":"(3, 12)"},',
+    '    {"id":"A","kind":"area","expr":"4*x","x":[0,3],"label":"distance"},{"id":"tg","kind":"tangent","expr":"x^2","at":2},',
+    '    {"id":"r","kind":"vline","x":2,"label":"x = 2"},{"kind":"hline","y":10},{"kind":"segment","from":[0,0],"to":[3,12]},',
+    '    {"kind":"data","points":[[1,2],[2,4.1]],"line":true},{"kind":"label","at":[4,5],"text":"..."}]}',
+    "   expr: a function of x (x^2, sin(x), exp(-x/2), 4*x). Reveal items one by one. Prefer graph to plot.",
+    '  {"op":"work","id":"w","title"?:"Along the slope","lines":["N = mg\\cos\\theta"],"box"?:true}   A WORKED SOLUTION:',
+    "   the same id adds lines under the last ones, one or two per beat, each step said in the narration. Lines are",
+    "   TeX (\\frac{a}{b}, v^2, \\sqrt{2gh}, \\text{m/s}); a line with words is shown as a sentence. box rings the",
+    "   answer. With a diagram or graph on the stage, the working opens beside it (the picture moves left).",
+    '  {"op":"problem","id":"p1","title":"Problem 1","text":"<the full question>","given":["m = 5 kg","\\theta = 30°"],',
+    '   "find":"a","think"?:5,"figure":{"op":"incline","angle":30,"show":["ground","wedge","theta","block"]}}',
+    "   A LONG QUESTION: its statement across the top, its figure (a preset, sketch or graph; reveal its parts with",
+    '   diagram "p1_figure", or the figure\'s own id) on the left, and its solution: {"op":"work","id":"p1",...}',
+    "   on the right. think leaves seconds of silence for the class to try it first.",
     "",
     "Map operations (only with a region):",
     '  {"op":"marker","place":"Jaipur" | "lonlat":[lon,lat],"label"?,"color"?,"side"?:"left|right|up|down"}',

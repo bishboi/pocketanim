@@ -34,6 +34,10 @@ sys.path.insert(0, str(REPO))
 # The lecture engine, so a scene can `from pocket_lecture import *`.
 sys.path.insert(0, str(REPO / "harness" / "lecture"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Without LaTeX, a scene's MathTex and Tex are drawn from Pango text rather than failing (nolatex.py).
+import nolatex  # noqa: E402
+
+nolatex.install()
 
 
 FIXED_LAYOUT = re.compile(

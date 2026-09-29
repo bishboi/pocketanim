@@ -65,6 +65,12 @@ from manim import (
 
 HERE = Path(__file__).resolve().parent
 
+# Without LaTeX, MathTex, Tex and axis numbers in a scene are drawn from Pango text instead of failing with
+# "No such file or directory: 'latex'" (nolatex.py).
+import nolatex  # noqa: E402
+
+nolatex.install()
+
 # ════════════════════════════════════════════════════════════════════════
 #  STYLES
 # ════════════════════════════════════════════════════════════════════════
@@ -937,7 +943,10 @@ def unicode_math(tex: str) -> str:
     for _ in range(6):
         before = text
         text = re.sub(r"\\sqrt\{([^{}]*)\}", r"√(\1)", text)
-        text = re.sub(r"\\frac\{([^{}]*)\}\{([^{}]*)\}", r"(\1)/(\2)", text)
+        # A simple fraction reads F/m; one with an operator in it keeps brackets, (a + b)/(2c).
+        text = re.sub(r"\\frac\{([^{}]*)\}\{([^{}]*)\}",
+                      lambda m: "/".join(f"({p.strip()})" if re.search(r"[\s+\-−=·×]", p.strip()) else p.strip()
+                                         for p in m.groups()), text)
         text = re.sub(r"\^\{([^{}]*)\}", lambda m: m.group(1).translate(_SUPER), text)
         text = re.sub(r"_\{([^{}]*)\}", lambda m: m.group(1).translate(_SUB), text)
         if text == before:

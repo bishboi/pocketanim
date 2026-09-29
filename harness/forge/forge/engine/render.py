@@ -44,7 +44,7 @@ def _render_one(job, chapter_id: str, entry: dict, quality: str, voice: str) -> 
         "PYTHONPATH": os.pathsep.join([str(LECTURE), str(REPO), env.get("PYTHONPATH", "")]),
         "PANIM_VOICE": voice, "PANIM_AUDIO_DIR": str(job.path("audio")), "PANIM_BEAT_LOG": str(partial),
     })
-    command = [sys.executable, "-m", "manim", "render", f"-q{quality}", "--disable_caching", "--progress_bar", "none",
+    command = [sys.executable, str(REPO / "harness" / "scripts" / "manim_render.py"), "render", f"-q{quality}", "--disable_caching", "--progress_bar", "none",
                "--media_dir", str(media), "-o", f"{chapter_id}.mp4", str(source), entry["class"]]
     result = subprocess.run(command, cwd=job.path("build"), env=env, capture_output=True, text=True, timeout=7200)
     produced = media / "videos" / source.stem / QUALITY[quality] / f"{chapter_id}.mp4"

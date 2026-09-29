@@ -422,7 +422,8 @@ export async function renderVideo(
   const source = existsSync(path.join(buildDir, "source.py")) ? "source.py" : "scene.py";
   const media = path.join(buildDir, "media");
   const { code, stderr } = await run(
-    ["-m", "manim", "render", `-q${quality}`, "--disable_caching", "--progress_bar", "none",
+    // Manim's own command line, through a wrapper that renders MathTex and Tex without LaTeX installed.
+    [path.join(REPO, "harness", "scripts", "manim_render.py"), "render", `-q${quality}`, "--disable_caching", "--progress_bar", "none",
      "--media_dir", media, "-o", `${sceneClass}.mp4`, source, sceneClass],
     {
       cwd: buildDir,

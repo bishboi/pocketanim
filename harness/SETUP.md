@@ -12,7 +12,7 @@ libraries (place names, voice, maps, fonts), the online picture sources and the 
 | ffmpeg | the video, the audio mix | `brew install ffmpeg` | `sudo apt install ffmpeg` |
 | Cairo and Pango | Manim draws text and shapes with them | `brew install cairo pango pkg-config` | `sudo apt install libcairo2-dev libpango1.0-dev pkg-config` |
 | espeak-ng (optional) | a fallback voice when Kokoro can't run | `brew install espeak-ng` | `sudo apt install espeak-ng` |
-| LaTeX (optional) | typeset equations; without it they are drawn in plain Unicode | `brew install --cask basictex` | `sudo apt install texlive-latex-extra` |
+| LaTeX (optional) | typeset maths (`MathTex`, `Tex`, axis numbers); without it they are drawn as plain Unicode text | `brew install --cask mactex-no-gui` | `sudo apt install texlive texlive-latex-extra dvisvgm` |
 
 On Windows, use WSL (Ubuntu) and follow the Ubuntu column.
 
@@ -100,4 +100,5 @@ The app also downloads the voice by itself before the first lecture that needs i
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |
+| `FileNotFoundError: [Errno 2] No such file or directory: 'latex'` | A scene uses `MathTex`, `Tex` or axis numbers, LaTeX is not installed, and the scene was run without the harness's fallback (plain `manim render`, or an older checkout) | update to this version: the app and Forge draw these as plain text without LaTeX; for your own runs use `.venv/bin/python harness/scripts/manim_render.py render ...` instead of `manim render ...`. Or install LaTeX (above) for real typesetting |
 | A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations) |

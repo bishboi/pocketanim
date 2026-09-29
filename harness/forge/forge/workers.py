@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 
 from forge import llm, patterns, region, registry, tools
 from forge.util import NUMBER_RE, numbers_in, sentences, words
@@ -247,6 +248,13 @@ def plan(job, template: dict, style: dict, bundle: dict, notes: str = "") -> dic
     arc = {s["id"]: s for s in template["arc"]}
     share_sum = sum(arc[c["slot"]]["share"] for c in chapters) or 1
     outline = {"target_minutes": round(target, 2), "chapters": []}
+    # The length decides the depth: examples per statement and questions for the class (the editor's rule).
+    from forge.util import LECTURE
+    if str(LECTURE) not in sys.path:
+        sys.path.insert(0, str(LECTURE))
+    from compile_lecture import teaching_plan
+
+    outline["teaching"] = teaching_plan(target, total_words)
     for index, chapter in enumerate(chapters, 1):
         slot = arc[chapter["slot"]]
         outline["chapters"].append({
@@ -359,6 +367,20 @@ def ground(job, bundle: dict, outline: dict) -> dict:
 #  Script
 # ════════════════════════════════════════════════════════════════════════
 
+def _depth_rules(outline: dict, chapter: dict) -> list[str]:
+    """The chosen length's depth, as rules for one chapter: its examples per statement and its questions."""
+    plan = outline.get("teaching")
+    if not plan:
+        return []
+    share = chapter.get("share") or 1 / max(1, len(outline.get("chapters") or [1]))
+    questions = max(1, round(plan["min_questions"] * share))
+    return [f"Explain everything in detail: never state a term, fact, name or number without saying what it means "
+            f"and why it matters. Give {plan['examples']} example(s) from daily life for each important statement, "
+            "each in a beat of its own.",
+            f"Ask the class {questions} question(s) in this chapter (op question), each answered and explained on "
+            "the next beat (op answer)."]
+
+
 def write_chapter(job, template: dict, style: dict, chapter: dict, bundle: dict, facts: dict,
                   outline: dict, notes: str = "") -> dict:
     if llm.available():
@@ -369,6 +391,7 @@ def write_chapter(job, template: dict, style: dict, chapter: dict, bundle: dict,
             "chapter": chapter, "facts": facts_rows[:80], "region": region_index, "revision_notes": notes,
             "passages": [p for p in bundle["passages"] if p["id"] in chapter["passages"]],
             "rules": ["Every number you narrate or show must be in facts.",
+                      *_depth_rules(outline, chapter),
                       f"Each beat's say is {template['beat_words']['min']}-{template['beat_words']['max']} words.",
                       "Use tone roles, never colours. Use region anchors, places and unit ids by name.",
                       "Use a pattern beat when one fits: {pattern, slots, lines}."],

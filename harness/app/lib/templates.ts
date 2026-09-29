@@ -327,3 +327,7 @@ export function layoutContract(): string {
     "Use the template palette and its ink colour. config.background_color is the template background.",
   ].join(" ");
 }
+
+/** The lecture lengths the page offers, in minutes. The length decides how deep a lecture goes into its topics:
+ * how many examples each statement gets and how many questions the class is asked (lib/lecture.ts teachingPlan). */
+export const LENGTH_CHOICES = [5, 10, 15, 20, 30, 40];

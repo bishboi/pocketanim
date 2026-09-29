@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { LENGTH_CHOICES } from "@/lib/templates";
 
 type Registry = {
   engine?: string;
@@ -214,8 +215,14 @@ export default function ForgePage() {
                 ))}
               </datalist>
               <div className="grid grid-cols-2 gap-2">
-                <input className={input} placeholder="Minutes (auto)" value={form.minutes} inputMode="decimal"
-                  onChange={(e) => setForm({ ...form, minutes: e.target.value })} />
+                <select className={input} value={form.minutes} aria-label="Video length"
+                  title="The length decides how deep each topic goes: examples per statement and questions for the class"
+                  onChange={(e) => setForm({ ...form, minutes: e.target.value })}>
+                  <option value="">Length: automatic</option>
+                  {LENGTH_CHOICES.map((m) => (
+                    <option key={m} value={String(m)}>{m} minutes</option>
+                  ))}
+                </select>
                 <select className={input} value={form.quality} aria-label="Quality"
                   onChange={(e) => setForm({ ...form, quality: e.target.value })}>
                   <option value="l">480p (fast)</option>

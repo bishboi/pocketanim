@@ -21,6 +21,8 @@ export async function POST(request: NextRequest) {
       : undefined,
     instruction: body.instruction ? String(body.instruction) : undefined,
     documentId: typeof body.documentId === "string" ? body.documentId : undefined,
+    minutes:
+      typeof body.minutes === "number" && body.minutes >= 1 && body.minutes <= 40 ? body.minutes : undefined,
   };
 
   const encoder = new TextEncoder();

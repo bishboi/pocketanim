@@ -83,3 +83,26 @@ def test_a_written_lecture_must_ask_questions_and_give_examples():
     taught[7] = _beat("It is A.", {"op": "answer"})
     errors, _ = cl.lint(_lecture(taught), min_minutes=0.5)
     assert not any("questions" in e or "example" in e for e in errors), errors
+
+
+def test_the_length_decides_examples_and_questions_not_the_topics():
+    short, long = cl.teaching_plan(10, 2500), cl.teaching_plan(30, 2500)
+    assert short["topics"] == long["topics"]            # the same content, the same topics
+    assert long["examples"] > short["examples"]
+    assert long["min_questions"] > short["min_questions"]
+    assert long["min_examples"] > short["min_examples"]
+    # A short video of a long chapter is not asked for more than it has room for.
+    tight = cl.teaching_plan(5, 5000)
+    assert tight["min_questions"] <= 2 and tight["min_examples"] <= 6
+
+
+def test_the_plan_s_counts_are_checked_for_a_written_lecture():
+    beats = [_beat("For example, you push a door.") if n % 3 == 0 else _beat(f"Force fact number {n}.")
+             for n in range(14)]
+    beats[7] = _beat("Let us check.", QUESTION)
+    beats[8] = _beat("It is A.", {"op": "answer"})
+    errors, _ = cl.lint(_lecture(beats), min_minutes=0.5, min_questions=3, min_examples=8)
+    assert any("should ask at least 3" in e for e in errors)
+    assert any("at least 8" in e for e in errors)
+    errors, _ = cl.lint(_lecture(beats), min_minutes=0.5, min_questions=1, min_examples=4)
+    assert not any("question" in e or "example" in e for e in errors), errors

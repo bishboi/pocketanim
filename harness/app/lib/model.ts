@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, type Subject } from "./lecture";
+import { ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, teachingPlan, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -33,6 +33,8 @@ export type GenerateRequest = {
   instruction?: string;
   /** An uploaded lecture PDF (lib/document.ts): its figures are offered to the model. */
   documentId?: string;
+  /** The lecture's length, chosen on the page; without it, the request's words or the content's size decide. */
+  minutes?: number;
 };
 
 const SCENE_CLASS = "GeneratedScene";
@@ -452,11 +454,12 @@ async function viaOpenRouter(
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
   const doc = await documentOf(request);
-  const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? "");
+  const minutes = request.minutes ?? targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? "");
+  const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}`.split(/\s+/).filter(Boolean).length);
   const subject = lecture ? await subjectOf(request, emit) : null;
   const style = lecture ? effectiveStyle(template, subject) : template.style;
   const system = lecture
-    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined) + (doc ? figurePrompt(doc) : "")
+    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan) + (doc ? figurePrompt(doc) : "")
     : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
@@ -467,6 +470,13 @@ async function viaOpenRouter(
   ];
   emit({ type: "input", role: "system", text: system });
   emit({ type: "input", role: "user", text: user });
+  if (lecture) {
+    emit({
+      type: "message",
+      role: "status",
+      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class`,
+    });
+  }
   let scene = request.previousSource ?? "";
   let inputTokens = 0;
 
@@ -519,6 +529,7 @@ async function viaOpenRouter(
     style,
     genre: subject?.genre,
     minMinutes: minutes,
+    plan,
     figures: doc ? scriptFigures(doc) : undefined,
     sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
   });

@@ -156,7 +156,8 @@ def estimate_minutes(script: dict) -> float:
     return seconds / 60
 
 
-def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], list[str]]:
+def lint(script: dict, min_minutes: float | None = None, min_questions: int | None = None,
+         min_examples: int | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
 
     The checks the guide asks for before any render: unknown operations,
@@ -281,7 +282,7 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     e, w = _text_heavy(script)
     errors += e
     warnings += w
-    e, w = _teaching(script)
+    e, w = _teaching(script, min_questions, min_examples)
     # A written lecture (one given a length to reach) must teach; elsewhere (an offline test script, a hand-made
     # one) the same checks are advice.
     errors += e if min_minutes else []
@@ -579,14 +580,41 @@ EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|e\.g\.|imagine|such as|
                            r"say you|picture this)\b|जैसे|उदाहरण|मान लो|मान लीजिए|मान लें|कल्पना|सोचो|सोचिए", re.I)
 
 
-def _teaching(script: dict) -> tuple[list[str], list[str]]:
-    """A lecture that teaches rather than recites: questions for the class between topics, examples."""
+def teaching_plan(minutes: float, source_words: int = 0) -> dict:
+    """How deep a lecture of this length goes (the app's lib/lecture.ts teachingPlan, the same formula).
+
+    The content decides the topics (about one every 350 words of a source; a bare topic is split by the time
+    there is). The minutes a topic gets decide how many examples each statement has and how many questions
+    the class is asked.
+    """
+    if source_words > 400:
+        topics = min(15, max(2, round(source_words / 350)))
+    else:
+        topics = min(12, max(2, round(minutes / 3)))
+    per_topic = minutes / topics
+    examples = 1 if per_topic < 1.5 else 2 if per_topic < 3 else 3 if per_topic < 5 else 4
+    questions = 0.5 if per_topic < 2 else 1 if per_topic < 4 else 2 if per_topic < 7 else 3
+    return {"minutes": minutes, "topics": topics, "examples": examples, "questions_per_topic": questions,
+            # A short video of a long chapter cannot ask a question every topic: at most one every 2 minutes,
+            # and an example beat every 50 seconds or so.
+            "min_questions": min(max(1, round(topics * questions)), max(1, int(minutes // 2))),
+            "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2)))}
+
+
+def _teaching(script: dict, min_questions: int | None = None,
+              min_examples: int | None = None) -> tuple[list[str], list[str]]:
+    """A lecture that teaches rather than recites: questions for the class between topics, examples; as many
+    as the chosen length's teaching plan asks for, when there is one."""
     errors, warnings = [], []
     chapters = script.get("chapters") or []
     beats = [b for c in chapters for b in c.get("beats") or []]
     if len(beats) < 12:
         return errors, warnings
     asked = [op for b in beats for op in b.get("do") or [] if op.get("op") == "question"]
+    if asked and min_questions and len(asked) < min_questions:
+        errors.append(f"the lecture asks the class {len(asked)} question(s); at this length it should ask at least "
+                      f"{min_questions}. Add questions after the topics that have none, each answered and explained "
+                      "on the next beat.")
     if not asked:
         errors.append("the lecture asks the class no questions. Between topics, put a question on the stage "
                       '({"op":"question","text":"...","choices":["...","..."],"answer":"B"}), leave time to think, '
@@ -603,10 +631,11 @@ def _teaching(script: dict) -> tuple[list[str], list[str]]:
     letters = [c for c in lang_text if c.isalpha()]
     known = letters and sum(c.isascii() or "ऀ" <= c <= "ॿ" for c in letters) / len(letters) > 0.8
     examples = sum(bool(EXAMPLE_WORDS.search(str(b.get("say", "")))) for b in beats)
-    if known and examples < max(2, len(beats) // 15):
-        errors.append(f"only {examples} of {len(beats)} beats give an example. Teach every idea with examples "
-                      "from a student's daily life (\"for example...\", \"imagine...\", \"जैसे...\"): two or three for "
-                      "each important statement, in beats of their own.")
+    wanted = max(2, len(beats) // 15, min_examples or 0)
+    if known and examples < wanted:
+        errors.append(f"only {examples} of {len(beats)} beats give an example; at this length there should be at "
+                      f"least {wanted}. Teach every idea with examples from a student's daily life (\"for example...\", "
+                      "\"imagine...\", \"जैसे...\"), each in a beat of its own, for each important statement.")
     return errors, warnings
 
 
@@ -1264,6 +1293,10 @@ def main() -> int:
     ap.add_argument("--class", dest="scene_class", default="GeneratedScene")
     ap.add_argument("--min-minutes", type=float, default=None,
                     help="an error when the script's estimated running time is well under this")
+    ap.add_argument("--min-questions", type=int, default=None,
+                    help="with --min-minutes: an error when the lecture asks the class fewer questions")
+    ap.add_argument("--min-examples", type=int, default=None,
+                    help="with --min-minutes: an error when fewer beats give an example")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
@@ -1277,7 +1310,7 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
-    errors, warnings = lint(script, args.min_minutes)
+    errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples)
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
         print(json.dumps({"source": source, "errors": errors, "warnings": warnings,

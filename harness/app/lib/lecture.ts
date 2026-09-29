@@ -52,6 +52,44 @@ export function targetMinutes(text: string, source = ""): number {
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }
 
+/**
+ * How a lecture of this length teaches its content. The content decides the topics; the length decides the
+ * depth: how many examples each statement gets and how many questions the class is asked. The same formula is
+ * compile_lecture.teaching_plan (Forge uses that one).
+ */
+export type TeachingPlan = {
+  minutes: number;
+  topics: number;
+  /** Examples for each important statement. */
+  examples: number;
+  /** Questions for the class per topic (0.5 = one every two topics). */
+  questionsPerTopic: number;
+  /** At least this many questions in the lecture, and beats giving an example. */
+  minQuestions: number;
+  minExamples: number;
+};
+
+export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
+  // A source's topics are its own (about one every 350 words); a bare topic is split by the time there is.
+  const topics = sourceWords > 400
+    ? Math.min(15, Math.max(2, Math.round(sourceWords / 350)))
+    : Math.min(12, Math.max(2, Math.round(minutes / 3)));
+  const perTopic = minutes / topics;
+  const examples = perTopic < 1.5 ? 1 : perTopic < 3 ? 2 : perTopic < 5 ? 3 : 4;
+  const questionsPerTopic = perTopic < 2 ? 0.5 : perTopic < 4 ? 1 : perTopic < 7 ? 2 : 3;
+  return {
+    minutes,
+    topics,
+    examples,
+    questionsPerTopic,
+    // A short video of a long chapter cannot ask a question every topic: at most one every 2 minutes.
+    minQuestions: Math.min(Math.max(1, Math.round(topics * questionsPerTopic)), Math.max(1, Math.floor(minutes / 2))),
+    // About two key statements a topic, each with its examples; half of them counted, as the check reads
+    // only the words an example starts with ("for example", "imagine", "जैसे"). At most one every 50 seconds.
+    minExamples: Math.min(Math.max(2, Math.round(topics * 2 * examples * 0.5)), Math.max(2, Math.round(minutes * 1.2))),
+  };
+}
+
 function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(python(), args, { cwd: REPO });
@@ -82,6 +120,8 @@ export async function compileLecture(
     genre?: string;
     /** The content the lecture is written from: the compiler flags lines read out of it word for word. */
     sourceText?: string;
+    /** The teaching plan for the chosen length: fewer questions or examples than it asks for is an error. */
+    plan?: TeachingPlan;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -98,6 +138,9 @@ export async function compileLecture(
       : script;
   const args = [compiler, "-", "--json"];
   if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
+  if (options.plan) {
+    args.push("--min-questions", String(options.plan.minQuestions), "--min-examples", String(options.plan.minExamples));
+  }
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
     const compiled = scriptJson<Compiled>(stdout);
@@ -360,11 +403,23 @@ export const LECTURE_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES, subject?: Subject): string {
+export function lecturePrompt(
+  template: Template,
+  minutes = DEFAULT_LECTURE_MINUTES,
+  subject?: Subject,
+  plan: TeachingPlan = teachingPlan(minutes),
+): string {
   // At the teaching pace (a slightly slow voice, pauses after lines and paragraphs, time to think) a minute
   // holds about 110 words.
   const words = Math.round(minutes * 110);
   const beats = Math.round((minutes * 60) / 13);
+  const examples = plan.examples === 1 ? "one clear example" : `${plan.examples} different examples`;
+  const asking =
+    plan.questionsPerTopic < 1
+      ? "after every second topic"
+      : plan.questionsPerTopic === 1
+        ? "after each topic"
+        : `${plan.questionsPerTopic} questions after each topic`;
   return [
     "You write narrated lectures that explain a topic simply, for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
@@ -385,7 +440,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "  1. say it simply, in everyday spoken words and short sentences (under about 20 words each);",
     "  2. explain every hard word in it first (biodiversity, inertia, ecosystem): what it means in plain words, with",
     "     a define card on the stage;",
-    "  3. give two or three EXAMPLES from a student's daily life, each in a beat of its own (\"For example, when you",
+    `  3. give ${examples.toUpperCase()} from a student's daily life for it, each in a beat of its own (\"For example, when you`,
     "     push a cycle...\", \"Imagine...\", \"जैसे...\"), and a comparison when it helps (a forest is like a big shared house);",
     "  4. say WHY it is so, or what would happen if it were not;",
     "  5. say the key idea again in other words (\"So, in short: ...\"). Repeating the most important sentence once",
@@ -394,14 +449,22 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "you ever noticed...?\". Never copy a sentence of the source; the compiler rejects a script that reads the book",
     "word for word. Skip what is not content: QR codes, page furniture, exercise instructions.",
     "",
-    "QUESTIONS FOR THE CLASS. After each topic (every 6-10 beats, at least one per chapter), stop and ask the",
-    "class a question on the stage, then answer it on the next beat and explain why:",
+    `QUESTIONS FOR THE CLASS. Ask ${asking} (at least ${plan.minQuestions} in the lecture): stop and ask the class a`,
+    "question on the stage, then answer it on the next beat and explain why:",
     '  {"say":"Let us check. Which of these is a force?","do":[{"op":"question","text":"Which of these is a force?",',
     '    "choices":["Kicking a ball","Sleeping","Thinking"],"answer":"A","think"?:5}]},',
     '  {"say":"The answer is A. Kicking a ball is a push, and a push is a force.","do":[{"op":"answer"}]}',
     "  choices: 2-4 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
     "  rolling ball stop?\"), its answer in words: \"answer\":\"Friction slows it down.\". The video leaves think",
     "  seconds (5 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
+    "",
+    `DEPTH FOR THIS LENGTH. The chosen length is ${minutes} minutes for about ${plan.topics} topics, about`,
+    `${(minutes / plan.topics).toFixed(1)} minutes a topic. The topics come from the content and stay the same whatever the`,
+    "length; the length decides how deep each goes: how many examples, how much explanation of the why and the",
+    "background, how many questions. A longer lecture goes deeper into the same topics; it does not add unrelated ones.",
+    "Whatever the length, EXPLAIN EVERYTHING IN DETAIL: never state a term, a fact, a name or a number without saying",
+    "what it means and why it matters, as if the student has never heard of it. Prefer three short sentences that",
+    "explain to one long one that assumes.",
     "",
     "PAUSES. The video pauses after every line and longer at the end of each paragraph by itself. After a line that",
     "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",

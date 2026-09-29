@@ -281,6 +281,28 @@ A chapter is where the lecture starts, not its limit. Without a length in the re
 for this: about a minute for every 120 of its words, from 10 to 30 minutes (Forge plans 2.5 times the reading
 time).
 
+**Length and depth.** On the editor page and on the Forge page, **Video length** can be set to 5, 10, 15, 20,
+30 or 40 minutes, or left automatic. The content decides the topics: about one every 350 words of a source, and
+for a bare topic, one every 3 minutes. The length decides how deep each topic goes, through the teaching plan
+(`teaching_plan` in `compile_lecture.py`, and `teachingPlan` in the app with the same formula).
+
+| Minutes per topic | Examples per statement | Questions |
+|---|---|---|
+| under 1.5 | 1 | one every two topics |
+| 1.5–3 | 2 | one per topic |
+| 3–5 | 3 | two per topic below 4 minutes a topic, else one |
+| 5 and over | 4 | two per topic, three from 7 minutes a topic |
+
+So the same chapter at 30 minutes keeps its topics, and gets more examples and more questions than at 10. The
+questions are capped at one every 2 minutes and the example beats at about one every 50 seconds, so a short
+video of a long chapter is never asked for more than it has room for.
+
+The prompt gives the model these numbers and asks for everything to be explained in detail: no term, fact, name
+or number without what it means and why it matters. The compiler checks the finished script against the plan.
+The app passes `--min-questions` and `--min-examples`, and a written lecture with fewer of either is sent back.
+The agent's trace shows the plan, for example: "Length 20 min: about 7 topics, 2 examples for each statement,
+at least 7 questions for the class".
+
 **Pace.** `PANIM_PACE` sets it. `relaxed`, the default, has:
 - the voice at 0.9 speed;
 - 0.9 s of silence after every line;

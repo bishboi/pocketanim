@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { TEMPLATES } from "@/lib/templates";
+import { LENGTH_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
 import type { SceneIR } from "@/lib/pocketanim";
@@ -181,6 +181,8 @@ export default function Home() {
   const [versions, setVersions] = useState<Version[]>([]);
   const [current, setCurrent] = useState(-1);
   const [instruction, setInstruction] = useState("");
+  /** The lecture's length in minutes; null lets the content's size decide. */
+  const [minutes, setMinutes] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
@@ -329,6 +331,7 @@ export default function Home() {
           previousSource: edit ? version?.source : undefined,
           instruction: edit ? instruction : undefined,
           documentId: doc.id,
+          minutes: template.kind === "lecture" && minutes ? minutes : undefined,
         }),
       });
       if (!response.ok || !response.body) {
@@ -710,6 +713,32 @@ export default function Home() {
                   Use {template.name.toLowerCase()} example
                 </button>
               </div>
+              {template.kind === "lecture" && (
+                <div className="flex flex-col gap-1 text-xs text-neutral-400">
+                  <label className="flex items-center gap-2">
+                    <span className="text-neutral-300">Video length</span>
+                    <select
+                      aria-label="Video length"
+                      data-testid="lecture-length"
+                      className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200"
+                      value={minutes ?? ""}
+                      disabled={!!busy}
+                      onChange={(e) => setMinutes(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">Automatic (from the content)</option>
+                      {LENGTH_CHOICES.map((m) => (
+                        <option key={m} value={m}>
+                          {m} minutes
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <span>
+                    The topics come from your content. The length decides how deep each one goes: a longer video
+                    gives more examples for each statement and asks the class more questions.
+                  </span>
+                </div>
+              )}
               <Button
                 onClick={() => runGenerate(false)}
                 disabled={!content.trim() || !!busy}

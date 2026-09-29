@@ -575,6 +575,17 @@ def build_2d(scene: dict) -> DecodedIR:
         the driver below advances a whole group one frame at a time and emits
         once per round. Sequential playback is the same generator, drained.
         """
+        # A verb on a declared object that was never put on stage: in a tier-3 program the animation that
+        # showed it (or the group it was shown in) was dropped as a blocker, but in Manim it is on stage.
+        # Put it there, as `show` does below, rather than fail the whole preview. A tier-1 program never
+        # reaches this: everything it animates was shown first.
+        if step[0] == "transform" and name_is_asset(objects, step[2]):
+            # A transform onto a baked asset (a tier-3 program's moved group) is a morph between assets.
+            step = ("morph", step[1], step[2], step[3])
+        for position in NEEDS_OBJECT.get(step[0], ()):
+            name = step[position] if len(step) > position else None
+            if isinstance(name, str) and name not in objects and name in scene["shapes"]:
+                objects[name] = new_shape(name)
         if step[0] in ("create", "uncreate"):
             _, name, duration, rate_name = step[:4]
             removing = step[0] == "uncreate"
@@ -1412,6 +1423,11 @@ def plane_normal(points: np.ndarray) -> np.ndarray:
     _, _, vh = np.linalg.svd(centred, full_matrices=False)
     normal = vh[2]
     return -normal if normal[2] < 0 else normal
+
+
+# Verbs that animate an object already on stage, and where its name sits in the step.
+NEEDS_OBJECT = {"transform": (1,), "stroke": (1,), "xform": (1,), "laggedgrow": (1,), "morph": (1, 2), "fill": (1,),
+                "rotate": (1,), "indicate": (1,), "unwrite": (1,), "grow": (1,)}
 
 
 def load_program(path: str) -> DecodedIR:

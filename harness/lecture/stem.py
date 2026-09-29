@@ -945,10 +945,12 @@ class BoardMixin:
         from manim import AnimationGroup, Group
 
         body = getattr(self, "stage_body", None)
-        visible = [m for m in [body, *self.stage_extra] if m is not None]
-        if not visible:
+        if body is None:
             return None
-        whole = Group(*visible)
+        # Sized by what shows, but moved as the group that was put on stage (with its card, invisible on the
+        # board): moving a part of a shown group left the exporter a transform its preview could not play.
+        whole = Group(body, *self.stage_extra)
+        visible = [self.stage_items, *self.stage_extra]
         cx, cy, w, h = box
         f = min(w / max(whole.width, 0.01), h / max(whole.height, 0.01), 1.0)
         centre = whole.get_center()

@@ -97,3 +97,36 @@ def test_the_engine_builds_boards(tmp_path, monkeypatch):
                          find="R", figure={"op": "projectile", "angle": 30, "show": ["ground", "path"]}) is not None
     assert scene.reveal_nodes("p_figure", ["u", "R"]) is not None
     assert scene.work("p", ["R = \\frac{u^2 \\sin 2\\theta}{g}"]) is not None
+
+
+def test_a_photo_moved_aside_by_working_still_previews(tmp_path, monkeypatch):
+    """A photo makes a scene tier 3 (sampled frames), but its preview must still build: the working that moves
+    the photo aside once left a step the preview could not play (KeyError on an object name)."""
+    import subprocess
+    import sys
+
+    from PIL import Image
+
+    from forge.util import REPO
+
+    Image.new("RGB", (40, 30), (200, 80, 60)).save(tmp_path / "photo.png")
+    scene = tmp_path / "scene.py"
+    scene.write_text(
+        "import os, sys\n"
+        f"sys.path.insert(0, {str(LECTURE)!r})\n"
+        "from manim import *\nfrom pocket_lecture import *\n\n"
+        "class S(MapLecture):\n"
+        "    def construct(self):\n"
+        "        self.board()\n"
+        f"        self.beat('Newton.', self.stage_image({str(tmp_path / 'photo.png')!r}, 'Newton'))\n"
+        "        self.beat('His law.', self.work('w', ['F = ma'], title='Second law'))\n"
+        "        self.beat('So.', self.work('w', ['a = F/m'], box=True))\n")
+    env = {**os.environ, "PANIM_VOICE": "silent", "PANIM_AUDIO_DIR": str(tmp_path / "audio")}
+    out = tmp_path / "build"
+    exported = subprocess.run([sys.executable, str(REPO / "harness/scripts/export_scene.py"), str(scene), "S", str(out)],
+                              capture_output=True, text=True, env=env, timeout=600)
+    result = json.loads(exported.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 3 and all(b.startswith("raster image") for b in result["blockers"]), result
+    preview = subprocess.run([sys.executable, str(REPO / "harness/scripts/scene_ir.py"), str(out), "S"],
+                             capture_output=True, text=True, env=env, timeout=600)
+    assert '"mode": "2d"' in preview.stdout and "error" not in preview.stdout, preview.stdout + preview.stderr

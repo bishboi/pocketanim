@@ -333,6 +333,8 @@ The app passes `--min-questions` and `--min-examples`, and a written lecture wit
 The agent's trace shows the plan, for example: "Length 20 min: about 7 topics, 2 examples for each statement,
 at least 7 questions for the class".
 
+**Long lectures are written in parts.** Over 10 minutes, the model writes the title, intro and first chapters with `write_lecture` (`"more": true`), then the rest with `add_chapters`, about 5 minutes at a time. The last call has `"done": true`. Each part is checked when it arrives, and the length, questions, examples and problems are checked over the whole lecture at the end. No single reply has to hold a 30-minute script. If the model stops partway, the chapters it wrote are built into a shorter video.
+
 **Pace.** `PANIM_PACE` sets it. `relaxed`, the default, has:
 - the voice at 0.9 speed;
 - 0.9 s of silence after every line;

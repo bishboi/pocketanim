@@ -90,9 +90,10 @@ export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
     // About two key statements a topic, each with its examples; half of them counted, as the check reads
     // only the words an example starts with ("for example", "imagine", "जैसे"). At most one every 50 seconds.
     minExamples: Math.min(Math.max(2, Math.round(topics * 2 * examples * 0.5)), Math.max(2, Math.round(minutes * 1.2))),
-    // A long problem solved step by step takes about 2 minutes: at most one per 2.5 minutes of the lecture.
+    // A long problem solved step by step takes about 2 minutes, and the theory before it as long: at most one
+    // problem per 4 minutes of the lecture.
     problemsPerTopic: perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3,
-    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 2.5))),
+    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 4))),
   };
 }
 
@@ -410,8 +411,37 @@ export const LECTURE_TOOL = {
           type: "object",
           description: "The beat script: title, sub, region, intro, chapters[{title, sub, narration, map, beats[{say, do[ops]}]}], recap, credits.",
         },
+        more: {
+          type: "boolean",
+          description: "true when this is only the first part of a long lecture (its opening chapters): add_chapters brings the rest.",
+        },
       },
       required: ["script"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** Lectures longer than this are written a part at a time: write_lecture (more: true), then add_chapters. */
+export const PARTS_OVER_MINUTES = 10;
+
+export const ADD_CHAPTERS_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "add_chapters",
+    description:
+      "Add the next part of a long lecture begun with write_lecture (more: true): its next chapters, about 5 minutes. " +
+      "Each part is checked when it arrives. done: true on the last part (with the recap): then the whole lecture is " +
+      "checked (length, questions, examples, problems) and compiled. replace_from: n rewrites from chapter n on.",
+    parameters: {
+      type: "object",
+      properties: {
+        chapters: { type: "array", items: { type: "object" }, description: "The next chapters, in the script's chapter shape." },
+        recap: { type: "array", description: "The recap, with the last part: [[head, body], ...]." },
+        replace_from: { type: "integer", description: "Replace chapters from this number (1-based) on, instead of adding after the last." },
+        done: { type: "boolean", description: "true when this is the last part." },
+      },
+      required: ["chapters", "done"],
       additionalProperties: false,
     },
   },
@@ -438,7 +468,13 @@ export function lecturePrompt(
   return [
     "You write narrated lectures that explain a topic simply, for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
-    "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
+    minutes > PARTS_OVER_MINUTES
+      ? "WRITE IT IN PARTS of about 5 minutes (2-3 chapters each), so no single reply is huge: first write_lecture with " +
+        '{"script": {title, sub, region, intro, chapters: [the first chapters]}, "more": true}; then add_chapters ' +
+        '{"chapters": [the next chapters], "done": false} for each next part; the last add_chapters has "done": true and ' +
+        "the recap. Each part is checked when it arrives (fix and resend a part that returns errors); the length, " +
+        "questions, examples and problems are checked over the whole lecture at the end. Then reply with one short sentence."
+      : "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
     ...(subject
       ? [
@@ -487,8 +523,9 @@ export function lecturePrompt(
           "  1. THEORY: build it on the board a piece at a time. Draw the situation (a preset or a sketch) and reveal its",
           "     parts as you name them; graph how the quantities vary; derive the law with work, one step a beat, saying",
           "     why each step follows; define every symbol; give everyday examples.",
-          `  2. PROBLEMS: then ${plan.problemsPerTopic === 1 ? "one long problem" : `${plan.problemsPerTopic} long problems`} on that concept (at least ${plan.minProblems} in the lecture), each harder`,
-          "     than the last, of the kind an exam asks and that needs a long explanation. For each: the problem op",
+          `  2. PROBLEMS: then up to ${plan.problemsPerTopic === 1 ? "one long problem" : `${plan.problemsPerTopic} long problems`} on each main concept (at least ${plan.minProblems} in the`,
+          "     lecture; a small topic may have none), each harder than the last, of the kind an exam asks and that",
+          "     needs a long explanation. For each: the problem op",
           "     (the full statement, given, find, its labelled figure, think: 5); read it out; say what is asked and",
           "     which idea solves it; reveal the forces or quantities on the figure one by one; write the solution with",
           "     work over many beats (a step a beat: the equation, then what it means); check the units and whether the",

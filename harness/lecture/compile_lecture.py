@@ -659,7 +659,7 @@ def teaching_plan(minutes: float, source_words: int = 0) -> dict:
             "min_questions": min(max(1, round(topics * questions)), max(1, int(minutes // 2))),
             "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2))),
             "problems_per_topic": problems,
-            "min_problems": min(topics * problems, max(1, int(minutes // 2.5)))}
+            "min_problems": min(topics * problems, max(1, int(minutes // 4)))}
 
 
 PANEL_FACTS = 3          # key points a side panel (a map chapter's) holds under its title

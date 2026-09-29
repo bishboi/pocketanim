@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, teachingPlan, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, teachingPlan, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -40,6 +40,8 @@ export type GenerateRequest = {
 };
 
 const SCENE_CLASS = "GeneratedScene";
+/** How long a turn may pass with nothing from the model before it is stopped (PANIM_MODEL_WAIT_MINUTES). */
+const FIRST_REPLY_MINUTES = Math.max(1, Number(process.env.PANIM_MODEL_WAIT_MINUTES) || 15);
 /** Subjects taught with theory, then long worked problems (compile_lecture.BOARD_GENRES). */
 const STEM_GENRES = ["mathematics", "physics", "chemistry"];
 
@@ -275,7 +277,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -283,9 +285,11 @@ async function streamCompletion(
   messages: ChatMessage[],
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
+  signal?: AbortSignal,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
@@ -434,10 +438,11 @@ async function completionWithRetry(
   emit: (event: AgentEvent) => void,
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
+  signal?: AbortSignal,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
     try {
-      const result = await streamCompletion(key, model, messages, onDelta, tools);
+      const result = await streamCompletion(key, model, messages, onDelta, tools, signal);
       const text = result.message.content?.trim() ?? "";
       const calls = result.message.tool_calls ?? [];
       if (!text && calls.length === 0) {
@@ -477,7 +482,9 @@ async function viaOpenRouter(
     : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
-  const tools: ToolSpec[] = lecture ? [LECTURE_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, EDIT_TOOL] : TOOLS;
+  const tools: ToolSpec[] = lecture
+    ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, IMAGE_TOOL, EDIT_TOOL]
+    : TOOLS;
   const messages: ChatMessage[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -488,7 +495,7 @@ async function viaOpenRouter(
     emit({
       type: "message",
       role: "status",
-      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class${STEM_GENRES.includes(subject?.genre ?? "") ? `, ${plan.problemsPerTopic} long worked problem${plan.problemsPerTopic > 1 ? "s" : ""} per topic (at least ${plan.minProblems})` : ""}`,
+      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class${STEM_GENRES.includes(subject?.genre ?? "") ? `, at least ${plan.minProblems} long worked problem${plan.minProblems > 1 ? "s" : ""} (up to ${plan.problemsPerTopic} a topic)` : ""}`,
     });
   }
   let scene = request.previousSource ?? "";
@@ -548,6 +555,11 @@ async function viaOpenRouter(
     figures: doc ? scriptFigures(doc) : undefined,
     sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
   });
+  // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
+  // length or counts.
+  const partOptions = () => ({ ...lectureOptions(), minMinutes: undefined, plan: undefined, stem: false });
+  let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
+  const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
   let nudges = 0;
   for (let turn = 0; turn < 40; turn++) {
     if (stopped()) {
@@ -567,13 +579,25 @@ async function viaOpenRouter(
     });
     let sawDelta = false;
     let lastDelta = Date.now();
+    const started = Date.now();
+    const abort = new AbortController();
+    let gaveUp = false;
     const waiting = setInterval(() => {
       const quiet = Date.now() - lastDelta;
+      const minutes = (Date.now() - started) / 60000;
+      if (!sawDelta && minutes >= FIRST_REPLY_MINUTES) {
+        gaveUp = true;
+        abort.abort();
+        return;
+      }
       if (!sawDelta) {
+        // A reasoning model thinks before it writes and sends nothing meanwhile; a "pro" one for many minutes.
+        const hint = minutes >= 2 ? ` (${Math.floor(minutes)} min; it has sent nothing yet: a reasoning model thinks ` +
+          `silently first, and a "pro" model can take many minutes. Stops at ${FIRST_REPLY_MINUTES} min)` : "";
         emit({
           type: "message",
           role: "status",
-          text: `Turn ${turn + 1}: still waiting for ${model}`,
+          text: `Turn ${turn + 1}: still waiting for ${model}${hint}`,
         });
       } else if (quiet > 12000) {
         emit({
@@ -589,8 +613,14 @@ async function viaOpenRouter(
         sawDelta = true;
         lastDelta = Date.now();
         emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text });
-      }, tools);
+      }, tools, abort.signal);
     } catch (error) {
+      if (gaveUp) {
+        throw new Error(`${model} sent nothing for ${FIRST_REPLY_MINUTES} minute${FIRST_REPLY_MINUTES === 1 ? "" : "s"}, so the request was stopped. ` +
+          "Reasoning models (a \"pro\" model above all) think silently before writing, and a long lecture is a lot " +
+          "to plan. Try a faster model in OPENROUTER_MODEL (a non-pro one), a shorter video length, or raise " +
+          "PANIM_MODEL_WAIT_MINUTES.");
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (!/idle timeout|upstream/i.test(message)) throw error;
       const done = savedScene();
@@ -651,6 +681,9 @@ async function viaOpenRouter(
       } else if (result.finishReason === "length") {
         nudge = "Your reply was cut off before it finished. Call the write_lecture tool with the whole script (the tool call " +
           "carries it; do not write it in the reply). Keep each chapter to 8-12 beats.";
+      } else if (draft) {
+        nudge = `The lecture is not finished: ${chapterCount(draft)} chapter(s) are saved. Continue with add_chapters ` +
+          "(the next chapters), and done: true with the last part and the recap.";
       } else {
         nudge = "Call the write_lecture tool with the whole beat script. Do not put the script in your reply text.";
       }
@@ -660,6 +693,19 @@ async function viaOpenRouter(
         messages.push({ role: "assistant", content: result.message.content ?? "" });
         messages.push({ role: "user", content: nudge });
         continue;
+      }
+    }
+    if (calls.length === 0 && draft && !/from manim import/.test(scene)) {
+      // The model stopped before finishing a long lecture: the parts it wrote make a shorter video, not an error.
+      const partial = await compileLecture(draft, partOptions());
+      if (partial.source) {
+        emit({
+          type: "message",
+          role: "status",
+          text: `The model stopped after ${chapterCount(draft)} chapter(s); building the lecture from them (about ` +
+            `${partial.minutes ?? "?"} of ${minutes} min).`,
+        });
+        return { source: partial.source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
       }
     }
     if (calls.length === 0) {
@@ -682,6 +728,11 @@ async function viaOpenRouter(
         old_string?: string;
         new_string?: string;
         script?: unknown;
+        more?: boolean;
+        chapters?: unknown[];
+        recap?: unknown;
+        replace_from?: number;
+        done?: boolean;
       } = {};
       try {
         args = JSON.parse(call.function.arguments || "{}");
@@ -690,7 +741,52 @@ async function viaOpenRouter(
       }
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
       let output: string;
-      if (call.function.name === "write_lecture") {
+      if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
+        const first = args.script as Record<string, unknown>;
+        const compiled = await compileLecture(first, partOptions());
+        if (compiled.source) {
+          draft = first;
+          output = `Saved part 1: ${chapterCount(first)} chapter(s), about ${compiled.minutes ?? "?"} of ${minutes} min. ` +
+            "Now call add_chapters with the next chapters (done: false), and done: true with the last part and the recap.";
+        } else {
+          output = ["This part did not compile. Fix these and send it again with write_lecture (more: true):", ...compiled.errors].join("\n");
+        }
+      } else if (call.function.name === "add_chapters") {
+        if (!draft) {
+          output = "Start with write_lecture: the title, intro and first chapters, with more: true.";
+        } else {
+          const had = Array.isArray(draft.chapters) ? (draft.chapters as unknown[]) : [];
+          const from = args.replace_from && args.replace_from >= 1 ? Math.min(args.replace_from - 1, had.length) : had.length;
+          const next: Record<string, unknown> = {
+            ...draft, chapters: [...had.slice(0, from), ...(args.chapters ?? [])], ...(args.recap ? { recap: args.recap } : {}),
+          };
+          const compiled = await compileLecture(next, args.done ? lectureOptions() : partOptions());
+          if (compiled.source && args.done) {
+            draft = next;
+            scene = compiled.source;
+            output = [
+              `Compiled the whole lecture: ${chapterCount(next)} chapters, ${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min.`,
+              ...compiled.warnings.map((w) => `warning: ${w}`),
+              "Stop calling tools and reply in one sentence.",
+            ].join("\n");
+          } else if (compiled.source) {
+            draft = next;
+            output = `Saved: ${chapterCount(next)} chapter(s), about ${compiled.minutes ?? "?"} of ${minutes} min. ` +
+              "Continue with add_chapters; done: true with the last part and the recap.";
+          } else if (args.done) {
+            // The parts are fine but the whole falls short (length, questions, problems): keep them, ask for more.
+            const partsOk = (await compileLecture(next, partOptions())).source;
+            if (partsOk) draft = next;
+            output = [
+              partsOk ? "Saved these chapters, but the whole lecture is not finished yet:" : "This part did not compile:",
+              ...compiled.errors,
+              "Add chapters (or rewrite some with replace_from) with add_chapters, and done: true again when it is complete.",
+            ].join("\n");
+          } else {
+            output = ["This part did not compile and was not added. Fix these and send it again:", ...compiled.errors].join("\n");
+          }
+        }
+      } else if (call.function.name === "write_lecture") {
         const compiled = await compileLecture(args.script ?? {}, lectureOptions());
         if (compiled.source) {
           scene = compiled.source;

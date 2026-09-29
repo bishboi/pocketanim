@@ -356,5 +356,22 @@
   "optional": {
    "entity": "str"
   }
+ },
+ "question": {
+  "doc": "A question for the class on the stage, then time to think (think seconds, 5 by default). choices: 2-4 short answers; answer: the right choice's letter, or the answer in words.",
+  "required": {
+   "text": "str"
+  },
+  "optional": {
+   "choices": "list",
+   "answer": "str",
+   "think": "num",
+   "title": "str"
+  }
+ },
+ "answer": {
+  "doc": "Show the answer to the question on the stage, on the beat that explains it.",
+  "required": {},
+  "optional": {}
  }
 }

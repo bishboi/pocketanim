@@ -451,8 +451,8 @@ async function viaOpenRouter(
   const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
-  const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`);
   const doc = await documentOf(request);
+  const minutes = targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? "");
   const subject = lecture ? await subjectOf(request, emit) : null;
   const style = lecture ? effectiveStyle(template, subject) : template.style;
   const system = lecture

@@ -155,14 +155,26 @@ class Context:
 #  Plan
 # ════════════════════════════════════════════════════════════════════════
 
+# Teaching a source in depth (explanations, examples, questions) takes this many times as long as reading it.
+TEACHING_EXPANSION = 2.5
+
 EXPLAIN_SIMPLY = (
-    "EXPLAIN SIMPLY. You are a teacher explaining the sources to a 12-year-old, not reading them aloud. The sources "
-    "may use difficult, formal language; the narration must not. Say each idea in everyday spoken words and short "
-    "sentences (under about 20 words). Before using a hard term, say what it means in plain words, then give an "
-    "example or comparison from daily life. Never copy a source sentence word for word. Take more beats to explain "
-    "one hard idea well rather than covering every line; skip QR codes, page furniture and exercise instructions. "
+    "TEACH IN DEPTH. You are a patient teacher teaching the sources to a 12-year-old, slowly and warmly, not reading "
+    "them aloud or summarising them. The sources are where you start, not the limit: explain each topic and each "
+    "important statement fully, and add the background, the why and the connections a student needs that the "
+    "sources leave out. For each statement: say it in everyday spoken words and short sentences (under about 20 "
+    "words); explain every hard term first, in plain words (a define card); give two or three examples from a "
+    "student's daily life, each in a beat of its own (\"For example...\", \"Imagine...\", \"जैसे...\"); say why it is "
+    "so; then say the key idea again in other words (repeating the key sentence once is good teaching). Talk "
+    "naturally (\"Now, here is something interesting.\", \"Have you ever noticed...?\"). Never copy a source sentence "
+    "word for word; skip QR codes, page furniture and exercise instructions.\n"
+    "QUESTIONS FOR THE CLASS. After each topic (every 6-10 beats, at least one per chapter), ask a question on the "
+    "stage: {\"op\": \"question\", \"text\", \"choices\"?: [2-4 short answers], \"answer\": \"<the right choice's letter, "
+    "or the answer in words for an open question>\", \"think\"?: 5}; the video leaves that many seconds to think. On "
+    "the next beat answer it and explain why, with {\"op\": \"answer\"}. After a line that needs a moment to sink in, "
+    "give the beat \"pause\": 1-3 (extra seconds of silence).\n"
     "In Hindi use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words; say the book's term once and "
-    "explain it. Show pictures (photos, document figures, illustrations and diagrams) rather than boxes of words; "
+    "explain it.\nShow pictures (photos, document figures, illustrations and diagrams) rather than boxes of words; "
     "never icons. For a concept, show {\"op\": \"illustration\", \"query\": \"<what it shows, in English: water "
     "cycle diagram, leaf cross section>\"}, or give the beat \"picture\": \"<the same>\".\n"
     "PEOPLE, MOVEMENTS, PLACES. Whenever a beat is about a particular person, movement, event, monument or historic "
@@ -199,7 +211,7 @@ def plan(job, template: dict, style: dict, bundle: dict, notes: str = "") -> dic
     total_words = sum(words(p["text"]) for p in bundle["passages"])
     wpm = template.get("words_per_minute", 143)
     target = float(spec.get("target_minutes") or max(template["target_minutes"]["min"],
-                                                     min(total_words / wpm * 1.25, template["target_minutes"]["max"])))
+                                                     min(total_words / wpm * TEACHING_EXPANSION, template["target_minutes"]["max"])))
     if llm.available():
         system = _prefix(job, template, style, "planner")
         task = json.dumps({
@@ -227,7 +239,7 @@ def plan(job, template: dict, style: dict, bundle: dict, notes: str = "") -> dic
             write_yaml(job.path("lexicon.yaml"), lex)
     else:
         chapters, open_questions = _plan_offline(template, bundle)
-    supported = total_words / wpm * 1.25
+    supported = total_words / wpm * TEACHING_EXPANSION
     if not spec.get("target_minutes") and supported < template["target_minutes"]["min"] * 0.9:
         open_questions = list(open_questions) + [
             f"The sources support about {supported:.1f} min of narration; the template's minimum is "

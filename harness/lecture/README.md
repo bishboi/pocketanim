@@ -265,6 +265,43 @@ Where the script chose nothing, `auto_visuals` fills a paragraph's first beat, a
 Fetched illustrations of a topic are off unless the script sets `"auto_illustrations": true`. The compiler
 warns when more than 60% of beats put up a new picture.
 
+## Teaching in depth: pace, pauses and questions for the class
+
+A lecture teaches each topic slowly, the way a teacher does in class. It does not read the book out or
+summarise it. The prompts (the app's `lecturePrompt` and Forge's `EXPLAIN_SIMPLY`) ask for this, for every
+important statement of the content:
+- say it in easy words;
+- explain each hard term;
+- give two or three examples from daily life;
+- say why it is so;
+- say the key idea again in other words;
+- add the background the book leaves out.
+
+A chapter is where the lecture starts, not its limit. Without a length in the request, a long source gets time
+for this: about a minute for every 120 of its words, from 10 to 30 minutes (Forge plans 2.5 times the reading
+time).
+
+**Pace.** `PANIM_PACE` sets it. `relaxed`, the default, has:
+- the voice at 0.9 speed;
+- 0.9 s of silence after every line;
+- 1.8 s at the end of each paragraph.
+
+`brisk` is the older, faster pace (1.0, 0.45 s and 0.9 s). A beat can ask for more silence after itself with
+`"pause": 1-8` (seconds), for a line that needs a moment to sink in.
+
+**Questions.** Between topics the lecture stops and asks the class something. The stage shows the question; a
+bar under its heading fills during `think` seconds of silence; then the next beat shows the answer and
+explains it.
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"question","text","choices"?:[2-4],"answer"?,"think"?:5,"title"?}` | The question card. `answer` is the right choice's letter (`"B"`), its number from 1, or its text. For an open question with no choices, it is the answer in words. The heading reads "Think about it", or "सोचिए" in Hindi. |
+| `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
+
+A lecture written by a model (one with a target length) must ask the class at least one question and give
+examples; the compiler returns an error otherwise. For an offline or hand-made script, these checks are only
+warnings.
+
 ## Lecture PDFs and figures
 
 `pdf_source.py` turns a PDF into Markdown plus its figures. Each figure is marked in the text as

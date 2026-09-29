@@ -379,9 +379,17 @@ def speechify(text: str) -> str:
     return text.replace("–", " to ").replace("·", ",").replace("≈", "about ").replace("→", " to ")
 
 
+# The teaching pace, PANIM_PACE: (voice speed, the hold after each line, the hold at a paragraph's end).
+# "relaxed", the default, is a teacher's pace: a little slower speech and pauses long enough to take a
+# line in before the next one starts. "brisk" is the older, faster pace.
+PACES = {"relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "relaxed"), PACES["relaxed"])
+THINK_SECONDS = 5.0      # the silence a question on the stage leaves for thinking
+
+
 def estimate_seconds(text: str) -> float:
-    """About 143 words a minute, which is what espeak at -s 148 measures."""
-    return max(1.2, len(text.split()) * 0.42)
+    """About 143 words a minute at normal speed, which is what espeak at -s 148 measures."""
+    return max(1.2, len(text.split()) * 0.42 / VOICE_SPEED)
 
 
 def audio_dir() -> Path:
@@ -478,7 +486,8 @@ def narrate(text: str) -> tuple[str | None, float]:
     mode = voice_mode()
     if mode == "silent":
         return None, estimate_seconds(spoken)
-    digest = hashlib.md5(f"{mode}|{spoken}".encode()).hexdigest()[:12]
+    key = f"{mode}|{spoken}" if VOICE_SPEED == 1.0 else f"{mode}|{VOICE_SPEED:g}|{spoken}"
+    digest = hashlib.md5(key.encode()).hexdigest()[:12]
     out = audio_dir() / f"{digest}.wav"
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
@@ -492,7 +501,7 @@ def narrate(text: str) -> tuple[str | None, float]:
         try:
             import soundfile as sf
 
-            samples, rate = _kokoro().create(spoken, voice=voice, speed=1.0, lang=lang if lang != "en" else
+            samples, rate = _kokoro().create(spoken, voice=voice, speed=VOICE_SPEED, lang=lang if lang != "en" else
                                              ("en-gb" if voice.startswith("b") else "en-us"))
             sf.write(str(raw), np.asarray(samples, dtype=np.float32), rate, subtype="PCM_16")
             _finish(raw, out)
@@ -504,7 +513,7 @@ def narrate(text: str) -> tuple[str | None, float]:
     if espeak:
         voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
         try:
-            subprocess.run([espeak, "-v", voice, "-s", "148", "-p", "42", "-g", "4", "-w", str(raw), spoken],
+            subprocess.run([espeak, "-v", voice, "-s", str(round(148 * VOICE_SPEED)), "-p", "42", "-g", "4", "-w", str(raw), spoken],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
             _finish(raw, out, echo=True)
             return str(out), _wav_seconds(out)
@@ -1050,6 +1059,7 @@ class Lecture(Scene):
         self.stage_items = Group()      # the picture on the stage: a photo, a figure or an illustration
         self.stage_extra: list = []     # parts added to it later (a diagram's revealed nodes, a focus ring)
         self.diagrams: dict = {}        # diagram id -> its nodes, edges and what is shown
+        self._question = None           # the question on the stage: its timer track and its answer, placed
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self.panel_y = 2.35
@@ -1095,13 +1105,14 @@ class Lecture(Scene):
         self.add(self.chrome)
 
     # ---------------- narration beat ----------------
-    def beat(self, text: str, *anims, rt: float | None = None, pad: float = 0.45) -> float:
+    def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None) -> float:
         """One narration line and the animations that go with it.
 
         The line is spoken first and measured; the animations take 55% of it
         (1.2 to 3.2 s) so motion lands while the sentence is still going, and
-        the rest of the line plus a short pause is a hold.
+        the rest of the line plus a pause (`pad`, BEAT_PAD by default) is a hold.
         """
+        pad = BEAT_PAD if pad is None else pad
         if self._full_figure is not None:
             self.play(FadeOut(self._full_figure), run_time=0.4)
             self._full_figure = None
@@ -1327,6 +1338,7 @@ class Lecture(Scene):
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
         self.stage_items = Group()
         self.stage_extra = []
+        self._question = None
         return going
 
     def _to_stage(self, group):
@@ -1787,6 +1799,80 @@ class Lecture(Scene):
                                w - 0.4), cards).arrange(DOWN, buff=0.3)
         self._fit_stage(parts, grow=1.4)
         return self._to_stage(Group(parts))
+
+    QUESTION_HEADS = {"en": "Think about it", "hi": "सोचिए"}
+
+    def question(self, text: str, choices=(), answer=None, title: str | None = None):
+        """A question for the class, on the stage: a heading, the question, big, and its choices (A, B, C, D).
+
+        `answer` is the right choice's index, or the answer in words for a question without choices. It is laid
+        out now, so the card does not move, and shown later by answer(). think() runs the time-to-think bar
+        under the heading.
+        """
+        cx, cy, w, h = self.STAGE
+        head = T(title or self.QUESTION_HEADS.get(spoken_lang(text), self.QUESTION_HEADS["en"]), 20, P.SAND,
+                 weight=BOLD)
+        mark = Circle(radius=0.26, fill_color=P.SAND, fill_opacity=1, stroke_width=0)
+        head = VGroup(VGroup(mark, T("?", 24, P.BG, weight=BOLD).move_to(mark)), head).arrange(RIGHT, buff=0.2)
+        track = Line(LEFT * (w / 2 - 0.4), RIGHT * (w / 2 - 0.4), color=P.MUTED, stroke_width=4, stroke_opacity=0.35)
+        body = fit(T(wrap(text, 30), 30, P.CREAM, font=TH["serif"], weight=BOLD, line_spacing=0.95), w - 0.6)
+        parts = VGroup(head, track, body)
+        options = VGroup()
+        for k, choice in enumerate(list(choices)[:4]):
+            letter = VGroup(Circle(radius=0.22, stroke_color=P.SAND, stroke_width=2.5),
+                            T("ABCD"[k], 18, P.SAND, weight=BOLD))
+            words = fit(T(wrap(str(choice), 30), 20, P.CREAM, line_spacing=0.9), w - 1.5)
+            row = VGroup(letter, words).arrange(RIGHT, buff=0.25)
+            box = RoundedRectangle(corner_radius=0.14, width=w - 0.6, height=row.height + 0.3, stroke_color=P.MUTED,
+                                   stroke_width=1.5, fill_color=_tint_on_bg(P.SAND, 0.06), fill_opacity=1)
+            options.add(VGroup(box, row.move_to(box).align_to(box, LEFT).shift(RIGHT * 0.2)))
+        if len(options):
+            parts.add(options.arrange(DOWN, buff=0.16))
+        shown = None
+        if isinstance(answer, int) and 0 <= answer < len(options):
+            box = options[answer][0]
+            ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
+                                    stroke_color=P.GREEN, stroke_width=5)
+            tick = T("✓", 30, P.GREEN, weight=BOLD)
+            shown = (ring, tick, answer)
+        elif isinstance(answer, str) and answer.strip():
+            said = fit(T(wrap(answer, 34), 22, P.GREEN, line_spacing=0.9), w - 0.6)
+            parts.add(said)             # laid out with the card, then held back until answer()
+        parts.arrange(DOWN, buff=0.3)
+        head.align_to(track, LEFT)
+        self._fit_stage(parts, grow=1.2)
+        if shown:
+            ring, tick, index = shown
+            ring.move_to(options[index][0])
+            tick.next_to(ring, RIGHT, buff=-0.55)
+            shown = VGroup(ring, tick)
+        elif isinstance(answer, str) and answer.strip():
+            shown = parts[-1]
+            parts.remove(shown)
+        anim = self._to_stage(Group(parts))
+        self._question = {"track": track, "answer": shown}
+        return anim
+
+    def think(self, seconds: float = THINK_SECONDS) -> None:
+        """Silence while the class thinks about the question on the stage, a bar filling under its heading."""
+        if not self._question:
+            self.wait(seconds)
+            return
+        track = self._question["track"]
+        bar = Line(track.get_start(), track.get_end(), color=P.SAND, stroke_width=6)
+        self._stage_add(bar)
+        self._log("think", seconds=round(seconds, 3))
+        self.play(Create(bar), run_time=seconds, rate_func=linear)
+
+    def answer(self):
+        """The answer to the question on the stage: the right choice ringed, or the answer in words. None when
+        no question is up."""
+        shown = (self._question or {}).get("answer")
+        if shown is None:
+            return None
+        self._question["answer"] = None
+        self._stage_add(shown)
+        return FadeIn(shown, scale=1.05)
 
     def quote(self, text: str, who: str = ""):
         """A quotation, large, with who said it."""

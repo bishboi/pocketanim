@@ -231,6 +231,16 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         return f"self.reveal_nodes({str(op['diagram'])!r}, {[str(x) for x in op['nodes']]!r})"
     if kind == "focus":
         return f"self.spotlight({str(op['diagram'])!r}, {str(op['node'])!r})"
+    if kind == "question":
+        from compile_lecture import _answer_index
+
+        choices = [str(x) for x in op.get("choices") or []][:4]
+        answer = _answer_index(op) if choices else (str(op["answer"]) if op.get("answer") else None)
+        extra = (f", {choices!r}" if choices else "") + (f", answer={answer!r}" if answer is not None else "")
+        title = f", title={op['title']!r}" if op.get("title") else ""
+        return f"self.question({str(op['text'])!r}{extra}{title})"
+    if kind == "answer":
+        return "self.answer()"
     if kind == "define":
         entity = f", entity={op['entity']!r}" if op.get("entity") else ""
         return f"self.define({op['term']!r}, {op['meaning']!r}{entity})"
@@ -350,7 +360,8 @@ def points_at_map(op: dict) -> bool:
     return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(op.get("places")))
 
 
-STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define"}
+STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define",
+             "question"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,
@@ -450,10 +461,12 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
                 continue
             kept.append(op)
         beat["do"] = kept
-    from compile_lecture import auto_visuals   # harness/lecture: the editor's rule for bare beats
+    from compile_lecture import _pause, _think_seconds, auto_visuals, paragraphs   # harness/lecture: the editor's rule for bare beats
 
     fills = auto_visuals({"beats": beats, "title": chapter.get("title", "")}, points_at_map, spec.get("genre"))
     staged = False
+    # The teaching pace: a longer pause closing each paragraph, a beat's own "pause", time to think.
+    closing = {group[-1] for group in paragraphs(beats, points_at_map)}
     for index, beat in enumerate(beats):
         calls = []
         # Panel heads first: the engine clears the old panel when the head is built.
@@ -479,7 +492,11 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
                 calls.append(call)
         args = "".join(f",\n                  {c}" for c in calls)
         body.append(f"# {beat.get('id', '')}")
-        body.append(f"self.beat({caption(beat)!r}{args})")
+        pad = "PARAGRAPH_PAD" if index in closing else ""
+        if _pause(beat):
+            pad = f"{pad or 'BEAT_PAD'} + {_pause(beat):g}"
+        body.append(f"self.beat({caption(beat)!r}{args}" + (f", pad={pad}" if pad else "") + ")")
+        body += [f"self.think({_think_seconds(op):g})" for op in ordered if op.get("op") == "question"]
     if beats:
         body.append("self.outro_fade()")
     if script.get("recap"):

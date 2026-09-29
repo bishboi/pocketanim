@@ -27,7 +27,7 @@ export type LectureScript = {
     sub?: string;
     narration: string;
     map?: boolean;
-    beats: { say: string; do?: BeatOp[] }[];
+    beats: { say: string; pause?: number; do?: BeatOp[] }[];
   }[];
   recap?: [string, string][];
   credits?: string;
@@ -35,15 +35,21 @@ export type LectureScript = {
 
 export type Compiled = { source: string | null; errors: string[]; warnings: string[]; minutes?: number };
 
-/** A lecture runs this long unless the request names a length. */
-export const DEFAULT_LECTURE_MINUTES = 8;
+/** A lecture runs this long unless the request names a length, or its content is long. */
+export const DEFAULT_LECTURE_MINUTES = 10;
+/** Words of source content a minute of detailed teaching covers: a chapter is taught, not read out. */
+const SOURCE_WORDS_PER_MINUTE = 120;
 
-/** The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". */
-export function targetMinutes(text: string): number {
+/**
+ * The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". Without one, a long source (a
+ * chapter) gets time to be taught in depth: about a minute for every 120 of its words, up to 30.
+ */
+export function targetMinutes(text: string, source = ""): number {
   const digits = text.replace(/[०-९]/g, (d) => String("०१२३४५६७८९".indexOf(d)));
   const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
-  const minutes = found ? parseFloat(found[1]) : DEFAULT_LECTURE_MINUTES;
-  return Math.min(40, Math.max(1, minutes));
+  if (found) return Math.min(40, Math.max(1, parseFloat(found[1])));
+  const words = `${text}\n${source}`.split(/\s+/).filter(Boolean).length;
+  return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }
 
 function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -355,8 +361,10 @@ export const LECTURE_TOOL = {
 
 /** The system prompt for a lecture template. */
 export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINUTES, subject?: Subject): string {
-  const words = Math.round(minutes * 140);
-  const beats = Math.round((minutes * 60) / 11);
+  // At the teaching pace (a slightly slow voice, pauses after lines and paragraphs, time to think) a minute
+  // holds about 110 words.
+  const words = Math.round(minutes * 110);
+  const beats = Math.round((minutes * 60) / 13);
   return [
     "You write narrated lectures that explain a topic simply, for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
@@ -369,14 +377,34 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
           "",
         ]
       : []),
-    "EXPLAIN SIMPLY. You are a teacher explaining the book to a 12-year-old, not reading it aloud. The source may",
-    "be written in difficult, formal language; your narration must not be. For every idea:",
-    "  - say it in everyday spoken words and short sentences (under about 20 words each);",
-    "  - when a hard term must be used (biodiversity, ecosystem, primary producer), first say what it means in plain words,",
-    "    then use it; give an example or comparison from daily life (a forest is like a big shared house...);",
-    "  - never copy a sentence of the source; the compiler rejects a script that reads the book word for word;",
-    "  - it is fine to take more beats to explain one hard idea well. Explaining clearly matters more than covering",
-    "    every line. Skip what is not content: QR codes, page furniture, exercise instructions.",
+    "TEACH IN DEPTH, LIKE A PATIENT TEACHER IN A CLASSROOM. You are teaching the topic to a 12-year-old, slowly and",
+    "warmly, not reading the book aloud and not summarising it. The content (a chapter, notes) is where you start,",
+    "not the limit: explain each topic and each important statement of it fully, and add what a student needs to",
+    "understand it that the book leaves out (the why, the background, how it connects to what they know). For each",
+    "statement from the content, take several beats:",
+    "  1. say it simply, in everyday spoken words and short sentences (under about 20 words each);",
+    "  2. explain every hard word in it first (biodiversity, inertia, ecosystem): what it means in plain words, with",
+    "     a define card on the stage;",
+    "  3. give two or three EXAMPLES from a student's daily life, each in a beat of its own (\"For example, when you",
+    "     push a cycle...\", \"Imagine...\", \"जैसे...\"), and a comparison when it helps (a forest is like a big shared house);",
+    "  4. say WHY it is so, or what would happen if it were not;",
+    "  5. say the key idea again in other words (\"So, in short: ...\"). Repeating the most important sentence once",
+    "     is good teaching, not padding.",
+    "Talk naturally, as a person does: \"Now, here is something interesting.\", \"Let us think about this.\", \"Have",
+    "you ever noticed...?\". Never copy a sentence of the source; the compiler rejects a script that reads the book",
+    "word for word. Skip what is not content: QR codes, page furniture, exercise instructions.",
+    "",
+    "QUESTIONS FOR THE CLASS. After each topic (every 6-10 beats, at least one per chapter), stop and ask the",
+    "class a question on the stage, then answer it on the next beat and explain why:",
+    '  {"say":"Let us check. Which of these is a force?","do":[{"op":"question","text":"Which of these is a force?",',
+    '    "choices":["Kicking a ball","Sleeping","Thinking"],"answer":"A","think"?:5}]},',
+    '  {"say":"The answer is A. Kicking a ball is a push, and a push is a force.","do":[{"op":"answer"}]}',
+    "  choices: 2-4 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
+    "  rolling ball stop?\"), its answer in words: \"answer\":\"Friction slows it down.\". The video leaves think",
+    "  seconds (5 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
+    "",
+    "PAUSES. The video pauses after every line and longer at the end of each paragraph by itself. After a line that",
+    "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",
     "In a Hindi lecture use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words: say 'जंगल' and",
     "'जीव-जंतु' rather than 'वनस्पतिजात' and 'प्राणिजात'; when the book's term matters, say it once and explain it,",
     "and you may add the familiar English word in brackets.",
@@ -387,8 +415,9 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "language.",
     "",
     `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
-    `in ${Math.max(3, Math.min(10, Math.round(minutes / 2)))} or so chapters of 8-15 beats. The compiler measures the running time and`,
-    "returns an error when the script is well short; then add beats and chapters with new material, never padding.",
+    `in ${Math.max(3, Math.min(12, Math.round(minutes / 2.5)))} or so chapters of 10-20 beats. The compiler measures the running time`,
+    "and returns an error when the script is well short; then teach in more depth: more examples, more explanation of",
+    "each statement, background beyond the content, another question. Never fill with empty words.",
     "",
     "A beat is one narration line (say) and the operations that go with it (do). One idea per beat, at most two caption lines",
     "(under about 180 characters, 15-30 words), at most four operations. Every number you state must be in the content you",
@@ -397,7 +426,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "Script shape:",
     '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
     ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...",',
-    '   "beats": [{"say": "...", "paragraph"?: true, "about"?: "Chipko movement", "do": [ops]}]}],',
+    '   "beats": [{"say": "...", "paragraph"?: true, "about"?: "Chipko movement", "pause"?: 2, "do": [ops]}]}],',
     ' "recap": [["Head", "short body"]], "credits": "..."}',
     "",
     "Operations (colour = palette name SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
@@ -426,6 +455,7 @@ export function lecturePrompt(template: Template, minutes = DEFAULT_LECTURE_MINU
     "  A HARD WORD -> {\"op\":\"define\",\"term\":\"Biodiversity\",\"meaning\":\"<plain words>\",\"entity\"?:\"butterfly\"}",
     "  TWO OR THREE KINDS OF SOMETHING -> {\"op\":\"compare\",\"title\"?,\"columns\":[{\"title\":\"Reserved\",\"entity\"?:\"tree\",",
     '   "points":["up to 4 short lines"]},...]}',
+    "  A QUESTION FOR THE CLASS -> question, then answer on the next beat (see QUESTIONS FOR THE CLASS).",
     "  PEOPLE, COMMUNITIES, MOVEMENTS AND HISTORIC PLACES (and only these) -> real pictures. Several at once for a",
     "  paragraph about several: {\"op\":\"gallery\",\"title\"?,\"items\":[{\"subject\":\"Sunderlal Bahuguna\",\"caption\":\"सुंदरलाल बहुगुणा\"},",
     '   {"subject":"Chipko movement","caption":"..."},{"figure":"fig3","caption":"..."}]}   2-4 items: subject = Wikipedia\'s',

@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -105,22 +106,49 @@ def _panel_height(op: dict) -> float:
     return 0.0
 
 
-WORD_SECONDS = 0.42      # about 143 words a minute: pocket_lecture.estimate_seconds
-BEAT_PAD = 0.45          # the hold after each beat (Lecture.beat)
+# The teaching pace, as pocket_lecture.PACES has it (PANIM_PACE): voice speed, the hold after each line, the
+# hold at a paragraph's end. Kept here too so a lint-only install needs no engine.
+PACES = {"relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "relaxed"), PACES["relaxed"])
+WORD_SECONDS = 0.42 / VOICE_SPEED     # about 143 words a minute at normal speed: pocket_lecture.estimate_seconds
+THINK_SECONDS = 5.0                   # a question's time to think (pocket_lecture.THINK_SECONDS)
+MAX_PAUSE = 8.0                       # a beat's "pause", at most
 
 
 def _say_seconds(text: str) -> float:
     return max(1.2, len(str(text).split()) * WORD_SECONDS) + BEAT_PAD
 
 
+def _think_seconds(op: dict) -> float:
+    try:
+        return min(15.0, max(2.0, float(op.get("think", THINK_SECONDS))))
+    except (TypeError, ValueError):
+        return THINK_SECONDS
+
+
+def _pause(beat: dict) -> float:
+    try:
+        return min(MAX_PAUSE, max(0.0, float(beat.get("pause") or 0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _beat_seconds(beats: list) -> float:
+    """The chapter's beats: their lines, the longer pause closing each paragraph, questions' time to think."""
+    seconds = sum(_say_seconds(b.get("say", "")) + _pause(b) for b in beats)
+    seconds += (PARAGRAPH_PAD - BEAT_PAD) * len(paragraphs(beats))
+    seconds += sum(_think_seconds(op) for b in beats for op in b.get("do") or [] if op.get("op") == "question")
+    return seconds
+
+
 def estimate_minutes(script: dict) -> float:
-    """How long the lecture will run: narration at speaking pace plus cards, map draws and fades."""
+    """How long the lecture will run: narration at speaking pace, its pauses, plus cards, map draws and fades."""
     seconds = 0.0
     if script.get("title"):
         seconds += _say_seconds(script.get("intro") or script["title"]) + 1.6
     for chapter in script.get("chapters") or []:
         seconds += _say_seconds(chapter.get("narration", "")) + 0.8 + 1.4 + 1.0     # card, map, outro
-        seconds += sum(_say_seconds(b.get("say", "")) for b in chapter.get("beats") or [])
+        seconds += _beat_seconds(chapter.get("beats") or [])
     for head, body in script.get("recap") or []:
         seconds += _say_seconds(f"{head}. {body}")
     if script.get("credits"):
@@ -253,15 +281,22 @@ def lint(script: dict, min_minutes: float | None = None) -> tuple[list[str], lis
     e, w = _text_heavy(script)
     errors += e
     warnings += w
+    e, w = _teaching(script)
+    # A written lecture (one given a length to reach) must teach; elsewhere (an offline test script, a hand-made
+    # one) the same checks are advice.
+    errors += e if min_minutes else []
+    warnings += w + ([] if min_minutes else e)
     minutes = estimate_minutes(script)
     if min_minutes and chapters and minutes < min_minutes * 0.85:
         beats = sum(len(c.get("beats") or []) for c in chapters)
         words = sum(len(str(b.get("say", "")).split()) for c in chapters for b in c.get("beats") or [])
         need = int((min_minutes * 60 - (minutes * 60 - words * WORD_SECONDS)) / WORD_SECONDS) - words
         errors.append(f"the lecture runs about {minutes:.1f} min ({beats} beats, {words} words of narration); "
-                      f"it must run at least {min_minutes:g} min. Add about {max(need, 50)} more words of narration: "
-                      "more beats in each chapter and more chapters, each beat a new fact from the content, "
-                      "not repetition. Keep every existing beat that is right.")
+                      f"it must run at least {min_minutes:g} min. Add about {max(need, 50)} more words of narration "
+                      "by teaching in more depth: after each statement from the content, explain what it means in "
+                      "easy words, give two or three examples from daily life, explain every hard term, add what "
+                      "a student should also know beyond the book, say the key idea again in other words, and "
+                      "ask the class a question. Keep every existing beat that is right.")
     return errors, warnings
 
 
@@ -308,10 +343,13 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
 
 
 KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
-# Built on the stage: several pictures at once, diagrams of SVG drawings, a word and its meaning, a comparison.
-BUILD_OPS = {"gallery", "diagram", "define", "compare"}
-# The next step of what is already on the stage: more of a diagram, or a ring around one of its nodes.
-STEP_OPS = {"reveal", "focus"}
+# Built on the stage: several pictures at once, diagrams of SVG drawings, a word and its meaning, a comparison,
+# a question for the class.
+BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"}
+# The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
+# to the question.
+STEP_OPS = {"reveal", "focus", "answer"}
+QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
 
@@ -370,6 +408,20 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if unknown:
             return f"diagram show: no node {unknown[0]!r}"
         diagrams[key] = ids
+    if kind == "question":
+        choices = op.get("choices") or []
+        if not str(op.get("text") or "").strip():
+            return "'question' needs text: the question, in the lecture's language"
+        if not isinstance(choices, list) or len(choices) == 1 or len(choices) > 4:
+            return "question choices must be 2-4 short answers, or left out for an open question"
+        if choices and op.get("answer") is not None and _answer_index(op) is None:
+            return (f"question answer {op['answer']!r} is not one of its choices; give the right choice's "
+                    "letter (\"B\") or its text")
+        diagrams[QUESTION] = []
+    if kind == "answer":
+        if QUESTION not in diagrams:
+            return "'answer' needs a question asked earlier in this chapter (with its answer)"
+        return None
     if kind in STEP_OPS:
         key = str(op.get("diagram") or "")
         if key not in diagrams:
@@ -384,6 +436,23 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if not 2 <= len(columns) <= 3 or not all(isinstance(c, dict) and c.get("title") for c in columns):
             return "'compare' needs 2-3 columns, each {title, entity?, points: [up to 4 short lines]}"
     return None
+
+
+def _answer_index(op: dict) -> int | None:
+    """The right choice of a question with choices: its answer as a letter (A-D), a 1-based number or the
+    choice's own text. None when it names no choice."""
+    choices = [str(c).strip() for c in op.get("choices") or []]
+    answer = op.get("answer")
+    if answer is None or not choices:
+        return None
+    if isinstance(answer, int) and not isinstance(answer, bool):
+        return answer - 1 if 1 <= answer <= len(choices) else None
+    text = str(answer).strip()
+    letter = re.fullmatch(r"\(?([A-Da-d])[).]?", text)
+    if letter and "ABCD".index(letter.group(1).upper()) < len(choices):
+        return "ABCD".index(letter.group(1).upper())
+    lowered = [c.lower() for c in choices]
+    return lowered.index(text.lower()) if text.lower() in lowered else None
 
 
 def _kit_problem(op: dict) -> str | None:
@@ -492,7 +561,7 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
     warnings = [f"figure {op.get('id')} is a QR code or logo, not a diagram; drop it"
                 for b in beats for op in b.get("do") or []
                 if op.get("op") == "figure" and NOT_A_FIGURE.search(str((figures.get(str(op.get("id"))) or {}).get("caption", "")))]
-    fresh = [b for b in beats if {op.get("op") for op in b.get("do") or []} & (VISUAL_OPS - {"process", "quote"})]
+    fresh = [b for b in beats if {op.get("op") for op in b.get("do") or []} & (VISUAL_OPS - {"process", "quote", "question"})]
     if len(beats) >= 8 and len(fresh) > len(beats) * 0.6:
         warnings.append(f"{len(fresh)} of {len(beats)} beats put up a new picture: that is a picture a sentence. "
                         "Plan the stage a paragraph (3-5 beats) at a time: one diagram revealed across the "
@@ -503,6 +572,42 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
                 "even in a Hindi lecture), a photo (find_image) or a document figure. Keep process for at most "
                 "two real sequences per chapter."], warnings
     return [], warnings
+
+
+# Words a line gives an example or a comparison with, in English and Hindi.
+EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|e\.g\.|imagine|such as|think of|just like|like when|suppose|"
+                           r"say you|picture this)\b|जैसे|उदाहरण|मान लो|मान लीजिए|मान लें|कल्पना|सोचो|सोचिए", re.I)
+
+
+def _teaching(script: dict) -> tuple[list[str], list[str]]:
+    """A lecture that teaches rather than recites: questions for the class between topics, examples."""
+    errors, warnings = [], []
+    chapters = script.get("chapters") or []
+    beats = [b for c in chapters for b in c.get("beats") or []]
+    if len(beats) < 12:
+        return errors, warnings
+    asked = [op for b in beats for op in b.get("do") or [] if op.get("op") == "question"]
+    if not asked:
+        errors.append("the lecture asks the class no questions. Between topics, put a question on the stage "
+                      '({"op":"question","text":"...","choices":["...","..."],"answer":"B"}), leave time to think, '
+                      'then answer it on the next beat ({"op":"answer"}) and explain why: at least one per chapter.')
+    for ci, chapter in enumerate(chapters, 1):
+        ops = [op for b in chapter.get("beats") or [] for op in b.get("do") or []]
+        if asked and len(chapter.get("beats") or []) >= 6 and not any(op.get("op") == "question" for op in ops):
+            warnings.append(f"chapter {ci}: no question for the class; ask one after its main idea")
+        if any(op.get("op") == "question" and op.get("answer") is not None for op in ops) and \
+                not any(op.get("op") == "answer" for op in ops):
+            warnings.append(f"chapter {ci}: a question's answer is never shown; add {{\"op\":\"answer\"}} to the "
+                            "beat after it that explains the answer")
+    lang_text = " ".join(str(b.get("say", "")) for b in beats)
+    letters = [c for c in lang_text if c.isalpha()]
+    known = letters and sum(c.isascii() or "ऀ" <= c <= "ॿ" for c in letters) / len(letters) > 0.8
+    examples = sum(bool(EXAMPLE_WORDS.search(str(b.get("say", "")))) for b in beats)
+    if known and examples < max(2, len(beats) // 15):
+        errors.append(f"only {examples} of {len(beats)} beats give an example. Teach every idea with examples "
+                      "from a student's daily life (\"for example...\", \"imagine...\", \"जैसे...\"): two or three for "
+                      "each important statement, in beats of their own.")
+    return errors, warnings
 
 
 # ---------------- no icons: illustrations, diagrams, markers and words instead ----------------
@@ -1022,6 +1127,15 @@ def _op_call(op: dict) -> str:
     if kind == "define":
         entity = f", entity={_q(op['entity'])}" if op.get("entity") else ""
         return f"self.define({_q(op['term'])}, {_q(op['meaning'])}{entity})"
+    if kind == "question":
+        choices = [str(c) for c in op.get("choices") or []][:4]
+        answer = _answer_index(op) if choices else (str(op["answer"]) if op.get("answer") else None)
+        extra = f", {choices!r}" if choices else ""
+        extra += f", answer={answer!r}" if answer is not None else ""
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return f"self.question({_q(op['text'])}{extra}{title})"
+    if kind == "answer":
+        return "self.answer()"
     if kind == "compare":
         columns = [{"title": str(c["title"]), "points": [str(p) for p in (c.get("points") or [])][:4],
                     **({"entity": str(c["entity"])} if c.get("entity") else {})} for c in op["columns"]]
@@ -1095,6 +1209,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out.append("        self.show_map()" if on_map else "        self.add_panel()")
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
         staged = False
+        # A paragraph ends with a longer pause, so an idea settles before the next begins.
+        closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
             ops = list(beat.get("do") or [])
             if bi < len(fills) and fills[bi]:
@@ -1113,7 +1229,14 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
             calls += [call for call in (_op_call(op) for op in ops) if call]
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
-            out.append(f"        self.beat({_q(beat['say'])}{args}{rt})")
+            pad = "PARAGRAPH_PAD" if bi in closing else ""
+            if _pause(beat):
+                pad = f"{pad or 'BEAT_PAD'} + {_pause(beat):g}"
+            pad = f", pad={pad}" if pad else ""
+            out.append(f"        self.beat({_q(beat['say'])}{args}{rt}{pad})")
+            for op in ops:
+                if op.get("op") == "question":
+                    out.append(f"        self.think({_think_seconds(op):g})")
         out.append("        self.outro_fade()")
     if script.get("recap"):
         out += ["", "        # Recap"]

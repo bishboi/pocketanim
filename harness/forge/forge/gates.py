@@ -118,7 +118,7 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 for spot in op.get("places") or []:
                     if not _resolvable(spot, job):
                         errors.append(_err("schema", chapter["id"], bid, f"icon: cannot find {spot!r} on the map", True))
-            if name in ("gallery", "diagram", "reveal", "focus", "define") or (name == "compare" and op.get("columns")):
+            if name in ("gallery", "diagram", "reveal", "focus", "define", "question") or (name == "compare" and op.get("columns")):
                 import sys as _sys
 
                 from forge.util import LECTURE
@@ -164,7 +164,9 @@ def schema_gate(job, template, style, chapter, script, facts):
     # Merge a too-short beat into the next, carrying its operations.
     merged = []
     for beat in beats:
-        if merged and words(merged[-1]["say"]) < budget["min"] and len(merged[-1]["do"]) + len(beat["do"]) <= 6:
+        # A question keeps its own beat: merged into the next, its answer would show before the time to think.
+        asks = any(op.get("op") == "question" for op in (merged[-1]["do"] if merged else []) + beat["do"])
+        if merged and not asks and words(merged[-1]["say"]) < budget["min"] and len(merged[-1]["do"]) + len(beat["do"]) <= 6:
             merged[-1] = {**merged[-1], "say": f"{merged[-1]['say']} {beat['say']}", "do": merged[-1]["do"] + beat["do"]}
         else:
             merged.append(dict(beat))

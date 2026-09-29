@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
-    // A lecture is voiced by Kokoro-82M: fetch it first if this machine lacks it.
+    // A lecture is voiced by Chirp 3 HD with a Google key, else by Kokoro-82M: fetch that first if missing.
     if (/pocket_lecture/.test(source)) await ensureKokoro();
     const { result, buildDir } = await exportScene(source, sceneClass);
     const frames =
@@ -53,8 +53,11 @@ export async function POST(request: NextRequest) {
     if (!narrationUrl && /pocket_lecture/.test(source)) {
       const engine = voiceEngine();
       voiceWarning = engine === "none"
-        ? "This lecture has no audio: Kokoro-82M could not be downloaded (are you offline?). Click download " +
-          "next to Voice at the top, or run harness/scripts/fetch_voice.py, then build again."
+        ? "This lecture has no audio: no voice is set up. Set GOOGLE_TTS_API_KEY for Google Chirp 3 HD, or " +
+          "click download next to Voice at the top (Kokoro-82M), then build again."
+        : engine === "chirp"
+        ? "This lecture has no audio: Google Chirp 3 HD refused the lines (check the key, and that the Cloud " +
+          "Text-to-Speech API is enabled for its project; the dev server log has Google's message)."
         : `This lecture has no audio although ${engine} is installed. Check the dev server log for the voice error.`;
     }
 

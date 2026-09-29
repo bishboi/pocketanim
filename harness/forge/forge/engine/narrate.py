@@ -2,8 +2,8 @@
 
 The scene engine looks a line's audio up by a hash of its voice and its
 spoken text (pocket_lecture.narrate). This stage fills that cache for every
-line the compiled scenes will say -- Kokoro in batches when it can run,
-espeak-ng in parallel otherwise -- so the renders never wait on a voice and a
+line the compiled scenes will say -- Google's Chirp 3 HD when a Google key is
+set, Kokoro in batches when it can run, espeak-ng otherwise -- so the renders never wait on a voice and a
 revised job re-speaks only the lines that changed.
 
 It also writes timeline.json (each line's measured seconds, each chapter's
@@ -12,7 +12,6 @@ runtime against its share of the target) and runs the phoneme audit.
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import os
@@ -29,7 +28,7 @@ from forge.util import REPO, write_json
 
 KOKORO_SCRIPT = REPO / "harness" / "scripts" / "kokoro_speak.py"
 KOKORO_WEIGHTS = REPO / "harness" / "models" / "kokoro-v1.0.onnx"
-PAD = 0.45           # the hold after each beat (Lecture.beat's pad)
+CHIRP_THREADS = 6    # Chirp lines in flight at once (each is one request)
 BATCH = 40
 
 
@@ -51,7 +50,8 @@ def ensure_kokoro() -> bool:
 
 
 def voice_mode(style: dict) -> str:
-    """The PANIM_VOICE value for this style: kokoro:<voice> (Kokoro-82M), espeak or silent.
+    """The PANIM_VOICE value for this style: chirp:<voice> (Google Chirp 3 HD), kokoro:<voice> (Kokoro-82M),
+    espeak or silent.
 
     FORGE_VOICE in the environment wins (a test run can force espeak).
     """
@@ -61,7 +61,12 @@ def voice_mode(style: dict) -> str:
     voice = style.get("voice") or {}
     engine = voice.get("engine", "auto")
     espeak = bool(shutil.which("espeak-ng") or shutil.which("espeak"))
-    if engine in ("kokoro", "auto") and ensure_kokoro():
+    import chirp
+
+    if engine in ("chirp", "auto") and chirp.configured():
+        name = os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp") or chirp.voice_for(style.get("engine_theme"))
+        return f"chirp:{name}"
+    if engine in ("kokoro", "auto", "chirp") and ensure_kokoro():
         return f"kokoro:{voice.get('name', 'af_sarah')}"
     if engine == "silent":
         return "silent"
@@ -74,7 +79,10 @@ def _seconds(path: Path) -> float:
 
 
 def _cache_path(folder: Path, mode: str, spoken: str) -> Path:
-    return folder / f"{hashlib.md5(f'{mode}|{spoken}'.encode()).hexdigest()[:12]}.wav"
+    """The engine's own cache file for the line (pocket_lecture.audio_file), in this job's audio folder."""
+    import pocket_lecture as pl
+
+    return folder / pl.audio_file(mode, spoken).name
 
 
 def _finish(raw: Path, out: Path) -> None:
@@ -92,7 +100,10 @@ def _kokoro_batch(job, voice: str, todo: list[tuple[str, Path]], lang: str = "en
     for start in range(0, len(todo), BATCH):
         chunk = todo[start:start + BATCH]
         out = scratch / f"b{start:04d}.wav"
-        request = json.dumps({"voice": voice, "lines": [s for s, _ in chunk], "out": str(out), "lang": lang})
+        import pocket_lecture as pl
+
+        request = json.dumps({"voice": voice, "lines": [s for s, _ in chunk], "out": str(out), "lang": lang,
+                              "speed": pl.VOICE_SPEED})
         try:
             result = subprocess.run([sys.executable, str(KOKORO_SCRIPT)], input=request, capture_output=True,
                                     text=True, timeout=1800)
@@ -153,6 +164,11 @@ def narrate_job(job, template: dict, style: dict) -> dict:
                 own = voice if voice.startswith(lang[0]) else pl.KOKORO_VOICES[lang]
                 failed |= set(_kokoro_batch(job, own, group, lang))
         left = [(s, p) for s, p in left if s in failed]
+    if left and mode.startswith("chirp"):
+        # One request a line, several at once; the engine writes the cache (and falls back per line).
+        with ThreadPoolExecutor(max_workers=CHIRP_THREADS) as pool:
+            list(pool.map(lambda item: pl.narrate(said[item[0]]), left))
+        left = []
     if left:
         # espeak through the engine's own path, which writes the same cache
         # file name for this mode.
@@ -180,7 +196,7 @@ def narrate_job(job, template: dict, style: dict) -> dict:
                 seconds = pl.estimate_seconds(spoken)
                 path = None
             rows.append({"text": line, "seconds": round(seconds, 3), "wav": str(path) if path else None})
-        estimate = sum(r["seconds"] + PAD for r in rows) + 3.0      # cards, map draw, fades
+        estimate = sum(r["seconds"] + pl.BEAT_PAD for r in rows) + 3.0      # cards, map draw, fades
         timeline["chapters"].append({"id": chapter["id"], "title": chapter["title"], "lines": rows,
                                      "seconds": round(estimate, 1), "target_seconds": chapter["target_seconds"]})
         timeline["total_seconds"] += estimate

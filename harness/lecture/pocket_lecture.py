@@ -445,19 +445,23 @@ def _espeak_binary() -> str | None:
 
 
 def voice_mode() -> str:
-    """The voice lines are actually spoken in: kokoro:<voice>, espeak or silent.
+    """The voice lines are actually spoken in: chirp:<voice>, kokoro:<voice>, espeak or silent.
 
-    PANIM_VOICE asks for one: `auto` (the default) is Kokoro when it is ready,
-    else espeak-ng when installed, else silent; `kokoro[:voice]` falls back the
-    same way. The answer is part of each line's cache key, so installing a
-    better voice re-speaks lines an older one cached.
+    PANIM_VOICE asks for one: `auto` (the default) is Google's Chirp 3 HD when a Google key is set
+    (chirp.py), else Kokoro when it is ready, else espeak-ng when installed, else silent; `chirp[:voice]`
+    and `kokoro[:voice]` fall back the same way. The answer is part of each line's cache key, so a better
+    voice re-speaks lines an older one cached.
     """
+    import chirp
+
     mode = os.environ.get("PANIM_VOICE", "auto")
     if mode == "silent":
         return "silent"
-    if mode in ("auto", "kokoro") or mode.startswith("kokoro:"):
+    if (mode in ("auto", "chirp") or mode.startswith("chirp:")) and chirp.configured():
+        return f"chirp:{mode.split(':', 1)[1] if ':' in mode else chirp.voice_for(STYLE)}"
+    if mode in ("auto", "kokoro", "chirp") or mode.startswith(("kokoro:", "chirp:")):
         if kokoro_ready():
-            voice = mode.split(":", 1)[1] if ":" in mode else STYLE_VOICES.get(STYLE, "af_sarah")
+            voice = mode.split(":", 1)[1] if mode.startswith("kokoro:") else STYLE_VOICES.get(STYLE, "af_sarah")
             return f"kokoro:{voice}"
     return "espeak" if _espeak_binary() else "silent"
 
@@ -481,6 +485,13 @@ def _finish(raw: Path, out: Path, echo: bool = False) -> None:
     raw.unlink(missing_ok=True)
 
 
+def audio_file(mode: str, spoken: str) -> Path:
+    """Where a line spoken in `mode` is cached: named by the voice, its speed and the words (Forge's
+    narrate stage fills the same files ahead of the render)."""
+    key = f"{mode}|{spoken}" if VOICE_SPEED == 1.0 else f"{mode}|{VOICE_SPEED:g}|{spoken}"
+    return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"
+
+
 def narrate(text: str) -> tuple[str | None, float]:
     """(wav path or None, seconds) for one line, cached by its voice and spoken text.
 
@@ -492,14 +503,28 @@ def narrate(text: str) -> tuple[str | None, float]:
     mode = voice_mode()
     if mode == "silent":
         return None, estimate_seconds(spoken)
-    key = f"{mode}|{spoken}" if VOICE_SPEED == 1.0 else f"{mode}|{VOICE_SPEED:g}|{spoken}"
-    digest = hashlib.md5(key.encode()).hexdigest()[:12]
-    out = audio_dir() / f"{digest}.wav"
+    out = audio_file(mode, spoken)
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
 
     lang = spoken_lang(spoken)
     raw = out.with_name(out.stem + "_raw.wav")
+    if mode.startswith("chirp:"):
+        import chirp
+
+        try:
+            raw.write_bytes(chirp.synthesize(spoken, mode.split(":", 1)[1], lang, VOICE_SPEED))
+            _finish(raw, out)
+            return str(out), _wav_seconds(out)
+        except Exception as error:  # noqa: BLE001 -- fall through to Kokoro, espeak or silence
+            print(f"pocket_lecture: Chirp could not speak ({error}); trying Kokoro", file=sys.stderr)
+            raw.unlink(missing_ok=True)
+            # Cached under the voice that really spoke, so Chirp is tried again for this line next time.
+            mode = f"kokoro:{STYLE_VOICES.get(STYLE, 'af_sarah')}" if kokoro_ready() else "espeak"
+            out = audio_file(mode, spoken)
+            raw = out.with_name(out.stem + "_raw.wav")
+            if out.exists() and out.stat().st_size > 44:
+                return str(out), _wav_seconds(out)
     if mode.startswith("kokoro:"):
         voice = mode.split(":", 1)[1]
         if lang != "en" and not voice.startswith(lang[0]):

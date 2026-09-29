@@ -75,7 +75,8 @@ export async function speak(source: string, templateId: string): Promise<VoiceRe
   mkdirSync(dir, { recursive: true });
   const audioPath = path.join(dir, `narration-${Date.now()}.wav`);
   const voice = templateById(templateId).voice;
-  const { stdout, stderr } = await runKokoro({ voice, lines, out: audioPath });
+  // Chirp 3 HD speaks when a Google key is set (the style picks its voice); Kokoro otherwise.
+  const { stdout, stderr } = await runKokoro({ voice, lines, out: audioPath, style: templateById(templateId).style });
   const line = stdout.trim().split("\n").pop() || "";
   let data: { ok?: boolean; durations?: number[]; files?: string[]; out?: string; error?: string } = {};
   try {

@@ -71,6 +71,9 @@ Put your keys in `.env.local`. All of them are optional.
 
 | Key | What it does |
 |---|---|
+| `GOOGLE_TTS_API_KEY` | The narration voice: Google's **Chirp 3 HD**. An API key from a Google Cloud project with the *Cloud Text-to-Speech API* enabled (console.cloud.google.com → APIs & Services → enable "Cloud Text-to-Speech API" → Credentials → Create credentials → API key). Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file and `pip install google-auth`. Without either, Kokoro-82M speaks. |
+| `PANIM_CHIRP_VOICE` | One Chirp 3 HD voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
+| `PANIM_CHIRP_LANG` | The accent English lines are spoken in: `en-US` (default), `en-IN`, `en-GB`. Hindi lines are always `hi-IN`. |
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
 | `OPENROUTER_MODEL` | Which model writes them. |
 | `PANIM_REASONING_EFFORT` | How hard the model thinks before writing: `low` (the default: quicker and cheaper), `minimal`, `medium` or `high`; `off` leaves it to the model. Used by the editor and by Forge. |
@@ -97,9 +100,10 @@ The app also downloads the voice by itself before the first lecture that needs i
 | You see | Cause | Fix |
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
-| A silent video | No voice installed | `fetch_voice.py`, or the button next to Voice |
+| A silent video | No voice set up | set `GOOGLE_TTS_API_KEY` (Chirp 3 HD), or `fetch_voice.py` / the button next to Voice (Kokoro) |
+| The voice is Kokoro although a Google key is set | Google refused the requests: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |
 | `FileNotFoundError: [Errno 2] No such file or directory: 'latex'` | A scene uses `MathTex`, `Tex` or axis numbers, LaTeX is not installed, and the scene was run without the harness's fallback (plain `manim render`, or an older checkout) | update to this version: the app and Forge draw these as plain text without LaTeX; for your own runs use `.venv/bin/python harness/scripts/manim_render.py render ...` instead of `manim render ...`. Or install LaTeX (above) for real typesetting |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `texttospeech.googleapis.com` (the Chirp voice) |

@@ -1,4 +1,4 @@
-"""Speak narration lines with Kokoro and write one wav.
+"""Speak narration lines and write one wav: Google Chirp 3 HD when a Google key is set, else Kokoro.
 
 Reads a JSON object on stdin:
     {"voice": "af_sarah", "lines": ["First sentence.", "Second."], "out": "/tmp/narration.wav"}
@@ -65,6 +65,43 @@ def espeak_lines(lines: list[str], out: Path, espeak_voice: str = "en-gb") -> di
             "out": str(out)}
 
 
+def chirp_lines(lines: list[str], out: Path, job: dict) -> dict | None:
+    """The same result from Google's Chirp 3 HD when a Google key is set (harness/lecture/chirp.py); None
+    when it is not set, or when a line fails (then Kokoro speaks them all, so one voice runs through)."""
+    import wave
+
+    sys.path.insert(0, str(ROOT / "harness" / "lecture"))
+    import chirp
+
+    if not chirp.configured():
+        return None
+    voice = str(job.get("chirp_voice") or chirp.voice_for(job.get("style")))
+    lang = "hi" if str(job.get("lang") or "").startswith("hi") else "en"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    files, durations, frames = [], [], []
+    rate = chirp.SAMPLE_RATE
+    try:
+        for index, line in enumerate(lines):
+            part = out.with_name(f"{out.stem}-{index:03d}.wav")
+            part.write_bytes(chirp.synthesize(line, voice, lang, float(job.get("speed") or 1.0)))
+            with wave.open(str(part)) as handle:
+                rate = handle.getframerate()
+                data = handle.readframes(handle.getnframes())
+                durations.append(round(handle.getnframes() / rate, 2))
+            frames.append(b"\x00\x00" * int(rate * 0.55) + data)
+            files.append(str(part))
+    except Exception as error:  # noqa: BLE001 -- Kokoro speaks instead
+        print(f"kokoro_speak: Chirp failed ({error}); using Kokoro", file=sys.stderr)
+        return None
+    with wave.open(str(out), "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(b"".join(frames))
+    return {"ok": True, "engine": "chirp", "sample_rate": rate, "durations": durations, "files": files,
+            "out": str(out)}
+
+
 def fallback(lines: list[str], out: Path, reason: str, lang: str = "en-us") -> int:
     result = espeak_lines(lines, out, "hi" if lang.startswith("hi") else "en-gb")
     if result is None:
@@ -98,6 +135,10 @@ def main() -> int:
 
     out = Path(str(job.get("out") or "/tmp/pocketanim-narration.wav"))
     lang = str(job.get("lang") or "en-us")
+    spoken = chirp_lines(lines, out, job)
+    if spoken is not None:
+        print(json.dumps(spoken))
+        return 0
     try:
         import numpy as np
         import soundfile as sf
@@ -126,7 +167,7 @@ def main() -> int:
     sample_rate = 24000
     out.parent.mkdir(parents=True, exist_ok=True)
     for index, line in enumerate(lines):
-        samples, sample_rate = kokoro.create(line, voice=voice, speed=1.0, lang=lang)
+        samples, sample_rate = kokoro.create(line, voice=voice, speed=float(job.get("speed") or 1.0), lang=lang)
         samples = np.asarray(samples, dtype=np.float32)
         gap = np.zeros(int(sample_rate * 0.55), dtype=np.float32)
         chunks.append(gap)

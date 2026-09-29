@@ -39,8 +39,16 @@ function which(binary: string): boolean {
   }
 }
 
-/** What a lecture is spoken with: Kokoro, espeak-ng, or nothing (a silent video). */
-export function voiceEngine(): "kokoro" | "espeak" | "none" {
+/** Google's Chirp 3 HD can speak here: an API key, or service-account credentials (harness/lecture/chirp.py). */
+export function chirpConfigured(): boolean {
+  if (process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY) return true;
+  const file = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  return !!file && existsSync(file);
+}
+
+/** What a lecture is spoken with: Chirp 3 HD, Kokoro, espeak-ng, or nothing (a silent video). */
+export function voiceEngine(): "chirp" | "kokoro" | "espeak" | "none" {
+  if (chirpConfigured() && process.env.PANIM_VOICE !== "kokoro") return "chirp";
   const models = path.join(REPO, "harness", "models");
   const weights = ["kokoro-v1.0.onnx", "voices-v1.0.bin"].every((f) => {
     try {
@@ -83,6 +91,8 @@ function fetchOnce(script: string, ready: () => boolean, args: string[] = []): P
  * fetched (offline), and espeak-ng speaks instead.
  */
 export function ensureKokoro(): Promise<boolean> {
+  // With Chirp speaking, Kokoro is only its fallback: fetched if missing, but not waited on here.
+  if (chirpConfigured()) return Promise.resolve(true);
   return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
 }
 
@@ -107,11 +117,12 @@ export function resources(): Resource[] {
   const voice = voiceEngine();
   const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
   return [
-    { id: "voice", label: "Voice", ready: voice === "kokoro",
-      detail: voice === "kokoro" ? "Kokoro-82M" : voice === "espeak"
-        ? "espeak-ng only (robotic); download Kokoro-82M (350 MB); it is also fetched on the next lecture build"
-        : "NONE: lecture videos will be silent. Download Kokoro-82M (350 MB)",
-      install: voice === "kokoro" ? undefined : "voice" },
+    { id: "voice", label: "Voice", ready: voice === "chirp" || voice === "kokoro",
+      detail: voice === "chirp" ? "Google Chirp 3 HD (Kokoro-82M if a request fails)"
+        : voice === "kokoro" ? "Kokoro-82M (set GOOGLE_TTS_API_KEY for Google Chirp 3 HD)" : voice === "espeak"
+        ? "espeak-ng only (robotic); set GOOGLE_TTS_API_KEY for Chirp 3 HD, or download Kokoro-82M (350 MB)"
+        : "NONE: lecture videos will be silent. Set GOOGLE_TTS_API_KEY for Chirp 3 HD, or download Kokoro-82M (350 MB)",
+      install: voice === "chirp" || voice === "kokoro" ? undefined : "voice" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
         : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },

@@ -127,6 +127,37 @@ function lectureUserPrompt(request: GenerateRequest): string {
 }
 
 /**
+ * A lecture script the model put in its reply text instead of calling write_lecture: the bare script, a
+ * {"script": …} object, or a tool call written out as text, with or without a code fence. Null when the text
+ * holds no such JSON (or it was cut off before it closed).
+ */
+export function scriptFromText(text: string): Record<string, unknown> | null {
+  const fenced = text.match(/```(?:json)?\s*\n([\s\S]*?)```/);
+  const body = fenced ? fenced[1] : text;
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const dig = (value: unknown, depth = 0): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object" || depth > 3) return null;
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj.chapters)) return obj;
+    for (const key of ["script", "arguments", "parameters", "input"]) {
+      const inner = typeof obj[key] === "string" ? (() => { try { return JSON.parse(obj[key] as string); } catch { return null; } })() : obj[key];
+      const found = dig(inner, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  return dig(parsed);
+}
+
+/**
  * The model often writes a sentence before the file ("I cannot write a
  * file…"). Export then fails on line 1. Keep from the first Manim import.
  */
@@ -237,7 +268,7 @@ async function streamCompletion(
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -387,7 +418,7 @@ async function completionWithRetry(
   emit: (event: AgentEvent) => void,
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
-): Promise<{ message: ChatMessage; usage?: Usage }> {
+): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
     try {
       const result = await streamCompletion(key, model, messages, onDelta, tools);
@@ -483,6 +514,15 @@ async function viaOpenRouter(
   let outputTokens = 0;
   let costUsd = 0;
 
+  // How every lecture script is compiled, whether it came by the tool or in the reply text.
+  const lectureOptions = () => ({
+    style,
+    genre: subject?.genre,
+    minMinutes: minutes,
+    figures: doc ? scriptFigures(doc) : undefined,
+    sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
+  });
+  let nudges = 0;
   for (let turn = 0; turn < 40; turn++) {
     if (stopped()) {
       const done = savedScene();
@@ -517,7 +557,7 @@ async function viaOpenRouter(
         });
       }
     }, 8000);
-    let result: { message: ChatMessage; usage?: Usage };
+    let result: { message: ChatMessage; usage?: Usage; finishReason?: string };
     try {
       result = await completionWithRetry(key, model, messages, emit, (kind, text) => {
         sawDelta = true;
@@ -566,6 +606,36 @@ async function viaOpenRouter(
 
     const text = result.message.content?.trim() ?? "";
     const calls = result.message.tool_calls ?? [];
+    if (calls.length === 0 && lecture && !/from manim import/.test(scene)) {
+      // The model wrote the lecture into its reply instead of calling write_lecture (or stopped short). The
+      // script is compiled as if it had called the tool; otherwise it is asked, twice at most, to call it.
+      const typed = scriptFromText(text);
+      let nudge: string | null = null;
+      if (typed) {
+        emit({ type: "message", role: "status", text: "The model sent the script as text; compiling it as write_lecture." });
+        const compiled = await compileLecture(typed, lectureOptions());
+        if (compiled.source) {
+          emit({ type: "tool_result", name: "write_lecture", text: [
+            `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
+            ...compiled.warnings.map((w) => `warning: ${w}`)].join("\n") });
+          return { source: compiled.source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
+        }
+        nudge = ["You put the script in your reply. Call the write_lecture tool with it instead, after fixing these:",
+          ...compiled.errors].join("\n");
+      } else if (result.finishReason === "length") {
+        nudge = "Your reply was cut off before it finished. Call the write_lecture tool with the whole script (the tool call " +
+          "carries it; do not write it in the reply). Keep each chapter to 8-12 beats.";
+      } else {
+        nudge = "Call the write_lecture tool with the whole beat script. Do not put the script in your reply text.";
+      }
+      if (nudges < 2) {
+        nudges += 1;
+        emit({ type: "message", role: "status", text: "Asking the model to call write_lecture." });
+        messages.push({ role: "assistant", content: result.message.content ?? "" });
+        messages.push({ role: "user", content: nudge });
+        continue;
+      }
+    }
     if (calls.length === 0) {
       const source = /from manim import/.test(scene) ? (scene.endsWith("\n") ? scene : `${scene}\n`) : extractScene(text);
       return { source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
@@ -595,13 +665,7 @@ async function viaOpenRouter(
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
       let output: string;
       if (call.function.name === "write_lecture") {
-        const compiled = await compileLecture(args.script ?? {}, {
-          style,
-          genre: subject?.genre,
-          minMinutes: minutes,
-          figures: doc ? scriptFigures(doc) : undefined,
-          sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
-        });
+        const compiled = await compileLecture(args.script ?? {}, lectureOptions());
         if (compiled.source) {
           scene = compiled.source;
           output = [

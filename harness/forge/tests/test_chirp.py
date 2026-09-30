@@ -165,3 +165,41 @@ def test_a_refused_key_says_how_to_sign_in(google):
     google.update(fail=True, status=401, message="API keys are not supported by this API. Expected OAuth2 access token")
     with pytest.raises(RuntimeError, match="gcloud auth application-default login"):
         chirp.synthesize("Hello.")
+
+
+def test_the_quota_project_comes_from_gcloud_when_the_login_has_none(google, monkeypatch, tmp_path):
+    """A new `gcloud auth application-default login` forgets set-quota-project: gcloud's own project is used."""
+    folder = tmp_path / "gcloud"
+    (folder / "configurations").mkdir(parents=True)
+    (folder / "application_default_credentials.json").write_text(json.dumps({
+        "type": "authorized_user", "client_id": "cid", "client_secret": "secret", "refresh_token": "refresh"}))
+    (folder / "active_config").write_text("work")
+    (folder / "configurations" / "config_work").write_text("[core]\nproject = parikshanai\naccount = a@b.c\n")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(folder))
+    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_URL", google["token_url"])
+    for name in ("GOOGLE_CLOUD_QUOTA_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"):
+        monkeypatch.delenv(name, raising=False)
+    chirp._token.update(value=None, expires=0.0, quota=None)
+    chirp.synthesize("Hello.", "Charon")
+    headers = {k.lower(): v for k, v in google["headers"][-1].items()}
+    assert headers["x-goog-user-project"] == "parikshanai"
+    monkeypatch.setenv("GOOGLE_CLOUD_QUOTA_PROJECT", "other")           # the setting wins
+    assert chirp.quota_project() == "other"
+    chirp._token.update(value=None, expires=0.0, quota=None)
+
+
+def test_a_missing_quota_project_says_how_to_set_it(google, monkeypatch, tmp_path):
+    folder = tmp_path / "gcloud"
+    folder.mkdir()
+    (folder / "application_default_credentials.json").write_text(json.dumps({
+        "type": "authorized_user", "client_id": "cid", "client_secret": "secret", "refresh_token": "refresh"}))
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(folder))
+    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_URL", google["token_url"])
+    for name in ("GOOGLE_CLOUD_QUOTA_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"):
+        monkeypatch.delenv(name, raising=False)
+    chirp._token.update(value=None, expires=0.0, quota=None)
+    google.update(fail=True, status=403, message="The texttospeech.googleapis.com API requires a quota project, "
+                                                 "which is not set by default.")
+    with pytest.raises(RuntimeError, match="set-quota-project YOUR_PROJECT_ID"):
+        chirp.synthesize("Hello.")
+    chirp._token.update(value=None, expires=0.0, quota=None)

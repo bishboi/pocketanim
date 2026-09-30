@@ -16,6 +16,7 @@ Settings:
   PANIM_CHIRP_LANG     the language English lines are spoken in: en-US (default), en-IN, en-GB...
   GOOGLE_TTS_URL       the endpoint (a test points it at a mock)
 
+    .venv/bin/python harness/lecture/chirp.py --check                         # credentials, quota project, a test line
     .venv/bin/python harness/lecture/chirp.py "Hello there." out.wav        # try it
 """
 
@@ -59,13 +60,7 @@ def _adc_file() -> str | None:
     path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if path:
         return path if os.path.isfile(path) else None
-    if os.environ.get("CLOUDSDK_CONFIG"):
-        folder = os.environ["CLOUDSDK_CONFIG"]
-    elif os.name == "nt":
-        folder = os.path.join(os.environ.get("APPDATA", ""), "gcloud")
-    else:
-        folder = os.path.join(os.path.expanduser("~"), ".config", "gcloud")
-    default = os.path.join(folder, "application_default_credentials.json")
+    default = os.path.join(_gcloud_folder(), "application_default_credentials.json")
     return default if os.path.isfile(default) else None
 
 
@@ -89,6 +84,44 @@ _token_lock = threading.Lock()
 _token: dict = {"value": None, "expires": 0.0, "quota": None}
 
 
+def _gcloud_folder() -> str:
+    if os.environ.get("CLOUDSDK_CONFIG"):
+        return os.environ["CLOUDSDK_CONFIG"]
+    if os.name == "nt":
+        return os.path.join(os.environ.get("APPDATA", ""), "gcloud")
+    return os.path.join(os.path.expanduser("~"), ".config", "gcloud")
+
+
+def _gcloud_project() -> str | None:
+    """The project of gcloud's active configuration (`gcloud config set project ...`), read from its files."""
+    import configparser
+
+    folder = _gcloud_folder()
+    try:
+        with open(os.path.join(folder, "active_config"), encoding="utf-8") as handle:
+            active = handle.read().strip() or "default"
+    except OSError:
+        active = "default"
+    config = configparser.ConfigParser()
+    try:
+        config.read(os.path.join(folder, "configurations", f"config_{active}"), encoding="utf-8")
+        return config.get("core", "project", fallback=None) or None
+    except configparser.Error:
+        return None
+
+
+def quota_project(info: dict | None = None) -> str | None:
+    """The project a login's calls are billed to (Google refuses a login's Text-to-Speech calls without one):
+    GOOGLE_CLOUD_QUOTA_PROJECT or the usual project variables, else the login's own quota project
+    (`gcloud auth application-default set-quota-project`), else gcloud's active project."""
+    for name in ("GOOGLE_CLOUD_QUOTA_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"):
+        if os.environ.get(name):
+            return os.environ[name]
+    if info is None and _adc_file():
+        info = _read_adc()
+    return (info or {}).get("quota_project_id") or _gcloud_project()
+
+
 def _read_adc() -> dict:
     with open(_adc_file(), encoding="utf-8") as handle:
         return json.load(handle)
@@ -101,7 +134,7 @@ def _new_token() -> tuple[str, float, str | None]:
     needed. A service account or other credentials go through google-auth, else the gcloud command.
     """
     info = _read_adc()
-    quota = os.environ.get("GOOGLE_CLOUD_QUOTA_PROJECT") or info.get("quota_project_id")
+    quota = quota_project(info)
     if info.get("type") == "authorized_user":
         form = urllib.parse.urlencode({"client_id": info["client_id"], "client_secret": info["client_secret"],
                                        "refresh_token": info["refresh_token"], "grant_type": "refresh_token"})
@@ -279,6 +312,17 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
             if error.code in (429, 500, 503) and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
+            if signed == "oauth" and error.code == 403 and "quota project" in last.lower():
+                sent = _token.get("quota")
+                raise RuntimeError(
+                    f"Google TTS 403: {last} -- " + (
+                        f"The calls were billed to project {sent!r}, which Google did not accept: check it is the "
+                        "project with the Cloud Text-to-Speech API enabled, and that your account can use it "
+                        "(role Service Usage Consumer)." if sent else
+                        "No quota project was found for your login. Run `gcloud auth application-default "
+                        "set-quota-project YOUR_PROJECT_ID` (after any `gcloud auth application-default login`: "
+                        "a new login forgets it), or put GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID in "
+                        "harness/app/.env.local and restart the app.")) from None
             if error.code == 401 and signed == "oauth" and not refreshed:
                 refreshed = True                             # a token that ran out: a fresh one, once
                 continue
@@ -298,7 +342,28 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
     raise RuntimeError(f"Google TTS failed: {last}")
 
 
+def check() -> int:
+    """What this machine would sign Chirp requests with, and whether Google accepts it (one short line)."""
+    print(f"credentials file : {_adc_file() or 'none found (looked in ' + _gcloud_folder() + ')'}")
+    print(f"signed with      : {auth() if configured() else 'nothing: no login, service account or key'}")
+    if auth() == "oauth":
+        info = _read_adc()
+        print(f"credential type  : {info.get('type')}")
+        print(f"quota project    : {quota_project(info) or 'NONE -- run: gcloud auth application-default set-quota-project YOUR_PROJECT_ID'}")
+    if not configured():
+        return 1
+    try:
+        audio = speak("नमस्ते। Hello.", voice_for(os.environ.get("LECTURE_STYLE")))
+    except RuntimeError as error:
+        print(f"Google said      : {error}")
+        return 1
+    print(f"Google spoke     : {len(audio)} bytes of audio. The voice is ready.")
+    return 0
+
+
 def main() -> int:
+    if sys.argv[1:] == ["--check"]:
+        return check()
     if len(sys.argv) < 3:
         print(__doc__)
         return 2

@@ -72,7 +72,12 @@ then give the harness one of these credentials. It uses the first one it finds, 
 3. **An API key.** Set `GOOGLE_TTS_API_KEY=...` in `harness/app/.env.local`. Many projects refuse keys for this
    API ("401: API keys are not supported by this API"). Use 1 or 2 then.
 
-Restart the app afterwards. To check the voice on its own:
+A new `gcloud auth application-default login` forgets the quota project: run `set-quota-project` again after
+it, or put `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `harness/app/.env.local` (the harness also falls back
+to gcloud's active project, `gcloud config set project YOUR_PROJECT_ID`).
+
+Restart the app afterwards. To see what the harness will sign with, and speak one test line:
+`.venv/bin/python harness/lecture/chirp.py --check`. Or check the voice on its own:
 `.venv/bin/python harness/lecture/chirp.py "नमस्ते, आज हम गति के नियम समझेंगे।" hello.wav`
 
 ## 4. The web app
@@ -120,6 +125,7 @@ The app also downloads the voice by itself before the first lecture that needs i
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
 | `Narration is spoken by Google Chirp 3 HD, and no Google credentials are set` | No credentials | section 3, then restart the app |
+| `403: ... requires a quota project, which is not set by default` | Your login has no quota project (a new login drops it) | `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`, or `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `.env.local`; `chirp.py --check` shows what is used |
 | `401: API keys are not supported by this API` | The project refuses API keys for Text-to-Speech | sign in with `gcloud auth application-default login` and `set-quota-project` (section 3); the key can stay, a login is used first |
 | `Google Chirp 3 HD could not speak ...` | Google refused the request: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |

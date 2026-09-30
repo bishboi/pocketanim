@@ -436,3 +436,34 @@ Map data is Natural Earth through Cartopy's downloader (`admin_0_countries`,
 `corpus/scenes/14_lecture_engine.py` is a network-free lecture on the engine.
 Against Manim's own frames it is 0.04% of pixels off, worst frame 2.7% of its
 ink, and it is in the nightly fidelity job.
+
+## A YouTube video as the reference, and Hinglish narration
+
+**Reference video.** On the page, under the content, paste a YouTube link and press **Use as reference** (or paste
+the video's transcript: on YouTube, ... > Show transcript, select all, copy). `youtube_source.py` reads the
+video's captions (hand-made ones first, then automatic; Hindi and English preferred) and cuts the transcript into
+parts of about two and a half minutes. The lecture remakes the video: the same topics in the same order (every
+chapter names the part it teaches with `from_part`, and a part no chapter teaches is an error), its examples,
+questions and solved numericals (same numbers, step by step), and every figure it draws or describes built as a
+diagram, sketch, preset or graph. Its sentences are never copied (the copy check reads the transcript too).
+Without a chosen length, the lecture runs as long as the video. A PDF can be used as well: the PDF is the
+content and its figures; the video gives the structure.
+
+YouTube refuses requests from many servers and VPNs ("YouTube refused the request from this network"); then
+paste the transcript. Captions turned off for a video: paste one from elsewhere.
+
+    .venv/bin/python harness/lecture/youtube_source.py "https://youtu.be/VIDEO" out/
+    .venv/bin/python harness/lecture/youtube_source.py --transcript transcript.txt out/ --title "Laws of Motion"
+
+**Language.** The page's **Language** menu: Automatic (the content's), English, Hindi, or **Hinglish**: the
+subject in English, explained in easy spoken Hindi, like an Indian teacher's class video. In a Hinglish lecture:
+
+- every narration line is Hindi in Devanagari with the subject's terms in English in Latin letters ("जब net
+  force zero होता है, तो acceleration भी zero होता है।");
+- Hindi written in Latin letters ("matlab", "hota hai") is refused: the voice reads Latin letters as English;
+- everything on screen is English: titles, headings, key points, definitions, labels, questions, problems,
+  working and the recap. The compiler checks all of this (`compile_lecture._language_mix`).
+
+The voice speaks a Hinglish line with the Hindi Chirp voice, English terms included (it says them naturally);
+only a whole English phrase of four or more words switches to the Indian English voice
+(`PANIM_CHIRP_ENGLISH_RUN` sets that length).

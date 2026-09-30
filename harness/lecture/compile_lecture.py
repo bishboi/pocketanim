@@ -283,6 +283,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _text_heavy(script)
     errors += e
     warnings += w
+    e, w = _language_mix(script)
+    errors += e
+    warnings += w
     e, w = _teaching(script, min_questions, min_examples, min_problems)
     e2, w2 = _panel_text(script)
     e, w = e + e2, w + w2
@@ -592,6 +595,79 @@ def _copied(say: str, grams: set) -> str | None:
     return None
 
 
+DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+# Hindi written in Latin letters: the voice reads Latin letters as English, so "matlab" comes out wrong.
+ROMAN_HINDI = re.compile(r"\b(hai|hain|hota|hoti|hote|matlab|yaani|yani|kya|kyun|kyunki|nahi|nahin|aur|toh|lekin|"
+                         r"agar|jab|tab|isliye|dekho|samjho|chalo|hum|aap|yeh|woh|kaise|kitna|jaise|wala|wali|mein|"
+                         r"ko|ka|ki|ke|se|par|bhi|sirf|bahut|accha|achha|thoda)\b", re.I)
+# Keys whose values are never shown or spoken: names, ids, drawing words, expressions.
+NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "entity", "subject", "query", "expr",
+             "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
+             "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
+             "language", "credits"}
+
+
+def _shown_strings(value, key: str = "") -> list[str]:
+    """The words an op or a script puts on the screen."""
+    if key in NOT_SHOWN:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in _shown_strings(v, str(k))]
+    if isinstance(value, (list, tuple)):
+        return [s for v in value for s in _shown_strings(v, key)]
+    return []
+
+
+def _language_mix(script: dict) -> tuple[list[str], list[str]]:
+    """A Hinglish lecture (script "language": "hinglish"): spoken in Hindi with English terms, Hindi in Devanagari
+    and English in Latin letters (each run is voiced in its own language), and every word on screen in English."""
+    language = str(script.get("language") or "").lower()
+    if language != "hinglish":
+        return [], []
+    errors: list[str] = []
+    beats = [(f"chapter {ci + 1} beat {bi + 1}", b) for ci, c in enumerate(script.get("chapters") or [])
+             for bi, b in enumerate(c.get("beats") or [])]
+    spoken = [(at, str(b.get("say", ""))) for at, b in beats]
+    english_only = [at for at, say in spoken if say and not DEVANAGARI.search(say)]
+    roman = [f"{at} (\"{m.group(0)}\")" for at, say in spoken for m in [ROMAN_HINDI.search(say)]
+             if m and len(ROMAN_HINDI.findall(say)) >= 2]
+    hindi_only = [at for at, say in spoken if say and not re.search(r"[A-Za-z]{3,}", say)]
+    if spoken and len(english_only) > len(spoken) // 5:
+        errors.append(f"{len(english_only)} of {len(spoken)} beats are spoken in English only (e.g. "
+                      f"{', '.join(english_only[:3])}). This is a Hinglish lecture: say each line in simple Hindi in "
+                      "Devanagari, keeping the subject's terms in English: \"Force मतलब एक push या pull है।\"")
+    if roman:
+        errors.append(f"Hindi written in Latin letters in {len(roman)} beat(s), e.g. {'; '.join(roman[:3])}: the voice "
+                      "reads Latin letters as English. Write the Hindi words in Devanagari (है, मतलब, यानी, और) and "
+                      "only the English words in Latin letters.")
+    if spoken and len(hindi_only) > len(spoken) // 3:
+        errors.append(f"{len(hindi_only)} of {len(spoken)} beats have no English words (e.g. "
+                      f"{', '.join(hindi_only[:3])}). Hinglish keeps the subject's terms in English (force, "
+                      "acceleration, friction), as a teacher in class says them; do not translate them into pure Hindi.")
+    shown = []
+    for at, beat in beats:
+        for op in beat.get("do") or []:
+            for text in _shown_strings(op):
+                if DEVANAGARI.search(text):
+                    shown.append(f"{at} {op.get('op')} (\"{text[:40]}\")")
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        for key in ("title", "sub"):
+            if DEVANAGARI.search(str(chapter.get(key) or "")):
+                shown.append(f"chapter {ci} {key}")
+    for key in ("title", "sub"):
+        if DEVANAGARI.search(str(script.get(key) or "")):
+            shown.append(f"the lecture's {key}")
+    if DEVANAGARI.search(json.dumps(script.get("recap") or [], ensure_ascii=False)):
+        shown.append("the recap")
+    if shown:
+        errors.append(f"Hindi on the screen in {len(shown)} place(s), e.g. {'; '.join(shown[:4])}. In a Hinglish "
+                      "lecture only the narration is Hinglish: titles, headings, key points, definitions, labels, "
+                      "questions, problems, working and the recap are in English.")
+    return errors, []
+
+
 def _plain_language(script: dict) -> tuple[list[str], list[str]]:
     """Lines read out of the source book, and sentences too long to follow by ear.
 
@@ -649,7 +725,7 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
 
 
 # Words a line gives an example or a comparison with, in English and Hindi.
-EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|e\.g\.|imagine|such as|think of|just like|like when|suppose|"
+EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|example|e\.g\.|imagine|such as|think of|just like|like when|suppose|"
                            r"say you|picture this)\b|जैसे|उदाहरण|मान लो|मान लीजिए|मान लें|कल्पना|सोचो|सोचिए", re.I)
 
 

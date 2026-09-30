@@ -131,6 +131,8 @@ export async function compileLecture(
     plan?: TeachingPlan;
     /** Mathematics or a science: the plan's long problems are required too. */
     stem?: boolean;
+    /** "hinglish": the compiler checks the narration's mix and that the screen stays English. */
+    language?: string;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -143,6 +145,7 @@ export async function compileLecture(
           ...(options.figures ? { figures: options.figures } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
           ...(options.sourceText ? { source_text: options.sourceText } : {}),
+          ...(options.language ? { language: options.language } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
@@ -448,6 +451,94 @@ export const ADD_CHAPTERS_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
+/** The narration languages the page offers; "auto" follows the content's. */
+export const LANGUAGES = ["auto", "english", "hindi", "hinglish"] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+/** How the lecture speaks and what it writes on screen, for a chosen language (nothing for "auto"). */
+export function languagePrompt(language: Language | undefined): string {
+  if (language === "english") {
+    return ["", "LANGUAGE: ENGLISH. Narration and everything on screen in simple English, whatever the content's language.", ""].join("\n");
+  }
+  if (language === "hindi") {
+    return ["", "LANGUAGE: HINDI. Narration and everything on screen in simple spoken Hindi (Devanagari), whatever the",
+      "content's language; a technical term may be followed once by its English word in brackets.", ""].join("\n");
+  }
+  if (language !== "hinglish") return "";
+  return [
+    "",
+    "LANGUAGE: HINGLISH, the way a good Indian teacher explains in a class video. The subject is in English; it is",
+    "explained in easy spoken Hindi.",
+    "  - Every \"say\" line (and each chapter's \"narration\" and the \"intro\") is Hinglish: the sentence's grammar and",
+    "    connecting words in simple Hindi WRITTEN IN DEVANAGARI (है, तो, मतलब, यानी, जैसे, देखो, चलो, अब सोचो), and the",
+    "    subject's terms and everyday English words in English, in Latin letters:",
+    "      \"Force मतलब एक push या pull है।\"  \"जब net force zero होता है, तो acceleration भी zero होता है।\"",
+    "      \"Example लो: bus अचानक brake लगाती है, तो आप आगे की तरफ गिरते हो। क्यों? Inertia की वजह से।\"",
+    "  - NEVER write Hindi in Latin letters (not \"matlab\", \"hota hai\", \"dekho\"): the voice reads Devanagari as Hindi",
+    "    and Latin letters as English, so Romanised Hindi sounds wrong. The compiler rejects it.",
+    "  - Keep the technical terms in English (force, mass, velocity, acceleration, friction, momentum, equilibrium,",
+    "    numerator, photosynthesis) as teachers say them; do not replace them with pure Hindi words (बल, वेग,",
+    "    संवेग). You may say the book's Hindi word once: \"Force, जिसे Hindi में बल कहते हैं...\".",
+    "  - Say numbers and units the way they are spoken in class, units in words: \"10 newton\", \"5 meter per second",
+    "    square\", \"m g sin theta\".",
+    "  - Easy, friendly language: short sentences, direct address (\"आप\", \"देखो\", \"समझो\"), a question to the class",
+    "    now and then (\"सोचो, ऐसा क्यों होता है?\").",
+    "  - EVERYTHING ON SCREEN IS IN ENGLISH: the title, chapter titles, panel headings, key points, define cards",
+    "    (term and meaning), labels in sketches, diagrams and graphs, questions and their choices, problem text,",
+    "    given and find, working, and the recap. Only the narration (the captions) is Hinglish.",
+    "",
+  ].join("\n");
+}
+
+/** A reference video's parts, as the model sees them, and the rules for following its structure. */
+export function referencePrompt(ref: {
+  video?: { title?: string; channel?: string; duration?: number; generated?: boolean };
+  parts?: { part: number; start: number; end: number; text: string }[];
+}): string {
+  const parts = ref.parts ?? [];
+  if (!parts.length) return "";
+  const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  // A long video's transcript is shortened evenly, part by part, rather than cut off at the end.
+  const budget = 70000;
+  const total = parts.reduce((n, p) => n + p.text.length, 0);
+  const share = total > budget ? budget / total : 1;
+  const v = ref.video ?? {};
+  return [
+    "",
+    `REFERENCE VIDEO. This lecture remakes a video${v.title ? ` ("${v.title}"${v.channel ? `, ${v.channel}` : ""})` : ""}` +
+      `${v.duration ? ` of ${clock(v.duration)}` : ""}. Its transcript is below, in ${parts.length} parts, in the order it teaches.`,
+    "Follow its structure:",
+    "  - The same topics in the same order. Every part is taught, by one chapter or more (a short part may share a",
+    "    chapter with the next); give each chapter \"from_part\": the number of the part it teaches. No topic the",
+    "    video does not cover; more depth, examples and explanation on its topics are welcome.",
+    "  - Its examples, analogies, questions and solved problems, each one taught again in your own words and with",
+    "    its picture: when it solves a numerical, solve the same numerical with the same numbers, step by step with",
+    "    work lines; when it draws or describes a figure (a block on an incline, a pulley, a graph), build that",
+    "    figure (a preset, a sketch, a graph, a diagram) and reveal its parts as you explain them.",
+    "  - Its way of teaching: where it asks the viewers something, put a question on the stage; where it recaps, recap.",
+    "  - Never copy its sentences: explain each idea again, as clearly as it does or more.",
+    ...(v.generated ? ["  - These are YouTube's automatic captions: they mishear words (\"enersia\" for inertia, \"new ton\"). Read",
+      "    through them to what was meant."] : []),
+    "",
+    ...parts.map((p) => {
+      const text = share < 1 ? `${p.text.slice(0, Math.max(400, Math.floor(p.text.length * share)))} …` : p.text;
+      return `PART ${p.part} (${clock(p.start)}-${clock(p.end)}): ${text}`;
+    }),
+    "",
+  ].join("\n");
+}
+
+/** Reference parts no chapter says it teaches ("from_part"), for a script that follows a reference video. */
+export function uncoveredParts(script: unknown, parts: number): number[] {
+  const chapters = (script as { chapters?: { from_part?: unknown }[] })?.chapters ?? [];
+  const covered = new Set<number>();
+  for (const c of Array.isArray(chapters) ? chapters : []) {
+    const from = c?.from_part;
+    for (const n of Array.isArray(from) ? from : [from]) if (Number.isFinite(Number(n))) covered.add(Number(n));
+  }
+  return Array.from({ length: parts }, (_, i) => i + 1).filter((n) => !covered.has(n));
+}
+
 export function lecturePrompt(
   template: Template,
   minutes = DEFAULT_LECTURE_MINUTES,

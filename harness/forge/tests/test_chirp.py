@@ -114,14 +114,18 @@ def test_a_refused_line_stops_the_lecture(google, monkeypatch, tmp_path):
 def test_a_line_is_spoken_a_language_run_at_a_time():
     assert chirp.runs("बल एक धक्का है।") == [("hi-IN", "बल एक धक्का है।")]
     assert chirp.runs("Force is a push.")[0][1] == "Force is a push."
-    parts = chirp.runs("बल (Force) क्या है? F = ma यानी force बराबर mass गुणा acceleration।")
-    assert [code for code, _ in parts] == ["hi-IN", "en-IN", "hi-IN", "en-IN", "hi-IN", "en-IN", "hi-IN", "en-IN"]
-    assert parts[-1] == ("en-IN", "acceleration।")          # the danda is punctuation, not Hindi
+    # English terms inside a Hindi sentence (Hinglish) stay in the Hindi voice, which says them naturally.
+    line = "बल (Force) क्या है? F = ma यानी force बराबर mass गुणा acceleration।"
+    assert chirp.runs(line) == [("hi-IN", line)]
     assert chirp.runs("3 kg की गेंद")[0] == ("hi-IN", "3 kg की गेंद")    # a unit stays in its sentence
+    # A whole English phrase keeps its own accent.
+    parts = chirp.runs("Newton ने कहा: every action has an equal and opposite reaction. यानी हर action का reaction।")
+    assert [code for code, _ in parts] == ["hi-IN", "en-IN", "hi-IN"]
+    assert parts[1] == ("en-IN", "every action has an equal and opposite reaction.")
 
 
 def test_a_mixed_line_asks_google_in_each_language_with_one_speaker(google):
-    audio = chirp.speak("न्यूटन ने force की परिभाषा दी।", "Charon", 0.9)
+    audio = chirp.speak("न्यूटन ने कहा: every action has an equal and opposite reaction. समझे?", "Charon", 0.9)
     assert audio[:4] == b"RIFF"
     voices = [body["voice"] for _, body in google["requests"]]
     assert voices == [{"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Charon"},

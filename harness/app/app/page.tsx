@@ -185,6 +185,22 @@ export default function Home() {
   const [minutes, setMinutes] = useState<number | null>(null);
   /** The subject the lecture is taught as; "auto" lets the content decide. */
   const [subject, setSubject] = useState("auto");
+  /** The narration's language: "auto" follows the content; "hinglish" is Hindi with English terms. */
+  const [language, setLanguage] = useState("auto");
+  /** A YouTube video the lecture follows: its link, or its transcript pasted in. */
+  const [reference, setReference] = useState<{
+    busy: boolean;
+    error?: string;
+    id?: string;
+    title?: string;
+    parts?: number;
+    duration?: number;
+    language?: string;
+    note?: string | null;
+    url: string;
+    transcript: string;
+    paste: boolean;
+  }>({ busy: false, url: "", transcript: "", paste: false });
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
@@ -335,6 +351,8 @@ export default function Home() {
           documentId: doc.id,
           minutes: template.kind === "lecture" && minutes ? minutes : undefined,
           subject: template.kind === "lecture" ? subject : undefined,
+          language: template.kind === "lecture" ? language : undefined,
+          referenceId: template.kind === "lecture" ? reference.id : undefined,
         }),
       });
       if (!response.ok || !response.body) {
@@ -491,6 +509,30 @@ export default function Home() {
       setContent((c) => c.replace(marker, ""));
     } else if (data.markdown) {
       setContent((c) => `${c.split("\n")[0]}\n${data.markdown}`);
+    }
+  }
+
+  /** Read a reference video's transcript (from YouTube, or pasted): the lecture will follow its parts. */
+  async function addReference() {
+    setReference((r) => ({ ...r, busy: true, error: undefined }));
+    try {
+      const response = await fetch("/api/document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reference.paste
+          ? { transcript: reference.transcript, youtube: reference.url || undefined }
+          : { youtube: reference.url }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setReference((r) => ({ ...r, busy: false, id: data.id, title: data.video?.title ?? data.name,
+        parts: data.parts?.length ?? 0, duration: data.video?.duration, language: data.video?.language, note: data.note }));
+      // With no content of its own, the lecture is named after the video.
+      setContent((c) => c.trim() ? c : `${data.video?.title ?? "Lecture"}`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // YouTube refuses some networks: offer the paste box straight away.
+      setReference((r) => ({ ...r, busy: false, error: message, paste: r.paste || /paste/i.test(message) }));
     }
   }
 
@@ -705,6 +747,56 @@ export default function Home() {
                   </span>
                 )}
               </div>
+              {template.kind === "lecture" && (
+                <div className="flex flex-col gap-2 rounded border border-neutral-800 p-2 text-xs text-neutral-400"
+                  data-testid="reference-video">
+                  <span className="text-neutral-300">Reference video (YouTube)</span>
+                  {reference.id ? (
+                    <span className="flex items-center gap-2">
+                      <span>
+                        {reference.title}: {reference.parts} parts
+                        {reference.duration ? `, ${Math.round(reference.duration / 60)} min` : ""}
+                        {reference.language ? ` (${reference.language} captions)` : ""}. The lecture follows its
+                        structure, its examples and its solved problems, with its own diagrams.
+                      </span>
+                      <button type="button" className="ml-auto underline-offset-2 hover:underline"
+                        onClick={() => setReference({ busy: false, url: "", transcript: "", paste: false })}>
+                        remove
+                      </button>
+                    </span>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <input type="url" placeholder="https://www.youtube.com/watch?v=…" value={reference.url}
+                          data-testid="reference-url"
+                          onChange={(e) => setReference((r) => ({ ...r, url: e.target.value }))}
+                          className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200" />
+                        <button type="button" disabled={reference.busy || (!reference.url.trim() && !reference.transcript.trim())}
+                          onClick={addReference} data-testid="reference-add"
+                          className="rounded bg-neutral-800 px-2 py-1 text-neutral-100 hover:bg-neutral-700 disabled:opacity-50">
+                          {reference.busy ? "Reading…" : "Use as reference"}
+                        </button>
+                      </div>
+                      <button type="button" className="self-start underline-offset-2 hover:underline"
+                        onClick={() => setReference((r) => ({ ...r, paste: !r.paste }))}>
+                        {reference.paste ? "hide the transcript box" : "or paste its transcript"}
+                      </button>
+                      {reference.paste && (
+                        <Textarea rows={4} data-testid="reference-transcript"
+                          placeholder={"On YouTube: … under the video > Show transcript, select it all, copy, paste here.\nTimestamps (2:15) are kept."}
+                          value={reference.transcript}
+                          onChange={(e) => setReference((r) => ({ ...r, transcript: e.target.value }))} />
+                      )}
+                      <span>
+                        Its transcript sets the lecture&apos;s structure: the same topics in the same order, its examples
+                        and solved problems, explained again with diagrams. The length follows the video unless you pick one.
+                      </span>
+                    </>
+                  )}
+                  {reference.note && <span className="text-amber-300/80">{reference.note}</span>}
+                  {reference.error && <span className="text-rose-300">{reference.error}</span>}
+                </div>
+              )}
               <div className="flex items-center justify-end">
                 <button
                   type="button"
@@ -753,6 +845,22 @@ export default function Home() {
                       ))}
                     </select>
                   </label>
+                  <label className="flex items-center gap-2">
+                    <span className="text-neutral-300">Language</span>
+                    <select
+                      aria-label="Language"
+                      data-testid="lecture-language"
+                      className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200"
+                      value={language}
+                      disabled={!!busy}
+                      onChange={(e) => setLanguage(e.target.value)}
+                    >
+                      <option value="auto">Automatic (the content&apos;s)</option>
+                      <option value="english">English</option>
+                      <option value="hindi">Hindi</option>
+                      <option value="hinglish">Hinglish: English content, explained in easy Hindi</option>
+                    </select>
+                  </label>
                   <span>
                     Mathematics, physics and chemistry are taught as theory, then long problems solved step by step on
                     labelled diagrams and graphs.
@@ -765,7 +873,7 @@ export default function Home() {
               )}
               <Button
                 onClick={() => runGenerate(false)}
-                disabled={!content.trim() || !!busy}
+                disabled={(!content.trim() && !reference.id) || !!busy}
               >
                 {busy ?? `Generate in ${template.name}`}
               </Button>

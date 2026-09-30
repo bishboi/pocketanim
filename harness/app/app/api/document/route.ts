@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { addDocument, figureFile, loadDocument, setExcluded, type DocumentManifest } from "@/lib/document";
+import { addDocument, addReference, figureFile, loadDocument, setExcluded, type DocumentManifest } from "@/lib/document";
 
 export const runtime = "nodejs";
 export const maxDuration = 1200;
 
 const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
-/** POST a PDF (multipart field "file"): its text and figures. */
+/**
+ * POST a PDF (multipart field "file"): its text and figures. Or POST JSON {youtube: link} or {transcript, title?,
+ * youtube?}: a reference video's transcript, in parts.
+ */
 export async function POST(request: NextRequest) {
+  if ((request.headers.get("content-type") ?? "").includes("application/json")) {
+    const body = await request.json().catch(() => ({}));
+    try {
+      const doc = await addReference({ url: body?.youtube, transcript: body?.transcript, title: body?.title });
+      return NextResponse.json({ ...shape(doc), name: doc.video?.title ?? "Reference video" });
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    }
+  }
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!file || typeof file === "string") return NextResponse.json({ error: "upload a PDF as 'file'" }, { status: 400 });

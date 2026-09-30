@@ -47,7 +47,7 @@ LANGS = {"en": None, "hi": "hi-IN"}     # None: PANIM_CHIRP_LANG
 MIXED_ENGLISH = "en-IN"
 SAMPLE_RATE = 24000
 # Bumped when the way lines are spoken changes, so cached lines are spoken again (pocket_lecture.audio_file).
-REVISION = 2
+REVISION = 3      # 3: English terms inside a Hindi sentence stay in the Hindi voice
 
 
 ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", ".env.local")
@@ -228,6 +228,9 @@ _LATIN = re.compile(r"[A-Za-z]")
 _HINDI_LETTER = re.compile(r"[\u0900-\u0963\u0971-\u097F]")
 
 
+_LATIN_WORD = re.compile(r"[A-Za-z]{2,}")
+
+
 def runs(text: str) -> list[tuple[str, str]]:
     """A line as [(language code, text)] runs, each spoken in its own language.
 
@@ -260,7 +263,28 @@ def runs(text: str) -> list[tuple[str, str]]:
                 out[-1][1] += token
             else:
                 out.append([kind, token])
-    return [(code or "hi-IN", chunk.strip()) for code, chunk in out if chunk.strip()]
+    merged = _keep_terms_in_hindi([(code or "hi-IN", chunk) for code, chunk in out])
+    return [(code, chunk.strip()) for code, chunk in merged if chunk.strip()]
+
+
+# English runs shorter than this many words, inside a Hindi sentence, stay in the Hindi run: Google's Hindi voices
+# say "net force", "acceleration" or "10 newton" naturally, and a Hinglish line cut into a dozen clips in two voices
+# sounded choppy (and cost a request each). A longer English stretch (a full phrase) keeps its own accent.
+ENGLISH_RUN_WORDS = int(os.environ.get("PANIM_CHIRP_ENGLISH_RUN", "4"))
+
+
+def _keep_terms_in_hindi(parts: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    has_hindi = any(code == "hi-IN" for code, _ in parts)
+    out: list[list[str]] = []
+    for code, chunk in parts:
+        words = len(_LATIN_WORD.findall(chunk))
+        if has_hindi and code != "hi-IN" and words < ENGLISH_RUN_WORDS:
+            code = "hi-IN"
+        if out and out[-1][0] == code:
+            out[-1][1] += chunk
+        else:
+            out.append([code, chunk])
+    return [(code, chunk) for code, chunk in out]
 
 
 def _pcm(audio: bytes) -> tuple[bytes, int]:

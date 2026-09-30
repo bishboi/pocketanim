@@ -12,7 +12,7 @@
 import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, teachingPlan, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -38,6 +38,10 @@ export type GenerateRequest = {
   minutes?: number;
   /** The subject, chosen on the page (lib/lecture.ts SUBJECTS); without it, the content decides. */
   subject?: string;
+  /** A reference video's transcript (lib/document.ts addReference): the lecture follows its structure. */
+  referenceId?: string;
+  /** The narration's language (lib/lecture.ts LANGUAGES): "hinglish" is Hindi with English terms, English on screen. */
+  language?: string;
 };
 
 const SCENE_CLASS = "GeneratedScene";
@@ -142,7 +146,15 @@ function lectureUserPrompt(request: GenerateRequest): string {
       request.instruction,
     ].join("\n");
   }
-  return ["Write a narrated lecture on the following content with write_lecture.", "", request.content].join("\n");
+  if (request.referenceId && !request.content.trim()) {
+    return "Write a narrated lecture that remakes the reference video (its transcript is in your instructions), with write_lecture.";
+  }
+  return [
+    `Write a narrated lecture on the following content with write_lecture${request.referenceId ?
+      ", following the reference video's structure (its transcript is in your instructions)" : ""}.`,
+    "",
+    request.content,
+  ].join("\n");
 }
 
 /**
@@ -526,12 +538,23 @@ async function viaOpenRouter(
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
   const doc = await documentOf(request);
-  const minutes = request.minutes ?? targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? "");
-  const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}`.split(/\s+/).filter(Boolean).length);
-  const subject = lecture ? await subjectOf(request, emit) : null;
+  const reference = lecture ? await documentOf({ ...request, documentId: request.referenceId }) : null;
+  const language = LANGUAGES.includes(request.language as Language) ? (request.language as Language) : "auto";
+  const referenceText = reference?.parts?.map((p) => p.text).join("\n") ?? "";
+  // Without a chosen length, a remake runs as long as the video it follows.
+  const referenceMinutes = reference?.video?.duration ? Math.min(40, Math.max(3, Math.round(reference.video.duration / 60))) : 0;
+  const minutes = request.minutes ?? (referenceMinutes ||
+    targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
+  const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`.split(/\s+/).filter(Boolean).length);
+  const subject = lecture ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}` }, emit) : null;
   const style = lecture ? effectiveStyle(template, subject) : template.style;
+  if (reference?.parts?.length) {
+    emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
+      `${reference.parts.length} parts; the lecture follows them in order (about ${minutes} min).` });
+  }
   const system = lecture
-    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan) + (doc ? figurePrompt(doc) : "")
+    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan) + (doc ? figurePrompt(doc) : "") +
+      languagePrompt(language) + (reference ? referencePrompt(reference) : "")
     : systemPrompt(template);
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
@@ -606,8 +629,23 @@ async function viaOpenRouter(
     plan,
     stem: STEM_GENRES.includes(subject?.genre ?? ""),
     figures: doc ? scriptFigures(doc) : undefined,
-    sourceText: `${request.content}\n${doc?.markdown ?? ""}`,
+    sourceText: `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`,
+    language: language === "auto" ? undefined : language,
   });
+  // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
+  const compileWhole = async (script: unknown) => {
+    const compiled = await compileLecture(script, lectureOptions());
+    const parts = reference?.parts?.length ?? 0;
+    if (!compiled.source || !parts) return compiled;
+    const missing = uncoveredParts(script, parts);
+    if (!missing.length) return compiled;
+    return {
+      ...compiled,
+      source: null,
+      errors: [`No chapter teaches part${missing.length > 1 ? "s" : ""} ${missing.join(", ")} of the reference video. ` +
+        "Every part is taught, in order, and each chapter says which part it teaches with \"from_part\"."],
+    };
+  };
   // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
   // length or counts.
   const partOptions = () => ({ ...lectureOptions(), minMinutes: undefined, plan: undefined, stem: false });
@@ -731,7 +769,7 @@ async function viaOpenRouter(
       let nudge: string | null = null;
       if (typed) {
         emit({ type: "message", role: "status", text: "The model sent the script as text; compiling it as write_lecture." });
-        const compiled = await compileLecture(typed, lectureOptions());
+        const compiled = await compileWhole(typed);
         if (compiled.source) {
           emit({ type: "tool_result", name: "write_lecture", text: [
             `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
@@ -839,7 +877,7 @@ async function viaOpenRouter(
           const compiled = thin
             ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
                 "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
-            : await compileLecture(next, args.done ? lectureOptions() : partOptions());
+            : args.done ? await compileWhole(next) : await compileLecture(next, partOptions());
           if (compiled.source && args.done) {
             draft = next;
             scene = compiled.source;
@@ -866,7 +904,7 @@ async function viaOpenRouter(
           }
         }
       } else if (call.function.name === "write_lecture") {
-        const compiled = await compileLecture(args.script ?? {}, lectureOptions());
+        const compiled = await compileWhole(args.script ?? {});
         if (compiled.source) {
           scene = compiled.source;
           output = [

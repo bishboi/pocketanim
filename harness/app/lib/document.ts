@@ -20,7 +20,7 @@ const ID = /^[a-f0-9]{16}$/;
 export type Figure = { id: string; file: string; caption: string; page?: number | null };
 export type DocumentManifest = {
   id: string;
-  source: "datalab" | "pypdf";
+  source: "datalab" | "pypdf" | "youtube";
   pages: number;
   words: number;
   note?: string | null;
@@ -28,6 +28,10 @@ export type DocumentManifest = {
   /** Figures the user removed from the lecture (kept on disk, so they can be restored). */
   excluded: Figure[];
   markdown: string;
+  /** A reference video: its title, channel, link, caption language and length (youtube_source.py). */
+  video?: { title?: string; channel?: string; url?: string; language?: string; generated?: boolean; duration?: number };
+  /** The reference video's parts, in order: where each starts and ends (seconds) and what it says. */
+  parts?: { part: number; start: number; end: number; text: string }[];
 };
 
 function folder(id: string): string {
@@ -52,6 +56,50 @@ function convert(pdf: string, out: string): Promise<{ code: number; stdout: stri
       resolve({ code: code ?? -1, stdout, stderr });
     });
   });
+}
+
+/**
+ * A YouTube video as a lecture's reference: its transcript, fetched from YouTube's captions, or pasted in when
+ * YouTube refuses this network. Stored like a PDF (a manifest and a Markdown file), without figures.
+ */
+export async function addReference(input: { url?: string; transcript?: string; title?: string }): Promise<DocumentManifest> {
+  const url = (input.url ?? "").trim();
+  const transcript = (input.transcript ?? "").trim();
+  if (!url && !transcript) throw new Error("give a YouTube link or paste its transcript");
+  const id = randomBytes(8).toString("hex");
+  const dir = folder(id);
+  await mkdir(dir, { recursive: true });
+  const args = [path.join(REPO, "harness", "lecture", "youtube_source.py")];
+  if (transcript) {
+    const file = path.join(dir, "transcript.txt");
+    await writeFile(file, transcript, "utf8");
+    args.push("--transcript", file);
+  } else {
+    args.push(url);
+  }
+  args.push(path.join(dir, "out"));
+  if (input.title?.trim()) args.push("--title", input.title.trim());
+  const { stdout, stderr, code } = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(python(), args, { cwd: REPO, env: { ...process.env, PANIM_REFERENCE_URL: url } });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c) => (out += c.toString()));
+    child.stderr.on("data", (c) => (err += c.toString()));
+    const timer = setTimeout(() => child.kill("SIGKILL"), 180_000);
+    child.on("error", reject);
+    child.on("close", (exit) => {
+      clearTimeout(timer);
+      resolve({ code: exit ?? -1, stdout: out, stderr: err });
+    });
+  });
+  let result: Record<string, unknown> = {};
+  try {
+    result = JSON.parse(stdout.trim().split("\n").pop() ?? "");
+  } catch {
+    throw new Error(stderr.trim().split("\n").slice(-3).join("\n") || `the transcript reader exited ${code}`);
+  }
+  if (result.error) throw new Error(String(result.error));
+  return loadDocument(id);
 }
 
 /** Save an uploaded PDF and convert it. */
@@ -113,6 +161,8 @@ export async function loadDocument(id: string, options: { all?: boolean } = {}):
     figures: (manifest.figures as Figure[]).filter((f) => !removed.has(f.id)),
     excluded: (manifest.figures as Figure[]).filter((f) => removed.has(f.id)),
     markdown,
+    video: manifest.video,
+    parts: manifest.parts,
   };
 }
 

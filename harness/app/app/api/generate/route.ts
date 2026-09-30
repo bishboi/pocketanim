@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  if (!body?.content?.trim() && !body?.instruction?.trim()) {
+  if (!body?.content?.trim() && !body?.instruction?.trim() && !body?.referenceId) {
     return Response.json(
       { error: "nothing to generate from" },
       { status: 400 },
@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
     minutes:
       typeof body.minutes === "number" && body.minutes >= 1 && body.minutes <= 40 ? body.minutes : undefined,
     subject: typeof body.subject === "string" && body.subject !== "auto" ? body.subject : undefined,
+    referenceId: typeof body.referenceId === "string" ? body.referenceId : undefined,
+    language: typeof body.language === "string" && body.language !== "auto" ? body.language : undefined,
   };
 
   const encoder = new TextEncoder();

@@ -293,7 +293,17 @@ function isEmptyReply(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   // "Provider returned an empty response" comes from OpenRouter in the stream; a 5xx or an overloaded provider
   // is the same kind of passing failure, and the next attempt usually goes to another provider.
-  return /empty (message|response)|returned no message|OpenRouter (429|50[0234])|overloaded|provider returned error/i.test(message);
+  return (
+    isCutStream(error) ||
+    /empty (message|response)|returned no message|OpenRouter (429|50[0234])|overloaded|provider returned error/i.test(message)
+  );
+}
+
+/** The provider's own stream stopped mid-reply ("Stream ended before a terminal response event"): usually a long
+ * reasoning reply that ran past the provider's time limit. Retried, and without reasoning, which is the slow part. */
+function isCutStream(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /stream ended|terminal response|premature|incomplete (response|stream)|upstream (error|timeout)|timed? ?out/i.test(message);
 }
 
 /** Batch token deltas so the page updates live without a render per token. */
@@ -492,11 +502,12 @@ async function completionWithRetry(
   toolChoice: "auto" | "required" = "auto",
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
   let empties = 0;
+  let cut = false;
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
     // After an empty reply, ask more loosely: some providers answer nothing when a tool call is "required",
     // and a reasoning model can spend its whole output on thinking. The prompts still ask for the tool.
     const choice = empties > 0 ? "auto" : toolChoice;
-    const reasoning = empties < 2;
+    const reasoning = empties < 2 && !cut;
     try {
       let result;
       try {
@@ -535,6 +546,7 @@ async function completionWithRetry(
         );
       }
       empties += 1;
+      cut = cut || isCutStream(error);
       emit({
         type: "message",
         role: "status",

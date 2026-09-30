@@ -111,6 +111,11 @@ def add_packages(names: list[str]) -> bool:
     print("Adding LaTeX packages: " + ", ".join(names), flush=True)
     if subprocess.run([manager, "install", *names]).returncode == 0:
         return True
+    # "tlmgr itself needs to be updated" is the usual refusal on a TinyTeX a few weeks old.
+    print("Updating tlmgr and trying again...", flush=True)
+    subprocess.run([manager, "update", "--self"])
+    if subprocess.run([manager, "install", *names]).returncode == 0:
+        return True
     # TinyTeX's own package mirror can be unreachable: CTAN's mirror network has the same packages.
     print("Trying CTAN's mirror...", flush=True)
     return subprocess.run([manager, "--repository", CTAN, "install", *names]).returncode == 0
@@ -156,6 +161,10 @@ def main() -> int:
     report = check()
     for key, value in report.items():
         print(f"  {key:10} {value if value else 'MISSING'}")
+    if not report.get("dvisvgm") and report.get("latex"):
+        print("dvisvgm is missing: LaTeX is there, but Manim needs dvisvgm to turn its output into drawings. "
+              f"Try `{tlmgr() or 'tlmgr'} install dvisvgm`" + (", or `brew install dvisvgm`" if sys.platform == "darwin"
+                                                                 else ", or `sudo apt install dvisvgm`") + ".")
     ready = bool(report.get("latex") and report.get("maths"))
     print("LaTeX is ready." if ready else "LaTeX is not ready: equations are drawn as plain text.")
     return 0 if ready else 1

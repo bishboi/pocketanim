@@ -24,7 +24,9 @@ export function VersionBar() {
     const response = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ what }) });
     const data = await response.json().catch(() => ({}));
-    setNote(data.ok ? `${what} installed` : `${what} failed: ${data.output ?? data.error ?? response.status}`);
+    // The script's last line says what it found ("LaTeX is ready.", or what is still missing).
+    const last = String(data.output ?? "").trim().split("\n").pop();
+    setNote(data.ok ? `${what} installed${last ? `: ${last}` : ""}` : `${what} failed: ${data.output ?? data.error ?? response.status}`);
     setBusy(null);
     load();
   }
@@ -40,6 +42,18 @@ export function VersionBar() {
         {v?.branch ? ` · ${v.branch}` : ""}
         {v?.date ? ` · ${v.date}` : ""}
       </span>
+      {(status?.resources ?? []).filter((r) => r.ready).map((r) => (
+        // What is ready, as a small tick: hovering says what it is (LaTeX says where it was found).
+        <span key={r.id} title={r.detail} data-testid={`ready-${r.id}`} className="text-emerald-400/80">
+          {r.label} ✓
+          {r.install && (
+            <button type="button" disabled={!!busy} onClick={() => install(r.install!)}
+              className="ml-1.5 rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-100 hover:bg-neutral-700">
+              {busy === r.install ? "downloading…" : "complete"}
+            </button>
+          )}
+        </span>
+      ))}
       {missing.map((r) => (
         <span key={r.id} title={r.detail} data-testid={`resource-${r.id}`}
           className={r.detail.startsWith("NONE") ? "font-semibold text-red-400" : "text-amber-300/90"}>

@@ -113,11 +113,13 @@ function texFolders(): string[] {
 }
 
 /** Which of LaTeX's programs are installed: equations are typeset with them, and drawn as text without. */
-export function latexStatus(): { latex: boolean; xelatex: boolean } {
+export function latexStatus(): { latex: boolean; xelatex: boolean; missing: string[]; where: string | null } {
   const folders = texFolders();
-  const has = (program: string) => folders.some((dir) => existsSync(path.join(dir, program)));
-  const dvisvgm = has("dvisvgm");
-  return { latex: has("latex") && dvisvgm, xelatex: has("xelatex") && dvisvgm };
+  const find = (program: string) => folders.find((dir) => existsSync(path.join(dir, program))) ?? null;
+  const found = { latex: find("latex"), dvisvgm: find("dvisvgm"), xelatex: find("xelatex") };
+  const missing = Object.entries(found).filter(([, dir]) => !dir).map(([name]) => name);
+  const where = found.latex ? found.latex.replace(os.homedir(), "~") : null;
+  return { latex: !!found.latex && !!found.dvisvgm, xelatex: !!found.xelatex && !!found.dvisvgm, missing, where };
 }
 
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
@@ -136,8 +138,10 @@ export function resources(): Resource[] {
         : "NOT SET UP: lectures will not build. Sign in with gcloud, or set a service account or key (harness/SETUP.md)" },
     { id: "latex", label: "LaTeX", ready: tex.latex,
       detail: tex.latex
-        ? `equations typeset by LaTeX${tex.xelatex ? "; Hindi in formulas by XeLaTeX" : " (install XeLaTeX for Hindi in formulas)"}`
-        : "NOT INSTALLED: equations are drawn as plain text. Download installs TinyTeX (about 250 MB, a few minutes)",
+        ? `equations typeset by LaTeX (${tex.where})${tex.xelatex ? "; Hindi in formulas by XeLaTeX" : " (xelatex missing: Hindi in formulas is drawn as text)"}`
+        : tex.where
+          ? `found ${tex.where} but ${tex.missing.join(" and ")} missing: equations are drawn as plain text. Download adds it`
+          : "NOT INSTALLED: equations are drawn as plain text. Download installs TinyTeX (about 250 MB, a few minutes)",
       install: tex.latex && tex.xelatex ? undefined : "latex" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"

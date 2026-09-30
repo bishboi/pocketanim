@@ -129,7 +129,9 @@ lists anything still missing, each with a **download** button:
 - **Voice: Google Chirp 3 HD** means narration is ready. Without credentials (section 3) it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
-- **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes).
+- **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes). What is ready shows
+  as a green tick (hover **LaTeX ✓** to see where it was found). When LaTeX is found but a part is missing (usually
+  `dvisvgm`, which TinyTeX does not include), the bar names it, and **download** adds it.
 
 The app also downloads the voice by itself before the first lecture that needs it.
 

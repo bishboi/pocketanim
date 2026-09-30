@@ -965,7 +965,7 @@ class BoardMixin:
         figure on the stage (moved aside), or across the stage."""
         import pocket_lecture as pl
         from manim import (AnimationGroup, BOLD, Create, FadeIn, FadeOut, Group, LaggedStart, SurroundingRectangle,
-                           Write, LEFT)
+                           Write, LEFT, RIGHT)
 
         anims = []
         w = self.works.get(key)
@@ -1021,7 +1021,7 @@ class BoardMixin:
             self._stage_add(m)
             w["lines"].append(m)
         if new:
-            anims.append(LaggedStart(*[Write(m) if not hasattr(m, "text") else FadeIn(m, shift=[0.15, 0, 0])
+            anims.append(LaggedStart(*[Write(m) if not hasattr(m, "text") else FadeIn(m, shift=RIGHT * 0.15)
                                        for m in new], lag_ratio=0.6))
         if box and w["lines"]:
             ring = SurroundingRectangle(w["lines"][-1], color=pl.P.GOLD, buff=0.12, corner_radius=0.08,

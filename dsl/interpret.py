@@ -886,12 +886,19 @@ def build_2d(scene: dict) -> DecodedIR:
 
             # Pair instances sharing a glyph id, in order; anything left over
             # on either side fades rather than morphing into an unrelated shape.
-            pending: dict[int, list[int]] = {}
-            for index, glyph in enumerate(dst["glyph_ids"]):
+            # One glyph id per instance. An object whose instances an earlier step changed (a tier-3 program's
+            # moved group) can hold more or fewer ids than instances: a part without an id pairs with nothing
+            # and fades, rather than indexing past the end of the instances.
+            def glyphs_of(obj, side):
+                ids = list(obj["glyph_ids"])[:len(obj["instances"])]
+                return ids + [(side, i) for i in range(len(ids), len(obj["instances"]))]
+
+            pending: dict = {}
+            for index, glyph in enumerate(glyphs_of(dst, "dst")):
                 pending.setdefault(glyph, []).append(index)
 
             pairs, orphans = [], []
-            for index, glyph in enumerate(src["glyph_ids"]):
+            for index, glyph in enumerate(glyphs_of(src, "src")):
                 queue = pending.get(glyph)
                 if queue:
                     pairs.append((index, queue.pop(0)))

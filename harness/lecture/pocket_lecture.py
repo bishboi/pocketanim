@@ -1098,6 +1098,10 @@ class Lecture(Scene):
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
         self._beat_new: list = []       # stage pictures built for the coming beat, not shown yet
         self._beat_revealed: list = []  # diagram parts the coming beat reveals
+        self._beat_asides: list = []    # cards put beside the drawing for the coming beat
+        self._beat_added: list = []     # parts added to the stage for the coming beat
+        self._stage_keys: set = set()   # diagrams on the stage now: revealing a part of another one is skipped
+        self._next_keys: set = set()    # diagrams built for the picture about to go up
         self.panel_y = 2.35
         self.chrome = VGroup()
         back = backdrop()
@@ -1179,6 +1183,8 @@ class Lecture(Scene):
                 self.play(*anims, run_time=spent)
         self._beat_new = []
         self._beat_revealed = []
+        self._beat_asides = []
+        self._beat_added = []
         rest = seconds + pad - spent
         if rest > 0.02:
             self.wait(rest)
@@ -1255,7 +1261,15 @@ class Lecture(Scene):
     def panel_title(self, title: str, sub: str | None = None):
         """Clear the panel and head it. Returns the animation. On a board: the strip's title."""
         if self.board_mode:
-            return self.board_title(title, sub)
+            head = self.board_title(title, sub)
+            if self.stage_body is not None and not self._beat_new and not self._beat_revealed:
+                # A new topic: last topic's picture, question or working leaves with its title, rather than
+                # staying up for the next picture to be set beside.
+                going = self._stage_leaving()
+                if going:
+                    # Flat: the exporter plays one level of plain group (a group inside one it did not).
+                    return AnimationGroup(*going, *([head] if head is not None else []))
+            return head
         old = self.panel_items
         t = T(title.upper() if TH["upper"] else title, tok("panel_title_size", 34), P.TITLE, font=TH["serif"], weight=BOLD)
         t.move_to(RIGHT * self.TEXT_LEFT + UP * 3.05, aligned_edge=LEFT)
@@ -1388,6 +1402,10 @@ class Lecture(Scene):
     def _stage_leaving(self) -> list:
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
+        for key in getattr(self, "_stage_keys", ()):
+            if key in self.diagrams:
+                self.diagrams[key]["gone"] = True
+        self._stage_keys = set()
         self.stage_items = Group()
         self.stage_extra = []
         self._question = None
@@ -1411,11 +1429,16 @@ class Lecture(Scene):
         self.stage_items = new
         self.stage_body = group
         self.stage_pending, self._next_pending = self._next_pending, []
+        self._stage_keys, self._next_keys = set(self._next_keys), set()
         self._beat_new.append(group)
         show = FadeIn(new, scale=1.02)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
+
+    def _solving(self) -> bool:
+        """A problem is on the board and its answer not boxed yet."""
+        return self._problem is not None and not self._problem.get("answered")
 
     def _halves(self):
         cx, cy, w, h = self.STAGE
@@ -1453,35 +1476,48 @@ class Lecture(Scene):
         card.aside_box = right
         self.stage_pending = [*picture_parts, *card_parts]
         self._next_pending = []
+        self._stage_keys |= self._next_keys
+        self._next_keys = set()
         self._beat_new.append(group)
         self._stage_add(card)
         return FadeIn(card, scale=1.02)
 
     def _aside(self, mob, grow: float = 1.3):
-        """Put `mob` in the right half of the board, beside what is on the stage (moved into the left half).
-        None when there is nothing to sit beside, or it already has something beside it."""
-        if not self.board_mode or self.stage_body is None or self.works or self._problem is not None:
+        """Put `mob` (a definition, an equation) in the right half of the board, beside the drawing on the stage
+        (moved into the left half). None when there is no drawing to sit beside: a card beside a question or
+        an equation is not about it. Two cards in one beat stack in that half; a later one replaces them."""
+        body = self.stage_body
+        if not self.board_mode or body is None or self.works or self._problem is not None \
+                or getattr(body, "is_text_card", False) or not len(body.get_family()) > 1:
             return None
         left, right = self._halves()
+        mob.is_aside = True
+        mob.aside_box = right
+        if self._beat_asides:
+            # Not shown yet: the beat's cards are laid out again, one under the other.
+            cards = [*self._beat_asides, mob]
+            stack = Group(*cards).arrange(DOWN, buff=0.45)
+            self._fit_box([stack], right, grow=1.0)
+            self._beat_asides.append(mob)
+            self._stage_add(mob)
+            return FadeIn(mob, shift=LEFT * 0.2)
         old = [m for m in self.stage_extra if getattr(m, "is_aside", False)]
+        self._beat_asides.append(mob)
         if old:
             # A card is already beside the drawing: the new one takes its place.
             for m in old:
                 self.stage_extra.remove(m)
             self._fit_box([mob], right, grow=grow)
-            mob.is_aside = True
-            mob.aside_box = right
             self._stage_add(mob)
             # One after the other as a lagged group, which the exporter plays (a Succession of groups it did not).
             return AnimationGroup(AnimationGroup(*[FadeOut(m) for m in old]), FadeIn(mob, shift=LEFT * 0.2),
                                   lag_ratio=1.0)
-        moved = Group(self.stage_body, *self.stage_extra)
+        # Sized with the parts still to be revealed: fitted without them, a later arrow's label ran off the frame.
+        moved = Group(self.stage_body, *self.stage_extra, *self.stage_pending)
         cx, cy, w, h = left
         f = min((w - 0.2) / max(moved.width, 0.01), (h - 0.2) / max(moved.height, 0.01), 1.0)
         slide = self._move_stage(f, moved.get_center(), left)
         self._fit_box([mob], right, grow=grow)
-        mob.is_aside = True
-        mob.aside_box = right
         self._stage_add(mob)
         arrive = FadeIn(mob, shift=LEFT * 0.2)
         return AnimationGroup(slide, arrive, lag_ratio=1.0) if slide is not None else arrive
@@ -1507,15 +1543,25 @@ class Lecture(Scene):
         """A part added to the picture already on the stage; it leaves with it."""
         mob.set_z_index(Z_MARK + 11)
         self.stage_extra.append(mob)
+        self._beat_added.append(mob)
         return mob
 
     def clear_stage(self):
-        """Take the stage picture away, showing the map again. None when there is none."""
+        """Take the stage picture away, showing the map again. None when there is none.
+
+        Not when this beat has already put something up: a script that clears after a beat's working (the
+        order a model often writes) would wipe what the beat is about to show."""
+        if self._beat_new or self._beat_added:
+            return None
         going = self._stage_leaving()
         return AnimationGroup(*going) if going else None
 
     def stage_image(self, path: str, caption: str = "", credit: str = ""):
-        """A photo or a document's figure, large, on the stage."""
+        """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
+        the problem, its figure and its working off the board mid-solution."""
+        if self.board_mode and self._solving() and not self._beat_new:
+            self._log("skipped", what="figure during a problem", path=str(path))
+            return None
         cx, cy, w, h = self.STAGE
         image = ImageMobject(path)
         line = None
@@ -1612,11 +1658,11 @@ class Lecture(Scene):
     def equation(self, tex: str, label: str | None = None):
         """An equation, large: typeset by LaTeX when installed, readable Unicode maths otherwise."""
         cx, cy, w, h = self.STAGE
-        if self.board_mode and (self.works or self._problem is not None):
+        if self.board_mode and (self._solving() or self.works and self._problem is None):
             # A problem is being solved: the equation is the next line of its working, not a new picture
             # that wipes the problem off the board.
             key = next(iter(self.works), None) or (self._problem or {}).get("key") or "working"
-            return self.work(key, [tex], box=True)
+            return self.work(key, [tex])
         try:
             body = MathTex(tex, color=P.CREAM).scale(1.4)
         except Exception:  # noqa: BLE001 -- TeX that will not compile: the same maths as text
@@ -1625,6 +1671,13 @@ class Lecture(Scene):
         if label:
             parts.add(fit(T(label, 20, P.MUTED), w - 0.4))
         parts.arrange(DOWN, buff=0.45)
+        parts.is_text_card = True
+        if not self._beat_new:
+            # A drawing on the board: the equation goes beside it, so the drawing (and parts of it revealed
+            # in this beat) stays in view.
+            beside = self._aside(parts, grow=1.0)
+            if beside is not None:
+                return beside
         self._fit_stage(parts, 0.6)
         card = Group(parts)
         card.is_text_card = True
@@ -1889,6 +1942,7 @@ class Lecture(Scene):
                 head.move_to([cx, cy + h / 2 - head.height / 2, 0])
         shown = set(ids if show is None else [str(x) for x in show])
         self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None}
+        self._next_keys.add(key)
         first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
         self._next_pending.extend([mobs[i] for i in ids if i not in shown]
                                   + [m for a, b, m in arrows if not (a in shown and b in shown)])
@@ -1898,7 +1952,8 @@ class Lecture(Scene):
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
         d = self.diagrams.get(key)
-        if not d:
+        if not d or d.get("gone"):
+            # Its picture has left the stage: drawing its parts now put them over whatever replaced it.
             return None
         new = [str(n) for n in nodes if str(n) in d["nodes"] and str(n) not in d["shown"]]
         d["shown"].update(new)
@@ -1932,6 +1987,9 @@ class Lecture(Scene):
 
     def define(self, term: str, meaning: str, entity: str | None = None):
         """A hard word, big, with what it means in plain words (and a drawing of it when there is one)."""
+        if self.board_mode and (self._solving() or self.works and self._problem is None) and not self._beat_new:
+            # A problem or a working is on the board: the word goes in the key-point strip, not over them.
+            return self.board_point(f"{term}: {meaning}")
         cx, cy, w, h = self.STAGE
         drawing = self._entity(entity, 1.6)
         word = fit(T(term, 40, P.SAND, font=TH["serif"], weight=BOLD), w - 0.6)
@@ -2180,13 +2238,19 @@ class Lecture(Scene):
         cards = VGroup()
         for i, (head, body) in enumerate(points[:8]):
             color = palette[i % len(palette)]
-            box = RoundedRectangle(corner_radius=0.14, width=3.25, height=1.7, stroke_color=color, stroke_width=2,
+            tt = fit(T(head, 24, color, font=TH["serif"], weight=BOLD), 2.95)
+            ss = fit(T(wrap(body, 30), 16, P.CREAM, line_spacing=0.9), 2.95)
+            words = VGroup(tt, ss).arrange(DOWN, buff=0.14)
+            box = RoundedRectangle(corner_radius=0.14, width=3.25, height=max(1.7, words.height + 0.4),
+                                   stroke_color=color, stroke_width=2,
                                    fill_color=P.PANEL if STYLE == "cardboard" else color,
                                    fill_opacity=1 if STYLE == "cardboard" else 0.08)
-            tt = fit(T(head, 24, color, font=TH["serif"], weight=BOLD), 2.95)
-            ss = fit(T(wrap(body, 24), 16, P.CREAM, line_spacing=0.9), 2.95)
-            VGroup(tt, ss).arrange(DOWN, buff=0.14).move_to(box)
+            words.move_to(box)
             cards.add(VGroup(box, tt, ss))
+        # One height for the row, the tallest card's, so the words never cross a card's edge.
+        tallest = max((c[0].height for c in cards), default=1.7)
+        for c in cards:
+            c[0].stretch_to_fit_height(tallest)
         cols = 4 if len(cards) > 3 else len(cards)
         rows = math.ceil(len(cards) / max(cols, 1))
         cards.arrange_in_grid(rows=rows, cols=cols, buff=(0.2, 0.3)).move_to(UP * 0.35)

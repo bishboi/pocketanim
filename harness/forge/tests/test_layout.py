@@ -171,3 +171,72 @@ def test_work_line_is_typeset(line, monkeypatch, tmp_path):
     nolatex.install()
     scene = _board_scene()
     assert isinstance(scene._work_line(line, 6.0), MathTex)
+
+
+def test_an_equation_goes_beside_the_drawing_whose_parts_it_reveals():
+    scene = _board_scene()
+    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
+                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}], show=["b"])
+    scene._beat_new = []
+    scene.equation(r"F = ma")
+    assert scene.reveal_nodes("s", ["F"]) is not None
+    eq = [m for m in scene.stage_extra if getattr(m, "is_aside", False)][0]
+    arrow = scene.diagrams["s"]["nodes"]["F"]
+    assert arrow.get_right()[0] < eq.get_left()[0]
+
+
+def test_parts_of_a_diagram_that_left_the_stage_are_not_drawn():
+    scene = _board_scene()
+    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
+                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0]}], show=["b"])
+    scene._beat_new = []
+    scene.question("Why?", ["A", "B"], answer=0)
+    assert scene.reveal_nodes("s", ["F"]) is None
+
+
+def test_a_figure_does_not_take_a_problem_off_the_board(tmp_path):
+    from PIL import Image
+
+    Image.new("RGB", (64, 40), "white").save(tmp_path / "f.png")
+    scene = _board_scene()
+    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a",
+                  figure={"op": "sketch", "items": [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}]})
+    scene._beat_new = []
+    assert scene.figure(str(tmp_path / "f.png"), "a figure", where="stage") is None
+    assert scene._problem is not None
+
+
+def test_a_definition_during_a_problem_goes_in_the_strip():
+    scene = _board_scene()
+    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a")
+    scene._beat_new = []
+    scene.define("System", "the object chosen")
+    assert scene._problem is not None and scene.strip["point"] is not None
+
+
+def test_a_clear_after_this_beats_working_keeps_it():
+    scene = _board_scene()
+    scene.work("w", ["a = F/m"])
+    assert scene.clear_stage() is None and scene.works
+
+
+def test_answer_ring_scrolls_with_its_line():
+    scene = _board_scene()
+    for k in range(14):
+        scene.work("w", [f"x_{k} = {k}"], box=(k == 2))
+        scene._beat_new, scene._beat_added = [], []
+    ring = next(iter(scene.works["w"]["rings"].values()), None)
+    # The boxed line scrolled off with its ring, or both are still on screen together.
+    assert ring is None or ring in scene.stage_extra
+
+
+def test_figures_are_not_placed_inside_a_problem():
+    from compile_lecture import place_figures
+
+    script = {"figures": {"f1": {"caption": "a block on a table"}},
+              "chapters": [{"beats": [{"say": "a block on a table", "do": [{"op": "problem", "id": "p", "text": "x"}]},
+                                      {"say": "a block on a table", "do": [{"op": "work", "id": "p", "lines": ["x"]}]},
+                                      {"say": "a block on a table again"}]}]}
+    place_figures(script)
+    beats = script["chapters"][0]["beats"]
+    assert not any(op.get("op") == "figure" for b in beats[:2] for op in b.get("do", []))

@@ -837,6 +837,19 @@ def place_figures(script: dict) -> int:
     budget = max(0, len(beats) // 2 - len(used))
     taken = {i for i, (_, _, b) in enumerate(beats)
              if any(op.get("op") in VISUAL_OPS or _points_at_map(op) for op in b.get("do") or [])}
+    # Nor while a problem is being solved or a working is being written: a figure there took the problem,
+    # its drawing and its working off the board in mid-solution.
+    solving, chapter = False, None
+    for i, (ci, _, b) in enumerate(beats):
+        kinds = {op.get("op") for op in b.get("do") or []}
+        if ci != chapter:
+            solving, chapter = False, ci
+        if "problem" in kinds:
+            solving = True
+        elif kinds & (VISUAL_OPS - {"problem", "define", "equation", "question"}):
+            solving = False
+        if solving or kinds & (WORK_OPS | STEP_OPS):
+            taken.add(i)
     placed = 0
     for order, fid in enumerate(waiting):
         if placed >= budget:

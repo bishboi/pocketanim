@@ -516,6 +516,17 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
     if not labels:
         return
     parts = [curve_samples(part.points, 24) for part in ink if len(part.points) >= 2]
+    # Whose each label and shape is, and the bodies (a ball, a block) another element's label must not sit in.
+    owner = {}
+    for index, mob in enumerate(mobs):
+        for part in mob.get_family():
+            owner.setdefault(id(part), index)
+    bodies = []
+    for part in ink:
+        if type(part).__name__ in ("Circle", "Rectangle", "Polygon", "Square", "RoundedRectangle") and part.width > 0.2 \
+                and part.height > 0.2:
+            b = _bounds([part])
+            bodies.append((owner.get(id(part)), b))
     cx, cy, w, h = box
     lo_x, hi_x, lo_y, hi_y = cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2
     placed = []
@@ -524,9 +535,17 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
         return (centre[0] - lab.width / 2 - gap, centre[1] - lab.height / 2 - gap,
                 centre[0] + lab.width / 2 + gap, centre[1] + lab.height / 2 + gap)
 
-    def cost(b, own):
+    def cost(b, own, mine=None):
         # Each line or shape the label sits on counts once, however long the stretch under it.
         c = -own
+        area = max((b[2] - b[0]) * (b[3] - b[1]), 1e-6)
+        for who, q in bodies:
+            if who == mine:
+                continue
+            ox = min(b[2], q[2]) - max(b[0], q[0])
+            oy = min(b[3], q[3]) - max(b[1], q[1])
+            if ox > 0 and oy > 0 and ox * oy > 0.25 * area:
+                c += 3          # inside another part's body: "Kick F" written across the ball
         for pts in parts:
             if ((pts[:, 0] > b[0]) & (pts[:, 0] < b[2]) & (pts[:, 1] > b[1]) & (pts[:, 1] < b[3])).any():
                 c += 1
@@ -543,7 +562,8 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
         home = lab.get_center()[:2].copy()
         # A label may sit on its own element's anchor: only a crossing, not a touch, counts against it.
         own = 0
-        best, best_cost = home, cost(box_of(home, lab), own)
+        mine = owner.get(id(lab))
+        best, best_cost = home, cost(box_of(home, lab), own, mine)
         if best_cost <= 0:
             placed.append(box_of(home, lab))
             continue
@@ -552,7 +572,7 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
             for ang in range(0, 360, 30):
                 t = math.radians(ang)
                 at = home + np.array([math.cos(t) * step_x * reach, math.sin(t) * step_y * reach])
-                c = cost(box_of(at, lab), own) + 0.25 * reach
+                c = cost(box_of(at, lab), own, mine) + 0.25 * reach
                 if c < best_cost - 1e-6:
                     best, best_cost = at, c
             if best_cost <= 0.25 * reach:
@@ -900,6 +920,7 @@ class BoardMixin:
         _settle_labels(built, box)
         _fit_into(built, box)
         self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
+        self._next_keys.add(key)
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
         return VGroup(*first)
 
@@ -921,19 +942,34 @@ class BoardMixin:
         from manim import AnimationGroup, FadeIn, FadeOut
 
         box = self._problem["fig_box"]
+        before = set(self._stage_keys)
         body = build(box)
+        leaving = []
+        for key in before:
+            if key in self.diagrams:
+                self.diagrams[key]["gone"] = True      # the old figure leaves: its parts are not revealed later
+                # and the parts of it revealed since leave with it.
+                for node in self.diagrams[key]["nodes"].values():
+                    if node in self.stage_extra:
+                        self.stage_extra.remove(node)
+                        leaving.append(node)
+                    if node in self.stage_pending:
+                        self.stage_pending.remove(node)
+        self._stage_keys = set(self._next_keys)
+        self._next_keys = set()
         old = self._problem.get("figure")
         self._problem["figure"] = self._stage_add(body)
         self.stage_pending = [*self.stage_pending, *self._next_pending]
         self._next_pending = []
-        if old is None:
-            return FadeIn(body)
-        if old in self.stage_extra:
+        if old is not None and old in self.stage_extra:
             self.stage_extra.remove(old)
-        return AnimationGroup(FadeOut(old), FadeIn(body), lag_ratio=1.0)
+        going = [FadeOut(m) for m in [old, *leaving] if m is not None]
+        if not going:
+            return FadeIn(body)
+        return AnimationGroup(AnimationGroup(*going), FadeIn(body), lag_ratio=1.0)
 
     def _in_problem(self) -> bool:
-        return self.board_mode and self._problem is not None and self._problem.get("fig_box") is not None \
+        return self.board_mode and self._solving() and self._problem.get("fig_box") is not None \
             and not self._beat_new
 
     def sketch(self, key: str, elements, show=None, title: str | None = None):
@@ -1077,8 +1113,10 @@ class BoardMixin:
                         part.is_label = True
             nodes[str(i.get("id") or f"_{k}")] = VGroup(*parts)
         _settle_labels([axes, xl, yl, *nodes.values()], box)
+        _fit_into([axes, xl, yl, *nodes.values()], box)
         shown = set(nodes if spec.get("show") is None else [str(x) for x in spec["show"]])
         self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
+        self._next_keys.add(key)
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
         return VGroup(axes, xl, yl, *[m for i, m in nodes.items() if i in shown])
 
@@ -1129,7 +1167,7 @@ class BoardMixin:
             return None
         # Sized by what shows, but moved as the group that was put on stage (with its card, invisible on the
         # board): moving a part of a shown group left the exporter a transform its preview could not play.
-        whole = Group(body, *self.stage_extra)
+        whole = Group(body, *self.stage_extra, *self.stage_pending)
         cx, cy, w, h = box
         f = min(w / max(whole.width, 0.01), h / max(whole.height, 0.01), 1.0)
         return self._move_stage(f, whole.get_center(), box)
@@ -1210,7 +1248,11 @@ class BoardMixin:
             for m in new:
                 m.shift(shift)
             w["y"] += overflow + 0.1
-            scroll = [FadeOut(m) for m in going] + [m.animate.shift(shift) for m in staying]
+            rings = w.setdefault("rings", {})
+            # An answer's ring goes where its line goes: left behind, it boxed the lines scrolling past it.
+            going += [rings.pop(id(m)) for m in list(going) if id(m) in rings]
+            staying_rings = [rings[id(m)] for m in staying if id(m) in rings]
+            scroll = [FadeOut(m) for m in going] + [m.animate.shift(shift) for m in [*staying, *staying_rings]]
             for m in going:
                 if m in self.stage_extra:
                     self.stage_extra.remove(m)
@@ -1223,8 +1265,13 @@ class BoardMixin:
             anims.append(LaggedStart(*[Write(m) if not hasattr(m, "text") else FadeIn(m, shift=RIGHT * 0.15)
                                        for m in new], lag_ratio=0.6))
         if box and w["lines"]:
-            ring = SurroundingRectangle(w["lines"][-1], color=pl.P.GOLD, buff=0.12, corner_radius=0.08,
-                                        stroke_width=4)
+            last = w["lines"][-1]
+            ring = SurroundingRectangle(last, color=pl.P.GOLD, buff=0.12, corner_radius=0.08, stroke_width=4)
+            w.setdefault("rings", {})[id(last)] = ring
+            if self._problem is not None:
+                # The answer is boxed: what comes next is new teaching, not more of this problem.
+                self._problem["answered"] = True
+            w["y"] -= 0.14          # the ring's own room, so the next line starts below it
             self._stage_add(ring)
             anims.append(Create(ring))
         if not anims:
@@ -1293,6 +1340,7 @@ class BoardMixin:
         new.set_z_index(pl.Z_MARK + 10)
         self.stage_items, self.stage_body = new, group
         self.stage_pending, self._next_pending = self._next_pending, []
+        self._stage_keys, self._next_keys = set(self._next_keys), set()
         self._question = {"track": track, "answer": None}
         from manim import AnimationGroup, FadeIn
 

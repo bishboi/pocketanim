@@ -599,8 +599,8 @@ export default function Home() {
 
       {status && !status.latex && status.manim && (
         <p className="mb-4 text-xs text-neutral-500">
-          LaTeX is not installed, so a scene that uses MathTex will fail until a
-          TeX distribution is on PATH. Scenes written with Text still build.
+          LaTeX is not installed, so equations (MathTex, Tex, axis numbers) are
+          drawn as plain text. Use the LaTeX download in the bar above to typeset them.
         </p>
       )}
 

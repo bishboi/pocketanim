@@ -79,7 +79,8 @@ export async function toolchain(): Promise<Toolchain> {
   if (cachedToolchain?.manim) return cachedToolchain;
   const bin = python();
   const { stdout, stderr, code } = await run(
-    ["-c", "import manim,shutil; print(manim.__version__); print('latex' if shutil.which('latex') else 'no-latex')"],
+    // nolatex also looks where TinyTeX and MacTeX install, not only on PATH.
+    ["-c", `import sys; sys.path.insert(0, ${JSON.stringify(path.join(REPO, "harness", "lecture"))}); import manim, nolatex; print(manim.__version__); print('latex' if nolatex.latex_available() else 'no-latex')`],
     { timeoutMs: 60_000, binary: bin },
   );
   const lines = stdout.toString().trim().split("\n").filter(Boolean);

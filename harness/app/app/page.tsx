@@ -301,7 +301,7 @@ export default function Home() {
     } else if (exported.error) {
       setError(exported.error);
     }
-    if (exported.voiceWarning) setError(exported.voiceWarning);
+    if (exported.voiceWarning && !exported.error) setError(exported.voiceWarning);
     const fixed = exported.source ?? source;
     setVersions((all) =>
       all.map((v, i) =>

@@ -228,3 +228,41 @@ def test_settings_in_env_local_count_for_terminal_commands(google, monkeypatch, 
     headers = {k.lower(): v for k, v in google["headers"][-1].items()}
     assert headers["x-goog-user-project"] == "parikshanai"
     chirp._token.update(value=None, expires=0.0, quota=None)
+
+
+def test_a_long_hinglish_line_is_sent_a_few_sentences_at_a_time(monkeypatch):
+    import io
+    import wave
+
+    import chirp
+
+    sent = []
+
+    def fake(text, voice, lang="en", speed=1.0):
+        sent.append(text)
+        if len(text.encode()) > 300:
+            raise RuntimeError("Google TTS 400: This request contains sentences that are too long.")
+        out = io.BytesIO()
+        with wave.open(out, "w") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(24000)
+            handle.writeframes(b"\x10\x27" * 2400)
+        return out.getvalue()
+
+    monkeypatch.setattr(chirp, "synthesize", fake)
+    line = "अच्छा बच्चों, अब normal reaction समझते हैं। Normal का मतलब perpendicular, ठीक है? " * 8
+    audio = chirp.speak(line)
+    assert audio[:4] == b"RIFF"
+    spoken = [t for t in sent if len(t.encode()) <= 300]
+    assert all(len(t.encode()) <= chirp.CHUNK_BYTES for t in sent)
+    assert "".join(spoken).replace(" ", "") == line.replace(" ", "")      # every word, once, in order
+
+
+def test_a_refusal_that_is_not_about_length_is_raised(monkeypatch):
+    import chirp
+    import pytest
+
+    monkeypatch.setattr(chirp, "synthesize", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Google TTS 403: API disabled")))
+    with pytest.raises(RuntimeError, match="API disabled"):
+        chirp.speak("यह एक line है। " * 60)

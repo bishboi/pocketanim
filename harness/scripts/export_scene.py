@@ -125,6 +125,8 @@ def _prepare_playback(scene_file: Path, scene_class: str) -> str:
                     "        try:\n"
                     f"            {name}.construct(self)\n"
                     "        except Exception as _harness_scene_error:\n"
+                    "            if type(_harness_scene_error).__name__ == 'VoiceUnavailable':\n"
+                    "                raise\n"
                     "            print('scene skipped:', _harness_scene_error)\n"
                     "        self.clear()\n"
                     for name in scenes

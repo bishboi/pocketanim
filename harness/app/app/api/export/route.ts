@@ -51,7 +51,8 @@ export async function POST(request: NextRequest) {
     // A lecture with no narration means no voice could speak here: say so,
     // rather than hand back a video that is silent for no visible reason.
     let voiceWarning: string | null = null;
-    if (!narrationUrl && /pocket_lecture/.test(source) && voiceEngine() === "chirp") {
+    // When the build failed, its error already says why (Google's own message for the voice): no warning over it.
+    if (!narrationUrl && !result.error && /pocket_lecture/.test(source) && voiceEngine() === "chirp") {
       voiceWarning = "This lecture has no audio: Google Chirp 3 HD did not speak its lines (check the key, and that " +
         "the Cloud Text-to-Speech API is enabled for its project; the dev server log has Google's message).";
     }

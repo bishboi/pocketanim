@@ -304,15 +304,72 @@ def _trim(pcm: bytes, rate: int, keep: float = 0.04) -> bytes:
     return samples[max(0, loud[0] - pad):min(len(samples), loud[-1] + pad)].tobytes()
 
 
+# Google refuses a request with a sentence it finds too long ("This request contains sentences that are too long"),
+# and it does not always take the danda (।) as a sentence end: a teacher's Hinglish line of five sentences was one
+# long sentence to it, and the lecture had no voice. Each run is sent a few sentences at a time, and a piece Google
+# still refuses is cut again (at commas, then in half).
+CHUNK_BYTES = int(os.environ.get("PANIM_CHIRP_CHUNK_BYTES", "600"))
+_SENTENCE_END = re.compile(r"(?<=[.?!।॥])\s+")
+_CLAUSE_END = re.compile(r"(?<=[,;:])\s+")
+
+
+def _pieces(text: str, limit: int = CHUNK_BYTES) -> list[str]:
+    """`text` as pieces of whole sentences, each at most `limit` bytes where a sentence allows."""
+    out: list[str] = []
+    for sentence in (s.strip() for s in _SENTENCE_END.split(text)):
+        if not sentence:
+            continue
+        if out and len((out[-1] + " " + sentence).encode()) <= limit:
+            out[-1] += " " + sentence
+        else:
+            out.append(sentence)
+    return out
+
+
+def _split(text: str) -> list[str]:
+    """A piece Google refused, in two or more smaller ones: at clause ends, else at the middle space."""
+    clauses = [c for c in _CLAUSE_END.split(text) if c.strip()]
+    if len(clauses) > 1:
+        half = len(clauses) // 2
+        return [" ".join(clauses[:half]), " ".join(clauses[half:])]
+    words = text.split()
+    if len(words) < 2:
+        return [text]
+    half = len(words) // 2
+    return [" ".join(words[:half]), " ".join(words[half:])]
+
+
+def _too_long(error: RuntimeError) -> bool:
+    return bool(re.search(r"too long|longer than|exceeds|5000 bytes", str(error), re.I))
+
+
+def _run_pcm(text: str, voice: str, code: str, speed: float, depth: int = 0) -> tuple[bytes, int]:
+    """One language run as trimmed PCM, spoken a few sentences at a time."""
+    pcm, rate = b"", SAMPLE_RATE
+    for index, piece in enumerate(_pieces(text) if depth == 0 else [text]):
+        try:
+            clip, rate = _pcm(synthesize(piece, voice, code, speed))
+            clip = _trim(clip, rate)
+        except RuntimeError as error:
+            parts = _split(piece)
+            if not _too_long(error) or len(parts) < 2 or depth > 6:
+                raise
+            clip = b""
+            for k, part in enumerate(parts):
+                sub, rate = _run_pcm(part, voice, code, speed, depth + 1)
+                clip += (b"\x00\x00" * int(rate * 0.05) if k else b"") + sub
+        pcm += (b"\x00\x00" * int(rate * 0.18) if index else b"") + clip
+    return pcm, rate
+
+
 def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
     """A WAV of one line, each language run spoken with its own language code by the same voice, joined."""
     parts = runs(text)
-    if len(parts) == 1:
+    if len(parts) == 1 and len(parts[0][1].encode()) <= CHUNK_BYTES:
         return synthesize(parts[0][1], voice, parts[0][0], speed)
     pcm, rate = b"", SAMPLE_RATE
     for index, (code, chunk) in enumerate(parts):
-        clip, rate = _pcm(synthesize(chunk, voice, code, speed))
-        clip = _trim(clip, rate)
+        clip, rate = _run_pcm(chunk, voice, code, speed)
         gap = b"\x00\x00" * int(rate * 0.06) if index else b""
         pcm += gap + clip
     out = io.BytesIO()
@@ -322,6 +379,9 @@ def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
         handle.setframerate(rate)
         handle.writeframes(pcm)
     return out.getvalue()
+
+
+TRIES = 7
 
 
 def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: float = 1.0) -> bytes:
@@ -337,7 +397,7 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
     last = ""
     signed = auth()
     refreshed = False
-    for attempt in range(4):
+    for attempt in range(TRIES):
         headers = {"Content-Type": "application/json; charset=utf-8"}
         target = url
         if signed == "oauth":
@@ -358,8 +418,10 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
             if error.code == 400 and "speakingRate" in body["audioConfig"] and "rate" in last.lower():
                 del body["audioConfig"]["speakingRate"]      # a voice without pace control: its own pace
                 continue
-            if error.code in (429, 500, 503) and attempt < 3:
-                time.sleep(2 ** attempt)
+            if error.code in (429, 500, 503) and attempt < TRIES - 1:
+                # A long lecture is thousands of requests: Google's per-minute quota runs out, and waits it out.
+                wait = error.headers.get("Retry-After") if error.headers else None
+                time.sleep(float(wait) if wait and wait.isdigit() else min(60, 2 ** attempt * (4 if error.code == 429 else 1)))
                 continue
             if signed == "oauth" and error.code == 403 and "quota project" in last.lower():
                 sent = _token.get("quota")

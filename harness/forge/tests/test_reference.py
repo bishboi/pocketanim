@@ -100,3 +100,21 @@ def test_other_languages_are_not_checked():
     script["language"] = "english"
     assert compile_lecture._language_mix(script) == ([], [])
     json.dumps(script)
+
+
+def test_forge_reads_a_youtube_link_as_a_source(tmp_path, monkeypatch):
+    from forge.engine import ingest
+    from forge.job import Job
+
+    def fake(url, out):
+        md = tmp_path / "document.md"
+        md.write_text("# Laws of Motion\n\n## Part 1 (0:00–2:30)\n\nForce मतलब push या pull है, और यह motion बदलता है।\n",
+                      encoding="utf-8")
+        return {"markdown": str(md), "video": {"title": "Laws of Motion"}, "note": None}
+
+    monkeypatch.setattr(yt, "convert", fake)
+    job = Job.create("yt", template="science_explainer", style="blueprint", sources=["https://youtu.be/dQw4w9WgXcQ"],
+                     root=tmp_path)
+    bundle = ingest.intake(job)
+    assert bundle["problems"] == []
+    assert bundle["sources"][0]["title"] == "Laws of Motion" and bundle["passages"]

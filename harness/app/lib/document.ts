@@ -166,6 +166,13 @@ export async function loadDocument(id: string, options: { all?: boolean } = {}):
   };
 }
 
+/** A reference video's transcript file (Markdown, in parts), for a Forge job's --source. */
+export async function referenceMarkdown(id: string): Promise<string> {
+  const manifest = JSON.parse(await readFile(path.join(folder(id), "out", "manifest.json"), "utf8"));
+  if (manifest.source !== "youtube" || !existsSync(manifest.markdown)) throw new Error("that reference video is gone; add it again");
+  return manifest.markdown;
+}
+
 /** An uploaded PDF's path, for a Forge job's --source. */
 export function documentPdf(id: string): string {
   const pdf = path.join(folder(id), "source.pdf");

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { documentPdf } from "@/lib/document";
+import { documentPdf, referenceMarkdown } from "@/lib/document";
 import { forge, libraries, startMake } from "@/lib/forge";
 
 export const runtime = "nodejs";
@@ -30,12 +30,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: (error as Error).message }, { status: 400 });
     }
   }
-  if (!str(body.brief) && !pdf) {
-    return NextResponse.json({ error: "paste the content, or upload a lecture PDF" }, { status: 400 });
+  let reference: string | null = null;
+  if (str(body.referenceId)) {
+    try {
+      reference = await referenceMarkdown(str(body.referenceId));
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    }
   }
+  if (!str(body.brief) && !pdf && !reference) {
+    return NextResponse.json({ error: "paste the content, upload a lecture PDF, or add a YouTube video" }, { status: 400 });
+  }
+  // A reference video sets the lecture's structure: its parts in order, its examples and solved problems.
+  const brief = [
+    str(body.brief),
+    reference ? "Follow the structure of the reference video (the transcript source, in parts): the same topics " +
+      "in the same order, its examples, questions and solved numericals (same numbers), and a diagram for every " +
+      "figure it draws or describes. Explain in your own words; never copy its sentences." : "",
+  ].filter(Boolean).join("\n\n");
   const args = ["new", id, "--template", str(body.template), "--style", str(body.style)];
-  if (str(body.brief)) args.push("--brief", str(body.brief));
+  if (brief) args.push("--brief", brief);
   if (pdf) args.push("--source", pdf);
+  if (reference) args.push("--source", reference);
   if (str(body.title)) args.push("--title", str(body.title));
   if (str(body.subtitle)) args.push("--subtitle", str(body.subtitle));
   if (str(body.region)) args.push("--region", str(body.region));

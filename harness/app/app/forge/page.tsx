@@ -83,6 +83,29 @@ export default function ForgePage() {
     }
   }
   const [restyleTo, setRestyleTo] = useState("");
+  /** A YouTube video the lecture follows: its link, or its transcript pasted when YouTube refuses the network. */
+  const [video, setVideo] = useState<{ busy: boolean; id?: string; summary?: string; error?: string; url: string;
+    transcript: string; paste: boolean }>({ busy: false, url: "", transcript: "", paste: false });
+
+  async function addVideo() {
+    setVideo((v) => ({ ...v, busy: true, error: undefined }));
+    try {
+      const response = await fetch("/api/document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(video.paste ? { transcript: video.transcript, youtube: video.url || undefined } : { youtube: video.url }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const minutes = data.video?.duration ? Math.round(data.video.duration / 60) : 0;
+      setVideo((v) => ({ ...v, busy: false, id: data.id,
+        summary: `${data.video?.title ?? "Transcript"}: ${data.parts?.length ?? 0} parts${minutes ? `, ${minutes} min` : ""}` }));
+      setForm((f) => ({ ...f, title: f.title || data.video?.title || "", minutes: f.minutes || (minutes ? String(Math.min(40, Math.max(3, minutes))) : "") }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setVideo((v) => ({ ...v, busy: false, error: message, paste: v.paste || /paste/i.test(message) }));
+    }
+  }
 
   const loadJobs = useCallback(async () => {
     const response = await fetch("/api/forge");
@@ -137,7 +160,7 @@ export default function ForgePage() {
   }
 
   async function create() {
-    const data = await send("/api/forge", { ...form, id: form.id || form.title, documentId: doc.id });
+    const data = await send("/api/forge", { ...form, id: form.id || form.title, documentId: doc.id, referenceId: video.id });
     if (data?.id) {
       setSelected(data.id);
       loadJobs();
@@ -245,6 +268,38 @@ export default function ForgePage() {
                   {doc.error ?? (doc.id ? `${doc.name}: ${doc.summary}` : "text and figures become the lecture's source")}
                 </span>
               </label>
+              <div className="flex flex-col gap-1.5 text-xs text-neutral-400" data-testid="forge-video">
+                {video.id ? (
+                  <span className="flex items-center gap-2">
+                    <span className="rounded bg-neutral-800 px-2 py-1 text-neutral-200">YouTube reference</span>
+                    <span>{video.summary}. The lecture follows its structure.</span>
+                    <button type="button" className="ml-auto underline-offset-2 hover:underline"
+                      onClick={() => setVideo({ busy: false, url: "", transcript: "", paste: false })}>remove</button>
+                  </span>
+                ) : (
+                  <>
+                    <div className="flex gap-2">
+                      <input type="url" className={`${input} min-w-0 flex-1 text-xs`} placeholder="YouTube link: https://www.youtube.com/watch?v=…"
+                        value={video.url} data-testid="forge-video-url"
+                        onChange={(e) => setVideo((v) => ({ ...v, url: e.target.value }))} />
+                      <button type="button" disabled={video.busy || (!video.url.trim() && !video.transcript.trim())}
+                        onClick={addVideo}
+                        className="rounded bg-neutral-800 px-2 py-1 text-neutral-100 hover:bg-neutral-700 disabled:opacity-50">
+                        {video.busy ? "Reading…" : "Use as reference"}
+                      </button>
+                    </div>
+                    <button type="button" className="self-start underline-offset-2 hover:underline"
+                      onClick={() => setVideo((v) => ({ ...v, paste: !v.paste }))}>
+                      {video.paste ? "hide the transcript box" : "or paste its transcript"}
+                    </button>
+                    {video.paste && (
+                      <Textarea rows={4} placeholder={"On YouTube: … under the video > Show transcript, select it all, copy, paste here."}
+                        value={video.transcript} onChange={(e) => setVideo((v) => ({ ...v, transcript: e.target.value }))} />
+                    )}
+                  </>
+                )}
+                {video.error && <span className="text-rose-300">{video.error}</span>}
+              </div>
               <Textarea rows={9} placeholder="The content: notes, an article, a chapter. Every number in the video will come from here."
                 value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} />
               <div className="flex flex-col gap-1 text-xs text-neutral-400">
@@ -264,7 +319,7 @@ export default function ForgePage() {
                   Also export the chapters for the phone player
                 </label>
               </div>
-              <Button onClick={create} disabled={busy || (!form.brief.trim() && !doc.id) || !(form.id || form.title)}>
+              <Button onClick={create} disabled={busy || (!form.brief.trim() && !doc.id && !video.id) || !(form.id || form.title)}>
                 Make the video
               </Button>
             </CardContent>

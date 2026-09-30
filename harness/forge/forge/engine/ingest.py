@@ -98,7 +98,16 @@ def intake(job) -> dict:
     figures = []
     for index, source in enumerate(spec.get("sources") or [], 1):
         try:
-            if str(source).lower().endswith(".pdf"):
+            if re.search(r"(youtube\.com/|youtu\.be/)", str(source)):
+                # A reference video: its transcript, in the parts the video teaches (harness/lecture/youtube_source.py).
+                import youtube_source
+
+                manifest = youtube_source.convert(str(source), sources_dir / f"s{index}")
+                title = (manifest.get("video") or {}).get("title") or str(source)
+                text = Path(manifest["markdown"]).read_text(encoding="utf-8")
+                if manifest.get("note"):
+                    problems.append(f"{source}: {manifest['note']}")
+            elif str(source).lower().endswith(".pdf"):
                 title, text, found, manifest = read_pdf(source, job.dir, f"s{index}", sources_dir)
                 figures += found
                 if manifest.get("note"):

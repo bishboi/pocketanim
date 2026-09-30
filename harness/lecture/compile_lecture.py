@@ -642,8 +642,11 @@ def _language_mix(script: dict) -> tuple[list[str], list[str]]:
         errors.append(f"Hindi written in Latin letters in {len(roman)} beat(s), e.g. {'; '.join(roman[:3])}: the voice "
                       "reads Latin letters as English. Write the Hindi words in Devanagari (है, मतलब, यानी, और) and "
                       "only the English words in Latin letters.")
+    warnings: list[str] = []
     if spoken and len(hindi_only) > len(spoken) // 3:
-        errors.append(f"{len(hindi_only)} of {len(spoken)} beats have no English words (e.g. "
+        # A teacher may write an English term in Devanagari (फोर्स, टेंशन) and the Hindi voice says it well:
+        # advice, not an error.
+        warnings.append(f"{len(hindi_only)} of {len(spoken)} beats have no English words (e.g. "
                       f"{', '.join(hindi_only[:3])}). Hinglish keeps the subject's terms in English (force, "
                       "acceleration, friction), as a teacher in class says them; do not translate them into pure Hindi.")
     shown = []
@@ -665,7 +668,7 @@ def _language_mix(script: dict) -> tuple[list[str], list[str]]:
         errors.append(f"Hindi on the screen in {len(shown)} place(s), e.g. {'; '.join(shown[:4])}. In a Hinglish "
                       "lecture only the narration is Hinglish: titles, headings, key points, definitions, labels, "
                       "questions, problems, working and the recap are in English.")
-    return errors, []
+    return errors, warnings
 
 
 def _plain_language(script: dict) -> tuple[list[str], list[str]]:

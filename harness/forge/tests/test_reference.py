@@ -118,3 +118,22 @@ def test_forge_reads_a_youtube_link_as_a_source(tmp_path, monkeypatch):
     bundle = ingest.intake(job)
     assert bundle["problems"] == []
     assert bundle["sources"][0]["title"] == "Laws of Motion" and bundle["passages"]
+
+
+TACTIQ = """`00:00:00.000`[हेलो](https://tactiq.io/tools/run/js)
+
+* `00:00:04.400`[हेलो बच्चों आज हम बात करेंगे न्यूटन लॉ](https://tactiq.io/tools/run/js)
+* `00:00:07.439`[ऑफ मोशन की न्यूटन लॉ ऑफ मोशन क्लासिकल](https://tactiq.io/tools/run/js)
+* `00:01:13.320`[सबस्क्राइब नहीं किया](https://tactiq.io/tools/run/js)
+* `00:04:00.160`[[संगीत]](https://tactiq.io/tools/run/js)
+* `00:14:36.910`[कैसे बनाना है टेंशन करेक्शन हमेशा अवे](https://tactiq.io/tools/run/js)
+* `01:02:03.500`[फ्रॉम पॉइंट](https://tactiq.io/tools/run/js)
+"""
+
+
+def test_a_caption_tools_export_is_read_with_its_times_and_without_channel_talk():
+    snippets = yt.parse_pasted(TACTIQ)
+    texts = [s["text"] for s in snippets]
+    assert texts[1] == "हेलो बच्चों आज हम बात करेंगे न्यूटन लॉ" and snippets[1]["start"] == 4.4
+    assert not any("सबस्क्राइब" in t or "संगीत" in t for t in texts)
+    assert snippets[-1]["start"] == 3723.5 and texts[-1] == "फ्रॉम पॉइंट"

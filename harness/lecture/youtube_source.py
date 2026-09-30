@@ -96,14 +96,36 @@ def _why(error: Exception) -> str:
 STAMP = re.compile(r"^\s*\(?(\d{1,2}(?::\d{2}){1,2})\)?\s*[-–:]?\s*(.*)$")
 
 
+# A caption tool's line: "* `00:00:04.400`[words](https://...)" (Tactiq), "[00:01:02] words", "00:04.400 words".
+MARKDOWN_LINE = re.compile(r"^\s*[-*•]?\s*`?\[?(\d{1,2}(?::\d{2}){1,2}(?:[.,]\d+)?)\]?`?\s*\[?(.*?)\]?(?:\(https?://[^)]*\))?\s*$")
+# What automatic captions of a class video are full of and a lecture never says: channel promotion, music tags.
+JUNK = re.compile(r"सब्सक्राइब|सबस्क्राइब|subscribe|बेल आइकॉन|bell icon|like (?:and|&) share|\[(?:संगीत|music|applause)\]",
+                  re.I)
+
+
+def _seconds(stamp: str) -> float:
+    whole, _, fraction = stamp.replace(",", ".").partition(".")
+    parts = [int(p) for p in whole.split(":")]
+    return sum(p * 60 ** i for i, p in enumerate(reversed(parts))) + (float(f"0.{fraction}") if fraction else 0.0)
+
+
 def parse_pasted(text: str) -> list[dict]:
-    """A pasted transcript as snippets. Lines starting with a timestamp (2:15, 1:02:03) keep it; plain text is
-    timed by its words at about 2.5 words a second."""
+    """A pasted transcript as snippets. Lines starting with a timestamp (2:15, 1:02:03, `00:00:04.400` as caption
+    tools export it) keep it; plain text is timed by its words at about 2.5 words a second. Channel promotion
+    ("subscribe", the bell icon) and [music] tags are dropped."""
     snippets: list[dict] = []
     clock = 0.0
     pending: str | None = None
     for raw in text.splitlines():
         line = raw.strip()
+        marked = MARKDOWN_LINE.match(line) if re.search(r"\d:\d\d", line[:20]) else None
+        if marked and marked.group(2).strip():
+            clock = _seconds(marked.group(1))
+            words = JUNK.sub(" ", marked.group(2)).strip()
+            if words and not re.fullmatch(r"[\W\d]*", words):
+                snippets.append({"text": words, "start": clock, "duration": 0.0})
+            continue
+        line = JUNK.sub(" ", line).strip()
         if not line:
             continue
         stamp = STAMP.match(line)

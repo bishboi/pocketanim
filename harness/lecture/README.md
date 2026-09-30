@@ -484,3 +484,13 @@ A lecture is made in two stages (`harness/app/lib/transcript.ts`):
 
 The length follows the reference video (up to 90 minutes) unless one is chosen; a 60-minute source makes a
 60-minute lecture, written in twelve sections.
+
+**The teacher's voice.** The transcript is written the way a teacher talks to a class, not the way a book reads:
+it speaks to the students ("बच्चों", "देखो"), checks in after each idea ("ठीक है? समझ में आया?"), says each rule
+two or three times, gives memory tricks, builds each diagram out loud force by force, leaves questions for the
+class, and works numericals one small step at a time. With a reference video it keeps that teacher's tricks and
+repeated rules. Its captions are treated as automatic captions of a live class: misheard words ("पुलिस" for
+pulley) are recovered from the physics, and channel talk (subscribe, the next video) is left out.
+
+A pasted transcript can be a caption tool's export: Tactiq's `` * `00:00:04.400`[words](link) `` lines are read
+with their times, and subscribe prompts and [संगीत] / [music] tags are dropped.

@@ -170,7 +170,7 @@ reported in the log. The kit operations draw on the stage:
 | Operation | What it shows |
 |---|---|
 | `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). |
-| `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | MathTex when LaTeX is installed, else the same equation set in Unicode. |
+| `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | Typeset by LaTeX (Unicode text without it). During a problem, the next line of its working. |
 | `{"op":"plot","exprs":["sin(x)"],"x_range":[-3,3],"x_label"?,"y_label"?}` | Graphs of functions of x (a safe subset of numpy). |
 | `{"op":"process","steps":["…","…"],"cycle"?:true,"title"?}` | A chain of steps, or a cycle. |
 | `{"op":"timeline","events":[["1526","Panipat"]],"where":"stage","title"?}` | A large timeline. |
@@ -286,7 +286,29 @@ narration names them, and `show` for the parts drawn first:
 | `{"op":"work","id","lines":[TeX...],"title"?,"box"?}` | A worked solution. The same id adds lines under the last; `box` rings the answer. With a picture on the stage, it moves left and the working opens beside it. When the working reaches the bottom, it scrolls up. |
 | `{"op":"problem","id","text","given"?,"find"?,"figure"?,"think"?}` | A long question: its statement across the top, its figure (a preset, sketch or graph; reveal it as `<id>_figure`) on the left, and its solution (`work` with the same id) on the right. |
 
-Maths in `work` lines is typeset by LaTeX when it is installed, and drawn as Unicode text otherwise (`nolatex.py`).
+Maths in `work` lines and `equation` is typeset by LaTeX (`harness/scripts/fetch_latex.py` installs it), Hindi
+inside it (`\text{...}`) by XeLaTeX, and drawn as Unicode text only when LaTeX is missing or a line will not
+compile (`nolatex.py`).
+
+**Nothing on top of anything.** The board keeps each thing in its own place:
+
+- Two pictures in one beat (a figure and its equation, a drawing and a question) share the board: the drawing
+  on the left half, the words about it on the right. Played as written, the second used to replace the first
+  before it was seen.
+- A `define` beside a drawing goes into the right half, and the drawing moves left; the next definition takes
+  its place. A `work` then takes that half.
+- An `equation` while a problem is being solved is the next line of its working, not a new picture that wipes
+  the problem; a new sketch, preset or graph during a problem replaces only the problem's figure.
+- A `figure` with `where: "full"` is a stage figure on the board, below the title strip.
+- A diagram's labels move off the lines and other labels they would sit on, and the whole diagram, labels
+  included, is fitted to its box. A part's own pieces come with it (`rope2` with `rope`, the leg with the
+  `table`), so a block never hangs without its rope.
+- In each beat the compiler puts `unstage` first, then what goes up on the stage, then what adds to it (`work`,
+  `reveal`, `focus`, `answer`), whatever order the model wrote them in.
+
+`harness/scripts/lecture_audit.py <scene.py> GeneratedScene out/ --frames` plays a lecture with its animations
+skipped (a minute or two for a 20-minute lecture) and lists, beat by beat, text on text, text or drawings on a
+picture, text off the frame, and lines through labels, with a picture of every beat's end.
 
 **Theory, then problems.** Mathematics, physics and chemistry (the page's **Subject** menu, or detected from the
 content) teach each concept first as theory built on the board, then as 2 or 3 long, exam-style problems. Each

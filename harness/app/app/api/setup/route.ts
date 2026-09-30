@@ -10,9 +10,10 @@ const SCRIPTS: Record<string, string> = {
   icons: "fetch_icons.py",
   gazetteer: "fetch_gazetteer.py",
   openstax: "fetch_openstax.py",
+  latex: "fetch_latex.py",
 };
 
-/** POST {what: "icons" | "gazetteer" | "openstax"}: run the download script, wait, report its output. */
+/** POST {what: "icons" | "gazetteer" | "openstax" | "latex"}: run the download script, wait, report its output. */
 export async function POST(request: NextRequest) {
   const { what } = await request.json().catch(() => ({ what: "" }));
   const script = SCRIPTS[String(what)];

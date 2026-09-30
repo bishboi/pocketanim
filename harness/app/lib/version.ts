@@ -4,7 +4,7 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import pkg from "../package.json";
@@ -92,6 +92,34 @@ export function ensureSymbols(): Promise<boolean> {
   return fetchOnce("fetch_icons.py", symbolsReady, ["--missing"]);
 }
 
+/**
+ * The folders LaTeX's programs may be in: PATH, then where TinyTeX, MacTeX and TeX Live install
+ * (harness/lecture/nolatex.py TEX_HOMES finds the same ones when a render runs).
+ */
+function texFolders(): string[] {
+  const home = os.homedir();
+  const folders = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const under = (dir: string) => {
+    try {
+      return readdirSync(dir).map((name) => path.join(dir, name));
+    } catch {
+      return [];
+    }
+  };
+  folders.push(...under(path.join(home, "Library", "TinyTeX", "bin")), ...under(path.join(home, ".TinyTeX", "bin")),
+    "/Library/TeX/texbin", ...under("/usr/local/texlive").flatMap((year) => under(path.join(year, "bin"))),
+    "/opt/homebrew/bin", "/usr/local/bin");
+  return folders;
+}
+
+/** Which of LaTeX's programs are installed: equations are typeset with them, and drawn as text without. */
+export function latexStatus(): { latex: boolean; xelatex: boolean } {
+  const folders = texFolders();
+  const has = (program: string) => folders.some((dir) => existsSync(path.join(dir, program)));
+  const dvisvgm = has("dvisvgm");
+  return { latex: has("latex") && dvisvgm, xelatex: has("xelatex") && dvisvgm };
+}
+
 export type Resource = { id: string; label: string; ready: boolean; detail: string; install?: string };
 
 /** The downloaded libraries and keys a lecture draws on, and how to get the missing ones. */
@@ -100,11 +128,17 @@ export function resources(): Resource[] {
   const gazetteer = existsSync(path.join(data, "geonames", "cities.txt"));
   const voice = voiceEngine();
   const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
+  const tex = latexStatus();
   return [
     { id: "voice", label: "Voice", ready: voice === "chirp",
       detail: voice === "chirp" ? "Google Chirp 3 HD"
         : voice === "silent" ? "none: PANIM_VOICE=silent builds lectures without narration"
         : "NOT SET UP: lectures will not build. Sign in with gcloud, or set a service account or key (harness/SETUP.md)" },
+    { id: "latex", label: "LaTeX", ready: tex.latex,
+      detail: tex.latex
+        ? `equations typeset by LaTeX${tex.xelatex ? "; Hindi in formulas by XeLaTeX" : " (install XeLaTeX for Hindi in formulas)"}`
+        : "NOT INSTALLED: equations are drawn as plain text. Download installs TinyTeX (about 250 MB, a few minutes)",
+      install: tex.latex && tex.xelatex ? undefined : "latex" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
         : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },

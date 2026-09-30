@@ -153,7 +153,7 @@ def _tone(op: dict, default: str | None = None, key: str = "tone") -> str | None
     return f"role({tone!r})" if tone else None
 
 
-from compile_lecture import STEM_OPS, WORK_OPS  # noqa: E402 -- harness/lecture is on the path (forge.util)
+from compile_lecture import STEM_OPS, WORK_OPS, beat_order  # noqa: E402 -- harness/lecture is on the path (forge.util)
 
 
 def op_call(op: dict, places: Places, has_map: bool) -> str | None:
@@ -483,7 +483,8 @@ def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dic
     for index, beat in enumerate(beats):
         calls = []
         # Panel heads first: the engine clears the old panel when the head is built.
-        ordered = sorted(beat.get("do", []), key=lambda o: o.get("op") not in ("panel", "clear"))
+        # Then the clear, what goes up on the stage, and what adds to it (compile_lecture.beat_order).
+        ordered = sorted(beat_order(list(beat.get("do", []))), key=lambda o: o.get("op") not in ("panel", "clear"))
         if index < len(fills) and fills[index]:
             ordered.append(fills[index])
         if staged and has_map and any(points_at_map(op) for op in ordered):

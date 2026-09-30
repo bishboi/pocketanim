@@ -367,6 +367,21 @@ DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
 
 
+def beat_order(ops: list[dict]) -> list[dict]:
+    """A beat's ops in the order they can be laid out: clearing the stage first, then what goes up on it, then
+    what adds to it (working, reveals, a ring, the answer). A model often writes the clear last or the working
+    before its figure; played as written, the clear wiped the beat's own working, and the working took the
+    whole board before the figure arrived. Otherwise the order stays as written."""
+    def rank(op):
+        kind = op.get("op") if isinstance(op, dict) else None
+        if kind == "unstage":
+            return 0
+        if kind in WORK_OPS or kind in STEP_OPS:
+            return 2
+        return 1
+    return sorted(ops, key=rank)
+
+
 def _gallery_items(op: dict) -> list[dict]:
     """A gallery's items as fetchable operations: {op: photo, subject|image|query} or {op: illustration, query}
     or {op: figure, id}; each keeps its caption."""
@@ -1401,7 +1416,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
         closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
-            ops = list(beat.get("do") or [])
+            ops = beat_order(list(beat.get("do") or []))
             if bi < len(fills) and fills[bi]:
                 ops.append(fills[bi])
             points_at_map = any(op.get("op") in MAP_OPS or (op.get("op") == "icon" and _icon_spots(op)) for op in ops)

@@ -11,7 +11,7 @@ libraries (place names, voice, maps, fonts), the online picture sources and the 
 | Node.js 20+ | the web app | `brew install node` | from nodejs.org, or `nvm install 20` |
 | ffmpeg | the video, the audio mix | `brew install ffmpeg` | `sudo apt install ffmpeg` |
 | Cairo and Pango | Manim draws text and shapes with them | `brew install cairo pango pkg-config` | `sudo apt install libcairo2-dev libpango1.0-dev pkg-config` |
-| LaTeX (optional) | typeset maths (`MathTex`, `Tex`, axis numbers); without it they are drawn as plain Unicode text | `brew install --cask mactex-no-gui` | `sudo apt install texlive texlive-latex-extra dvisvgm` |
+| LaTeX (recommended) | typeset equations (`MathTex`, `Tex`, axis numbers); without it they are drawn as plain Unicode text. `fetch_latex.py` (section 2) installs TinyTeX for you | `.venv/bin/python harness/scripts/fetch_latex.py`, or `brew install --cask mactex-no-gui` | the same script, or `sudo apt install texlive texlive-latex-extra texlive-xetex dvisvgm` |
 
 On Windows, use WSL (Ubuntu) and follow the Ubuntu column.
 
@@ -45,9 +45,22 @@ To fetch the libraries again, or only some of them:
 | Diagram drawings | SVG drawings (a tree, a deer, a factory) that diagram nodes, definitions and comparisons draw things with. They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
-| Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
+| Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others, and Hind for Hindi in equations. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
+| LaTeX | TinyTeX (a small TeX Live) with the packages Manim uses, for typeset equations; XeLaTeX in it typesets formulas with Hindi words. Skipped when LaTeX is already installed (MacTeX, TeX Live); then only missing packages are added. | `~/Library/TinyTeX` (macOS), `~/.TinyTeX` (Linux) | 250 MB |
 
 These folders are not in git, so each machine downloads them once.
+
+LaTeX on its own, and a check that it typesets (a plain formula, and one with Hindi):
+
+```sh
+.venv/bin/python harness/scripts/fetch_latex.py            # install TinyTeX if LaTeX is missing, then check
+.venv/bin/python harness/scripts/fetch_latex.py --check
+```
+
+The harness finds TinyTeX, MacTeX and TeX Live even when they are not on the app's PATH. Maths a model writes
+with Unicode (μ, θ, ², →) is turned into TeX first; a formula with Hindi in it (`\text{फिसलन होगी}`) goes to
+XeLaTeX with a Devanagari font (Noto Sans Devanagari, Hind, Poppins, or macOS's Kohinoor); a formula that
+will not compile is drawn as text rather than stopping the lecture (`harness/lecture/nolatex.py`).
 
 Other pictures are fetched per lecture, as needed, and cached:
 - **Illustrations and diagrams** come from the sources that suit the subject. These are OpenStax textbook figures, NASA, The Met, the Smithsonian, Wikimedia Commons and Openverse, and, last, an AI illustration. See `harness/lecture/README.md`. To add NIH BioArt or Servier Medical Art, download their images into a folder under `harness/lecture/data/illustrations/`.
@@ -116,6 +129,7 @@ lists anything still missing, each with a **download** button:
 - **Voice: Google Chirp 3 HD** means narration is ready. Without credentials (section 3) it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
+- **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes).
 
 The app also downloads the voice by itself before the first lecture that needs it.
 
@@ -130,6 +144,7 @@ The app also downloads the voice by itself before the first lecture that needs i
 | `Google Chirp 3 HD could not speak ...` | Google refused the request: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
-| An equation looks plain | No LaTeX | install LaTeX (optional) |
+| An equation looks plain, or reads `mathbf F rm ext` | No LaTeX, or the app cannot find it | `.venv/bin/python harness/scripts/fetch_latex.py`, then restart the app; the bar at the top says **LaTeX** when it is found |
+| Pictures, labels or text on top of each other in a lecture | a layout bug | `.venv/bin/python harness/scripts/lecture_audit.py <build>/scene.py GeneratedScene audit/ --frames` lists every overlap, beat by beat, with a picture of each beat's end (`audit/sheet00.png`...) |
 | `FileNotFoundError: [Errno 2] No such file or directory: 'latex'` | A scene uses `MathTex`, `Tex` or axis numbers, LaTeX is not installed, and the scene was run without the harness's fallback (plain `manim render`, or an older checkout) | update to this version: the app and Forge draw these as plain text without LaTeX; for your own runs use `.venv/bin/python harness/scripts/manim_render.py render ...` instead of `manim render ...`. Or install LaTeX (above) for real typesetting |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `texttospeech.googleapis.com` (the Chirp voice) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `texttospeech.googleapis.com` (the Chirp voice), `yihui.org`, `tlnet.yihui.org` and `mirror.ctan.org` (TinyTeX and its packages) |

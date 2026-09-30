@@ -1,14 +1,19 @@
-"""Manim's LaTeX mobjects without LaTeX: MathTex, Tex, axis numbers, brace labels, DecimalNumber.
+"""Manim's LaTeX mobjects, typeset by LaTeX when it is installed, and never a crash when it is not.
 
-Manim typesets all of these by running the `latex` program (then dvisvgm), and without a LaTeX installation
-a scene dies with `FileNotFoundError: [Errno 2] No such file or directory: 'latex'`. When LaTeX is not
-installed, install() swaps the one function they all go through (`tex_to_svg_file`) for one that writes the
-same kind of SVG from Pango text: the TeX turned into readable Unicode maths (E = mc², H₂O, (a)/(b), √x),
-drawn in a serif font at the size LaTeX would have used. The groups MathTex looks for (one per part, so
-`MathTex("a", "=", "b")[2]` and `set_color_by_tex` still work) are written as LaTeX would write them.
+MathTex, Tex, axis numbers, brace labels and DecimalNumber all go through one function, Manim's
+`tex_to_svg_file`. install() puts this module's `typeset` in its place, which:
 
-It looks plainer than LaTeX, but the scene renders. Install LaTeX for real typesetting (see harness/SETUP.md);
-then install() does nothing.
+- finds LaTeX where the installers put it (TinyTeX from `fetch_latex.py`, MacTeX, TeX Live), even when the
+  app was started without it on PATH;
+- turns the Unicode a model writes in maths (μ, θ, ², ×, →) into TeX, which pdfLaTeX cannot read;
+- typesets maths holding Hindi or other non-Latin text (\\text{फिसलन होगी}) with XeLaTeX and a font that has
+  the script, since pdfLaTeX cannot typeset it at all;
+- and when LaTeX is missing, or a formula will not compile, draws the same maths from Pango text as
+  readable Unicode (E = mc², H₂O, (a)/(b), √x) at the size LaTeX would have used, rather than stopping the
+  lecture. The groups MathTex looks for (one per part, so `MathTex("a", "=", "b")[2]` and
+  `set_color_by_tex` still work) are written as LaTeX would write them.
+
+Install LaTeX for real typesetting: `.venv/bin/python harness/scripts/fetch_latex.py` (see harness/SETUP.md).
 
     import nolatex
     nolatex.install()      # before building any MathTex; pocket_lecture and the harness's runners do this
@@ -16,9 +21,13 @@ then install() does nothing.
 
 from __future__ import annotations
 
+import glob
 import hashlib
+import logging
+import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 _MARK = re.compile(r"\\special\{dvisvgm:raw <g id='([^']+)'>\}|\\special\{dvisvgm:raw </g>\}")
@@ -29,31 +38,140 @@ UNITS = 20.0
 _installed = False
 
 
-def latex_available() -> bool:
-    """The LaTeX program Manim's default template compiles with is installed."""
-    try:
-        from manim import config
+# Where LaTeX installers put their programs. The app may run without them on PATH (a macOS app started from the
+# Dock, a server started before the install), so these are added to it.
+TEX_HOMES = ("~/Library/TinyTeX/bin/*", "~/.TinyTeX/bin/*", "/Library/TeX/texbin", "/usr/local/texlive/*/bin/*",
+             "/opt/homebrew/bin", "/usr/local/bin", "/usr/texbin")
 
-        compiler = config["tex_template"].tex_compiler
-    except Exception:  # noqa: BLE001 -- no manim config yet: the default compiler
-        compiler = "latex"
-    return shutil.which(compiler) is not None
+
+def add_tex_to_path() -> list[str]:
+    """Put installed LaTeX on PATH; the folders added."""
+    added = []
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    for pattern in TEX_HOMES:
+        for folder in sorted(glob.glob(os.path.expanduser(pattern)), reverse=True):
+            if folder not in path and os.path.isfile(os.path.join(folder, "latex")):
+                path.append(folder)
+                added.append(folder)
+    if added:
+        os.environ["PATH"] = os.pathsep.join(path)
+    return added
+
+
+def latex_available() -> bool:
+    """The programs Manim's default template needs (latex, then dvisvgm) are installed."""
+    add_tex_to_path()
+    return shutil.which("latex") is not None and shutil.which("dvisvgm") is not None
+
+
+def xelatex_available() -> bool:
+    add_tex_to_path()
+    return shutil.which("xelatex") is not None and shutil.which("dvisvgm") is not None
+
+
+# Fonts with Devanagari (and Latin), best first: Google's Noto and Hind, then what macOS and Windows ship.
+SCRIPT_FONTS = ("Noto Sans Devanagari", "Noto Serif Devanagari", "Hind", "Mukta", "Poppins", "Tiro Devanagari Hindi",
+                "Kohinoor Devanagari", "Devanagari Sangam MN", "Devanagari MT", "Lohit Devanagari", "Mangal",
+                "Nirmala UI")
+
+
+def script_font() -> str | None:
+    """An installed font XeLaTeX can typeset Hindi in, or None."""
+    global _SCRIPT_FONT
+    if _SCRIPT_FONT is not False:
+        return _SCRIPT_FONT
+    _SCRIPT_FONT = None
+    families: set[str] = set()
+    if shutil.which("fc-list"):
+        try:
+            out = subprocess.run(["fc-list", ":lang=hi", "family"], capture_output=True, text=True, timeout=20).stdout
+            for line in out.splitlines():
+                families.update(part.strip() for part in line.split(","))
+        except Exception:  # noqa: BLE001
+            pass
+    for name in SCRIPT_FONTS:
+        if name in families:
+            _SCRIPT_FONT = name
+            break
+    return _SCRIPT_FONT
+
+
+_SCRIPT_FONT: str | None | bool = False
+_log = logging.getLogger("nolatex")
+
+# Unicode a model writes in maths, as TeX (pdfLaTeX stops on any of these).
+UNICODE_TEX = {
+    "μ": r"\mu ", "θ": r"\theta ", "α": r"\alpha ", "β": r"\beta ", "γ": r"\gamma ", "δ": r"\delta ",
+    "Δ": r"\Delta ", "λ": r"\lambda ", "π": r"\pi ", "ρ": r"\rho ", "σ": r"\sigma ", "Σ": r"\Sigma ",
+    "ω": r"\omega ", "Ω": r"\Omega ", "φ": r"\phi ", "Φ": r"\Phi ", "τ": r"\tau ", "ε": r"\varepsilon ",
+    "η": r"\eta ", "ν": r"\nu ", "κ": r"\kappa ", "ψ": r"\psi ", "χ": r"\chi ", "ξ": r"\xi ", "ζ": r"\zeta ",
+    "×": r"\times ", "·": r"\cdot ", "÷": r"\div ", "±": r"\pm ", "−": "-", "–": "-", "—": "-",
+    "→": r"\rightarrow ", "←": r"\leftarrow ", "⇒": r"\Rightarrow ", "⇔": r"\Leftrightarrow ",
+    "↔": r"\leftrightarrow ", "⇌": r"\rightleftharpoons ", "≤": r"\le ", "≥": r"\ge ", "≠": r"\ne ",
+    "≈": r"\approx ", "∝": r"\propto ", "∞": r"\infty ", "√": r"\sqrt ", "∫": r"\int ", "∂": r"\partial ",
+    "∇": r"\nabla ", "°": r"^{\circ}", "⊥": r"\perp ", "∥": r"\parallel ", "∠": r"\angle ", "∴": r"\therefore ",
+    "…": r"\ldots ", "ħ": r"\hbar ", "ℓ": r"\ell ", "′": "'",
+    "⁰": "^{0}", "¹": "^{1}", "²": "^{2}", "³": "^{3}", "⁴": "^{4}", "⁵": "^{5}", "⁶": "^{6}", "⁷": "^{7}",
+    "⁸": "^{8}", "⁹": "^{9}", "⁻": "^{-}", "⁺": "^{+}", "ⁿ": "^{n}",
+    "₀": "_{0}", "₁": "_{1}", "₂": "_{2}", "₃": "_{3}", "₄": "_{4}", "₅": "_{5}", "₆": "_{6}", "₇": "_{7}",
+    "₈": "_{8}", "₉": "_{9}", "ₛ": "_{s}", "ₖ": "_{k}",
+}
+_TEXT_BLOCK = re.compile(r"(\\(?:text|textrm|textbf|textit|mbox)\s*\{[^{}]*\})")
+_NON_ASCII = re.compile(r"[^\x00-\x7f]")
+
+
+def to_tex(expression: str) -> str:
+    """The expression with Unicode maths symbols written as TeX, outside \\text{} (whose words stay as they are)."""
+    parts = _TEXT_BLOCK.split(expression)
+    for i in range(0, len(parts), 2):
+        parts[i] = "".join(UNICODE_TEX.get(ch, ch) for ch in parts[i])
+    return "".join(parts)
+
+
+def _script_template(font: str):
+    from manim import TexTemplate
+
+    template = TexTemplate(tex_compiler="xelatex", output_format=".xdv")
+    template.add_to_preamble(r"\usepackage[no-math]{fontspec}" "\n"
+                             rf"\setmainfont{{{font}}}[Script=Devanagari]")
+    return template
+
+
+_original = None
+_installed = False
 
 
 def install(font: str | None = None) -> bool:
-    """Use the Pango fallback for every TeX mobject when LaTeX is not installed. True when it is in use."""
-    global _installed, FONT
+    """Route every TeX mobject through `typeset`. True when LaTeX is missing (text is drawn instead)."""
+    global _installed, FONT, _original
     if font:
         FONT = font
+    missing = not latex_available()
     if _installed:
-        return True
-    if latex_available():
-        return False
+        return missing
     import manim.mobject.text.tex_mobject as tex_mobject
 
-    tex_mobject.tex_to_svg_file = tex_to_svg_file
+    _original = tex_mobject.tex_to_svg_file
+    tex_mobject.tex_to_svg_file = typeset
     _installed = True
-    return True
+    return missing
+
+
+def typeset(expression: str, environment: str | None = None, tex_template=None) -> Path:
+    """Manim's tex_to_svg_file, by LaTeX when it can, by XeLaTeX for non-Latin text, by Pango otherwise."""
+    if not latex_available():
+        return tex_to_svg_file(expression, environment, tex_template)
+    source = to_tex(expression)
+    try:
+        if _NON_ASCII.search(source):
+            font = script_font() if xelatex_available() else None
+            if font is None:
+                return tex_to_svg_file(expression, environment, tex_template)
+            return _original(source, environment, _script_template(font))
+        return _original(source, environment, tex_template)
+    except Exception as error:  # noqa: BLE001 -- a formula that will not compile is drawn as text
+        _log.warning("LaTeX could not typeset %r (%s); drawing it as text", expression[:80], error)
+        return tex_to_svg_file(expression, environment, tex_template)
 
 
 def _tree(expression: str) -> list:

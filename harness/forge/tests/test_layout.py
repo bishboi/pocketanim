@@ -1,0 +1,173 @@
+"""Lecture layout: typeset maths, labels clear of lines, two pictures in one beat, and nothing on top of
+anything else at the end of a beat (harness/scripts/lecture_audit.py)."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
+
+import nolatex  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[3]
+
+
+def test_unicode_in_maths_becomes_tex_but_words_in_text_stay():
+    assert nolatex.to_tex("μ_s = 0.1, θ = 30°") == r"\mu _s = 0.1, \theta  = 30^{\circ}"
+    assert nolatex.to_tex(r"v² ≤ μRg \text{फिसलन होगी}") == r"v^{2} \le  \mu Rg \text{फिसलन होगी}"
+
+
+def test_a_formula_that_will_not_compile_is_drawn_not_raised(monkeypatch, tmp_path):
+    from manim import config
+
+    monkeypatch.setitem(config, "tex_dir", str(tmp_path))
+    monkeypatch.setattr(nolatex, "latex_available", lambda: True)
+
+    def broken(*_args, **_kw):
+        raise ValueError("LaTeX compilation error")
+
+    monkeypatch.setattr(nolatex, "_original", broken)
+    path = nolatex.typeset(r"\frac{a}{b}", "align*")
+    assert Path(path).name.startswith("nolatex_") and Path(path).exists()
+
+
+def test_hindi_in_maths_needs_xelatex_or_is_drawn(monkeypatch, tmp_path):
+    from manim import config
+
+    monkeypatch.setitem(config, "tex_dir", str(tmp_path))
+    monkeypatch.setattr(nolatex, "latex_available", lambda: True)
+    monkeypatch.setattr(nolatex, "xelatex_available", lambda: False)
+    monkeypatch.setattr(nolatex, "_original", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pdflatex")))
+    path = nolatex.typeset(r"25 > 2.94 \Rightarrow \text{फिसलन होगी}", "align*")
+    assert Path(path).name.startswith("nolatex_")
+
+
+def test_unicode_math_reads_font_and_spacing_commands():
+    import pocket_lecture as pl
+
+    assert pl.unicode_math(r"\sum\mathbf F_{\rm ext}=0\ \Rightarrow\ \mathbf a=0") == "ΣFₑₓₜ=0 ⇒ a=0"
+    assert pl.unicode_math(r"s=\tfrac12\times6") == "s=1/2×6"
+    assert pl.unicode_math("H_2O") == "H₂O"
+    assert pl.unicode_math(r"F_{AB}") == "F_(AB)"
+
+
+def test_maths_with_unit_names_is_not_prose():
+    from stem import BoardMixin
+
+    assert not BoardMixin._is_prose(r"\Delta\mathbf P_{\rm total}=0\quad(\mathbf J_{\rm ext}=0)")
+    assert not BoardMixin._is_prose(r"25>2.94\quad\Rightarrow\quad\text{फिसलन होगी}")
+    assert BoardMixin._is_prose("मान लो a = 2")
+    assert BoardMixin._is_prose("first find the net force")
+
+
+def test_a_rope_comes_with_its_pulley_parts():
+    from stem import _with_companions
+
+    ids = ["table", "leg", "pulley", "rope", "rope2", "m1", "m2", "T1"]
+    shown = _with_companions(["table", "pulley", "rope", "m1", "m2"], ids)
+    assert "rope2" in shown and "leg" in shown and "T1" not in shown
+
+
+def test_ops_in_a_beat_clear_then_draw_then_add():
+    from compile_lecture import beat_order
+
+    ops = [{"op": "work", "key": "w"}, {"op": "figure", "id": "f"}, {"op": "unstage"}, {"op": "reveal"}]
+    assert [o["op"] for o in beat_order(ops)] == ["unstage", "figure", "work", "reveal"]
+
+
+def _board_scene():
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    return scene
+
+
+def test_label_moves_off_a_line_it_sat_on():
+    scene = _board_scene()
+    items = [{"id": "bat", "type": "rect", "at": [2, 0], "w": 0.4, "h": 3},
+             {"id": "u", "type": "arrow", "from": [-3, 1], "to": [0, 1], "label": "comes in: 12 m/s"}]
+    scene._build_sketch("k", items, (-3.4, -1, 6.45, 3.5))
+    bat = scene.diagrams["k"]["nodes"]["bat"][0]
+    label = scene.diagrams["k"]["nodes"]["u"][-1]
+    left, right = label.get_left()[0], label.get_right()[0]
+    assert right < bat.get_left()[0] or left > bat.get_right()[0] or label.get_bottom()[1] > bat.get_top()[1]
+
+
+def test_a_sketch_and_its_labels_fit_its_box():
+    scene = _board_scene()
+    items = [{"id": "a", "type": "arrow", "from": [0, 0], "to": [9, 0], "label": "a very long label at the tip"}]
+    box = (0.0, 0.0, 4.0, 3.0)
+    body = scene._build_sketch("k", items, box)
+    assert body.get_left()[0] >= -2.0 - 1e-6 and body.get_right()[0] <= 2.0 + 1e-6
+
+
+def test_two_pictures_in_one_beat_sit_side_by_side():
+    scene = _board_scene()
+    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1, "label": "m"}])
+    scene.equation(r"F = ma")
+    picture, card = scene.stage_body, scene.stage_extra[-1]
+    assert picture.get_right()[0] < card.get_left()[0]          # the drawing left, the equation right
+
+
+def test_a_definition_goes_beside_the_drawing_it_explains():
+    scene = _board_scene()
+    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}])
+    scene._beat_new = []                                         # the drawing's beat has played
+    scene.define("velocity", "speed and direction")
+    assert scene.stage_body is not None and scene.stage_body.get_right()[0] < scene.stage_extra[-1].get_left()[0]
+
+
+def test_equation_during_a_problem_joins_its_working():
+    scene = _board_scene()
+    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a",
+                  figure={"op": "sketch", "items": [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}]})
+    scene._beat_new = []
+    scene.equation(r"a = F/m")
+    assert scene._problem is not None and scene.works      # the problem stays; the equation is a working line
+
+
+SCENE = '''
+from manim import *
+from pocket_lecture import *
+
+
+class AuditProbe(MapLecture):
+    def construct(self):
+        self.board()
+        self.beat("A block and its law.",
+                  self.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1, "label": "m"},
+                                    {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}]),
+                  self.equation(r"F = ma"))
+        self.beat("What it means.", self.define("force", "a push or a pull"))
+        self.beat("Solve it.", self.work("w", ["a = F/m", "a = 2\\\\,\\\\mathrm{m/s^2}"], box=True))
+'''
+
+
+def test_audit_finds_nothing_on_top_of_anything(tmp_path):
+    scene = tmp_path / "probe.py"
+    scene.write_text(SCENE)
+    run = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "lecture_audit.py"), str(scene),
+                          "AuditProbe", str(tmp_path / "audit"), "--quiet"], capture_output=True, text=True,
+                         timeout=300)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert '"serious": 0' in run.stdout
+
+
+@pytest.mark.parametrize("line", ["F = ma", r"\frac{mv^2}{R}"])
+def test_work_line_is_typeset(line, monkeypatch, tmp_path):
+    from manim import MathTex, config
+
+    monkeypatch.setitem(config, "tex_dir", str(tmp_path))
+    nolatex.install()
+    scene = _board_scene()
+    assert isinstance(scene._work_line(line, 6.0), MathTex)

@@ -182,6 +182,9 @@ FONTS = {
     "LibreFranklin[wght].ttf": "ofl/librefranklin/LibreFranklin%5Bwght%5D.ttf",
     "IBMPlexMono-Regular.ttf": "ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
     "IBMPlexMono-Bold.ttf": "ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
+    # Hindi in typeset equations (XeLaTeX, nolatex.SCRIPT_FONTS).
+    "Hind-Regular.ttf": "ofl/hind/Hind-Regular.ttf",
+    "Hind-Bold.ttf": "ofl/hind/Hind-Bold.ttf",
 }
 
 
@@ -351,6 +354,14 @@ def icon_mob(name: str, color: str | None = None, height: float = 0.5):
 
 def wrap(text: str, width: int) -> str:
     return "\n".join(textwrap.wrap(text, width)) or text
+
+
+def _short_caption(text: str, limit: int = 110) -> str:
+    """A figure's caption at a length that can be read under it: a PDF's long description is cut at a word."""
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
 def fit(mob, width: float):
@@ -900,18 +911,52 @@ Z_PANEL, Z_PANEL_TEXT, Z_CARD, Z_CHROME, Z_CAPTION = 20, 25, 40, 50, 60
 
 
 _SUPER = str.maketrans("0123456789+-=()ni", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ")
-_SUB = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+_SUB = str.maketrans("0123456789+-=()aehijklmnoprstuvx", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ")
+_SUB_OK = set("0123456789+-=()aehijklmnoprstuvx")
+_SUPER_OK = set("0123456789+-=()ni")
+
+
+def _script(body: str, ok: set, table, mark: str) -> str:
+    """A sub- or superscript in Unicode when every character has a small form, else written out (F_(net))."""
+    body = body.strip()
+    if body and all(c in ok for c in body):
+        return body.translate(table)
+    return f"{mark}{body}" if len(body) == 1 else f"{mark}({body})"
 _TEX_WORDS = {r"\times": "×", r"\cdot": "·", r"\pm": "±", r"\div": "÷", r"\leq": "≤", r"\geq": "≥",
               r"\neq": "≠", r"\approx": "≈", r"\infty": "∞", r"\rightarrow": "→", r"\to": "→",
               r"\leftrightarrow": "↔", r"\rightleftharpoons": "⇌", r"\Delta": "Δ", r"\delta": "δ",
               r"\pi": "π", r"\theta": "θ", r"\lambda": "λ", r"\alpha": "α", r"\beta": "β", r"\gamma": "γ",
               r"\omega": "ω", r"\Omega": "Ω", r"\mu": "μ", r"\sigma": "σ", r"\rho": "ρ", r"\phi": "φ",
-              r"\sum": "Σ", r"\int": "∫", r"\partial": "∂", r"\nabla": "∇", r"\degree": "°", r"\circ": "°"}
+              r"\sum": "Σ", r"\int": "∫", r"\partial": "∂", r"\nabla": "∇", r"\degree": "°", r"\circ": "°",
+              r"\Rightarrow": "⇒", r"\implies": "⇒", r"\Leftarrow": "⇐", r"\Leftrightarrow": "⇔", r"\iff": "⇔",
+              r"\leftarrow": "←", r"\le": "≤", r"\ge": "≥", r"\ne": "≠", r"\sim": "~", r"\propto": "∝",
+              r"\perp": "⊥", r"\parallel": "∥", r"\angle": "∠", r"\triangle": "△", r"\therefore": "∴",
+              r"\because": "∵", r"\cdots": "⋯", r"\ldots": "…", r"\dots": "…", r"\hbar": "ħ", r"\ell": "ℓ",
+              r"\tau": "τ", r"\epsilon": "ε", r"\varepsilon": "ε", r"\eta": "η", r"\kappa": "κ", r"\nu": "ν",
+              r"\xi": "ξ", r"\psi": "ψ", r"\chi": "χ", r"\zeta": "ζ", r"\varphi": "φ", r"\Phi": "Φ",
+              r"\Sigma": "Σ", r"\Lambda": "Λ", r"\Gamma": "Γ", r"\Theta": "Θ", r"\Pi": "Π", r"\Psi": "Ψ",
+              r"\%": "%", r"\{": "{", r"\}": "}", r"\&": "&", r"\#": "#"}
+# TeX that only changes how maths looks: dropped, keeping what it wraps.
+_TEX_FONTS = r"text|textrm|textbf|textit|mathrm|mathbf|mathit|mathsf|mathcal|boldsymbol|bm|operatorname|mbox|hbox"
 
 
 def unicode_math(tex: str) -> str:
     """LaTeX-ish maths as plain Unicode, for machines without LaTeX: E = mc^2 -> E = mc², H_2O -> H₂O."""
     text = str(tex)
+    text = re.sub(r"\\[td]frac", r"\\frac", text)
+    text = re.sub(r"\\frac\s*(\d)\s*(\d)", r"\\frac{\1}{\2}", text)       # \frac12
+    text = re.sub(r"\\(?:left|right|big|Big|bigg|Bigg)(?![a-zA-Z])\s*", "", text)
+    text = re.sub(r"\\(?:displaystyle|textstyle|limits|nolimits)(?![a-zA-Z])\s*", "", text)
+    text = re.sub(r"\\(?:quad|qquad)(?![a-zA-Z])\s*", "  ", text)
+    text = re.sub(r"\\[,;:!> ]", " ", text)
+    text = re.sub(r"\\(?:vec|overrightarrow)\{([^{}]*)\}", "\\1\u20d7", text)
+    text = re.sub(r"\\(?:bar|overline)\{([^{}]*)\}", "\\1\u0304", text)
+    text = re.sub(r"\\hat\{([^{}]*)\}", "\\1\u0302", text)
+    for _ in range(4):
+        text = re.sub(r"\\(?:" + _TEX_FONTS + r")\s*\{([^{}]*)\}", r"\1", text)
+    # Font switches without braces: \rm ext, \mathbf F.
+    text = re.sub(r"(\{)?\\(?:rm|bf|it|sf|mathbf|mathrm|boldsymbol)(?![a-zA-Z])\s*",
+                  lambda m: m.group(1) or "{}", text)
     # Innermost first, until nothing changes: a square root inside a fraction.
     for _ in range(6):
         before = text
@@ -920,8 +965,8 @@ def unicode_math(tex: str) -> str:
         text = re.sub(r"\\frac\{([^{}]*)\}\{([^{}]*)\}",
                       lambda m: "/".join(f"({p.strip()})" if re.search(r"[\s+\-−=·×]", p.strip()) else p.strip()
                                          for p in m.groups()), text)
-        text = re.sub(r"\^\{([^{}]*)\}", lambda m: m.group(1).translate(_SUPER), text)
-        text = re.sub(r"_\{([^{}]*)\}", lambda m: m.group(1).translate(_SUB), text)
+        text = re.sub(r"\^\{([^{}\\]*)\}", lambda m: _script(m.group(1), _SUPER_OK, _SUPER, "^"), text)
+        text = re.sub(r"_\{([^{}\\]*)\}", lambda m: _script(m.group(1), _SUB_OK, _SUB, "_"), text)
         if text == before:
             break
     # A command swallows the space after it, as in LaTeX.
@@ -931,7 +976,8 @@ def unicode_math(tex: str) -> str:
         text = re.sub(re.escape(word) + r"(?![a-zA-Z])" + swallow, symbol, text)
     text = text.replace("\\sqrt", "√")
     text = re.sub(r"\^([0-9n+\-i])", lambda m: m.group(1).translate(_SUPER), text)
-    text = re.sub(r"_([0-9])", lambda m: m.group(1).translate(_SUB), text)
+    text = re.sub(r"_([0-9])|_([aehijklmnoprstuvx])(?![a-zA-Z])", lambda m: (m.group(1) or m.group(2)).translate(_SUB),
+                  text)
     text = text.replace("<=>", "⇌").replace("->", "→").replace("*", "·").replace("{", "").replace("}", "")
     return re.sub(r"\\([a-zA-Z]+)", r"\1", text)
 
@@ -1029,6 +1075,7 @@ class Lecture(Scene):
 
     SECTIONS: list[str] = []
     SECTION = 0
+    board_mode = False      # teaching on the whole frame (stem.BoardMixin.board)
     # Where panel text starts. A map lecture keeps the left for the map and
     # the panel to its right; without a map the column sits near the centre.
     TEXT_LEFT = -3.0
@@ -1049,10 +1096,13 @@ class Lecture(Scene):
         self._problem = None            # the problem on the board: where its solution is written
         self._full_figure = None        # the full-frame figure on screen, faded at the next beat
         self._new_figure = None         # one built for this beat (its call runs before beat() does)
+        self._beat_new: list = []       # stage pictures built for the coming beat, not shown yet
+        self._beat_revealed: list = []  # diagram parts the coming beat reveals
         self.panel_y = 2.35
         self.chrome = VGroup()
         back = backdrop()
         if len(back):
+            back.is_backdrop = True     # layout checks skip it: everything sits on it by design
             self.add(back)
         self.section(self.SECTION)
 
@@ -1127,6 +1177,8 @@ class Lecture(Scene):
                 self.play(*items, run_time=spent * 0.5)
             else:
                 self.play(*anims, run_time=spent)
+        self._beat_new = []
+        self._beat_revealed = []
         rest = seconds + pad - spent
         if rest > 0.02:
             self.wait(rest)
@@ -1346,17 +1398,110 @@ class Lecture(Scene):
         return going
 
     def _to_stage(self, group):
-        """Put a picture on the stage, over the map; the one there before fades."""
+        """Put a picture on the stage, over the map; the one there before fades.
+
+        A second picture for the same beat (a figure and its equation, say) goes beside the first rather
+        than replacing it before it was ever seen: the stage splits in two."""
+        if len(self._beat_new) == 1 and self.stage_body is self._beat_new[0] and len(group.get_family()) > 1 \
+                and len(self.stage_body.get_family()) > 1:
+            return self._beside(group)
         going = self._stage_leaving()
         new = Group(self._stage_card(), group)
         new.set_z_index(Z_MARK + 10)
         self.stage_items = new
         self.stage_body = group
         self.stage_pending, self._next_pending = self._next_pending, []
+        self._beat_new.append(group)
         show = FadeIn(new, scale=1.02)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
+
+    def _halves(self):
+        cx, cy, w, h = self.STAGE
+        return (cx - w / 4, cy, w / 2 - 0.25, h), (cx + w / 4, cy, w / 2 - 0.25, h)
+
+    @staticmethod
+    def _fit_box(mobs, box, grow: float = 1.0):
+        """Scale and move these together (a picture and its parts still to come) to fill the box."""
+        whole = Group(*mobs)
+        cx, cy, w, h = box
+        f = min((w - 0.2) / max(whole.width, 0.01), (h - 0.2) / max(whole.height, 0.01), grow)
+        centre = whole.get_center()
+        for m in mobs:
+            m.scale(f, about_point=centre).shift(np.array([cx, cy, 0]) - centre)
+
+    def _beside(self, group):
+        """The beat's second picture: the drawing takes the left half, the words about it (a definition, an
+        equation, a question) the right. Neither is on screen yet, so the two are simply laid out again."""
+        left, right = self._halves()
+        first = self.stage_body
+        if getattr(first, "is_text_card", False) and not getattr(group, "is_text_card", False):
+            # The card came first: the drawing takes its place in the stage group, the card goes beside it.
+            self.stage_items.remove(first)
+            self.stage_items.add(group)
+            group.set_z_index(Z_MARK + 10)
+            picture, card = group, first
+            picture_parts, card_parts = self._next_pending, self.stage_pending
+            self.stage_body = group
+        else:
+            picture, card = first, group
+            picture_parts, card_parts = self.stage_pending, self._next_pending
+        self._fit_box([picture, *picture_parts], left)
+        self._fit_box([card, *card_parts], right, grow=1.3)
+        card.is_aside = True
+        card.aside_box = right
+        self.stage_pending = [*picture_parts, *card_parts]
+        self._next_pending = []
+        self._beat_new.append(group)
+        self._stage_add(card)
+        return FadeIn(card, scale=1.02)
+
+    def _aside(self, mob, grow: float = 1.3):
+        """Put `mob` in the right half of the board, beside what is on the stage (moved into the left half).
+        None when there is nothing to sit beside, or it already has something beside it."""
+        if not self.board_mode or self.stage_body is None or self.works or self._problem is not None:
+            return None
+        left, right = self._halves()
+        old = [m for m in self.stage_extra if getattr(m, "is_aside", False)]
+        if old:
+            # A card is already beside the drawing: the new one takes its place.
+            for m in old:
+                self.stage_extra.remove(m)
+            self._fit_box([mob], right, grow=grow)
+            mob.is_aside = True
+            mob.aside_box = right
+            self._stage_add(mob)
+            # One after the other as a lagged group, which the exporter plays (a Succession of groups it did not).
+            return AnimationGroup(AnimationGroup(*[FadeOut(m) for m in old]), FadeIn(mob, shift=LEFT * 0.2),
+                                  lag_ratio=1.0)
+        moved = Group(self.stage_body, *self.stage_extra)
+        cx, cy, w, h = left
+        f = min((w - 0.2) / max(moved.width, 0.01), (h - 0.2) / max(moved.height, 0.01), 1.0)
+        slide = self._move_stage(f, moved.get_center(), left)
+        self._fit_box([mob], right, grow=grow)
+        mob.is_aside = True
+        mob.aside_box = right
+        self._stage_add(mob)
+        arrive = FadeIn(mob, shift=LEFT * 0.2)
+        return AnimationGroup(slide, arrive, lag_ratio=1.0) if slide is not None else arrive
+
+    def _move_stage(self, f: float, centre, box):
+        """Scale the stage's picture and parts by f about `centre` and move them to the box's centre. Parts
+        already on screen slide there; parts this beat is still bringing in (a node being revealed, a picture
+        not shown yet) are simply put there, since two animations on one part fight and it stayed behind."""
+        cx, cy = box[0], box[1]
+        shift = np.array([cx, cy, 0]) - centre
+        arriving = {id(m) for m in [*self._beat_new, *self._beat_revealed]}
+        slides = []
+        for m in [self.stage_items, *self.stage_extra]:
+            if id(m) in arriving or (m is self.stage_items and id(self.stage_body) in arriving):
+                m.scale(f, about_point=centre).shift(shift)
+            else:
+                slides.append(m.animate.scale(f, about_point=centre).shift(shift))
+        for m in self.stage_pending:
+            m.scale(f, about_point=centre).shift(shift)
+        return AnimationGroup(*slides) if slides else None
 
     def _stage_add(self, mob):
         """A part added to the picture already on the stage; it leaves with it."""
@@ -1373,14 +1518,17 @@ class Lecture(Scene):
         """A photo or a document's figure, large, on the stage."""
         cx, cy, w, h = self.STAGE
         image = ImageMobject(path)
-        room = h - (0.55 if caption else 0) - (0.3 if credit else 0)
+        line = None
+        if caption:
+            line = T(wrap(_short_caption(caption), 70), 16, P.CREAM, line_spacing=0.85)
+        room = h - (line.height + 0.3 if line is not None else 0) - (0.3 if credit else 0)
         image.scale_to_fit_width(w)
         if image.height > room:
             image.scale_to_fit_height(room)
         frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
         parts = [image, frame]
-        if caption:
-            parts.append(fit(T(caption, 16, P.CREAM), w).next_to(image, DOWN, buff=0.14))
+        if line is not None:
+            parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
         if credit:
             parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
         group = Group(*parts).move_to([cx, cy, 0])
@@ -1464,16 +1612,23 @@ class Lecture(Scene):
     def equation(self, tex: str, label: str | None = None):
         """An equation, large: typeset by LaTeX when installed, readable Unicode maths otherwise."""
         cx, cy, w, h = self.STAGE
-        if shutil.which("latex"):
+        if self.board_mode and (self.works or self._problem is not None):
+            # A problem is being solved: the equation is the next line of its working, not a new picture
+            # that wipes the problem off the board.
+            key = next(iter(self.works), None) or (self._problem or {}).get("key") or "working"
+            return self.work(key, [tex], box=True)
+        try:
             body = MathTex(tex, color=P.CREAM).scale(1.4)
-        else:
+        except Exception:  # noqa: BLE001 -- TeX that will not compile: the same maths as text
             body = T(unicode_math(tex), 56, P.CREAM, font=TH["serif"])
         parts = VGroup(body)
         if label:
             parts.add(fit(T(label, 20, P.MUTED), w - 0.4))
         parts.arrange(DOWN, buff=0.45)
         self._fit_stage(parts, 0.6)
-        return self._to_stage(Group(parts))
+        card = Group(parts)
+        card.is_text_card = True
+        return self._to_stage(card)
 
     def plot(self, exprs, x_range=(-5.0, 5.0), label: str | None = None, x_label: str = "x", y_label: str = "y",
              names=()):
@@ -1750,6 +1905,7 @@ class Lecture(Scene):
         drawn = [d["nodes"][i] for i in new] + [mob for a, b, mob in d["edges"]
                                                  if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
         self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
+        self._beat_revealed.extend(drawn)
         # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
         anims = [Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
                  FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
@@ -1782,8 +1938,15 @@ class Lecture(Scene):
         rule = Line(LEFT * 1.2, RIGHT * 1.2, color=P.SAND, stroke_width=3)
         body = fit(T(wrap(meaning, 34), 22, P.CREAM, line_spacing=0.95), w - 0.6)
         parts = VGroup(*([drawing] if drawing is not None else []), word, rule, body).arrange(DOWN, buff=0.28)
+        # On the board, beside the drawing being explained rather than in place of it.
+        parts.is_text_card = True
+        beside = self._aside(parts, grow=1.2) if not self._beat_new else None
+        if beside is not None:
+            return beside
         self._fit_stage(parts, grow=1.8 if self.board_mode else 1.25)
-        return self._to_stage(Group(parts))
+        card = Group(parts)
+        card.is_text_card = True
+        return self._to_stage(card)
 
     def compare_cards(self, columns, title: str | None = None):
         """Two or three things side by side: a drawing, a name and a few short points each."""
@@ -1851,16 +2014,21 @@ class Lecture(Scene):
         parts.arrange(DOWN, buff=0.3)
         head.align_to(track, LEFT)
         self._fit_stage(parts, grow=1.2)
+        if isinstance(answer, str) and answer.strip() and not isinstance(shown, int):
+            shown = parts[-1]
+            parts.remove(shown)
+            self._next_pending.append(shown)      # moves with the card, shown by answer()
+        card = Group(parts)
+        card.is_text_card = True
+        anim = self._to_stage(card)
         if isinstance(shown, int):
+            # Drawn once the card is where it will stay (beside a drawing, it is smaller).
             box = options[shown][0]
             ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
                                     stroke_color=P.GREEN, stroke_width=5).move_to(box)
-            tick = T("✓", 30, P.GREEN, weight=BOLD).move_to(ring).align_to(ring, RIGHT).shift(LEFT * 0.25)
+            tick = T("✓", 30, P.GREEN, weight=BOLD).scale_to_fit_height(ring.height * 0.45).move_to(ring) \
+                .align_to(ring, RIGHT).shift(LEFT * 0.25)
             shown = VGroup(ring, tick)
-        elif isinstance(answer, str) and answer.strip():
-            shown = parts[-1]
-            parts.remove(shown)
-        anim = self._to_stage(Group(parts))
         self._question = {"track": track, "answer": shown}
         return anim
 
@@ -1899,7 +2067,9 @@ class Lecture(Scene):
 
     def figure(self, path: str, caption: str = "", where: str = "panel"):
         """A figure from a source document: in the panel, or across the frame for one beat."""
-        if where == "panel" and self.board_mode:
+        if where in ("panel", "full") and self.board_mode:
+            # The board already spans the frame: a "full" figure there covered the title strip, and anything
+            # else the beat put on the stage stayed hidden under it.
             where = "stage"
         if where == "stage":
             return self.stage_image(path, caption)
@@ -2020,6 +2190,9 @@ class Lecture(Scene):
         cols = 4 if len(cards) > 3 else len(cards)
         rows = math.ceil(len(cards) / max(cols, 1))
         cards.arrange_in_grid(rows=rows, cols=cols, buff=(0.2, 0.3)).move_to(UP * 0.35)
+        if cards.width < 11.5 and cards.height < 4.5:
+            # A few cards: large enough to read across the room.
+            cards.scale(min(12.0 / cards.width, 5.0 / cards.height, 1.45)).move_to(UP * 0.35)
         cards.set_z_index(Z_PANEL_TEXT)
         lines = narration or [f"{h}. {b}." for h, b in points[:8]]
         for card, line in zip(cards, lines):

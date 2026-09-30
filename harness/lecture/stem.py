@@ -436,6 +436,131 @@ def _nice_step(span: float) -> float:
     return 10 * power
 
 
+def _with_companions(show: list[str], ids: list[str]) -> list[str]:
+    """What a `show` list means: a part's own pieces come with it (rope2 with rope, the leg with the table,
+    the rod with the ceiling), so a script naming the rope never leaves a block hanging in the air."""
+    companions = {"table": ("leg",), "ceiling": ("rod",), "rope": ("rope2", "rope3"), "wedge": ("ground",)}
+    out = list(show)
+    for name in show:
+        for other in ids:
+            if other not in out and (re.fullmatch(re.escape(name) + r"\d+", other)
+                                     or other in companions.get(name, ())):
+                out.append(other)
+    return out
+
+
+def _bounds(mobs):
+    import numpy as np
+
+    pts = [m.get_all_points() for m in mobs if len(m.get_all_points())]
+    if not pts:
+        return None
+    arr = np.vstack(pts)
+    return arr[:, 0].min(), arr[:, 1].min(), arr[:, 0].max(), arr[:, 1].max()
+
+
+def _fit_into(mobs, box, margin: float = 0.12) -> None:
+    """Shrink and centre a drawing's parts together so all of them, labels too, sit inside the box."""
+    import numpy as np
+
+    b = _bounds(mobs)
+    if b is None:
+        return
+    cx, cy, w, h = box
+    bw, bh = max(b[2] - b[0], 1e-3), max(b[3] - b[1], 1e-3)
+    f = min((w - 2 * margin) / bw, (h - 2 * margin) / bh, 1.0)
+    centre = np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2, 0.0])
+    shift = np.array([cx, cy, 0.0]) - centre
+    for m in mobs:
+        if f < 1.0:
+            m.scale(f, about_point=centre)
+        m.shift(shift)
+
+
+def _labels_and_ink(mobs):
+    labels, ink = [], []
+    for mob in mobs:
+        for part in mob.get_family():
+            if getattr(part, "is_label", False):
+                labels.append(part)
+    label_family = {id(x) for lab in labels for x in lab.get_family()}
+    for mob in mobs:
+        for part in mob.family_members_with_points():
+            if id(part) not in label_family:
+                ink.append(part)
+    return labels, ink
+
+
+def curve_samples(points, per_curve: int = 8):
+    """Points along a VMobject's cubic curves (x, y), not only its anchors: a long straight edge has anchors at
+    its ends alone, and a label across its middle would not touch one."""
+    import numpy as np
+
+    pts = np.asarray(points, dtype=float)
+    n = len(pts) // 4 * 4
+    if n < 4:
+        return pts[:, :2]
+    b = pts[:n].reshape(-1, 4, 3)
+    t = np.linspace(0.0, 1.0, per_curve)[:, None, None]
+    curve = ((1 - t) ** 3) * b[:, 0] + 3 * ((1 - t) ** 2) * t * b[:, 1] + 3 * (1 - t) * t * t * b[:, 2] \
+        + (t ** 3) * b[:, 3]
+    return curve.reshape(-1, 3)[:, :2]
+
+
+def _settle_labels(mobs, box, gap: float = 0.06) -> None:
+    """Move each label that sits on a line, on a filled part or on another label to the nearest clear spot
+    around where it was put (up to about a label's size away), and keep it inside the box."""
+    import numpy as np
+
+    labels, ink = _labels_and_ink(mobs)
+    if not labels:
+        return
+    parts = [curve_samples(part.points, 24) for part in ink if len(part.points) >= 2]
+    cx, cy, w, h = box
+    lo_x, hi_x, lo_y, hi_y = cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2
+    placed = []
+
+    def box_of(centre, lab):
+        return (centre[0] - lab.width / 2 - gap, centre[1] - lab.height / 2 - gap,
+                centre[0] + lab.width / 2 + gap, centre[1] + lab.height / 2 + gap)
+
+    def cost(b, own):
+        # Each line or shape the label sits on counts once, however long the stretch under it.
+        c = -own
+        for pts in parts:
+            if ((pts[:, 0] > b[0]) & (pts[:, 0] < b[2]) & (pts[:, 1] > b[1]) & (pts[:, 1] < b[3])).any():
+                c += 1
+        for p in placed:
+            ox = min(b[2], p[2]) - max(b[0], p[0])
+            oy = min(b[3], p[3]) - max(b[1], p[1])
+            if ox > 0 and oy > 0:
+                c += 40 + 200 * ox * oy
+        # Out of the box: pushed back in by the fit later, but shrinking the whole drawing for it costs.
+        c += 2 * (max(0, lo_x - b[0]) + max(0, b[2] - hi_x) + max(0, lo_y - b[1]) + max(0, b[3] - hi_y))
+        return c
+
+    for lab in labels:
+        home = lab.get_center()[:2].copy()
+        # A label may sit on its own element's anchor: only a crossing, not a touch, counts against it.
+        own = 0
+        best, best_cost = home, cost(box_of(home, lab), own)
+        if best_cost <= 0:
+            placed.append(box_of(home, lab))
+            continue
+        step_x, step_y = lab.width / 2 + 0.12, lab.height / 2 + 0.1
+        for reach in (0.6, 1.0, 1.5, 2.1):
+            for ang in range(0, 360, 30):
+                t = math.radians(ang)
+                at = home + np.array([math.cos(t) * step_x * reach, math.sin(t) * step_y * reach])
+                c = cost(box_of(at, lab), own) + 0.25 * reach
+                if c < best_cost - 1e-6:
+                    best, best_cost = at, c
+            if best_cost <= 0.25 * reach:
+                break
+        lab.move_to([best[0], best[1], 0])
+        placed.append(box_of(best, lab))
+
+
 class BoardMixin:
     """The board layout and the STEM drawings, for pocket_lecture's MapLecture."""
 
@@ -591,6 +716,7 @@ class BoardMixin:
         import pocket_lecture as pl
 
         mob = pl.T(_label_text(text), size, color or pl.P.CREAM)
+        mob.is_label = True            # _settle_labels may move it off a line or another label
         if direction is None:
             return mob.move_to(at)
         d = np.array(direction, dtype=float)
@@ -644,9 +770,17 @@ class BoardMixin:
             parts.append(rect)
             if label:
                 at = rect.get_center()
-                if e.get("_busy"):          # forces start at its centre: the name sits to one side of them
-                    at = at + np.array([math.cos(turn), math.sin(turn), 0]) * float(e.get("w", 1)) * s * 0.28
-                parts.append(self._label(label, at, None, pl.P.HI if fill else ink))
+                tag = self._label(label, at, None, pl.P.HI if fill else ink)
+                inner_w, inner_h = float(e.get("w", 1)) * s, float(e.get("h", 1)) * s
+                if abs(math.sin(turn)) > 0.7:
+                    inner_w, inner_h = inner_h, inner_w
+                if e.get("_busy"):
+                    # Forces start at its centre: the name goes above the block, clear of their arrows.
+                    tag = self._label(label, rect.get_top(), UP, ink)
+                elif tag.width > inner_w - 0.12 or tag.height > inner_h - 0.08:
+                    # A thin bat or a small block: the name goes beside it, not across its edges.
+                    tag = self._label(label, rect.get_right(), RIGHT, ink)
+                parts.append(tag)
         elif kind == "circle":
             fill = self._colour(e.get("fill"), None)
             circle = Circle(radius=float(e.get("r", 0.5)) * s, color=self._colour(e.get("color"), fill or ink),
@@ -656,8 +790,12 @@ class BoardMixin:
             if e.get("type") == "circle" and fill:
                 parts.append(Dot(circle.get_center(), radius=0.05, color=ink))
             if label:
-                inside = circle.width > 0.9
-                parts.append(self._label(label, circle.get_center(), None if inside else UP + RIGHT, ink))
+                tag = self._label(label, circle.get_center(), None, ink)
+                if tag.width > circle.width * 0.8 or tag.height > circle.height * 0.6:
+                    # Too small to hold its name: the name sits outside the rim, up and to the right.
+                    d = np.array([1.0, 1.0, 0.0]) / math.sqrt(2)
+                    tag = self._label(label, circle.get_center() + d * circle.width / 2, d, ink)
+                parts.append(tag)
         elif kind == "polygon":
             pts = [to(p) for p in e["points"]]
             fill = self._colour(e.get("fill"), None)
@@ -743,16 +881,24 @@ class BoardMixin:
                   if e.get("type") == "arrow" and isinstance(e.get("from"), (list, tuple))}
         elements = [{**e, "_busy": True} if e.get("type") == "rect" and isinstance(e.get("at"), (list, tuple))
                     and (round(float(e["at"][0]), 2), round(float(e["at"][1]), 2)) in starts else e for e in elements]
-        nodes, first = {}, []
+        nodes, first, unnamed = {}, [], []
         ids = [str(e["id"]) for e in elements if e.get("id") is not None]
-        shown = set(ids if show is None else [str(x) for x in show])
+        shown = set(ids if show is None else _with_companions([str(x) for x in show], ids))
+        built = []
         for e in elements:
             mob = self._element(e, to, s)
+            built.append(mob)
             if e.get("id") is not None:
                 nodes[str(e["id"])] = mob
                 if str(e["id"]) not in shown:
                     continue
+            else:
+                unnamed.append(mob)
             first.append(mob)          # in the script's order: a part listed later is drawn over one before
+        # Every part, shown now or later, is laid out together: a label clear of every line and label, and
+        # the whole drawing, labels included, inside its box.
+        _settle_labels(built, box)
+        _fit_into(built, box)
         self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
         return VGroup(*first)
@@ -770,10 +916,32 @@ class BoardMixin:
         head.move_to([cx, cy + h / 2 - head.height / 2 - 0.05, 0])
         return head, (cx, cy - 0.3, w, h - 0.6)
 
+    def _problem_drawing(self, build):
+        """While a problem is on the board, a new drawing replaces the problem's figure, not the problem."""
+        from manim import AnimationGroup, FadeIn, FadeOut
+
+        box = self._problem["fig_box"]
+        body = build(box)
+        old = self._problem.get("figure")
+        self._problem["figure"] = self._stage_add(body)
+        self.stage_pending = [*self.stage_pending, *self._next_pending]
+        self._next_pending = []
+        if old is None:
+            return FadeIn(body)
+        if old in self.stage_extra:
+            self.stage_extra.remove(old)
+        return AnimationGroup(FadeOut(old), FadeIn(body), lag_ratio=1.0)
+
+    def _in_problem(self) -> bool:
+        return self.board_mode and self._problem is not None and self._problem.get("fig_box") is not None \
+            and not self._beat_new
+
     def sketch(self, key: str, elements, show=None, title: str | None = None):
         """A labelled diagram from primitives (see stem.PRIMITIVES), on the stage."""
         from manim import Group, VGroup
 
+        if self._in_problem():
+            return self._problem_drawing(lambda box: self._build_sketch(key, list(elements), box, show))
         head, box = self._titled(title, self.STAGE)
         body = self._build_sketch(key, list(elements), box, show)
         return self._to_stage(Group(VGroup(*([head] if head else []), body)))
@@ -903,7 +1071,12 @@ class BoardMixin:
                     parts.append(pl.T(_label_text(i["label"]), 18, ink).next_to(pts[-1], UP, buff=0.12))
             elif kind == "label":
                 parts.append(pl.T(_label_text(i.get("text", "")), 20, ink).move_to(axes.c2p(*[float(v) for v in i["at"]])))
+            if kind not in ("label", "area"):
+                for part in parts:
+                    if type(part).__name__ == "Text":
+                        part.is_label = True
             nodes[str(i.get("id") or f"_{k}")] = VGroup(*parts)
+        _settle_labels([axes, xl, yl, *nodes.values()], box)
         shown = set(nodes if spec.get("show") is None else [str(x) for x in spec["show"]])
         self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
@@ -913,6 +1086,8 @@ class BoardMixin:
         """Axes with items (curve, point, vline, hline, area, tangent, segment, data, label), on the stage."""
         from manim import Group, VGroup
 
+        if self._in_problem():
+            return self._problem_drawing(lambda box: self._build_graph(key, spec, box))
         head, box = self._titled(title, self.STAGE)
         body = self._build_graph(key, spec, box)
         return self._to_stage(Group(VGroup(*([head] if head else []), body)))
@@ -920,8 +1095,14 @@ class BoardMixin:
     # ---------------- worked solutions ----------------
     @staticmethod
     def _is_prose(line: str) -> bool:
-        bare = re.sub(r"\\text\{[^{}]*\}|\\[a-zA-Z]+", "", line)
-        return bool(re.search(r"[A-Za-z]{4,}", bare)) or bool(re.search(r"[\u0900-\u097F]", line))
+        """A sentence rather than maths: words outside \\text{} and outside TeX's own commands and their
+        arguments (\\rm total, \\mathrm{ext} are maths), or Hindi outside \\text{}."""
+        bare = re.sub(r"\\(?:text|mathrm|textrm|mathbf|operatorname|rm|it|bf)\s*\{[^{}]*\}", "", line)
+        bare = re.sub(r"\\(?:rm|it|bf)\s+\w+|[_^]\{[^{}]*\}|\\[a-zA-Z]+", "", bare)
+        if re.search(r"[\u0900-\u097F]", bare):
+            return True
+        # Three words in a row is a sentence; a lone unit or name (total, max) is not.
+        return bool(re.search(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}\s+[A-Za-z]{2,}", bare))
 
     def _work_line(self, line: str, width: float):
         """One line of working: typeset maths (MathTex, drawn as text without LaTeX), or a sentence."""
@@ -941,8 +1122,7 @@ class BoardMixin:
 
     def _stage_aside(self, box):
         """Move what is on the stage (and its parts still to come) into `box`, making room beside it."""
-        import numpy as np
-        from manim import AnimationGroup, Group
+        from manim import Group
 
         body = getattr(self, "stage_body", None)
         if body is None:
@@ -950,25 +1130,53 @@ class BoardMixin:
         # Sized by what shows, but moved as the group that was put on stage (with its card, invisible on the
         # board): moving a part of a shown group left the exporter a transform its preview could not play.
         whole = Group(body, *self.stage_extra)
-        visible = [self.stage_items, *self.stage_extra]
         cx, cy, w, h = box
         f = min(w / max(whole.width, 0.01), h / max(whole.height, 0.01), 1.0)
-        centre = whole.get_center()
-        shift = np.array([cx, cy, 0]) - centre
-        for m in self.stage_pending:
-            m.scale(f, about_point=centre).shift(shift)
-        return AnimationGroup(*[m.animate.scale(f, about_point=centre).shift(shift) for m in visible])
+        return self._move_stage(f, whole.get_center(), box)
+
+    def _new_column(self, key, area, title, anims):
+        """Where a working's lines go: the top of `area`, under its title if it has one."""
+        import pocket_lecture as pl
+        from manim import BOLD, FadeIn, LEFT
+
+        ax, ay, aw, ah = area
+        w = {"x": ax - aw / 2 + 0.1, "top": ay + ah / 2 - 0.1, "bottom": ay - ah / 2 + 0.05, "width": aw - 0.2,
+             "lines": []}
+        w["y"] = w["top"]
+        if title:
+            head = pl.fit(pl.T(title.upper() if pl.TH["upper"] else title, 20, pl.P.SAND, weight=BOLD), w["width"])
+            head.move_to([w["x"], w["y"], 0], aligned_edge=LEFT + [0, 1, 0])
+            self._stage_add(head)
+            anims.append(FadeIn(head))
+            w["y"] = head.get_bottom()[1] - 0.2
+        self.works[key] = w
+        return w
 
     def work(self, key: str, lines=(), title: str | None = None, box: bool = False):
         """Lines of a worked solution, one group per beat, under the last; `box` rings the last line (the
         answer). The first call for a key places the working: in the problem's solution area, beside the
         figure on the stage (moved aside), or across the stage."""
         import pocket_lecture as pl
-        from manim import (AnimationGroup, BOLD, Create, FadeIn, FadeOut, Group, LaggedStart, SurroundingRectangle,
-                           Write, LEFT, RIGHT)
+        from manim import (AnimationGroup, Create, FadeIn, FadeOut, Group, LaggedStart, SurroundingRectangle, Write,
+                           LEFT, RIGHT)
 
         anims = []
         w = self.works.get(key)
+        if w is None and self.works:
+            # A second working on the same stage continues the first one's column, under it: moving the
+            # stage aside again shrank the first working to a corner.
+            w = next(iter(self.works.values()))
+            if w["lines"]:
+                w["y"] -= 0.2
+            self.works[key] = w
+        asides = [m for m in self.stage_extra if getattr(m, "is_aside", False)]
+        if w is None and asides and self._problem is None and self.board_mode:
+            # A card beside the drawing (a definition, an equation): the working takes its half of the board.
+            area = asides[0].aside_box
+            for m in asides:
+                self.stage_extra.remove(m)
+            anims.append(AnimationGroup(*[FadeOut(m) for m in asides]))
+            w = self._new_column(key, area, title, anims)
         if w is None:
             if self._problem is not None:
                 area = self._problem["work"]
@@ -983,18 +1191,9 @@ class BoardMixin:
                 else:
                     if getattr(self, "stage_body", None) is None:
                         anims.append(self._to_stage(Group()))       # an empty stage the working belongs to
-                    area = self.STAGE
-            ax, ay, aw, ah = area
-            w = {"x": ax - aw / 2 + 0.1, "top": ay + ah / 2 - 0.1, "bottom": ay - ah / 2 + 0.05, "width": aw - 0.2,
-                 "lines": []}
-            w["y"] = w["top"]
-            if title:
-                head = pl.fit(pl.T(title.upper() if pl.TH["upper"] else title, 20, pl.P.SAND, weight=BOLD), w["width"])
-                head.move_to([w["x"], w["y"], 0], aligned_edge=LEFT + [0, 1, 0])
-                self._stage_add(head)
-                anims.append(FadeIn(head))
-                w["y"] = head.get_bottom()[1] - 0.2
-            self.works[key] = w
+                    # A column of reading width in the middle of the board, not lines strung along its top edge.
+                    area = (cx, cy, min(sw, 9.0), sh - 0.4)
+            w = self._new_column(key, area, title, anims)
         new = []
         for line in lines or []:
             mob = self._work_line(line, w["width"])
@@ -1065,12 +1264,13 @@ class BoardMixin:
         work_box = (cx + w / 4 + 0.1, below_top - below_h / 2, w / 2 - 0.3, below_h)
         parts = [statement, track]
         going = self._stage_leaving()
+        drawing = None
         if figure:
             fkey = str(figure.get("id") or f"{key}_figure")
             if figure.get("op") == "graph":
-                parts.append(self._build_graph(fkey, figure, fig_box))
+                drawing = self._build_graph(fkey, figure, fig_box)
             else:
-                parts.append(self._build_sketch(fkey, op_elements(figure), fig_box, figure.get("show")))
+                drawing = self._build_sketch(fkey, op_elements(figure), fig_box, figure.get("show"))
         else:
             work_box = (cx, below_top - below_h / 2, w, below_h)
         lines = []
@@ -1086,7 +1286,8 @@ class BoardMixin:
             y = mob.get_bottom()[1] - 0.12
             parts.append(mob)
         solution_h = (y - 0.12) - (wy - wh / 2)
-        self._problem = {"key": key, "work": (wx, (y - 0.12) - solution_h / 2, ww, solution_h)}
+        self._problem = {"key": key, "work": (wx, (y - 0.12) - solution_h / 2, ww, solution_h),
+                         "fig_box": fig_box if figure else None, "figure": drawing}
         group = Group(VGroup(*parts))
         new = Group(self._stage_card(), group)
         new.set_z_index(pl.Z_MARK + 10)
@@ -1096,5 +1297,8 @@ class BoardMixin:
         from manim import AnimationGroup, FadeIn
 
         show = FadeIn(new)
+        if drawing is not None:
+            self._stage_add(drawing)
+            show = AnimationGroup(show, FadeIn(drawing))
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 

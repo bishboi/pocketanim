@@ -286,6 +286,7 @@ async function streamCompletion(
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
+  toolChoice: "auto" | "required" = "auto",
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -298,7 +299,7 @@ async function streamCompletion(
       model,
       messages,
       tools,
-      tool_choice: "auto",
+      tool_choice: toolChoice,
       stream: true,
       usage: { include: true },
       ...reasoningOption(),
@@ -439,10 +440,18 @@ async function completionWithRetry(
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
+  toolChoice: "auto" | "required" = "auto",
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
     try {
-      const result = await streamCompletion(key, model, messages, onDelta, tools, signal);
+      let result;
+      try {
+        result = await streamCompletion(key, model, messages, onDelta, tools, signal, toolChoice);
+      } catch (error) {
+        // A provider that refuses "required" gets the same request with "auto".
+        if (toolChoice === "auto" || !/tool_choice|required/i.test(String(error))) throw error;
+        result = await streamCompletion(key, model, messages, onDelta, tools, signal, "auto");
+      }
       const text = result.message.content?.trim() ?? "";
       const calls = result.message.tool_calls ?? [];
       if (!text && calls.length === 0) {
@@ -561,6 +570,14 @@ async function viaOpenRouter(
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
   const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
   let nudges = 0;
+  let requireTool = false;     // after a reminder, the next reply must be a tool call, not more prose
+  // A part of a long lecture is whole chapters: a first part of one chapter with one beat became a 20-second video.
+  const partBeats = minutes >= 5 ? 6 : 3;
+  const thinChapters = (chapters: unknown) =>
+    (Array.isArray(chapters) ? chapters : []).filter((c) => {
+      const beats = (c as { beats?: unknown[] })?.beats;
+      return !Array.isArray(beats) || beats.length < partBeats;
+    }).length;
   for (let turn = 0; turn < 40; turn++) {
     if (stopped()) {
       const done = savedScene();
@@ -613,7 +630,7 @@ async function viaOpenRouter(
         sawDelta = true;
         lastDelta = Date.now();
         emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text });
-      }, tools, abort.signal);
+      }, tools, abort.signal, requireTool ? "required" : "auto");
     } catch (error) {
       if (gaveUp) {
         throw new Error(`${model} sent nothing for ${FIRST_REPLY_MINUTES} minute${FIRST_REPLY_MINUTES === 1 ? "" : "s"}, so the request was stopped. ` +
@@ -645,6 +662,7 @@ async function viaOpenRouter(
       continue;
     } finally {
       clearInterval(waiting);
+      requireTool = false;
     }
     const addedIn = result.usage?.prompt_tokens ?? 0;
     const addedOut = result.usage?.completion_tokens ?? 0;
@@ -687,17 +705,26 @@ async function viaOpenRouter(
       } else {
         nudge = "Call the write_lecture tool with the whole beat script. Do not put the script in your reply text.";
       }
-      if (nudges < 2) {
+      // A long lecture with only its first parts saved is asked again, more times, before anything is built.
+      if (nudges < (draft ? 6 : 2)) {
         nudges += 1;
-        emit({ type: "message", role: "status", text: "Asking the model to call write_lecture." });
+        emit({ type: "message", role: "status", text: draft ? "Asking the model to continue with add_chapters." :
+          "Asking the model to call write_lecture." });
         messages.push({ role: "assistant", content: result.message.content ?? "" });
         messages.push({ role: "user", content: nudge });
+        requireTool = true;
         continue;
       }
     }
     if (calls.length === 0 && draft && !/from manim import/.test(scene)) {
       // The model stopped before finishing a long lecture: the parts it wrote make a shorter video, not an error.
       const partial = await compileLecture(draft, partOptions());
+      if (partial.source && (partial.minutes ?? 0) < minutes * 0.4) {
+        // A fragment is not the lecture that was asked for: say so, rather than render 20 seconds of it.
+        throw new Error(`${model} stopped after ${chapterCount(draft)} chapter(s), about ${partial.minutes ?? "?"} of ` +
+          `${minutes} minutes, and did not continue after ${nudges} reminders. Generate again, or pick another model ` +
+          "(OPENROUTER_MODEL): one that keeps calling tools finishes long lectures.");
+      }
       if (partial.source) {
         emit({
           type: "message",
@@ -743,7 +770,11 @@ async function viaOpenRouter(
       let output: string;
       if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
         const first = args.script as Record<string, unknown>;
-        const compiled = await compileLecture(first, partOptions());
+        const thin = thinChapters(first.chapters);
+        const compiled = thin || chapterCount(first) === 0
+          ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin || "no"} chapter(s) ` +
+              `here have fewer. Send part 1 again with whole chapters, each teaching its topic fully.`], minutes: 0, warnings: [] }
+          : await compileLecture(first, partOptions());
         if (compiled.source) {
           draft = first;
           output = `Saved part 1: ${chapterCount(first)} chapter(s), about ${compiled.minutes ?? "?"} of ${minutes} min. ` +
@@ -760,7 +791,11 @@ async function viaOpenRouter(
           const next: Record<string, unknown> = {
             ...draft, chapters: [...had.slice(0, from), ...(args.chapters ?? [])], ...(args.recap ? { recap: args.recap } : {}),
           };
-          const compiled = await compileLecture(next, args.done ? lectureOptions() : partOptions());
+          const thin = thinChapters(args.chapters);
+          const compiled = thin
+            ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
+                "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
+            : await compileLecture(next, args.done ? lectureOptions() : partOptions());
           if (compiled.source && args.done) {
             draft = next;
             scene = compiled.source;
@@ -776,7 +811,7 @@ async function viaOpenRouter(
           } else if (args.done) {
             // The parts are fine but the whole falls short (length, questions, problems): keep them, ask for more.
             const partsOk = (await compileLecture(next, partOptions())).source;
-            if (partsOk) draft = next;
+            if (partsOk && !thin) draft = next;
             output = [
               partsOk ? "Saved these chapters, but the whole lecture is not finished yet:" : "This part did not compile:",
               ...compiled.errors,

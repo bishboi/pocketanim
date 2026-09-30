@@ -205,7 +205,13 @@ def main() -> int:
                 summary["mode"] = "frames"
         print(json.dumps(summary))
     except Exception as error:  # noqa: BLE001
-        print(json.dumps({"error": f"{type(error).__name__}: {error}"}))
+        # Where it failed, so a report names the step: the innermost frame, and
+        # the scene line being replayed when the interpreter was in it.
+        import traceback
+        frames = traceback.extract_tb(error.__traceback__)
+        where = f" (at {Path(frames[-1].filename).name}:{frames[-1].lineno})" if frames else ""
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": f"{type(error).__name__}: {error}{where}"}))
         return 1
     return 0
 

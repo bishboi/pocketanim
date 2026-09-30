@@ -29,13 +29,20 @@ def _wav() -> bytes:
 @pytest.fixture
 def google(monkeypatch, tmp_path):
     """A local stand-in for texttospeech.googleapis.com: records requests; `state["fail"]` makes it refuse."""
-    state = {"requests": [], "headers": [], "fail": False, "status": 403, "message": "API not enabled"}
+    state = {"requests": [], "headers": [], "token_requests": [], "fail": False, "status": 403,
+             "message": "API not enabled"}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def do_POST(self):
+            if self.path == "/token":
+                state["token_requests"].append(self.rfile.read(int(self.headers["Content-Length"])).decode())
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"access_token": "access-from-refresh", "expires_in": 3599}).encode())
+                return
             state["requests"].append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
             state["headers"].append(dict(self.headers))
             if state["fail"]:
@@ -54,6 +61,7 @@ def google(monkeypatch, tmp_path):
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
     monkeypatch.setenv("CLOUDSDK_CONFIG", str(tmp_path / "no-gcloud"))
     monkeypatch.setenv("GOOGLE_TTS_URL", f"http://127.0.0.1:{server.server_port}/v1/text:synthesize")
+    state["token_url"] = f"http://127.0.0.1:{server.server_port}/token"
     yield state
     server.shutdown()
 
@@ -129,29 +137,28 @@ def test_hindi_lines_say_units_in_hindi():
     assert "percent" in pl.speechify("It is 20% faster.")
 
 
-def test_oauth_credentials_are_used_before_a_key(google, monkeypatch, tmp_path):
-    """Some projects refuse API keys for Text-to-Speech: a gcloud login or a service account signs instead."""
+def test_a_gcloud_login_signs_before_a_key_without_extra_packages(google, monkeypatch, tmp_path):
+    """Some projects refuse API keys for Text-to-Speech. A `gcloud auth application-default login` on this machine
+    signs every request: its refresh token is exchanged for an access token (no google-auth needed), and its quota
+    project is sent as Google requires."""
     folder = tmp_path / "gcloud"
     folder.mkdir()
-    (folder / "application_default_credentials.json").write_text("{}")
+    (folder / "application_default_credentials.json").write_text(json.dumps({
+        "type": "authorized_user", "client_id": "cid", "client_secret": "secret", "refresh_token": "refresh",
+        "quota_project_id": "parikshanai"}))
     monkeypatch.setenv("CLOUDSDK_CONFIG", str(folder))
-
-    class Login:                                   # what google.auth.default returns for a gcloud login
-        valid, token, quota_project_id = True, "user-token", None
-
-        def refresh(self, request):
-            pass
-
-    Login.__module__ = "google.oauth2.credentials"
-    chirp._credentials.cache_clear()
-    monkeypatch.setattr(chirp, "_credentials", lambda: (Login(), "my-project", None))
+    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_URL", google["token_url"])
+    chirp._token.update(value=None, expires=0.0, quota=None)
     assert chirp.auth() == "oauth" and chirp.configured()
     chirp.synthesize("Hello.", "Charon")
+    token_request = google["token_requests"][-1]
+    assert "grant_type=refresh_token" in token_request and "refresh_token=refresh" in token_request
     path, _ = google["requests"][-1]
     headers = {k.lower(): v for k, v in google["headers"][-1].items()}
-    assert "key=" not in path
-    assert headers["authorization"] == "Bearer user-token"
-    assert headers["x-goog-user-project"] == "my-project"      # a login bills its project
+    assert "key=" not in path                                  # the key is set, but the login signs
+    assert headers["authorization"] == "Bearer access-from-refresh"
+    assert headers["x-goog-user-project"] == "parikshanai"
+    chirp._token.update(value=None, expires=0.0, quota=None)
 
 
 def test_a_refused_key_says_how_to_sign_in(google):

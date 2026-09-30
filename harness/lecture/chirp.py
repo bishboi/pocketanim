@@ -26,12 +26,15 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import threading
 import time
-import wave
 import urllib.error
+import urllib.parse
 import urllib.request
-from functools import lru_cache
+import wave
 
 URL = "https://texttospeech.googleapis.com/v1/text:synthesize"
 # The Chirp 3 HD voice each lecture style speaks in; the same names exist in every language.
@@ -67,11 +70,8 @@ def _adc_file() -> str | None:
 
 
 def _oauth() -> bool:
-    """OAuth credentials are on this machine, and google-auth can use them."""
-    import importlib.util
-
-    return _adc_file() is not None and importlib.util.find_spec("google.auth") is not None \
-        and importlib.util.find_spec("requests") is not None
+    """OAuth credentials are on this machine: then they sign every request, whatever key is also set."""
+    return _adc_file() is not None
 
 
 def configured() -> bool:
@@ -84,28 +84,66 @@ def auth() -> str:
     return "oauth" if _oauth() else "key"
 
 
-@lru_cache(None)
-def _credentials():
-    import google.auth
-    import google.auth.transport.requests
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+_token_lock = threading.Lock()
+_token: dict = {"value": None, "expires": 0.0, "quota": None}
 
-    creds, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    return creds, project, google.auth.transport.requests.Request()
+
+def _read_adc() -> dict:
+    with open(_adc_file(), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _new_token() -> tuple[str, float, str | None]:
+    """(access token, seconds it lasts, quota project) from the credentials on this machine.
+
+    A gcloud login (authorized_user) is its refresh token exchanged at Google's token endpoint: no library
+    needed. A service account or other credentials go through google-auth, else the gcloud command.
+    """
+    info = _read_adc()
+    quota = os.environ.get("GOOGLE_CLOUD_QUOTA_PROJECT") or info.get("quota_project_id")
+    if info.get("type") == "authorized_user":
+        form = urllib.parse.urlencode({"client_id": info["client_id"], "client_secret": info["client_secret"],
+                                       "refresh_token": info["refresh_token"], "grant_type": "refresh_token"})
+        request = urllib.request.Request(os.environ.get("GOOGLE_OAUTH_TOKEN_URL") or TOKEN_URL, data=form.encode(),
+                                         headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                reply = json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(f"Google sign-in {error.code}: {detail}. Run `gcloud auth application-default "
+                               "login` again.") from None
+        return reply["access_token"], float(reply.get("expires_in", 3600)), quota
+    import importlib.util
+
+    if importlib.util.find_spec("google.auth") and importlib.util.find_spec("requests"):
+        import google.auth
+        import google.auth.transport.requests
+
+        creds, _project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds.refresh(google.auth.transport.requests.Request())
+        return creds.token, 3000.0, quota or getattr(creds, "quota_project_id", None)
+    gcloud = shutil.which("gcloud")
+    if gcloud:
+        token = subprocess.run([gcloud, "auth", "application-default", "print-access-token"], capture_output=True,
+                               text=True, timeout=60)
+        if token.returncode == 0 and token.stdout.strip():
+            return token.stdout.strip(), 3000.0, quota
+    raise RuntimeError(f"The credentials in {_adc_file()} ({info.get('type')}) need google-auth: "
+                       ".venv/bin/pip install -r harness/requirements.txt")
 
 
 def _oauth_headers(refresh: bool = False) -> dict:
-    """Authorization, and for a personal login the project Google bills the calls to (it refuses without)."""
-    creds, project, request = _credentials()
-    if refresh or not creds.valid:
-        creds.refresh(request)
-    headers = {"Authorization": f"Bearer {creds.token}"}
-    quota = (os.environ.get("GOOGLE_CLOUD_QUOTA_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
-             or getattr(creds, "quota_project_id", None))
-    if not quota and type(creds).__module__.startswith("google.oauth2.credentials"):
-        quota = project                         # a user login: bill its default project
-    if quota:
-        headers["x-goog-user-project"] = quota
-    return headers
+    """Authorization, and the project Google bills the calls to (a login's quota project; it refuses without)."""
+    with _token_lock:
+        if refresh or not _token["value"] or time.time() > _token["expires"] - 120:
+            value, lasts, quota = _new_token()
+            _token.update(value=value, expires=time.time() + lasts, quota=quota)
+        headers = {"Authorization": f"Bearer {_token['value']}"}
+        if _token["quota"]:
+            headers["x-goog-user-project"] = _token["quota"]
+        return headers
 
 
 KEY_REFUSED = ("Google refused the API key: this project's Text-to-Speech accepts OAuth credentials, not keys. "
@@ -245,7 +283,11 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
                 refreshed = True                             # a token that ran out: a fresh one, once
                 continue
             if signed == "key" and error.code in (401, 403) and "api key" in last.lower():
-                raise RuntimeError(f"Google TTS {error.code}: {last} -- {KEY_REFUSED}") from None
+                where = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.join(
+                    os.environ.get("CLOUDSDK_CONFIG") or os.path.join(os.path.expanduser("~"), ".config", "gcloud"),
+                    "application_default_credentials.json")
+                raise RuntimeError(f"Google TTS {error.code}: {last} -- {KEY_REFUSED} (No login was found at "
+                                   f"{where} for the user this app runs as.)") from None
             raise RuntimeError(f"Google TTS {error.code}: {last}") from None
         except urllib.error.URLError as error:
             last = str(error.reason)

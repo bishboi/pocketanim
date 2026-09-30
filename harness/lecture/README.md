@@ -380,23 +380,18 @@ match its caption, or in document order, at most one every two beats and never o
 
 ## Voice
 
-Lectures are voiced by Kokoro-82M (`harness/models/kokoro-v1.0.onnx`, run through kokoro-onnx). The app and
-Forge download it before the first lecture build when it is missing. `PANIM_VOICE` picks the voice.
-`auto` (the default) uses Kokoro-82M when it is downloaded, espeak-ng when that is installed (offline, say),
-and silence with neither. Each style has its own Kokoro voice, and Hindi lines use a Hindi
-voice. The other settings are `kokoro:<voice>`, `espeak` and `silent`. With `silent`, lengths are estimated
-from the word count.
+Lectures are voiced by Google Chirp 3 HD (`chirp.py`), and by nothing else. It needs `GOOGLE_TTS_API_KEY`
+(or `GOOGLE_APPLICATION_CREDENTIALS`); without it, or when Google refuses a line, the build stops with the
+reason (`VoiceUnavailable`) rather than switching to another voice or leaving the lecture silent.
+`PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths estimated
+from the word count; `PANIM_VOICE=chirp:<voice>` or `PANIM_CHIRP_VOICE` picks a speaker, and otherwise each
+style has its own. A line is spoken a language run at a time: Hindi as `hi-IN`, English terms in a Hindi line as
+`en-IN`, English lines as `PANIM_CHIRP_LANG` (`en-US`).
 
-Lines are cached by the voice and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`). `SAY`
-respells names for the voice without touching the captions.
+Lines are cached by the voice, its speed and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`).
+`SAY` respells names for the voice without touching the captions.
 
-Get Kokoro-82M ahead of time (about 350 MB) with the **download** button next to *Voice* at the top of the app, or:
-
-```
-.venv/bin/python harness/scripts/fetch_voice.py
-```
-
-The app warns when a lecture comes back with no audio.
+The app refuses a lecture build when Chirp is not set up, and warns when one comes back with no audio.
 
 ## Building
 

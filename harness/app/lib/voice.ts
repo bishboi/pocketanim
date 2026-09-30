@@ -1,5 +1,5 @@
 /**
- * Narration is a list of `# voice:` lines in the scene. Kokoro speaks them,
+ * Narration is a list of `# voice:` lines in the scene. Google Chirp 3 HD speaks them,
  * and the wait that follows each line is rewritten to the real duration so
  * the picture holds while the sentence is said.
  */
@@ -44,9 +44,9 @@ export function retime(source: string, durations: number[], files: string[] = []
   );
 }
 
-function runKokoro(payload: unknown): Promise<{ code: number; stdout: string; stderr: string }> {
+function runSpeaker(payload: unknown): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(python(), [path.join(REPO, "harness", "scripts", "kokoro_speak.py")], { cwd: REPO });
+    const child = spawn(python(), [path.join(REPO, "harness", "scripts", "speak_lines.py")], { cwd: REPO });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
@@ -58,16 +58,6 @@ function runKokoro(payload: unknown): Promise<{ code: number; stdout: string; st
   });
 }
 
-export async function kokoroReady(): Promise<boolean> {
-  try {
-    const { stdout } = await runKokoro({ check: true });
-    const line = stdout.trim().split("\n").pop() || "";
-    return JSON.parse(line).ok === true;
-  } catch {
-    return false;
-  }
-}
-
 export async function speak(source: string, templateId: string): Promise<VoiceResult> {
   const lines = voiceLines(source);
   if (lines.length === 0) return { ok: false, source, error: "The scene has no # voice: lines." };
@@ -75,16 +65,16 @@ export async function speak(source: string, templateId: string): Promise<VoiceRe
   mkdirSync(dir, { recursive: true });
   const audioPath = path.join(dir, `narration-${Date.now()}.wav`);
   const voice = templateById(templateId).voice;
-  // Chirp 3 HD speaks when a Google key is set (the style picks its voice); Kokoro otherwise.
-  const { stdout, stderr } = await runKokoro({ voice, lines, out: audioPath, style: templateById(templateId).style });
+  // Google Chirp 3 HD, the only narration voice: the template's speaker.
+  const { stdout, stderr } = await runSpeaker({ chirp_voice: voice, lines, out: audioPath, style: templateById(templateId).style });
   const line = stdout.trim().split("\n").pop() || "";
   let data: { ok?: boolean; durations?: number[]; files?: string[]; out?: string; error?: string } = {};
   try {
     data = JSON.parse(line);
   } catch {
-    return { ok: false, source, error: stderr.trim().slice(-400) || "Kokoro returned nothing." };
+    return { ok: false, source, error: stderr.trim().slice(-400) || "The voice returned nothing." };
   }
-  if (!data.ok || !data.durations) return { ok: false, source, error: data.error || "Kokoro did not speak." };
+  if (!data.ok || !data.durations) return { ok: false, source, error: data.error || "The voice did not speak." };
   return {
     ok: true,
     source: retime(source, data.durations, data.files ?? []),

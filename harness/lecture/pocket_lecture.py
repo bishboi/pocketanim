@@ -33,10 +33,9 @@ A scene picks its style before importing, and then uses the API:
                       self.big_stat("2,525 km", "Ganga: longest river"))
             self.outro_fade()
 
-Narration: each beat's line is spoken by espeak-ng when it is installed (or by
-Kokoro with PANIM_VOICE=kokoro:<voice>), and its measured length times the
-beat. With neither, or with PANIM_VOICE=silent, the length is estimated from
-the word count and the picture still plays.
+Narration: each beat's line is spoken by Google Chirp 3 HD (chirp.py), and its
+measured length times the beat. With PANIM_VOICE=silent there is no audio: the
+length is estimated from the word count and the picture still plays.
 """
 
 from __future__ import annotations
@@ -411,7 +410,7 @@ THINK_SECONDS = 5.0      # the silence a question on the stage leaves for thinki
 
 
 def estimate_seconds(text: str) -> float:
-    """About 143 words a minute at normal speed, which is what espeak at -s 148 measures."""
+    """About 143 words a minute at normal speed: a line's length when it is not spoken (PANIM_VOICE=silent)."""
     return max(1.2, len(text.split()) * 0.42 / VOICE_SPEED)
 
 
@@ -426,11 +425,9 @@ def _wav_seconds(path: Path) -> float:
         return handle.getnframes() / float(handle.getframerate())
 
 
-# Scripts a line may be written in, and the voice each needs. A Hindi line
-# read by an English voice comes out as noise, so the language is taken from
-# the line itself, whatever voice the style names.
+# Scripts a line may be written in. A line's language is taken from the line itself (chirp.runs splits a
+# mixed one further, a language run at a time).
 SCRIPT_LANGS = (("hi", 0x0900, 0x097F),)
-KOKORO_VOICES = {"hi": "hf_alpha"}
 
 
 def spoken_lang(text: str) -> str:
@@ -442,62 +439,38 @@ def spoken_lang(text: str) -> str:
     return "en"
 
 
-# The Kokoro voice each style speaks in (the editor's lecture templates name the same).
-STYLE_VOICES = {"atlas": "bf_emma", "vox": "af_bella", "cardboard": "am_michael", "whiteboard": "am_adam",
-                "blueprint": "am_eric", "chalkboard": "am_michael", "parchment": "bm_george", "lab": "af_sarah",
-                "cosmos": "am_adam"}
-KOKORO_WEIGHTS = (HERE.parent / "models" / "kokoro-v1.0.onnx", HERE.parent / "models" / "voices-v1.0.bin")
-
-
-def kokoro_ready() -> bool:
-    """Kokoro can speak here: the package is installed and its weights are downloaded."""
-    import importlib.util
-
-    return importlib.util.find_spec("kokoro_onnx") is not None and all(
-        w.exists() and w.stat().st_size > 1_000_000 for w in KOKORO_WEIGHTS)
-
-
-def _espeak_binary() -> str | None:
-    return shutil.which("espeak-ng") or shutil.which("espeak")
+class VoiceUnavailable(RuntimeError):
+    """The narration voice, Google Chirp 3 HD, cannot speak: no key, or Google refused. The lecture stops rather
+    than being spoken by another voice or left silent."""
 
 
 def voice_mode() -> str:
-    """The voice lines are actually spoken in: chirp:<voice>, kokoro:<voice>, espeak or silent.
+    """The voice lines are spoken in: chirp:<voice> (Google Chirp 3 HD, the only narration voice), or silent.
 
-    PANIM_VOICE asks for one: `auto` (the default) is Google's Chirp 3 HD when a Google key is set
-    (chirp.py), else Kokoro when it is ready, else espeak-ng when installed, else silent; `chirp[:voice]`
-    and `kokoro[:voice]` fall back the same way. The answer is part of each line's cache key, so a better
-    voice re-speaks lines an older one cached.
+    PANIM_VOICE=silent is the one way to build without a voice (tests, a quick look at the pictures): the beats
+    then hold for an estimate of each line. Otherwise Chirp must be set up (chirp.py: GOOGLE_TTS_API_KEY);
+    `chirp:<voice>` picks a speaker, else the style's. The mode is part of each line's cache key.
     """
     import chirp
 
     mode = os.environ.get("PANIM_VOICE", "auto")
     if mode == "silent":
         return "silent"
-    if (mode in ("auto", "chirp") or mode.startswith("chirp:")) and chirp.configured():
-        return f"chirp:{mode.split(':', 1)[1] if ':' in mode else chirp.voice_for(STYLE)}"
-    if mode in ("auto", "kokoro", "chirp") or mode.startswith(("kokoro:", "chirp:")):
-        if kokoro_ready():
-            voice = mode.split(":", 1)[1] if mode.startswith("kokoro:") else STYLE_VOICES.get(STYLE, "af_sarah")
-            return f"kokoro:{voice}"
-    return "espeak" if _espeak_binary() else "silent"
+    if not chirp.configured():
+        raise VoiceUnavailable(
+            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Set GOOGLE_TTS_API_KEY "
+            "(a key for a Google Cloud project with the Cloud Text-to-Speech API enabled; harness/SETUP.md), or "
+            "GOOGLE_APPLICATION_CREDENTIALS, or PANIM_VOICE=silent to build without narration.")
+    return f"chirp:{mode.split(':', 1)[1] if mode.startswith('chirp:') else chirp.voice_for(STYLE)}"
 
 
-@lru_cache(None)
-def _kokoro():
-    from kokoro_onnx import Kokoro
-
-    return Kokoro(str(KOKORO_WEIGHTS[0]), str(KOKORO_WEIGHTS[1]))
-
-
-def _finish(raw: Path, out: Path, echo: bool = False) -> None:
+def _finish(raw: Path, out: Path) -> None:
     """The house treatment every line gets: band-limit, level, 44.1 kHz stereo (as is without ffmpeg)."""
     if not shutil.which("ffmpeg"):
         raw.replace(out)
         return
-    chain = "highpass=f=70,lowpass=f=7500,aecho=0.8:0.6:35:0.12," if echo else "highpass=f=70,"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
-                    chain + "loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(out)],
+                    "highpass=f=70,loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(out)],
                    check=True, timeout=120)
     raw.unlink(missing_ok=True)
 
@@ -514,12 +487,13 @@ def audio_file(mode: str, spoken: str) -> Path:
 
 
 def narrate(text: str) -> tuple[str | None, float]:
-    """(wav path or None, seconds) for one line, cached by its voice and spoken text.
+    """(wav path or None, seconds) for one line, spoken by Google Chirp 3 HD and cached by voice and words.
 
-    The voice is voice_mode()'s. A voice that fails is an estimate, not a
-    crash: the beat still holds for as long as the sentence would take, and
-    the beat log records wav=None so the app can say the lecture is silent.
+    With PANIM_VOICE=silent: no audio, and an estimate of the line's length. A line Google will not speak is an
+    error (VoiceUnavailable, with Google's message), not a line in another voice.
     """
+    import chirp
+
     spoken = speechify(text)
     mode = voice_mode()
     if mode == "silent":
@@ -527,62 +501,14 @@ def narrate(text: str) -> tuple[str | None, float]:
     out = audio_file(mode, spoken)
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
-
-    lang = spoken_lang(spoken)
     raw = out.with_name(out.stem + "_raw.wav")
-    if mode.startswith("chirp:"):
-        import chirp
-
-        try:
-            raw.write_bytes(chirp.speak(spoken, mode.split(":", 1)[1], VOICE_SPEED))
-            _finish(raw, out)
-            return str(out), _wav_seconds(out)
-        except Exception as error:  # noqa: BLE001 -- fall through to Kokoro, espeak or silence
-            print(f"pocket_lecture: Chirp could not speak ({error}); trying Kokoro", file=sys.stderr)
-            raw.unlink(missing_ok=True)
-            # Cached under the voice that really spoke, so Chirp is tried again for this line next time.
-            mode = f"kokoro:{STYLE_VOICES.get(STYLE, 'af_sarah')}" if kokoro_ready() else "espeak"
-            out = audio_file(mode, spoken)
-            raw = out.with_name(out.stem + "_raw.wav")
-            if out.exists() and out.stat().st_size > 44:
-                return str(out), _wav_seconds(out)
-    if mode.startswith("kokoro:"):
-        voice = mode.split(":", 1)[1]
-        if lang != "en" and not voice.startswith(lang[0]):
-            voice = KOKORO_VOICES[lang]
-        try:
-            import soundfile as sf
-
-            samples, rate = _kokoro().create(spoken, voice=voice, speed=VOICE_SPEED, lang=lang if lang != "en" else
-                                             ("en-gb" if voice.startswith("b") else "en-us"))
-            sf.write(str(raw), np.asarray(samples, dtype=np.float32), rate, subtype="PCM_16")
-            _finish(raw, out)
-            return str(out), _wav_seconds(out)
-        except Exception as error:  # noqa: BLE001 -- fall through to espeak or silence
-            print(f"pocket_lecture: Kokoro could not speak ({error}); trying espeak", file=sys.stderr)
-
-    espeak = _espeak_binary()
-    if espeak:
-        voice = lang if lang != "en" else (os.environ.get("LECTURE_VOICE") or _espeak_voice(espeak))
-        try:
-            subprocess.run([espeak, "-v", voice, "-s", str(round(148 * VOICE_SPEED)), "-p", "42", "-g", "4", "-w", str(raw), spoken],
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-            _finish(raw, out, echo=True)
-            return str(out), _wav_seconds(out)
-        except Exception:  # noqa: BLE001
-            pass
-    return None, estimate_seconds(spoken)
-
-
-@lru_cache(None)
-def _espeak_voice(binary: str) -> str:
     try:
-        probe = subprocess.run([binary, "-v", "mb-en1", "-w", os.devnull, "test"], capture_output=True)
-        if probe.returncode == 0 and not probe.stderr:
-            return "mb-en1"
-    except OSError:
-        pass
-    return "en-gb"
+        raw.write_bytes(chirp.speak(spoken, mode.split(":", 1)[1], VOICE_SPEED))
+    except RuntimeError as error:
+        raw.unlink(missing_ok=True)
+        raise VoiceUnavailable(f"Google Chirp 3 HD could not speak {text[:60]!r}: {error}") from None
+    _finish(raw, out)
+    return str(out), _wav_seconds(out)
 
 
 # ════════════════════════════════════════════════════════════════════════

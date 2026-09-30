@@ -4,7 +4,7 @@ import path from "node:path";
 import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
-import { ensureKokoro, voiceEngine } from "@/lib/version";
+import { voiceEngine, voiceProblem } from "@/lib/version";
 
 export const runtime = "nodejs";
 // An export runs Manim, which is slow the first time in a cold container.
@@ -19,8 +19,9 @@ export async function POST(request: NextRequest) {
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
-    // A lecture is voiced by Chirp 3 HD with a Google key, else by Kokoro-82M: fetch that first if missing.
-    if (/pocket_lecture/.test(source)) await ensureKokoro();
+    // A lecture is voiced by Google Chirp 3 HD and nothing else: without it, say so before any rendering.
+    const noVoice = /pocket_lecture/.test(source) ? voiceProblem() : null;
+    if (noVoice) return NextResponse.json({ error: noVoice }, { status: 400 });
     const { result, buildDir } = await exportScene(source, sceneClass);
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     // A scene that narrates itself (a lecture's beats call add_sound) comes
     // back with one mixed track beside the program. It is served like the
-    // Kokoro voiceover so the player plays it against its own frames.
+    // voiceover so the player plays it against its own frames.
     let narrationUrl: string | null = null;
     if (result.narration?.file) {
       const voiceDir = path.join(REPO, "harness", "app", ".voice");
@@ -50,15 +51,9 @@ export async function POST(request: NextRequest) {
     // A lecture with no narration means no voice could speak here: say so,
     // rather than hand back a video that is silent for no visible reason.
     let voiceWarning: string | null = null;
-    if (!narrationUrl && /pocket_lecture/.test(source)) {
-      const engine = voiceEngine();
-      voiceWarning = engine === "none"
-        ? "This lecture has no audio: no voice is set up. Set GOOGLE_TTS_API_KEY for Google Chirp 3 HD, or " +
-          "click download next to Voice at the top (Kokoro-82M), then build again."
-        : engine === "chirp"
-        ? "This lecture has no audio: Google Chirp 3 HD refused the lines (check the key, and that the Cloud " +
-          "Text-to-Speech API is enabled for its project; the dev server log has Google's message)."
-        : `This lecture has no audio although ${engine} is installed. Check the dev server log for the voice error.`;
+    if (!narrationUrl && /pocket_lecture/.test(source) && voiceEngine() === "chirp") {
+      voiceWarning = "This lecture has no audio: Google Chirp 3 HD did not speak its lines (check the key, and that " +
+        "the Cloud Text-to-Speech API is enabled for its project; the dev server log has Google's message).";
     }
 
     return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning });

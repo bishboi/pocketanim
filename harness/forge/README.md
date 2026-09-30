@@ -70,8 +70,9 @@ is tested, with no network.
 
 ## Voice
 
-Narration is spoken by Kokoro-82M in the style's voice. The narrate stage downloads it when it is missing
-(`FORGE_FETCH_VOICE=0` turns that off; `FORGE_VOICE=espeak` forces espeak-ng).
+Narration is spoken by Google Chirp 3 HD (`GOOGLE_TTS_API_KEY`), the only narration voice, in the style's
+speaker, several lines at a time. Without a key the job stops at narrate with the reason; `FORGE_VOICE=silent`
+builds without narration.
 
 ## Gates (`forge/gates.py`, `forge/engine/qa.py`)
 

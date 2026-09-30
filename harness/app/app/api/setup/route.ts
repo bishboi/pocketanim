@@ -9,11 +9,10 @@ export const maxDuration = 900;
 const SCRIPTS: Record<string, string> = {
   icons: "fetch_icons.py",
   gazetteer: "fetch_gazetteer.py",
-  voice: "fetch_voice.py",
   openstax: "fetch_openstax.py",
 };
 
-/** POST {what: "icons" | "gazetteer" | "voice" | "openstax"}: run the download script, wait, report its output. */
+/** POST {what: "icons" | "gazetteer" | "openstax"}: run the download script, wait, report its output. */
 export async function POST(request: NextRequest) {
   const { what } = await request.json().catch(() => ({ what: "" }));
   const script = SCRIPTS[String(what)];

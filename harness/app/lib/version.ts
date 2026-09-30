@@ -4,7 +4,7 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import pkg from "../package.json";
 import { REPO, python } from "./pocketanim";
@@ -30,14 +30,6 @@ export function versionInfo(): VersionInfo {
   };
 }
 
-function which(binary: string): boolean {
-  try {
-    execFileSync("which", [binary], { stdio: "ignore", timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Google's Chirp 3 HD can speak here: an API key, or service-account credentials (harness/lecture/chirp.py). */
 export function chirpConfigured(): boolean {
@@ -46,26 +38,22 @@ export function chirpConfigured(): boolean {
   return !!file && existsSync(file);
 }
 
-/** What a lecture is spoken with: Chirp 3 HD, Kokoro, espeak-ng, or nothing (a silent video). */
-export function voiceEngine(): "chirp" | "kokoro" | "espeak" | "none" {
-  if (chirpConfigured() && process.env.PANIM_VOICE !== "kokoro") return "chirp";
-  const models = path.join(REPO, "harness", "models");
-  const weights = ["kokoro-v1.0.onnx", "voices-v1.0.bin"].every((f) => {
-    try {
-      return statSync(path.join(models, f)).size > 1_000_000;
-    } catch {
-      return false;
-    }
-  });
-  if (weights) {
-    try {
-      execFileSync(python(), ["-c", "import kokoro_onnx, soundfile"], { stdio: "ignore", timeout: 20000 });
-      return "kokoro";
-    } catch {
-      // the weights without the package: fall through
-    }
-  }
-  return which("espeak-ng") || which("espeak") ? "espeak" : "none";
+/**
+ * What a lecture is spoken with. Google Chirp 3 HD is the only narration voice: "chirp" when it is set up,
+ * "silent" when PANIM_VOICE=silent asks for no narration, "none" when neither (a lecture build then stops).
+ */
+export function voiceEngine(): "chirp" | "silent" | "none" {
+  if (process.env.PANIM_VOICE === "silent") return "silent";
+  return chirpConfigured() ? "chirp" : "none";
+}
+
+/** Why a lecture cannot be narrated here, or null when it can. */
+export function voiceProblem(): string | null {
+  return voiceEngine() === "none"
+    ? "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Put GOOGLE_TTS_API_KEY in " +
+      "harness/app/.env.local (a key for a Google Cloud project with the Cloud Text-to-Speech API enabled; " +
+      "harness/SETUP.md) and restart the app, or set PANIM_VOICE=silent to build without narration."
+    : null;
 }
 
 const fetching = new Map<string, Promise<boolean>>();
@@ -83,17 +71,6 @@ function fetchOnce(script: string, ready: () => boolean, args: string[] = []): P
     fetching.set(script, running);
   }
   return running;
-}
-
-/**
- * Kokoro-82M, downloaded (and kokoro-onnx installed) if it is missing, so a
- * lecture is voiced by it rather than by espeak-ng. False when it could not be
- * fetched (offline), and espeak-ng speaks instead.
- */
-export function ensureKokoro(): Promise<boolean> {
-  // With Chirp speaking, Kokoro is only its fallback: fetched if missing, but not waited on here.
-  if (chirpConfigured()) return Promise.resolve(true);
-  return fetchOnce("fetch_voice.py", () => voiceEngine() === "kokoro");
 }
 
 // The SVG drawings a diagram's nodes use (a tree, a deer, a factory): colour emoji sets and silhouettes.
@@ -117,12 +94,10 @@ export function resources(): Resource[] {
   const voice = voiceEngine();
   const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
   return [
-    { id: "voice", label: "Voice", ready: voice === "chirp" || voice === "kokoro",
-      detail: voice === "chirp" ? "Google Chirp 3 HD (Kokoro-82M if a request fails)"
-        : voice === "kokoro" ? "Kokoro-82M (set GOOGLE_TTS_API_KEY for Google Chirp 3 HD)" : voice === "espeak"
-        ? "espeak-ng only (robotic); set GOOGLE_TTS_API_KEY for Chirp 3 HD, or download Kokoro-82M (350 MB)"
-        : "NONE: lecture videos will be silent. Set GOOGLE_TTS_API_KEY for Chirp 3 HD, or download Kokoro-82M (350 MB)",
-      install: voice === "chirp" || voice === "kokoro" ? undefined : "voice" },
+    { id: "voice", label: "Voice", ready: voice === "chirp",
+      detail: voice === "chirp" ? "Google Chirp 3 HD"
+        : voice === "silent" ? "none: PANIM_VOICE=silent builds lectures without narration"
+        : "NOT SET UP: lectures will not build. Put GOOGLE_TTS_API_KEY in harness/app/.env.local (harness/SETUP.md)" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
         : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },

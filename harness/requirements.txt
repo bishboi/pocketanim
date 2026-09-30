@@ -4,8 +4,6 @@ manim==0.21.0
 pillow
 cartopy
 geopandas
-kokoro-onnx
-soundfile
 numpy
 pyyaml
 pytest

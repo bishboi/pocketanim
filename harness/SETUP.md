@@ -11,7 +11,6 @@ libraries (place names, voice, maps, fonts), the online picture sources and the 
 | Node.js 20+ | the web app | `brew install node` | from nodejs.org, or `nvm install 20` |
 | ffmpeg | the video, the audio mix | `brew install ffmpeg` | `sudo apt install ffmpeg` |
 | Cairo and Pango | Manim draws text and shapes with them | `brew install cairo pango pkg-config` | `sudo apt install libcairo2-dev libpango1.0-dev pkg-config` |
-| espeak-ng (optional) | a fallback voice when Kokoro can't run | `brew install espeak-ng` | `sudo apt install espeak-ng` |
 | LaTeX (optional) | typeset maths (`MathTex`, `Tex`, axis numbers); without it they are drawn as plain Unicode text | `brew install --cask mactex-no-gui` | `sudo apt install texlive texlive-latex-extra dvisvgm` |
 
 On Windows, use WSL (Ubuntu) and follow the Ubuntu column.
@@ -26,7 +25,7 @@ harness/scripts/setup-python.sh
 
 The script:
 - creates `.venv`;
-- installs `harness/requirements.txt` (Manim, Cartopy, RDKit, kokoro-onnx and the rest);
+- installs `harness/requirements.txt` (Manim, Cartopy, RDKit and the rest);
 - runs `fetch_all.py`, which downloads the libraries below.
 
 It takes a few minutes and about 400 MB the first time. Run it again whenever you like: anything already
@@ -36,9 +35,8 @@ To fetch the libraries again, or only some of them:
 
 ```sh
 .venv/bin/python harness/scripts/fetch_all.py                 # all of them; ends with a ready/FAILED table
-.venv/bin/python harness/scripts/fetch_all.py --skip voice    # leave one out
+.venv/bin/python harness/scripts/fetch_all.py --skip maps     # leave one out
 .venv/bin/python harness/scripts/fetch_gazetteer.py
-.venv/bin/python harness/scripts/fetch_voice.py
 ```
 
 | Library | What it gives a lecture | Where it goes | Size |
@@ -46,7 +44,6 @@ To fetch the libraries again, or only some of them:
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
 | Diagram drawings | SVG drawings (a tree, a deer, a factory) that diagram nodes, definitions and comparisons draw things with. They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
-| Voice | Kokoro-82M, the narration voice, and the `kokoro-onnx` package. | `harness/models/` | 350 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
 | Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
 
@@ -71,7 +68,7 @@ Put your keys in `.env.local`. All of them are optional.
 
 | Key | What it does |
 |---|---|
-| `GOOGLE_TTS_API_KEY` | The narration voice: Google's **Chirp 3 HD**. An API key from a Google Cloud project with the *Cloud Text-to-Speech API* enabled (console.cloud.google.com → APIs & Services → enable "Cloud Text-to-Speech API" → Credentials → Create credentials → API key). Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file and `pip install google-auth`. Without either, Kokoro-82M speaks. |
+| `GOOGLE_TTS_API_KEY` | The narration voice: Google's **Chirp 3 HD**. An API key from a Google Cloud project with the *Cloud Text-to-Speech API* enabled (console.cloud.google.com → APIs & Services → enable "Cloud Text-to-Speech API" → Credentials → Create credentials → API key). Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file and `pip install google-auth`. It is the only narration voice: without it a lecture stops with that reason (`PANIM_VOICE=silent` builds one without narration). |
 | `PANIM_CHIRP_VOICE` | One Chirp 3 HD voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
 | `PANIM_CHIRP_LANG` | The accent English lines are spoken in: `en-US` (default), `en-IN`, `en-GB`. A line with Hindi in it is split into language runs, each sent with its own language code: Devanagari as `hi-IN`, English words in it as `en-IN`, by the same speaker (`harness/lecture/chirp.py`, `runs`). Units in a Hindi line are said in Hindi (प्रतिशत, मीटर प्रति सेकंड). |
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
@@ -90,7 +87,7 @@ Put your keys in `.env.local`. All of them are optional.
 The bar at the top of every page shows the version and the commit, for example `v0.6.0 · 264831d · <branch>`. It also
 lists anything still missing, each with a **download** button:
 
-- **Voice: Kokoro-82M** means narration is ready.
+- **Voice: Google Chirp 3 HD** means narration is ready. Without `GOOGLE_TTS_API_KEY` it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
 
@@ -101,8 +98,8 @@ The app also downloads the voice by itself before the first lecture that needs i
 | You see | Cause | Fix |
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
-| A silent video | No voice set up | set `GOOGLE_TTS_API_KEY` (Chirp 3 HD), or `fetch_voice.py` / the button next to Voice (Kokoro) |
-| The voice is Kokoro although a Google key is set | Google refused the requests: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
+| `Narration is spoken by Google Chirp 3 HD, and no Google credentials are set` | No key | put `GOOGLE_TTS_API_KEY` in `harness/app/.env.local` and restart the app |
+| `Google Chirp 3 HD could not speak ...` | Google refused the request: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain | No LaTeX | install LaTeX (optional) |

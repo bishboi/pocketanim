@@ -26,7 +26,7 @@ export type Template = {
   background: string;
   /** Colour for titles, sentences, and labels. */
   ink: string;
-  /** Kokoro voice id for the narration. */
+  /** The Google Chirp 3 HD speaker for the narration (Charon, Kore, Aoede...). */
   voice: string;
   direction: string;
   example: string;
@@ -71,7 +71,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-auto", kind: "lecture", style: "auto", name: "Auto lecture",
     summary: "Reads the content, picks the subject kit: maps for geography, timelines for history, molecules, equations and graphs for science.",
-    palette: ["#0F8B8D", "#8C5A2B", "#7DD3FC"], background: "#F4F8F8", ink: "#12303A", voice: "af_sarah",
+    palette: ["#0F8B8D", "#8C5A2B", "#7DD3FC"], background: "#F4F8F8", ink: "#12303A", voice: "Kore",
     direction: "A narrated lecture whose style and pictures follow its subject.",
     example: [
       "Photosynthesis",
@@ -85,7 +85,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-parchment", kind: "lecture", style: "parchment", name: "Parchment lecture",
     summary: "History: an old page, brown ink, Roman capitals, timelines and quotes.",
-    palette: ["#6B2E1A", "#8C5A2B", "#2F5D7C"], background: "#EFE3C6", ink: "#3B2A1A", voice: "bm_george",
+    palette: ["#6B2E1A", "#8C5A2B", "#2F5D7C"], background: "#EFE3C6", ink: "#3B2A1A", voice: "Iapetus",
     direction: "A narrated history lecture in the parchment style.",
     example: [
       "The Mughal Empire",
@@ -99,7 +99,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-lab", kind: "lecture", style: "lab", name: "Lab lecture",
     summary: "Biology and chemistry: clean white, teal, molecules and reactions drawn out.",
-    palette: ["#0F8B8D", "#D1495B", "#2E86AB"], background: "#F4F8F8", ink: "#12303A", voice: "af_sarah",
+    palette: ["#0F8B8D", "#D1495B", "#2E86AB"], background: "#F4F8F8", ink: "#12303A", voice: "Kore",
     direction: "A narrated science lecture in the lab style.",
     example: [
       "Combustion",
@@ -112,7 +112,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-cosmos", kind: "lecture", style: "cosmos", name: "Cosmos lecture",
     summary: "Physics and space: night sky, cyan light, equations and graphs.",
-    palette: ["#7DD3FC", "#F472B6", "#FDE68A"], background: "#0A0E1F", ink: "#E6ECFF", voice: "am_adam",
+    palette: ["#7DD3FC", "#F472B6", "#FDE68A"], background: "#0A0E1F", ink: "#E6ECFF", voice: "Charon",
     direction: "A narrated physics lecture in the cosmos style.",
     example: [
       "Gravity",
@@ -125,7 +125,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-atlas", kind: "lecture", style: "atlas", name: "Atlas lecture",
     summary: "Dark cartographic lecture: map, fact panel, captions, narration.",
-    palette: ["#E3B25A", "#5AB4F0", "#F2C14E"], background: "#0D1117", ink: "#F4E9D8", voice: "bf_emma",
+    palette: ["#E3B25A", "#5AB4F0", "#F2C14E"], background: "#0D1117", ink: "#F4E9D8", voice: "Kore",
     direction: "A narrated map lecture in the atlas style: dark navy, sand outlines, serif titles.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#1A2230", "#E3B25A", "#141A23", "#E3B25A", "#F4E9D8", "#5AB4F0", "#05070A", "#F4E9D8"),
@@ -133,7 +133,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-vox", kind: "lecture", style: "vox", name: "Vox lecture",
     summary: "Editorial explainer: warm paper, black type, yellow highlighter.",
-    palette: ["#111111", "#FFD02F", "#1F6FB2"], background: "#EFE8DA", ink: "#161616", voice: "af_bella",
+    palette: ["#111111", "#FFD02F", "#1F6FB2"], background: "#EFE8DA", ink: "#161616", voice: "Aoede",
     direction: "A narrated map lecture in the Vox style: paper, uppercase condensed titles, highlighter bars.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#FBF8F1", "#111111", "#EFE8DA", "#111111", "#161616", "#1F6FB2", "#111111", "#FFFFFF"),
@@ -141,7 +141,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-cardboard", kind: "lecture", style: "cardboard", name: "Cardboard lecture",
     summary: "Craft look: kraft paper, cut-out map with a shadow, taped notes.",
-    palette: ["#2B1D10", "#B8741F", "#1F6FB2"], background: "#B98A57", ink: "#2B1D10", voice: "am_michael",
+    palette: ["#2B1D10", "#B8741F", "#1F6FB2"], background: "#B98A57", ink: "#2B1D10", voice: "Puck",
     direction: "A narrated map lecture in the cardboard style: kraft paper and paper cut-outs.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#EAD6AA", "#86613A", "#F3E6C8", "#2B1D10", "#2B1D10", "#1F6FB2", "#F3E6C8", "#2B1D10"),
@@ -149,7 +149,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-whiteboard", kind: "lecture", style: "whiteboard", name: "Whiteboard lecture",
     summary: "Marker on a board: wobbly lines, blue underlined titles that write on.",
-    palette: ["#1B1B1B", "#1565C0", "#D9730D"], background: "#F7F7F3", ink: "#1B1B1B", voice: "am_adam",
+    palette: ["#1B1B1B", "#1565C0", "#D9730D"], background: "#F7F7F3", ink: "#1B1B1B", voice: "Charon",
     direction: "A narrated map lecture in the whiteboard style: marker lines, text that writes itself on.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#F7F7F3", "#1B1B1B", "#F7F7F3", "#1565C0", "#1B1B1B", "#1565C0", "#FFFFFF", "#1B1B1B"),
@@ -157,7 +157,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-blueprint", kind: "lecture", style: "blueprint", name: "Blueprint lecture",
     summary: "Technical drawing: blue grid, white linework, monospace type.",
-    palette: ["#FFFFFF", "#8ECAFF", "#FFD166"], background: "#0E3A66", ink: "#EAF2FF", voice: "am_eric",
+    palette: ["#FFFFFF", "#8ECAFF", "#FFD166"], background: "#0E3A66", ink: "#EAF2FF", voice: "Orus",
     direction: "A narrated map lecture in the blueprint style: grid, white lines, dashed frames.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#1A5288", "#FFFFFF", "#0E3A66", "#FFFFFF", "#EAF2FF", "#8ECAFF", "#0A2C4E", "#EAF2FF"),
@@ -165,7 +165,7 @@ const LECTURES: Template[] = [
   {
     id: "lecture-chalkboard", kind: "lecture", style: "chalkboard", name: "Chalkboard lecture",
     summary: "Chalk on green: pale yellow titles, soft dusty strokes.",
-    palette: ["#F4F0E4", "#F2E27A", "#9FD4E0"], background: "#1B3A2F", ink: "#F4F0E4", voice: "am_michael",
+    palette: ["#F4F0E4", "#F2E27A", "#9FD4E0"], background: "#1B3A2F", ink: "#F4F0E4", voice: "Puck",
     direction: "A narrated map lecture in the chalkboard style.",
     example: LECTURE_EXAMPLE,
     preview: lecturePreview("#224536", "#F4F0E4", "#1B3A2F", "#F2E27A", "#F4F0E4", "#9FD4E0", "#12291F", "#F4F0E4"),
@@ -180,7 +180,7 @@ export const TEMPLATES: Template[] = [
     palette: ["#58C4DD", "#FFFF00", "#83C167"],
     background: "#000000",
     ink: "#FFFFFF",
-    voice: "af_sarah",
+    voice: "Kore",
     direction: [
       "Classic Manim. Black background. Thin precise strokes, almost no solid fills.",
       "Blue for the main object, yellow for the thing to notice, green for a result.",
@@ -204,7 +204,7 @@ export const TEMPLATES: Template[] = [
     palette: ["#F2C14E", "#E07A5F", "#3D7A6A"],
     background: "#F6F1E7",
     ink: "#1C1915",
-    voice: "af_bella",
+    voice: "Aoede",
     direction: [
       "A Vox-style explainer. Warm paper background, flat filled shapes, no thin technical strokes.",
       "Big type. Short phrases, not paragraphs. One strong colour block per idea: a filled Rectangle or circle in the accent, with the label beside it, never on top of it.",
@@ -227,7 +227,7 @@ export const TEMPLATES: Template[] = [
     palette: ["#1A1A1A", "#2F6FED", "#E23D3D"],
     background: "#F7F5F0",
     ink: "#1A1A1A",
-    voice: "am_adam",
+    voice: "Charon",
     direction: [
       "A whiteboard lesson. Off-white background, black marker for structure, blue for the main idea, red for the one thing to circle.",
       "Everything is drawn, not revealed as a slide: Create for lines and shapes, Write for words.",
@@ -252,7 +252,7 @@ export const TEMPLATES: Template[] = [
     palette: ["#F4F0E4", "#F2E27A", "#9FD4E0"],
     background: "#1B3A2F",
     ink: "#F4F0E4",
-    voice: "am_michael",
+    voice: "Puck",
     direction: [
       "A chalkboard. Deep green background. Chalk white for words, pale yellow for emphasis, light blue for a second sketch.",
       "Strokes are soft and a little thick, like chalk, not vector-sharp. No solid neon fills.",

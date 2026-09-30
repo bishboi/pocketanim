@@ -64,7 +64,7 @@ type Status = {
   python: string;
   manim: string | null;
   latex: boolean;
-  kokoro?: boolean;
+  chirp?: boolean;
   fixture: boolean;
   model: string;
   error?: string;
@@ -267,7 +267,7 @@ export default function Home() {
   ) {
     const sceneClass = sceneClassOf(source);
     setBusy(/pocket_lecture/.test(source)
-      ? "Speaking the lecture with Kokoro-82M, running Manim and building the program…"
+      ? "Speaking the lecture with Google Chirp 3 HD, running Manim and building the program…"
       : "Running Manim and building the program…");
     const exported: ExportState = await post("/api/export", {
       source,
@@ -295,7 +295,7 @@ export default function Home() {
               sceneClass: played,
               source: fixed,
               // The scene's own narration, when it has one, is the track that
-              // matches this build; a Kokoro voiceover belongs to # voice: lines.
+              // matches this build; a separate voiceover belongs to # voice: lines.
               voiceUrl: exported.narrationUrl ?? v.voiceUrl,
             }
           : v,
@@ -390,7 +390,7 @@ export default function Home() {
       if (!source.trim())
         throw new Error("The agent finished without a scene.");
       // Only a scene with # voice: lines is voiced here. A lecture speaks its
-      // own beats during export, and asking Kokoro for lines it does not have
+      // own beats during export, and asking for a voiceover of lines it does not have
       // put an error over every lecture.
       if (/^\s*# voice:/m.test(source)) {
         setBusy("Recording the voiceover…");
@@ -571,8 +571,8 @@ export default function Home() {
             {status?.fixture === false ? status.model : "offline fixture"}
           </Badge>
           {status && !status.latex && <Badge tone="warn">no LaTeX</Badge>}
-          {status && status.kokoro === false && (
-            <Badge tone="warn">no Kokoro-82M</Badge>
+          {status && status.chirp === false && (
+            <Badge tone="bad">no voice: set GOOGLE_TTS_API_KEY</Badge>
           )}
         </div>
       </header>

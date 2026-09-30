@@ -79,8 +79,24 @@ def test_the_engine_speaks_with_chirp_when_a_key_is_set(google, monkeypatch, tmp
     assert pl.voice_mode().startswith("chirp:")
     wav, seconds = pl.narrate("Friction slows a rolling ball.")
     assert wav and seconds > 0.5
+    # No other voice: without a key the lecture stops with the reason, rather than switching voice.
     monkeypatch.delenv("GOOGLE_TTS_API_KEY")
-    assert not pl.voice_mode().startswith("chirp:")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    with pytest.raises(pl.VoiceUnavailable, match="GOOGLE_TTS_API_KEY"):
+        pl.voice_mode()
+    monkeypatch.setenv("PANIM_VOICE", "silent")
+    assert pl.voice_mode() == "silent"
+
+
+def test_a_refused_line_stops_the_lecture(google, monkeypatch, tmp_path):
+    import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    google["fail"] = True
+    with pytest.raises(pl.VoiceUnavailable, match="API not enabled"):
+        pl.narrate("A line Google refuses.")
 
 
 def test_a_line_is_spoken_a_language_run_at_a_time():

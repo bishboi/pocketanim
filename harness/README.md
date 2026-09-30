@@ -28,8 +28,8 @@ lectures) plays too.
 
 Narration is part of the build. A scene that calls `add_sound` (every lecture
 beat does) gets one mixed `narration.wav`, each line placed on the frame its
-beat starts; a scene with `# voice:` lines is voiced by Kokoro (espeak-ng when
-Kokoro cannot run) and gets the same treatment. The preview plays that track as
+beat starts; a scene with `# voice:` lines is voiced by Google Chirp 3 HD, the
+only narration voice, and gets the same treatment. The preview plays that track as
 its clock, and **Download for the phone** zips the build as a player library,
 narration included.
 

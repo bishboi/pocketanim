@@ -10,8 +10,8 @@ export async function GET() {
   const found = resources();
   return NextResponse.json({
     ...tools,
-    // Kokoro-82M is ready: the package is installed and its weights are downloaded.
-    kokoro: found.find((r) => r.id === "voice")?.ready ?? false,
+    // Google Chirp 3 HD, the narration voice, is set up.
+    chirp: found.find((r) => r.id === "voice")?.ready ?? false,
     version: versionInfo(),
     resources: found,
     fixture: usingFixture(),

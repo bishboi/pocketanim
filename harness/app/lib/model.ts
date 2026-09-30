@@ -291,7 +291,9 @@ export function explainNetworkError(error: unknown): string {
 
 function isEmptyReply(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("empty message") || message.includes("returned no message");
+  // "Provider returned an empty response" comes from OpenRouter in the stream; a 5xx or an overloaded provider
+  // is the same kind of passing failure, and the next attempt usually goes to another provider.
+  return /empty (message|response)|returned no message|OpenRouter (429|50[0234])|overloaded|provider returned error/i.test(message);
 }
 
 /** Batch token deltas so the page updates live without a render per token. */
@@ -332,6 +334,7 @@ async function streamCompletion(
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
+  withReasoning = true,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   const response = await undiciFetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -348,7 +351,7 @@ async function streamCompletion(
       tool_choice: toolChoice,
       stream: true,
       usage: { include: true },
-      ...reasoningOption(),
+      ...(withReasoning ? reasoningOption() : {}),
     }),
   });
   if (!response.ok) {
@@ -476,7 +479,7 @@ async function streamCompletion(
   };
 }
 
-const EMPTY_RETRIES = 3;
+const EMPTY_RETRIES = 4;
 
 async function completionWithRetry(
   key: string,
@@ -488,15 +491,20 @@ async function completionWithRetry(
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
+  let empties = 0;
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
+    // After an empty reply, ask more loosely: some providers answer nothing when a tool call is "required",
+    // and a reasoning model can spend its whole output on thinking. The prompts still ask for the tool.
+    const choice = empties > 0 ? "auto" : toolChoice;
+    const reasoning = empties < 2;
     try {
       let result;
       try {
-        result = await streamCompletion(key, model, messages, onDelta, tools, signal, toolChoice);
+        result = await streamCompletion(key, model, messages, onDelta, tools, signal, choice, reasoning);
       } catch (error) {
         // A provider that refuses "required" gets the same request with "auto".
-        if (toolChoice === "auto" || !/tool_choice|required/i.test(String(error))) throw error;
-        result = await streamCompletion(key, model, messages, onDelta, tools, signal, "auto");
+        if (choice === "auto" || !/tool_choice|required/i.test(String(error))) throw error;
+        result = await streamCompletion(key, model, messages, onDelta, tools, signal, "auto", reasoning);
       }
       const text = result.message.content?.trim() ?? "";
       const calls = result.message.tool_calls ?? [];
@@ -517,13 +525,22 @@ async function completionWithRetry(
         await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
         continue;
       }
-      if (!isEmptyReply(error) || attempt === EMPTY_RETRIES) throw error;
+      if (signal?.aborted || !isEmptyReply(error)) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      if (attempt === EMPTY_RETRIES) {
+        throw new Error(
+          `${reason} — ${EMPTY_RETRIES} times in a row. The model's provider on OpenRouter is not answering this ` +
+            "request; try again in a minute, or pick another model (a non-reasoning one, or a larger context window, " +
+            "helps with a long transcript).",
+        );
+      }
+      empties += 1;
       emit({
         type: "message",
         role: "status",
-        text: `OpenRouter returned an empty message. Retrying (${attempt + 1} of ${EMPTY_RETRIES})…`,
+        text: `OpenRouter: ${reason}. Retrying (${attempt + 1} of ${EMPTY_RETRIES})…`,
       });
-      await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
     }
   }
   throw new Error("OpenRouter returned an empty message");

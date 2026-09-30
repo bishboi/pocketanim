@@ -11,3 +11,5 @@ import os  # noqa: E402
 # mock Google and PANIM_VOICE themselves). Subprocesses inherit it.
 os.environ.setdefault("PANIM_VOICE", "silent")
 os.environ.setdefault("FORGE_VOICE", "silent")
+# Settings from harness/app/.env.local stay out of tests (chirp._env reads it for terminal commands).
+os.environ.setdefault("PANIM_ENV_FILE", "")

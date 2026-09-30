@@ -203,3 +203,24 @@ def test_a_missing_quota_project_says_how_to_set_it(google, monkeypatch, tmp_pat
     with pytest.raises(RuntimeError, match="set-quota-project YOUR_PROJECT_ID"):
         chirp.synthesize("Hello.")
     chirp._token.update(value=None, expires=0.0, quota=None)
+
+
+def test_settings_in_env_local_count_for_terminal_commands(google, monkeypatch, tmp_path):
+    """The web app loads harness/app/.env.local; `chirp.py --check` and Forge read it too, through chirp._env."""
+    folder = tmp_path / "gcloud"
+    folder.mkdir()
+    (folder / "application_default_credentials.json").write_text(json.dumps({
+        "type": "authorized_user", "client_id": "cid", "client_secret": "secret", "refresh_token": "refresh"}))
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(folder))
+    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_URL", google["token_url"])
+    for name in ("GOOGLE_CLOUD_QUOTA_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"):
+        monkeypatch.delenv(name, raising=False)
+    env_file = tmp_path / ".env.local"
+    env_file.write_text('# the app\nOPENROUTER_API_KEY=x\nexport GOOGLE_CLOUD_QUOTA_PROJECT="parikshanai"  \n')
+    monkeypatch.setenv("PANIM_ENV_FILE", str(env_file))
+    assert chirp.quota_project() == "parikshanai"
+    chirp._token.update(value=None, expires=0.0, quota=None)
+    chirp.synthesize("Hello.", "Charon")
+    headers = {k.lower(): v for k, v in google["headers"][-1].items()}
+    assert headers["x-goog-user-project"] == "parikshanai"
+    chirp._token.update(value=None, expires=0.0, quota=None)

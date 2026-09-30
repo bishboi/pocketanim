@@ -50,14 +50,39 @@ SAMPLE_RATE = 24000
 REVISION = 2
 
 
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", ".env.local")
+
+
+def _env(name: str) -> str | None:
+    """A setting from the environment, else from harness/app/.env.local: the web app loads that file, but a
+    terminal command (`chirp.py --check`, Forge) does not, and a setting there was invisible to it.
+    PANIM_ENV_FILE names another file ("" for none)."""
+    if os.environ.get(name):
+        return os.environ[name]
+    path = os.environ.get("PANIM_ENV_FILE", ENV_FILE)
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            match = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$", line)
+            if match and match.group(1) == name and not line.lstrip().startswith("#"):
+                value = match.group(2)
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                    value = value[1:-1]
+                else:
+                    value = value.split(" #")[0].strip()
+                return value or None
+    return None
+
+
 def _key() -> str | None:
-    return os.environ.get("GOOGLE_TTS_API_KEY") or os.environ.get("GOOGLE_API_KEY") or None
+    return _env("GOOGLE_TTS_API_KEY") or _env("GOOGLE_API_KEY") or None
 
 
 def _adc_file() -> str | None:
     """The OAuth credentials file google-auth would use: GOOGLE_APPLICATION_CREDENTIALS, else the one
     `gcloud auth application-default login` writes."""
-    path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    path = _env("GOOGLE_APPLICATION_CREDENTIALS")
     if path:
         return path if os.path.isfile(path) else None
     default = os.path.join(_gcloud_folder(), "application_default_credentials.json")
@@ -85,8 +110,8 @@ _token: dict = {"value": None, "expires": 0.0, "quota": None}
 
 
 def _gcloud_folder() -> str:
-    if os.environ.get("CLOUDSDK_CONFIG"):
-        return os.environ["CLOUDSDK_CONFIG"]
+    if _env("CLOUDSDK_CONFIG"):
+        return _env("CLOUDSDK_CONFIG")
     if os.name == "nt":
         return os.path.join(os.environ.get("APPDATA", ""), "gcloud")
     return os.path.join(os.path.expanduser("~"), ".config", "gcloud")
@@ -115,8 +140,8 @@ def quota_project(info: dict | None = None) -> str | None:
     GOOGLE_CLOUD_QUOTA_PROJECT or the usual project variables, else the login's own quota project
     (`gcloud auth application-default set-quota-project`), else gcloud's active project."""
     for name in ("GOOGLE_CLOUD_QUOTA_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"):
-        if os.environ.get(name):
-            return os.environ[name]
+        if _env(name):
+            return _env(name)
     if info is None and _adc_file():
         info = _read_adc()
     return (info or {}).get("quota_project_id") or _gcloud_project()
@@ -138,7 +163,7 @@ def _new_token() -> tuple[str, float, str | None]:
     if info.get("type") == "authorized_user":
         form = urllib.parse.urlencode({"client_id": info["client_id"], "client_secret": info["client_secret"],
                                        "refresh_token": info["refresh_token"], "grant_type": "refresh_token"})
-        request = urllib.request.Request(os.environ.get("GOOGLE_OAUTH_TOKEN_URL") or TOKEN_URL, data=form.encode(),
+        request = urllib.request.Request(_env("GOOGLE_OAUTH_TOKEN_URL") or TOKEN_URL, data=form.encode(),
                                          headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -188,14 +213,14 @@ KEY_REFUSED = ("Google refused the API key: this project's Text-to-Speech accept
 
 def voice_for(style: str | None) -> str:
     """The Chirp 3 HD voice name (Charon) for a lecture style."""
-    return os.environ.get("PANIM_CHIRP_VOICE") or STYLE_VOICES.get(style or "", DEFAULT_VOICE)
+    return _env("PANIM_CHIRP_VOICE") or STYLE_VOICES.get(style or "", DEFAULT_VOICE)
 
 
 def language(lang: str) -> str:
     """The BCP-47 code a line in `lang` ('en', 'hi', or already a code such as 'en-IN') is spoken in."""
     if "-" in lang:
         return lang
-    return LANGS.get(lang) or os.environ.get("PANIM_CHIRP_LANG") or "en-US"
+    return LANGS.get(lang) or _env("PANIM_CHIRP_LANG") or "en-US"
 
 
 _DEVANAGARI = re.compile(r"[\u0900-\u097F]")
@@ -284,7 +309,7 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
             "audioConfig": {"audioEncoding": "LINEAR16", "sampleRateHertz": SAMPLE_RATE}}
     if abs(speed - 1.0) > 1e-3:
         body["audioConfig"]["speakingRate"] = round(speed, 2)
-    url = os.environ.get("GOOGLE_TTS_URL") or URL
+    url = _env("GOOGLE_TTS_URL") or URL
     last = ""
     signed = auth()
     refreshed = False
@@ -327,9 +352,8 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
                 refreshed = True                             # a token that ran out: a fresh one, once
                 continue
             if signed == "key" and error.code in (401, 403) and "api key" in last.lower():
-                where = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.join(
-                    os.environ.get("CLOUDSDK_CONFIG") or os.path.join(os.path.expanduser("~"), ".config", "gcloud"),
-                    "application_default_credentials.json")
+                where = _env("GOOGLE_APPLICATION_CREDENTIALS") or os.path.join(
+                    _gcloud_folder(), "application_default_credentials.json")
                 raise RuntimeError(f"Google TTS {error.code}: {last} -- {KEY_REFUSED} (No login was found at "
                                    f"{where} for the user this app runs as.)") from None
             raise RuntimeError(f"Google TTS {error.code}: {last}") from None
@@ -344,6 +368,8 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
 
 def check() -> int:
     """What this machine would sign Chirp requests with, and whether Google accepts it (one short line)."""
+    env_file = os.environ.get("PANIM_ENV_FILE", ENV_FILE)
+    print(f"settings file    : {os.path.normpath(env_file) if env_file and os.path.isfile(env_file) else 'none'}")
     print(f"credentials file : {_adc_file() or 'none found (looked in ' + _gcloud_folder() + ')'}")
     print(f"signed with      : {auth() if configured() else 'nothing: no login, service account or key'}")
     if auth() == "oauth":

@@ -55,7 +55,27 @@ Other pictures are fetched per lecture, as needed, and cached:
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
 
-## 3. The web app
+## 3. The narration voice: Google Chirp 3 HD
+
+Every lecture is spoken by Google's Chirp 3 HD voices, through the Cloud Text-to-Speech API. Enable the
+**Cloud Text-to-Speech API** in a Google Cloud project (console.cloud.google.com → APIs & Services → Library),
+then give the harness one of these credentials. It uses the first one it finds, in this order:
+
+1. **Your Google login (recommended).** Install the Google Cloud CLI (cloud.google.com/sdk), then:
+   ```sh
+   gcloud auth application-default login
+   gcloud auth application-default set-quota-project YOUR_PROJECT_ID    # the project with the API enabled
+   ```
+   Nothing goes in `.env.local`: the harness reads the login gcloud saves.
+2. **A service account.** Create a key file for a service account in that project and set
+   `GOOGLE_APPLICATION_CREDENTIALS=/full/path/to/key.json` in `harness/app/.env.local`.
+3. **An API key.** Set `GOOGLE_TTS_API_KEY=...` in `harness/app/.env.local`. Many projects refuse keys for this
+   API ("401: API keys are not supported by this API"). Use 1 or 2 then.
+
+Restart the app afterwards. To check the voice on its own:
+`.venv/bin/python harness/lecture/chirp.py "नमस्ते, आज हम गति के नियम समझेंगे।" hello.wav`
+
+## 4. The web app
 
 ```sh
 cd harness/app
@@ -68,7 +88,8 @@ Put your keys in `.env.local`. All of them are optional.
 
 | Key | What it does |
 |---|---|
-| `GOOGLE_TTS_API_KEY` | The narration voice: Google's **Chirp 3 HD**. An API key from a Google Cloud project with the *Cloud Text-to-Speech API* enabled (console.cloud.google.com → APIs & Services → enable "Cloud Text-to-Speech API" → Credentials → Create credentials → API key). Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file and `pip install google-auth`. It is the only narration voice: without it a lecture stops with that reason (`PANIM_VOICE=silent` builds one without narration). |
+| `GOOGLE_TTS_API_KEY` | An API key for the narration voice, where the project allows keys; a gcloud login or `GOOGLE_APPLICATION_CREDENTIALS` is used first (section 3). |
+| `GOOGLE_CLOUD_QUOTA_PROJECT` | The project a gcloud login's voice calls are billed to, if `set-quota-project` was not run. |
 | `PANIM_CHIRP_VOICE` | One Chirp 3 HD voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
 | `PANIM_CHIRP_LANG` | The accent English lines are spoken in: `en-US` (default), `en-IN`, `en-GB`. A line with Hindi in it is split into language runs, each sent with its own language code: Devanagari as `hi-IN`, English words in it as `en-IN`, by the same speaker (`harness/lecture/chirp.py`, `runs`). Units in a Hindi line are said in Hindi (प्रतिशत, मीटर प्रति सेकंड). |
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
@@ -82,12 +103,12 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_PACE=brisk` | Faster lectures: normal voice speed and shorter pauses. The default, `relaxed`, is a slower teaching pace with time to take each line in. |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
-## 4. Check that everything is in place
+## 5. Check that everything is in place
 
 The bar at the top of every page shows the version and the commit, for example `v0.6.0 · 264831d · <branch>`. It also
 lists anything still missing, each with a **download** button:
 
-- **Voice: Google Chirp 3 HD** means narration is ready. Without `GOOGLE_TTS_API_KEY` it says so, and lectures do not build.
+- **Voice: Google Chirp 3 HD** means narration is ready. Without credentials (section 3) it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
 
@@ -98,7 +119,8 @@ The app also downloads the voice by itself before the first lecture that needs i
 | You see | Cause | Fix |
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
-| `Narration is spoken by Google Chirp 3 HD, and no Google credentials are set` | No key | put `GOOGLE_TTS_API_KEY` in `harness/app/.env.local` and restart the app |
+| `Narration is spoken by Google Chirp 3 HD, and no Google credentials are set` | No credentials | section 3, then restart the app |
+| `401: API keys are not supported by this API` | The project refuses API keys for Text-to-Speech | sign in with `gcloud auth application-default login` and `set-quota-project` (section 3); the key can stay, a login is used first |
 | `Google Chirp 3 HD could not speak ...` | Google refused the request: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |

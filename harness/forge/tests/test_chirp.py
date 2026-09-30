@@ -27,9 +27,9 @@ def _wav() -> bytes:
 
 
 @pytest.fixture
-def google(monkeypatch):
+def google(monkeypatch, tmp_path):
     """A local stand-in for texttospeech.googleapis.com: records requests; `state["fail"]` makes it refuse."""
-    state = {"requests": [], "fail": False}
+    state = {"requests": [], "headers": [], "fail": False, "status": 403, "message": "API not enabled"}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -37,10 +37,11 @@ def google(monkeypatch):
 
         def do_POST(self):
             state["requests"].append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+            state["headers"].append(dict(self.headers))
             if state["fail"]:
-                self.send_response(403)
+                self.send_response(state["status"])
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": {"message": "API not enabled"}}).encode())
+                self.wfile.write(json.dumps({"error": {"message": state["message"]}}).encode())
                 return
             self.send_response(200)
             self.end_headers()
@@ -49,6 +50,9 @@ def google(monkeypatch):
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setenv("GOOGLE_TTS_API_KEY", "test-key")
+    # No OAuth credentials from this machine (a real gcloud login would be used first).
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(tmp_path / "no-gcloud"))
     monkeypatch.setenv("GOOGLE_TTS_URL", f"http://127.0.0.1:{server.server_port}/v1/text:synthesize")
     yield state
     server.shutdown()
@@ -123,3 +127,34 @@ def test_hindi_lines_say_units_in_hindi():
     said = pl.speechify("गेंद 5 m/s से चलती है, यानी 20% तेज़।")
     assert "मीटर प्रति सेकंड" in said and "प्रतिशत" in said and "percent" not in said
     assert "percent" in pl.speechify("It is 20% faster.")
+
+
+def test_oauth_credentials_are_used_before_a_key(google, monkeypatch, tmp_path):
+    """Some projects refuse API keys for Text-to-Speech: a gcloud login or a service account signs instead."""
+    folder = tmp_path / "gcloud"
+    folder.mkdir()
+    (folder / "application_default_credentials.json").write_text("{}")
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(folder))
+
+    class Login:                                   # what google.auth.default returns for a gcloud login
+        valid, token, quota_project_id = True, "user-token", None
+
+        def refresh(self, request):
+            pass
+
+    Login.__module__ = "google.oauth2.credentials"
+    chirp._credentials.cache_clear()
+    monkeypatch.setattr(chirp, "_credentials", lambda: (Login(), "my-project", None))
+    assert chirp.auth() == "oauth" and chirp.configured()
+    chirp.synthesize("Hello.", "Charon")
+    path, _ = google["requests"][-1]
+    headers = {k.lower(): v for k, v in google["headers"][-1].items()}
+    assert "key=" not in path
+    assert headers["authorization"] == "Bearer user-token"
+    assert headers["x-goog-user-project"] == "my-project"      # a login bills its project
+
+
+def test_a_refused_key_says_how_to_sign_in(google):
+    google.update(fail=True, status=401, message="API keys are not supported by this API. Expected OAuth2 access token")
+    with pytest.raises(RuntimeError, match="gcloud auth application-default login"):
+        chirp.synthesize("Hello.")

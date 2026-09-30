@@ -458,9 +458,10 @@ def voice_mode() -> str:
         return "silent"
     if not chirp.configured():
         raise VoiceUnavailable(
-            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Set GOOGLE_TTS_API_KEY "
-            "(a key for a Google Cloud project with the Cloud Text-to-Speech API enabled; harness/SETUP.md), or "
-            "GOOGLE_APPLICATION_CREDENTIALS, or PANIM_VOICE=silent to build without narration.")
+            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Sign in with `gcloud auth "
+            "application-default login` (then `gcloud auth application-default set-quota-project <PROJECT_ID>`), or "
+            "set GOOGLE_APPLICATION_CREDENTIALS to a service-account key, or GOOGLE_TTS_API_KEY where the project "
+            "allows keys (harness/SETUP.md). PANIM_VOICE=silent builds without narration.")
     return f"chirp:{mode.split(':', 1)[1] if mode.startswith('chirp:') else chirp.voice_for(STYLE)}"
 
 

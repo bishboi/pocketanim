@@ -36,8 +36,9 @@ def voice_mode(style: dict) -> str:
         return "silent"
     if not chirp.configured():
         raise pl.VoiceUnavailable(
-            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set: set GOOGLE_TTS_API_KEY "
-            "(harness/SETUP.md), or FORGE_VOICE=silent to build without narration.")
+            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set: sign in with `gcloud auth "
+            "application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_TTS_API_KEY "
+            "(harness/SETUP.md); FORGE_VOICE=silent builds without narration.")
     voice = style.get("voice") or {}
     name = os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp") or chirp.voice_for(style.get("engine_theme"))
     return f"chirp:{name}"

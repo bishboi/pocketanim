@@ -4,9 +4,13 @@ Chirp 3 HD is Google's most natural voice family (en-US-Chirp3-HD-Charon, hi-IN-
 line is one request to the REST API; the lecture engine caches the result like any other voice
 (pocket_lecture.narrate), so a line is paid for once.
 
-Credentials, either:
-  GOOGLE_TTS_API_KEY   an API key with the Cloud Text-to-Speech API enabled (GOOGLE_API_KEY works too), or
-  GOOGLE_APPLICATION_CREDENTIALS   a service-account JSON file (needs `pip install google-auth`).
+Credentials, the first found (OAuth first: some projects refuse API keys for this API, "API keys are not
+supported by this API"):
+  your Google login    `gcloud auth application-default login`, then `gcloud auth application-default
+                       set-quota-project <PROJECT_ID>` (the project with the Text-to-Speech API enabled);
+  a service account    GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json;
+  an API key           GOOGLE_TTS_API_KEY (or GOOGLE_API_KEY), where the project allows keys.
+OAuth needs `pip install google-auth requests` (in harness/requirements.txt).
 Settings:
   PANIM_CHIRP_VOICE    a voice name for every style (Charon, Kore, Aoede...); each style has its own otherwise
   PANIM_CHIRP_LANG     the language English lines are spoken in: en-US (default), en-IN, en-GB...
@@ -46,16 +50,38 @@ def _key() -> str | None:
     return os.environ.get("GOOGLE_TTS_API_KEY") or os.environ.get("GOOGLE_API_KEY") or None
 
 
-def configured() -> bool:
-    """Chirp can be called here: an API key, or service-account credentials google-auth can use."""
-    if _key():
-        return True
+def _adc_file() -> str | None:
+    """The OAuth credentials file google-auth would use: GOOGLE_APPLICATION_CREDENTIALS, else the one
+    `gcloud auth application-default login` writes."""
     path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if not path or not os.path.isfile(path):
-        return False
+    if path:
+        return path if os.path.isfile(path) else None
+    if os.environ.get("CLOUDSDK_CONFIG"):
+        folder = os.environ["CLOUDSDK_CONFIG"]
+    elif os.name == "nt":
+        folder = os.path.join(os.environ.get("APPDATA", ""), "gcloud")
+    else:
+        folder = os.path.join(os.path.expanduser("~"), ".config", "gcloud")
+    default = os.path.join(folder, "application_default_credentials.json")
+    return default if os.path.isfile(default) else None
+
+
+def _oauth() -> bool:
+    """OAuth credentials are on this machine, and google-auth can use them."""
     import importlib.util
 
-    return importlib.util.find_spec("google.auth") is not None
+    return _adc_file() is not None and importlib.util.find_spec("google.auth") is not None \
+        and importlib.util.find_spec("requests") is not None
+
+
+def configured() -> bool:
+    """Chirp can be called here: OAuth credentials (a login or a service account), or an API key."""
+    return _oauth() or bool(_key())
+
+
+def auth() -> str:
+    """How requests are signed: "oauth" when credentials are on this machine, else "key"."""
+    return "oauth" if _oauth() else "key"
 
 
 @lru_cache(None)
@@ -63,15 +89,30 @@ def _credentials():
     import google.auth
     import google.auth.transport.requests
 
-    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    return creds, google.auth.transport.requests.Request()
+    creds, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    return creds, project, google.auth.transport.requests.Request()
 
 
-def _token() -> str:
-    creds, request = _credentials()
-    if not creds.valid:
+def _oauth_headers(refresh: bool = False) -> dict:
+    """Authorization, and for a personal login the project Google bills the calls to (it refuses without)."""
+    creds, project, request = _credentials()
+    if refresh or not creds.valid:
         creds.refresh(request)
-    return creds.token
+    headers = {"Authorization": f"Bearer {creds.token}"}
+    quota = (os.environ.get("GOOGLE_CLOUD_QUOTA_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+             or getattr(creds, "quota_project_id", None))
+    if not quota and type(creds).__module__.startswith("google.oauth2.credentials"):
+        quota = project                         # a user login: bill its default project
+    if quota:
+        headers["x-goog-user-project"] = quota
+    return headers
+
+
+KEY_REFUSED = ("Google refused the API key: this project's Text-to-Speech accepts OAuth credentials, not keys. "
+               "Sign in instead (the key can stay; a login is used first): install the Google Cloud CLI, run "
+               "`gcloud auth application-default login`, then `gcloud auth application-default set-quota-project "
+               "<PROJECT_ID>` (the project with the Cloud Text-to-Speech API enabled), and restart the app. Or use "
+               "a service account: GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json. harness/SETUP.md has the steps.")
 
 
 def voice_for(style: str | None) -> str:
@@ -174,13 +215,15 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
         body["audioConfig"]["speakingRate"] = round(speed, 2)
     url = os.environ.get("GOOGLE_TTS_URL") or URL
     last = ""
+    signed = auth()
+    refreshed = False
     for attempt in range(4):
         headers = {"Content-Type": "application/json; charset=utf-8"}
         target = url
-        if _key():
-            target = f"{url}?key={_key()}"
+        if signed == "oauth":
+            headers.update(_oauth_headers(refresh=refreshed))
         else:
-            headers["Authorization"] = f"Bearer {_token()}"
+            target = f"{url}?key={_key()}"
         request = urllib.request.Request(target, data=json.dumps(body).encode(), headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -198,6 +241,11 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: f
             if error.code in (429, 500, 503) and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
+            if error.code == 401 and signed == "oauth" and not refreshed:
+                refreshed = True                             # a token that ran out: a fresh one, once
+                continue
+            if signed == "key" and error.code in (401, 403) and "api key" in last.lower():
+                raise RuntimeError(f"Google TTS {error.code}: {last} -- {KEY_REFUSED}") from None
             raise RuntimeError(f"Google TTS {error.code}: {last}") from None
         except urllib.error.URLError as error:
             last = str(error.reason)
@@ -213,7 +261,8 @@ def main() -> int:
         print(__doc__)
         return 2
     if not configured():
-        print("no Google credentials: set GOOGLE_TTS_API_KEY (see harness/SETUP.md)", file=sys.stderr)
+        print("no Google credentials: `gcloud auth application-default login`, GOOGLE_APPLICATION_CREDENTIALS or "
+              "GOOGLE_TTS_API_KEY (see harness/SETUP.md)", file=sys.stderr)
         return 1
     audio = speak(sys.argv[1], voice_for(os.environ.get("LECTURE_STYLE")))
     with open(sys.argv[2], "wb") as handle:

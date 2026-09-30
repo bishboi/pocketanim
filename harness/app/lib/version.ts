@@ -5,6 +5,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import pkg from "../package.json";
 import { REPO, python } from "./pocketanim";
@@ -33,9 +34,14 @@ export function versionInfo(): VersionInfo {
 
 /** Google's Chirp 3 HD can speak here: an API key, or service-account credentials (harness/lecture/chirp.py). */
 export function chirpConfigured(): boolean {
-  if (process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY) return true;
+  // OAuth first, as harness/lecture/chirp.py: a service account, or the login `gcloud auth application-default
+  // login` writes. Some projects refuse API keys for Text-to-Speech.
   const file = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  return !!file && existsSync(file);
+  if (file) return existsSync(file) || !!(process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY);
+  const gcloud = process.env.CLOUDSDK_CONFIG
+    ?? (process.platform === "win32" ? path.join(process.env.APPDATA ?? "", "gcloud") : path.join(os.homedir(), ".config", "gcloud"));
+  if (existsSync(path.join(gcloud, "application_default_credentials.json"))) return true;
+  return !!(process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
 /**
@@ -50,9 +56,10 @@ export function voiceEngine(): "chirp" | "silent" | "none" {
 /** Why a lecture cannot be narrated here, or null when it can. */
 export function voiceProblem(): string | null {
   return voiceEngine() === "none"
-    ? "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Put GOOGLE_TTS_API_KEY in " +
-      "harness/app/.env.local (a key for a Google Cloud project with the Cloud Text-to-Speech API enabled; " +
-      "harness/SETUP.md) and restart the app, or set PANIM_VOICE=silent to build without narration."
+    ? "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Sign in with " +
+      "`gcloud auth application-default login` (then `gcloud auth application-default set-quota-project <PROJECT_ID>`), " +
+      "or set GOOGLE_APPLICATION_CREDENTIALS to a service-account key, or GOOGLE_TTS_API_KEY where the project " +
+      "allows keys (harness/SETUP.md); restart the app. PANIM_VOICE=silent builds without narration."
     : null;
 }
 
@@ -97,7 +104,7 @@ export function resources(): Resource[] {
     { id: "voice", label: "Voice", ready: voice === "chirp",
       detail: voice === "chirp" ? "Google Chirp 3 HD"
         : voice === "silent" ? "none: PANIM_VOICE=silent builds lectures without narration"
-        : "NOT SET UP: lectures will not build. Put GOOGLE_TTS_API_KEY in harness/app/.env.local (harness/SETUP.md)" },
+        : "NOT SET UP: lectures will not build. Sign in with gcloud, or set a service account or key (harness/SETUP.md)" },
     { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
       detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
         : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },

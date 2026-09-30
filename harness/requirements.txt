@@ -9,3 +9,5 @@ pyyaml
 pytest
 pypdf
 rdkit   # molecule layouts for chemistry and biology lectures
+google-auth   # Chirp 3 HD with OAuth credentials (a gcloud login or a service account)
+requests

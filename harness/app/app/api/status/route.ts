@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toolchain } from "@/lib/pocketanim";
-import { usingFixture } from "@/lib/model";
+import { transcriptModel, usingFixture, videoModel } from "@/lib/model";
 import { latexStatus, resources, versionInfo } from "@/lib/version";
 
 export const runtime = "nodejs";
@@ -18,8 +18,7 @@ export async function GET() {
     version: versionInfo(),
     resources: found,
     fixture: usingFixture(),
-    model: usingFixture()
-      ? "fixture"
-      : (process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5"),
+    model: usingFixture() ? "fixture" : videoModel(),
+    transcriptModel: usingFixture() ? "fixture" : transcriptModel(),
   });
 }

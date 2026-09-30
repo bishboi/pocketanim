@@ -26,6 +26,9 @@ export async function POST(request: NextRequest) {
     subject: typeof body.subject === "string" && body.subject !== "auto" ? body.subject : undefined,
     referenceId: typeof body.referenceId === "string" ? body.referenceId : undefined,
     language: typeof body.language === "string" && body.language !== "auto" ? body.language : undefined,
+    // An OpenRouter model id ("anthropic/claude-opus-4.1"); anything else is ignored.
+    transcriptModel: typeof body.transcriptModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.transcriptModel.trim())
+      ? body.transcriptModel.trim() : undefined,
   };
 
   const encoder = new TextEncoder();

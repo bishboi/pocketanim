@@ -43,7 +43,25 @@ export type GenerateRequest = {
   referenceId?: string;
   /** The narration's language (lib/lecture.ts LANGUAGES): "hinglish" is Hindi with English terms, English on screen. */
   language?: string;
+  /** The model that writes the lecture's transcript (stage 1); without it, OPENROUTER_TRANSCRIPT_MODEL. */
+  transcriptModel?: string;
 };
+
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
+
+/** The model that writes the video (the beat script and its Manim scene): OPENROUTER_MODEL. */
+export function videoModel(): string {
+  return process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+}
+
+/**
+ * The model that writes the lecture's spoken transcript, before any picture: the page's choice, else
+ * OPENROUTER_TRANSCRIPT_MODEL, else the video's model. Writing a long, natural teacher's talk and building
+ * pictures step by step are different jobs, so each can have the model that does it best.
+ */
+export function transcriptModel(chosen?: string): string {
+  return chosen?.trim() || process.env.OPENROUTER_TRANSCRIPT_MODEL || videoModel();
+}
 
 const SCENE_CLASS = "GeneratedScene";
 /** How long a turn may pass with nothing from the model before it is stopped (PANIM_MODEL_WAIT_MINUTES). */
@@ -564,7 +582,7 @@ async function viaOpenRouter(
   stopped: () => boolean = () => false,
 ): Promise<Generated> {
   const key = process.env.OPENROUTER_API_KEY!;
-  const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
+  const model = videoModel();
   const template = templateById(request.templateId);
   const lecture = isLecture(template);
   const doc = await documentOf(request);
@@ -614,6 +632,9 @@ async function viaOpenRouter(
       content: fromBook ? request.content : `${request.content}\n${doc?.markdown ?? ""}`,
     });
     emit({ type: "input", role: "system", text: prompt });
+    const writer = transcriptModel(request.transcriptModel);
+    emit({ type: "message", role: "status",
+      text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}.` });
     const TRIES = 4;
     for (const section of sections) {
       let note: string | undefined;
@@ -631,7 +652,7 @@ async function viaOpenRouter(
         const timer = setTimeout(() => abort.abort(), FIRST_REPLY_MINUTES * 60_000);
         let result;
         try {
-          result = await completionWithRetry(key, model, talk, emit, (kind, text) =>
+          result = await completionWithRetry(key, writer, talk, emit, (kind, text) =>
             emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text }), [SECTION_TOOL], abort.signal, "required");
         } finally {
           clearTimeout(timer);
@@ -670,7 +691,7 @@ async function viaOpenRouter(
       if (written.length < section.n) break;
     }
     if (written.length < sections.length) {
-      throw new Error(`The transcript stopped at section ${written.length} of ${sections.length}: ${model} did not write ` +
+      throw new Error(`The transcript stopped at section ${written.length} of ${sections.length}: ${writer} did not write ` +
         "the rest at full length. Generate again, or pick another model.");
     }
     const words = written.reduce((n, s) => n + s.text.split(/\s+/).length, 0);
@@ -1316,7 +1337,7 @@ export async function generate(
     if (broken) {
       emit({ type: "message", role: "status", text: "The scene did not parse. Asking the model to fix it." });
       const key = process.env.OPENROUTER_API_KEY!;
-      const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
+      const model = videoModel();
       const repair = [
         "This file is not valid Python. Reply with the corrected file only, starting with `from manim import *`.",
         "",

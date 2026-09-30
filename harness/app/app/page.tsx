@@ -69,6 +69,8 @@ type Status = {
   chirp?: boolean;
   fixture: boolean;
   model: string;
+  /** The model that writes the lecture's transcript (OPENROUTER_TRANSCRIPT_MODEL, else the video's). */
+  transcriptModel?: string;
   error?: string;
 };
 
@@ -189,6 +191,23 @@ export default function Home() {
   const [subject, setSubject] = useState("auto");
   /** The narration's language: "auto" follows the content; "hinglish" is Hindi with English terms. */
   const [language, setLanguage] = useState("auto");
+  /** The transcript's model, typed on the page (kept in this browser); empty: the server's setting. */
+  const [writer, setWriter] = useState("");
+  useEffect(() => {
+    try {
+      setWriter(localStorage.getItem("panim.transcriptModel") ?? "");
+    } catch {
+      // no storage here: the server's setting
+    }
+  }, []);
+  function chooseWriter(value: string) {
+    setWriter(value);
+    try {
+      localStorage.setItem("panim.transcriptModel", value.trim());
+    } catch {
+      // not remembered, still used for this lecture
+    }
+  }
   /** A YouTube video the lecture follows: its link, or its transcript pasted in. */
   const [reference, setReference] = useState<{
     busy: boolean;
@@ -382,6 +401,7 @@ export default function Home() {
           minutes: template.kind === "lecture" && minutes ? minutes : undefined,
           subject: template.kind === "lecture" ? subject : undefined,
           language: template.kind === "lecture" ? language : undefined,
+          transcriptModel: template.kind === "lecture" && writer.trim() ? writer.trim() : undefined,
           referenceId: template.kind === "lecture" ? reference.id : undefined,
         }),
       });
@@ -891,6 +911,21 @@ export default function Home() {
                       <option value="hindi">Hindi</option>
                       <option value="hinglish">Hinglish: English content, explained in easy Hindi</option>
                     </select>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span className="text-neutral-300">Transcript model</span>
+                    <input
+                      aria-label="Transcript model"
+                      data-testid="transcript-model"
+                      className="w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-200"
+                      placeholder={status?.transcriptModel ?? "OpenRouter model id"}
+                      value={writer}
+                      disabled={!!busy}
+                      onChange={(e) => chooseWriter(e.target.value)}
+                    />
+                    <span className="text-neutral-500">
+                      writes what the teacher says; the video (pictures, Manim) uses {status?.model ?? "OPENROUTER_MODEL"}
+                    </span>
                   </label>
                   <span>
                     Mathematics, physics and chemistry are taught as theory, then long problems solved step by step on

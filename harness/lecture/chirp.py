@@ -18,10 +18,13 @@ Settings:
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
+import re
 import sys
 import time
+import wave
 import urllib.error
 import urllib.request
 from functools import lru_cache
@@ -32,7 +35,11 @@ STYLE_VOICES = {"atlas": "Kore", "vox": "Aoede", "cardboard": "Puck", "whiteboar
                 "chalkboard": "Charon", "parchment": "Iapetus", "lab": "Leda", "cosmos": "Fenrir"}
 DEFAULT_VOICE = "Charon"
 LANGS = {"en": None, "hi": "hi-IN"}     # None: PANIM_CHIRP_LANG
+# English inside a Hindi line is said with an Indian accent, by the same speaker: a teacher switching language.
+MIXED_ENGLISH = "en-IN"
 SAMPLE_RATE = 24000
+# Bumped when the way lines are spoken changes, so cached lines are spoken again (pocket_lecture.audio_file).
+REVISION = 2
 
 
 def _key() -> str | None:
@@ -73,14 +80,94 @@ def voice_for(style: str | None) -> str:
 
 
 def language(lang: str) -> str:
-    """The BCP-47 code a line in `lang` ('en', 'hi') is spoken in."""
+    """The BCP-47 code a line in `lang` ('en', 'hi', or already a code such as 'en-IN') is spoken in."""
+    if "-" in lang:
+        return lang
     return LANGS.get(lang) or os.environ.get("PANIM_CHIRP_LANG") or "en-US"
+
+
+_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+_LATIN = re.compile(r"[A-Za-z]")
+_HINDI_LETTER = re.compile(r"[\u0900-\u0963\u0971-\u097F]")
+
+
+def runs(text: str) -> list[tuple[str, str]]:
+    """A line as [(language code, text)] runs, each spoken in its own language.
+
+    Words in Devanagari are Hindi (hi-IN). In a line with Hindi in it, a Latin word of three letters or more is
+    English (en-IN): "बल (force) एक धक्का है" is three runs. Shorter Latin tokens (F, m, kg) and numbers and
+    punctuation go with the run they are in, so a symbol does not break a sentence into bits. A line with no
+    Devanagari is one run in the English accent (PANIM_CHIRP_LANG).
+    """
+    if not _DEVANAGARI.search(text):
+        return [(language("en"), text)]
+    out: list[list] = []
+    for token in re.findall(r"\S+\s*|\s+", text):
+        # By letters: the danda (।) and Devanagari digits are punctuation and numbers, not Hindi words.
+        hindi = len(_HINDI_LETTER.findall(token))
+        latin = len(_LATIN.findall(token))
+        if hindi and hindi >= latin:
+            kind = "hi-IN"
+        elif latin >= 3:
+            kind = MIXED_ENGLISH
+        else:
+            kind = None                                     # goes with its neighbours
+        if kind is None or (out and out[-1][0] == kind):
+            if out:
+                out[-1][1] += token
+            else:
+                out.append([None, token])
+        else:
+            if out and out[-1][0] is None:
+                out[-1][0] = kind                           # a leading symbol or number joins the first run
+                out[-1][1] += token
+            else:
+                out.append([kind, token])
+    return [(code or "hi-IN", chunk.strip()) for code, chunk in out if chunk.strip()]
+
+
+def _pcm(audio: bytes) -> tuple[bytes, int]:
+    with wave.open(io.BytesIO(audio)) as handle:
+        return handle.readframes(handle.getnframes()), handle.getframerate()
+
+
+def _trim(pcm: bytes, rate: int, keep: float = 0.04) -> bytes:
+    """Without the silence Google leaves at each end of a clip (keeping `keep` seconds), so runs join closely."""
+    import numpy as np
+
+    samples = np.frombuffer(pcm, dtype=np.int16)
+    loud = np.nonzero(np.abs(samples.astype(np.int32)) > 400)[0]
+    if not len(loud):
+        return pcm
+    pad = int(rate * keep)
+    return samples[max(0, loud[0] - pad):min(len(samples), loud[-1] + pad)].tobytes()
+
+
+def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
+    """A WAV of one line, each language run spoken with its own language code by the same voice, joined."""
+    parts = runs(text)
+    if len(parts) == 1:
+        return synthesize(parts[0][1], voice, parts[0][0], speed)
+    pcm, rate = b"", SAMPLE_RATE
+    for index, (code, chunk) in enumerate(parts):
+        clip, rate = _pcm(synthesize(chunk, voice, code, speed))
+        clip = _trim(clip, rate)
+        gap = b"\x00\x00" * int(rate * 0.06) if index else b""
+        pcm += gap + clip
+    out = io.BytesIO()
+    with wave.open(out, "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(pcm)
+    return out.getvalue()
 
 
 def synthesize(text: str, voice: str = DEFAULT_VOICE, lang: str = "en", speed: float = 1.0) -> bytes:
     """A WAV (16-bit, 24 kHz, mono) of one line. Raises RuntimeError with Google's message when it fails."""
     code = language(lang)
-    name = voice if "-Chirp3-HD-" in voice else f"{code}-Chirp3-HD-{voice}"
+    base = voice.split("-Chirp3-HD-")[-1]                   # the speaker, in this run's language
+    name = f"{code}-Chirp3-HD-{base}"
     body = {"input": {"text": text}, "voice": {"languageCode": code, "name": name},
             "audioConfig": {"audioEncoding": "LINEAR16", "sampleRateHertz": SAMPLE_RATE}}
     if abs(speed - 1.0) > 1e-3:
@@ -128,7 +215,7 @@ def main() -> int:
     if not configured():
         print("no Google credentials: set GOOGLE_TTS_API_KEY (see harness/SETUP.md)", file=sys.stderr)
         return 1
-    audio = synthesize(sys.argv[1], voice_for(os.environ.get("LECTURE_STYLE")))
+    audio = speak(sys.argv[1], voice_for(os.environ.get("LECTURE_STYLE")))
     with open(sys.argv[2], "wb") as handle:
         handle.write(audio)
     print(f"wrote {sys.argv[2]} ({len(audio)} bytes)")

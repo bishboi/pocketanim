@@ -73,7 +73,7 @@ Put your keys in `.env.local`. All of them are optional.
 |---|---|
 | `GOOGLE_TTS_API_KEY` | The narration voice: Google's **Chirp 3 HD**. An API key from a Google Cloud project with the *Cloud Text-to-Speech API* enabled (console.cloud.google.com → APIs & Services → enable "Cloud Text-to-Speech API" → Credentials → Create credentials → API key). Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON file and `pip install google-auth`. Without either, Kokoro-82M speaks. |
 | `PANIM_CHIRP_VOICE` | One Chirp 3 HD voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
-| `PANIM_CHIRP_LANG` | The accent English lines are spoken in: `en-US` (default), `en-IN`, `en-GB`. Hindi lines are always `hi-IN`. |
+| `PANIM_CHIRP_LANG` | The accent English lines are spoken in: `en-US` (default), `en-IN`, `en-GB`. A line with Hindi in it is split into language runs, each sent with its own language code: Devanagari as `hi-IN`, English words in it as `en-IN`, by the same speaker (`harness/lecture/chirp.py`, `runs`). Units in a Hindi line are said in Hindi (प्रतिशत, मीटर प्रति सेकंड). |
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
 | `OPENROUTER_MODEL` | Which model writes them. |
 | `PANIM_MODEL_WAIT_MINUTES` | How long a model may send nothing at all before the request is stopped (default 15). Reasoning models think silently first; a "pro" model can take many minutes, so pick a non-pro model for lectures. |

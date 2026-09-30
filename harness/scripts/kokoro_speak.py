@@ -76,14 +76,14 @@ def chirp_lines(lines: list[str], out: Path, job: dict) -> dict | None:
     if not chirp.configured():
         return None
     voice = str(job.get("chirp_voice") or chirp.voice_for(job.get("style")))
-    lang = "hi" if str(job.get("lang") or "").startswith("hi") else "en"
     out.parent.mkdir(parents=True, exist_ok=True)
     files, durations, frames = [], [], []
     rate = chirp.SAMPLE_RATE
     try:
         for index, line in enumerate(lines):
             part = out.with_name(f"{out.stem}-{index:03d}.wav")
-            part.write_bytes(chirp.synthesize(line, voice, lang, float(job.get("speed") or 1.0)))
+            # Each language run of the line (Hindi, English terms in it) in its own language (chirp.runs).
+            part.write_bytes(chirp.speak(line, voice, float(job.get("speed") or 1.0)))
             with wave.open(str(part)) as handle:
                 rate = handle.getframerate()
                 data = handle.readframes(handle.getnframes())

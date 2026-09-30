@@ -377,11 +377,28 @@ SAY: dict[str, str] = {
 }
 
 
-def speechify(text: str) -> str:
-    """Rewrite a caption into something a voice can say, on word boundaries."""
-    for key in sorted(SAY, key=len, reverse=True):
+# Units and symbols in a Hindi line, said in Hindi: the English words SAY puts in ("percent", "to") made a
+# Hindi voice switch accent mid-sentence.
+SAY_HI: dict[str, str] = {
+    "km²": " वर्ग किलोमीटर", "°C": " डिग्री सेल्सियस", "°N": " डिग्री उत्तर", "°E": " डिग्री पूर्व",
+    "mm": " मिलीमीटर", "MW": " मेगावाट", "%": " प्रतिशत", "m/s²": " मीटर प्रति सेकंड वर्ग",
+    "m/s": " मीटर प्रति सेकंड", "km/h": " किलोमीटर प्रति घंटा", "kg": " किलोग्राम", "km": " किलोमीटर",
+}
+
+
+def _respell(text: str, table: dict) -> str:
+    for key in sorted(table, key=len, reverse=True):
         pattern = (r"\b" if key[0].isalnum() else "") + re.escape(key) + (r"\b" if key[-1].isalnum() else "")
-        text = re.sub(pattern, SAY[key], text)
+        text = re.sub(pattern, table[key], text)
+    return text
+
+
+def speechify(text: str) -> str:
+    """Rewrite a caption into something a voice can say, on word boundaries (a Hindi line's units in Hindi)."""
+    if spoken_lang(text) == "hi":
+        text = _respell(_respell(text, SAY_HI), {k: v for k, v in SAY.items() if k not in SAY_HI})
+        return text.replace("–", " से ").replace("·", ",").replace("≈", "लगभग ").replace("→", " से ")
+    text = _respell(text, SAY)
     return text.replace("–", " to ").replace("·", ",").replace("≈", "about ").replace("→", " to ")
 
 
@@ -489,6 +506,10 @@ def audio_file(mode: str, spoken: str) -> Path:
     """Where a line spoken in `mode` is cached: named by the voice, its speed and the words (Forge's
     narrate stage fills the same files ahead of the render)."""
     key = f"{mode}|{spoken}" if VOICE_SPEED == 1.0 else f"{mode}|{VOICE_SPEED:g}|{spoken}"
+    if mode.startswith("chirp:"):
+        import chirp
+
+        key += f"|r{chirp.REVISION}"      # how Chirp lines are made changed: speak them again
     return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"
 
 
@@ -513,7 +534,7 @@ def narrate(text: str) -> tuple[str | None, float]:
         import chirp
 
         try:
-            raw.write_bytes(chirp.synthesize(spoken, mode.split(":", 1)[1], lang, VOICE_SPEED))
+            raw.write_bytes(chirp.speak(spoken, mode.split(":", 1)[1], VOICE_SPEED))
             _finish(raw, out)
             return str(out), _wav_seconds(out)
         except Exception as error:  # noqa: BLE001 -- fall through to Kokoro, espeak or silence

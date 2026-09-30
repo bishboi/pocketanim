@@ -81,3 +81,29 @@ def test_the_engine_speaks_with_chirp_when_a_key_is_set(google, monkeypatch, tmp
     assert wav and seconds > 0.5
     monkeypatch.delenv("GOOGLE_TTS_API_KEY")
     assert not pl.voice_mode().startswith("chirp:")
+
+
+def test_a_line_is_spoken_a_language_run_at_a_time():
+    assert chirp.runs("बल एक धक्का है।") == [("hi-IN", "बल एक धक्का है।")]
+    assert chirp.runs("Force is a push.")[0][1] == "Force is a push."
+    parts = chirp.runs("बल (Force) क्या है? F = ma यानी force बराबर mass गुणा acceleration।")
+    assert [code for code, _ in parts] == ["hi-IN", "en-IN", "hi-IN", "en-IN", "hi-IN", "en-IN", "hi-IN", "en-IN"]
+    assert parts[-1] == ("en-IN", "acceleration।")          # the danda is punctuation, not Hindi
+    assert chirp.runs("3 kg की गेंद")[0] == ("hi-IN", "3 kg की गेंद")    # a unit stays in its sentence
+
+
+def test_a_mixed_line_asks_google_in_each_language_with_one_speaker(google):
+    audio = chirp.speak("न्यूटन ने force की परिभाषा दी।", "Charon", 0.9)
+    assert audio[:4] == b"RIFF"
+    voices = [body["voice"] for _, body in google["requests"]]
+    assert voices == [{"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Charon"},
+                      {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Charon"},
+                      {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Charon"}]
+
+
+def test_hindi_lines_say_units_in_hindi():
+    import pocket_lecture as pl
+
+    said = pl.speechify("गेंद 5 m/s से चलती है, यानी 20% तेज़।")
+    assert "मीटर प्रति सेकंड" in said and "प्रतिशत" in said and "percent" not in said
+    assert "percent" in pl.speechify("It is 20% faster.")

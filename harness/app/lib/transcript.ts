@@ -107,9 +107,10 @@ export function transcriptPrompt(options: {
     "written first, in full, before any picture: a later step turns it into the video, sentence for sentence. So",
     "everything the student needs must be in these words.",
     "",
-    `The lecture runs about ${minutes} minutes: about ${total} words in ${sections.length} sections, written one at a`,
-    "time with write_section. Each section must reach its length (the tool refuses a short one): reach it by",
-    "explaining more, never by padding.",
+    `The lecture runs about ${minutes} minutes: about ${total} words in ${sections.length} sections. Each request asks`,
+    "for ONE section, and gives the end of the section before it: write that one section, in one write_section",
+    "call, picking up where the last one stopped. Each section must reach its length (the tool refuses a short",
+    "one): reach it by explaining more, never by padding.",
     "",
     hasReference
       ? [
@@ -194,6 +195,27 @@ export function sectionProblem(text: string, section: Section, language: Languag
     }
   }
   return null;
+}
+
+/**
+ * The request for one section. Each section is asked for on its own, with the sections before it summed up and the
+ * end of the last one quoted: a growing conversation of saved and refused sections confused models into rewriting
+ * an old section over and over ("Write section 7 next." twenty times).
+ */
+export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string): string {
+  const last = written[written.length - 1];
+  const tail = last ? last.text.slice(-1500) : "";
+  return [
+    written.length
+      ? `Written so far: ${written.map((w) => `section ${w.n} "${w.title}"`).join(", ")}.`
+      : "Nothing is written yet: this is the opening of the lecture.",
+    ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""] : []),
+    `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
+      `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
+      `${section.parts.join(", ")} of the reference` : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
+      `repeat what it said. Call write_section once, with section: ${section.n} and the full text.`,
+    ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
+  ].join("\n");
 }
 
 /** The beat script's rules when a transcript has been written: its narration is the transcript. */

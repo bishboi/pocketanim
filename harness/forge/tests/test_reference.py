@@ -137,3 +137,12 @@ def test_a_caption_tools_export_is_read_with_its_times_and_without_channel_talk(
     assert texts[1] == "हेलो बच्चों आज हम बात करेंगे न्यूटन लॉ" and snippets[1]["start"] == 4.4
     assert not any("सबस्क्राइब" in t or "संगीत" in t for t in texts)
     assert snippets[-1]["start"] == 3723.5 and texts[-1] == "फ्रॉम पॉइंट"
+
+
+def test_a_hinglish_physics_class_with_a_date_is_physics_not_history():
+    import genre
+
+    captions = ("हेलो बच्चों आज हम बात करेंगे न्यूटन लॉ ऑफ मोशन की न्यूटन का समय 1642 से 1727 था ठीक है "
+                "फोर्स मतलब पुश या पुल टेंशन हमेशा पॉइंट से दूर नार्मल रिएक्शन सरफेस के परपेंडिकुलर ") * 20
+    assert genre.classify(captions)["genre"] == "physics"
+    assert genre.classify("The Battle of Plassey in 1757 and the British East India Company")["genre"] == "history"

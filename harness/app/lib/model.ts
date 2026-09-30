@@ -14,7 +14,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
-import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
+import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -603,71 +603,60 @@ async function viaOpenRouter(
       hasReference: !!reference?.parts?.length, content: `${request.content}\n${doc?.markdown ?? ""}`,
     });
     emit({ type: "input", role: "system", text: prompt });
-    const talk: ChatMessage[] = [
-      { role: "system", content: prompt },
-      { role: "user", content: `Write section 1 of ${sections.length} with write_section.` },
-    ];
-    for (let turn = 0; turn < sections.length * 4 && written.length < sections.length; turn++) {
-      if (stopped()) throw new Error("The page closed while the transcript was being written.");
-      const next = sections[written.length];
-      emit({ type: "message", role: "status",
-        text: `Transcript: writing section ${next.n} of ${sections.length} (about ${next.words} words, ${next.minutes} min)` });
-      const abort = new AbortController();
-      const timer = setTimeout(() => abort.abort(), FIRST_REPLY_MINUTES * 60_000);
-      let result;
-      try {
-        result = await completionWithRetry(key, model, talk, emit, (kind, text) =>
-          emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text }), [SECTION_TOOL], abort.signal, "required");
-      } finally {
-        clearTimeout(timer);
-      }
-      stageIn += result.usage?.prompt_tokens ?? 0;
-      stageOut += result.usage?.completion_tokens ?? 0;
-      stageCost += Number(result.usage?.cost ?? 0);
-      const calls = result.message.tool_calls ?? [];
-      talk.push({ role: "assistant", content: result.message.content ?? null, ...(calls.length ? { tool_calls: calls } : {}) });
-      if (!calls.length) {
-        talk.push({ role: "user", content: `Call write_section with section ${next.n}.` });
-        continue;
-      }
-      for (const call of calls) {
-        let args: { section?: number; title?: string; text?: string } = {};
+    const TRIES = 4;
+    for (const section of sections) {
+      let note: string | undefined;
+      for (let attempt = 1; attempt <= TRIES && written.length < section.n; attempt++) {
+        if (stopped()) throw new Error("The page closed while the transcript was being written.");
+        emit({ type: "message", role: "status",
+          text: `Transcript: writing section ${section.n} of ${sections.length} (about ${section.words} words, ` +
+            `${section.minutes} min)${attempt > 1 ? `, try ${attempt} of ${TRIES}` : ""}` });
+        // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
+        const talk: ChatMessage[] = [
+          { role: "system", content: prompt },
+          { role: "user", content: sectionRequest(section, sections.length, written, note) },
+        ];
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), FIRST_REPLY_MINUTES * 60_000);
+        let result;
         try {
-          args = JSON.parse(call.function.arguments || "{}");
-        } catch {}
-        const expected = sections[written.length];
-        let output: string;
-        if (!expected) {
-          output = "All sections are written. Reply with one word: done.";
-        } else if (Number(args.section) !== expected.n) {
-          output = `Write section ${expected.n} next.`;
-        } else {
-          const text = String(args.text ?? "").trim();
-          const problem = sectionProblem(text, expected, language);
-          if (problem) {
-            output = problem;
-          } else {
-            written.push({ n: expected.n, title: String(args.title ?? `Section ${expected.n}`), text });
-            // Older sections, shortened in the history: the next one needs their thread, not their every word.
-            for (const message of talk) {
-              for (const old of message.tool_calls ?? []) {
-                if (old !== call && old.function.arguments.length > 1500) {
-                  old.function.arguments = JSON.stringify({ ...JSON.parse(old.function.arguments), text:
-                    `${String(JSON.parse(old.function.arguments).text ?? "").slice(-1200)} (earlier part omitted)` });
-                }
-              }
-            }
-            const after = sections[written.length];
-            output = after
-              ? `Saved section ${expected.n} (${text.split(/\s+/).length} words). Now section ${after.n} of ${sections.length} ` +
-                `(about ${after.words} words), carrying on from where this one ended.`
-              : "All sections are written. Reply with one word: done.";
-          }
+          result = await completionWithRetry(key, model, talk, emit, (kind, text) =>
+            emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text }), [SECTION_TOOL], abort.signal, "required");
+        } finally {
+          clearTimeout(timer);
         }
-        emit({ type: "tool_result", name: "write_section", text: output.startsWith("Saved") || output.startsWith("All")
-          ? `Section ${args.section}: ${args.title ?? ""}\n\n${String(args.text ?? "")}` : output });
-        talk.push({ role: "tool", tool_call_id: call.id, content: output });
+        const addedIn = result.usage?.prompt_tokens ?? 0;
+        const addedOut = result.usage?.completion_tokens ?? 0;
+        const addedCost = Number(result.usage?.cost ?? 0);
+        stageIn += addedIn;
+        stageOut += addedOut;
+        stageCost += addedCost;
+        emit({ type: "usage", text: `transcript section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`,
+          inputTokens: stageIn, outputTokens: stageOut, costUsd: stageCost });
+        // The section is whatever the reply wrote: the longest write_section text, whatever number it gave, or,
+        // from a provider that answered in plain text instead of calling the tool, the reply itself.
+        let title = "";
+        let text = "";
+        for (const call of result.message.tool_calls ?? []) {
+          try {
+            const args = JSON.parse(call.function.arguments || "{}") as { title?: string; text?: string };
+            if (String(args.text ?? "").trim().length > text.length) {
+              text = String(args.text).trim();
+              title = String(args.title ?? "");
+            }
+          } catch {}
+        }
+        if (!text) text = (result.message.content ?? "").trim();
+        const problem = text ? sectionProblem(text, section, language) : `Section ${section.n} came back empty.`;
+        emit({ type: "tool_result", name: "write_section",
+          text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
+        if (problem) {
+          note = problem;
+          continue;
+        }
+        written.push({ n: section.n, title: title || `Section ${section.n}`, text });
       }
+      if (written.length < section.n) break;
     }
     if (written.length < sections.length) {
       throw new Error(`The transcript stopped at section ${written.length} of ${sections.length}: ${model} did not write ` +

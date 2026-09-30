@@ -146,7 +146,21 @@ PROFILES = {
                     "for where.",
     },
 }
-WORDS = {genre: set(v.split()) | set(VOCAB_HI.get(genre, "").split()) for genre, v in VOCAB.items()}
+# English terms as YouTube's Hindi captions spell them (फोर्स for force): a Hinglish lecture's captions have few
+# NCERT Hindi words, and without these its only clue was a date or two (Newton, 1642-1727) and it read as history.
+VOCAB_TRANSLIT = {
+    "geography": "रिवर माउंटेन प्लेटो क्लाइमेट मानसून रेनफॉल लैटीट्यूड लॉन्गिट्यूड कॉन्टिनेंट ओशन डेल्टा मैप",
+    "history": "किंग एम्पायर डायनेस्टी वॉर बैटल रिवॉल्यूशन रिवोल्ट ट्रीटी ब्रिटिश कॉलोनियल इंडिपेंडेंस हिस्ट्री",
+    "biology": "सेल सेल्स टिशू ऑर्गन डीएनए आरएनए जीन प्रोटीन एंजाइम बैक्टीरिया वायरस प्लांट फोटोसिंथेसिस",
+    "chemistry": "एटम एटम्स मॉलिक्यूल मॉलिक्यूल्स कंपाउंड एलिमेंट एसिड बॉन्ड आयन इलेक्ट्रॉन वैलेंसी ऑक्सीडेशन मोल",
+    "physics": """फोर्स फोर्सेज टेंशन नार्मल नॉर्मल रिएक्शन मोशन न्यूटन न्यूटन्स एक्सेलरेशन एक्सीलरेशन वेलोसिटी
+        स्पीड मास स्प्रिंग फ्रिक्शन फ्रिक्शनल ग्रेविटी ग्रेविटेशनल एनर्जी मोमेंटम इनर्शिया पुली फील्ड करंट वोल्टेज
+        फ्री बॉडी डायग्राम इक्विलिब्रियम मैकेनिक्स काइनेमेटिक्स डायनेमिक्स एमजी""",
+    "mathematics": "इक्वेशन फंक्शन ग्राफ एंगल ट्रायंगल सर्कल वेक्टर मैट्रिक्स डेरिवेटिव इंटीग्रेशन प्रोबेबिलिटी",
+    "economics": "इकोनॉमी मार्केट डिमांड सप्लाई प्राइस इन्फ्लेशन जीडीपी बैंक इन्वेस्टमेंट",
+}
+WORDS = {genre: set(v.split()) | set(VOCAB_HI.get(genre, "").split()) | set(VOCAB_TRANSLIT.get(genre, "").split())
+         for genre, v in VOCAB.items()}
 FORMULA = re.compile(r"\b(?:[A-Z][a-z]?\d*){2,}\b")
 YEAR = re.compile(r"\b(1[0-9]{3}|20[0-2][0-9])\b|\b\d{1,2}(?:st|nd|rd|th) century\b", re.I)
 MATHS = re.compile(r"[=^√∫∑π]|\b(sin|cos|tan|log|dx|dy)\b")
@@ -161,7 +175,10 @@ def classify(text: str) -> dict:
     why = []
     years = len(YEAR.findall(text or ""))
     if years:
-        scores["history"] += min(years, 12) * 0.8
+        # Dates count by how thick they are in the text: a history chapter is full of them, while a science
+        # lecture names a year or two (a scientist's lifetime) in thousands of words.
+        density = years / max(total / 250, 1)
+        scores["history"] += min(density, 12) * 0.8
         why.append(f"{years} dates")
     formulas = [f for f in FORMULA.findall(text or "") if re.search(r"\d", f) or f in ("NaCl", "HCl", "CO")]
     if formulas:

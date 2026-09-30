@@ -13,7 +13,7 @@ export async function GET() {
     // Read now, and where TinyTeX and MacTeX install as well as on PATH (the toolchain's own check looked at PATH
     // only, once, and said "no LaTeX" beside a status bar that found TinyTeX).
     latex: latexStatus().latex,
-    // Google Chirp 3 HD, the narration voice, is set up.
+    // The narration voice (Gemini 3.8 Flash TTS) is set up.
     chirp: found.find((r) => r.id === "voice")?.ready ?? false,
     version: versionInfo(),
     resources: found,

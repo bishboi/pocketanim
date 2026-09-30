@@ -68,30 +68,34 @@ Other pictures are fetched per lecture, as needed, and cached:
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
 
-## 3. The narration voice: Google Chirp 3 HD
+## 3. The narration voice: Gemini 3.8 Flash TTS
 
-Every lecture is spoken by Google's Chirp 3 HD voices, through the Cloud Text-to-Speech API. Enable the
-**Cloud Text-to-Speech API** in a Google Cloud project (console.cloud.google.com → APIs & Services → Library),
-then give the harness one of these credentials. It uses the first one it finds, in this order:
+Every lecture is spoken by **Gemini 3.8 Flash TTS**, Google's speech model on the Gemini API. It reads a
+Hinglish line in one go, Hindi and English together, like one teacher talking. It needs one key:
 
-1. **Your Google login (recommended).** Install the Google Cloud CLI (cloud.google.com/sdk), then:
+1. Create a Gemini API key in Google AI Studio: aistudio.google.com/apikey.
+2. Put it in `harness/app/.env.local`:
    ```sh
-   gcloud auth application-default login
-   gcloud auth application-default set-quota-project YOUR_PROJECT_ID    # the project with the API enabled
+   GEMINI_API_KEY=your-key
    ```
-   Nothing goes in `.env.local`: the harness reads the login gcloud saves.
-2. **A service account.** Create a key file for a service account in that project and set
-   `GOOGLE_APPLICATION_CREDENTIALS=/full/path/to/key.json` in `harness/app/.env.local`.
-3. **An API key.** Set `GOOGLE_TTS_API_KEY=...` in `harness/app/.env.local`. Many projects refuse keys for this
-   API ("401: API keys are not supported by this API"). Use 1 or 2 then.
+3. Restart the app.
 
-A new `gcloud auth application-default login` forgets the quota project: run `set-quota-project` again after
-it, or put `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `harness/app/.env.local` (the harness also falls back
-to gcloud's active project, `gcloud config set project YOUR_PROJECT_ID`).
+To check the key and speak one test line: `.venv/bin/python harness/lecture/gemini_tts.py --check`. To try the
+voice on its own: `.venv/bin/python harness/lecture/gemini_tts.py "नमस्ते, आज हम गति के नियम समझेंगे।" hello.wav`
 
-Restart the app afterwards. To see what the harness will sign with, and speak one test line:
-`.venv/bin/python harness/lecture/chirp.py --check`. Or check the voice on its own:
-`.venv/bin/python harness/lecture/chirp.py "नमस्ते, आज हम गति के नियम समझेंगे।" hello.wav`
+Settings (all optional, in `.env.local`):
+
+| Variable | What it does |
+|---|---|
+| `PANIM_TTS_MODEL` | `gemini-3.8-flash-tts` (default), or `gemini-3.8-flash-lite-tts`: cheaper and faster, a little less expressive. |
+| `PANIM_TTS_VOICE` | One voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
+| `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model. The default is a warm, patient teacher at an easy pace; `none` sends no instruction. |
+
+**The older voice, Chirp 3 HD.** `PANIM_TTS=chirp` goes back to Google Cloud's Chirp 3 HD voices, through the
+Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project and one of: your gcloud login
+(`gcloud auth application-default login`, then `gcloud auth application-default set-quota-project
+YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`), or an API key
+(`GOOGLE_TTS_API_KEY`) where the project allows keys. `.venv/bin/python harness/lecture/chirp.py --check` checks it.
 
 ## 4. The web app
 
@@ -126,7 +130,7 @@ Put your keys in `.env.local`. All of them are optional.
 The bar at the top of every page shows the version and the commit, for example `v0.6.0 · 264831d · <branch>`. It also
 lists anything still missing, each with a **download** button:
 
-- **Voice: Google Chirp 3 HD** means narration is ready. Without credentials (section 3) it says so, and lectures do not build.
+- **Voice: Gemini 3.8 Flash TTS** means narration is ready. Without `GEMINI_API_KEY` (section 3) it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
 - **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes). What is ready shows
@@ -140,13 +144,13 @@ The app also downloads the voice by itself before the first lecture that needs i
 | You see | Cause | Fix |
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
-| `Narration is spoken by Google Chirp 3 HD, and no Google credentials are set` | No credentials | section 3, then restart the app |
+| `Narration is spoken by Gemini 3.8 Flash TTS, and no Gemini API key is set` | No key | section 3, then restart the app |
 | `403: ... requires a quota project, which is not set by default` | Your login has no quota project (a new login drops it) | `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`, or `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `.env.local`; `chirp.py --check` shows what is used |
 | `401: API keys are not supported by this API` | The project refuses API keys for Text-to-Speech | sign in with `gcloud auth application-default login` and `set-quota-project` (section 3); the key can stay, a login is used first |
-| `Google Chirp 3 HD could not speak ...` | Google refused the request: the key is wrong, or the Cloud Text-to-Speech API is not enabled for its project | the dev server log shows Google's message; try `.venv/bin/python harness/lecture/chirp.py "Hello." hello.wav` |
+| `Gemini 3.8 Flash TTS could not speak ...` | Google refused the request: the key is wrong, or its quota ran out | the page shows Google's message; try `.venv/bin/python harness/lecture/gemini_tts.py --check` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain, or reads `mathbf F rm ext` | No LaTeX, or the app cannot find it | `.venv/bin/python harness/scripts/fetch_latex.py`, then restart the app; the bar at the top says **LaTeX** when it is found |
 | Pictures, labels or text on top of each other in a lecture | a layout bug | `.venv/bin/python harness/scripts/lecture_audit.py <build>/scene.py GeneratedScene audit/ --frames` lists every overlap, beat by beat, with a picture of each beat's end (`audit/sheet00.png`...) |
 | `FileNotFoundError: [Errno 2] No such file or directory: 'latex'` | A scene uses `MathTex`, `Tex` or axis numbers, LaTeX is not installed, and the scene was run without the harness's fallback (plain `manim render`, or an older checkout) | update to this version: the app and Forge draw these as plain text without LaTeX; for your own runs use `.venv/bin/python harness/scripts/manim_render.py render ...` instead of `manim render ...`. Or install LaTeX (above) for real typesetting |
-| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `texttospeech.googleapis.com` (the Chirp voice), `yihui.org`, `tlnet.yihui.org` and `mirror.ctan.org` (TinyTeX and its packages) |
+| A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `generativelanguage.googleapis.com` (the Gemini voice; `texttospeech.googleapis.com` for Chirp), `yihui.org`, `tlnet.yihui.org` and `mirror.ctan.org` (TinyTeX and its packages) |

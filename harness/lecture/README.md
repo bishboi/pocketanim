@@ -402,18 +402,18 @@ match its caption, or in document order, at most one every two beats and never o
 
 ## Voice
 
-Lectures are voiced by Google Chirp 3 HD (`chirp.py`), and by nothing else. It needs `GOOGLE_TTS_API_KEY`
-(or `GOOGLE_APPLICATION_CREDENTIALS`); without it, or when Google refuses a line, the build stops with the
-reason (`VoiceUnavailable`) rather than switching to another voice or leaving the lecture silent.
-`PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths estimated
-from the word count; `PANIM_VOICE=chirp:<voice>` or `PANIM_CHIRP_VOICE` picks a speaker, and otherwise each
-style has its own. A line is spoken a language run at a time: Hindi as `hi-IN`, English terms in a Hindi line as
-`en-IN`, English lines as `PANIM_CHIRP_LANG` (`en-US`).
+Lectures are voiced by Gemini 3.8 Flash TTS (`gemini_tts.py`; `PANIM_TTS=chirp` for the older Google Chirp 3 HD,
+`chirp.py`; `tts.py` picks), and by nothing else. It needs `GEMINI_API_KEY`; without it, or when Google refuses a
+line, the build stops with the reason (`VoiceUnavailable`) rather than switching to another voice or leaving the
+lecture silent. `PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths
+estimated from the word count; `PANIM_VOICE=gemini:<voice>` or `PANIM_TTS_VOICE` picks a speaker, and otherwise
+each style has its own. Gemini reads a Hinglish line whole, Hindi and English together; a long line goes a few
+sentences at a time. Its pace is set with ffmpeg (`atempo`), as the model has no speaking-rate setting.
 
 Lines are cached by the voice, its speed and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`).
 `SAY` respells names for the voice without touching the captions.
 
-The app refuses a lecture build when Chirp is not set up, and warns when one comes back with no audio.
+The app refuses a lecture build when the voice is not set up, and warns when one comes back with no audio.
 
 ## Building
 

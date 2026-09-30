@@ -26,7 +26,7 @@ export type Template = {
   background: string;
   /** Colour for titles, sentences, and labels. */
   ink: string;
-  /** The Google Chirp 3 HD speaker for the narration (Charon, Kore, Aoede...). */
+  /** The narration speaker (a Gemini TTS prebuilt voice: Charon, Kore, Aoede...). */
   voice: string;
   direction: string;
   example: string;

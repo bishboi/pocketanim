@@ -33,7 +33,7 @@ A scene picks its style before importing, and then uses the API:
                       self.big_stat("2,525 km", "Ganga: longest river"))
             self.outro_fade()
 
-Narration: each beat's line is spoken by Google Chirp 3 HD (chirp.py), and its
+Narration: each beat's line is spoken by Gemini 3.8 Flash TTS (gemini_tts.py; Chirp 3 HD with PANIM_TTS=chirp), and its
 measured length times the beat. With PANIM_VOICE=silent there is no audio: the
 length is estimated from the word count and the picture still plays.
 """
@@ -452,29 +452,30 @@ def spoken_lang(text: str) -> str:
 
 
 class VoiceUnavailable(RuntimeError):
-    """The narration voice, Google Chirp 3 HD, cannot speak: no key, or Google refused. The lecture stops rather
+    """The narration voice (Gemini 3.8 Flash TTS, or Chirp 3 HD) cannot speak: no key, or Google refused. The lecture stops rather
     than being spoken by another voice or left silent."""
 
 
 def voice_mode() -> str:
-    """The voice lines are spoken in: chirp:<voice> (Google Chirp 3 HD, the only narration voice), or silent.
+    """The voice lines are spoken in: gemini:<voice> (Gemini 3.8 Flash TTS), chirp:<voice> (Google Chirp 3 HD, with
+    PANIM_TTS=chirp), or silent.
 
     PANIM_VOICE=silent is the one way to build without a voice (tests, a quick look at the pictures): the beats
-    then hold for an estimate of each line. Otherwise Chirp must be set up (chirp.py: GOOGLE_TTS_API_KEY);
-    `chirp:<voice>` picks a speaker, else the style's. The mode is part of each line's cache key.
+    then hold for an estimate of each line. Otherwise the voice must be set up (tts.py: GEMINI_API_KEY);
+    `PANIM_VOICE=<engine>:<voice>` or `:<voice>` picks a speaker, else the style's. The mode is part of each line's
+    cache key.
     """
-    import chirp
+    import tts
 
     mode = os.environ.get("PANIM_VOICE", "auto")
     if mode == "silent":
         return "silent"
-    if not chirp.configured():
-        raise VoiceUnavailable(
-            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Sign in with `gcloud auth "
-            "application-default login` (then `gcloud auth application-default set-quota-project <PROJECT_ID>`), or "
-            "set GOOGLE_APPLICATION_CREDENTIALS to a service-account key, or GOOGLE_TTS_API_KEY where the project "
-            "allows keys (harness/SETUP.md). PANIM_VOICE=silent builds without narration.")
-    return f"chirp:{mode.split(':', 1)[1] if mode.startswith('chirp:') else chirp.voice_for(STYLE)}"
+    name = tts.engine_name()
+    voice = tts.engine(name)
+    if not voice.configured():
+        raise VoiceUnavailable(tts.setup_hint() + " PANIM_VOICE=silent builds without narration.")
+    chosen = mode.split(":", 1)[1] if ":" in mode else ""
+    return f"{name}:{chosen or voice.voice_for(STYLE)}"
 
 
 def _finish(raw: Path, out: Path) -> None:
@@ -492,20 +493,23 @@ def audio_file(mode: str, spoken: str) -> Path:
     """Where a line spoken in `mode` is cached: named by the voice, its speed and the words (Forge's
     narrate stage fills the same files ahead of the render)."""
     key = f"{mode}|{spoken}" if VOICE_SPEED == 1.0 else f"{mode}|{VOICE_SPEED:g}|{spoken}"
-    if mode.startswith("chirp:"):
-        import chirp
+    if ":" in mode:
+        import tts
 
-        key += f"|r{chirp.REVISION}"      # how Chirp lines are made changed: speak them again
+        engine = mode.split(":", 1)[0]
+        key += f"|r{tts.engine(engine).REVISION}"      # how the voice's lines are made changed: speak them again
+        if engine != "chirp":
+            key = f"{tts.engine(engine).model()}|{key}"  # another Gemini model is another voice
     return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"
 
 
 def narrate(text: str) -> tuple[str | None, float]:
-    """(wav path or None, seconds) for one line, spoken by Google Chirp 3 HD and cached by voice and words.
+    """(wav path or None, seconds) for one line, spoken by the narration voice and cached by voice and words.
 
     With PANIM_VOICE=silent: no audio, and an estimate of the line's length. A line Google will not speak is an
     error (VoiceUnavailable, with Google's message), not a line in another voice.
     """
-    import chirp
+    import tts
 
     spoken = speechify(text)
     mode = voice_mode()
@@ -515,11 +519,13 @@ def narrate(text: str) -> tuple[str | None, float]:
     if out.exists() and out.stat().st_size > 44:
         return str(out), _wav_seconds(out)
     raw = out.with_name(out.stem + "_raw.wav")
+    engine, voice = mode.split(":", 1)
+    speaker = tts.engine(engine)
     try:
-        raw.write_bytes(chirp.speak(spoken, mode.split(":", 1)[1], VOICE_SPEED))
+        raw.write_bytes(speaker.speak(spoken, voice, VOICE_SPEED))
     except RuntimeError as error:
         raw.unlink(missing_ok=True)
-        raise VoiceUnavailable(f"Google Chirp 3 HD could not speak {text[:60]!r}: {error}") from None
+        raise VoiceUnavailable(f"{speaker.NAME} could not speak {text[:60]!r}: {error}") from None
     _finish(raw, out)
     return str(out), _wav_seconds(out)
 

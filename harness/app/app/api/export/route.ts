@@ -4,7 +4,7 @@ import path from "node:path";
 import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
-import { voiceEngine, voiceProblem } from "@/lib/version";
+import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
 
 export const runtime = "nodejs";
 // An export runs Manim, which is slow the first time in a cold container.
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
-    // A lecture is voiced by Google Chirp 3 HD and nothing else: without it, say so before any rendering.
+    // A lecture is voiced by its narration voice (Gemini 3.8 Flash TTS) and nothing else: without it, say so first.
     const noVoice = /pocket_lecture/.test(source) ? voiceProblem() : null;
     if (noVoice) return NextResponse.json({ error: noVoice }, { status: 400 });
     const { result, buildDir } = await exportScene(source, sceneClass);
@@ -52,9 +52,10 @@ export async function POST(request: NextRequest) {
     // rather than hand back a video that is silent for no visible reason.
     let voiceWarning: string | null = null;
     // When the build failed, its error already says why (Google's own message for the voice): no warning over it.
-    if (!narrationUrl && !result.error && /pocket_lecture/.test(source) && voiceEngine() === "chirp") {
-      voiceWarning = "This lecture has no audio: Google Chirp 3 HD did not speak its lines (check the key, and that " +
-        "the Cloud Text-to-Speech API is enabled for its project; the dev server log has Google's message).";
+    const engine = voiceEngine();
+    if (!narrationUrl && !result.error && /pocket_lecture/.test(source) && (engine === "gemini" || engine === "chirp")) {
+      voiceWarning = `This lecture has no audio: ${voiceName()} did not speak its lines (check the key; the dev ` +
+        "server log has Google's message).";
     }
 
     return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning });

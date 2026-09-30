@@ -285,7 +285,7 @@ export default function Home() {
   ) {
     const sceneClass = sceneClassOf(source);
     setBusy(/pocket_lecture/.test(source)
-      ? "Speaking the lecture with Google Chirp 3 HD, running Manim and building the program…"
+      ? "Speaking the lecture, running Manim and building the program…"
       : "Running Manim and building the program…");
     const exported: ExportState = await post("/api/export", {
       source,
@@ -617,7 +617,7 @@ export default function Home() {
           </Badge>
           {status && !status.latex && <Badge tone="warn">no LaTeX</Badge>}
           {status && status.chirp === false && (
-            <Badge tone="bad">no voice: set GOOGLE_TTS_API_KEY</Badge>
+            <Badge tone="bad">no voice: set GEMINI_API_KEY</Badge>
           )}
         </div>
       </header>

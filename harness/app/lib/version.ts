@@ -44,23 +44,38 @@ export function chirpConfigured(): boolean {
   return !!(process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
+/** A Gemini API key is set: Gemini 3.8 Flash TTS can speak here (harness/lecture/gemini_tts.py). */
+export function geminiConfigured(): boolean {
+  return !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+}
+
 /**
- * What a lecture is spoken with. Google Chirp 3 HD is the only narration voice: "chirp" when it is set up,
- * "silent" when PANIM_VOICE=silent asks for no narration, "none" when neither (a lecture build then stops).
+ * What a lecture is spoken with: "gemini" (Gemini 3.8 Flash TTS, the narration voice), "chirp" (Google Chirp 3 HD,
+ * with PANIM_TTS=chirp), "silent" when PANIM_VOICE=silent asks for no narration, "none" when the chosen voice is
+ * not set up (a lecture build then stops).
  */
-export function voiceEngine(): "chirp" | "silent" | "none" {
+export function voiceEngine(): "gemini" | "chirp" | "silent" | "none" {
   if (process.env.PANIM_VOICE === "silent") return "silent";
-  return chirpConfigured() ? "chirp" : "none";
+  if ((process.env.PANIM_TTS ?? "").toLowerCase() === "chirp") return chirpConfigured() ? "chirp" : "none";
+  return geminiConfigured() ? "gemini" : "none";
+}
+
+/** The voice's name, for the page. */
+export function voiceName(): string {
+  return (process.env.PANIM_TTS ?? "").toLowerCase() === "chirp" ? "Google Chirp 3 HD"
+    : `Gemini ${process.env.PANIM_TTS_MODEL ?? "gemini-3.8-flash-tts"}`.replace("Gemini gemini-", "Gemini ");
 }
 
 /** Why a lecture cannot be narrated here, or null when it can. */
 export function voiceProblem(): string | null {
-  return voiceEngine() === "none"
-    ? "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set. Sign in with " +
-      "`gcloud auth application-default login` (then `gcloud auth application-default set-quota-project <PROJECT_ID>`), " +
-      "or set GOOGLE_APPLICATION_CREDENTIALS to a service-account key, or GOOGLE_TTS_API_KEY where the project " +
-      "allows keys (harness/SETUP.md); restart the app. PANIM_VOICE=silent builds without narration."
-    : null;
+  if (voiceEngine() !== "none") return null;
+  return (process.env.PANIM_TTS ?? "").toLowerCase() === "chirp"
+    ? "Narration is spoken by Google Chirp 3 HD (PANIM_TTS=chirp), and no Google credentials are set. Sign in with " +
+      "`gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_TTS_API_KEY " +
+      "(harness/SETUP.md); restart the app. PANIM_VOICE=silent builds without narration."
+    : "Narration is spoken by Gemini 3.8 Flash TTS, and no Gemini API key is set. Put GEMINI_API_KEY=<a key from " +
+      "aistudio.google.com/apikey> in harness/app/.env.local and restart the app (harness/SETUP.md). " +
+      "PANIM_VOICE=silent builds without narration.";
 }
 
 const fetching = new Map<string, Promise<boolean>>();
@@ -132,10 +147,10 @@ export function resources(): Resource[] {
   const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
   const tex = latexStatus();
   return [
-    { id: "voice", label: "Voice", ready: voice === "chirp",
-      detail: voice === "chirp" ? "Google Chirp 3 HD"
+    { id: "voice", label: "Voice", ready: voice === "gemini" || voice === "chirp",
+      detail: voice === "gemini" || voice === "chirp" ? voiceName()
         : voice === "silent" ? "none: PANIM_VOICE=silent builds lectures without narration"
-        : "NOT SET UP: lectures will not build. Sign in with gcloud, or set a service account or key (harness/SETUP.md)" },
+        : `NOT SET UP: lectures will not build. ${voiceProblem()}` },
     { id: "latex", label: "LaTeX", ready: tex.latex,
       detail: tex.latex
         ? `equations typeset by LaTeX (${tex.where})${tex.xelatex ? "; Hindi in formulas by XeLaTeX" : " (xelatex missing: Hindi in formulas is drawn as text)"}`

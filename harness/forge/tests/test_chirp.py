@@ -57,6 +57,7 @@ def google(monkeypatch, tmp_path):
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setenv("GOOGLE_TTS_API_KEY", "test-key")
+    monkeypatch.setenv("PANIM_TTS", "chirp")                  # these tests are about the Chirp voice
     # No OAuth credentials from this machine (a real gcloud login would be used first).
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
     monkeypatch.setenv("CLOUDSDK_CONFIG", str(tmp_path / "no-gcloud"))

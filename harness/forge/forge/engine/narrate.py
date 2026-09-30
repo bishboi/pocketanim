@@ -24,24 +24,24 @@ CHIRP_THREADS = 6    # Chirp lines in flight at once (each is one request)
 
 
 def voice_mode(style: dict) -> str:
-    """The PANIM_VOICE value for this job: chirp:<voice> (Google Chirp 3 HD, the only narration voice), or silent.
+    """The PANIM_VOICE value for this job: gemini:<voice> (Gemini 3.8 Flash TTS), chirp:<voice> (PANIM_TTS=chirp),
+    or silent.
 
-    FORGE_VOICE=silent (or PANIM_VOICE=silent) builds without narration, for tests; otherwise Chirp must be set
-    up, and a job without it stops here with the reason (pocket_lecture.VoiceUnavailable).
+    FORGE_VOICE=silent (or PANIM_VOICE=silent) builds without narration, for tests; otherwise the voice must be
+    set up, and a job without it stops here with the reason (pocket_lecture.VoiceUnavailable).
     """
-    import chirp
     import pocket_lecture as pl
+    import tts
 
     if "silent" in (os.environ.get("FORGE_VOICE"), os.environ.get("PANIM_VOICE")):
         return "silent"
-    if not chirp.configured():
-        raise pl.VoiceUnavailable(
-            "Narration is spoken by Google Chirp 3 HD, and no Google credentials are set: sign in with `gcloud auth "
-            "application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_TTS_API_KEY "
-            "(harness/SETUP.md); FORGE_VOICE=silent builds without narration.")
+    name = tts.engine_name()
+    speaker = tts.engine(name)
+    if not speaker.configured():
+        raise pl.VoiceUnavailable(tts.setup_hint() + " FORGE_VOICE=silent builds without narration.")
     voice = style.get("voice") or {}
-    name = os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp") or chirp.voice_for(style.get("engine_theme"))
-    return f"chirp:{name}"
+    chosen = os.environ.get("PANIM_TTS_VOICE") or os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp")
+    return f"{name}:{chosen or speaker.voice_for(style.get('engine_theme'))}"
 
 
 def _seconds(path: Path) -> float:

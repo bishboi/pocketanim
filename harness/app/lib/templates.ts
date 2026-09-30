@@ -26,7 +26,7 @@ export type Template = {
   background: string;
   /** Colour for titles, sentences, and labels. */
   ink: string;
-  /** The narration speaker (a Gemini TTS prebuilt voice: Charon, Kore, Aoede...). */
+  /** The speaker with Chirp 3 HD (PANIM_TTS=chirp). Gemini TTS speaks every template with Achird. */
   voice: string;
   direction: string;
   example: string;

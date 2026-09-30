@@ -134,3 +134,22 @@ def test_no_key_says_where_to_put_it(monkeypatch):
     monkeypatch.setenv("PANIM_VOICE", "auto")
     with pytest.raises(pl.VoiceUnavailable, match="GEMINI_API_KEY"):
         pl.voice_mode()
+
+
+def test_every_style_is_spoken_by_achird(monkeypatch):
+    monkeypatch.delenv("PANIM_TTS_VOICE", raising=False)
+    assert {gemini_tts.voice_for(s) for s in ("atlas", "vox", "chalkboard", None)} == {"Achird"}
+    monkeypatch.setenv("PANIM_TTS_VOICE", "Kore")
+    assert gemini_tts.voice_for("vox") == "Kore"
+
+
+def test_the_engine_asks_for_achird(gemini, monkeypatch, tmp_path):
+    import pocket_lecture as pl
+
+    monkeypatch.delenv("PANIM_TTS_VOICE", raising=False)
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    assert pl.voice_mode() == "gemini:Achird"
+    pl.narrate("अब आगे बढ़ते हैं।")
+    voice = gemini["requests"][-1]["body"]["generationConfig"]["speechConfig"]["voiceConfig"]
+    assert voice["prebuiltVoiceConfig"]["voiceName"] == "Achird"

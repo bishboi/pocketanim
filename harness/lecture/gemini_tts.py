@@ -3,14 +3,14 @@
 Gemini's speech model reads a whole line in one request, Hindi and English together: a Hinglish sentence
 ("अब normal reaction समझते हैं") needs no cutting into language runs, as Chirp 3 HD did, and the switch between
 the two sounds like one teacher talking. Its 30 prebuilt voices have the same names as Chirp's (Charon, Kore,
-Aoede...), so each lecture style keeps its speaker. The lecture engine caches each line
+Aoede...); every lecture is spoken by Achird. The lecture engine caches each line
 (pocket_lecture.narrate), so a line is paid for once.
 
 Credentials: a Gemini API key from Google AI Studio (aistudio.google.com/apikey), as GEMINI_API_KEY (or
 GOOGLE_API_KEY), in the environment or harness/app/.env.local.
 Settings:
   PANIM_TTS_MODEL      the model (gemini-3.8-flash-tts; gemini-3.8-flash-lite-tts is cheaper and faster)
-  PANIM_TTS_VOICE      a voice name for every style (Charon, Kore, Aoede...); each style has its own otherwise
+  PANIM_TTS_VOICE      another prebuilt voice (Charon, Kore, Aoede...); the speaker is Achird otherwise
   PANIM_TTS_STYLE      how to read, sent as an instruction, for a model that takes one ("teacher" for the built-in
                        one); off by default, as gemini-3.8-flash-tts refuses instructions
   GEMINI_TTS_URL       the endpoint base (a test points it at a mock)
@@ -34,12 +34,12 @@ import urllib.error
 import urllib.request
 import wave
 
-from chirp import ENV_FILE, STYLE_VOICES, _env, _pcm, _pieces, _trim
+from chirp import ENV_FILE, _env, _pcm, _pieces, _trim
 
 NAME = "Gemini 3.8 Flash TTS"
 MODEL = "gemini-3.8-flash-tts"
 URL = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_VOICE = "Charon"
+DEFAULT_VOICE = "Achird"      # the narration speaker for every lecture style
 SAMPLE_RATE = 24000            # Gemini's speech is 16-bit PCM, mono, 24 kHz
 # Bumped when the way lines are spoken changes, so cached lines are spoken again (pocket_lecture.audio_file).
 REVISION = 1
@@ -66,8 +66,8 @@ def model() -> str:
 
 
 def voice_for(style: str | None) -> str:
-    """The prebuilt voice (Charon) a lecture style speaks in."""
-    return _env("PANIM_TTS_VOICE") or STYLE_VOICES.get(style or "", DEFAULT_VOICE)
+    """The prebuilt voice lectures are spoken in: Achird for every style, or PANIM_TTS_VOICE."""
+    return _env("PANIM_TTS_VOICE") or DEFAULT_VOICE
 
 
 def _audio_of(reply: dict) -> tuple[bytes, int]:

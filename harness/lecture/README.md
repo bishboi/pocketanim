@@ -406,8 +406,8 @@ Lectures are voiced by Gemini 3.8 Flash TTS (`gemini_tts.py`; `PANIM_TTS=chirp` 
 `chirp.py`; `tts.py` picks), and by nothing else. It needs `GEMINI_API_KEY`; without it, or when Google refuses a
 line, the build stops with the reason (`VoiceUnavailable`) rather than switching to another voice or leaving the
 lecture silent. `PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths
-estimated from the word count; `PANIM_VOICE=gemini:<voice>` or `PANIM_TTS_VOICE` picks a speaker, and otherwise
-each style has its own. Gemini reads a Hinglish line whole, Hindi and English together; a long line goes a few
+estimated from the word count; `PANIM_VOICE=gemini:<voice>` or `PANIM_TTS_VOICE` picks a speaker; otherwise
+every lecture is spoken by Achird. Gemini reads a Hinglish line whole, Hindi and English together; a long line goes a few
 sentences at a time. Its pace is set with ffmpeg (`atempo`), as the model has no speaking-rate setting.
 
 Lines are cached by the voice, its speed and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`).

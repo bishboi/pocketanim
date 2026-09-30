@@ -40,7 +40,9 @@ def voice_mode(style: dict) -> str:
     if not speaker.configured():
         raise pl.VoiceUnavailable(tts.setup_hint() + " FORGE_VOICE=silent builds without narration.")
     voice = style.get("voice") or {}
-    chosen = os.environ.get("PANIM_TTS_VOICE") or os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp")
+    # Gemini speaks every lecture with one speaker (Achird); a style's own voice is Chirp's.
+    chosen = os.environ.get("PANIM_TTS_VOICE") or (os.environ.get("PANIM_CHIRP_VOICE") or voice.get("chirp")
+                                                   if name == "chirp" else None)
     return f"{name}:{chosen or speaker.voice_for(style.get('engine_theme'))}"
 
 

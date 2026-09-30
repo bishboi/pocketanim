@@ -45,7 +45,9 @@ def main() -> int:
         return 0
     out = Path(str(job.get("out") or "/tmp/pocketanim-narration.wav"))
     out.parent.mkdir(parents=True, exist_ok=True)
-    voice = str(job.get("voice") or job.get("chirp_voice") or voice_engine.voice_for(job.get("style")))
+    # A template's voice is for Chirp; Gemini speaks every template with its one speaker (Achird, or PANIM_TTS_VOICE).
+    template_voice = job.get("voice") or job.get("chirp_voice") if tts.engine_name() == "chirp" else None
+    voice = str(template_voice or voice_engine.voice_for(job.get("style")))
     files, durations, frames = [], [], []
     rate = voice_engine.SAMPLE_RATE
     try:

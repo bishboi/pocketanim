@@ -58,6 +58,8 @@ type Version = {
   exported?: ExportState;
   ir?: SceneIR | null;
   sceneClass?: string;
+  /** The lecture's spoken transcript, written in full before the video (lib/transcript.ts). */
+  transcript?: string;
 };
 
 type Status = {
@@ -396,6 +398,7 @@ export default function Home() {
                       event.type === "done"
                         ? (event.model ?? item.model)
                         : item.model,
+                    transcript: event.type === "transcript" ? event.text : item.transcript,
                     inputTokens: event.inputTokens ?? item.inputTokens,
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
@@ -928,6 +931,27 @@ export default function Home() {
                       <TraceLine key={i} event={event} />
                     ))}
                   </div>
+                )}
+                {version.transcript && (
+                  <details className="rounded border border-neutral-800 p-2 text-xs text-neutral-300" data-testid="transcript">
+                    <summary className="cursor-pointer text-neutral-200">
+                      Transcript · {version.transcript.split(/\s+/).length} words (about{" "}
+                      {Math.round(version.transcript.split(/\s+/).length / 100)} min)
+                      <button type="button" className="ml-3 text-neutral-400 underline-offset-2 hover:underline"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const url = URL.createObjectURL(new Blob([version.transcript ?? ""], { type: "text/plain;charset=utf-8" }));
+                          const link = document.createElement("a");
+                          link.href = url;
+                          link.download = `transcript-v${version.n}.txt`;
+                          link.click();
+                          URL.revokeObjectURL(url);
+                        }}>
+                        download
+                      </button>
+                    </summary>
+                    <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap font-sans leading-relaxed">{version.transcript}</pre>
+                  </details>
                 )}
                 <Textarea
                   rows={12}

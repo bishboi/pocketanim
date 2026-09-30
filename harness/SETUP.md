@@ -118,7 +118,7 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_IMAGES=0` | Turn off internet photos and illustrations. |
 | `SMITHSONIAN_API_KEY` | A free api.data.gov key for Smithsonian pictures (history). Without it the rate-limited `DEMO_KEY` is used. |
 | `PANIM_ALLOW_NC=1` | Also use non-commercial collections (most OpenStax books). Only for non-commercial lectures. |
-| `PANIM_PACE=brisk` | Faster lectures: normal voice speed and shorter pauses. The default, `relaxed`, is a slower teaching pace with time to take each line in. |
+| `PANIM_PACE` | The teaching pace. `slow` (the default): voice at 0.85, 1.4 s after each line, 2.8 s between paragraphs, 7 s to think about a question. `relaxed`: a little quicker. `brisk`: normal voice speed and short pauses. |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
 ## 5. Check that everything is in place

@@ -47,7 +47,7 @@ const SOURCE_WORDS_PER_MINUTE = 120;
 export function targetMinutes(text: string, source = ""): number {
   const digits = text.replace(/[०-९]/g, (d) => String("०१२३४५६७८९".indexOf(d)));
   const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
-  if (found) return Math.min(40, Math.max(1, parseFloat(found[1])));
+  if (found) return Math.min(90, Math.max(1, parseFloat(found[1])));
   const words = `${text}\n${source}`.split(/\s+/).filter(Boolean).length;
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }
@@ -598,7 +598,7 @@ export function lecturePrompt(
     '  {"say":"The answer is A. Kicking a ball is a push, and a push is a force.","do":[{"op":"answer"}]}',
     "  choices: 2-4 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
     "  rolling ball stop?\"), its answer in words: \"answer\":\"Friction slows it down.\". The video leaves think",
-    "  seconds (5 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
+    "  seconds (7 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
     "",
     `DEPTH FOR THIS LENGTH. The chosen length is ${minutes} minutes for about ${plan.topics} topics, about`,
     `${(minutes / plan.topics).toFixed(1)} minutes a topic. The topics come from the content and stay the same whatever the`,

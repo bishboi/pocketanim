@@ -1,0 +1,241 @@
+/**
+ * The transcript stage of a lecture: before any beat or picture, the model writes the whole lecture as a teacher
+ * would speak it, section by section, at full length. Only then is the video built, and its narration is that
+ * transcript, sentence for sentence (checked here), so the detail written in stage one cannot be squeezed out.
+ *
+ * With a reference video, the sections follow its parts (about five minutes of it each): the same order, its
+ * examples, its questions and its solved problems, explained in more detail than the video does. Without one,
+ * the content is taught in order in sections of about five minutes.
+ */
+
+import type { DocumentManifest } from "./document";
+import type { Language } from "./lecture";
+
+/** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
+export const WORDS_PER_MINUTE = 100;
+const SECTION_MINUTES = 5;
+
+export type Section = {
+  n: number;
+  /** The reference video's parts this section remakes (1-based), when there is a reference. */
+  parts: number[];
+  minutes: number;
+  words: number;
+  /** What the reference video says in those parts. */
+  source: string;
+};
+
+export type WrittenSection = { n: number; title: string; text: string };
+
+/** The sections to write, and how many words each needs for the lecture to run `minutes`. */
+export function transcriptSections(reference: DocumentManifest | null, minutes: number): Section[] {
+  const parts = reference?.parts ?? [];
+  if (parts.length) {
+    const total = Math.max(1, parts[parts.length - 1].end - parts[0].start);
+    const groups: (typeof parts)[] = [];
+    let current: typeof parts = [];
+    for (const part of parts) {
+      current.push(part);
+      const span = current[current.length - 1].end - current[0].start;
+      if (span >= SECTION_MINUTES * 60 * 0.8) {
+        groups.push(current);
+        current = [];
+      }
+    }
+    if (current.length) {
+      if (groups.length && current[current.length - 1].end - current[0].start < SECTION_MINUTES * 60 * 0.35) {
+        groups[groups.length - 1].push(...current);
+      } else {
+        groups.push(current);
+      }
+    }
+    return groups.map((group, i) => {
+      const share = (group[group.length - 1].end - group[0].start) / total;
+      const sectionMinutes = minutes * share;
+      return {
+        n: i + 1,
+        parts: group.map((p) => p.part),
+        minutes: Math.round(sectionMinutes * 10) / 10,
+        words: Math.round(sectionMinutes * WORDS_PER_MINUTE),
+        source: group.map((p) => p.text).join(" "),
+      };
+    });
+  }
+  const count = Math.max(1, Math.round(minutes / SECTION_MINUTES));
+  return Array.from({ length: count }, (_, i) => ({
+    n: i + 1,
+    parts: [],
+    minutes: Math.round((minutes / count) * 10) / 10,
+    words: Math.round((minutes / count) * WORDS_PER_MINUTE),
+    source: "",
+  }));
+}
+
+export const SECTION_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "write_section",
+    description:
+      "Save one section of the lecture's spoken transcript, in order (section 1, then 2, ...). The text is only " +
+      "what the teacher says, in paragraphs: no stage directions, no headings, no brackets, no markdown.",
+    parameters: {
+      type: "object",
+      properties: {
+        section: { type: "integer", description: "The section number, starting at 1." },
+        title: { type: "string", description: "A short English title for what the section teaches." },
+        text: { type: "string", description: "The section's full spoken transcript, paragraph by paragraph." },
+      },
+      required: ["section", "title", "text"],
+      additionalProperties: false,
+    },
+  },
+};
+
+export function transcriptPrompt(options: {
+  sections: Section[];
+  minutes: number;
+  language: Language;
+  languageRules: string;
+  subject?: string;
+  hasReference: boolean;
+  content: string;
+}): string {
+  const { sections, minutes, hasReference } = options;
+  const total = sections.reduce((n, s) => n + s.words, 0);
+  return [
+    "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. It is",
+    "written first, in full, before any picture: a later step turns it into the video, sentence for sentence. So",
+    "everything the student needs must be in these words.",
+    "",
+    `The lecture runs about ${minutes} minutes: about ${total} words in ${sections.length} sections, written one at a`,
+    "time with write_section. Each section must reach its length (the tool refuses a short one): reach it by",
+    "explaining more, never by padding.",
+    "",
+    hasReference
+      ? [
+          "MIMIC THE REFERENCE LECTURE (a YouTube video; its words for each section are given below). Keep its order,",
+          "its flow and its way of teaching: the same topics, the same examples and analogies, the same solved",
+          "problems with the same numbers, and the SAME QUESTIONS it asks the students (ask them the same way,",
+          "then give the time to think, then the answer and why). Where it goes fast, you go slowly: say everything",
+          "it says, and explain each step it skips. Do not copy its sentences one after another; say them as a",
+          "patient teacher would, in more detail.",
+        ].join("\n")
+      : "TEACH THE CONTENT in order, section by section, from its first idea to its last.",
+    "",
+    "EXPLAIN EVERYTHING IN DETAIL, SLOWLY, SO A STUDENT HAS TIME TO GRASP IT:",
+    "  - Short sentences, one idea each (under about 20 words). Speak to the student (\"देखो\", \"समझो\", \"you see\").",
+    "  - Every statement: say it simply; explain each term in it in plain words; give an everyday example (often",
+    "    two); say why it is so; then say it again in other words (\"तो simple words में...\", \"So, in short...\").",
+    "  - Build up: \"First...\", \"Now...\", \"So what does this mean?\". Recall what came before when it matters.",
+    "  - A question to the class every few minutes (the reference's own questions first): ask it, say \"सोचो\" /",
+    "    \"take a moment and think\", then give the answer and explain why each wrong option is wrong.",
+    "  - A solved problem: read it out, say what is given and what is asked, which idea solves it and why, then",
+    "    every step of the working with what each step means, the units, a check that the answer makes sense.",
+    "  - Say every formula and symbol in words (\"F equals m a\", \"m g sin theta\"), since it is heard.",
+    "  - End each section with a short recap of what it taught.",
+    "",
+    options.languageRules.trim(),
+    "",
+    "Only speech: no [brackets], no stage directions (\"(draws a diagram)\"), no headings, no bullet lists, no",
+    "markdown. When a picture helps, just say what to look at (\"इस diagram में देखो...\"); the pictures are added later.",
+    "",
+    ...sections.map((s) =>
+      `SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
+      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}` : "")),
+    "",
+    ...(options.content.trim() ? ["THE CONTENT (notes, a chapter) to teach from:", options.content.slice(0, 60000)] : []),
+  ].join("\n");
+}
+
+const DEVANAGARI = /[ऀ-ॿ]/;
+const ROMAN_HINDI = /\b(hai|hain|hota|hoti|matlab|yaani|kya|nahi|aur|toh|lekin|isliye|dekho|samjho|chalo)\b/gi;
+
+/** Why a written section is refused, or null when it is accepted. */
+export function sectionProblem(text: string, section: Section, language: Language): string | null {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (words < section.words * 0.9) {
+    return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * 0.9)}). ` +
+      "Write it again at full length: explain each statement more (the meaning of each term, an example or two, " +
+      "why it is so, the idea again in other words), ask the class a question, and work every step of each problem.";
+  }
+  if (/\[[^\]]*\]|^#|^\s*[-*•]\s/m.test(text)) {
+    return `Section ${section.n} has brackets, headings or bullet points: write only what the teacher says, in paragraphs.`;
+  }
+  if (language === "hinglish") {
+    const sentences = text.split(/(?<=[.?!।])\s+/).filter((s) => s.trim());
+    const english = sentences.filter((s) => !DEVANAGARI.test(s)).length;
+    if (english > sentences.length * 0.25) {
+      return `Section ${section.n} is mostly English (${english} of ${sentences.length} sentences). It is Hinglish: ` +
+        "simple Hindi in Devanagari with the subject's terms in English.";
+    }
+    const roman = text.match(ROMAN_HINDI) ?? [];
+    if (roman.length >= 3) {
+      return `Section ${section.n} writes Hindi in Latin letters (${[...new Set(roman.map((r) => r.toLowerCase()))].slice(0, 5).join(", ")}): ` +
+        "write the Hindi words in Devanagari; the voice reads Latin letters as English.";
+    }
+  }
+  return null;
+}
+
+/** The beat script's rules when a transcript has been written: its narration is the transcript. */
+export function fromTranscriptPrompt(written: WrittenSection[]): string {
+  return [
+    "",
+    "THE TRANSCRIPT IS WRITTEN. The lecture's narration is exactly this transcript, in order: each beat's \"say\" is",
+    "one or two consecutive sentences of it, word for word, and every sentence of it is said. Do not shorten,",
+    "merge, summarise or reword it (the compiler compares). Give each chapter \"section\": the number of the",
+    "section it speaks (a section may take several chapters). Your work is the picture: for each beat the",
+    "operations that show what is being said (a sketch or preset built and revealed step by step, a graph, a define",
+    "card, a question on the stage when the transcript asks the class one, then the answer; work lines for each",
+    "step of a problem as it is said; the problem op when a problem is read out).",
+    "The length, the examples and the questions are already in the transcript; the checks on them follow from it.",
+    "",
+    ...written.map((s) => `SECTION ${s.n} (${s.title}):\n${s.text}`),
+    "",
+  ].join("\n");
+}
+
+function norm(sentence: string): string {
+  return sentence.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+export function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.?!।])\s+|\n+/).map((s) => s.trim()).filter((s) => norm(s).length > 3);
+}
+
+/**
+ * Which of the given sections' sentences no beat says (compared letters and digits only). A part of a long
+ * lecture is checked against the sections its chapters name.
+ */
+export function unsaidSentences(script: unknown, written: WrittenSection[], only?: number[]): { n: number; missing: string[]; total: number }[] {
+  const chapters = ((script as { chapters?: { section?: unknown; beats?: { say?: unknown }[] }[] })?.chapters ?? []);
+  const said = norm(chapters.flatMap((c) => (c.beats ?? []).map((b) => String(b?.say ?? ""))).join(" "));
+  const wanted = only ?? written.map((s) => s.n);
+  return written
+    .filter((s) => wanted.includes(s.n))
+    .map((s) => {
+      const sentences = sentencesOf(s.text);
+      return { n: s.n, total: sentences.length, missing: sentences.filter((line) => !said.includes(norm(line))) };
+    });
+}
+
+/** The sections a part of the script names ("section" on its chapters). */
+export function sectionsOf(script: unknown): number[] {
+  const chapters = ((script as { chapters?: { section?: unknown }[] })?.chapters ?? []);
+  return [...new Set(chapters.map((c) => Number(c?.section)).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+/** An error for a script whose narration leaves out more than a tenth of its sections' transcript, or null. */
+export function transcriptProblem(script: unknown, written: WrittenSection[], only?: number[]): string | null {
+  if (!written.length) return null;
+  const sections = only ?? written.map((s) => s.n);
+  if (only && !sections.length) {
+    return "Give each chapter \"section\": the number of the transcript section it speaks.";
+  }
+  const gaps = unsaidSentences(script, written, sections).filter((g) => g.missing.length > g.total * 0.1);
+  if (!gaps.length) return null;
+  return gaps.map((g) =>
+    `Section ${g.n}: ${g.missing.length} of ${g.total} transcript sentences are not said word for word, e.g. ` +
+    g.missing.slice(0, 3).map((m) => `"${m.slice(0, 90)}"`).join("; ") +
+    ". Every sentence of the transcript is said, unchanged, in order (one or two a beat).").join("\n");
+}

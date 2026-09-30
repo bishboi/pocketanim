@@ -14,6 +14,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
+import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -321,7 +322,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -542,7 +543,7 @@ async function viaOpenRouter(
   const language = LANGUAGES.includes(request.language as Language) ? (request.language as Language) : "auto";
   const referenceText = reference?.parts?.map((p) => p.text).join("\n") ?? "";
   // Without a chosen length, a remake runs as long as the video it follows.
-  const referenceMinutes = reference?.video?.duration ? Math.min(40, Math.max(3, Math.round(reference.video.duration / 60))) : 0;
+  const referenceMinutes = reference?.video?.duration ? Math.min(90, Math.max(3, Math.round(reference.video.duration / 60))) : 0;
   const minutes = request.minutes ?? (referenceMinutes ||
     targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
   const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`.split(/\s+/).filter(Boolean).length);
@@ -561,8 +562,96 @@ async function viaOpenRouter(
   const tools: ToolSpec[] = lecture
     ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, IMAGE_TOOL, EDIT_TOOL]
     : TOOLS;
+  // STAGE 1: the whole lecture as a teacher speaks it, section by section, at full length, before any picture.
+  const written: WrittenSection[] = [];
+  let stageIn = 0;
+  let stageOut = 0;
+  let stageCost = 0;
+  if (lecture && !(request.instruction && request.previousSource)) {
+    const sections = transcriptSections(reference, minutes);
+    const prompt = transcriptPrompt({
+      sections, minutes, language, languageRules: languagePrompt(language), subject: subject?.label,
+      hasReference: !!reference?.parts?.length, content: `${request.content}\n${doc?.markdown ?? ""}`,
+    });
+    emit({ type: "input", role: "system", text: prompt });
+    const talk: ChatMessage[] = [
+      { role: "system", content: prompt },
+      { role: "user", content: `Write section 1 of ${sections.length} with write_section.` },
+    ];
+    for (let turn = 0; turn < sections.length * 4 && written.length < sections.length; turn++) {
+      if (stopped()) throw new Error("The page closed while the transcript was being written.");
+      const next = sections[written.length];
+      emit({ type: "message", role: "status",
+        text: `Transcript: writing section ${next.n} of ${sections.length} (about ${next.words} words, ${next.minutes} min)` });
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), FIRST_REPLY_MINUTES * 60_000);
+      let result;
+      try {
+        result = await completionWithRetry(key, model, talk, emit, (kind, text) =>
+          emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text }), [SECTION_TOOL], abort.signal, "required");
+      } finally {
+        clearTimeout(timer);
+      }
+      stageIn += result.usage?.prompt_tokens ?? 0;
+      stageOut += result.usage?.completion_tokens ?? 0;
+      stageCost += Number(result.usage?.cost ?? 0);
+      const calls = result.message.tool_calls ?? [];
+      talk.push({ role: "assistant", content: result.message.content ?? null, ...(calls.length ? { tool_calls: calls } : {}) });
+      if (!calls.length) {
+        talk.push({ role: "user", content: `Call write_section with section ${next.n}.` });
+        continue;
+      }
+      for (const call of calls) {
+        let args: { section?: number; title?: string; text?: string } = {};
+        try {
+          args = JSON.parse(call.function.arguments || "{}");
+        } catch {}
+        const expected = sections[written.length];
+        let output: string;
+        if (!expected) {
+          output = "All sections are written. Reply with one word: done.";
+        } else if (Number(args.section) !== expected.n) {
+          output = `Write section ${expected.n} next.`;
+        } else {
+          const text = String(args.text ?? "").trim();
+          const problem = sectionProblem(text, expected, language);
+          if (problem) {
+            output = problem;
+          } else {
+            written.push({ n: expected.n, title: String(args.title ?? `Section ${expected.n}`), text });
+            // Older sections, shortened in the history: the next one needs their thread, not their every word.
+            for (const message of talk) {
+              for (const old of message.tool_calls ?? []) {
+                if (old !== call && old.function.arguments.length > 1500) {
+                  old.function.arguments = JSON.stringify({ ...JSON.parse(old.function.arguments), text:
+                    `${String(JSON.parse(old.function.arguments).text ?? "").slice(-1200)} (earlier part omitted)` });
+                }
+              }
+            }
+            const after = sections[written.length];
+            output = after
+              ? `Saved section ${expected.n} (${text.split(/\s+/).length} words). Now section ${after.n} of ${sections.length} ` +
+                `(about ${after.words} words), carrying on from where this one ended.`
+              : "All sections are written. Reply with one word: done.";
+          }
+        }
+        emit({ type: "tool_result", name: "write_section", text: output.startsWith("Saved") || output.startsWith("All")
+          ? `Section ${args.section}: ${args.title ?? ""}\n\n${String(args.text ?? "")}` : output });
+        talk.push({ role: "tool", tool_call_id: call.id, content: output });
+      }
+    }
+    if (written.length < sections.length) {
+      throw new Error(`The transcript stopped at section ${written.length} of ${sections.length}: ${model} did not write ` +
+        "the rest at full length. Generate again, or pick another model.");
+    }
+    const words = written.reduce((n, s) => n + s.text.split(/\s+/).length, 0);
+    emit({ type: "transcript", text: written.map((s) => `SECTION ${s.n}: ${s.title}\n\n${s.text}`).join("\n\n") });
+    emit({ type: "message", role: "status",
+      text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min). Now the video.` });
+  }
+  // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   const messages: ChatMessage[] = [
-    { role: "system", content: system },
+    { role: "system", content: written.length ? `${system}${fromTranscriptPrompt(written)}` : system },
     { role: "user", content: user },
   ];
   emit({ type: "input", role: "system", text: system });
@@ -618,8 +707,9 @@ async function viaOpenRouter(
       costUsd,
     };
   };
-  let outputTokens = 0;
-  let costUsd = 0;
+  let outputTokens = stageOut;
+  let costUsd = stageCost;
+  inputTokens += stageIn;
 
   // How every lecture script is compiled, whether it came by the tool or in the reply text.
   const lectureOptions = () => ({
@@ -629,14 +719,17 @@ async function viaOpenRouter(
     plan,
     stem: STEM_GENRES.includes(subject?.genre ?? ""),
     figures: doc ? scriptFigures(doc) : undefined,
-    sourceText: `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`,
+    // The transcript mimics the reference on purpose: only the content is checked for lines read out word for word.
+    sourceText: `${request.content}\n${doc?.markdown ?? ""}${written.length ? "" : `\n${referenceText}`}`,
     language: language === "auto" ? undefined : language,
   });
   // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
   const compileWhole = async (script: unknown) => {
     const compiled = await compileLecture(script, lectureOptions());
+    const unsaid = compiled.source ? transcriptProblem(script, written) : null;
+    if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
     const parts = reference?.parts?.length ?? 0;
-    if (!compiled.source || !parts) return compiled;
+    if (!compiled.source || !parts || written.length) return compiled;
     const missing = uncoveredParts(script, parts);
     if (!missing.length) return compiled;
     return {
@@ -660,7 +753,7 @@ async function viaOpenRouter(
       const beats = (c as { beats?: unknown[] })?.beats;
       return !Array.isArray(beats) || beats.length < partBeats;
     }).length;
-  for (let turn = 0; turn < 40; turn++) {
+  for (let turn = 0; turn < (written.length ? 30 + written.length * 5 : 40); turn++) {
     if (stopped()) {
       const done = savedScene();
       if (done) return done;
@@ -853,7 +946,10 @@ async function viaOpenRouter(
       if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
         const first = args.script as Record<string, unknown>;
         const thin = thinChapters(first.chapters);
-        const compiled = thin || chapterCount(first) === 0
+        const unsaid = written.length ? transcriptProblem(first, written, sectionsOf(first)) : null;
+        const compiled = unsaid
+          ? { source: null, errors: [unsaid], minutes: 0, warnings: [] }
+          : thin || chapterCount(first) === 0
           ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin || "no"} chapter(s) ` +
               `here have fewer. Send part 1 again with whole chapters, each teaching its topic fully.`], minutes: 0, warnings: [] }
           : await compileLecture(first, partOptions());
@@ -874,7 +970,11 @@ async function viaOpenRouter(
             ...draft, chapters: [...had.slice(0, from), ...(args.chapters ?? [])], ...(args.recap ? { recap: args.recap } : {}),
           };
           const thin = thinChapters(args.chapters);
-          const compiled = thin
+          const part = { chapters: args.chapters ?? [] };
+          const unsaid = written.length && !args.done ? transcriptProblem(part, written, sectionsOf(part)) : null;
+          const compiled = unsaid
+            ? { source: null, errors: [unsaid], minutes: 0, warnings: [] }
+            : thin
             ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
                 "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
             : args.done ? await compileWhole(next) : await compileLecture(next, partOptions());

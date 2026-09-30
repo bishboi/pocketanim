@@ -108,10 +108,10 @@ def _panel_height(op: dict) -> float:
 
 # The teaching pace, as pocket_lecture.PACES has it (PANIM_PACE): voice speed, the hold after each line, the
 # hold at a paragraph's end. Kept here too so a lint-only install needs no engine.
-PACES = {"relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
-VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "relaxed"), PACES["relaxed"])
+PACES = {"slow": (0.85, 1.4, 2.8), "relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
 WORD_SECONDS = 0.42 / VOICE_SPEED     # about 143 words a minute at normal speed: pocket_lecture.estimate_seconds
-THINK_SECONDS = 5.0                   # a question's time to think (pocket_lecture.THINK_SECONDS)
+THINK_SECONDS = 7.0                   # a question's time to think (pocket_lecture.THINK_SECONDS)
 MAX_PAUSE = 8.0                       # a beat's "pause", at most
 
 

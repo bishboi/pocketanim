@@ -413,11 +413,12 @@ def speechify(text: str) -> str:
 
 
 # The teaching pace, PANIM_PACE: (voice speed, the hold after each line, the hold at a paragraph's end).
-# "relaxed", the default, is a teacher's pace: a little slower speech and pauses long enough to take a
-# line in before the next one starts. "brisk" is the older, faster pace.
-PACES = {"relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
-VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "relaxed"), PACES["relaxed"])
-THINK_SECONDS = 5.0      # the silence a question on the stage leaves for thinking
+# "slow", the default, is a classroom pace for students meeting the idea for the first time: slower speech, a
+# pause after every line long enough to take it in, a longer one between paragraphs. "relaxed" is a little
+# quicker; "brisk" is the older, faster pace.
+PACES = {"slow": (0.85, 1.4, 2.8), "relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
+THINK_SECONDS = 7.0      # the silence a question on the stage leaves for thinking
 
 
 def estimate_seconds(text: str) -> float:

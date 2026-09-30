@@ -10,7 +10,7 @@ import path from "node:path";
 import { REPO, python } from "./pocketanim";
 
 export type AgentEvent = {
-  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error";
+  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript";
   role?: string;
   name?: string;
   text?: string;

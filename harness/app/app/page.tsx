@@ -284,15 +284,43 @@ export default function Home() {
     model: string,
   ) {
     const sceneClass = sceneClassOf(source);
-    setBusy(/pocket_lecture/.test(source)
+    const lecture = /pocket_lecture/.test(source);
+    setBusy(lecture
       ? "Speaking the lecture, running Manim and building the program…"
       : "Running Manim and building the program…");
-    const exported: ExportState = await post("/api/export", {
-      source,
-      sceneClass,
-      instruction,
-      model,
-    });
+    // The server writes how far it has got (lines spoken, beats drawn); the busy line shows it.
+    const jobId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const started = Date.now();
+    const poll = lecture ? setInterval(async () => {
+      try {
+        const state = await (await fetch(`/api/progress?id=${jobId}`)).json() as
+          { phase?: string; done?: number; total?: number };
+        const elapsed = Math.round((Date.now() - started) / 1000);
+        const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+        if (state.phase === "voice" && state.total) {
+          const share = Math.round((100 * (state.done ?? 0)) / state.total);
+          setBusy(`Speaking the lecture: ${state.done} of ${state.total} lines (${share}%) · ${clock}`);
+        } else if (state.phase === "render" && state.total) {
+          const share = Math.round((100 * (state.done ?? 0)) / state.total);
+          setBusy(`Drawing the lecture in Manim: beat ${state.done} of ${state.total} (${share}%) · ${clock}`);
+        }
+      } catch {
+        // progress is a nicety: the build goes on without it
+      }
+    }, 1500) : null;
+    let exported: ExportState;
+    try {
+      exported = await post("/api/export", {
+        source,
+        sceneClass,
+        instruction,
+        model,
+        jobId,
+      });
+    } finally {
+      if (poll) clearInterval(poll);
+    }
+    if (lecture) setBusy("Building the program and the preview…");
     const played = exported.scene || sceneClass;
     let ir: SceneIR | null | undefined;
     if (exported.buildDir && exported.program && !exported.error) {

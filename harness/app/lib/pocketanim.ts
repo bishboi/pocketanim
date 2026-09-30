@@ -8,7 +8,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -190,9 +190,39 @@ function run(
  * atlas by relative path, so a build that lands anywhere else would pollute
  * the repo's corpus.
  */
+/** Where a build's progress is written (scripts/prespeak.py, then each beat Manim draws): the page polls it. */
+export function progressFile(jobId: string): string | null {
+  return /^[A-Za-z0-9_-]{6,64}$/.test(jobId) ? path.join(tmpdir(), `panim-progress-${jobId}.json`) : null;
+}
+
+/**
+ * Speak a lecture's lines before Manim runs, PANIM_TTS_THREADS at a time, into the cache the render reads.
+ * Null when it went well (or there is nothing to speak), else the voice's error.
+ */
+export async function prespeak(source: string, progress: string | null): Promise<string | null> {
+  const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
+  const scenePath = path.join(dir, "scene.py");
+  await writeFile(scenePath, source, "utf8");
+  const { stdout, stderr } = await run(
+    [path.join(REPO, "harness", "scripts", "prespeak.py"), scenePath, ...(progress ? [progress] : [])],
+    { timeoutMs: 3 * 3600_000 },
+  );
+  await rm(dir, { recursive: true, force: true });
+  const line = stdout.toString().trim().split("\n").pop() ?? "";
+  try {
+    const data = JSON.parse(line) as { ok?: boolean; error?: string };
+    return data.ok ? null : data.error ?? "The voice did not speak.";
+  } catch {
+    // The render speaks what is left itself: a pre-pass that could not run is no reason to stop.
+    console.warn("prespeak:", stderr.trim().split("\n").slice(-4).join("\n"));
+    return null;
+  }
+}
+
 export async function exportScene(
   source: string,
   sceneClass: string,
+  progress: string | null = null,
 ): Promise<{ result: ExportResult; buildDir: string }> {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(sceneClass)) sceneClass = "GeneratedScene";
   const buildDir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
@@ -209,7 +239,8 @@ export async function exportScene(
       sceneClass,
       buildDir,
     ],
-    { timeoutMs: 600_000 },
+    // A long lecture is hundreds of beats: Manim takes a while (its voice is spoken beforehand, by prespeak).
+    { timeoutMs: 3 * 3600_000, env: progress ? { PANIM_PROGRESS_FILE: progress } : {} },
   );
 
   const text = stdout.toString().trim();

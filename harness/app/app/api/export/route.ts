@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { REPO, exportScene, frameCount } from "@/lib/pocketanim";
+import { REPO, exportScene, frameCount, prespeak, progressFile } from "@/lib/pocketanim";
+import { rm } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
 
 export const runtime = "nodejs";
-// An export runs Manim, which is slow the first time in a cold container.
-export const maxDuration = 600;
+// An export speaks the lecture and runs Manim: a long lecture takes a while.
+export const maxDuration = 10800;
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +23,18 @@ export async function POST(request: NextRequest) {
     // A lecture is voiced by its narration voice (Gemini 3.8 Flash TTS) and nothing else: without it, say so first.
     const noVoice = /pocket_lecture/.test(source) ? voiceProblem() : null;
     if (noVoice) return NextResponse.json({ error: noVoice }, { status: 400 });
-    const { result, buildDir } = await exportScene(source, sceneClass);
+    // The lines are spoken first, several at once, with progress the page polls (/api/progress); Manim then finds
+    // each line ready instead of waiting for them one by one.
+    const progress = progressFile(String(body?.jobId ?? ""));
+    if (/pocket_lecture/.test(source)) {
+      const voiceError = await prespeak(source, progress);
+      if (voiceError) {
+        if (progress) await rm(progress, { force: true });
+        return NextResponse.json({ error: voiceError }, { status: 500 });
+      }
+    }
+    const { result, buildDir } = await exportScene(source, sceneClass, progress);
+    if (progress) await rm(progress, { force: true });
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
 

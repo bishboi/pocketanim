@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import json
 import os
 import re
 import shutil
@@ -501,6 +502,26 @@ def audio_file(mode: str, spoken: str) -> Path:
         if engine != "chirp":
             key = f"{tts.engine(engine).model()}|{key}"  # another Gemini model is another voice
     return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"
+
+
+_BEATS_DONE = 0
+
+
+def _progress_beat() -> None:
+    """One more beat drawn, for the page's progress (PANIM_PROGRESS_FILE, which prespeak.py started)."""
+    global _BEATS_DONE
+    _BEATS_DONE += 1
+    path = os.environ.get("PANIM_PROGRESS_FILE")
+    if not path:
+        return
+    try:
+        state = json.loads(Path(path).read_text()) if Path(path).exists() else {}
+        state.update(phase="render", done=_BEATS_DONE, total=state.get("beats") or state.get("total") or 0)
+        tmp = Path(path + ".tmp")
+        tmp.write_text(json.dumps(state))
+        tmp.replace(path)
+    except (OSError, ValueError):
+        pass                                  # progress is a nicety: never a reason for a render to fail
 
 
 def narrate(text: str) -> tuple[str | None, float]:
@@ -1167,6 +1188,7 @@ class Lecture(Scene):
         self._full_figure, self._new_figure = self._new_figure, None
         wav, seconds = narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
+        _progress_beat()
         cap = self.caption(text)
         if wav:
             self.add_sound(wav)

@@ -89,6 +89,7 @@ Settings (all optional, in `.env.local`):
 |---|---|
 | `PANIM_TTS_MODEL` | `gemini-3.8-flash-tts` (default), or `gemini-3.8-flash-lite-tts`: cheaper and faster, a little less expressive. |
 | `PANIM_TTS_VOICE` | The speaker. `Achird` by default, for every style; any other Gemini prebuilt voice (`Charon`, `Kore`, `Aoede`, `Puck`...) instead. |
+| `PANIM_TTS_THREADS` | How many lines are spoken at once before Manim draws the lecture (default 8). Lower it if Google answers "429: Resource exhausted" often; raise it on a paid tier. |
 | `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model (`teacher` for a warm, patient teacher). Off by default: `gemini-3.8-flash-tts` refuses instructions ("Developer instruction is not enabled for this model"), and the harness then stops sending it. |
 
 **The older voice, Chirp 3 HD.** `PANIM_TTS=chirp` goes back to Google Cloud's Chirp 3 HD voices, through the

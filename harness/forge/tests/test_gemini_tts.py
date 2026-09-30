@@ -153,3 +153,25 @@ def test_the_engine_asks_for_achird(gemini, monkeypatch, tmp_path):
     pl.narrate("अब आगे बढ़ते हैं।")
     voice = gemini["requests"][-1]["body"]["generationConfig"]["speechConfig"]["voiceConfig"]
     assert voice["prebuiltVoiceConfig"]["voiceName"] == "Achird"
+
+
+def test_prespeak_finds_every_line_the_scene_will_say():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "prespeak.py"
+    spec = importlib.util.spec_from_file_location("prespeak", path)
+    prespeak = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prespeak)
+    source = '''
+class S(MapLecture):
+    def construct(self):
+        self.title_slide("Laws of Motion", "Newton's laws", narration="आज हम Newton के laws समझेंगे।")
+        self.chapter(1, "Force", "push", "Chapter one. Force.")
+        self.beat("A block on a table.", self.sketch("s", []))
+        self.beat(text="The same line.")
+        self.recap([("Force", "A push or a pull"), ("Mass", "How much matter")])
+'''
+    assert prespeak.beat_lines(source) == ["आज हम Newton के laws समझेंगे।", "Chapter one. Force.",
+                                           "A block on a table.", "The same line.", "Force. A push or a pull.",
+                                           "Mass. How much matter."]

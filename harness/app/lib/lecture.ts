@@ -39,6 +39,8 @@ export type Compiled = { source: string | null; errors: string[]; warnings: stri
 export const DEFAULT_LECTURE_MINUTES = 10;
 /** Words of source content a minute of detailed teaching covers: a chapter is taught, not read out. */
 const SOURCE_WORDS_PER_MINUTE = 120;
+/** Words of a book taught in a minute of lecture (explained, with examples and questions). */
+const BOOK_WORDS_PER_MINUTE = 60;
 
 /**
  * The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". Without one, a long source (a
@@ -49,6 +51,11 @@ export function targetMinutes(text: string, source = ""): number {
   const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
   if (found) return Math.min(90, Math.max(1, parseFloat(found[1])));
   const words = `${text}\n${source}`.split(/\s+/).filter(Boolean).length;
+  if (source.trim()) {
+    // A book is taught, not read: explained, with examples and questions it does not have, it runs about twice
+    // as long as reading it out.
+    return Math.min(60, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / BOOK_WORDS_PER_MINUTE)));
+  }
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }
 

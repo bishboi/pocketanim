@@ -21,15 +21,18 @@ export type Section = {
   parts: number[];
   minutes: number;
   words: number;
-  /** What the reference video says in those parts. */
+  /** What the reference video says in those parts, or the part of the book this section teaches. */
   source: string;
+  /** The source is a book's (a PDF's) text, to be taught with examples and questions the book does not have. */
+  book?: boolean;
 };
 
 export type WrittenSection = { n: number; title: string; text: string };
 
 /** The sections to write, and how many words each needs for the lecture to run `minutes`. */
-export function transcriptSections(reference: DocumentManifest | null, minutes: number): Section[] {
+export function transcriptSections(reference: DocumentManifest | null, minutes: number, book = ""): Section[] {
   const parts = reference?.parts ?? [];
+  if (!parts.length && book.split(/\s+/).filter(Boolean).length >= BOOK_MIN_WORDS) return bookSections(book, minutes);
   if (parts.length) {
     const total = Math.max(1, parts[parts.length - 1].end - parts[0].start);
     const groups: (typeof parts)[] = [];
@@ -69,6 +72,53 @@ export function transcriptSections(reference: DocumentManifest | null, minutes: 
     words: Math.round((minutes / count) * WORDS_PER_MINUTE),
     source: "",
   }));
+}
+
+const BOOK_MIN_WORDS = 150;
+
+/** A book's text as blocks in order: a heading with what follows it, a paragraph, a figure line. */
+function bookBlocks(markdown: string): string[] {
+  return markdown
+    .replace(/^#+\s*page \d+\s*$/gim, "")
+    .split(/\n\s*\n|\n(?=#)/)
+    .map((b) => b.trim())
+    .filter((b) => b && !/^#+\s*$/.test(b));
+}
+
+/**
+ * The book in order, cut into sections of about SECTION_MINUTES each at block ends, each teaching its own slice.
+ * A section's length follows its share of the book, so a long topic gets more time than a short one.
+ */
+export function bookSections(markdown: string, minutes: number): Section[] {
+  const blocks = bookBlocks(markdown);
+  const count = (b: string) => b.split(/\s+/).filter(Boolean).length;
+  const total = Math.max(1, blocks.reduce((n, b) => n + count(b), 0));
+  const wanted = Math.max(1, Math.min(blocks.length, Math.round(minutes / SECTION_MINUTES)));
+  const groups: string[][] = [];
+  let current: string[] = [];
+  let taken = 0;
+  for (const block of blocks) {
+    current.push(block);
+    taken += count(block);
+    // Cut when this group has its share; a heading starts the next group rather than ending this one.
+    if (taken >= (total * (groups.length + 1)) / wanted && groups.length < wanted - 1) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length) groups.push(current);
+  return groups.map((group, i) => {
+    const share = group.reduce((n, b) => n + count(b), 0) / total;
+    const sectionMinutes = Math.max(1, minutes * share);
+    return {
+      n: i + 1,
+      parts: [],
+      minutes: Math.round(sectionMinutes * 10) / 10,
+      words: Math.round(sectionMinutes * WORDS_PER_MINUTE),
+      source: group.join("\n\n"),
+      book: true,
+    };
+  });
 }
 
 export const SECTION_TOOL = {
@@ -125,7 +175,27 @@ export function transcriptPrompt(options: {
           "from the physics and use the right words and numbers. Leave out channel talk (subscribe, like, the next",
           "video) and anything about the recording.",
         ].join("\n")
-      : "TEACH THE CONTENT in order, section by section, from its first idea to its last.",
+      : sections.some((s) => s.book)
+        ? [
+            "TEACH THE BOOK (its text for each section is given below). A book only states things; the teacher makes",
+            "them understood. So you WRITE what a good teacher adds, the way the best YouTube teachers do:",
+            "  - Cover every idea of the section's text, in its order: every definition, law, fact, figure, table,",
+            "    solved example and in-text question. Leave nothing out, and add nothing off the syllabus.",
+            "  - Explain each idea slowly in easy words: what it means, each term in it, why it is so, and the idea",
+            "    again in other words. Never read the book's sentences out word for word: say them your own way.",
+            "  - EXAMPLES the book does not give: for each important statement, two or three everyday examples",
+            "    (\"मान लो...\", \"जैसे...\": a bus braking, a ball on a table, the ceiling fan, cricket, the kitchen).",
+            "  - QUESTIONS for the class, several in every section: ask, give time (\"सोचो...\"), then the answer and",
+            "    why, and why a common wrong answer is wrong. Use the book's in-text questions and exercises too.",
+            "  - PROBLEMS: in a maths or science chapter, solve numericals slowly, step by step (given, asked, diagram,",
+            "    formula, numbers, units, answer twice). Use the book's solved examples, and make up one or two more",
+            "    with easy numbers where the book has none.",
+            "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
+            "    देखो...\"): the video shows it there. Build every diagram out loud, piece by piece.",
+            "  - Tie each new idea to the one before, and end each section with a short recap.",
+          ].join("\n")
+        : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +
+          "in detail with everyday examples, questions for the class and worked problems.",
     "",
     "TEACH EXACTLY LIKE A REAL TEACHER TALKING TO A CLASS, NOT LIKE A BOOK OR AN ARTICLE. Write it the way it",
     "would be spoken in front of students, in easy everyday language:",
@@ -161,13 +231,15 @@ export function transcriptPrompt(options: {
     "",
     ...sections.map((s) =>
       `SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
-      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}` : "")),
+      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}`
+        : s.book ? `, teaching this part of the book:\n${s.source.slice(0, 12000)}\n` : "")),
     "",
     ...(options.content.trim() ? ["THE CONTENT (notes, a chapter) to teach from:", options.content.slice(0, 60000)] : []),
   ].join("\n");
 }
 
 const DEVANAGARI = /[ऀ-ॿ]/;
+const EXAMPLE_CUES = /मान लो|मान लीजिए|जैसे|उदाहरण|example|suppose|imagine|let us say|say you|think of/i;
 const ROMAN_HINDI = /\b(hai|hain|hota|hoti|matlab|yaani|kya|nahi|aur|toh|lekin|isliye|dekho|samjho|chalo)\b/gi;
 
 /** Why a written section is refused, or null when it is accepted. */
@@ -177,6 +249,27 @@ export function sectionProblem(text: string, section: Section, language: Languag
     return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * 0.9)}). ` +
       "Write it again at full length: explain each statement more (the meaning of each term, an example or two, " +
       "why it is so, the idea again in other words), ask the class a question, and work every step of each problem.";
+  }
+  if (!section.parts.length) {
+    // Taught, not read out: a section of a book (or of typed notes) must ask the class and give examples.
+    const asked = (text.match(/[?？]/g) ?? []).length;
+    if (asked < 2) {
+      return `Section ${section.n} asks the class ${asked} question${asked === 1 ? "" : "s"}: ask at least two (\"बताओ...?\", ` +
+        "\"सोचो, ...?\"), give a moment to think, then answer and say why.";
+    }
+    if (section.book) {
+      // The video stage refuses narration that reads the book word for word: caught here, while it is cheap.
+      const book = norm(section.source);
+      const copied = sentencesOf(text).filter((line) => norm(line).length > 40 && book.includes(norm(line)));
+      if (copied.length > 1) {
+        return `Section ${section.n} reads ${copied.length} sentences of the book word for word (e.g. "${copied[0].slice(0, 90)}"): ` +
+          "say each idea in your own words, the way you would explain it to the class.";
+      }
+    }
+    if (!EXAMPLE_CUES.test(text)) {
+      return `Section ${section.n} gives no example: explain its ideas with everyday examples (\"मान लो...\", ` +
+        "\"जैसे...\", \"for example...\").";
+    }
   }
   if (/\[[^\]]*\]|^#|^\s*[-*•]\s/m.test(text)) {
     return `Section ${section.n} has brackets, headings or bullet points: write only what the teacher says, in paragraphs.`;
@@ -212,7 +305,8 @@ export function sectionRequest(section: Section, count: number, written: Written
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""] : []),
     `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
       `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
-      `${section.parts.join(", ")} of the reference` : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
+      `${section.parts.join(", ")} of the reference` : section.book ? "; it teaches its part of the book, given under " +
+      `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
       `repeat what it said. Call write_section once, with section: ${section.n} and the full text.`,
     ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
   ].join("\n");

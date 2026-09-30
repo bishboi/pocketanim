@@ -576,7 +576,9 @@ async function viaOpenRouter(
   const minutes = request.minutes ?? (referenceMinutes ||
     targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
   const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`.split(/\s+/).filter(Boolean).length);
-  const subject = lecture ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}` }, emit) : null;
+  const subject = lecture
+    ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}\n${(doc?.markdown ?? "").slice(0, 15000)}` }, emit)
+    : null;
   const style = lecture ? effectiveStyle(template, subject) : template.style;
   if (reference?.parts?.length) {
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
@@ -597,10 +599,19 @@ async function viaOpenRouter(
   let stageOut = 0;
   let stageCost = 0;
   if (lecture && !(request.instruction && request.previousSource)) {
-    const sections = transcriptSections(reference, minutes);
+    // A book (a PDF) is taught section by section, each with its own slice of the text; a reference video is
+    // remade part by part.
+    const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
+    const fromBook = sections.some((s) => s.book);
+    if (fromBook) {
+      emit({ type: "message", role: "status", text: `Book: ${doc?.pages ?? "?"} pages, about ${doc?.words ?? "?"} words, ` +
+        `taught in ${sections.length} sections with examples, questions and worked problems (about ${minutes} min).` });
+    }
     const prompt = transcriptPrompt({
       sections, minutes, language, languageRules: languagePrompt(language), subject: subject?.label,
-      hasReference: !!reference?.parts?.length, content: `${request.content}\n${doc?.markdown ?? ""}`,
+      hasReference: !!reference?.parts?.length,
+      // The book's text is already in its sections; only what was typed goes in beside it.
+      content: fromBook ? request.content : `${request.content}\n${doc?.markdown ?? ""}`,
     });
     emit({ type: "input", role: "system", text: prompt });
     const TRIES = 4;

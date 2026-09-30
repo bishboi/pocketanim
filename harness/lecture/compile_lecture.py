@@ -927,7 +927,8 @@ def place_figures(script: dict) -> int:
             solving = True
         elif kinds & (VISUAL_OPS - {"problem", "define", "equation", "question"}):
             solving = False
-        if solving or kinds & (WORK_OPS | STEP_OPS):
+        # A question or its answer is about the drawing on the board: a figure there would take it away.
+        if solving or kinds & (WORK_OPS | STEP_OPS | {"question", "answer"}):
             taken.add(i)
     placed = 0
     for order, fid in enumerate(waiting):

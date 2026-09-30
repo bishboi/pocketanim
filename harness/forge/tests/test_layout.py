@@ -149,6 +149,10 @@ class AuditProbe(MapLecture):
                                     {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}]),
                   self.equation(r"F = ma"))
         self.beat("What it means.", self.define("force", "a push or a pull"))
+        self.beat("Which force pushes the block up?", self.question("Which force pushes the block up?",
+                                                                    answer="The normal reaction"))
+        self.think(1.0)
+        self.beat("The normal reaction.", self.answer())
         self.beat("Solve it.", self.work("w", ["a = F/m", "a = 2\\\\,\\\\mathrm{m/s^2}"], box=True))
 '''
 
@@ -190,8 +194,23 @@ def test_parts_of_a_diagram_that_left_the_stage_are_not_drawn():
     scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
                        {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0]}], show=["b"])
     scene._beat_new = []
-    scene.question("Why?", ["A", "B"], answer=0)
+    scene.sketch("t", [{"id": "c", "type": "circle", "at": [0, 0], "r": 1}])
+    scene._beat_new = []
     assert scene.reveal_nodes("s", ["F"]) is None
+
+
+def test_a_question_about_the_drawing_keeps_it_on_the_board():
+    scene = _board_scene()
+    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
+                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}])
+    scene._beat_new = []                                         # the drawing's beat has played
+    drawing = scene.stage_body
+    scene.question("इस diagram में सोचो, कौन सा force लग रहा है?", answer="Normal reaction, N")
+    card = [m for m in scene.stage_extra if getattr(m, "is_aside", False)][0]
+    assert scene.stage_body is drawing                           # still up, now in the left half
+    assert card.get_left()[0] > 0 and card.get_right()[0] < 7.2   # the card in the right half (the drawing slides left)
+    said = scene.answer()
+    assert said is not None and scene._question["answer"] is None
 
 
 def test_a_figure_does_not_take_a_problem_off_the_board(tmp_path):

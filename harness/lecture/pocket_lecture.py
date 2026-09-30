@@ -2046,6 +2046,11 @@ class Lecture(Scene):
         """
         cx, cy, w, h = self.STAGE
         w = min(w, 9.0)             # on the board, a card of reading width rather than the whole frame
+        # A question about the drawing already up ("इस diagram में सोचो, कौन सा force लग रहा है?") goes beside it:
+        # the drawing moves to the left half and stays, so the class can see what it is asked about.
+        about_drawing = self._drawing_up()
+        if about_drawing:
+            w = self._halves()[1][2]
         head = T(title or self.QUESTION_HEADS.get(spoken_lang(text), self.QUESTION_HEADS["en"]), 20, P.SAND,
                  weight=BOLD)
         mark = Circle(radius=0.26, fill_color=P.SAND, fill_opacity=1, stroke_width=0)
@@ -2072,6 +2077,8 @@ class Lecture(Scene):
             parts.add(said)             # laid out with the card, then held back until answer()
         parts.arrange(DOWN, buff=0.3)
         head.align_to(track, LEFT)
+        if about_drawing:
+            return self._question_beside(parts, options, shown, answer, track)
         self._fit_stage(parts, grow=1.2)
         if isinstance(answer, str) and answer.strip() and not isinstance(shown, int):
             shown = parts[-1]
@@ -2091,6 +2098,37 @@ class Lecture(Scene):
         self._question = {"track": track, "answer": shown}
         return anim
 
+    def _drawing_up(self) -> bool:
+        """A drawing from an earlier beat is on the board, with room beside it (not during a problem's working).
+        A drawing from this same beat is handled by _to_stage, which puts the two side by side already."""
+        body = self.stage_body
+        return bool(self.board_mode and body is not None and not self.works and self._problem is None
+                    and not getattr(body, "is_text_card", False) and len(body.get_family()) > 1
+                    and body not in self._beat_new)
+
+    def _question_beside(self, parts, options, shown, answer, track):
+        """The question card in the right half, the drawing it is about moved into the left half."""
+        card = Group(parts)
+        card.is_text_card = True
+        anim = self._aside(card, grow=1.2)
+        if anim is None:                     # no room after all: the card takes the stage as before
+            return self._to_stage(card)
+        if isinstance(answer, str) and answer.strip() and not isinstance(shown, int):
+            said = parts[-1]                 # already placed with the card; shown later by answer()
+            parts.remove(said)
+            said.is_aside = True
+            shown = said
+        elif isinstance(shown, int):
+            box = options[shown][0]
+            ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
+                                    stroke_color=P.GREEN, stroke_width=5).move_to(box)
+            tick = T("✓", 30, P.GREEN, weight=BOLD).scale_to_fit_height(ring.height * 0.45).move_to(ring) \
+                .align_to(ring, RIGHT).shift(LEFT * 0.25)
+            shown = VGroup(ring, tick)
+            shown.is_aside = True
+        self._question = {"track": track, "answer": shown, "aside": True}
+        return anim
+
     def think(self, seconds: float = THINK_SECONDS) -> None:
         """Silence while the class thinks about the question on the stage, a bar filling under its heading."""
         if not self._question:
@@ -2098,6 +2136,7 @@ class Lecture(Scene):
             return
         track = self._question["track"]
         bar = Line(track.get_start(), track.get_end(), color=P.SAND, stroke_width=6)
+        bar.is_aside = self._question.get("aside", False)      # leaves with its card
         self._stage_add(bar)
         self._log("think", seconds=round(seconds, 3))
         self.play(Create(bar), run_time=seconds, rate_func=linear)

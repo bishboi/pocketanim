@@ -89,7 +89,7 @@ Settings (all optional, in `.env.local`):
 |---|---|
 | `PANIM_TTS_MODEL` | `gemini-3.8-flash-tts` (default), or `gemini-3.8-flash-lite-tts`: cheaper and faster, a little less expressive. |
 | `PANIM_TTS_VOICE` | One voice for every style (`Charon`, `Kore`, `Aoede`, `Puck`, `Orus`, `Leda`, `Fenrir`...); each style has its own otherwise. |
-| `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model. The default is a warm, patient teacher at an easy pace; `none` sends no instruction. |
+| `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model (`teacher` for a warm, patient teacher). Off by default: `gemini-3.8-flash-tts` refuses instructions ("Developer instruction is not enabled for this model"), and the harness then stops sending it. |
 
 **The older voice, Chirp 3 HD.** `PANIM_TTS=chirp` goes back to Google Cloud's Chirp 3 HD voices, through the
 Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project and one of: your gcloud login

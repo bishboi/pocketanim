@@ -92,11 +92,20 @@ def test_rate_limits_are_waited_out_and_a_refused_key_says_what_to_set(gemini):
         gemini_tts.speak("Another line.", "Charon")
 
 
-def test_a_model_that_takes_no_instruction_reads_without_it(gemini):
-    gemini["fail"] = [(400, "systemInstruction is not supported for this model")]
+def test_no_instruction_is_sent_by_default(gemini):
     gemini_tts.speak("Line.", "Charon")
-    assert "systemInstruction" in gemini["requests"][0]["body"]
-    assert "systemInstruction" not in gemini["requests"][1]["body"]
+    assert "systemInstruction" not in gemini["requests"][0]["body"]
+
+
+def test_a_model_that_refuses_an_instruction_reads_without_it_from_then_on(gemini, monkeypatch):
+    monkeypatch.setenv("PANIM_TTS_STYLE", "teacher")
+    monkeypatch.setattr(gemini_tts, "_REFUSES_INSTRUCTION", False)
+    gemini["fail"] = [(400, "Developer instruction is not enabled for this model")]
+    gemini_tts.speak("नमस्ते बच्चों!", "Charon")
+    gemini_tts.speak("Second line.", "Charon")
+    bodies = [r["body"] for r in gemini["requests"]]
+    assert "systemInstruction" in bodies[0]
+    assert all("systemInstruction" not in b for b in bodies[1:]) and len(bodies) == 3
 
 
 def test_the_engine_narrates_with_gemini_by_default(gemini, monkeypatch, tmp_path):

@@ -11,7 +11,8 @@ GOOGLE_API_KEY), in the environment or harness/app/.env.local.
 Settings:
   PANIM_TTS_MODEL      the model (gemini-3.8-flash-tts; gemini-3.8-flash-lite-tts is cheaper and faster)
   PANIM_TTS_VOICE      a voice name for every style (Charon, Kore, Aoede...); each style has its own otherwise
-  PANIM_TTS_STYLE      how to read, sent as the speech model's instruction ("a warm, patient teacher")
+  PANIM_TTS_STYLE      how to read, sent as an instruction, for a model that takes one ("teacher" for the built-in
+                       one); off by default, as gemini-3.8-flash-tts refuses instructions
   GEMINI_TTS_URL       the endpoint base (a test points it at a mock)
 
     .venv/bin/python harness/lecture/gemini_tts.py --check                  # the key, and a test line
@@ -46,6 +47,8 @@ REVISION = 1
 # request is slower and, when it fails, costs the whole line again).
 CHUNK_BYTES = int(os.environ.get("PANIM_TTS_CHUNK_BYTES", "2400"))
 TRIES = 7
+_REFUSES_INSTRUCTION = False
+# PANIM_TTS_STYLE=teacher sends this; any other text is sent as it is. Off by default (see synthesize).
 STYLE = ("Read this aloud as a warm, patient teacher explaining to a class: clearly, at an easy pace, with "
          "natural pauses. Hindi words in Hindi, English terms in English, as an Indian teacher speaks.")
 
@@ -87,6 +90,7 @@ def _audio_of(reply: dict) -> tuple[bytes, int]:
 
 def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
     """(PCM, sample rate) for one piece of text. Raises RuntimeError with Google's message when it fails."""
+    global _REFUSES_INSTRUCTION
     body = {
         "contents": [{"role": "user", "parts": [{"text": text}]}],
         "generationConfig": {
@@ -94,9 +98,11 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
         },
     }
+    # An instruction only when asked for: gemini-3.8-flash-tts refuses one ("Developer instruction is not enabled
+    # for this model"). Once refused, it is not sent again this run.
     style = _env("PANIM_TTS_STYLE")
-    if style != "none":
-        body["systemInstruction"] = {"parts": [{"text": style or STYLE}]}
+    if style and style != "none" and not _REFUSES_INSTRUCTION:
+        body["systemInstruction"] = {"parts": [{"text": STYLE if style == "teacher" else style}]}
     url = f"{_env('GEMINI_TTS_URL') or URL}/{model()}:generateContent"
     last = ""
     for attempt in range(TRIES):
@@ -111,8 +117,9 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
                 last = json.loads(detail)["error"]["message"]
             except Exception:  # noqa: BLE001
                 last = detail[:300]
-            if error.code == 400 and "systemInstruction" in body and re.search(r"system.?instruction", last, re.I):
-                del body["systemInstruction"]           # a model that takes no instruction: read as it is
+            if error.code == 400 and "systemInstruction" in body and re.search(r"(system|developer).?instruction", last, re.I):
+                _REFUSES_INSTRUCTION = True             # a model that takes no instruction: read as it is
+                del body["systemInstruction"]
                 continue
             if error.code in (429, 500, 502, 503, 504) and attempt < TRIES - 1:
                 # A long lecture is thousands of lines: the per-minute quota runs out, and is waited out.

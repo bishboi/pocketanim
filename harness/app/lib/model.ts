@@ -10,6 +10,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, lecturePrompt, resolveRegion, targetMinutes, teachingPlan, type Subject } from "./lecture";
 import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
@@ -244,6 +245,37 @@ function messageFromBody(body: {
   return { message: { ...message, content: content || null }, usage: body.usage };
 }
 
+/**
+ * The connection to OpenRouter. Node's own fetch drops a request that sends nothing for 5 minutes (headers or
+ * body) with a bare "fetch failed"; a reasoning model can think silently for longer, and the agent has its own
+ * watchdog (FIRST_REPLY_MINUTES), so those timeouts are off here.
+ */
+const OPENROUTER_AGENT = new Agent({ headersTimeout: 0, bodyTimeout: 0, connect: { timeout: 30_000 } });
+
+/** A network failure (not an answer from OpenRouter): worth sending the same request again. */
+function isNetworkError(error: unknown): boolean {
+  const text = `${error instanceof Error ? error.message : String(error)} ${causeCode(error)}`;
+  return /fetch failed|terminated|socket|ECONNRESET|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR/i.test(text);
+}
+
+function causeCode(error: unknown): string {
+  const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
+  return cause ? String(cause.code ?? cause.message ?? "") : "";
+}
+
+/** "fetch failed" with what actually went wrong, and what to do about it. */
+export function explainNetworkError(error: unknown): string {
+  const code = causeCode(error);
+  const detail = (error as { cause?: { message?: string } })?.cause?.message ?? "";
+  const why = /ENOTFOUND|EAI_AGAIN/.test(code) ? "the name openrouter.ai could not be looked up: is this machine online?"
+    : /ECONNREFUSED/.test(code) ? "the connection was refused (a proxy or firewall?)"
+    : /CERT|SELF_SIGNED|UNABLE_TO_VERIFY/.test(code + detail) ? "the TLS certificate was not trusted (a VPN or proxy inspecting traffic?)"
+    : /CONNECT_TIMEOUT|ETIMEDOUT/.test(code) ? "connecting timed out (a slow or blocked network)"
+    : /ECONNRESET|SOCKET|EPIPE|terminated/i.test(code + detail) ? "the connection dropped mid-reply (Wi-Fi, a VPN, or the Mac sleeping)"
+    : code || detail || "no reason given";
+  return `Could not reach OpenRouter: ${why}${code ? ` [${code}]` : ""}. Tried 3 times.`;
+}
+
 function isEmptyReply(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("empty message") || message.includes("returned no message");
@@ -288,9 +320,10 @@ async function streamCompletion(
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
-  const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
+  const response = await undiciFetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     signal,
+    dispatcher: OPENROUTER_AGENT,
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
@@ -460,6 +493,17 @@ async function completionWithRetry(
       }
       return result;
     } catch (error) {
+      if (!signal?.aborted && isNetworkError(error)) {
+        // A dropped connection: the same request again, after a pause, before giving up with the real reason.
+        if (attempt === EMPTY_RETRIES) throw new Error(explainNetworkError(error));
+        emit({
+          type: "message",
+          role: "status",
+          text: `The connection to OpenRouter failed (${causeCode(error) || "network"}). Retrying (${attempt + 1} of ${EMPTY_RETRIES})…`,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
+        continue;
+      }
       if (!isEmptyReply(error) || attempt === EMPTY_RETRIES) throw error;
       emit({
         type: "message",

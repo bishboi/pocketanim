@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
-import { VideoPlayer } from "@/components/video-player";
 import type { SceneIR } from "@/lib/pocketanim";
 
 type ExportState = {
@@ -79,7 +78,8 @@ const SCENE = "GeneratedScene";
 
 function sceneClassOf(source: string): string {
   if (/class\s+GeneratedScene\b/.test(source)) return SCENE;
-  const found = source.match(/class\s+(\w+)\s*\(\s*(?:ThreeDScene|Scene)\s*\)/);
+  // A Manim scene, or a lecture (pocket_lecture's Lecture, MapLecture...).
+  const found = source.match(/class\s+(\w+)\s*\(\s*(?:ThreeDScene|MovingCameraScene|Scene|\w*Lecture)\s*\)/);
   return found?.[1] ?? SCENE;
 }
 
@@ -245,10 +245,6 @@ export default function Home() {
     busy: false,
     quality: "m",
   });
-  /** The finished MP4 of a lecture build, rendered by Manim (the downloaded file), played on the page. */
-  const [movie, setMovie] = useState<{
-    build?: string; quality?: string; src?: string; busy: boolean; status?: string; error?: string; quick?: boolean;
-  }>({ busy: false });
   const logRef = useRef<HTMLDivElement>(null);
 
   const version = current >= 0 ? versions[current] : undefined;
@@ -372,47 +368,6 @@ export default function Home() {
       ),
     );
     setFrame(0);
-    // A lecture plays as the real video: rendered now, in the background, the way the download is.
-    if (lecture && exported.buildDir && exported.program && !exported.error) {
-      void renderMovie(exported.buildDir, played, video.quality);
-    }
-  }
-
-  /**
-   * Render the build's MP4 with Manim, as the download does, and play that: the quick preview is drawn by the page
-   * from the exported program and can place things differently. Progress: beats drawn, from /api/progress.
-   */
-  async function renderMovie(buildDir: string, scene: string, quality: string) {
-    const jobId = `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    const query = `build=${encodeURIComponent(buildDir)}&scene=${scene}&quality=${quality}`;
-    const started = Date.now();
-    setMovie({ build: buildDir, quality, busy: true, status: "Rendering the video with Manim…" });
-    const poll = setInterval(async () => {
-      try {
-        const state = await (await fetch(`/api/progress?id=${jobId}`)).json() as { done?: number; total?: number };
-        const elapsed = Math.round((Date.now() - started) / 1000);
-        const time = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
-        const total = state.total ?? 0;
-        if (total) {
-          const done = state.done ?? 0;
-          setMovie((m) => m.build === buildDir ? { ...m, status:
-            `Rendering the video with Manim: beat ${done} of ${total} (${Math.round((100 * done) / total)}%) · ${time}.` } : m);
-        }
-      } catch {
-        // progress is a nicety
-      }
-    }, 2000);
-    try {
-      const response = await fetch(`/api/video?${query}&prepare=1&job=${jobId}`);
-      const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
-      setMovie((m) => m.build === buildDir ? { build: buildDir, quality, busy: false, src: `/api/video?${query}` } : m);
-    } catch (e) {
-      setMovie((m) => m.build === buildDir
-        ? { build: buildDir, quality, busy: false, error: e instanceof Error ? e.message : String(e) } : m);
-    } finally {
-      clearInterval(poll);
-    }
   }
 
   async function runGenerate(edit: boolean) {
@@ -654,16 +609,6 @@ export default function Home() {
   async function downloadVideo() {
     if (!exported?.buildDir) return;
     const scene = version?.sceneClass ?? SCENE;
-    if (movie.src && movie.build === exported.buildDir && movie.quality === video.quality) {
-      // The video on the page is this file: save it as it is.
-      const link = document.createElement("a");
-      link.href = `${movie.src}&download=1`;
-      link.download = `${scene}.mp4`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      return;
-    }
     setVideo((v) => ({ ...v, busy: true, error: undefined }));
     try {
       const response = await fetch(
@@ -1172,33 +1117,7 @@ export default function Home() {
                   Expanding the program for playback…
                 </p>
               )}
-              {exported?.buildDir && movie.build === exported.buildDir && (
-                <div className="flex flex-col gap-2" data-testid="lecture-video">
-                  {movie.src && <VideoPlayer key={movie.src} src={movie.src} />}
-                  {movie.busy && (
-                    <p className="text-sm text-amber-200/90">
-                      {movie.status} The quick preview below is drawn by the page and is only approximate; the
-                      video replaces it when it is ready.
-                    </p>
-                  )}
-                  {movie.error && (
-                    <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-neutral-900 p-2 text-xs text-rose-300">
-                      The video did not render: {movie.error}
-                    </pre>
-                  )}
-                  {movie.src && (
-                    <button
-                      type="button"
-                      className="self-start text-xs text-neutral-500 underline"
-                      onClick={() => setMovie((m) => ({ ...m, quick: !m.quick }))}
-                    >
-                      {movie.quick ? "Hide the quick preview" : "Show the quick preview (approximate)"}
-                    </button>
-                  )}
-                </div>
-              )}
-              {ir && "mode" in ir && ir.mode === "2d" &&
-                !(movie.src && movie.build === exported?.buildDir && !movie.quick) && (
+              {ir && "mode" in ir && ir.mode === "2d" && (
                   <Player
                     key={version?.n}
                     ir={ir}
@@ -1323,14 +1242,7 @@ export default function Home() {
                         className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200"
                         value={video.quality}
                         disabled={video.busy}
-                        onChange={(e) => {
-                          const quality = e.target.value;
-                          setVideo((v) => ({ ...v, quality }));
-                          // The video on the page follows the chosen quality.
-                          if (exported?.buildDir && movie.build === exported.buildDir && !movie.busy) {
-                            void renderMovie(exported.buildDir, version?.sceneClass ?? SCENE, quality);
-                          }
-                        }}
+                        onChange={(e) => setVideo((v) => ({ ...v, quality: e.target.value }))}
                       >
                         <option value="l">480p</option>
                         <option value="m">720p</option>

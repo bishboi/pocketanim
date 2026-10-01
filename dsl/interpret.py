@@ -277,8 +277,10 @@ def parse(text: str) -> dict:
                 ("spin", float(args["rate"]), float(args["t"]), args.get("about", "theta"))
             )
         elif verb == "morph":
+            # keep=1: the source stays on stage with the target's shape (Transform, .animate); without it the
+            # target replaces it (TransformMatchingTex, ReplacementTransform).
             scene["timeline"].append(
-                ("morph", positional[0], positional[1], float(args["t"]))
+                ("morph", positional[0], positional[1], float(args["t"]), args.get("keep") == "1")
             )
         elif verb in ("show", "hide"):
             scene["timeline"].append((verb, positional[0]))
@@ -581,7 +583,8 @@ def build_2d(scene: dict) -> DecodedIR:
         # reaches this: everything it animates was shown first.
         if step[0] == "transform" and name_is_asset(objects, step[2]):
             # A transform onto a baked asset (a tier-3 program's moved group) is a morph between assets.
-            step = ("morph", step[1], step[2], step[3])
+            # Written only for a moved group (`.animate` in a staggered group), whose source stays on stage.
+            step = ("morph", step[1], step[2], step[3], True)
         for position in NEEDS_OBJECT.get(step[0], ()):
             name = step[position] if len(step) > position else None
             if isinstance(name, str) and name not in objects and name in scene["shapes"]:
@@ -879,7 +882,8 @@ def build_2d(scene: dict) -> DecodedIR:
                 obj["normals"] = normals
 
         elif step[0] == "morph":
-            _, source, target, duration = step
+            _, source, target, duration, *extra = step
+            keep = bool(extra and extra[0])
             src, dst = objects[source], objects[target]
             src["visible"] = True
             dst["visible"] = False
@@ -948,8 +952,14 @@ def build_2d(scene: dict) -> DecodedIR:
             # harmless for one morph, and cumulative for a chain of them. Three
             # morphs left three stale equations superimposed on the fourth, at
             # 255% of the frame's ink, under a frame-relative mean of 0.31%.
-            src["visible"] = False
-            dst["visible"] = True
+            if keep:
+                # The source moved (Transform, .animate): it is still the thing on stage, which a later
+                # fadeout or hide takes away. The target was only its shape.
+                src["visible"] = True
+                dst["visible"] = False
+            else:
+                src["visible"] = False
+                dst["visible"] = True
 
         elif step[0] in ("fade", "fadeout"):
             _, name, duration, *rest = step

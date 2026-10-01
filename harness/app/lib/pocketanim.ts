@@ -503,6 +503,17 @@ async function renderMp4(
     return { error: stderr.trim().split("\n").slice(-6).join("\n") || `manim exited ${code}` };
   }
   await mkdir(path.dirname(out), { recursive: true });
-  await rename(produced, out);
+  // The index at the front ("faststart"), where Manim leaves it at the end: the page's player can start a long
+  // lecture, and jump into it, without reading to the end of the file first. Without ffmpeg, the file as it is.
+  const fast = `${out}.fast.mp4`;
+  const remux = await run(["-y", "-v", "error", "-i", produced, "-c", "copy", "-movflags", "+faststart", fast],
+    { binary: "ffmpeg", timeoutMs: 600_000 }).catch(() => ({ code: -1 }));
+  if (remux.code === 0 && existsSync(fast)) {
+    await rename(fast, out);
+    await rm(produced, { force: true });
+  } else {
+    await rm(fast, { force: true });
+    await rename(produced, out);
+  }
   return { file: out };
 }

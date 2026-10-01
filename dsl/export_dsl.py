@@ -634,6 +634,14 @@ def _grow_line(rec, anim, duration: float) -> str | None:
     return None
 
 
+def _keeps_source(anim) -> str:
+    """` keep=1` for a transform whose source stays on stage holding the target's shape, as Manim's Transform,
+    `.animate` and MoveToTarget do; only ReplacementTransform puts the target there instead. A morph without it
+    hid the source and showed the target, so the source's later FadeOut and remove hid nothing: every drawing a
+    lecture slid aside stayed on screen for the rest of the program."""
+    return "" if getattr(anim, "replace_mobject_with_target_in_scene", False) else " keep=1"
+
+
 def _staggers(anim) -> bool:
     """An AnimationGroup whose children do not all start together."""
     import numpy as np
@@ -711,6 +719,11 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
         if isinstance(a, Transform) and getattr(a, "target_mobject", None) is not None:
             target = rec.declare(a.target_mobject)
             if not target:
+                return None
+            # As play_verbs does: two baked assets morph glyph by glyph; a shape and an asset cannot.
+            if rec.is_asset(name) and rec.is_asset(target):
+                return [f"morph {name} {target} t={dur:g}{_keeps_source(a)}"]
+            if rec.is_asset(name) or rec.is_asset(target):
                 return None
             return [f"transform {name} {target} t={dur:g}{suffix}"]
         if kind == "_AnimationBuilder":
@@ -1014,7 +1027,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     # exactly the correspondence TransformMatchingTex computes
                     # from TeX structure.
                     rec.timeline.append(
-                        f"morph {source} {target} t={duration:g}{suffix}"
+                        f"morph {source} {target} t={duration:g}{suffix}{_keeps_source(anim)}"
                     )
                 else:
                     # Never drop an animation silently: a missing verb shifts

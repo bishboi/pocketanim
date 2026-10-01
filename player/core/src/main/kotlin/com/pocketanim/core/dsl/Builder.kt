@@ -1345,8 +1345,10 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             // same thing again -- harmless for one morph, and cumulative for a
             // chain of them. Three morphs left three stale equations
             // superimposed on the fourth.
-            src.visible = false
-            dst.visible = true
+            // A moved source (Transform, .animate: keep) is still the thing on
+            // stage, which a later fadeout or hide takes away.
+            src.visible = step.keep
+            dst.visible = !step.keep
         }
     }
 

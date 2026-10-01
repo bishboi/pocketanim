@@ -41,3 +41,48 @@ def test_shape_text_transform_is_a_blocker_and_the_program_plays(tmp_path):
                         capture_output=True, text=True, timeout=600)
     summary = json.loads(ir.stdout.strip().splitlines()[-1])
     assert summary.get("error") is None and summary["frames"] > 0
+
+
+LECTURE = '''
+from manim import *
+from pocket_lecture import *
+
+
+class Slide(MapLecture):
+    def construct(self):
+        self.board()
+        self.beat("First a box.", self.sketch("a", [{"id": "b", "type": "rect", "at": [0, 0], "w": 3, "h": 2,
+                                                     "label": "FIRST"}]))
+        {aside}
+        self.beat("Now a circle replaces it.", self.sketch("c", [{"id": "o", "type": "circle", "at": [0, 0],
+                                                                  "r": 1.5, "label": "SECOND"}]))
+        self.beat("Hold.")
+'''
+
+
+def _last_frame_instances(tmp_path, source: str) -> tuple[int, str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    scene = tmp_path / "scene.py"
+    scene.write_text(source)
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Slide",
+                          str(tmp_path)], capture_output=True, text=True, timeout=600,
+                         env={**__import__("os").environ, "PANIM_VOICE": "silent"})
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1, result
+    ir = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "scene_ir.py"), str(tmp_path), "Slide"],
+                        capture_output=True, text=True, timeout=600)
+    assert json.loads(ir.stdout.strip().splitlines()[-1]).get("error") is None
+    data = json.loads((tmp_path / "scene_ir.json").read_text())
+    return sum(len(data["pieces"][i]) for i in data["runs"][-1][1]), result["program"]
+
+
+def test_a_drawing_slid_aside_leaves_with_the_stage(tmp_path):
+    """A definition beside a drawing slides the drawing left with .animate, which Manim plays as a Transform
+    that keeps the drawing on stage. The program morphed it into its moved copy and hid the original, so the
+    stage change that followed faded out the hidden original: the copy stayed on screen for the rest of the
+    lecture, under every later picture. The last frame must hold what it holds without the slide."""
+    plain, _ = _last_frame_instances(tmp_path / "plain", LECTURE.replace("{aside}", ""))
+    slid, program = _last_frame_instances(
+        tmp_path / "slid", LECTURE.replace("{aside}", 'self.beat("Beside it.", self.define("Isolated", "no force"))'))
+    assert "keep=1" in program
+    assert slid == plain

@@ -39,7 +39,8 @@ sealed class Step {
         val source: String, val target: String, val seconds: Double, val rate: String,
         val arc: Double = 0.0,
     ) : Step()
-    class Morph(val source: String, val target: String, val seconds: Double) : Step()
+    /** [keep]: the source stays on stage with the target's shape (Transform, .animate); otherwise the target replaces it. */
+    class Morph(val source: String, val target: String, val seconds: Double, val keep: Boolean = false) : Step()
     class Show(val name: String) : Step()
     /** The other half of [Show]: what Manim's Scene.remove took off stage. */
     class Hide(val name: String) : Step()
@@ -201,7 +202,7 @@ class Program(
                             arc = args["arc"]?.toDouble() ?: 0.0,
                         )
                     )
-                    "morph" -> timeline.add(Step.Morph(positional[0], positional[1], t()))
+                    "morph" -> timeline.add(Step.Morph(positional[0], positional[1], t(), keep = args["keep"] == "1"))
                     "show" -> timeline.add(Step.Show(positional[0]))
                     "hide" -> timeline.add(Step.Hide(positional[0]))
                     "fade" -> timeline.add(Step.Fade(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))

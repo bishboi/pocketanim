@@ -199,7 +199,7 @@ export function progressFile(jobId: string): string | null {
  * Speak a lecture's lines before Manim runs, PANIM_TTS_THREADS at a time, into the cache the render reads.
  * Null when it went well (or there is nothing to speak), else the voice's error.
  */
-export async function prespeak(source: string, progress: string | null): Promise<string | null> {
+export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number }> {
   const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(dir, "scene.py");
   await writeFile(scenePath, source, "utf8");
@@ -210,12 +210,12 @@ export async function prespeak(source: string, progress: string | null): Promise
   await rm(dir, { recursive: true, force: true });
   const line = stdout.toString().trim().split("\n").pop() ?? "";
   try {
-    const data = JSON.parse(line) as { ok?: boolean; error?: string };
-    return data.ok ? null : data.error ?? "The voice did not speak.";
+    const data = JSON.parse(line) as { ok?: boolean; error?: string; beats?: number };
+    return { error: data.ok ? null : data.error ?? "The voice did not speak.", beats: data.beats ?? 0 };
   } catch {
     // The render speaks what is left itself: a pre-pass that could not run is no reason to stop.
     console.warn("prespeak:", stderr.trim().split("\n").slice(-4).join("\n"));
-    return null;
+    return { error: null, beats: 0 };
   }
 }
 
@@ -438,10 +438,15 @@ const VIDEO_QUALITY: Record<string, string> = { l: "480p15", m: "720p30", h: "10
  * The phone plays the program; this is the file to publish. Rendered once
  * per build and quality, then served from the build directory.
  */
+/** Renders in flight, by output file: a second request for the same video waits for the first. */
+const RENDERING = ((globalThis as { __panimRendering?: Map<string, Promise<{ file: string } | { error: string }>> })
+  .__panimRendering ??= new Map());
+
 export async function renderVideo(
   buildDir: string,
   sceneClass: string,
   quality = "m",
+  progress: string | null = null,
 ): Promise<{ file: string } | { error: string }> {
   try {
     ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
@@ -451,6 +456,29 @@ export async function renderVideo(
   if (!(quality in VIDEO_QUALITY)) quality = "m";
   const out = path.join(buildDir, "video", `${sceneClass}-${quality}.mp4`);
   if (existsSync(out)) return { file: out };
+  const running = RENDERING.get(out);
+  if (running) return running;
+  const job = renderMp4(buildDir, sceneClass, quality, out, progress);
+  RENDERING.set(out, job);
+  try {
+    return await job;
+  } finally {
+    RENDERING.delete(out);
+  }
+}
+
+async function renderMp4(
+  buildDir: string,
+  sceneClass: string,
+  quality: string,
+  out: string,
+  progress: string | null,
+): Promise<{ file: string } | { error: string }> {
+  if (progress) {
+    // Each beat Manim draws adds one (pocket_lecture._progress_beat); the count is the export's.
+    const beats = await readFile(path.join(buildDir, "beats.json"), "utf8").then((t) => Number(JSON.parse(t).beats) || 0, () => 0);
+    await writeFile(progress, JSON.stringify({ phase: "video", done: 0, total: beats, beats }));
+  }
   const source = existsSync(path.join(buildDir, "source.py")) ? "source.py" : "scene.py";
   const media = path.join(buildDir, "media");
   const { code, stderr } = await run(
@@ -459,13 +487,14 @@ export async function renderVideo(
      "--media_dir", media, "-o", `${sceneClass}.mp4`, source, sceneClass],
     {
       cwd: buildDir,
-      timeoutMs: 1_800_000,
+      timeoutMs: 3 * 3600_000,
       // A lecture imports the engine by name; export_scene.py puts it on the
       // path for the phone export, and a plain `manim render` needs it too.
       env: {
         PYTHONPATH: [path.join(REPO, "harness", "lecture"), REPO, process.env.PYTHONPATH]
           .filter(Boolean)
           .join(path.delimiter),
+        ...(progress ? { PANIM_PROGRESS_FILE: progress } : {}),
       },
     },
   );

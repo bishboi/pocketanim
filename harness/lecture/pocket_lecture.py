@@ -516,7 +516,9 @@ def _progress_beat() -> None:
         return
     try:
         state = json.loads(Path(path).read_text()) if Path(path).exists() else {}
-        state.update(phase="render", done=_BEATS_DONE, total=state.get("beats") or state.get("total") or 0)
+        # The phase is the caller's ("render" while exporting, "video" while rendering the MP4).
+        state.update(phase=state.get("phase") or "render", done=_BEATS_DONE,
+                     total=state.get("beats") or state.get("total") or 0)
         tmp = Path(path + ".tmp")
         tmp.write_text(json.dumps(state))
         tmp.replace(path)

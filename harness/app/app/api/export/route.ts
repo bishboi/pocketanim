@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { REPO, exportScene, frameCount, prespeak, progressFile } from "@/lib/pocketanim";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
@@ -26,15 +26,19 @@ export async function POST(request: NextRequest) {
     // The lines are spoken first, several at once, with progress the page polls (/api/progress); Manim then finds
     // each line ready instead of waiting for them one by one.
     const progress = progressFile(String(body?.jobId ?? ""));
+    let beats = 0;
     if (/pocket_lecture/.test(source)) {
-      const voiceError = await prespeak(source, progress);
-      if (voiceError) {
+      const spoken = await prespeak(source, progress);
+      if (spoken.error) {
         if (progress) await rm(progress, { force: true });
-        return NextResponse.json({ error: voiceError }, { status: 500 });
+        return NextResponse.json({ error: spoken.error }, { status: 500 });
       }
+      beats = spoken.beats;
     }
     const { result, buildDir } = await exportScene(source, sceneClass, progress);
     if (progress) await rm(progress, { force: true });
+    // The video render (/api/video) counts its progress against this.
+    if (beats) await writeFile(path.join(buildDir, "beats.json"), JSON.stringify({ beats }));
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
 

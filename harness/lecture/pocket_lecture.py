@@ -177,8 +177,6 @@ FONTS = {
     "Kalam-Bold.ttf": "ofl/kalam/Kalam-Bold.ttf",
     "PatrickHand-Regular.ttf": "ofl/patrickhand/PatrickHand-Regular.ttf",
     "PermanentMarker-Regular.ttf": "apache/permanentmarker/PermanentMarker-Regular.ttf",
-    # The whiteboard lettering of drawings and diagrams (MARKER).
-    "ShantellSans[BNCE,INFM,SPAC,wght].ttf": "ofl/shantellsans/ShantellSans%5BBNCE,INFM,SPAC,wght%5D.ttf",
     "Oswald[wght].ttf": "ofl/oswald/Oswald%5Bwght%5D.ttf",
     "EBGaramond[wght].ttf": "ofl/ebgaramond/EBGaramond%5Bwght%5D.ttf",
     "Cinzel[wght].ttf": "ofl/cinzel/Cinzel%5Bwght%5D.ttf",
@@ -336,14 +334,13 @@ def _tint(icon_id: str) -> str:
     return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
 
 
-# A drawing's outline weight at full size, and the lettering that goes with drawings (a bold marker in capitals).
+# A drawing's outline weight at full size.
 OUTLINE = 4.5
-MARKER = "Shantell Sans"
 
 
 def marker(text: str, size: float = 20, color: str | None = None):
-    """Words written with a marker beside a drawing: bold capitals in the board's ink, as on a whiteboard."""
-    return T(str(text).upper(), size, color or P.CREAM, font=MARKER, weight=BOLD)
+    """A diagram's words: the style's own font, bold, in the board's ink."""
+    return T(str(text), size, color or P.CREAM, weight=BOLD)
 
 
 _DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
@@ -1974,8 +1971,7 @@ class Lecture(Scene):
         parts.append(head)
         if items:
             rule = Line(LEFT, RIGHT, stroke_color=tone, stroke_width=2)
-            lines = VGroup(*[T("• " + wrap(i, 22), 15 if small else 16, P.CREAM, font=MARKER, line_spacing=0.85)
-                             for i in items])
+            lines = VGroup(*[T("• " + wrap(i, 22), 15 if small else 16, P.CREAM, line_spacing=0.85) for i in items])
             lines.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
             rule.set_width(max(lines.width, head.width))
             parts += [rule, lines]
@@ -2075,7 +2071,7 @@ class Lecture(Scene):
         whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
         head = None
         if title:
-            head = fit(marker(title, 30), w - 0.4)
+            head = fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4)
         # Fit the finished diagram to the stage, so revealing more never moves what is already there.
         room_h = h - (0.8 if head else 0.2)
         scale = min(1.45, (w - 0.3) / max(whole.width, 0.01), room_h / max(whole.height, 0.01))

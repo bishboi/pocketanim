@@ -29,8 +29,13 @@ COLOUR = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione
           "meteocons", "fluent-emoji"]
 # Single-colour silhouettes: used only when no colour icon fits, filled with a colour from the style's palette.
 MONO = ["game-icons", "mdi", "healthicons"]
+# Whiteboard drawings (sketch()): dark outlines and flat colour fills, drawn in on the board.
+SKETCH = ["openmoji", "streamline-plump-color"]
+SKETCH_ONLY = ["streamline-plump-color"]
+# Not for a classroom diagram, whatever the word ("atom" is not an atom bomb).
+UNFIT = re.compile(r"(^|-)(bomb|gun|pistol|knife|dagger|skull|coffin|cigarette|syringe)(-|$)")
 _first = os.environ.get("PANIM_ICON_FAMILY", "").strip()
-SETS = ([_first] if _first else []) + [s for s in COLOUR + MONO if s != _first]
+SETS = ([_first] if _first else []) + [s for s in COLOUR + MONO + SKETCH if s != _first]
 CREDITS = {
     "game-icons": "game-icons.net (CC BY 3.0)", "fluent-emoji-flat": "Microsoft Fluent Emoji (MIT)",
     "fluent-emoji": "Microsoft Fluent Emoji (MIT)", "twemoji": "Twemoji by X/Twitter (CC BY 4.0)",
@@ -38,13 +43,14 @@ CREDITS = {
     "fxemoji": "Firefox OS Emoji (Apache 2.0)", "meteocons": "Meteocons by Bas Milius (MIT)",
     "openmoji": "OpenMoji (CC BY-SA 4.0)", "noto": "Google Noto Emoji (Apache 2.0)",
     "mdi": "Material Design Icons (Apache 2.0)", "healthicons": "Health Icons (MIT)",
+    "streamline-plump-color": "Streamline Plump (CC BY 4.0)",
 }
 # What fetch_icons.py downloads by default; a library missing any of these is fetched again.
 REQUIRED = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
-            "meteocons", "game-icons", "mdi", "healthicons"]
+            "meteocons", "game-icons", "mdi", "healthicons", "streamline-plump-color"]
 # Words a lecture uses that the icon names spell differently.
 SYNONYMS = {
-    "sugarcane": "sugar-cane", "maize": "corn", "paddy": "sheaf-of-rice", "rice": "sheaf-of-rice",
+    "sugarcane": "sugar-cane", "atom": "atom-symbol", "atoms": "atom-symbol", "maize": "corn", "paddy": "sheaf-of-rice", "rice": "sheaf-of-rice",
     "cattle": "cow", "livestock": "cow", "dairy": "cow", "industry": "factory", "industries": "factory",
     "petroleum": "oil-drum", "crude oil": "oil-drum", "mining": "mine-truck", "minerals": "gold-mine",
     "iron ore": "ore", "hydroelectric": "dam", "hydropower": "dam", "rainfall": "rain", "monsoon": "rain",
@@ -146,6 +152,8 @@ def _search(query: str, limit: int = 8) -> list[dict]:
     words = [w for w in q.split("-") if len(w) > 1]
     scored = []
     for rank, (prefix, names) in enumerate(_names().items()):
+        if prefix in SKETCH_ONLY and prefix not in str(query):
+            continue                   # whiteboard drawings for diagrams only (sketch()), not map or panel icons
         for name in names:
             parts = name.split("-")
             if name == q:
@@ -277,6 +285,36 @@ def resolve(name: str) -> str | None:
     """The icon id a script's name means, or None."""
     found = search(name, limit=1)
     return found[0]["id"] if found else None
+
+
+def sketch(name: str) -> str | None:
+    """The whiteboard drawing for a name: outlined, flat-coloured, the style a diagram draws in (an outline first,
+    then its colours). The same thing the plain search finds, in OpenMoji's outlined drawing when OpenMoji has it
+    (Unicode emoji share their names across sets), else Streamline Plump's, else the plain pick, which is drawn with
+    outlines too. An explicit "set:name" is kept."""
+    if ":" in str(name):
+        return resolve(name)
+    plain = resolve(name)
+    names = _names()
+    if plain:
+        base = plain.split(":", 1)[1]
+        if base in names.get("openmoji", []) and not SYMBOLIC.search(base):
+            return f"openmoji:{base}"
+    # OpenMoji's own best match, when the plain pick is a silhouette or names nothing OpenMoji has ("car" is
+    # mdi:car, an interface glyph; OpenMoji draws an automobile).
+    if not plain or plain.split(":", 1)[0] in MONO:
+        words = {_norm(SYNONYMS.get(str(name).lower().strip(), name)), *(_norm(v) for v in _variants(str(name)))}
+        hit = next((r["id"] for r in search(name, 30) if r["set"] == "openmoji" and not SYMBOLIC.search(r["name"])
+                    and not UNFIT.search(r["name"]) and words & set(r["name"].split("-"))), None)
+        if hit:
+            return hit
+    q = _norm(SYNONYMS.get(str(name).lower().strip(), name))
+    plump = [n for n in names.get("streamline-plump-color", []) if not n.endswith("-flat")]
+    for candidate in (q, *(_norm(v) for v in _variants(q))):
+        hits = sorted((n for n in plump if n == candidate or candidate in n.split("-")[:1]), key=len)
+        if hits:
+            return f"streamline-plump-color:{hits[0]}"
+    return plain
 
 
 _GRADIENT = re.compile(r"<(linearGradient|radialGradient)\b([^>]*?)(/>|>(.*?)</\1>)", re.S)

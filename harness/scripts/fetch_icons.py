@@ -24,7 +24,7 @@ REGISTRY = "https://registry.npmjs.org/@iconify-json/{name}/latest"
 # Colour sets first (illustrations and map icons), then single-colour silhouettes as a fallback.
 # fluent-emoji (Microsoft's shaded 3-D emoji, 100 MB) is optional: --sets fluent-emoji
 DEFAULT = ["fluent-emoji-flat", "twemoji", "streamline-emojis", "noto", "emojione", "openmoji", "fxemoji",
-           "meteocons", "game-icons", "mdi", "healthicons"]
+           "meteocons", "game-icons", "mdi", "healthicons", "streamline-plump-color"]
 
 
 def _get(url: str) -> bytes:

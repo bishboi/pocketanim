@@ -334,6 +334,44 @@ def _tint(icon_id: str) -> str:
     return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
 
 
+_DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
+
+
+def _ink_svg(text: str, ink: str) -> str:
+    """Near-black paint as the board's ink: a whiteboard drawing's outlines in the colour the lecture writes in, so
+    they show on a dark board as on a light one."""
+    import icons
+
+    def swap(m):
+        rgb = (0, 0, 0) if m.group(2) == "black" else icons._hex(m.group(2))
+        dark = rgb is not None and (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) < 40
+        return f"{m.group(1)}{ink}" if dark else m.group(0)
+
+    return _DARK_PAINT.sub(swap, text)
+
+
+def sketch_mob(name: str, height: float = 0.9):
+    """A whiteboard drawing of a thing (icons.sketch): dark outlines in the board's ink and flat colour fills, the
+    way a teacher draws on a board. Written in (Write), it draws its outlines first and then fills them."""
+    import icons
+
+    icon_id = icons.sketch(name)
+    if icon_id is None:
+        raise KeyError(f"no drawing for {name!r}")
+    source = icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None)
+    ink = P.CREAM
+    path = source.with_name(f"{source.stem}-ink{ink.strip('#')}.svg")
+    if not path.exists():
+        path.write_text(_ink_svg(source.read_text(encoding="utf-8"), ink), encoding="utf-8")
+    mob = SVGMobject(str(path), height=height)
+    # The set's line weights are for its own size: thinner at a drawing's size on the board, never hairlines.
+    for part in mob.family_members_with_points():
+        if part.get_stroke_width() > 0:
+            part.set_stroke(width=min(3.2, max(1.6, part.get_stroke_width() * 0.55)))
+    USED_ICONS.add(icon_id)
+    return mob
+
+
 def icon_mob(name: str, color: str | None = None, height: float = 0.5):
     """An icon from the downloaded sets (icons.py) as a vector mobject.
 
@@ -1446,11 +1484,12 @@ class Lecture(Scene):
         self._problem = None
         return going
 
-    def _to_stage(self, group):
+    def _to_stage(self, group, draw=None):
         """Put a picture on the stage, over the map; the one there before fades.
 
         A second picture for the same beat (a figure and its equation, say) goes beside the first rather
-        than replacing it before it was ever seen: the stage splits in two."""
+        than replacing it before it was ever seen: the stage splits in two. `draw`: the picture's parts, to be
+        written in one after another (outlines, then their colours, as on a whiteboard) instead of faded in."""
         if len(self._beat_new) == 1 and self.stage_body is self._beat_new[0] and len(group.get_family()) > 1 \
                 and len(self.stage_body.get_family()) > 1:
             return self._beside(group)
@@ -1462,7 +1501,10 @@ class Lecture(Scene):
         self.stage_pending, self._next_pending = self._next_pending, []
         self._stage_keys, self._next_keys = set(self._next_keys), set()
         self._beat_new.append(group)
-        show = FadeIn(new, scale=1.02)
+        if draw:
+            show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[Write(m) for m in draw], lag_ratio=0.3))
+        else:
+            show = FadeIn(new, scale=1.02)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
@@ -1877,38 +1919,74 @@ class Lecture(Scene):
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
     def _entity(self, name: str | None, height: float):
-        """An SVG drawing of what a diagram's node stands for (a tree, a factory, a cow), or None."""
+        """A whiteboard drawing of what a diagram's node stands for (a tree, a factory, a cow), or None."""
         if not name:
             return None
         try:
-            return icon_mob(str(name), None, height=height)
+            return sketch_mob(str(name), height=height)
         except Exception:  # noqa: BLE001 -- no drawing for it (or none downloaded): the label carries the node
             return None
 
-    def _node(self, label: str, entity: str | None, tone: str, small: bool = False):
-        drawing = self._entity(entity, 0.62 if small else 0.85)
-        text = T(wrap(str(label), 14), 16 if small else 18, P.CREAM, line_spacing=0.85)
-        inner = VGroup(*([drawing] if drawing is not None else []), text).arrange(DOWN, buff=0.12)
-        box = RoundedRectangle(corner_radius=0.16, width=max(inner.width + 0.4, 1.7), height=inner.height + 0.35,
-                               stroke_color=tone, stroke_width=3, fill_color=_tint_on_bg(tone, 0.12), fill_opacity=1)
+    def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None):
+        """A diagram's node, as drawn on a board: the thing's drawing above its name in an outlined box; or, for a
+        diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items."""
+        drawing = self._entity(entity, 0.75 if small else 1.0)
+        items = [str(i) for i in (items or [])][:5]
+        words_only = drawing is None
+        size = (16 if small else 18) + (2 if words_only and not items else 0)
+        text = T(wrap(str(label), 16 if words_only else 14), size, P.CREAM, weight=BOLD if words_only else NORMAL,
+                 line_spacing=0.85)
+        parts = [drawing] if drawing is not None else []
+        head = text
+        if number is not None:
+            badge = VGroup(Circle(radius=0.2, fill_color=tone, fill_opacity=1, stroke_color=P.CREAM, stroke_width=2),
+                           T(str(number), 15, P.BG, weight=BOLD))
+            badge[1].move_to(badge[0])
+            head = VGroup(badge, text).arrange(RIGHT, buff=0.15)
+        parts.append(head)
+        if items:
+            rule = Line(LEFT, RIGHT, stroke_color=tone, stroke_width=2)
+            lines = VGroup(*[T("• " + wrap(i, 22), 14 if small else 15, P.CREAM, line_spacing=0.85) for i in items])
+            lines.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
+            rule.set_width(max(lines.width, head.width))
+            parts += [rule, lines]
+        inner = VGroup(*parts).arrange(DOWN, buff=0.14)
+        if items:
+            inner[-1].align_to(inner[-2], LEFT)
+        # Words alone sit on a card of flat colour, like a marker-filled box; a drawing keeps a light one.
+        box = RoundedRectangle(corner_radius=0.18, width=max(inner.width + 0.45, 1.8), height=inner.height + 0.4,
+                               stroke_color=tone, stroke_width=3.5,
+                               fill_color=_tint_on_bg(tone, 0.32 if words_only else 0.12), fill_opacity=1)
         return VGroup(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None):
         """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
 
         kind: flow (in order, left to right, wrapping), cycle (round), tree (from the first node down),
-        hub (the first node in the middle, the rest around it). nodes: [{id, label, entity?}];
-        edges: [[from, to, label?]] (a flow or cycle without edges joins its nodes in order). `show` is the
-        node ids to draw now (default all); `reveal_nodes` brings in the rest, a beat at a time."""
+        hub (the first node in the middle, the rest around it), categories (the first node, the whole, above its
+        kinds, each a card of words with its items: a classification), steps (a flow of numbered cards).
+        nodes: [{id, label, entity?, items?}]: entity is a thing to draw (a tree, a factory); items are short lines
+        listed in the node (a category's members). edges: [[from, to, label?]] (a flow, cycle or steps without
+        edges joins its nodes in order; categories join the first node to the rest). `show` is the node ids to
+        draw now (default all); `reveal_nodes` brings in the rest, a beat at a time. Everything is written in as
+        on a whiteboard: outlines first, then their colours."""
         cx, cy, w, h = self.STAGE
         nodes = [dict(n) for n in list(nodes)[:9]]
         ids = [str(n["id"]) for n in nodes]
         edges = [list(e) for e in edges or []]
-        if not edges and kind in ("flow", "cycle"):
+        if not edges and kind in ("flow", "cycle", "steps"):
             edges = [[a, b] for a, b in zip(ids, ids[1:])] + ([[ids[-1], ids[0]]] if kind == "cycle" and len(ids) > 2 else [])
+        if not edges and kind == "categories":
+            edges = [[ids[0], i] for i in ids[1:]]
         tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
         small = len(nodes) > 5
-        mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small) for k, (i, n) in enumerate(zip(ids, nodes))}
+        mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small, items=n.get("items"),
+                              number=k + 1 if kind == "steps" else None)
+                for k, (i, n) in enumerate(zip(ids, nodes))}
+        if kind == "categories":
+            kind = "tree"
+        elif kind == "steps":
+            kind = "flow"
         # Layout.
         if kind == "cycle":
             radius = 1.7 + 0.12 * len(ids)
@@ -1972,13 +2050,18 @@ class Lecture(Scene):
             if head.get_top()[1] > cy + h / 2:
                 head.move_to([cx, cy + h / 2 - head.height / 2, 0])
         shown = set(ids if show is None else [str(x) for x in show])
-        self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None}
+        self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None, "write": True}
         self._next_keys.add(key)
         first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
         self._next_pending.extend([mobs[i] for i in ids if i not in shown]
                                   + [m for a, b, m in arrows if not (a in shown and b in shown)])
         body = VGroup(*([head] if head else []), *first)
-        return self._to_stage(Group(body))
+        # Written in node by node, each arrow after the nodes it joins, as a teacher draws it on a board.
+        order = ([head] if head else []) + [mobs[i] for i in ids if i in shown]
+        for a, b, m in arrows:
+            if a in shown and b in shown:
+                order.insert(max(order.index(mobs[a]), order.index(mobs[b])) + 1, m)
+        return self._to_stage(Group(body), draw=order)
 
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
@@ -1994,6 +2077,7 @@ class Lecture(Scene):
         self._beat_revealed.extend(drawn)
         # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
         anims = [Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
+                 Write(self._stage_add(d["nodes"][i])) if d.get("write") else
                  FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
         for a, b, mob in d["edges"]:
             if (a in new or b in new) and a in d["shown"] and b in d["shown"]:

@@ -366,7 +366,7 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # to the question.
 STEP_OPS = {"reveal", "focus", "answer"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
-DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub"}
+DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
 
 
@@ -427,7 +427,11 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if op.get("kind", "flow") not in DIAGRAM_KINDS:
             return f"diagram kind must be one of {', '.join(sorted(DIAGRAM_KINDS))}"
         if not 2 <= len(nodes) <= 9 or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
-            return "'diagram' needs 2-9 nodes, each {id, label, entity?}"
+            return "'diagram' needs 2-9 nodes, each {id, label, entity?, items?}"
+        bad_items = [n["id"] for n in nodes if n.get("items") is not None
+                     and (not isinstance(n["items"], list) or len(n["items"]) > 5)]
+        if bad_items:
+            return f"diagram node {bad_items[0]!r}: items must be a list of at most 5 short lines"
         ids = [str(n["id"]) for n in nodes]
         if len(set(ids)) != len(ids):
             return "diagram node ids must be different"
@@ -1355,7 +1359,8 @@ def _op_call(op: dict) -> str:
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         return f"self.gallery([{items}]{title})"
     if kind == "diagram":
-        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {})}
+        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
+                  **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {})}
                  for n in op["nodes"]]
         edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
         show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""

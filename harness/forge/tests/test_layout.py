@@ -259,3 +259,26 @@ def test_figures_are_not_placed_inside_a_problem():
     place_figures(script)
     beats = script["chapters"][0]["beats"]
     assert not any(op.get("op") == "figure" for b in beats[:2] for op in b.get("do", []))
+
+
+def test_diagram_drawings_are_whiteboard_drawings_in_the_board_ink():
+    import icons
+    import pocket_lecture as pl
+
+    assert icons.sketch("tree") == "openmoji:deciduous-tree"           # outlined and flat-filled, not an emoji
+    assert icons.sketch("river") != "openmoji:screwdriver"             # whole words, not letters inside one
+    assert "#000" not in pl._ink_svg('<path stroke="#000" fill="#fcea2b"/>', "#F4E9D8")
+    assert 'fill="#fcea2b"' in pl._ink_svg('<path stroke="#000" fill="#fcea2b"/>', "#F4E9D8")
+
+
+def test_categories_and_steps_are_cards_of_words_written_in():
+    scene = _board_scene()
+    anim = scene.diagram("f", "categories", [{"id": "all", "label": "Forces"},
+                                              {"id": "c", "label": "Contact", "items": ["Friction", "Tension"]},
+                                              {"id": "n", "label": "Non-contact", "items": ["Gravity"]}])
+    nodes = scene.diagrams["f"]["nodes"]
+    assert nodes["all"].get_bottom()[1] > nodes["c"].get_top()[1]   # the whole above its kinds
+    assert len(scene.diagrams["f"]["edges"]) == 2                    # joined to each kind
+    assert "Write" in repr([type(a).__name__ for a in anim.animations[-1].animations])
+    scene.diagram("s", "steps", [{"id": "a", "label": "Pick the body"}, {"id": "b", "label": "Draw the forces"}])
+    assert len(scene.diagrams["s"]["edges"]) == 1

@@ -177,6 +177,8 @@ FONTS = {
     "Kalam-Bold.ttf": "ofl/kalam/Kalam-Bold.ttf",
     "PatrickHand-Regular.ttf": "ofl/patrickhand/PatrickHand-Regular.ttf",
     "PermanentMarker-Regular.ttf": "apache/permanentmarker/PermanentMarker-Regular.ttf",
+    # The whiteboard lettering of drawings and diagrams (MARKER).
+    "ShantellSans[BNCE,INFM,SPAC,wght].ttf": "ofl/shantellsans/ShantellSans%5BBNCE,INFM,SPAC,wght%5D.ttf",
     "Oswald[wght].ttf": "ofl/oswald/Oswald%5Bwght%5D.ttf",
     "EBGaramond[wght].ttf": "ofl/ebgaramond/EBGaramond%5Bwght%5D.ttf",
     "Cinzel[wght].ttf": "ofl/cinzel/Cinzel%5Bwght%5D.ttf",
@@ -334,6 +336,16 @@ def _tint(icon_id: str) -> str:
     return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
 
 
+# A drawing's outline weight at full size, and the lettering that goes with drawings (a bold marker in capitals).
+OUTLINE = 4.5
+MARKER = "Shantell Sans"
+
+
+def marker(text: str, size: float = 20, color: str | None = None):
+    """Words written with a marker beside a drawing: bold capitals in the board's ink, as on a whiteboard."""
+    return T(str(text).upper(), size, color or P.CREAM, font=MARKER, weight=BOLD)
+
+
 _DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
 
 
@@ -364,15 +376,25 @@ def sketch_mob(name: str, height: float = 0.9):
     if not path.exists():
         path.write_text(_ink_svg(source.read_text(encoding="utf-8"), ink), encoding="utf-8")
     mob = SVGMobject(str(path), height=height)
-    # The set's line weights are for its own size: thinner at a drawing's size on the board, never hairlines.
+    # Thick ink outlines and flat colour, as a marker draws: the set's own outlines at a marker's weight, and an
+    # outline on every coloured shape that has none (a drawing from a set without them).
+    weight = OUTLINE * min(1.0, max(0.55, height / 1.2))
     for part in mob.family_members_with_points():
-        if part.get_stroke_width() > 0:
-            part.set_stroke(width=min(3.2, max(1.6, part.get_stroke_width() * 0.55)))
+        if part.get_stroke_width() > 0 and part.get_stroke_opacity() > 0:
+            part.set_stroke(width=weight)
+        elif part.get_fill_opacity() > 0:
+            part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
     USED_ICONS.add(icon_id)
     return mob
 
 
 def icon_mob(name: str, color: str | None = None, height: float = 0.5):
+    """A picture of a thing, anywhere in a lecture (a map's marker, a panel's line, an illustration): a whiteboard
+    drawing (sketch_mob), never an emoji. `color` is kept for the call sites; a drawing has its own colours."""
+    return sketch_mob(name, height=height)
+
+
+def _emoji_mob(name: str, color: str | None = None, height: float = 0.5):
     """An icon from the downloaded sets (icons.py) as a vector mobject.
 
     Colour icons keep their own colours (gradients flattened, icons.svg_file).
@@ -1837,7 +1859,9 @@ class Lecture(Scene):
         unit = direction / length
 
         def exit_point(box, sign):
-            half_w, half_h = box[0].width / 2, box[0].height / 2
+            # A drawing has no box: its edge is the drawing and its name together.
+            frame = box if getattr(box, "is_drawing", False) else box[0]
+            half_w, half_h = frame.width / 2, frame.height / 2
             scale = min(half_w / (abs(unit[0]) or 1e-9), half_h / (abs(unit[1]) or 1e-9))
             return box.get_center() + sign * unit * (scale + 0.08)
 
@@ -1930,12 +1954,16 @@ class Lecture(Scene):
     def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None):
         """A diagram's node, as drawn on a board: the thing's drawing above its name in an outlined box; or, for a
         diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items."""
-        drawing = self._entity(entity, 0.75 if small else 1.0)
+        drawing = self._entity(entity, 1.0 if small else 1.35)
         items = [str(i) for i in (items or [])][:5]
         words_only = drawing is None
-        size = (16 if small else 18) + (2 if words_only and not items else 0)
-        text = T(wrap(str(label), 16 if words_only else 14), size, P.CREAM, weight=BOLD if words_only else NORMAL,
-                 line_spacing=0.85)
+        size = (17 if small else 20) + (2 if words_only and not items else 0)
+        text = marker(wrap(str(label), 14 if words_only else 12), size)
+        if drawing is not None and not items and number is None:
+            # A thing as a teacher draws it: the drawing, its name in capitals under it, no box.
+            node = VGroup(drawing, text).arrange(DOWN, buff=0.18)
+            node.is_drawing = True
+            return node
         parts = [drawing] if drawing is not None else []
         head = text
         if number is not None:
@@ -1946,7 +1974,8 @@ class Lecture(Scene):
         parts.append(head)
         if items:
             rule = Line(LEFT, RIGHT, stroke_color=tone, stroke_width=2)
-            lines = VGroup(*[T("• " + wrap(i, 22), 14 if small else 15, P.CREAM, line_spacing=0.85) for i in items])
+            lines = VGroup(*[T("• " + wrap(i, 22), 15 if small else 16, P.CREAM, font=MARKER, line_spacing=0.85)
+                             for i in items])
             lines.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
             rule.set_width(max(lines.width, head.width))
             parts += [rule, lines]
@@ -1955,8 +1984,8 @@ class Lecture(Scene):
             inner[-1].align_to(inner[-2], LEFT)
         # Words alone sit on a card of flat colour, like a marker-filled box; a drawing keeps a light one.
         box = RoundedRectangle(corner_radius=0.18, width=max(inner.width + 0.45, 1.8), height=inner.height + 0.4,
-                               stroke_color=tone, stroke_width=3.5,
-                               fill_color=_tint_on_bg(tone, 0.32 if words_only else 0.12), fill_opacity=1)
+                               stroke_color=P.CREAM, stroke_width=OUTLINE * 0.8,
+                               fill_color=_tint_on_bg(tone, 0.45), fill_opacity=1)
         return VGroup(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None):
@@ -1994,11 +2023,17 @@ class Lecture(Scene):
                 angle = PI / 2 - 2 * PI * k / len(ids)
                 mobs[i].move_to([radius * 1.15 * math.cos(angle), radius * 0.8 * math.sin(angle), 0])
         elif kind == "hub":
+            # The thing at the centre, drawn biggest; the rest at its sides, as a board is wider than it is tall.
+            if getattr(mobs[ids[0]], "is_drawing", False):
+                centre = mobs[ids[0]]
+                centre[0].scale(1.6)
+                centre.arrange(DOWN, buff=0.18)                 # the drawing grows; its name stays the same size
             mobs[ids[0]].move_to(ORIGIN)
             ring = ids[1:]
+            sides = [150, 30, 210, 330, 90, 270, 180, 0]
             for k, i in enumerate(ring):
-                angle = PI / 2 - 2 * PI * k / max(len(ring), 1)
-                mobs[i].move_to([3.0 * math.cos(angle), 2.1 * math.sin(angle), 0])
+                angle = math.radians(sides[k % len(sides)])
+                mobs[i].move_to([4.2 * math.cos(angle), 2.2 * math.sin(angle), 0])
             if not edges:
                 edges = [[ids[0], i] for i in ring]
         elif kind == "tree":
@@ -2027,10 +2062,11 @@ class Lecture(Scene):
             if a not in mobs or b not in mobs:
                 continue
             start, end = self._edge_points(mobs[a], mobs[b])
-            arrow = Arrow(start, end, buff=0.0, color=P.MUTED, stroke_width=4, max_tip_length_to_length_ratio=0.18)
+            arrow = Arrow(start, end, buff=0.08, color=P.CREAM, stroke_width=OUTLINE * 1.2,
+                          max_tip_length_to_length_ratio=0.22, max_stroke_width_to_length_ratio=12)
             label = None
             if len(e) > 2 and e[2]:
-                label = T(str(e[2]), 13, P.MUTED)
+                label = marker(str(e[2]), 14)
                 along = end - start
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
@@ -2039,7 +2075,7 @@ class Lecture(Scene):
         whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
         head = None
         if title:
-            head = fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4)
+            head = fit(marker(title, 30), w - 0.4)
         # Fit the finished diagram to the stage, so revealing more never moves what is already there.
         room_h = h - (0.8 if head else 0.2)
         scale = min(1.45, (w - 0.3) / max(whole.width, 0.01), room_h / max(whole.height, 0.01))

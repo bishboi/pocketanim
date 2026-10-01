@@ -24,7 +24,7 @@ CHIRP_THREADS = 6    # Chirp lines in flight at once (each is one request)
 
 
 def voice_mode(style: dict) -> str:
-    """The PANIM_VOICE value for this job: gemini:<voice> (Gemini 3.8 Flash TTS), chirp:<voice> (PANIM_TTS=chirp),
+    """The PANIM_VOICE value for this job: gemini:<voice> (Gemini 3.8 Flash-Lite TTS), chirp:<voice> (PANIM_TTS=chirp),
     or silent.
 
     FORGE_VOICE=silent (or PANIM_VOICE=silent) builds without narration, for tests; otherwise the voice must be

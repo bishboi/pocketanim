@@ -402,7 +402,7 @@ match its caption, or in document order, at most one every two beats and never o
 
 ## Voice
 
-Lectures are voiced by Gemini 3.8 Flash TTS (`gemini_tts.py`; `PANIM_TTS=chirp` for the older Google Chirp 3 HD,
+Lectures are voiced by Gemini 3.8 Flash-Lite TTS (`gemini_tts.py`; `PANIM_TTS=chirp` for the older Google Chirp 3 HD,
 `chirp.py`; `tts.py` picks), and by nothing else. It needs `GEMINI_API_KEY`; without it, or when Google refuses a
 line, the build stops with the reason (`VoiceUnavailable`) rather than switching to another voice or leaving the
 lecture silent. `PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths

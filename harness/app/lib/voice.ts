@@ -1,5 +1,5 @@
 /**
- * Narration is a list of `# voice:` lines in the scene. the narration voice (Gemini 3.8 Flash TTS) speaks them,
+ * Narration is a list of `# voice:` lines in the scene. the narration voice (Gemini 3.8 Flash-Lite TTS) speaks them,
  * and the wait that follows each line is rewritten to the real duration so
  * the picture holds while the sentence is said.
  */
@@ -65,7 +65,7 @@ export async function speak(source: string, templateId: string): Promise<VoiceRe
   mkdirSync(dir, { recursive: true });
   const audioPath = path.join(dir, `narration-${Date.now()}.wav`);
   const voice = templateById(templateId).voice;
-  // The narration voice (Gemini 3.8 Flash TTS): the template's speaker.
+  // The narration voice (Gemini 3.8 Flash-Lite TTS): the template's speaker.
   const { stdout, stderr } = await runSpeaker({ voice, lines, out: audioPath, style: templateById(templateId).style });
   const line = stdout.trim().split("\n").pop() || "";
   let data: { ok?: boolean; durations?: number[]; files?: string[]; out?: string; error?: string } = {};

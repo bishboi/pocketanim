@@ -1,4 +1,4 @@
-"""Speak a scene's narration lines with the narration voice (Gemini 3.8 Flash TTS; Chirp 3 HD with PANIM_TTS=chirp)
+"""Speak a scene's narration lines with the narration voice (Gemini 3.8 Flash-Lite TTS; Chirp 3 HD with PANIM_TTS=chirp)
 and write one wav, plus one per line.
 
 Reads a JSON object on stdin:

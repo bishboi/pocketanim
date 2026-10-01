@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import os  # noqa: E402
 
-# Narration is Gemini 3.8 Flash TTS (or Chirp 3 HD), and tests have no Google key: they build silent (the voice tests set a
+# Narration is Gemini 3.8 Flash-Lite TTS (or Chirp 3 HD), and tests have no Google key: they build silent (the voice tests set a
 # mock Google and PANIM_VOICE themselves). Subprocesses inherit it.
 os.environ.setdefault("PANIM_VOICE", "silent")
 os.environ.setdefault("FORGE_VOICE", "silent")

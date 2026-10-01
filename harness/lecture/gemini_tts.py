@@ -1,4 +1,4 @@
-"""Gemini 3.8 Flash TTS: the narration voice (Google's Gemini API, generally available since September 2026).
+"""Gemini 3.8 Flash-Lite TTS: the narration voice (Google's Gemini API, generally available since September 2026).
 
 Gemini's speech model reads a whole line in one request, Hindi and English together: a Hinglish sentence
 ("अब normal reaction समझते हैं") needs no cutting into language runs, as Chirp 3 HD did, and the switch between
@@ -9,10 +9,10 @@ Aoede...); every lecture is spoken by Achird. The lecture engine caches each lin
 Credentials: a Gemini API key from Google AI Studio (aistudio.google.com/apikey), as GEMINI_API_KEY (or
 GOOGLE_API_KEY), in the environment or harness/app/.env.local.
 Settings:
-  PANIM_TTS_MODEL      the model (gemini-3.8-flash-tts; gemini-3.8-flash-lite-tts is cheaper and faster)
+  PANIM_TTS_MODEL      the model (gemini-3.8-flash-lite-tts: fast and cheap; gemini-3.8-flash-tts: more expressive)
   PANIM_TTS_VOICE      another prebuilt voice (Charon, Kore, Aoede...); the speaker is Achird otherwise
   PANIM_TTS_STYLE      how to read, sent as an instruction, for a model that takes one ("teacher" for the built-in
-                       one); off by default, as gemini-3.8-flash-tts refuses instructions
+                       one); off by default, as the Gemini 3.8 TTS models refuse instructions
   GEMINI_TTS_URL       the endpoint base (a test points it at a mock)
 
     .venv/bin/python harness/lecture/gemini_tts.py --check                  # the key, and a test line
@@ -36,8 +36,8 @@ import wave
 
 from chirp import ENV_FILE, _env, _pcm, _pieces, _trim
 
-NAME = "Gemini 3.8 Flash TTS"
-MODEL = "gemini-3.8-flash-tts"
+NAME = "Gemini 3.8 Flash-Lite TTS"
+MODEL = "gemini-3.8-flash-lite-tts"
 URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_VOICE = "Achird"      # the narration speaker for every lecture style
 SAMPLE_RATE = 24000            # Gemini's speech is 16-bit PCM, mono, 24 kHz
@@ -98,7 +98,7 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
         },
     }
-    # An instruction only when asked for: gemini-3.8-flash-tts refuses one ("Developer instruction is not enabled
+    # An instruction only when asked for: the Gemini 3.8 TTS models refuse one ("Developer instruction is not enabled
     # for this model"). Once refused, it is not sent again this run.
     style = _env("PANIM_TTS_STYLE")
     if style and style != "none" and not _REFUSES_INSTRUCTION:

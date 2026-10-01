@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
-    // A lecture is voiced by its narration voice (Gemini 3.8 Flash TTS) and nothing else: without it, say so first.
+    // A lecture is voiced by its narration voice (Gemini 3.8 Flash-Lite TTS) and nothing else: without it, say so first.
     const noVoice = /pocket_lecture/.test(source) ? voiceProblem() : null;
     if (noVoice) return NextResponse.json({ error: noVoice }, { status: 400 });
     // The lines are spoken first, several at once, with progress the page polls (/api/progress); Manim then finds

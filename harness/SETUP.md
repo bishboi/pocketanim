@@ -68,9 +68,9 @@ Other pictures are fetched per lecture, as needed, and cached:
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
 
-## 3. The narration voice: Gemini 3.8 Flash TTS
+## 3. The narration voice: Gemini 3.8 Flash-Lite TTS
 
-Every lecture is spoken by **Gemini 3.8 Flash TTS**, Google's speech model on the Gemini API. It reads a
+Every lecture is spoken by **Gemini 3.8 Flash-Lite TTS**, Google's speech model on the Gemini API. It reads a
 Hinglish line in one go, Hindi and English together, like one teacher talking. It needs one key:
 
 1. Create a Gemini API key in Google AI Studio: aistudio.google.com/apikey.
@@ -87,10 +87,10 @@ Settings (all optional, in `.env.local`):
 
 | Variable | What it does |
 |---|---|
-| `PANIM_TTS_MODEL` | `gemini-3.8-flash-tts` (default), or `gemini-3.8-flash-lite-tts`: cheaper and faster, a little less expressive. |
+| `PANIM_TTS_MODEL` | `gemini-3.8-flash-lite-tts` (default): fast and cheap, for the hundreds of lines a lecture has. Or `gemini-3.8-flash-tts`: a little more expressive, slower and dearer. |
 | `PANIM_TTS_VOICE` | The speaker. `Achird` by default, for every style; any other Gemini prebuilt voice (`Charon`, `Kore`, `Aoede`, `Puck`...) instead. |
 | `PANIM_TTS_THREADS` | How many lines are spoken at once before Manim draws the lecture (default 8). Lower it if Google answers "429: Resource exhausted" often; raise it on a paid tier. |
-| `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model (`teacher` for a warm, patient teacher). Off by default: `gemini-3.8-flash-tts` refuses instructions ("Developer instruction is not enabled for this model"), and the harness then stops sending it. |
+| `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model (`teacher` for a warm, patient teacher). Off by default: the Gemini 3.8 TTS models refuse instructions ("Developer instruction is not enabled for this model"), and the harness then stops sending it. |
 
 **The older voice, Chirp 3 HD.** `PANIM_TTS=chirp` goes back to Google Cloud's Chirp 3 HD voices, through the
 Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project and one of: your gcloud login
@@ -132,7 +132,7 @@ Put your keys in `.env.local`. All of them are optional.
 The bar at the top of every page shows the version and the commit, for example `v0.6.0 · 264831d · <branch>`. It also
 lists anything still missing, each with a **download** button:
 
-- **Voice: Gemini 3.8 Flash TTS** means narration is ready. Without `GEMINI_API_KEY` (section 3) it says so, and lectures do not build.
+- **Voice: Gemini 3.8 Flash-Lite TTS** means narration is ready. Without `GEMINI_API_KEY` (section 3) it says so, and lectures do not build.
 - **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
 - **Towns** means small places may not be found.
 - **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes). What is ready shows
@@ -146,10 +146,10 @@ The app also downloads the voice by itself before the first lecture that needs i
 | You see | Cause | Fix |
 |---|---|---|
 | Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
-| `Narration is spoken by Gemini 3.8 Flash TTS, and no Gemini API key is set` | No key | section 3, then restart the app |
+| `Narration is spoken by Gemini 3.8 Flash-Lite TTS, and no Gemini API key is set` | No key | section 3, then restart the app |
 | `403: ... requires a quota project, which is not set by default` | Your login has no quota project (a new login drops it) | `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`, or `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `.env.local`; `chirp.py --check` shows what is used |
 | `401: API keys are not supported by this API` | The project refuses API keys for Text-to-Speech | sign in with `gcloud auth application-default login` and `set-quota-project` (section 3); the key can stay, a login is used first |
-| `Gemini 3.8 Flash TTS could not speak ...` | Google refused the request: the key is wrong, or its quota ran out | the page shows Google's message; try `.venv/bin/python harness/lecture/gemini_tts.py --check` |
+| `Gemini 3.8 Flash-Lite TTS could not speak ...` | Google refused the request: the key is wrong, or its quota ran out | the page shows Google's message; try `.venv/bin/python harness/lecture/gemini_tts.py --check` |
 | `KeyError: no place named 'X'` | The gazetteer is missing, or the name is spelt differently | `fetch_gazetteer.py` |
 | `ModuleNotFoundError: manim` | The app is not using `.venv` | rerun `setup-python.sh` |
 | An equation looks plain, or reads `mathbf F rm ext` | No LaTeX, or the app cannot find it | `.venv/bin/python harness/scripts/fetch_latex.py`, then restart the app; the bar at the top says **LaTeX** when it is found |

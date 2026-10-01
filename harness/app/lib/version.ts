@@ -44,13 +44,13 @@ export function chirpConfigured(): boolean {
   return !!(process.env.GOOGLE_TTS_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
-/** A Gemini API key is set: Gemini 3.8 Flash TTS can speak here (harness/lecture/gemini_tts.py). */
+/** A Gemini API key is set: Gemini 3.8 Flash-Lite TTS can speak here (harness/lecture/gemini_tts.py). */
 export function geminiConfigured(): boolean {
   return !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
 /**
- * What a lecture is spoken with: "gemini" (Gemini 3.8 Flash TTS, the narration voice), "chirp" (Google Chirp 3 HD,
+ * What a lecture is spoken with: "gemini" (Gemini 3.8 Flash-Lite TTS, the narration voice), "chirp" (Google Chirp 3 HD,
  * with PANIM_TTS=chirp), "silent" when PANIM_VOICE=silent asks for no narration, "none" when the chosen voice is
  * not set up (a lecture build then stops).
  */
@@ -63,7 +63,8 @@ export function voiceEngine(): "gemini" | "chirp" | "silent" | "none" {
 /** The voice's name, for the page. */
 export function voiceName(): string {
   return (process.env.PANIM_TTS ?? "").toLowerCase() === "chirp" ? "Google Chirp 3 HD"
-    : `Gemini ${process.env.PANIM_TTS_MODEL ?? "gemini-3.8-flash-tts"}`.replace("Gemini gemini-", "Gemini ");
+    : ({ "gemini-3.8-flash-lite-tts": "Gemini 3.8 Flash-Lite TTS", "gemini-3.8-flash-tts": "Gemini 3.8 Flash TTS" } as
+        Record<string, string>)[process.env.PANIM_TTS_MODEL || "gemini-3.8-flash-lite-tts"] ?? process.env.PANIM_TTS_MODEL!;
 }
 
 /** Why a lecture cannot be narrated here, or null when it can. */
@@ -73,7 +74,7 @@ export function voiceProblem(): string | null {
     ? "Narration is spoken by Google Chirp 3 HD (PANIM_TTS=chirp), and no Google credentials are set. Sign in with " +
       "`gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_TTS_API_KEY " +
       "(harness/SETUP.md); restart the app. PANIM_VOICE=silent builds without narration."
-    : "Narration is spoken by Gemini 3.8 Flash TTS, and no Gemini API key is set. Put GEMINI_API_KEY=<a key from " +
+    : "Narration is spoken by Gemini 3.8 Flash-Lite TTS, and no Gemini API key is set. Put GEMINI_API_KEY=<a key from " +
       "aistudio.google.com/apikey> in harness/app/.env.local and restart the app (harness/SETUP.md). " +
       "PANIM_VOICE=silent builds without narration.";
 }

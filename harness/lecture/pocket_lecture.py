@@ -33,7 +33,7 @@ A scene picks its style before importing, and then uses the API:
                       self.big_stat("2,525 km", "Ganga: longest river"))
             self.outro_fade()
 
-Narration: each beat's line is spoken by Gemini 3.8 Flash TTS (gemini_tts.py; Chirp 3 HD with PANIM_TTS=chirp), and its
+Narration: each beat's line is spoken by Gemini 3.8 Flash-Lite TTS (gemini_tts.py; Chirp 3 HD with PANIM_TTS=chirp), and its
 measured length times the beat. With PANIM_VOICE=silent there is no audio: the
 length is estimated from the word count and the picture still plays.
 """
@@ -453,12 +453,12 @@ def spoken_lang(text: str) -> str:
 
 
 class VoiceUnavailable(RuntimeError):
-    """The narration voice (Gemini 3.8 Flash TTS, or Chirp 3 HD) cannot speak: no key, or Google refused. The lecture stops rather
+    """The narration voice (Gemini 3.8 Flash-Lite TTS, or Chirp 3 HD) cannot speak: no key, or Google refused. The lecture stops rather
     than being spoken by another voice or left silent."""
 
 
 def voice_mode() -> str:
-    """The voice lines are spoken in: gemini:<voice> (Gemini 3.8 Flash TTS), chirp:<voice> (Google Chirp 3 HD, with
+    """The voice lines are spoken in: gemini:<voice> (Gemini 3.8 Flash-Lite TTS), chirp:<voice> (Google Chirp 3 HD, with
     PANIM_TTS=chirp), or silent.
 
     PANIM_VOICE=silent is the one way to build without a voice (tests, a quick look at the pictures): the beats

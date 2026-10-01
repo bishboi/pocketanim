@@ -1,4 +1,4 @@
-"""Which voice narrates: Gemini 3.8 Flash TTS (gemini_tts.py), or Google Chirp 3 HD (chirp.py) when asked for.
+"""Which voice narrates: Gemini 3.8 Flash-Lite TTS (gemini_tts.py), or Google Chirp 3 HD (chirp.py) when asked for.
 
 PANIM_TTS=chirp keeps the older Chirp 3 HD voice; otherwise the voice is Gemini's. Both modules have the same
 shape: configured(), voice_for(style), speak(text, voice, speed) -> WAV bytes, NAME, REVISION.
@@ -27,5 +27,5 @@ def setup_hint() -> str:
         return ("Narration is spoken by Google Chirp 3 HD (PANIM_TTS=chirp), and no Google credentials are set: "
                 "sign in with `gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or "
                 "GOOGLE_TTS_API_KEY (harness/SETUP.md).")
-    return ("Narration is spoken by Gemini 3.8 Flash TTS, and no Gemini API key is set: put GEMINI_API_KEY=<key "
+    return ("Narration is spoken by Gemini 3.8 Flash-Lite TTS, and no Gemini API key is set: put GEMINI_API_KEY=<key "
             "from aistudio.google.com/apikey> in harness/app/.env.local and restart the app (harness/SETUP.md).")

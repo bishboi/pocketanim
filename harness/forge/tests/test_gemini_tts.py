@@ -1,4 +1,4 @@
-"""Gemini 3.8 Flash TTS, the narration voice, against a stand-in for the Gemini API."""
+"""Gemini 3.8 Flash-Lite TTS, the narration voice, against a stand-in for the Gemini API."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def test_a_hinglish_line_is_one_request_with_the_voice_and_model(gemini):
     audio = gemini_tts.speak("अच्छा बच्चों, अब normal reaction समझते हैं।", "Kore")
     assert audio[:4] == b"RIFF"
     (request,) = gemini["requests"]
-    assert request["path"] == "/v1beta/models/gemini-3.8-flash-tts:generateContent"
+    assert request["path"] == "/v1beta/models/gemini-3.8-flash-lite-tts:generateContent"
     assert request["key"] == "gem-key"
     config = request["body"]["generationConfig"]
     assert config["responseModalities"] == ["AUDIO"]

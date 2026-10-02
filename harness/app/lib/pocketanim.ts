@@ -199,7 +199,18 @@ export function progressFile(jobId: string): string | null {
  * Speak a lecture's lines before Manim runs, PANIM_TTS_THREADS at a time, into the cache the render reads.
  * Null when it went well (or there is nothing to speak), else the voice's error.
  */
-export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number }> {
+/** What a lecture's voice cost (scripts/prespeak.py): the lines spoken now, and every line of the lecture. */
+export type VoiceCost = {
+  usd: number;
+  lecture_usd: number;
+  spoken: number;
+  lines: number;
+  /** Lines spoken before costs were kept: not in lecture_usd. */
+  unknown: number;
+  engine: string;
+};
+
+export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {
   const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(dir, "scene.py");
   await writeFile(scenePath, source, "utf8");
@@ -210,8 +221,8 @@ export async function prespeak(source: string, progress: string | null): Promise
   await rm(dir, { recursive: true, force: true });
   const line = stdout.toString().trim().split("\n").pop() ?? "";
   try {
-    const data = JSON.parse(line) as { ok?: boolean; error?: string; beats?: number };
-    return { error: data.ok ? null : data.error ?? "The voice did not speak.", beats: data.beats ?? 0 };
+    const data = JSON.parse(line) as { ok?: boolean; error?: string; beats?: number; voice?: VoiceCost };
+    return { error: data.ok ? null : data.error ?? "The voice did not speak.", beats: data.beats ?? 0, voice: data.voice };
   } catch {
     // The render speaks what is left itself: a pre-pass that could not run is no reason to stop.
     console.warn("prespeak:", stderr.trim().split("\n").slice(-4).join("\n"));

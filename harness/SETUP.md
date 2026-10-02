@@ -89,6 +89,7 @@ Settings (all optional, in `.env.local`):
 |---|---|
 | `PANIM_TTS_MODEL` | `gemini-3.8-flash-lite-tts` (default): fast and cheap, for the hundreds of lines a lecture has. Or `gemini-3.8-flash-tts`: a little more expressive, slower and dearer. |
 | `PANIM_TTS_VOICE` | The speaker. `Achird` by default, for every style; any other Gemini prebuilt voice (`Charon`, `Kore`, `Aoede`, `Puck`...) instead. |
+| `PANIM_TTS_PRICE` | The voice's price in US dollars per million tokens, `in,out` (text in, audio out), for the cost shown in the agent log. Default: Google's list price, Flash-Lite TTS $0.50 / $6.00 and Flash TTS $0.50 / $9.00 until 31 December 2026, double from 1 January 2027. Set it for the batch tier (half) or priority (1.8×). |
 | `PANIM_TTS_THREADS` | How many lines are spoken at once before Manim draws the lecture (default 8). Lower it if Google answers "429: Resource exhausted" often; raise it on a paid tier. |
 | `PANIM_TTS_STYLE` | How to read, as an instruction to the speech model (`teacher` for a warm, patient teacher). Off by default: the Gemini 3.8 TTS models refuse instructions ("Developer instruction is not enabled for this model"), and the harness then stops sending it. |
 

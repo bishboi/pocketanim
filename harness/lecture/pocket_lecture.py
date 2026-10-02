@@ -561,6 +561,21 @@ def audio_file(mode: str, spoken: str) -> Path:
     return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"
 
 
+def cost_file(wav: Path) -> Path:
+    """Where a spoken line's cost is kept: {"usd", "in", "out"} (or "chars" for Chirp) beside its wav."""
+    return wav.with_suffix(".cost.json")
+
+
+def line_cost(mode: str, spoken: str) -> float | None:
+    """What a line cost when it was spoken (US dollars), or None when it is not spoken yet or was spoken before
+    costs were kept."""
+    path = cost_file(audio_file(mode, spoken))
+    try:
+        return float(json.loads(path.read_text()).get("usd", 0.0))
+    except (OSError, ValueError):
+        return None
+
+
 _BEATS_DONE = 0
 
 
@@ -606,6 +621,10 @@ def narrate(text: str) -> tuple[str | None, float]:
     except RuntimeError as error:
         raw.unlink(missing_ok=True)
         raise VoiceUnavailable(f"{speaker.NAME} could not speak {text[:60]!r}: {error}") from None
+    # What the line cost, beside it: a lecture's voice cost is the sum over its lines, and a cached line was paid
+    # for once, when it was spoken.
+    spent = speaker.last_cost() if hasattr(speaker, "last_cost") else {}
+    cost_file(out).write_text(json.dumps({**spent, "engine": engine}))
     _finish(raw, out)
     return str(out), _wav_seconds(out)
 

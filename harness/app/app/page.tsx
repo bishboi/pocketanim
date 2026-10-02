@@ -26,6 +26,8 @@ type ExportState = {
   frames?: number;
   error?: string;
   voiceWarning?: string | null;
+  /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
+  voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
   stored?: { configured: boolean; reason?: string; error?: string };
   narrationUrl?: string | null;
 };
@@ -55,6 +57,10 @@ type Version = {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  /** The voice's cost for this version, added up over its builds (each line is paid for once, when spoken). */
+  voiceUsd?: number;
+  /** The whole lecture's voice, at the latest build: what its lines cost when they were spoken. */
+  voiceLecture?: { usd: number; lines: number; unknown: number };
   exported?: ExportState;
   ir?: SceneIR | null;
   sceneClass?: string;
@@ -281,7 +287,10 @@ export default function Home() {
       body: JSON.stringify(body),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? `${response.status}`);
+    if (!response.ok) {
+      // The body may still say what was paid for before the failure (the voice's lines).
+      throw Object.assign(new Error(data.error ?? `${response.status}`), { data });
+    }
     return data;
   }
 
@@ -329,6 +338,15 @@ export default function Home() {
       }
     }, 1500) : null;
     let exported: ExportState;
+    // The voice's bill for this build goes on the version, whether the build then succeeds or not.
+    const billVoice = (cost?: ExportState["voiceCost"]) => {
+      if (!cost) return;
+      setVersions((all) => all.map((v, i) => i === index ? {
+        ...v,
+        voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
+        voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown },
+      } : v));
+    };
     try {
       exported = await post("/api/export", {
         source,
@@ -337,9 +355,13 @@ export default function Home() {
         model,
         jobId,
       });
+    } catch (error) {
+      billVoice((error as { data?: ExportState }).data?.voiceCost);
+      throw error;
     } finally {
       if (poll) clearInterval(poll);
     }
+    billVoice(exported.voiceCost);
     if (lecture) setBusy("Building the program and the preview…");
     const played = exported.scene || sceneClass;
     let ir: SceneIR | null | undefined;
@@ -986,6 +1008,19 @@ export default function Home() {
                       Agent log · {version.inputTokens ?? 0} in ·{" "}
                       {version.outputTokens ?? 0} out · $
                       {(version.costUsd ?? 0).toFixed(4)}
+                      {version.voiceUsd !== undefined && (
+                        <span
+                          data-testid="voice-cost"
+                          title={version.voiceLecture
+                            ? `The whole lecture's voice: $${version.voiceLecture.usd.toFixed(4)} for ${version.voiceLecture.lines} lines` +
+                              (version.voiceLecture.unknown ? ` (${version.voiceLecture.unknown} spoken before costs were kept)` : "") +
+                              ". A line is paid for once; a rebuild speaks only new or changed lines."
+                            : undefined}
+                        >
+                          {" "}· voice ${version.voiceUsd.toFixed(4)} · total $
+                          {((version.costUsd ?? 0) + version.voiceUsd).toFixed(4)}
+                        </span>
+                      )}
                       {busy ? ` · ${busy}` : ""}
                     </p>
                     {version.trace.length === 0 && (

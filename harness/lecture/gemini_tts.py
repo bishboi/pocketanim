@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -68,6 +69,48 @@ def model() -> str:
 def voice_for(style: str | None) -> str:
     """The prebuilt voice lectures are spoken in: Achird for every style, or PANIM_TTS_VOICE."""
     return _env("PANIM_TTS_VOICE") or DEFAULT_VOICE
+
+
+# US dollars per million tokens: (text in, audio out), at Google's list price for the standard tier. Both double on
+# 1 January 2027, when the launch price ends. PANIM_TTS_PRICE="in,out" sets another (a batch or priority tier).
+PRICES = {"gemini-3.8-flash-lite-tts": (0.50, 6.00), "gemini-3.8-flash-tts": (0.50, 9.00)}
+AUDIO_TOKENS_PER_SECOND = 25
+_spent = threading.local()
+
+
+def price(model_id: str | None = None) -> tuple[float, float]:
+    custom = _env("PANIM_TTS_PRICE")
+    if custom:
+        try:
+            a, b = (float(x) for x in custom.split(","))
+            return a, b
+        except ValueError:
+            pass
+    base = PRICES.get(model_id or model(), PRICES[MODEL])
+    return (base[0] * 2, base[1] * 2) if time.time() >= 1798761600 else base      # 2027-01-01 UTC
+
+
+def cost(text_tokens: float, audio_tokens: float, model_id: str | None = None) -> float:
+    rate_in, rate_out = price(model_id)
+    return (text_tokens * rate_in + audio_tokens * rate_out) / 1e6
+
+
+def last_cost() -> dict:
+    """What the last speak() on this thread cost: {"in", "out", "usd"} (tokens, and US dollars)."""
+    return dict(getattr(_spent, "line", None) or {"in": 0, "out": 0, "usd": 0.0})
+
+
+def _count(reply: dict, text: str, pcm: bytes, rate: int) -> None:
+    """Add one reply's tokens to the line being spoken: Google's own count (usageMetadata), or an estimate from the
+    text and the audio's length when a reply has none."""
+    usage = reply.get("usageMetadata") or {}
+    text_tokens = usage.get("promptTokenCount") or max(1, len(text) // 4)
+    audio_tokens = usage.get("candidatesTokenCount") or round(len(pcm) / 2 / max(rate, 1) * AUDIO_TOKENS_PER_SECOND)
+    line = getattr(_spent, "line", None)
+    if line is not None:
+        line["in"] += int(text_tokens)
+        line["out"] += int(audio_tokens)
+        line["usd"] = cost(line["in"], line["out"])
 
 
 def _audio_of(reply: dict) -> tuple[bytes, int]:
@@ -110,7 +153,10 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             "Content-Type": "application/json; charset=utf-8", "x-goog-api-key": _key() or ""})
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
-                return _audio_of(json.loads(response.read()))
+                reply = json.loads(response.read())
+            pcm, rate = _audio_of(reply)
+            _count(reply, text, pcm, rate)
+            return pcm, rate
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", "replace")
             try:
@@ -156,6 +202,11 @@ def _tempo(pcm: bytes, rate: int, speed: float) -> bytes:
 
 
 def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
+    _spent.line = {"in": 0, "out": 0, "usd": 0.0}       # last_cost() reads it after
+    return _speak(text, voice, speed)
+
+
+def _speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
     """A WAV (16-bit, mono) of one line, Hindi and English read together; a long line a few sentences at a time."""
     pcm, rate = b"", SAMPLE_RATE
     for index, piece in enumerate(_pieces(text, CHUNK_BYTES)):

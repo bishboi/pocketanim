@@ -175,3 +175,30 @@ class S(MapLecture):
     assert prespeak.beat_lines(source) == ["आज हम Newton के laws समझेंगे।", "Chapter one. Force.",
                                            "A block on a table.", "The same line.", "Force. A push or a pull.",
                                            "Mass. How much matter."]
+
+
+def test_a_line_costs_what_google_counted_or_an_estimate(gemini, monkeypatch):
+    monkeypatch.setattr(gemini_tts.time, "time", lambda: 1790000000)          # before the 2027 price change
+    monkeypatch.delenv("PANIM_TTS_PRICE", raising=False)
+    gemini_tts.speak("Hello there.", "Achird")
+    spent = gemini_tts.last_cost()
+    # No usageMetadata in the stand-in's reply: text at 4 characters a token, audio at 25 tokens a second.
+    assert spent["in"] == 3 and spent["out"] == round(0.3 * 25)
+    assert abs(spent["usd"] - (3 * 0.50 + spent["out"] * 6.00) / 1e6) < 1e-12
+    assert gemini_tts.price("gemini-3.8-flash-tts") == (0.50, 9.00)
+    monkeypatch.setattr(gemini_tts.time, "time", lambda: 1800000000)          # 2027: both rates double
+    assert gemini_tts.price("gemini-3.8-flash-lite-tts") == (1.00, 12.00)
+    monkeypatch.setenv("PANIM_TTS_PRICE", "0.25,3")
+    assert gemini_tts.price() == (0.25, 3.0)
+
+
+def test_a_spoken_line_keeps_its_cost_beside_it(gemini, monkeypatch, tmp_path):
+    import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    pl.narrate("बल एक धक्का है।")
+    mode = pl.voice_mode()
+    cost = pl.line_cost(mode, pl.speechify("बल एक धक्का है।"))
+    assert cost is not None and cost > 0
+    assert pl.line_cost(mode, "never spoken") is None

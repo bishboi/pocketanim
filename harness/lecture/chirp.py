@@ -362,7 +362,25 @@ def _run_pcm(text: str, voice: str, code: str, speed: float, depth: int = 0) -> 
     return pcm, rate
 
 
+# Google's list price for Chirp 3 HD voices: US dollars per million characters sent.
+PRICE_PER_MILLION_CHARS = 30.0
+
+
+def last_cost() -> dict:
+    """What the last speak() on this thread cost: {"chars", "usd"}."""
+    return dict(getattr(_spent, "line", None) or {"chars": 0, "usd": 0.0})
+
+
+_spent = threading.local()
+
+
 def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
+    chars = len(text)
+    _spent.line = {"chars": chars, "usd": chars * PRICE_PER_MILLION_CHARS / 1e6}
+    return _speak_line(text, voice, speed)
+
+
+def _speak_line(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
     """A WAV of one line, each language run spoken with its own language code by the same voice, joined."""
     parts = runs(text)
     if len(parts) == 1 and len(parts[0][1].encode()) <= CHUNK_BYTES:

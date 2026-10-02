@@ -121,11 +121,18 @@ def main() -> int:
             with lock:
                 done += 1
                 write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))
+    # What the voice cost: the lines spoken now (this build's bill) and every line of the lecture (a line spoken
+    # for an earlier build was paid for then). Lines spoken before costs were kept count as unknown.
+    spoken_now = sum(pl.line_cost(mode, pl.speechify(line)) or 0.0 for line in left)
+    whole = [pl.line_cost(mode, pl.speechify(line)) for line in unique]
+    voice = {"usd": round(spoken_now, 6), "lecture_usd": round(sum(c for c in whole if c is not None), 6),
+             "spoken": len(left), "lines": len(unique), "unknown": sum(c is None for c in whole),
+             "engine": mode.split(":", 1)[0]}
     if failed:
-        print(json.dumps({"ok": False, "error": failed[0]}))
+        print(json.dumps({"ok": False, "error": failed[0], "voice": voice}))
         return 0
     write(progress, phase="render", done=0, total=len(lines), beats=len(lines))
-    print(json.dumps({"ok": True, "lines": len(unique), "spoken": len(left), "beats": len(lines)}))
+    print(json.dumps({"ok": True, "lines": len(unique), "spoken": len(left), "beats": len(lines), "voice": voice}))
     return 0
 
 

@@ -11,6 +11,10 @@ GOOGLE_API_KEY), in the environment or harness/app/.env.local.
 Settings:
   PANIM_TTS_MODEL      the model (gemini-3.8-flash-lite-tts: fast and cheap; gemini-3.8-flash-tts: more expressive)
   PANIM_TTS_VOICE      another prebuilt voice (Charon, Kore, Aoede...); the speaker is Achird otherwise
+  PANIM_TTS_LANGUAGE   the language and accent each line is spoken in: "auto" (default) says a line with Hindi in it
+                       as hi-IN and an all-English line as en-IN (Indian English), so no line comes out in an
+                       American or British accent; or one BCP-47 code for every line (hi-IN, en-IN, ...); "none"
+                       lets the model guess from the words, as before
   PANIM_TTS_STYLE      how to read, sent as an instruction, for a model that takes one ("teacher" for the built-in
                        one); off by default, as the Gemini 3.8 TTS models refuse instructions
   GEMINI_TTS_URL       the endpoint base (a test points it at a mock)
@@ -43,15 +47,35 @@ URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_VOICE = "Achird"      # the narration speaker for every lecture style
 SAMPLE_RATE = 24000            # Gemini's speech is 16-bit PCM, mono, 24 kHz
 # Bumped when the way lines are spoken changes, so cached lines are spoken again (pocket_lecture.audio_file).
-REVISION = 1
+REVISION = 2                   # 2: every line spoken with its language code (an Indian accent)
 # A line longer than this is spoken a few sentences at a time (the model takes up to 8,192 tokens, but a long
 # request is slower and, when it fails, costs the whole line again).
 CHUNK_BYTES = int(os.environ.get("PANIM_TTS_CHUNK_BYTES", "2400"))
 TRIES = 7
 _REFUSES_INSTRUCTION = False
+_REFUSED_LANGUAGES: set[str] = set()      # codes the model said it does not speak: not sent again this run
+DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 # PANIM_TTS_STYLE=teacher sends this; any other text is sent as it is. Off by default (see synthesize).
 STYLE = ("Read this aloud as a warm, patient teacher explaining to a class: clearly, at an easy pace, with "
          "natural pauses. Hindi words in Hindi, English terms in English, as an Indian teacher speaks.")
+
+
+def language_setting() -> str:
+    return (_env("PANIM_TTS_LANGUAGE") or "auto").strip()
+
+
+def language_for(text: str) -> str | None:
+    """The BCP-47 code a piece of text is spoken in, or None to let the model guess. Left to guess, the model read
+    some Hindi lines, and most English terms, in an American accent: an Indian teacher's class wants hi-IN for
+    Hindi and Hinglish, and Indian English (en-IN) for a line all in English."""
+    setting = language_setting()
+    if setting.lower() in ("none", "off", "0"):
+        return None
+    if setting.lower() == "auto":
+        code = "hi-IN" if DEVANAGARI.search(text) else "en-IN"
+    else:
+        code = setting
+    return None if code in _REFUSED_LANGUAGES else code
 
 
 def _key() -> str | None:
@@ -141,6 +165,9 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
         },
     }
+    code = language_for(text)
+    if code:
+        body["generationConfig"]["speechConfig"]["languageCode"] = code
     # An instruction only when asked for: the Gemini 3.8 TTS models refuse one ("Developer instruction is not enabled
     # for this model"). Once refused, it is not sent again this run.
     style = _env("PANIM_TTS_STYLE")
@@ -166,6 +193,11 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             if error.code == 400 and "systemInstruction" in body and re.search(r"(system|developer).?instruction", last, re.I):
                 _REFUSES_INSTRUCTION = True             # a model that takes no instruction: read as it is
                 del body["systemInstruction"]
+                continue
+            speech = body["generationConfig"]["speechConfig"]
+            if error.code == 400 and "languageCode" in speech and re.search(r"language", last, re.I):
+                _REFUSED_LANGUAGES.add(speech.pop("languageCode"))   # not one it speaks: let it pick, as before
+                print(f"{NAME}: {last} (spoken without a language code)", file=sys.stderr)
                 continue
             if error.code in (429, 500, 502, 503, 504) and attempt < TRIES - 1:
                 # A long lecture is thousands of lines: the per-minute quota runs out, and is waited out.

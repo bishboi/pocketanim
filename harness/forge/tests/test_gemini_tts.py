@@ -202,3 +202,30 @@ def test_a_spoken_line_keeps_its_cost_beside_it(gemini, monkeypatch, tmp_path):
     cost = pl.line_cost(mode, pl.speechify("बल एक धक्का है।"))
     assert cost is not None and cost > 0
     assert pl.line_cost(mode, "never spoken") is None
+
+
+def test_every_line_is_spoken_with_an_indian_language_code(gemini, monkeypatch):
+    monkeypatch.delenv("PANIM_TTS_LANGUAGE", raising=False)
+    monkeypatch.setattr(gemini_tts, "_REFUSED_LANGUAGES", set())
+    gemini_tts.speak("अच्छा बच्चों, अब normal reaction समझते हैं।", "Achird")
+    gemini_tts.speak("Option B, newton, is the SI unit of force.", "Achird")
+    codes = [r["body"]["generationConfig"]["speechConfig"].get("languageCode") for r in gemini["requests"]]
+    assert codes == ["hi-IN", "en-IN"]          # Hindi and Hinglish as hi-IN; an all-English line in Indian English
+    monkeypatch.setenv("PANIM_TTS_LANGUAGE", "hi-IN")
+    gemini_tts.speak("Newton.", "Achird")
+    monkeypatch.setenv("PANIM_TTS_LANGUAGE", "none")
+    gemini_tts.speak("Newton.", "Achird")
+    codes = [r["body"]["generationConfig"]["speechConfig"].get("languageCode") for r in gemini["requests"][2:]]
+    assert codes == ["hi-IN", None]
+
+
+def test_a_language_code_the_model_refuses_is_dropped_not_fatal(gemini, monkeypatch):
+    monkeypatch.delenv("PANIM_TTS_LANGUAGE", raising=False)
+    monkeypatch.setattr(gemini_tts, "_REFUSED_LANGUAGES", set())
+    gemini["fail"] = [(400, "Unsupported language code: en-IN")]
+    assert gemini_tts.speak("Newton.", "Achird")[:4] == b"RIFF"
+    gemini_tts.speak("Watt.", "Achird")
+    codes = [r["body"]["generationConfig"]["speechConfig"].get("languageCode") for r in gemini["requests"]]
+    assert codes == ["en-IN", None, None]       # refused once: not sent again this run
+    gemini_tts.speak("नमस्ते।", "Achird")
+    assert gemini["requests"][-1]["body"]["generationConfig"]["speechConfig"]["languageCode"] == "hi-IN"

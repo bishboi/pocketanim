@@ -601,6 +601,9 @@ def audio_file(mode: str, spoken: str) -> Path:
 
         engine = mode.split(":", 1)[0]
         key += f"|r{tts.engine(engine).REVISION}"      # how the voice's lines are made changed: speak them again
+        language = getattr(tts.engine(engine), "language_setting", None)
+        if language and language() != "auto":
+            key += f"|{language()}"                        # another accent is another line
         if engine != "chirp":
             key = f"{tts.engine(engine).model()}|{key}"  # another Gemini model is another voice
     return audio_dir() / f"{hashlib.md5(key.encode()).hexdigest()[:12]}.wav"

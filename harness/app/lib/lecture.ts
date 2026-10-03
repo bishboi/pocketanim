@@ -8,7 +8,7 @@
  * linter catches the layout mistakes before anything renders.
  */
 
-import { MIN_WORK_LINES, SOLVING_STEPS } from "./solving";
+import { MIN_FIGURE_STEPS, MIN_WORK_LINES, SOLVING_STEPS } from "./solving";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
@@ -695,6 +695,9 @@ export function lecturePrompt(
           "     parts one by one; the given values and their conversions, the law and its formula, then the working,",
           `     ONE SMALL STEP PER work LINE, one or two lines a beat (at least ${MIN_WORK_LINES} lines; most problems take`,
           "     10-20); box the answer; then the common mistakes. A problem takes 12-25 beats.",
+          "     With a figure: walk the class through it before solving, and come back to it during the steps that use",
+          `     it, each time pointing at the part meant: reveal or focus on the figure (at least ${MIN_FIGURE_STEPS} times;`,
+          '     {"op":"focus","diagram":"p1_figure","node":"theta"}, {"op":"reveal","diagram":"p1_figure","nodes":["N"]}).',
           ...SOLVING_STEPS.map((line) => `  ${line}`),
           "  Use numbers that work out cleanly. Say every symbol in words in the narration (\"m g sine theta\").",
           "  No photos: every picture is drawn in Manim (a scientist the lecture names may have a photo).",

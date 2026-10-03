@@ -173,3 +173,19 @@ def test_a_problem_is_solved_from_the_basics_in_many_small_steps():
     assert any("very basics" in e for e in errors)
     errors, _ = cl.lint(_lecture(quick))
     assert not any("very basics" in e for e in errors)
+
+
+def test_a_problems_diagram_is_walked_through_while_it_is_solved():
+    figure = {"op": "incline", "angle": 30, "show": ["ground", "wedge", "theta", "block"]}
+    problem = {"op": "problem", "id": "p1", "title": "Problem 1", "text": "A block slides down a smooth 30° incline. Find a.",
+               "given": ["\\theta = 30°"], "find": "a", "figure": figure}
+    work = [_beat(f"Step {i}.", {"op": "work", "id": "p1", "lines": [f"x_{i} = {i}"]}) for i in range(6)]
+    errors, _ = cl._problem_depth(_lecture([_beat("Problem one.", problem)] + work))
+    assert len(errors) == 1 and "pointed at 0 time(s)" in errors[0] and '"diagram":"p1_figure"' in errors[0]
+    pointing = [_beat("This angle is theta.", {"op": "focus", "diagram": "p1_figure", "node": "theta"}),
+                _beat("This is the block.", {"op": "focus", "diagram": "p1_figure", "node": "block"}),
+                _beat("Its weight acts down.", {"op": "focus", "diagram": "p1_figure", "node": "wedge"})]
+    assert cl._problem_depth(_lecture([_beat("Problem one.", problem)] + pointing + work)) == ([], [])
+    named = {**problem, "figure": {**figure, "id": "slope"}}           # a figure with its own id is pointed at by it
+    pointing = [_beat(b["say"], {**b["do"][0], "diagram": "slope"}) for b in pointing]
+    assert cl._problem_depth(_lecture([_beat("Problem one.", named)] + pointing + work)) == ([], [])

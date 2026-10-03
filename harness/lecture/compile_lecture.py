@@ -821,16 +821,27 @@ def _panel_text(script: dict) -> tuple[list[str], list[str]]:
 # The fewest lines of working a problem's solution shows (app/lib/solving.ts MIN_WORK_LINES): a problem solved in two
 # or three lines skipped the steps a beginner needs.
 MIN_WORK_LINES = 6
+# The fewest times a problem's figure is pointed at (reveal or focus) while it is read and solved
+# (app/lib/solving.ts MIN_FIGURE_STEPS): its diagram explained, not only shown.
+MIN_FIGURE_STEPS = 3
 
 
 def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
     """Each long problem solved from the very basics: at least MIN_WORK_LINES lines of working between it and the
-    next problem (its own solution, the work ops with its id or after it in its chapter)."""
+    next problem (its own solution, the work ops with its id or after it in its chapter), and a problem with a
+    figure walked through on it: MIN_FIGURE_STEPS reveals or focuses on the figure's parts."""
     errors: list[str] = []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        current, lines, at = None, 0, ""
+        current, lines, at, figure, pointed = None, 0, "", None, 0
 
         def close():
+            if current is not None and figure and pointed < MIN_FIGURE_STEPS:
+                errors.append(
+                    f"{at}: problem {current.get('id')!r} has a figure, pointed at {pointed} time(s) while it is solved. "
+                    "Explain the diagram: before solving, go through its parts (what each label, arrow and angle "
+                    f"stands for) and come back to it in the steps that use it, at least {MIN_FIGURE_STEPS} times in "
+                    f"all, with {{\"op\":\"focus\",\"diagram\":\"{figure}\",\"node\":...}} or "
+                    f"{{\"op\":\"reveal\",\"diagram\":\"{figure}\",\"nodes\":[...]}} on the beat that names the part.")
             if current is not None and lines < MIN_WORK_LINES:
                 errors.append(
                     f"{at}: problem {current.get('id')!r} is solved in {lines} line(s) of working. Solve it from the very "
@@ -843,9 +854,13 @@ def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
             for op in beat.get("do") or []:
                 if op.get("op") == "problem":
                     close()
-                    current, lines, at = op, 0, f"chapter {ci} beat {bi}"
+                    current, lines, at, pointed = op, 0, f"chapter {ci} beat {bi}", 0
+                    shown = op.get("figure")
+                    figure = (shown.get("id") or f"{op.get('id')}_figure") if isinstance(shown, dict) else None
                 elif op.get("op") == "work" and current is not None:
                     lines += len(op.get("lines") or [])
+                elif op.get("op") in ("reveal", "focus") and figure and str(op.get("diagram")) == figure:
+                    pointed += 1
         close()
     return errors, []
 

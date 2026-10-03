@@ -10,6 +10,7 @@
 
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
+import { SOLVING_STEPS } from "./solving";
 import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
 
 /** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
@@ -232,11 +233,10 @@ export function transcriptPrompt(options: {
             "    ...\"; \"Option B, ... यही सही है, क्योंकि ...\"): what the option says and exactly why it is right or",
             "    wrong (the trap in it, the mistake that leads a student to pick it); then say the answer again with",
             "    its reason. For a question to answer: think it through out loud and give the full answer the way",
-            "    an exam wants it; a numerical is solved step by step (given, asked, formula, numbers, units, answer",
-            "    twice). Then a one-line tip to remember it.",
-            "  - PROBLEMS: in a maths or science chapter, solve numericals slowly, step by step (given, asked, diagram,",
-            "    formula, numbers, units, answer twice). Use the book's solved examples, and make up one or two more",
-            "    with easy numbers where the book has none.",
+            "    an exam wants it; a numerical is solved from the very basics (below). Then a one-line tip to",
+            "    remember it.",
+            "  - PROBLEMS: in a maths or science chapter, solve numericals from the very basics (below). Use the",
+            "    book's solved examples, and make up one or two more with easy numbers where the book has none.",
             "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
             "    देखो...\"): the video draws it there, built in Manim from the figure. Build every diagram out loud, piece by piece.",
             "  - Tie each new idea to the one before, and end each section with a short recap.",
@@ -258,10 +258,10 @@ export function transcriptPrompt(options: {
     "    तरफ क्या लगेगा? Weight, m g। अब surface इसे ऊपर push करेगा, normal reaction, N। और कोई force? नहीं।\"",
     "  - Ask the class often and wait: \"बताओ, इस पर कौन-कौन सी forces लगेंगी? सोचो।\" Then answer, and say why",
     "    (and why a common wrong answer is wrong: \"यह मत कहना कि ऊपर वाला block इसे mg से दबा रहा है...\").",
-    "  - Solve numericals slowly: read the question, write what is given and what is asked, draw the free body",
-    "    diagram force by force, choose the axes, write the equation, put the numbers in step by step, check the",
-    "    units, and say the answer twice. Then \"समझ में आया? अब एक और question देखते हैं\".",
+    "  - Solve numericals slowly and completely, the way SOLVING below says, every step out loud. Then \"समझ में",
+    "    आया? अब एक और question देखते हैं\".",
     "  - Say every formula and symbol in words (\"F equals m a\", \"m g sin theta\"), since it is heard, not read.",
+    ...SOLVING_STEPS.map((line) => `  ${line}`),
     "  - Close each section with a short recap (\"तो आज हमने क्या देखा...\"), and open the next by linking back.",
     "",
     "EXAMPLE of the voice (the style only; not the content to use):",

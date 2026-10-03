@@ -8,6 +8,7 @@
  * linter catches the layout mistakes before anything renders.
  */
 
+import { MIN_WORK_LINES, SOLVING_STEPS } from "./solving";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
@@ -97,10 +98,10 @@ export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
     // About two key statements a topic, each with its examples; half of them counted, as the check reads
     // only the words an example starts with ("for example", "imagine", "जैसे"). At most one every 50 seconds.
     minExamples: Math.min(Math.max(2, Math.round(topics * 2 * examples * 0.5)), Math.max(2, Math.round(minutes * 1.2))),
-    // A long problem solved step by step takes about 2 minutes, and the theory before it as long: at most one
-    // problem per 4 minutes of the lecture.
+    // A problem solved from the very basics (lib/solving.ts) takes about 4 minutes, and the theory before it about
+    // as long: at most one problem per 7 minutes of the lecture.
     problemsPerTopic: perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3,
-    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 4))),
+    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 7))),
   };
 }
 
@@ -689,11 +690,12 @@ export function lecturePrompt(
           "     why each step follows; define every symbol; give everyday examples.",
           `  2. PROBLEMS: then up to ${plan.problemsPerTopic === 1 ? "one long problem" : `${plan.problemsPerTopic} long problems`} on each main concept (at least ${plan.minProblems} in the`,
           "     lecture; a small topic may have none), each harder than the last, of the kind an exam asks and that",
-          "     needs a long explanation. For each: the problem op",
-          "     (the full statement, given, find, its labelled figure, think: 5); read it out; say what is asked and",
-          "     which idea solves it; reveal the forces or quantities on the figure one by one; write the solution with",
-          "     work over many beats (a step a beat: the equation, then what it means); check the units and whether the",
-          "     answer is sensible; box the answer; then say what the problem taught. A problem takes 8-15 beats.",
+          "     needs a long explanation. For each: the problem op (the full statement, given, find, its labelled",
+          "     figure, think: 5), then every step of SOLVING below on the board as it is said: reveal the figure's",
+          "     parts one by one; the given values and their conversions, the law and its formula, then the working,",
+          `     ONE SMALL STEP PER work LINE, one or two lines a beat (at least ${MIN_WORK_LINES} lines; most problems take`,
+          "     10-20); box the answer; then the common mistakes. A problem takes 12-25 beats.",
+          ...SOLVING_STEPS.map((line) => `  ${line}`),
           "  Use numbers that work out cleanly. Say every symbol in words in the narration (\"m g sine theta\").",
           "  No photos: every picture is drawn in Manim (a scientist the lecture names may have a photo).",
           "",

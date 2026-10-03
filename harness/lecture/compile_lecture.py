@@ -291,6 +291,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _language_mix(script)
     errors += e
     warnings += w
+    e, w = _problem_depth(script) if min_problems else ([], [])
+    errors += e
+    warnings += w
     e, w = _book_questions(script, whole=bool(min_minutes))
     errors += e
     warnings += w
@@ -783,7 +786,8 @@ def teaching_plan(minutes: float, source_words: int = 0) -> dict:
             "min_questions": min(max(1, round(topics * questions)), max(1, int(minutes // 2))),
             "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2))),
             "problems_per_topic": problems,
-            "min_problems": min(topics * problems, max(1, int(minutes // 4)))}
+            # A problem solved from the very basics takes about 4 minutes, its theory about as long.
+            "min_problems": min(topics * problems, max(1, int(minutes // 7)))}
 
 
 PANEL_FACTS = 3          # key points a side panel (a map chapter's) holds under its title
@@ -811,6 +815,38 @@ def _panel_text(script: dict) -> tuple[list[str], list[str]]:
                     if len(text) > PANEL_FACT_CHARS:
                         errors.append(f"chapter {ci} beat {bi}: a panel point of {len(text)} characters; keep it "
                                       f"under {PANEL_FACT_CHARS}, a few words the narration expands on")
+    return errors, []
+
+
+# The fewest lines of working a problem's solution shows (app/lib/solving.ts MIN_WORK_LINES): a problem solved in two
+# or three lines skipped the steps a beginner needs.
+MIN_WORK_LINES = 6
+
+
+def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
+    """Each long problem solved from the very basics: at least MIN_WORK_LINES lines of working between it and the
+    next problem (its own solution, the work ops with its id or after it in its chapter)."""
+    errors: list[str] = []
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        current, lines, at = None, 0, ""
+
+        def close():
+            if current is not None and lines < MIN_WORK_LINES:
+                errors.append(
+                    f"{at}: problem {current.get('id')!r} is solved in {lines} line(s) of working. Solve it from the very "
+                    f"basics, at least {MIN_WORK_LINES} lines, one small step each, one or two a beat as they are said: "
+                    "the given values and their unit conversions, the law and its formula, each operation on its own "
+                    "line (\"divide both sides by m\"), the numbers put in one at a time, the arithmetic, the units, "
+                    "and the boxed answer.")
+
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            for op in beat.get("do") or []:
+                if op.get("op") == "problem":
+                    close()
+                    current, lines, at = op, 0, f"chapter {ci} beat {bi}"
+                elif op.get("op") == "work" and current is not None:
+                    lines += len(op.get("lines") or [])
+        close()
     return errors, []
 
 

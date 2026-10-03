@@ -155,3 +155,21 @@ def test_reading_the_books_question_out_is_not_copying():
     assert warnings or errors                                   # read out, and not a book question: flagged
     script["book_questions"] = [{"n": "q1", "text": words, "choices": []}]
     assert cl._plain_language(script) == ([], [])
+
+
+def test_a_problem_is_solved_from_the_basics_in_many_small_steps():
+    problem = {"op": "problem", "id": "p1", "title": "Problem 1", "text": "A 5 kg block is pulled with 20 N. Find a.",
+               "given": ["m = 5 kg", "F = 20 N"], "find": "a"}
+    quick = [_beat("Problem one.", problem), _beat("So a is four.", {"op": "work", "id": "p1", "lines": ["a = F/m = 4"]})]
+    errors, _ = cl._problem_depth(_lecture(quick))
+    assert len(errors) == 1 and "solved in 1 line(s)" in errors[0] and "very basics" in errors[0]
+    steps = ["m = 5\\ \\text{kg}", "F = 20\\ \\text{N}", "F = m a", "a = \\frac{F}{m}", "a = \\frac{20}{5}",
+             "a = 4\\ \\text{m/s}^2"]
+    slow = [_beat("Problem one.", problem)] + [
+        _beat(f"Step {i}.", {"op": "work", "id": "p1", "lines": [line]}) for i, line in enumerate(steps)]
+    assert cl._problem_depth(_lecture(slow)) == ([], [])
+    # Only a written lecture of a science is held to it (the lint runs it with min_problems).
+    errors, _ = cl.lint(_lecture(quick), min_minutes=0.1, min_problems=1)
+    assert any("very basics" in e for e in errors)
+    errors, _ = cl.lint(_lecture(quick))
+    assert not any("very basics" in e for e in errors)

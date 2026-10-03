@@ -200,9 +200,13 @@ EXPLAIN_SIMPLY = (
     "a beat, box the answer), problem for a long question with its figure. Reveal parts with reveal/focus as the "
     "narration names them. Build a picture in Manim whenever it can be built.\n"
     "THEORY, THEN PROBLEMS (mathematics, physics, chemistry): each concept first as theory built on the board, then "
-    "2-3 long exam-style problems on it, each over 8-15 beats: the problem op (statement, given, find, figure, "
-    "think), what is asked and which idea solves it, the quantities revealed on the figure, the solution with work a "
-    "step a beat, units checked, the answer boxed, what it taught."
+    "2-3 long exam-style problems on it, each solved FROM THE VERY BASICS over 12-25 beats, nothing skipped: the "
+    "problem op (statement, given, find, figure, think); every phrase of the question said in the subject's terms "
+    "(\"smooth\" means no friction, \"from rest\" means u = 0); the figure built part by part; each given value "
+    "with its unit and its SI conversion; the law in plain words, then its formula, then every symbol; the plan; "
+    "then the working ONE SMALL STEP PER work LINE (at least 6 lines), each operation said and why it is allowed, "
+    "numbers put in one at a time and the arithmetic done out loud; units and size checked; the answer said twice "
+    "and boxed; the common mistakes, and the method in three steps."
 )
 
 

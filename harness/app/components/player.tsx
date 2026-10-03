@@ -180,13 +180,18 @@ export function Player({
       return;
     }
     if (audioRef.current) {
-      audioRef.current.currentTime = frame / ir.fps;
-      audioRef.current.playbackRate = speed;
-      void audioRef.current.play().catch(() => {});
+      const audio = audioRef.current;
+      const at = frame / ir.fps;
+      // Before its metadata is in, a media element ignores a seek: make it once it can.
+      if (audio.readyState >= 1) audio.currentTime = at;
+      else audio.addEventListener("loadedmetadata", () => { audio.currentTime = at; }, { once: true });
+      audio.playbackRate = speed;
+      void audio.play().catch(() => {});
     }
     let started = performance.now();
     let from = frame;
     let held: number | null = null;          // the frame playback waits at while its segment loads
+    let lastResync = 0;
     let raf = 0;
     const tick = (now: number) => {
       // The narration is the master clock once it is actually playing, as on
@@ -208,10 +213,20 @@ export function Player({
         held = null;
         setWaiting(false);
       }
-      const next =
-        audio && !audio.paused && audio.readyState >= 2 && audio.currentTime > 0
-          ? Math.floor(audio.currentTime * ir.fps)
-          : from + Math.floor(((now - started) / 1000) * ir.fps * speed);
+      // The voice leads only while it is where playback should be. A seek the audio could not make (a file
+      // still loading, a server without byte ranges) left it at 0, and following it sent the picture back to
+      // the start: then the wall clock leads, and the voice is asked again to move to it.
+      const wall = from + Math.floor(((now - started) / 1000) * ir.fps * speed);
+      let next = wall;
+      if (audio && !audio.paused && audio.readyState >= 2) {
+        const heard = Math.floor(audio.currentTime * ir.fps);
+        if (Math.abs(heard - wall) <= ir.fps * 2) {
+          next = heard;
+        } else if (now - lastResync > 1000) {
+          lastResync = now;
+          audio.currentTime = wall / ir.fps;
+        }
+      }
       if (!ready(Math.min(next, total - 1))) {
         held = Math.min(next, total - 1);
         audio?.pause();

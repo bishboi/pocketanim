@@ -339,6 +339,137 @@ PRESET_FUNCS = {"incline": incline, "pulley": pulley, "piston": piston, "spring"
                 "projectile": projectile, "circuit": circuit, "lever": lever, "lens": lens}
 
 
+# ════════════════════════════════════════════════════════════════════════
+#  Motion: a diagram that moves while it is explained
+# ════════════════════════════════════════════════════════════════════════
+
+# What each preset does when it is set going: the block slides down the wedge, the bob swings, the ball flies.
+MOTIONS = {"incline": "slide", "pendulum": "swing", "projectile": "fly", "spring": "oscillate", "pulley": "pull",
+           "lever": "tilt", "piston": "press", "circuit": "pulse", "lens": "pulse"}
+MOTION_KINDS = {"slide", "swing", "fly", "oscillate", "pull", "tilt", "press", "move", "turn", "pulse"}
+# Kinds that need a particular preset; move, turn and pulse work on any sketch.
+MOTION_PRESET = {"slide": "incline", "swing": "pendulum", "fly": "projectile", "oscillate": "spring",
+                 "pull": "pulley", "tilt": "lever", "press": "piston"}
+
+
+def motion_problem(preset: str | None, ids: list[str], op: dict) -> str | None:
+    """What stops a motion op, given the diagram's preset kind (None for a sketch) and its part ids."""
+    kind = op.get("kind") or (MOTIONS.get(preset) if preset else None)
+    if not kind:
+        return ("'motion' on a sketch needs kind: move (parts, by: [dx, dy]), turn (parts, angle, about: [x, y]) "
+                "or pulse (parts)")
+    if kind not in MOTION_KINDS:
+        return f"motion kind {kind!r} is not one of {', '.join(sorted(MOTION_KINDS))}"
+    if kind in MOTION_PRESET and preset != MOTION_PRESET[kind]:
+        return f"motion {kind!r} is for a {MOTION_PRESET[kind]} diagram; on this one use move, turn or pulse"
+    parts = [str(x) for x in op.get("parts") or []]
+    unknown = [x for x in parts if x not in ids]
+    if unknown:
+        return f"motion parts: no part {unknown[0]!r} (its parts: {', '.join(ids) or 'none named'})"
+    if kind in ("move", "turn", "pulse") and not parts:
+        return f"motion {kind!r} needs parts: the ids of the parts that move"
+    if kind == "move" and not (isinstance(op.get("by"), (list, tuple)) and len(op["by"]) == 2):
+        return "motion move needs by: [dx, dy], how far the parts move, in the sketch's units"
+    if kind == "turn" and (op.get("angle") is None or not (isinstance(op.get("about"), (list, tuple))
+                                                           and len(op["about"]) == 2)):
+        return "motion turn needs angle (degrees, + is anticlockwise) and about: [x, y], the point it turns about"
+    return None
+
+
+def _attached(elements: list[dict], moving: list[str], pad: float = 0.45) -> list[str]:
+    """The arrows and marks that ride on the moving bodies: anything starting on (or just off) a moving block or
+    ball goes with it (its weight, its normal force, the friction on it)."""
+    boxes = []
+    for e in elements:
+        if str(e.get("id")) in moving and isinstance(e.get("at"), (list, tuple)):
+            x, y = (float(v) for v in e["at"])
+            hw = float(e.get("w", 2 * float(e.get("r", 0.5)))) / 2 + pad
+            hh = float(e.get("h", 2 * float(e.get("r", 0.5)))) / 2 + pad
+            boxes.append((x - hw, y - hh, x + hw, y + hh))
+    out = []
+    for e in elements:
+        key = str(e.get("id"))
+        if key in moving or e.get("type") not in ("arrow", "dot", "text") or not isinstance(e.get("from", e.get("at")),
+                                                                                          (list, tuple)):
+            continue
+        x, y = (float(v) for v in e.get("from", e.get("at")))
+        if any(a <= x <= c and b <= y <= d for a, b, c, d in boxes):
+            out.append(key)
+    return out
+
+
+def motion_plan(preset: str | None, params: dict, elements: list[dict], op: dict) -> tuple[list[dict], bool]:
+    """The steps of a motion, in sketch units, and whether it goes back to where it started (there and back, so
+    the diagram stays as labelled). Steps: {"move": ids, "by": [dx, dy]}; {"turn": ids, "deg": d, "about": [x, y]};
+    {"stretch": id, "fixed": [x, y], "end": [x, y], "by": [dx, dy]} (a rope or spring that lengthens or shortens);
+    {"ball": [x, y], "r": r, "about": [x, y], "deg": d} (a ball that flies along an arc); {"pulse": ids}."""
+    kind = op.get("kind") or MOTIONS.get(preset or "", "pulse")
+    params = params or {}
+    dist = float(op.get("distance") or 0)
+    back = op.get("back")
+    if kind == "slide":
+        a = math.radians(max(10.0, min(60.0, float(params.get("angle", 30)))))
+        sign = -1 if str(params.get("motion", "down")) == "down" else 1
+        d = dist or 1.6
+        ids = ["block"] + _attached(elements, ["block"])
+        steps = [{"move": ids, "by": [sign * d * math.cos(a), sign * d * math.sin(a)]}]
+    elif kind == "swing":
+        a = max(5.0, min(60.0, float(params.get("angle", 25))))
+        steps = [{"turn": ["string", "bob"] + _attached(elements, ["bob"]), "deg": -2 * a, "about": [5.0, 5.6]}]
+    elif kind == "fly":
+        a = math.radians(max(10.0, min(80.0, float(params.get("angle", 45)))))
+        x0, y0, rng = 0.8, 0.8, 8.4
+        h = min(4.4, rng * math.tan(a) / 4)
+        cy = y0 + (h * h - (rng / 2) ** 2) / (2 * h)       # the circle through the launch, the top and the landing
+        r = y0 + h - cy
+        sweep = 2 * math.degrees(math.asin(min(1.0, (rng / 2) / r)))
+        steps = [{"ball": [x0, y0], "r": 0.2, "about": [x0 + rng / 2, cy], "deg": -sweep}]
+        back = False if back is None else back
+    elif kind == "oscillate":
+        d = dist or 0.9
+        steps = [{"move": ["block"] + _attached(elements, ["block"]), "by": [d, 0.0]},
+                 {"stretch": "spring", "fixed": [1.0, 1.95], "end": [5.2, 1.95], "by": [d, 0.0]}]
+    elif kind == "pull":
+        d = dist or 0.8
+        if params.get("kind") == "table":
+            steps = [{"move": ["m1"] + _attached(elements, ["m1"]), "by": [d, 0.0]},
+                     {"stretch": "rope", "fixed": [7.35, 3.7], "end": [4.15, 3.45], "by": [d, 0.0]},
+                     {"move": ["m2"] + _attached(elements, ["m2"]), "by": [0.0, -d]},
+                     {"stretch": "rope2", "fixed": [7.7, 3.35], "end": [7.7, 2.0], "by": [0.0, -d]}]
+        else:
+            # The heavier side goes down: m2 unless the script says m1.
+            down = "m1" if str(op.get("heavier", "m2")) == "m1" else "m2"
+            up = "m2" if down == "m1" else "m1"
+            ends = {"m1": ("rope", [4.4, 4.6], [4.4, 2.5]), "m2": ("rope2", [5.6, 4.6], [5.6, 1.9])}
+            steps = [{"move": [down] + _attached(elements, [down]), "by": [0.0, -d]},
+                     {"stretch": ends[down][0], "fixed": ends[down][1], "end": ends[down][2], "by": [0.0, -d]},
+                     {"move": [up] + _attached(elements, [up]), "by": [0.0, d]},
+                     {"stretch": ends[up][0], "fixed": ends[up][1], "end": ends[up][2], "by": [0.0, d]}]
+    elif kind == "tilt":
+        steps = [{"turn": ["beam", "L1", "L2"], "deg": float(op.get("angle", -8)), "about": [5.0, 2.32]}]
+    elif kind == "press":
+        d = dist or 0.8
+        steps = [{"move": ["piston", "rod", "F"], "by": [0.0, -d]}]
+    elif kind == "move":
+        steps = [{"move": [str(x) for x in op.get("parts") or []], "by": [float(v) for v in op["by"]]}]
+    elif kind == "turn":
+        steps = [{"turn": [str(x) for x in op.get("parts") or []], "deg": float(op["angle"]),
+                  "about": [float(v) for v in op["about"]]}]
+    else:
+        parts = [str(x) for x in op.get("parts") or []]
+        if not parts:
+            parts = [str(e["id"]) for e in elements if e.get("id") is not None
+                     and (e.get("type") == "arrow" or str(e["id"]).startswith(("ray", "R", "I")))]
+        steps = [{"pulse": parts}]
+    if op.get("parts") and kind not in ("move", "turn", "pulse"):
+        # The script may name the parts that ride along: they replace the preset's own choice.
+        for step in steps:
+            for key in ("move", "turn"):
+                if key in step and step is steps[0]:
+                    step[key] = [str(x) for x in op["parts"]]
+    return steps, (True if back is None else bool(back))
+
+
 def preset_elements(kind: str, params: dict) -> list[dict]:
     """A preset diagram's primitives: {"id", "type", ...} in the 10 x 6 box."""
     return PRESET_FUNCS[kind](**{k: v for k, v in (params or {}).items() if k not in ("op", "id", "show", "title")})
@@ -475,6 +606,15 @@ def _fit_into(mobs, box, margin: float = 0.12) -> None:
         if f < 1.0:
             m.scale(f, about_point=centre)
         m.shift(shift)
+
+
+def _moving(builder):
+    """A part's `.animate` move as an animation the exporter writes as a move of that part (an `xform` verb with
+    its rate), not as a morph into a copy: in a group, Manim makes the builder a transform, which the program
+    played by keeping the part where it was and adding a moved copy."""
+    anim = builder.build()
+    anim.panim_xform = True
+    return anim
 
 
 def _labels_and_ink(mobs):
@@ -892,8 +1032,10 @@ class BoardMixin:
         return VGroup(*parts)
 
     # ---------------- sketches and presets ----------------
-    def _build_sketch(self, key: str, elements: list[dict], box, show=None):
-        """Draw the elements into `box`; record them for reveal and focus. Returns what shows now."""
+    def _build_sketch(self, key: str, elements: list[dict], box, show=None, movable=()):
+        """Draw the elements into `box`; record them for reveal and focus. Returns what shows now. `movable`: parts
+        a motion will move, drawn as objects of their own (_show_movable) rather than in the picture, which the
+        program draws as one piece: moved out of it, a part left its copy behind."""
         from manim import VGroup
 
         to, s = self._mapper(elements, box)
@@ -904,6 +1046,8 @@ class BoardMixin:
         nodes, first, unnamed = {}, [], []
         ids = [str(e["id"]) for e in elements if e.get("id") is not None]
         shown = set(ids if show is None else _with_companions([str(x) for x in show], ids))
+        detach = [i for i in ids if i in {str(m) for m in movable or ()} and i in shown]
+        shown -= set(detach)
         built = []
         for e in elements:
             mob = self._element(e, to, s)
@@ -918,8 +1062,24 @@ class BoardMixin:
         # Every part, shown now or later, is laid out together: a label clear of every line and label, and
         # the whole drawing, labels included, inside its box.
         _settle_labels(built, box)
+        before = _bounds(built)
         _fit_into(built, box)
-        self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
+        after = _bounds(built)
+        # Where a sketch point is on the frame, for motion: the mapping, then the fit's shrink and shift. The anchor
+        # (the biggest part) follows the drawing if it later slides aside, so the mapping is measured again then.
+        anchor = max(nodes.values(), key=lambda m: m.width + m.height) if nodes else None
+        place = to
+        if before and after:
+            import numpy as np
+
+            f = (after[2] - after[0]) / max(before[2] - before[0], 1e-6)
+            c0 = np.array([(before[0] + before[2]) / 2, (before[1] + before[3]) / 2, 0.0])
+            c1 = np.array([(after[0] + after[2]) / 2, (after[1] + after[3]) / 2, 0.0])
+            place = lambda p, to=to, f=f, c0=c0, c1=c1: c1 + (to(p) - c0) * f  # noqa: E731
+        self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True,
+                              "elements": elements, "place": place,
+                              "anchor": (anchor, anchor.get_center().copy(), anchor.width) if anchor else None,
+                              "detach": detach}
         self._next_keys.add(key)
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
         return VGroup(*first)
@@ -972,19 +1132,90 @@ class BoardMixin:
         return self.board_mode and self._solving() and self._problem.get("fig_box") is not None \
             and not self._beat_new
 
-    def sketch(self, key: str, elements, show=None, title: str | None = None):
+    def _show_movable(self, key: str, anim):
+        """The drawing's animation with its movable parts drawn in beside it, as parts of their own."""
+        from manim import AnimationGroup
+
+        d = self.diagrams.get(key) or {}
+        parts = self.reveal_nodes(key, d.get("detach") or []) if d.get("detach") else None
+        if anim is None or parts is None:
+            return anim or parts
+        # After the picture is in (and the one before it gone): drawn with it, they sat over the leaving picture.
+        return AnimationGroup(anim, parts, lag_ratio=1.0)
+
+    def sketch(self, key: str, elements, show=None, title: str | None = None, movable=()):
         """A labelled diagram from primitives (see stem.PRIMITIVES), on the stage."""
         from manim import Group, VGroup
 
         if self._in_problem():
-            return self._problem_drawing(lambda box: self._build_sketch(key, list(elements), box, show))
+            return self._show_movable(key, self._problem_drawing(
+                lambda box: self._build_sketch(key, list(elements), box, show, movable)))
         head, box = self._titled(title, self.STAGE)
-        body = self._build_sketch(key, list(elements), box, show)
-        return self._to_stage(Group(VGroup(*([head] if head else []), body)))
+        body = self._build_sketch(key, list(elements), box, show, movable)
+        return self._show_movable(key, self._to_stage(Group(VGroup(*([head] if head else []), body))))
 
-    def preset(self, key: str, kind: str, params: dict | None = None, show=None, title: str | None = None):
+    def preset(self, key: str, kind: str, params: dict | None = None, show=None, title: str | None = None,
+               movable=()):
         """A physics diagram by name (incline, pulley, piston, spring, pendulum, projectile, circuit, lever, lens)."""
-        return self.sketch(key, preset_elements(kind, params or {}), show, title)
+        drawn = self.sketch(key, preset_elements(kind, params or {}), show, title, movable)
+        if key in self.diagrams:
+            self.diagrams[key]["preset"] = (kind, dict(params or {}))
+        return drawn
+
+    def motion(self, key: str, spec: dict | None = None):
+        """Set a diagram going while it is explained (stem.motion_plan): the block slides down the wedge, the bob
+        swings, the masses of a pulley move, the ball flies along its path; or any parts of a sketch moved,
+        turned or pulsed. By default it goes there and back, so the diagram is left as it was labelled."""
+        import numpy as np
+        from manim import AnimationGroup, Dot, Indicate, Rotate, there_and_back, smooth
+        import pocket_lecture as pl
+
+        d = self.diagrams.get(key)
+        if not d or d.get("gone") or not d.get("elements"):
+            return None
+        preset, params = d.get("preset") or (None, {})
+        steps, back = motion_plan(preset, params, d["elements"], spec or {})
+        # The drawing may have moved or shrunk since it was laid out (beside a card, into a problem's figure box).
+        k, shift = 1.0, np.zeros(3)
+        if d.get("anchor"):
+            mob, centre, width = d["anchor"]
+            k = mob.width / width if width else 1.0
+            shift = mob.get_center() - centre * k
+
+        def at(p):
+            return d["place"](p) * k + shift
+
+        def vec(v):
+            return at([v[0], v[1]]) - at([0.0, 0.0])
+
+        rate = there_and_back if back else smooth
+        live = lambda ids: [d["nodes"][i] for i in ids if i in d["nodes"] and i in d["shown"]]  # noqa: E731
+        anims = []
+        for step in steps:
+            if "move" in step:
+                for node in live(step["move"]):
+                    anims.append(_moving(node.animate(rate_func=rate).shift(vec(step["by"]))))
+            elif "turn" in step:
+                for node in live(step["turn"]):
+                    anims.append(Rotate(node, angle=np.radians(step["deg"]), about_point=at(step["about"]),
+                                        rate_func=rate))
+            elif "stretch" in step:
+                for node in live([step["stretch"]]):
+                    fixed, end = np.array(step["fixed"], float), np.array(step["end"], float)
+                    long = np.linalg.norm(end + np.array(step["by"], float) - fixed)
+                    f = long / max(np.linalg.norm(end - fixed), 1e-6)
+                    pin = at(fixed)
+                    anims.append(_moving(node.animate(rate_func=rate).scale(f)
+                                         .shift((pin - node.get_center()) * (1 - f))))
+            elif "ball" in step:
+                ball = Dot(at(step["ball"]), radius=max(0.08, float(np.linalg.norm(vec([step["r"], 0])))),
+                           color=pl.P.GOLD).set_z_index(pl.Z_MARK + 12)
+                self.add(self._stage_add(ball))
+                anims.append(Rotate(ball, angle=np.radians(step["deg"]), about_point=at(step["about"]),
+                                    rate_func=rate if back else smooth))
+            elif "pulse" in step:
+                anims += [Indicate(node, color=pl.P.GOLD) for node in live(step["pulse"])]
+        return AnimationGroup(*anims) if anims else None
 
     # ---------------- graphs ----------------
     def _build_graph(self, key: str, spec: dict, box):
@@ -1317,7 +1548,11 @@ class BoardMixin:
             if figure.get("op") == "graph":
                 drawing = self._build_graph(fkey, figure, fig_box)
             else:
-                drawing = self._build_sketch(fkey, op_elements(figure), fig_box, figure.get("show"))
+                drawing = self._build_sketch(fkey, op_elements(figure), fig_box, figure.get("show"),
+                                             figure.get("movable") or ())
+                if figure.get("op") in PRESETS:
+                    self.diagrams[fkey]["preset"] = (figure["op"], {k: v for k, v in figure.items()
+                                                                    if k not in ("op", "id", "show")})
         else:
             work_box = (cx, below_top - below_h / 2, w, below_h)
         lines = []
@@ -1348,5 +1583,7 @@ class BoardMixin:
         if drawing is not None:
             self._stage_add(drawing)
             show = AnimationGroup(show, FadeIn(drawing))
+            if figure and figure.get("op") != "graph":
+                show = self._show_movable(str(figure.get("id") or f"{key}_figure"), show)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 

@@ -374,8 +374,8 @@ WORK_OPS = {"work"}
 # Subjects taught on the board (no side panel) unless the script says otherwise.
 BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
-# to the question, one of its choices marked right or wrong while it is explained.
-STEP_OPS = {"reveal", "focus", "answer", "option"}
+# to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
+STEP_OPS = {"reveal", "focus", "answer", "option", "motion"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
@@ -481,6 +481,10 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         key = str(op.get("diagram") or "")
         if key not in diagrams:
             return f"'{kind}' needs diagram: the id of a diagram drawn earlier in this chapter"
+        if kind == "motion":
+            import stem
+
+            return stem.motion_problem(diagrams.get(f"?kind:{key}"), list(diagrams[key]), op)
         wanted = [str(x) for x in (op.get("nodes") or [])] if kind == "reveal" else [str(op.get("node") or "")]
         if not wanted or any(w not in diagrams[key] for w in wanted):
             return f"{kind}: nodes must be ids of diagram {key!r} ({', '.join(diagrams[key])})"
@@ -530,6 +534,8 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
         if problem:
             return problem
         ids = stem.element_ids(stem.op_elements(op))
+        if kind in stem.PRESETS:
+            diagrams[f"?kind:{key}"] = kind          # what a motion on it can do (stem.MOTIONS)
     unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
     if unknown:
         return f"{kind} {key} show: no part {unknown[0]!r} (its parts: {', '.join(ids) or 'none named'})"
@@ -633,7 +639,8 @@ ROMAN_HINDI = re.compile(r"\b(hai|hain|hota|hoti|hote|matlab|yaani|yani|kya|kyun
 NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "entity", "subject", "query", "expr",
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
-             "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index"}
+             "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
+             "about", "heavier", "distance", "back"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -826,13 +833,37 @@ MIN_WORK_LINES = 6
 MIN_FIGURE_STEPS = 3
 
 
+MOTION_SAYS = {"slide": "the block slides down the slope and back", "swing": "the bob swings to the other side and back",
+               "fly": "a ball flies along the path and lands", "oscillate": "the block pulls the spring out and back",
+               "pull": "the heavier mass goes down, the lighter one up", "tilt": "the beam tips about the fulcrum",
+               "press": "the piston pushes into the gas and back"}
+
+
 def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
     """Each long problem solved from the very basics: at least MIN_WORK_LINES lines of working between it and the
     next problem (its own solution, the work ops with its id or after it in its chapter), and a problem with a
     figure walked through on it: MIN_FIGURE_STEPS reveals or focuses on the figure's parts."""
+    import stem
+
     errors: list[str] = []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
         current, lines, at, figure, pointed = None, 0, "", None, 0
+        # Diagrams that can move (a block on a wedge, a pendulum, a pulley...): each is set going while explained.
+        still: dict[str, tuple[str, str]] = {}
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            for op in beat.get("do") or []:
+                draws = op if op.get("op") in stem.PRESETS else op.get("figure") if op.get("op") == "problem" else None
+                if isinstance(draws, dict) and stem.MOTIONS.get(str(draws.get("op"))) not in (None, "pulse"):
+                    key = str(draws.get("id") or op.get("id") if draws is op else
+                              draws.get("id") or f"{op.get('id')}_figure")
+                    still[key] = (f"chapter {ci} beat {bi}", str(draws.get("op")))
+                elif op.get("op") == "motion":
+                    still.pop(str(op.get("diagram")), None)
+        for key, (where, kind) in still.items():
+            errors.append(
+                f"{where}: the {kind} {key!r} never moves. Explain it in motion as well as labelled: "
+                f"{{\"op\":\"motion\",\"diagram\":\"{key}\"}} on the beat that says what happens "
+                f"({stem.MOTIONS[kind]}: {MOTION_SAYS[stem.MOTIONS[kind]]}), and again when the solution uses it.")
 
         def close():
             if current is not None and figure and pointed < MIN_FIGURE_STEPS:
@@ -1511,6 +1542,9 @@ def _op_call(op: dict) -> str:
         return f"self.question({_q(op['text'])}{extra}{title})"
     if kind == "answer":
         return "self.answer()"
+    if kind == "motion":
+        spec = _clean({k: v for k, v in op.items() if k not in ("op", "diagram")})
+        return f"self.motion({_q(str(op['diagram']))}, {spec!r})"
     if kind == "option":
         return f"self.option({op.get('_index', 0)!r}" + (
             f", right={bool(op['right'])!r})" if op.get("right") is not None else ")")
@@ -1551,8 +1585,9 @@ def _stem_call(op: dict) -> str:
     if kind == "work":
         box = ", box=True" if op.get("box") else ""
         return f"self.work({_q(key)}, {_clean(op['lines'])!r}{title}{box})"
+    movable = f", movable={op['_movable']!r}" if op.get("_movable") else ""
     if kind == "sketch":
-        return f"self.sketch({_q(key)}, {_clean(op['items'])!r}{show}{title})"
+        return f"self.sketch({_q(key)}, {_clean(op['items'])!r}{show}{title}{movable})"
     if kind == "graph":
         spec = _clean({k: v for k, v in op.items() if k not in ("op", "id", "title")})
         return f"self.graph({_q(key)}, {spec!r}{title})"
@@ -1566,9 +1601,9 @@ def _stem_call(op: dict) -> str:
             figure = _clean({**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"})
             extra += f", figure={figure!r}"
         return f"self.problem({_q(key)}, {_q(op['text'])}{title}{extra})"
-    params = _clean({k: v for k, v in op.items() if k not in ("op", "id", "show", "title")})
+    params = _clean({k: v for k, v in op.items() if k not in ("op", "id", "show", "title", "_movable")})
     assert kind in stem.PRESETS
-    return f"self.preset({_q(key)}, {_q(kind)}, {params!r}{show}{title})"
+    return f"self.preset({_q(key)}, {_q(kind)}, {params!r}{show}{title}{movable})"
 
 
 def board_chapter(script: dict, chapter: dict) -> bool:
@@ -1580,6 +1615,32 @@ def board_chapter(script: dict, chapter: dict) -> bool:
     if script.get("layout") == "panel":
         return any(op.get("op") in STEM_OPS | WORK_OPS for b in chapter.get("beats") or [] for op in b.get("do") or [])
     return True
+
+
+def _resolve_motion(script: dict) -> None:
+    """The parts each diagram's motions move, on the op that draws it (`_movable` on a sketch or preset, `movable`
+    on a problem's figure): the engine draws those as objects of their own, so they move without leaving a copy."""
+    import stem
+
+    for chapter in script.get("chapters") or []:
+        drawn: dict[str, tuple] = {}          # diagram id -> (the dict that draws it, its field, preset kind, elements)
+        for beat in chapter.get("beats") or []:
+            for op in beat.get("do") or []:
+                kind = op.get("op")
+                if kind in stem.PRESETS or kind == "sketch":
+                    drawn[str(op.get("id"))] = (op, "_movable", kind if kind in stem.PRESETS else None,
+                                                stem.op_elements(op))
+                elif kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") != "graph":
+                    figure = op["figure"]
+                    fkind = figure.get("op") if figure.get("op") in stem.PRESETS else None
+                    drawn[str(figure.get("id") or f"{op.get('id')}_figure")] = (figure, "movable", fkind,
+                                                                                 stem.op_elements(figure))
+                elif kind == "motion" and str(op.get("diagram")) in drawn:
+                    owner, field, preset, elements = drawn[str(op.get("diagram"))]
+                    steps, _ = stem.motion_plan(preset, owner, elements, op)
+                    ids = {i for step in steps for i in [*step.get("move", []), *step.get("turn", []),
+                                                         *([step["stretch"]] if "stretch" in step else [])]}
+                    owner[field] = sorted(set(owner.get(field) or []) | ids)
 
 
 def _resolve_options(script: dict) -> None:
@@ -1608,6 +1669,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     _resolve_options(script)
+    _resolve_motion(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):
         place_figures(script)

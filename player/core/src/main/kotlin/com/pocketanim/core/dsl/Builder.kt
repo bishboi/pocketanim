@@ -887,7 +887,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
 
         override fun render(k: Int) {
-            val alpha = Verbs.smooth((k + 1).toDouble() / frames)
+            // there_and_back ends where it began: a part shown moving, then back in its place.
+            val alpha = Verbs.rate(step.rate)((k + 1).toDouble() / frames)
             val scale = 1.0 + (step.factor - 1.0) * alpha
             val m = DoubleArray(12)
             m[0] = scale; m[5] = scale; m[10] = scale

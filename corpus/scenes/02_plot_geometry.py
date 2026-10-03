@@ -1,3 +1,8 @@
+import importlib.util as _layout_util
+_layout_spec = _layout_util.spec_from_file_location('layout_guard', '/home/user/pocketanim/harness/scripts/layout_guard.py')
+_layout_mod = _layout_util.module_from_spec(_layout_spec)
+_layout_spec.loader.exec_module(_layout_mod)
+_layout_mod.install()
 """2D plot and geometry sequence.
 
 Stresses: the case that defeats keyframe-based formats. ValueTracker plus

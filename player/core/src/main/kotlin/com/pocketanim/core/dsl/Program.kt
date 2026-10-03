@@ -59,7 +59,10 @@ sealed class Step {
     class RevealSequence(val name: String, val seconds: Double, val lag: Double = 1.0) : Step()
     /** `.animate.set_fill`. Null fields are left as they are. */
     class Fill(val name: String, val color: Int?, val opacity: Double?, val seconds: Double) : Step()
-    class Xform(val name: String, val factor: Double, val offsetXy: DoubleArray, val seconds: Double) : Step()
+    class Xform(
+        val name: String, val factor: Double, val offsetXy: DoubleArray, val seconds: Double,
+        val rate: String = "smooth",
+    ) : Step()
     /** `.animate.set_stroke`. Null fields are left as they are. */
     class Stroke(
         val name: String, val color: Int?, val width: Double?, val opacity: Double?, val seconds: Double,
@@ -231,7 +234,7 @@ class Program(
                         timeline.add(
                             Step.Xform(
                                 positional[0], (args["by"] ?: "1.0").toDouble(),
-                                doubleArrayOf(by[0].toDouble(), by[1].toDouble()), t(),
+                                doubleArrayOf(by[0].toDouble(), by[1].toDouble()), t(), rate(),
                             )
                         )
                     }

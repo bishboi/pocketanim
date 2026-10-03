@@ -323,7 +323,7 @@ def parse(text: str) -> dict:
             by_xy = args.get("by_xy", "0,0").split(",")
             scene["timeline"].append(
                 ("xform", positional[0], float(args.get("by", 1.0)),
-                 [float(by_xy[0]), float(by_xy[1])], float(args["t"]))
+                 [float(by_xy[0]), float(by_xy[1])], float(args["t"]), args.get("rate", "smooth"))
             )
         elif verb == "laggedgrow":
             at = [float(x) for x in args["at"].split(",")] if "at" in args else None
@@ -713,7 +713,8 @@ def build_2d(scene: dict) -> DecodedIR:
                     obj["instances"] = grown
                     yield
         elif step[0] == "xform":
-            _, name, factor, offset_xy, duration = step
+            _, name, factor, offset_xy, duration, rate_name = step
+            rate_fn = RATE_FUNCS[rate_name]
             obj = objects[name]
             shift = np.array([offset_xy[0], offset_xy[1], 0.0])
 
@@ -732,7 +733,8 @@ def build_2d(scene: dict) -> DecodedIR:
 
             yield BEGUN
             for frame_index in range(play_frames(duration, fps)):
-                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
+                # there_and_back ends where it began: a part shown moving, then back in its place.
+                alpha = rate_fn((frame_index + 1) / max(play_frames(duration, fps), 1))
                 scale = 1.0 + (factor - 1.0) * alpha
                 # Manim scales about the object's centre, then translates.
                 step_linear = np.identity(3) * scale

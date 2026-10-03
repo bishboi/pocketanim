@@ -1001,6 +1001,19 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.timeline.append(f"indicate {name} t={duration:g}")
                 else:
                     rec.blockers.append("Indicate target could not be declared")
+            elif getattr(anim, "panim_xform", False) and getattr(anim, "methods", None):
+                # A part moved in place (harness/lecture/stem.py _moving): the move itself, with its rate, not a
+                # morph into a copy of it.
+                target = rec.declare(anim.mobject)
+                verbs = animate_verbs(anim.methods, target, duration, anim.mobject) if target else None
+                if verbs:
+                    verbs = [v + suffix if v.startswith(("xform ", "rotate ")) and suffix and " rate=" not in v
+                             else v for v in verbs]
+                    if len(verbs) > 1:
+                        rec.timeline.append(f"par n={len(verbs)} t={duration:g}")
+                    rec.timeline.extend(verbs)
+                else:
+                    rec.blockers.append("a part's move could not be written as a verb")
             elif isinstance(anim, Transform):
                 source = rec.declare(anim.mobject)
                 target = rec.declare(anim.target_mobject)
@@ -1039,6 +1052,11 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 target = rec.declare(anim.mobject)
                 if target:
                     verbs = animate_verbs(anim.methods, target, duration, anim.mobject)
+                    if verbs and suffix:
+                        # The rate shapes a move or a turn: there_and_back (a part shown moving, then back
+                        # in its place) used to be dropped, and the part stayed where the move ended.
+                        verbs = [v + suffix if v.startswith(("xform ", "rotate ")) and " rate=" not in v else v
+                                 for v in verbs]
                     if verbs:
                         if len(verbs) > 1:
                             rec.timeline.append(f"par n={len(verbs)} t={duration:g}")

@@ -124,3 +124,31 @@ def test_a_long_lecture_goes_to_the_browser_in_segments_that_draw_the_same(tmp_p
     index = json.loads((tmp_path / "scene_ir.json").read_text())
     assert summary["segments"] == len(index["segments"]) >= 1 and index["pieces"] == []
     assert (tmp_path / "scene_ir_0.json").is_file()
+
+
+def test_a_diagram_set_moving_moves_its_parts_in_the_program_and_brings_them_back(tmp_path):
+    """The block slides down the wedge and back. Moved out of the drawing it was baked into, a part left its copy
+    behind (two blocks), and a there-and-back move lost its rate (the block stayed at the bottom)."""
+    sys.path.insert(0, str(REPO / "harness" / "lecture"))
+    import compile_lecture as cl
+
+    beats = [{"say": "A block rests on a smooth wedge.", "do": [{"op": "incline", "id": "ramp", "angle": 30,
+                                                                  "forces": ["mg", "N"]}]},
+             {"say": "Watch it slide down the slope.", "do": [{"op": "motion", "diagram": "ramp"}]},
+             {"say": "And the pendulum swings.", "do": [{"op": "pendulum", "id": "pen", "angle": 25}]},
+             {"say": "Watch it swing.", "do": [{"op": "motion", "diagram": "pen"}]}]
+    script = {"title": "Motion", "style": "chalkboard", "auto_visuals": False, "place_figures": False,
+              "chapters": [{"title": "Motion", "narration": "Chapter one.", "beats": beats}]}
+    scene = tmp_path / "scene.py"
+    scene.write_text(cl.compile_script(json.loads(json.dumps(script))))
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(tmp_path)], capture_output=True, text=True, timeout=900,
+                         env={**__import__("os").environ, "PANIM_VOICE": "silent"})
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1 and result["blockers"] == [], result
+    program = result["program"]
+    slides = [line for line in program.splitlines() if line.startswith("xform ")]
+    swings = [line for line in program.splitlines() if line.startswith("rotate ")]
+    assert slides and all("rate=there_and_back" in line for line in slides)       # block, mg and N, there and back
+    assert len(swings) >= 2 and all("rate=there_and_back" in line for line in swings)
+    assert "morph" not in program                                                    # no moved copy of a part

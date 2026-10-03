@@ -181,11 +181,31 @@ def test_a_problems_diagram_is_walked_through_while_it_is_solved():
                "given": ["\\theta = 30°"], "find": "a", "figure": figure}
     work = [_beat(f"Step {i}.", {"op": "work", "id": "p1", "lines": [f"x_{i} = {i}"]}) for i in range(6)]
     errors, _ = cl._problem_depth(_lecture([_beat("Problem one.", problem)] + work))
-    assert len(errors) == 1 and "pointed at 0 time(s)" in errors[0] and '"diagram":"p1_figure"' in errors[0]
+    assert any("pointed at 0 time(s)" in e and '"diagram":"p1_figure"' in e for e in errors)
+    assert any("never moves" in e for e in errors)                  # and a block on a wedge is shown sliding
     pointing = [_beat("This angle is theta.", {"op": "focus", "diagram": "p1_figure", "node": "theta"}),
                 _beat("This is the block.", {"op": "focus", "diagram": "p1_figure", "node": "block"}),
-                _beat("Its weight acts down.", {"op": "focus", "diagram": "p1_figure", "node": "wedge"})]
+                _beat("Its weight acts down.", {"op": "focus", "diagram": "p1_figure", "node": "wedge"}),
+                _beat("Watch it slide down.", {"op": "motion", "diagram": "p1_figure"})]
     assert cl._problem_depth(_lecture([_beat("Problem one.", problem)] + pointing + work)) == ([], [])
     named = {**problem, "figure": {**figure, "id": "slope"}}           # a figure with its own id is pointed at by it
     pointing = [_beat(b["say"], {**b["do"][0], "diagram": "slope"}) for b in pointing]
     assert cl._problem_depth(_lecture([_beat("Problem one.", named)] + pointing + work)) == ([], [])
+
+
+def test_a_diagram_that_can_move_is_set_moving_and_its_moving_parts_drawn_apart():
+    incline = {"op": "incline", "id": "ramp", "angle": 30, "forces": ["mg", "N"]}
+    beats = [_beat("A block on a wedge.", incline), _beat("It slides down.", {"op": "motion", "diagram": "ramp"})]
+    assert not any("never moves" in e for e in cl._problem_depth(_lecture(beats))[0])
+    assert any("never moves" in e for e in cl._problem_depth(_lecture(beats[:1]))[0])
+    asked: dict = {}
+    assert cl._build_problem(incline, asked, {}) is None
+    assert cl._build_problem({"op": "motion", "diagram": "ramp"}, asked, {}) is None
+    assert "for a pendulum" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "swing"}, asked, {})
+    assert "needs by" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "move", "parts": ["block"]},
+                                           asked, {})
+    assert "no part" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "pulse", "parts": ["moon"]},
+                                          asked, {})
+    source = cl.compile_script(json.loads(json.dumps(_lecture(beats))))
+    # The block and the forces on it are drawn as parts of their own, so they move without leaving a copy.
+    assert "movable=['N', 'block', 'mg']" in source and 'self.motion("ramp", {})' in source

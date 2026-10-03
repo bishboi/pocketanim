@@ -20,6 +20,8 @@ export type AgentEvent = {
   costUsd?: number;
   source?: string;
   model?: string;
+  /** A lecture made as more than one video (lib/parts.ts): each part's title, length and scene. */
+  parts?: { title: string; minutes: number; source: string }[];
 };
 
 export const TOOLS = [

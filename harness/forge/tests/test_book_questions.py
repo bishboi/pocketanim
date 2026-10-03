@@ -113,3 +113,19 @@ console.log(JSON.stringify({{
     assert sum(only for *_, only in out["sections"]) >= 2
     # Read out as the book prints them, in English, with no example of its own: still a good section.
     assert out["problem"] is None
+
+
+def test_a_lecture_over_an_hour_is_cut_between_chapters_into_parts():
+    out = _run("import { splitLecture } from './lib/parts.ts';"
+               "const ch = (n, w) => ({ title: 'C' + n, narration: 'x', beats: [{ say: Array(w).fill('w').join(' ') }] });"
+               "const s = { title: 'Forces', intro: 'hi', recap: [['a', 'b']], credits: 'c',"
+               " chapters: [ch(1, 500), ch(2, 700), ch(3, 600), ch(4, 800), ch(5, 400), ch(6, 900)] };"
+               "console.log(JSON.stringify([50, 90, 130].map((m) => splitLecture(s, m, 60).map((p) => ({"
+               " title: p.title, chapters: p.script.chapters.map((c) => c.title), minutes: p.minutes,"
+               " intro: 'intro' in p.script, recap: 'recap' in p.script, credits: p.script.credits })))));")
+    whole, two, three = out
+    assert whole == []                                             # under an hour: one video
+    assert [p["chapters"] for p in two] == [["C1", "C2", "C3"], ["C4", "C5", "C6"]]
+    assert all(p["minutes"] <= 60 for p in two) and len(three) == 3
+    assert [p["title"] for p in two] == ["Forces · Part 1 of 2", "Forces · Part 2 of 2"]
+    assert [(p["intro"], p["recap"], p["credits"]) for p in two] == [(True, False, "c"), (False, True, "c")]

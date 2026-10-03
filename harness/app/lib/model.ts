@@ -16,6 +16,7 @@ import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import type { BookQuestion } from "./questions";
+import { maxVideoMinutes, splitLecture } from "./parts";
 import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -23,6 +24,8 @@ import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } fr
 
 export type Generated = {
   source: string;
+  /** A lecture over PANIM_MAX_VIDEO_MINUTES, as more than one video (lib/parts.ts); `source` is the first. */
+  parts?: { title: string; minutes: number; source: string }[];
   sceneClass: string;
   model: string;
   inputTokens: number;
@@ -584,10 +587,14 @@ async function completionWithRetry(
   throw new Error("OpenRouter returned an empty message");
 }
 
+/** The lecture script behind the source a generation returns, so it can be cut into parts (lib/parts.ts). */
+type Kept = { script?: unknown; source?: string; minutes?: number; options?: () => Parameters<typeof compileLecture>[1] };
+
 async function viaOpenRouter(
   request: GenerateRequest,
   emit: (event: AgentEvent) => void,
   stopped: () => boolean = () => false,
+  kept: Kept = {},
 ): Promise<Generated> {
   const key = process.env.OPENROUTER_API_KEY!;
   const model = videoModel();
@@ -807,6 +814,11 @@ async function viaOpenRouter(
   });
   // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
   const compileWhole = async (script: unknown) => {
+    const compiled = await compileWholeChecked(script);
+    if (compiled.source) Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes });
+    return compiled;
+  };
+  const compileWholeChecked = async (script: unknown) => {
     const compiled = await compileLecture(script, lectureOptions());
     const unsaid = compiled.source ? transcriptProblem(script, written) : null;
     if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
@@ -831,6 +843,7 @@ async function viaOpenRouter(
   // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
   // length or counts.
   const partOptions = () => ({ ...lectureOptions(), minMinutes: undefined, plan: undefined, stem: false });
+  kept.options = partOptions;
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
   const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
   let nudges = 0;
@@ -990,6 +1003,7 @@ async function viaOpenRouter(
     if (calls.length === 0 && draft && !/from manim import/.test(scene)) {
       // The model stopped before finishing a long lecture: the parts it wrote make a shorter video, not an error.
       const partial = await compileLecture(draft, partOptions());
+      if (partial.source) Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
       if (partial.source && (partial.minutes ?? 0) < minutes * 0.4) {
         // A fragment is not the lecture that was asked for: say so, rather than render 20 seconds of it.
         throw new Error(`${model} stopped after ${chapterCount(draft)} chapter(s), about ${partial.minutes ?? "?"} of ` +
@@ -1140,9 +1154,10 @@ async function viaOpenRouter(
 async function viaFixture(
   request: GenerateRequest,
   emit: (event: AgentEvent) => void,
+  kept: Kept = {},
 ): Promise<Generated> {
   const template = templateById(request.templateId);
-  if (isLecture(template)) return lectureFixture(request, template, emit);
+  if (isLecture(template)) return lectureFixture(request, template, emit, kept);
   const brief = [request.content, request.instruction].filter(Boolean).join("\n");
   const place = (request.content.trim().split("\n")[0] || brief).slice(0, 80);
   emit({ type: "input", role: "user", text: userPrompt(request) });
@@ -1171,6 +1186,7 @@ async function lectureFixture(
   request: GenerateRequest,
   template: Template,
   emit: (event: AgentEvent) => void,
+  kept: Kept = {},
 ): Promise<Generated> {
   emit({ type: "input", role: "user", text: lectureUserPrompt(request) });
   emit({ type: "message", role: "assistant", text: "Offline agent. No model tokens." });
@@ -1183,8 +1199,10 @@ async function lectureFixture(
   const doc = await documentOf(request);
   const args = JSON.stringify({ script });
   emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
-  const compiled = await compileLecture(script, { style, genre: subject.genre, figures: doc ? scriptFigures(doc) : undefined });
+  const options = { style, genre: subject.genre, figures: doc ? scriptFigures(doc) : undefined };
+  const compiled = await compileLecture(script, options);
   if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
+  Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes, options: () => options });
   emit({
     type: "tool_result",
     name: "write_lecture",
@@ -1374,7 +1392,31 @@ export async function generate(
   stopped: () => boolean = () => false,
 ): Promise<Generated> {
   const template = templateById(request.templateId);
-  const result = usingFixture() ? await viaFixture(request, emit) : await viaOpenRouter(request, emit, stopped);
+  const kept: Kept = {};
+  const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
+  // Over an hour: the lecture as more than one video, cut between chapters (lib/parts.ts).
+  if (isLecture(template) && kept.script && kept.options && kept.source === result.source && kept.minutes) {
+    const parts = splitLecture(kept.script as Record<string, unknown>, kept.minutes);
+    if (parts.length) {
+      emit({ type: "message", role: "status", text: `The lecture runs about ${Math.round(kept.minutes)} min: making it ` +
+        `${parts.length} videos of up to ${maxVideoMinutes()} min (${parts.map((p) => `part ${p.index}, ${Math.round(p.minutes)} min`).join("; ")}).` });
+      const built = [];
+      for (const part of parts) {
+        const compiled = await compileLecture(part.script, kept.options());
+        if (!compiled.source) {
+          emit({ type: "message", role: "status", text: `Part ${part.index} did not compile on its own ` +
+            `(${compiled.errors[0] ?? "no reason given"}); keeping the lecture as one video.` });
+          built.length = 0;
+          break;
+        }
+        built.push({ title: part.title, minutes: compiled.minutes ?? part.minutes, source: sanitizeScene(compiled.source) });
+      }
+      if (built.length) {
+        result.parts = built;
+        result.source = built[0].source;
+      }
+    }
+  }
   // A lecture's look belongs to the engine: its style sets the background on
   // import, and a config line pasted above it would only be overridden.
   result.source = isLecture(template)
@@ -1416,6 +1458,7 @@ export async function generate(
   emit({
     type: "done",
     source: result.source,
+    parts: result.parts,
     model: result.model,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,

@@ -44,6 +44,8 @@ type TraceEvent = {
   source?: string;
   model?: string;
   streaming?: boolean;
+  /** A lecture made as several videos: each part's title, length and scene (lib/parts.ts). */
+  parts?: { title: string; minutes: number; source: string }[];
 };
 
 type Version = {
@@ -66,6 +68,8 @@ type Version = {
   sceneClass?: string;
   /** The lecture's spoken transcript, written in full before the video (lib/transcript.ts). */
   transcript?: string;
+  /** One video of a lecture made as several (over an hour, lib/parts.ts): the versions of one n are its parts. */
+  part?: { index: number; of: number; title: string; minutes: number };
 };
 
 type Status = {
@@ -191,6 +195,11 @@ export default function Home() {
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const [versions, setVersions] = useState<Version[]>([]);
   const [current, setCurrent] = useState(-1);
+  // The version on screen, for work that finishes later (a part built in the background).
+  const currentRef = useRef(-1);
+  useEffect(() => {
+    currentRef.current = current;
+  }, [current]);
   const [instruction, setInstruction] = useState("");
   /** The lecture's length in minutes; null lets the content's size decide. */
   const [minutes, setMinutes] = useState<number | null>(null);
@@ -229,7 +238,8 @@ export default function Home() {
     transcript: string;
     paste: boolean;
   }>({ busy: false, url: "", transcript: "", paste: false });
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusyText] = useState<string | null>(null);
+  const setBusy = setBusyText;
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
   const [status, setStatus] = useState<Status | null>(null);
@@ -311,7 +321,10 @@ export default function Home() {
     source: string,
     instruction: string | null,
     model: string,
+    label = "",
   ) {
+    // A lecture made as several videos builds them one after the other: each says which it is.
+    const setBusy = (text: string | null) => setBusyText(text && label ? `${label}: ${text}` : text);
     const sceneClass = sceneClassOf(source);
     const lecture = /pocket_lecture/.test(source);
     setBusy(lecture
@@ -389,7 +402,8 @@ export default function Home() {
           : v,
       ),
     );
-    setFrame(0);
+    // Only the video on screen starts again: a later part built in the background leaves the one being watched.
+    if (currentRef.current === index) setFrame(0);
   }
 
   async function runGenerate(edit: boolean) {
@@ -400,7 +414,7 @@ export default function Home() {
     const index = versions.length;
     const styleId = templateId;
     const next: Version = {
-      n: versions.length + 1,
+      n: (versions[versions.length - 1]?.n ?? 0) + 1,
       templateId: styleId,
       instruction: edit ? instruction : null,
       source: "",
@@ -437,6 +451,7 @@ export default function Home() {
       let buffer = "";
       let source = "";
       let modelName = "";
+      let videoParts: { title: string; minutes: number; source: string }[] = [];
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
@@ -452,6 +467,7 @@ export default function Home() {
           if (event.type === "done") {
             source = event.source ?? source;
             modelName = event.model ?? modelName;
+            videoParts = event.parts ?? [];
           }
           const phase = phaseFor(event);
           if (phase) setBusy(phase);
@@ -497,6 +513,26 @@ export default function Home() {
         );
         if (!spoken.ok && spoken.error) setError(spoken.error);
       }
+      if (videoParts.length > 1) {
+        // Over an hour: one video per part, each a version of the same n, built in turn. The first is shown.
+        const info = (k: number) => ({ index: k + 1, of: videoParts.length, title: videoParts[k].title, minutes: videoParts[k].minutes });
+        setVersions((all) => [
+          ...all.map((item, i) => (i === index ? { ...item, source: videoParts[0].source, part: info(0) } : item)),
+          ...videoParts.slice(1).map((p, k) => ({
+            ...next, source: p.source, model: modelName, trace: [], part: info(k + 1),
+            transcript: undefined, inputTokens: undefined, outputTokens: undefined, costUsd: undefined,
+          })),
+        ]);
+        for (let k = 0; k < videoParts.length; k++) {
+          try {
+            await attachBuild(index + k, videoParts[k].source, next.instruction, modelName,
+              `Part ${k + 1} of ${videoParts.length}`);
+          } catch (e) {
+            setError(`Part ${k + 1}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        return;
+      }
       await attachBuild(index, source, next.instruction, modelName);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -515,7 +551,7 @@ export default function Home() {
     const index = versions.length;
     const sceneClass = sceneClassOf(raw);
     const next: Version = {
-      n: versions.length + 1,
+      n: (versions[versions.length - 1]?.n ?? 0) + 1,
       templateId,
       instruction: null,
       source: raw,
@@ -1101,20 +1137,20 @@ export default function Home() {
                   <div className="flex flex-wrap gap-2 pt-1">
                     {versions.map((v, i) => (
                       <button
-                        key={v.n}
+                        key={`${v.n}-${v.part?.index ?? 0}`}
                         onClick={() => {
                           setCurrent(i);
                           setFrame(0);
                           setError(null);
                         }}
-                        title={v.instruction ?? "first version"}
+                        title={v.part ? v.part.title : v.instruction ?? "first version"}
                         className={`rounded border px-2 py-1 text-xs ${
                           i === current
                             ? "border-neutral-400 text-neutral-100"
                             : "border-neutral-800 text-neutral-500"
                         }`}
                       >
-                        v{v.n}
+                        v{v.n}{v.part ? ` · part ${v.part.index}/${v.part.of}` : ""}
                       </button>
                     ))}
                   </div>
@@ -1135,6 +1171,38 @@ export default function Home() {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              {version?.part && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-neutral-400">
+                    This lecture runs about{" "}
+                    {Math.round(versions.filter((v) => v.n === version.n && v.part).reduce((t, v) => t + (v.part?.minutes ?? 0), 0))}{" "}
+                    min, so it is {version.part.of} videos. Pick one to play:
+                  </p>
+                  <div role="tablist" aria-label="Videos of this lecture" className="flex flex-wrap gap-2">
+                    {versions.map((v, i) => v.n === version.n && v.part ? (
+                      <button
+                        key={v.part.index}
+                        role="tab"
+                        aria-selected={i === current}
+                        onClick={() => {
+                          setCurrent(i);
+                          setFrame(0);
+                          setError(null);
+                        }}
+                        title={v.part.title}
+                        className={`rounded border px-3 py-1.5 text-xs ${
+                          i === current
+                            ? "border-amber-400 text-neutral-100"
+                            : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
+                        }`}
+                      >
+                        Part {v.part.index} · {Math.round(v.part.minutes)} min
+                        {!v.exported ? " · building…" : v.exported.error ? " · failed" : ""}
+                      </button>
+                    ) : null)}
+                  </div>
+                </div>
+              )}
               {!version && (
                 <p className="text-sm text-neutral-500">
                   The animation plays here for you. The agent that wrote the

@@ -336,6 +336,11 @@ export type SceneIR =
       pieceZ?: number[];
       /** Photos and figures the program cannot carry, drawn by the player (scene_ir.py). */
       images?: SceneImage[];
+      /**
+       * A long lecture: the geometry is in segments (sceneSegment), and shapes, pieces and runs here are empty.
+       * Each segment is a 2D scene of its own frames, from `start`.
+       */
+      segments?: { start: number; frames: number }[];
       error?: undefined;
     }
   | { mode: "3d"; fps: number; frames: number; error?: undefined }
@@ -388,6 +393,17 @@ export async function sceneIR(
     return { mode: summary.mode, fps: summary.fps ?? 15, frames: summary.frames ?? 0 };
   }
   return { error: "the scene geometry could not be loaded" };
+}
+
+/** One segment of a long lecture's geometry (scene_ir.py), a 2D scene of its own frames. */
+export async function sceneSegment(buildDir: string, sceneClass: string, index: number): Promise<string | null> {
+  ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
+  if (!Number.isInteger(index) || index < 0) return null;
+  try {
+    return await readFile(path.join(buildDir, `scene_ir_${index}.json`), "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /** How many frames a built program has, so the scrubber knows its range. */

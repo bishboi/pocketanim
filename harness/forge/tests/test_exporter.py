@@ -86,3 +86,41 @@ def test_a_drawing_slid_aside_leaves_with_the_stage(tmp_path):
         tmp_path / "slid", LECTURE.replace("{aside}", 'self.beat("Beside it.", self.define("Isolated", "no force"))'))
     assert "keep=1" in program
     assert slid == plain
+
+
+def test_a_long_lecture_goes_to_the_browser_in_segments_that_draw_the_same(tmp_path):
+    """Past PANIM_IR_SEGMENT_OVER bytes the geometry is cut into segments ("This film is too long to send as one
+    picture" was a scrub-only preview with no voice): every frame drawn from its segment is the frame of the whole."""
+    scene = tmp_path / "scene.py"
+    scene.write_text(LECTURE.replace("{aside}", ""))
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Slide",
+                          str(tmp_path)], capture_output=True, text=True, timeout=600,
+                         env={**__import__("os").environ, "PANIM_VOICE": "silent"})
+    assert json.loads(out.stdout.strip().splitlines()[-1])["tier"] == 1
+    script = str(REPO / "harness" / "scripts" / "scene_ir.py")
+    subprocess.run([sys.executable, script, str(tmp_path), "Slide"], capture_output=True, text=True, timeout=600)
+    whole = json.loads((tmp_path / "scene_ir.json").read_text())
+    sys.path.insert(0, str(REPO / "harness" / "scripts"))
+    import scene_ir
+
+    parts = scene_ir.segments(whole, 7)
+    assert len(parts) > 2 and sum(p["frames"] for p in parts) == whole["frames"]
+
+    def drawn(scene, shapes, index):
+        cursor = index
+        for count, pieces in scene["runs"]:
+            if cursor < count:
+                return [(shapes[row[0]], row[1:]) for p in pieces for row in scene["pieces"][p]]
+            cursor -= count
+        return []
+
+    for index in range(whole["frames"]):
+        part = next(p for p in reversed(parts) if p["start"] <= index)
+        assert drawn(part, part["shapes"], index - part["start"]) == drawn(whole, whole["shapes"], index)
+    # And the script writes them, with an index the page loads first.
+    small = subprocess.run([sys.executable, script, str(tmp_path), "Slide"], capture_output=True, text=True,
+                           timeout=600, env={**__import__("os").environ, "PANIM_IR_SEGMENT_OVER": "1"})
+    summary = json.loads(small.stdout.strip().splitlines()[-1])
+    index = json.loads((tmp_path / "scene_ir.json").read_text())
+    assert summary["segments"] == len(index["segments"]) >= 1 and index["pieces"] == []
+    assert (tmp_path / "scene_ir_0.json").is_file()

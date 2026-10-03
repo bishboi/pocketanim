@@ -20,6 +20,11 @@ What comes back:
              keys: [[frame, alpha, ulx, uly, urx, ury, dlx, dly], ...]}],
              served from <build>/dsl/generated/images/<asset>
 
+A long lecture's geometry is cut into segments of SEGMENT_SECONDS (scene_ir_<k>.json, each a whole 2D
+scene of its own frames, with its own atlas and pieces), and scene_ir.json is then only their index:
+{"mode": "2d", "fps", "background", "frames", "segments": [{"start", "frames"}], "images"}. The player loads
+the segment it is in and the next, so an hour of lecture never has to be parsed at once.
+
 A 3D program returns `mode: "3d"` and no geometry: projection, depth sorting
 and shading would all have to be reimplemented in the browser to draw it
 faithfully, and a wrong preview is worse than an honest fallback.
@@ -31,6 +36,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -181,9 +187,59 @@ def build(build_dir: Path, scene_class: str) -> dict:
         os.chdir(previous)
 
 
-# Past this, the preview renders a frame at a time. A lecture's reused pieces
-# land well under it; the old per-frame copy of the whole scene did not.
+# Past this, the preview renders a frame at a time (a sampled container only: a program is cut into segments).
 MAX_GEOMETRY_BYTES = 256 * 1024 * 1024
+# Past this, a program's geometry goes to the browser in segments: one JSON of hundreds of megabytes was more
+# than a tab could parse ("This film is too long to send as one picture").
+SEGMENT_OVER_BYTES = int(os.environ.get("PANIM_IR_SEGMENT_OVER", str(32 * 1024 * 1024)))
+SEGMENT_SECONDS = 120
+
+
+def segments(payload: dict, frames_per_segment: int) -> list[dict]:
+    """A 2D scene cut into scenes of `frames_per_segment` frames, each with only the shapes and pieces it draws
+    (renumbered from 0), and the frame it starts at. Images stay with the index: their keys are whole-scene frames."""
+    out: list[dict] = []
+    current: dict | None = None
+    shape_of: dict[int, int] = {}
+    piece_of: dict[int, int] = {}
+
+    def start(at: int) -> dict:
+        shape_of.clear()
+        piece_of.clear()
+        return {"mode": "2d", "fps": payload["fps"], "background": payload.get("background"), "start": at,
+                "shapes": [], "pieces": [], "pieceZ": [], "runs": [], "frames": 0, "images": []}
+
+    def local_piece(piece: int) -> int:
+        index = piece_of.get(piece)
+        if index is None:
+            rows = []
+            for row in payload["pieces"][piece]:
+                shape = shape_of.get(row[0])
+                if shape is None:
+                    shape = shape_of[row[0]] = len(current["shapes"])
+                    current["shapes"].append(payload["shapes"][row[0]])
+                rows.append([shape, *row[1:]])
+            index = piece_of[piece] = len(current["pieces"])
+            current["pieces"].append(rows)
+            current["pieceZ"].append((payload.get("pieceZ") or [0.0] * len(payload["pieces"]))[piece])
+        return index
+
+    at = 0
+    for count, indexes in payload["runs"]:
+        left = count
+        while left:
+            if current is None or current["frames"] >= frames_per_segment:
+                if current is not None:
+                    out.append(current)
+                current = start(at)
+            take = min(left, frames_per_segment - current["frames"])
+            current["runs"].append([take, [local_piece(i) for i in indexes]])
+            current["frames"] += take
+            at += take
+            left -= take
+    if current is not None:
+        out.append(current)
+    return out
 
 
 def main() -> int:
@@ -196,7 +252,18 @@ def main() -> int:
         count = payload["frames"] if isinstance(payload["frames"], int) else len(payload.get("runs", []))
         encoded = json.dumps(payload, separators=(",", ":")).encode()
         summary = {"mode": payload["mode"], "fps": payload["fps"], "frames": count, "bytes": len(encoded)}
-        if payload["mode"] == "2d" and len(encoded) <= MAX_GEOMETRY_BYTES:
+        for old in build_dir.glob("scene_ir_*.json"):
+            old.unlink()
+        if payload["mode"] == "2d" and len(encoded) > SEGMENT_OVER_BYTES and "pieceZ" in payload:
+            parts = segments(payload, max(1, int(payload["fps"] * SEGMENT_SECONDS)))
+            for k, part in enumerate(parts):
+                (build_dir / f"scene_ir_{k}.json").write_text(json.dumps(part, separators=(",", ":")))
+            index = {"mode": "2d", "fps": payload["fps"], "background": payload.get("background"),
+                     "frames": count, "images": payload.get("images") or [], "shapes": [], "pieces": [], "runs": [],
+                     "segments": [{"start": part["start"], "frames": part["frames"]} for part in parts]}
+            (build_dir / "scene_ir.json").write_text(json.dumps(index, separators=(",", ":")))
+            summary.update(geometry=True, segments=len(parts))
+        elif payload["mode"] == "2d" and len(encoded) <= MAX_GEOMETRY_BYTES:
             (build_dir / "scene_ir.json").write_bytes(encoded)
             summary["geometry"] = True
         else:

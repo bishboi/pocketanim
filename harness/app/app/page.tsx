@@ -1160,6 +1160,8 @@ export default function Home() {
                     audioSrc={version?.voiceUrl}
                     imageUrl={exported?.buildDir ? (asset) =>
                       `/api/image?build=${encodeURIComponent(exported.buildDir!)}&file=${asset}` : undefined}
+                    segmentUrl={exported?.buildDir ? (k) =>
+                      `/api/ir?build=${encodeURIComponent(exported.buildDir!)}&scene=${exported.scene ?? "GeneratedScene"}&segment=${k}` : undefined}
                   />
                 )}
               {(exported?.tier === 1 || exported?.container) &&

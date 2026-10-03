@@ -7,17 +7,34 @@ import { Button } from "@/components/ui/button";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
+type Scene2D = Extract<SceneIR, { mode: "2d" }>;
+
+/** The pieces on screen at `index` of a scene (or of one segment of one), each with its z. */
+function layersAt(scene: Pick<Scene2D, "runs" | "pieces" | "pieceZ">, index: number) {
+  let cursor = index;
+  for (const [count, indexes] of scene.runs) {
+    if (cursor < count) {
+      return indexes.map((piece) => ({ z: scene.pieceZ?.[piece] ?? 0, instances: scene.pieces[piece] }));
+    }
+    cursor -= count;
+  }
+  return [];
+}
+
 export function Player({
   ir,
   autoPlay = false,
   audioSrc = null,
   imageUrl,
+  segmentUrl,
 }: {
-  ir: Extract<SceneIR, { mode: "2d" }>;
+  ir: Scene2D;
   autoPlay?: boolean;
   audioSrc?: string | null;
   /** Where the build's photos and figures are served: the asset name goes on the end. */
   imageUrl?: (asset: string) => string;
+  /** Where a long lecture's geometry segments are served (ir.segments): the segment's number goes on the end. */
+  segmentUrl?: (index: number) => string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -33,18 +50,70 @@ export function Player({
   }, []);
   const total = ir.frames;
 
-  const pictureAt = useCallback(
+  // A long lecture comes in segments of about two minutes: the one playing and the next are loaded, the rest
+  // are fetched when reached and dropped when left behind, so an hour of geometry is never in the tab at once.
+  const segments = ir.segments;
+  const loadedSegments = useRef<Map<number, Scene2D & { start: number }>>(new Map());
+  const pendingSegments = useRef<Set<number>>(new Set());
+  const [segmentsReady, setSegmentsReady] = useState(0);
+  const [waiting, setWaiting] = useState(false);
+  const segmentOf = useCallback(
     (index: number) => {
-      let cursor = index;
-      for (const [count, indexes] of ir.runs) {
-        if (cursor < count) {
-          return indexes.map((piece) => ({ z: ir.pieceZ?.[piece] ?? 0, instances: ir.pieces[piece] }));
-        }
-        cursor -= count;
-      }
-      return [];
+      if (!segments?.length) return -1;
+      let k = 0;
+      while (k + 1 < segments.length && segments[k + 1].start <= index) k++;
+      return k;
     },
-    [ir.runs, ir.pieces, ir.pieceZ],
+    [segments],
+  );
+  const ensure = useCallback(
+    (k: number) => {
+      if (!segments || !segmentUrl || k < 0 || k >= segments.length) return;
+      if (loadedSegments.current.has(k) || pendingSegments.current.has(k)) return;
+      pendingSegments.current.add(k);
+      fetch(segmentUrl(k))
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`${response.status}`))))
+        .then((data) => {
+          loadedSegments.current.set(k, { ...data, start: segments[k].start });
+          // Keep the segment just loaded and its neighbours; a tab holding every segment is the problem solved.
+          for (const held of [...loadedSegments.current.keys()]) {
+            if (Math.abs(held - k) > 2) loadedSegments.current.delete(held);
+          }
+          setSegmentsReady((n) => n + 1);
+        })
+        .catch(() => {})
+        .finally(() => pendingSegments.current.delete(k));
+    },
+    [segments, segmentUrl],
+  );
+  /** Whether the geometry for `index` is here (fetching it, and the segment after, when not). */
+  const ready = useCallback(
+    (index: number) => {
+      if (!segments?.length) return true;
+      const k = segmentOf(index);
+      ensure(k);
+      const seg = loadedSegments.current.get(k);
+      if (seg && index - seg.start > seg.frames / 2) ensure(k + 1);
+      return !!seg;
+    },
+    [segments, segmentOf, ensure],
+  );
+  useEffect(() => {
+    ensure(0);
+    ensure(1);
+  }, [ensure]);
+
+  /** The atlas and the layers for a frame, or null while its segment is still on its way. */
+  const pictureAt = useCallback(
+    (index: number): { shapes: number[][]; layers: ReturnType<typeof layersAt> } | null => {
+      if (!segments?.length) return { shapes: ir.shapes, layers: layersAt(ir, index) };
+      if (!ready(index)) return null;
+      const seg = loadedSegments.current.get(segmentOf(index))!;
+      return { shapes: seg.shapes, layers: layersAt(seg, index - seg.start) };
+    },
+    // segmentsReady: a segment that arrives changes what this returns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ir, segments, ready, segmentOf, segmentsReady],
   );
 
   // Photos and figures: loaded once, drawn at their recorded places. A redraw
@@ -91,10 +160,12 @@ export function Player({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      const picture = pictureAt(index);
+      if (!picture) return;                 // its segment is loading: the last frame stays up meanwhile
       const { width, height } = canvas;
-      drawLayered(ctx, ir.shapes, pictureAt(index), imagesAt(index), width, height, ir.background);
+      drawLayered(ctx, picture.shapes, picture.layers, imagesAt(index), width, height, ir.background);
     },
-    [ir.shapes, ir.background, pictureAt, imagesAt],
+    [ir.background, pictureAt, imagesAt],
   );
 
   useEffect(() => {
@@ -113,18 +184,41 @@ export function Player({
       audioRef.current.playbackRate = speed;
       void audioRef.current.play().catch(() => {});
     }
-    const started = performance.now();
-    const from = frame;
+    let started = performance.now();
+    let from = frame;
+    let held: number | null = null;          // the frame playback waits at while its segment loads
     let raf = 0;
     const tick = (now: number) => {
       // The narration is the master clock once it is actually playing, as on
       // the phone: a wall clock started before the audio had buffered let the
       // picture run ahead of a long lecture's voice.
       const audio = audioRef.current;
+      if (held !== null) {
+        if (!ready(held)) {
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+        // The segment is here: carry on from where the picture stopped, voice and all.
+        from = held;
+        started = now;
+        if (audio) {
+          audio.currentTime = held / ir.fps;
+          void audio.play().catch(() => {});
+        }
+        held = null;
+        setWaiting(false);
+      }
       const next =
         audio && !audio.paused && audio.readyState >= 2 && audio.currentTime > 0
           ? Math.floor(audio.currentTime * ir.fps)
           : from + Math.floor(((now - started) / 1000) * ir.fps * speed);
+      if (!ready(Math.min(next, total - 1))) {
+        held = Math.min(next, total - 1);
+        audio?.pause();
+        setWaiting(true);
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       if (next >= total - 1) {
         setFrame(total - 1);
         setPlaying(false);
@@ -137,7 +231,7 @@ export function Player({
     return () => cancelAnimationFrame(raf);
     // `frame` is the start point, captured once when playback begins.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, ir.fps, total, speed]);
+  }, [playing, ir.fps, total, speed, ready]);
 
   const clock = (n: number) => {
     const s = Math.max(0, Math.floor(n / ir.fps));
@@ -231,6 +325,7 @@ export function Player({
         </label>
         <Button size="sm" variant="outline" onClick={fullscreen}>{full ? "Exit full screen" : "Full screen"}</Button>
       </div>
+      {waiting && <p className="text-xs text-amber-400">Loading the next part of the lecture…</p>}
       <p className="text-xs text-neutral-500">
         Drawn in the browser from the program&apos;s own geometry — no video, and
         no server round-trip per frame.

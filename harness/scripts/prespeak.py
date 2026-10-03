@@ -71,6 +71,55 @@ def beat_lines(source: str) -> list[str]:
     return out
 
 
+def drawing_names(source: str) -> list[str]:
+    """Every drawing the scene names, in order: a diagram node's or a comparison column's "entity", a definition's
+    entity, a map or panel icon."""
+    out: list[tuple[int, int, object]] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "entity":
+                    out.append((value.lineno, value.col_offset, _value(value)))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            name = node.func.attr
+            if name == "define":
+                out.append((node.lineno, node.col_offset, _arg(node, 2, "entity")))
+            elif name in ("icon", "panel_icon"):
+                out.append((node.lineno, node.col_offset, _arg(node, 0, "name")))
+    # ast.walk goes breadth first; the scene's order is the order the source names them.
+    out.sort(key=lambda found: found[:2])
+    return list(dict.fromkeys(n for _, _, n in out if isinstance(n, str) and n.strip()))
+
+
+def predraw(source: str, progress: Path | None) -> dict:
+    """Make the scene's illustrations before Manim runs, several at once (illustrator.py; nothing when drawings are
+    not made here). {"usd": made now, "made", "kept", "failed", "subjects"}."""
+    import pocket_lecture as pl
+    import illustrator
+
+    subjects = list(dict.fromkeys(s for s in (pl.drawing_subject(n) for n in drawing_names(source)) if s))
+    left = [s for s in subjects if illustrator.cost_of(s) is None]
+    report = {"usd": 0.0, "made": 0, "kept": len(subjects) - len(left), "failed": [], "subjects": len(subjects)}
+    if not left:
+        return report
+    write(progress, phase="drawings", done=0, total=len(left))
+    done = 0
+    with ThreadPoolExecutor(max_workers=max(1, int(os.environ.get("PANIM_DRAW_THREADS", "4")))) as pool:
+        futures = {pool.submit(illustrator.draw, s): s for s in left}
+        for future in as_completed(futures):
+            subject = futures[future]
+            try:
+                future.result()
+                report["made"] += 1
+                report["usd"] += illustrator.cost_of(subject) or 0.0
+            except RuntimeError as error:
+                report["failed"].append(f"{subject}: {error}")   # drawn from the library instead
+            done += 1
+            write(progress, phase="drawings", done=done, total=len(left))
+    report["usd"] = round(report["usd"], 4)
+    return report
+
+
 def write(progress: Path | None, **state) -> None:
     if progress is None:
         return
@@ -93,13 +142,15 @@ def main() -> int:
 
     lines = beat_lines(source)
     unique = list(dict.fromkeys(lines))
+    # The illustrations first: Manim then finds every drawing made, as it finds every line spoken.
+    drawn = predraw(source, progress)
     try:
         mode = pl.voice_mode()
     except pl.VoiceUnavailable as error:
-        print(json.dumps({"ok": False, "error": str(error)}))
+        print(json.dumps({"ok": False, "error": str(error), "drawings": drawn}))
         return 0
     if mode == "silent":
-        print(json.dumps({"ok": True, "lines": len(unique), "spoken": 0, "beats": len(lines)}))
+        print(json.dumps({"ok": True, "lines": len(unique), "spoken": 0, "beats": len(lines), "drawings": drawn}))
         return 0
     left = [line for line in unique
             if not (lambda f: f.exists() and f.stat().st_size > 44)(pl.audio_file(mode, pl.speechify(line)))]
@@ -129,10 +180,11 @@ def main() -> int:
              "spoken": len(left), "lines": len(unique), "unknown": sum(c is None for c in whole),
              "engine": mode.split(":", 1)[0]}
     if failed:
-        print(json.dumps({"ok": False, "error": failed[0], "voice": voice}))
+        print(json.dumps({"ok": False, "error": failed[0], "voice": voice, "drawings": drawn}))
         return 0
     write(progress, phase="render", done=0, total=len(lines), beats=len(lines))
-    print(json.dumps({"ok": True, "lines": len(unique), "spoken": len(left), "beats": len(lines), "voice": voice}))
+    print(json.dumps({"ok": True, "lines": len(unique), "spoken": len(left), "beats": len(lines), "voice": voice,
+                      "drawings": drawn}))
     return 0
 
 

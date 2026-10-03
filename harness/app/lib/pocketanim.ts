@@ -210,7 +210,10 @@ export type VoiceCost = {
   engine: string;
 };
 
-export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {
+/** The illustrations made for a lecture before its render (prespeak.py predraw). */
+export type DrawCost = { usd: number; made: number; kept: number; failed: string[]; subjects: number };
+
+export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost; drawings?: DrawCost }> {
   const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(dir, "scene.py");
   await writeFile(scenePath, source, "utf8");
@@ -221,8 +224,9 @@ export async function prespeak(source: string, progress: string | null): Promise
   await rm(dir, { recursive: true, force: true });
   const line = stdout.toString().trim().split("\n").pop() ?? "";
   try {
-    const data = JSON.parse(line) as { ok?: boolean; error?: string; beats?: number; voice?: VoiceCost };
-    return { error: data.ok ? null : data.error ?? "The voice did not speak.", beats: data.beats ?? 0, voice: data.voice };
+    const data = JSON.parse(line) as { ok?: boolean; error?: string; beats?: number; voice?: VoiceCost; drawings?: DrawCost };
+    return { error: data.ok ? null : data.error ?? "The voice did not speak.", beats: data.beats ?? 0, voice: data.voice,
+      drawings: data.drawings };
   } catch {
     // The render speaks what is left itself: a pre-pass that could not run is no reason to stop.
     console.warn("prespeak:", stderr.trim().split("\n").slice(-4).join("\n"));

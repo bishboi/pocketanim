@@ -377,10 +377,12 @@ export const DRAWING_TOOL = {
   function: {
     name: "find_drawing",
     description:
-      "Search the drawing library (about 15,000 flat colour drawings, drawn on the board with ink outlines: Fluent " +
-      "Emoji, OpenMoji, Twemoji, Noto, Streamline) for the things a diagram, define, compare or icon shows: \"cow\", " +
-      "\"volcano\", \"test tube\", \"solar panel\". Words in English. Returns drawing ids, best first; put the one " +
-      "that shows the thing best as the op's entity (\"entity\":\"fluent-emoji-flat:evergreen-tree\").",
+      "Find the drawing for a thing a diagram, define, compare or icon shows (\"cow\", \"neuron\", \"burette\", " +
+      "\"volcano erupting\"). Words in English. Returns, best first: science drawings from Bioicons (cells, organs, " +
+      "lab apparatus, molecules, organisms: accurate, by scientists), and \"draw:<what>\", an illustration drawn for " +
+      "the lecture in the board's whiteboard style (anything: \"draw:a farmer ploughing a field with two oxen\"). Put " +
+      "the one that shows the thing best as the op's entity. Prefer a Bioicons drawing for science that must be " +
+      "right; otherwise draw, describing the picture you want.",
     parameters: {
       type: "object",
       properties: { queries: { type: "array", items: { type: "string" }, description: "Things in English, e.g. [\"cow\", \"wheat\"]" } },
@@ -733,8 +735,9 @@ export function lecturePrompt(
     "  WHERE something is (a place, a route, a spread across a region) -> the MAP (map operations below). A chapter",
     "  with no map operation has no map at all.",
     "  HOW something works or connects (a process, a food chain, causes and effects, parts of a whole) -> BUILD a",
-    "  DIAGRAM whose nodes are drawings of the things (entity: an English word, tree, deer, factory, farmer; or the id",
-    "  of the drawing you chose with find_drawing, which searches about 15,000 drawings: \"fluent-emoji-flat:cow\"),",
+    "  DIAGRAM whose nodes are drawings of the things (entity: an English word, tree, deer, factory, farmer, which is",
+    "  drawn as an illustration; or a drawing chosen with find_drawing: a Bioicons science drawing, or \"draw:<a",
+    "  description>\" for a specific picture, \"draw:a deer drinking at a river\"),",
     "  shown a node or two at a time across the paragraph's beats:",
     '  {"op":"diagram","id":"chain","kind":"flow"|"cycle"|"tree"|"hub"|"categories"|"steps","title"?,',
     '   "nodes":[{"id":"sun","label":"Sun","entity":"sun"},{"id":"plants","label":"पौधे","entity":"deciduous tree"}],',

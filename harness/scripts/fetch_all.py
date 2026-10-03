@@ -27,7 +27,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("symbols", "openstax", "gazetteer", "maps", "fonts", "latex")
+STEPS = ("symbols", "bioicons", "openstax", "gazetteer", "maps", "fonts", "latex")
 
 
 def run(script: str) -> bool:
@@ -46,6 +46,17 @@ def maps() -> bool:
     return True
 
 
+def bioicons() -> bool:
+    """Bioicons, the science drawings (cells, organs, lab apparatus) a lecture's diagrams draw from."""
+    sys.path.insert(0, str(LECTURE))
+    import bioicons as library
+
+    if library.available():
+        return True
+    print(f"bioicons: {library.fetch()} drawings", flush=True)
+    return library.available()
+
+
 def fonts() -> bool:
     sys.path.insert(0, str(LECTURE))
     import pocket_lecture
@@ -59,7 +70,7 @@ def main() -> int:
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
     actions = {"symbols": lambda: run("fetch_icons.py"), "openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
-               "maps": maps, "fonts": fonts, "latex": lambda: run("fetch_latex.py")}
+               "maps": maps, "fonts": fonts, "bioicons": bioicons, "latex": lambda: run("fetch_latex.py")}
     report = {}
     for step in STEPS:
         if step in args.skip:

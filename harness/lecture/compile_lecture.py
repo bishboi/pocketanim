@@ -1235,6 +1235,9 @@ def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
         return [f"{names[0][0]}: icons are not installed; run harness/scripts/fetch_icons.py, or drop the icon ops"]
     out = []
     for at, name in names:
+        # A drawing made for the lecture, or a science drawing: not an icon-set name.
+        if str(name).startswith(("draw:", "bioicons:")):
+            continue
         if icons.resolve(name) is None:
             out.append(f"{at}: no icon for {name!r}; search with find_icon and use a name it returns, "
                        "or a simpler word (wheat, factory, cow, dam)")

@@ -42,7 +42,8 @@ To fetch the libraries again, or only some of them:
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
-| Diagram drawings | SVG drawings (a tree, a deer, a factory) that diagram nodes, definitions and comparisons draw things with. They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
+| Diagram drawings | Emoji-style SVG drawings, used only when illustrations cannot be made (section 4). They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
+| Bioicons | About 2,500 science drawings (cells, organs, lab apparatus) for diagram nodes and definitions (section 4). | `harness/lecture/data/bioicons/` | 30 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
 | Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others, and Hind for Hindi in equations. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
@@ -99,7 +100,33 @@ Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project an
 YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`), or an API key
 (`GOOGLE_TTS_API_KEY`) where the project allows keys. `.venv/bin/python harness/lecture/chirp.py --check` checks it.
 
-## 4. The web app
+## 4. The drawings: illustrations, not emoji
+
+Diagram nodes, definitions and comparisons draw the thing they name (a cow, a volcano, a neuron), outlined in ink
+and written onto the board. The drawings come from, in order:
+
+1. **Bioicons** (bioicons.com): about 2,500 science drawings (cells, organs, lab apparatus, molecules, organisms)
+   by scientists and illustrators, under CC0, CC BY, CC BY-SA or MIT. The lecture writer picks one when the
+   drawing must be right as well as clear; the credits name the authors. `fetch_all.py` downloads it, or
+   `.venv/bin/python harness/lecture/bioicons.py --fetch`.
+2. **Illustrations drawn for the lecture**: anything else is drawn by **Recraft V4.1 Vector** through OpenRouter,
+   with the `OPENROUTER_API_KEY` the lecture writer already uses. Every drawing is asked for in one whiteboard
+   style (thick dark outlines, flat bright fills, no text), so a lecture's drawings belong together. It answers
+   with real SVG paths, so Manim draws each outline and then fills it. A drawing is made once, before Manim
+   runs (several at once, with progress on the page), and kept in `harness/lecture/data/drawings/`: the next
+   lecture that needs a cow pays nothing. The cost is shown beside the voice's ($0.08 a drawing).
+3. **The emoji library** (section 2) only when neither is available (no key, or `PANIM_DRAWINGS=library`).
+
+To try one: `.venv/bin/python harness/lecture/illustrator.py "a cow grazing" cow.svg`
+
+| Variable | What it does |
+|---|---|
+| `PANIM_DRAW_MODEL` | `recraft/recraft-v4.1-vector` (default, $0.08 a drawing), or `recraft/recraft-v4.1-pro-vector` (finer, $0.30). |
+| `PANIM_DRAWINGS` | `library` never makes drawings: Bioicons and the emoji library only, for free. |
+| `PANIM_DRAW_PRICE` | US dollars a drawing, for the cost shown when OpenRouter does not report one. |
+| `PANIM_DRAW_THREADS` | How many drawings are made at once (default 4). |
+
+## 5. The web app
 
 ```sh
 cd harness/app
@@ -128,7 +155,7 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_PACE` | The teaching pace. The voice speaks at its own (1×) speed in every pace; the pace is the pauses. `slow` (the default): 1.4 s after each line, 2.8 s between paragraphs, 7 s to think about a question. `relaxed`: shorter pauses. `brisk`: short pauses. |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
-## 5. Check that everything is in place
+## 6. Check that everything is in place
 
 The bar at the top of every page shows the version and the commit, for example `v0.6.0 · 264831d · <branch>`. It also
 lists anything still missing, each with a **download** button:

@@ -359,15 +359,57 @@ def _ink_svg(text: str, ink: str) -> str:
     return _DARK_PAINT.sub(swap, text)
 
 
+# Drawings a scene used that are not icon-set drawings: Bioicons ids and generated subjects, for the credits.
+USED_DRAWINGS: set[str] = set()
+
+
+def drawing_subject(name: str) -> str | None:
+    """The subject a drawing is generated for, or None for a library drawing: "draw:a cow grazing" and a plain word
+    are drawn (illustrator.py) when drawing is on; a "set:name" id is a library's."""
+    text = str(name).strip()
+    if text.startswith("draw:"):
+        return text[5:].strip() or None
+    if ":" in text:
+        return None
+    import illustrator
+
+    return text if illustrator.enabled() else None
+
+
+def drawing_source(name: str):
+    """(SVG path, id) of the drawing for a name: a Bioicons drawing ("bioicons:..."), an illustration drawn for the
+    lecture ("draw:..." or a plain word, illustrator.py), or a library drawing ("set:name", or a word when drawings are
+    not made here). An illustration that cannot be made falls back to the library."""
+    import icons
+
+    text = str(name).strip()
+    if text.startswith("bioicons:"):
+        import bioicons
+
+        USED_DRAWINGS.add(text)
+        return bioicons.file(text), text
+    subject = drawing_subject(text)
+    if subject:
+        import illustrator
+
+        try:
+            path = illustrator.draw(subject)
+            USED_DRAWINGS.add(f"draw:{subject}")
+            return path, f"draw:{subject}"
+        except RuntimeError as error:
+            print(f"drawing {subject!r} not made ({error}); a library drawing instead", file=sys.stderr)
+        text = subject
+    icon_id = icons.sketch(text)
+    if icon_id is None:
+        raise KeyError(f"no drawing for {name!r}")
+    USED_ICONS.add(icon_id)
+    return icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None), icon_id
+
+
 def sketch_mob(name: str, height: float = 0.9):
     """A whiteboard drawing of a thing (icons.sketch): dark outlines in the board's ink and flat colour fills, the
     way a teacher draws on a board. Written in (Write), it draws its outlines first and then fills them."""
-    import icons
-
-    icon_id = icons.sketch(name)
-    if icon_id is None:
-        raise KeyError(f"no drawing for {name!r}")
-    source = icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None)
+    source, icon_id = drawing_source(name)
     ink = P.CREAM
     path = source.with_name(f"{source.stem}-ink{ink.strip('#')}.svg")
     if not path.exists():
@@ -381,7 +423,6 @@ def sketch_mob(name: str, height: float = 0.9):
             part.set_stroke(width=weight)
         elif part.get_fill_opacity() > 0:
             part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
-    USED_ICONS.add(icon_id)
     return mob
 
 
@@ -2576,6 +2617,15 @@ class Lecture(Scene):
             import icons
 
             note = f"{note}  {icons.credit(USED_ICONS)}."
+        science = [d for d in USED_DRAWINGS if d.startswith("bioicons:")]
+        if science:
+            import bioicons
+
+            note = f"{note}  {bioicons.credit(science)}."
+        if any(d.startswith("draw:") for d in USED_DRAWINGS):
+            import illustrator
+
+            note = f"{note}  Illustrations drawn with {illustrator.model().split('/')[-1]}."
         credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 1.9)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
         parts = [credit, small]

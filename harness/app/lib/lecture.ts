@@ -381,7 +381,8 @@ export const DRAWING_TOOL = {
       "\"volcano\"). Words in English, a thing or two words each. Returns, best first: science drawings from Bioicons " +
       "(cells, organs, lab apparatus, molecules, organisms: accurate, by scientists), and hand-drawn illustrations " +
       "from open libraries (coco:... CocoMaterial: animals, plants, buildings, people, food, school, tech; arcadia:... " +
-      "organisms). Put the id that shows the thing best as the op's entity. Prefer a Bioicons drawing for science " +
+      "organisms; clip:... OpenClipart, public-domain drawings of almost anything, Indian things too: a bullock " +
+      "cart, a diya, a rangoli, a tabla). Put the id that shows the thing best as the op's entity. Prefer a Bioicons drawing for science " +
       "that must be right. Nothing fits: search a simpler or broader word (\"ox\" -> \"cow\", \"granary\" -> \"barn\").",
     parameters: {
       type: "object",
@@ -737,7 +738,7 @@ export function lecturePrompt(
     "  HOW something works or connects (a process, a food chain, causes and effects, parts of a whole) -> BUILD a",
     "  DIAGRAM whose nodes are drawings of the things (entity: an English word, tree, deer, factory, farmer, which is",
     "  drawn as an illustration; or an id chosen with find_drawing: a Bioicons science drawing, or a hand-drawn",
-    "  library illustration, coco:... or arcadia:...),",
+    "  library illustration, coco:..., arcadia:... or clip:...),",
     "  shown a node or two at a time across the paragraph's beats:",
     '  {"op":"diagram","id":"chain","kind":"flow"|"cycle"|"tree"|"hub"|"categories"|"steps","title"?,',
     '   "nodes":[{"id":"sun","label":"Sun","entity":"sun"},{"id":"plants","label":"पौधे","entity":"deciduous tree"}],',

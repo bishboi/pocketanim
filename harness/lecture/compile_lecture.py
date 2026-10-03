@@ -1236,7 +1236,7 @@ def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
     out = []
     for at, name in names:
         # A science drawing or an open-library illustration: not an icon-set name.
-        if str(name).startswith(("draw:", "bioicons:", "coco:", "arcadia:")):
+        if str(name).startswith(("draw:", "bioicons:", "coco:", "arcadia:", "clip:")):
             continue
         if icons.resolve(name) is None:
             out.append(f"{at}: no icon for {name!r}; search with find_icon and use a name it returns, "

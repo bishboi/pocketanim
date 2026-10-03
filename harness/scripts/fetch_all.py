@@ -5,15 +5,19 @@
 
 What it gets, and where it goes:
 
-  symbols    SVG drawings for diagram nodes (tree, deer...)  harness/lecture/data/icons/     ~75 MB
+  symbols    emoji-style drawings, the last fallback         harness/lecture/data/icons/     ~75 MB
+  illustrations  CocoMaterial and Drawing Open (CC0)        harness/lecture/data/drawlib/   ~40 MB
+  openclipart  OpenClipart's public-domain drawings: 22 GB read once, ~300 MB kept (--skip openclipart
+             to leave it; rerun to resume)                  harness/lecture/data/drawlib/openclipart.db
+  bioicons   Bioicons science drawings                      harness/lecture/data/bioicons/  ~30 MB
   openstax   OpenStax textbook figures (an index; CC BY)    harness/lecture/data/illustrations/  <1 MB
   gazetteer  GeoNames towns (about 150,000 place names)     harness/lecture/data/geonames/  ~10 MB
   maps       Natural Earth borders, states, rivers, towns   Cartopy's data folder            ~40 MB
   fonts      the styles' Google Fonts                       ~/.fonts (Linux), ~/Library/Fonts (macOS)
   latex      TinyTeX, for typeset equations (fetch_latex.py) ~/.TinyTeX, ~/Library/TinyTeX  ~250 MB
 
-The narration voice is Google Chirp 3 HD, an online service: nothing to download, a key to set (SETUP.md).
-Photos and educational illustrations (Wikimedia Commons, Wikipedia, Openverse), molecules (PubChem) and PDF
+The narration voice is Gemini TTS, an online service: nothing to download, a key to set (SETUP.md).
+Photos and educational illustrations (Wikimedia Commons, Wikipedia, Openverse, StoryWeaver), molecules (PubChem) and PDF
 conversion (Datalab) are fetched per lecture, as needed. The SVG drawings appear only inside built diagrams.
 Every step is safe to rerun: what is already here is skipped.
 """
@@ -27,7 +31,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("symbols", "illustrations", "bioicons", "openstax", "gazetteer", "maps", "fonts", "latex")
+STEPS = ("symbols", "illustrations", "openclipart", "bioicons", "openstax", "gazetteer", "maps", "fonts", "latex")
 
 
 def run(script: str) -> bool:
@@ -68,6 +72,15 @@ def illustrations() -> bool:
     return drawlib.available()
 
 
+def openclipart() -> bool:
+    """OpenClipart's public-domain drawings: a long download (22 GB read once, about 300 MB kept); resumes."""
+    sys.path.insert(0, str(LECTURE))
+    import drawlib
+
+    print(f"openclipart: {drawlib.fetch_openclipart()} drawings", flush=True)
+    return (drawlib.FOLDER / "openclipart.db").is_file()
+
+
 def fonts() -> bool:
     sys.path.insert(0, str(LECTURE))
     import pocket_lecture
@@ -81,7 +94,7 @@ def main() -> int:
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
     actions = {"symbols": lambda: run("fetch_icons.py"), "openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
-               "maps": maps, "fonts": fonts, "bioicons": bioicons, "illustrations": illustrations, "latex": lambda: run("fetch_latex.py")}
+               "maps": maps, "fonts": fonts, "bioicons": bioicons, "illustrations": illustrations, "openclipart": openclipart, "latex": lambda: run("fetch_latex.py")}
     report = {}
     for step in STEPS:
         if step in args.skip:

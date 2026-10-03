@@ -44,6 +44,7 @@ To fetch the libraries again, or only some of them:
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
 | Diagram drawings | Emoji-style SVG drawings, used only when illustrations cannot be made (section 4). They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
 | Illustrations | CocoMaterial's 3,000+ hand-drawn illustrations and Arcadia's organism drawings, for diagram nodes and definitions (section 4). | `harness/lecture/data/drawlib/` | 40 MB |
+| OpenClipart | Public-domain drawings of almost anything, Indian things included (section 4). 22 GB read once; `--skip openclipart` leaves it. | `harness/lecture/data/drawlib/openclipart.db` | 300 MB |
 | Bioicons | About 2,500 science drawings (cells, organs, lab apparatus) for diagram nodes and definitions (section 4). | `harness/lecture/data/bioicons/` | 30 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
@@ -114,15 +115,27 @@ lecture. In order:
    (animals, plants, buildings, people, food, school, science, tech), dark outlines with flat colour, the
    whiteboard look. A plain word (`"entity": "cow"`) is drawn from here when it has the thing.
 3. **Drawing Open** (Arcadia Science, CC0): professional drawings of organisms, plants, animals and microbes.
-4. **The emoji library** (section 2) only when none of these has the thing.
+4. **OpenClipart** (openclipart.org, public domain): 178,000 drawings by thousands of artists, of almost
+   anything, Indian things included (a bullock cart, a diya, a rangoli, a tabla, a sari). Read once from its
+   Hugging Face copy (`nyuuzyou/openclipart`): 22 GB streamed, nothing of it stored except the coloured
+   drawings small enough for a board with no lettering in them, about 300 MB in
+   `harness/lecture/data/drawlib/openclipart.db`. It takes a while; stopped halfway, it carries on where it was.
+5. **The emoji library** (section 2) only when none of these has the thing.
 
-`fetch_all.py` downloads them all (about 70 MB), or one at a time:
+`fetch_all.py` downloads them all (add `--skip openclipart` to leave the big one for later), or one at a time:
 
 ```sh
 .venv/bin/python harness/lecture/drawlib.py --fetch        # CocoMaterial and Drawing Open, into data/drawlib
+.venv/bin/python harness/lecture/drawlib.py --openclipart  # OpenClipart (resumes; --openclipart 3 reads 3 shards)
 .venv/bin/python harness/lecture/bioicons.py --fetch       # Bioicons, into data/bioicons
-.venv/bin/python harness/lecture/drawlib.py cow volcano    # what a word finds
+.venv/bin/python harness/lecture/drawlib.py cow rangoli    # what a word finds
 ```
+
+**Pictures of Indian life.** A paragraph's picture (not a diagram's drawings) can also come from Pratham Books'
+**StoryWeaver**: thousands of children's-book illustrations by Indian illustrators (a village well, a farmer
+with oxen, a Diwali market, a classroom), CC BY 4.0, credited to the illustrator. It is searched online, for
+social science, geography, history, economics and general lectures, before Wikimedia Commons; nothing to
+download.
 
 ## 5. The web app
 

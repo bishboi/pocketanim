@@ -94,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"query": {"pages": pages}})
 
     def _sources(self, url) -> bool:
-        """NASA, The Met and the Smithsonian, as their APIs answer."""
+        """NASA, The Met, the Smithsonian and StoryWeaver, as their APIs answer."""
         q = urllib.parse.parse_qs(url.query)
         port = PORT["value"]
         img = lambda name: f"http://127.0.0.1:{port}/img/{urllib.parse.quote(name)}"  # noqa: E731
@@ -128,6 +128,19 @@ class Handler(BaseHTTPRequestHandler):
                             "online_media": {"media": [{"type": "Images", "content": img("x.jpg"),
                                                         "usage": {"access": "Usage conditions apply"}}]}}}}]
             self._json({"response": {"rows": rows}})
+            return True
+        if url.path == "/sw/illustrations-search":
+            data = []
+            if "farmer" in q.get("query", [""])[0].lower():
+                # As StoryWeaver answers: the large size and a search thumbnail, its illustrators and publisher.
+                data = [{"id": 501, "title": "Farmer ploughing with oxen", "slug": "501-farmer",
+                         "illustrators": [{"name": "Priya Kuriyan", "slug": "priya"}],
+                         "publisher": {"name": "Pratham Books", "slug": "pratham"},
+                         "imageUrls": [{"sizes": [{"width": 1200, "height": 900, "url": "/img/farmer large.jpg"},
+                                                  {"width": 320, "height": 240, "url": "/img/farmer small.jpg"}]}]},
+                        {"id": 502, "title": "A kite in the sky", "slug": "502-kite", "illustrators": [],
+                         "imageUrls": [{"sizes": [{"width": 1200, "height": 900, "url": img("kite.jpg")}]}]}]
+            self._json({"ok": True, "metadata": {"hits": len(data)}, "data": data})
             return True
         return False
 

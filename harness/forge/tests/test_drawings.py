@@ -85,6 +85,69 @@ def test_a_word_is_drawn_from_the_library_before_the_emoji(libraries):
     assert not found.startswith(("coco:", "arcadia:")) and path.is_file()
 
 
+COLOURED = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path fill="#e33" d="M0 0h5v5z"/>'
+            '<path fill="#fc0" d="M5 5h5v5z"/><path style="fill:#3a3" d="M0 5h5v5z"/></svg>')
+
+
+@pytest.fixture
+def openclipart(libraries, monkeypatch):
+    """One OpenClipart shard as the Hugging Face copy serves it (zstd JSON lines), and a 404 after it."""
+    import zstandard
+
+    records = [
+        {"title": "Rangoli", "tags": ["india", "diwali", "festival"], "artist_name": "asha", "svg_content": COLOURED},
+        {"title": "Bullock cart", "tags": ["india", "farm"], "artist_name": "ravi", "svg_content": COLOURED},
+        {"title": "Diya lamp", "tags": ["diwali"], "artist_name": "asha", "svg_content": COLOURED},
+        {"title": "Cow silhouette", "tags": ["cow"], "svg_content": COLOURED},                      # a silhouette
+        {"title": "Happy Diwali card", "tags": [], "svg_content": COLOURED.replace("</svg>", "<text>Hi</text></svg>")},
+        {"title": "Black lotus", "tags": [], "svg_content": SVG},                                   # one colour
+        {"title": "Taj Mahal", "tags": [], "svg_content": COLOURED + " " * 70_000},                 # too big
+        {"title": "Farm scene", "tags": ["cart", "bullock"], "svg_content": COLOURED},
+    ]
+    shard = zstandard.ZstdCompressor().compress("\n".join(json.dumps(r) for r in records).encode())
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if self.path.endswith("_00.jsonl.zst"):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(shard)
+            else:
+                self.send_error(404)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(libraries, "CLIP_SHARD", f"http://127.0.0.1:{server.server_port}/openclipart_{{n:02d}}.jsonl.zst")
+    yield libraries
+    libraries._clip.cache_clear()
+    server.shutdown()
+
+
+def test_openclipart_keeps_coloured_board_drawings_and_finds_them(openclipart):
+    assert openclipart.fetch_openclipart() == 4                    # silhouette, lettering, one colour, too big: left
+    assert openclipart.fetch_openclipart() == 4                    # read before: resumed, nothing twice
+    assert [r["name"] for r in openclipart.search("rangolis")] == ["Rangoli"]
+    found = openclipart.search("bullock cart")
+    assert [r["name"] for r in found] == ["Bullock cart", "Farm scene"]   # named in the title before tagged
+    assert openclipart.best("bullock cart") == found[0]["id"]
+    assert openclipart.best("india") is None                       # only a tag says so: not a drawing of India
+    assert openclipart.file(found[0]["id"]).read_text() == COLOURED
+    assert "OpenClipart (public domain)" in openclipart.credit([found[0]["id"]])
+
+
+def test_a_word_is_drawn_from_openclipart_when_cocomaterial_has_none(openclipart):
+    import pocket_lecture as pl
+
+    openclipart.fetch()
+    openclipart.fetch_openclipart()
+    assert pl.drawing_source("cow")[1] == "coco:7-cow"             # CocoMaterial's style first
+    path, found = pl.drawing_source("diya lamp")
+    assert found.startswith("clip:") and path.read_text() == COLOURED
+
+
 def test_bioicons_search_by_name_and_category(monkeypatch, tmp_path):
     folder = tmp_path / "bioicons"
     (folder / "cc-by-4.0" / "Neuroscience" / "Ann_Lee").mkdir(parents=True)

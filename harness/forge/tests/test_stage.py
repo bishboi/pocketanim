@@ -27,7 +27,7 @@ def commons(monkeypatch, tmp_path):
     # No collections on disk and no other sources: the tests see only the mock, whatever this machine downloaded.
     (tmp_path / "no-collections").mkdir()
     monkeypatch.setenv("PANIM_ILLUSTRATIONS_DIR", str(tmp_path / "no-collections"))
-    for name, path in (("NASA_IMAGES_API", "nasa"), ("MET_API", "met"), ("SMITHSONIAN_API", "si")):
+    for name, path in (("NASA_IMAGES_API", "nasa"), ("MET_API", "met"), ("SMITHSONIAN_API", "si"), ("STORYWEAVER_API", "sw")):
         monkeypatch.setenv(name, f"http://127.0.0.1:{server.server_port}/{path}")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "images"))
@@ -211,6 +211,7 @@ def sources(commons, monkeypatch, tmp_path):
     monkeypatch.setenv("NASA_IMAGES_API", f"{base}/nasa")
     monkeypatch.setenv("MET_API", f"{base}/met")
     monkeypatch.setenv("SMITHSONIAN_API", f"{base}/si")
+    monkeypatch.setenv("STORYWEAVER_API", f"{base}/sw")
     monkeypatch.setenv("OPENROUTER_URL", f"{base}/openrouter")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("PANIM_ALLOW_NC", raising=False)
@@ -253,6 +254,15 @@ def test_the_subject_picks_the_sources(sources):
     assert [r["id"] for r in sword if r["source"] == "smithsonian"] == ["si:si1"]   # only CC0 media
     earth = illustrations.find("earth clouds", genre="geography")
     assert earth[0]["source"] == "nasa" and earth[0]["id"] == "nasa:earth01"        # the copyrighted one is skipped
+
+
+def test_storyweaver_gives_indian_illustrations_with_their_illustrators(sources):
+    illustrations, _ = sources
+    rows = [r for r in illustrations.find("farmer ploughing", genre="economics") if r["source"] == "storyweaver"]
+    assert [r["id"] for r in rows] == ["sw:501"]                       # the kite is not about the topic
+    assert rows[0]["url"].endswith("/img/farmer%20large.jpg") or rows[0]["url"].endswith("/img/farmer large.jpg")
+    assert rows[0]["credit"] == "Priya Kuriyan, Pratham Books, StoryWeaver (CC BY 4.0)"
+    assert rows[0]["url"].startswith("http://127.0.0.1:")              # a path on StoryWeaver's site made whole
 
 
 def test_an_ai_illustration_only_when_nothing_else_fits(sources, monkeypatch):

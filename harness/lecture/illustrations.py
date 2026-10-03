@@ -9,6 +9,8 @@ order, and returns reusable pictures only, each with the credit its licence asks
     nasa       NASA Image and Video Library: earth, weather, climate, space (NASA media is not copyrighted)
     met        The Metropolitan Museum of Art: public-domain objects, paintings, manuscripts (CC0)
     smithsonian  Smithsonian Open Access: museum objects and documents marked CC0
+    storyweaver  Pratham Books' StoryWeaver: thousands of illustrations by Indian illustrators of Indian life
+               (villages, farms, markets, festivals, families, schools, animals), CC BY 4.0
     commons    Wikimedia Commons: SVG drawings and bitmap diagrams (public domain, CC0, CC BY, CC BY-SA)
     openverse  openly licensed illustrations from other collections
     ai         an illustration drawn for the beat by an image model through OpenRouter, last, when nothing
@@ -39,14 +41,14 @@ LOCAL = Path(os.environ.get("PANIM_ILLUSTRATIONS_DIR") or (HERE / "data" / "illu
 
 # Which sources a subject asks first. Commons and Openverse cover everything; the AI is the last resort.
 ROUTES = {
-    "biology": ["local", "commons", "openverse", "ai"],
+    "biology": ["local", "commons", "openverse", "storyweaver", "ai"],
     "chemistry": ["local", "commons", "openverse", "ai"],
     "physics": ["local", "nasa", "commons", "openverse", "ai"],
     "mathematics": ["local", "commons", "openverse", "ai"],
-    "economics": ["local", "commons", "openverse", "ai"],
-    "geography": ["local", "nasa", "commons", "openverse", "ai"],
-    "history": ["met", "smithsonian", "local", "commons", "openverse", "ai"],
-    "general": ["local", "commons", "openverse", "met", "ai"],
+    "economics": ["local", "storyweaver", "commons", "openverse", "ai"],
+    "geography": ["local", "nasa", "storyweaver", "commons", "openverse", "ai"],
+    "history": ["met", "smithsonian", "local", "storyweaver", "commons", "openverse", "ai"],
+    "general": ["local", "storyweaver", "commons", "openverse", "met", "ai"],
 }
 IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp")
 
@@ -191,6 +193,33 @@ def smithsonian(query: str, limit: int = 6) -> list[dict]:
     return rows
 
 
+# ---------------- StoryWeaver: Indian illustrators ----------------
+def storyweaver(query: str, limit: int = 6) -> list[dict]:
+    """Illustrations from Pratham Books' StoryWeaver, drawn by Indian illustrators for children's books: a
+    village well, a farmer with oxen, a Diwali market, a classroom. Every one is CC BY 4.0, CC BY 3.0, CC0 or
+    public domain; credited as CC BY 4.0, the strictest of them."""
+    api = os.environ.get("STORYWEAVER_API", "https://storyweaver.org.in/api/v1")
+    params = urllib.parse.urlencode({"query": query, "page": 1, "per_page": limit * 2})
+    data = json.loads(_get(f"{api}/illustrations-search?{params}", timeout=15))
+    rows = []
+    for item in data.get("data") or []:
+        sizes = [s for s in ((item.get("imageUrls") or [{}])[0].get("sizes") or []) if s.get("url")]
+        if not sizes:
+            continue
+        size = max(sizes, key=lambda s: s.get("width") or 0)          # "large" before "search"
+        url = urllib.parse.urljoin(api, size["url"])
+        who = ", ".join(str(i.get("name")) for i in item.get("illustrators") or [] if isinstance(i, dict) and i.get("name"))
+        publisher = (item.get("publisher") or {}).get("name") or "StoryWeaver"
+        title = str(item.get("title") or query)
+        rows.append({"id": f"sw:{item.get('id') or item.get('slug')}", "title": title[:120], "description": title[:200],
+                     "width": size.get("width") or 1200, "height": size.get("height") or 900, "url": url,
+                     "license": "CC BY 4.0", "artist": who or publisher,
+                     "credit": f"{who + ', ' if who else ''}{publisher}, StoryWeaver (CC BY 4.0)", "source": "storyweaver"})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 # ---------------- an AI illustration, last ----------------
 AI_MADE = {"count": 0}
 
@@ -240,7 +269,7 @@ def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
 
 
 # ---------------- all of them ----------------
-SOURCES = {"local": local, "nasa": nasa, "met": met, "smithsonian": smithsonian,
+SOURCES = {"local": local, "nasa": nasa, "met": met, "smithsonian": smithsonian, "storyweaver": storyweaver,
            "commons": lambda q, limit=6: images.commons_openverse(q, limit)}
 
 
@@ -269,7 +298,7 @@ def find(query: str, genre: str | None = None, limit: int = 6, style: str | None
         for row in found:
             if row["id"] in seen or images.NOT_EDUCATIONAL.search(row.get("title", "")):
                 continue
-            if source in ("nasa", "met", "smithsonian") and not _overlap(query, f"{row['title']} {row['description']}"):
+            if source in ("nasa", "met", "smithsonian", "storyweaver") and not _overlap(query, f"{row['title']} {row['description']}"):
                 continue            # a museum's search is broad: keep what is actually about the topic
             seen.add(row["id"])
             rows.append(row)

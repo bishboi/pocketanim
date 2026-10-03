@@ -365,7 +365,7 @@ USED_DRAWINGS: set[str] = set()
 
 def drawing_source(name: str):
     """(SVG path, id) of the drawing for a name: a Bioicons science drawing ("bioicons:..."), an open-library
-    illustration ("coco:...", "arcadia:...", drawlib.py), or for a plain word the library illustration of it, and
+    illustration ("coco:...", "arcadia:...", "clip:...", drawlib.py), or for a plain word the library illustration of it, and
     an emoji-set drawing only when no library has one."""
     import bioicons
     import drawlib
@@ -393,11 +393,15 @@ def drawing_source(name: str):
 def sketch_mob(name: str, height: float = 0.9):
     """A whiteboard drawing of a thing (icons.sketch): dark outlines in the board's ink and flat colour fills, the
     way a teacher draws on a board. Written in (Write), it draws its outlines first and then fills them."""
+    import icons
+
     source, icon_id = drawing_source(name)
     ink = P.CREAM
     path = source.with_name(f"{source.stem}-ink{ink.strip('#')}.svg")
     if not path.exists():
-        path.write_text(_ink_svg(source.read_text(encoding="utf-8"), ink), encoding="utf-8")
+        # A library drawing (an Inkscape file from OpenClipart) may shade with gradients, which Manim draws black.
+        text = icons.flatten_gradients(source.read_text(encoding="utf-8", errors="replace"))
+        path.write_text(_ink_svg(text, ink), encoding="utf-8")
     mob = SVGMobject(str(path), height=height)
     # Thick ink outlines and flat colour, as a marker draws: the set's own outlines at a marker's weight, and an
     # outline on every coloured shape that has none (a drawing from a set without them).
@@ -2606,7 +2610,7 @@ class Lecture(Scene):
             import bioicons
 
             note = f"{note}  {bioicons.credit(science)}."
-        if any(d.split(":", 1)[0] in ("coco", "arcadia") for d in USED_DRAWINGS):
+        if any(d.split(":", 1)[0] in ("coco", "arcadia", "clip") for d in USED_DRAWINGS):
             import drawlib
 
             note = f"{note}  {drawlib.credit(USED_DRAWINGS)}."

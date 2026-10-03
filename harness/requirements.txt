@@ -11,4 +11,5 @@ pypdf
 rdkit   # molecule layouts for chemistry and biology lectures
 google-auth   # Chirp 3 HD with OAuth credentials (a gcloud login or a service account)
 requests
+zstandard   # OpenClipart's drawings arrive zstd-compressed (lecture/drawlib.py)
 youtube-transcript-api>=1.2

@@ -191,7 +191,7 @@ export function transcriptPrompt(options: {
             "    formula, numbers, units, answer twice). Use the book's solved examples, and make up one or two more",
             "    with easy numbers where the book has none.",
             "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
-            "    देखो...\"): the video shows it there. Build every diagram out loud, piece by piece.",
+            "    देखो...\"): the video draws it there, built in Manim from the figure. Build every diagram out loud, piece by piece.",
             "  - Tie each new idea to the one before, and end each section with a short recap.",
           ].join("\n")
         : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +

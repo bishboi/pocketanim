@@ -197,14 +197,51 @@ export function scriptFigures(doc: DocumentManifest): Record<string, { file: str
 /** QR codes, logos and the like: images in a document that are not diagrams to teach from. */
 const NOT_A_FIGURE = /\b(QR|bar ?code|logo|watermark)\b|क्यूआर/i;
 
+/** The figures a lecture rebuilds: the document's, less QR codes and logos. */
+function teachingFigures(doc: DocumentManifest): Figure[] {
+  return doc.figures.filter((f) => !NOT_A_FIGURE.test(f.caption));
+}
+
 export function figurePrompt(doc: DocumentManifest): string {
-  const figures = doc.figures.filter((f) => !NOT_A_FIGURE.test(f.caption));
+  const figures = teachingFigures(doc);
   if (!figures.length) return "";
   return [
     "",
-    `FIGURES from the uploaded document (${figures.length}). Show each where the text explains it, with`,
-    '{"op":"figure","id":"fig1","caption"?,"where"?:"panel"|"full"}: "panel" (default) beside the map, "full" across the',
-    "frame for one beat when the detail matters. The text marks where each figure sits as [FIGURE figN: caption].",
+    `FIGURES from the book (${figures.length}). Do NOT show the book's diagrams as they are: BUILD each one in Manim, where`,
+    "the text explains it, from what the figure shows (its pictures are attached when the model reads images; else",
+    "its caption and the text around it): the same parts, labels, arrows and numbers, drawn clearly on the board and",
+    "revealed a part a beat as you talk about it. Use the op that fits: sketch or preset (apparatus, forces, a set-up),",
+    "graph (a plotted relation), diagram (a process, a cycle, a classification), compare, a map sequence (a map).",
+    'Mark the op with the figure it rebuilds: {"op":"sketch","id":"fbd",...,"figure":"fig3"}. Every figure is rebuilt',
+    "this way (the compiler checks). Only a PHOTOGRAPH (a real person, place, object or specimen, which no drawing can",
+    'replace) may be shown as it is: {"op":"figure","id":"fig4","photo":true,"caption"?}. The text marks where each',
+    "figure sits as [FIGURE figN: caption].",
     ...figures.map((f) => `  ${f.id}: ${f.caption}${f.page ? ` (page ${f.page})` : ""}`),
   ].join("\n");
+}
+
+/**
+ * The book's figures as pictures for a model that reads images (an OpenRouter message's image parts), each after a
+ * line naming it: at most PANIM_FIGURE_IMAGES (default 16), 768 px wide JPEGs. Empty when there are none, or with
+ * PANIM_FIGURE_IMAGES=0.
+ */
+export async function figurePictures(doc: DocumentManifest): Promise<
+  ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[]
+> {
+  const limit = Number(process.env.PANIM_FIGURE_IMAGES ?? 16);
+  if (!(limit > 0)) return [];
+  const sharp = (await import("sharp")).default;
+  const out: ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[] = [];
+  for (const figure of teachingFigures(doc).slice(0, limit)) {
+    if (!existsSync(figure.file)) continue;
+    try {
+      const jpeg = await sharp(figure.file).flatten({ background: "#ffffff" })
+        .resize({ width: 768, height: 768, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer();
+      out.push({ type: "text", text: `Figure ${figure.id}: ${figure.caption}` });
+      out.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpeg.toString("base64")}` } });
+    } catch {
+      // a figure that will not read is rebuilt from its caption
+    }
+  }
+  return out;
 }

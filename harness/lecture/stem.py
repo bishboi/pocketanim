@@ -633,19 +633,19 @@ class BoardMixin:
         from manim import BOLD, VGroup, RIGHT
 
         text = title.upper() if pl.TH["upper"] else title
-        head = VGroup(pl.T(text, 24, pl.P.TITLE, font=pl.TH["serif"], weight=BOLD))
+        head = VGroup(pl.T(text, 32, pl.P.TITLE, font=pl.TH["serif"], weight=BOLD))
         if sub:
-            head.add(pl.T(sub, 17, pl.P.MUTED))
+            head.add(pl.T(sub, 21, pl.P.MUTED))
             head.arrange(RIGHT, buff=0.25, aligned_edge=[0, -1, 0])
-        pl.fit(head, 6.0)
+        pl.fit(head, 7.5)
         return self._strip(title=head)
 
     def board_point(self, text: str, color: str | None = None):
         import pocket_lecture as pl
         from manim import Dot, VGroup, RIGHT
 
-        dot = Dot(radius=0.06, color=color or pl.P.SAND)
-        line = pl.T(str(text), 20, color or pl.P.CREAM)
+        dot = Dot(radius=0.07, color=color or pl.P.SAND)
+        line = pl.T(str(text), 23, color or pl.P.CREAM)
         return self._strip(point=VGroup(dot, line).arrange(RIGHT, buff=0.18))
 
     def board_stat(self, value: str, label: str, color: str | None = None):

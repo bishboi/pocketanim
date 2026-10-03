@@ -108,7 +108,7 @@ def _panel_height(op: dict) -> float:
 
 # The teaching pace, as pocket_lecture.PACES has it (PANIM_PACE): voice speed, the hold after each line, the
 # hold at a paragraph's end. Kept here too so a lint-only install needs no engine.
-PACES = {"slow": (0.85, 1.4, 2.8), "relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+PACES = {"slow": (1.0, 1.4, 2.8), "relaxed": (1.0, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
 VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
 WORD_SECONDS = 0.42 / VOICE_SPEED     # about 143 words a minute at normal speed: pocket_lecture.estimate_seconds
 THINK_SECONDS = 7.0                   # a question's time to think (pocket_lecture.THINK_SECONDS)
@@ -256,6 +256,11 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         errors.append(f"{at}: no figure {op.get('id')!r}; the figures are: {known}")
                     elif not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
+                    elif script.get("rebuild_figures") and not op.get("photo"):
+                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Build it in "
+                                      "Manim instead (sketch, preset, graph, diagram, compare, or a map sequence), with "
+                                      f"\"from_figure\":\"{op.get('id')}\" on that op. Only a photograph may be shown as "
+                                      "it is, with \"photo\": true.")
                 if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
                     errors.append(f"{at}: 'graticule' needs lat or lon")
                 for field in ("color",):
@@ -608,7 +613,7 @@ ROMAN_HINDI = re.compile(r"\b(hai|hain|hota|hoti|hote|matlab|yaani|yani|kya|kyun
 NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "entity", "subject", "query", "expr",
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
-             "language", "credits"}
+             "language", "credits", "from_figure"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -1466,8 +1471,16 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     import illustrations
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
-    if script.get("place_figures", True):
+    # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
+    if script.get("place_figures", True) and not script.get("rebuild_figures"):
         place_figures(script)
+    for chapter in script.get("chapters") or []:
+        for beat in chapter.get("beats") or []:
+            for op in beat.get("do") or []:
+                if isinstance(op, dict):
+                    op.pop("from_figure", None)          # a note for the checks, not an argument to draw with
+                    if op.get("op") == "figure":
+                        op.pop("photo", None)
     style = script.get("style", "atlas")
     region = script.get("region")
     chapters = script["chapters"]

@@ -150,6 +150,8 @@ export async function compileLecture(
           ...script,
           ...(options.style ? { style: options.style } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
+          // The book's diagrams are rebuilt in Manim (document.ts figurePrompt), not shown as pictures.
+          ...(options.figures && Object.keys(options.figures).length ? { rebuild_figures: true } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
           ...(options.sourceText ? { source_text: options.sourceText } : {}),
           ...(options.language ? { language: options.language } : {}),
@@ -370,6 +372,37 @@ export async function findIllustration(queries: unknown, genre?: string): Promis
     .join("\n");
 }
 
+export const DRAWING_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "find_drawing",
+    description:
+      "Search the drawing library (about 15,000 flat colour drawings, drawn on the board with ink outlines: Fluent " +
+      "Emoji, OpenMoji, Twemoji, Noto, Streamline) for the things a diagram, define, compare or icon shows: \"cow\", " +
+      "\"volcano\", \"test tube\", \"solar panel\". Words in English. Returns drawing ids, best first; put the one " +
+      "that shows the thing best as the op's entity (\"entity\":\"fluent-emoji-flat:evergreen-tree\").",
+    parameters: {
+      type: "object",
+      properties: { queries: { type: "array", items: { type: "string" }, description: "Things in English, e.g. [\"cow\", \"wheat\"]" } },
+      required: ["queries"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** Drawings a model may choose from for each query (icons.py --drawings), one line each. */
+export async function findDrawings(queries: unknown): Promise<string> {
+  const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 60)).filter(Boolean).slice(0, 12);
+  if (!words.length) return "Give queries: a list of things.";
+  const { stdout, stderr } = await runPython([path.join(REPO, "harness", "lecture", "icons.py"), "--drawings", ...words]);
+  const found = scriptJson<Record<string, { id: string; name: string }[]>>(stdout);
+  if (!found) return `The drawing search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
+  return Object.entries(found)
+    .map(([q, rows]) => `${q}: ` + (rows.length ? rows.map((r) => `${r.id} (${r.name})`).join(", ")
+      : "no drawing; leave entity out (the label carries the node) or search a simpler word"))
+    .join("\n");
+}
+
 export const IMAGE_TOOL = {
   type: "function" as const,
   function: {
@@ -458,6 +491,26 @@ export const ADD_CHAPTERS_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
+/**
+ * The book figures a finished script neither rebuilt in Manim (an op with "from_figure") nor showed as a photograph
+ * ({"op":"figure","photo":true}).
+ */
+export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string }>): string[] {
+  const done = new Set<string>();
+  const chapters = ((script as { chapters?: { beats?: { do?: Record<string, unknown>[] }[] }[] })?.chapters ?? []);
+  for (const chapter of chapters) {
+    for (const beat of chapter.beats ?? []) {
+      for (const op of beat.do ?? []) {
+        if (op?.from_figure) done.add(String(op.from_figure));
+        if (op?.op === "figure" && op.photo) done.add(String(op.id));
+      }
+    }
+  }
+  return Object.entries(figures)
+    .filter(([id, f]) => !done.has(id) && !/\b(QR|bar ?code|logo|watermark)\b|क्यूआर/i.test(f.caption))
+    .map(([id]) => id);
+}
+
 /** The narration languages the page offers; "auto" follows the content's. */
 export const LANGUAGES = ["auto", "english", "hindi", "hinglish"] as const;
 export type Language = (typeof LANGUAGES)[number];
@@ -680,7 +733,8 @@ export function lecturePrompt(
     "  WHERE something is (a place, a route, a spread across a region) -> the MAP (map operations below). A chapter",
     "  with no map operation has no map at all.",
     "  HOW something works or connects (a process, a food chain, causes and effects, parts of a whole) -> BUILD a",
-    "  DIAGRAM whose nodes are drawings of the things (entity, an English word: tree, deer, factory, river, farmer),",
+    "  DIAGRAM whose nodes are drawings of the things (entity: an English word, tree, deer, factory, farmer; or the id",
+    "  of the drawing you chose with find_drawing, which searches about 15,000 drawings: \"fluent-emoji-flat:cow\"),",
     "  shown a node or two at a time across the paragraph's beats:",
     '  {"op":"diagram","id":"chain","kind":"flow"|"cycle"|"tree"|"hub"|"categories"|"steps","title"?,',
     '   "nodes":[{"id":"sun","label":"Sun","entity":"sun"},{"id":"plants","label":"पौधे","entity":"deciduous tree"}],',

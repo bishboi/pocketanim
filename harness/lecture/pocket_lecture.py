@@ -474,7 +474,7 @@ def speechify(text: str) -> str:
 # "slow", the default, is a classroom pace for students meeting the idea for the first time: slower speech, a
 # pause after every line long enough to take it in, a longer one between paragraphs. "relaxed" is a little
 # quicker; "brisk" is the older, faster pace.
-PACES = {"slow": (0.85, 1.4, 2.8), "relaxed": (0.9, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
+PACES = {"slow": (1.0, 1.4, 2.8), "relaxed": (1.0, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
 VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
 THINK_SECONDS = 7.0      # the silence a question on the stage leaves for thinking
 
@@ -1836,11 +1836,12 @@ class Lecture(Scene):
         boxes = VGroup()
         tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
         for i, step in enumerate(steps):
-            text = T(wrap(step, 16), 18, P.CREAM, line_spacing=0.85)
-            box = RoundedRectangle(corner_radius=0.15, width=max(text.width + 0.4, 1.9), height=text.height + 0.4,
-                                   stroke_color=tones[i % 8], stroke_width=3, fill_color=_tint_on_bg(tones[i % 8], 0.14),
-                                   fill_opacity=1)
-            boxes.add(VGroup(box, text.move_to(box)))
+            tone = tones[i % 8]
+            badge = VGroup(Circle(radius=0.22, fill_color=tone, fill_opacity=1, stroke_width=0),
+                           T(str(i + 1), 17, P.BG, weight=BOLD))
+            badge[1].move_to(badge[0])
+            text = VGroup(badge, T(wrap(step, 16), 26, P.CREAM, line_spacing=0.9)).arrange(RIGHT, buff=0.22)
+            boxes.add(self._card(text, tone, pad=0.3))
         if cycle:
             radius = 1.9 + 0.1 * len(boxes)
             for i, b in enumerate(boxes):
@@ -1861,9 +1862,9 @@ class Lecture(Scene):
         drawing = VGroup(arrows, boxes)
         parts = VGroup(drawing)
         if title:
-            parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.4)
-        self._fit_stage(parts)
+        self._fit_stage(parts, grow=1.4)
         return self._to_stage(Group(parts))
 
     @staticmethod
@@ -1973,7 +1974,7 @@ class Lecture(Scene):
         drawing = self._entity(entity, 1.0 if small else 1.35)
         items = [str(i) for i in (items or [])][:5]
         words_only = drawing is None
-        size = (17 if small else 20) + (2 if words_only and not items else 0)
+        size = (19 if small else 23) + (2 if words_only and not items else 0)
         text = marker(wrap(str(label), 14 if words_only else 12), size)
         if drawing is not None and not items and number is None:
             # A thing as a teacher draws it: the drawing, its name in capitals under it, no box.
@@ -1990,7 +1991,7 @@ class Lecture(Scene):
         parts.append(head)
         if items:
             rule = Line(LEFT, RIGHT, stroke_color=tone, stroke_width=2)
-            lines = VGroup(*[T("• " + wrap(i, 22), 15 if small else 16, P.CREAM, line_spacing=0.85) for i in items])
+            lines = VGroup(*[T("• " + wrap(i, 22), 17 if small else 19, P.CREAM, line_spacing=0.88) for i in items])
             lines.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
             rule.set_width(max(lines.width, head.width))
             parts += [rule, lines]
@@ -2151,6 +2152,18 @@ class Lecture(Scene):
         anims.append(Create(ring))
         return AnimationGroup(*anims, lag_ratio=0.3)
 
+    @staticmethod
+    def _card(inner, tone: str, pad: float = 0.42, width: float | None = None):
+        """A text card: the words on a soft wash of the tone, a thin outline and an accent bar down the left, so a
+        card reads as one thing on any board instead of words floating on the background."""
+        box = RoundedRectangle(corner_radius=0.24, width=width or inner.width + 2 * pad + 0.2,
+                               height=inner.height + 2 * pad, fill_color=_tint_on_bg(tone, 0.11), fill_opacity=1,
+                               stroke_color=_tint_on_bg(tone, 0.6), stroke_width=2.5)
+        bar = RoundedRectangle(corner_radius=0.05, width=0.11, height=max(box.height - 0.5, 0.2), fill_color=tone,
+                               fill_opacity=1, stroke_width=0).align_to(box, LEFT).shift(RIGHT * 0.2)
+        inner.move_to(box).shift(RIGHT * 0.1)
+        return VGroup(box, bar, inner)
+
     def define(self, term: str, meaning: str, entity: str | None = None):
         """A hard word, big, with what it means in plain words (and a drawing of it when there is one)."""
         if self.board_mode and (self._solving() or self.works and self._problem is None) and not self._beat_new:
@@ -2158,10 +2171,12 @@ class Lecture(Scene):
             return self.board_point(f"{term}: {meaning}")
         cx, cy, w, h = self.STAGE
         drawing = self._entity(entity, 1.6)
-        word = fit(T(term, 40, P.SAND, font=TH["serif"], weight=BOLD), w - 0.6)
-        rule = Line(LEFT * 1.2, RIGHT * 1.2, color=P.SAND, stroke_width=3)
-        body = fit(T(wrap(meaning, 34), 22, P.CREAM, line_spacing=0.95), w - 0.6)
-        parts = VGroup(*([drawing] if drawing is not None else []), word, rule, body).arrange(DOWN, buff=0.28)
+        word = fit(T(term, 48, P.SAND, font=TH["serif"], weight=BOLD), w - 1.2)
+        body = fit(T(wrap(meaning, 30), 28, P.CREAM, line_spacing=1.0), w - 1.2)
+        rule = Line(LEFT, RIGHT, color=P.SAND, stroke_width=3).set_width(min(max(word.width, 1.6), body.width))
+        text = VGroup(word, rule, body).arrange(DOWN, buff=0.26, aligned_edge=LEFT)
+        card = self._card(text, P.SAND)
+        parts = VGroup(*([drawing] if drawing is not None else []), card).arrange(DOWN, buff=0.3)
         # On the board, beside the drawing being explained rather than in place of it.
         parts.is_text_card = True
         beside = self._aside(parts, grow=1.2) if not self._beat_new else None
@@ -2180,23 +2195,30 @@ class Lecture(Scene):
         col_w = (w - 0.3 * (len(columns) - 1)) / max(len(columns), 1)
         cards = VGroup()
         for k, col in enumerate(columns):
-            drawing = self._entity(col.get("entity"), 0.9)
-            name = fit(T(str(col.get("title", "")), 22, tones[k], font=TH["serif"], weight=BOLD), col_w - 0.3)
-            points = VGroup(*[fit(T("• " + wrap(str(p), 20), 15, P.CREAM, line_spacing=0.85), col_w - 0.35)
-                              for p in list(col.get("points") or [])[:4]]).arrange(DOWN, aligned_edge=LEFT, buff=0.14)
-            inner = VGroup(*([drawing] if drawing is not None else []), name, points).arrange(DOWN, buff=0.2)
-            box = RoundedRectangle(corner_radius=0.18, width=col_w, height=inner.height + 0.5, stroke_color=tones[k],
-                                   stroke_width=3, fill_color=_tint_on_bg(tones[k], 0.1), fill_opacity=1)
-            cards.add(VGroup(box, inner.move_to(box).align_to(box, UP).shift(DOWN * 0.25)))
+            drawing = self._entity(col.get("entity"), 1.0)
+            name = fit(T(str(col.get("title", "")), 32, tones[k], font=TH["serif"], weight=BOLD), col_w - 0.7)
+            points = VGroup(*[fit(T("• " + wrap(str(p), 24), 26, P.CREAM, line_spacing=0.92), col_w - 0.8)
+                              for p in list(col.get("points") or [])[:4]]).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
+            rule = Line(LEFT, RIGHT, color=tones[k], stroke_width=2.5).set_width(max(name.width, points.width))
+            inner = VGroup(*([drawing] if drawing is not None else []), name, rule, points).arrange(DOWN, buff=0.24)
+            points.align_to(rule, LEFT)
+            cards.add(self._card(inner, tones[k]))
+        # The cards as wide as the widest needs, not the whole stage: words fill a card instead of a corner of it.
+        widest = max((c[0].width for c in cards), default=0)
+        for c in cards:
+            c[0].stretch_to_fit_width(widest)
+            c[1].align_to(c[0], LEFT).shift(RIGHT * 0.2)
+            c[2].move_to(c[0]).shift(RIGHT * 0.1)
         top = max(c[0].height for c in cards) if len(cards) else 0
         for c in cards:
             c[0].stretch_to_fit_height(top)
-            c[1].align_to(c[0], UP).shift(DOWN * 0.25)
+            c[1].stretch_to_fit_height(top - 0.5).align_to(c[0], UP).shift(DOWN * 0.25)
+            c[2].align_to(c[0], UP).shift(DOWN * 0.42)
         cards.arrange(RIGHT, buff=0.3, aligned_edge=UP)
         parts = VGroup(cards)
         if title:
-            parts = VGroup(fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD),
-                               w - 0.4), cards).arrange(DOWN, buff=0.3)
+            parts = VGroup(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD),
+                               w - 0.4), cards).arrange(DOWN, buff=0.35)
         self._fit_stage(parts, grow=1.4)
         return self._to_stage(Group(parts))
 
@@ -2319,12 +2341,13 @@ class Lecture(Scene):
     def quote(self, text: str, who: str = ""):
         """A quotation, large, with who said it."""
         cx, cy, w, h = self.STAGE
-        mark = T("“", 120, P.SAND, font=TH["serif"], weight=BOLD)
-        body = fit(T(wrap(text, 34), 28, P.CREAM, font=TH["serif"], line_spacing=0.95), w - 0.6)
-        parts = VGroup(mark, body)
+        mark = T("“", 110, P.SAND, font=TH["serif"], weight=BOLD)
+        body = fit(T(wrap(text, 30), 34, P.CREAM, font=TH["serif"], line_spacing=1.0), w - 1.4)
+        words = VGroup(mark, body)
         if who:
-            parts.add(fit(T(f"— {who}", 20, P.MUTED), w - 0.6))
-        parts.arrange(DOWN, buff=0.25, aligned_edge=LEFT)
+            words.add(fit(T(f"— {who}", 24, P.SAND, weight=BOLD), w - 1.4))
+        words.arrange(DOWN, buff=0.22, aligned_edge=LEFT)
+        parts = self._card(words, P.SAND, pad=0.5)
         self._fit_stage(parts)
         return self._to_stage(Group(parts))
 

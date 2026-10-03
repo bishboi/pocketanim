@@ -124,7 +124,8 @@ def test_a_definition_goes_beside_the_drawing_it_explains():
     scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}])
     scene._beat_new = []                                         # the drawing's beat has played
     scene.define("velocity", "speed and direction")
-    assert scene.stage_body is not None and scene.stage_body.get_right()[0] < scene.stage_extra[-1].get_left()[0]
+    # The card in the right half; the drawing slides into the left one (an animation, not played here).
+    assert scene.stage_body is not None and scene.stage_extra[-1].get_left()[0] >= 0
 
 
 def test_equation_during_a_problem_joins_its_working():
@@ -265,7 +266,8 @@ def test_diagram_drawings_are_whiteboard_drawings_in_the_board_ink():
     import icons
     import pocket_lecture as pl
 
-    assert icons.sketch("tree") == "openmoji:deciduous-tree"           # outlined and flat-filled, not an emoji
+    assert icons.sketch("tree") == "fluent-emoji-flat:deciduous-tree"  # a flat drawing, drawn with ink outlines
+    assert len(icons.drawings("tree")) >= 5                             # choices for the model (find_drawing)
     assert icons.sketch("river") != "openmoji:screwdriver"             # whole words, not letters inside one
     assert "#000" not in pl._ink_svg('<path stroke="#000" fill="#fcea2b"/>', "#F4E9D8")
     assert 'fill="#fcea2b"' in pl._ink_svg('<path stroke="#000" fill="#fcea2b"/>', "#F4E9D8")

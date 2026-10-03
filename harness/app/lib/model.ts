@@ -12,8 +12,9 @@
 import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { ADD_CHAPTERS_TOOL, ILLUSTRATION_TOOL, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
-import { figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
+import { unbuiltFigures } from "./lecture";
+import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
+import { figurePictures, figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -230,12 +231,18 @@ function voiceSeconds(source: string): number {
   return total;
 }
 
+/** A user message may carry pictures (the book's figures) for a model that reads images. */
+type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
 };
+
+/** What is sent: a ChatMessage, or a user message with pictures in it. */
+type OutMessage = ChatMessage | (Omit<ChatMessage, "content"> & { role: "user"; content: ContentPart[] });
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number; cost?: number };
 
@@ -352,12 +359,12 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof DRAWING_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL;
 
 async function streamCompletion(
   key: string,
   model: string,
-  messages: ChatMessage[],
+  messages: OutMessage[],
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
@@ -512,7 +519,7 @@ const EMPTY_RETRIES = 4;
 async function completionWithRetry(
   key: string,
   model: string,
-  messages: ChatMessage[],
+  messages: OutMessage[],
   emit: (event: AgentEvent) => void,
   onDelta: (kind: "thinking" | "assistant", text: string) => void,
   tools: ToolSpec[] = TOOLS,
@@ -609,7 +616,7 @@ async function viaOpenRouter(
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
   const tools: ToolSpec[] = lecture
-    ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, IMAGE_TOOL, EDIT_TOOL]
+    ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL, EDIT_TOOL]
     : TOOLS;
   // STAGE 1: the whole lecture as a teacher speaks it, section by section, at full length, before any picture.
   const written: WrittenSection[] = [];
@@ -700,10 +707,16 @@ async function viaOpenRouter(
       text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min). Now the video.` });
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
-  const messages: ChatMessage[] = [
+  // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
+  const pictures = lecture && doc ? await figurePictures(doc) : [];
+  const messages: OutMessage[] = [
     { role: "system", content: written.length ? `${system}${fromTranscriptPrompt(written)}` : system },
-    { role: "user", content: user },
+    pictures.length ? { role: "user", content: [{ type: "text", text: user }, ...pictures] } : { role: "user", content: user },
   ];
+  if (pictures.length) {
+    emit({ type: "message", role: "status",
+      text: `The book's ${pictures.length / 2} figure${pictures.length > 2 ? "s are" : " is"} sent to ${model} to rebuild in Manim.` });
+  }
   emit({ type: "input", role: "system", text: system });
   emit({ type: "input", role: "user", text: user });
   if (lecture) {
@@ -733,7 +746,8 @@ async function viaOpenRouter(
       }
     }
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user" && messages[i].content?.startsWith("CURRENT SCENE")) messages.splice(i, 1);
+      const said = messages[i].content;
+      if (messages[i].role === "user" && typeof said === "string" && said.startsWith("CURRENT SCENE")) messages.splice(i, 1);
     }
     const spoken = voiceSeconds(scene);
     const next =
@@ -778,6 +792,13 @@ async function viaOpenRouter(
     const compiled = await compileLecture(script, lectureOptions());
     const unsaid = compiled.source ? transcriptProblem(script, written) : null;
     if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
+    const unbuilt = compiled.source && doc ? unbuiltFigures(script, scriptFigures(doc)) : [];
+    if (unbuilt.length) {
+      return { ...compiled, source: null, errors: [
+        `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not in the ` +
+        "lecture. Build each in Manim where the narration explains it (sketch, preset, graph, diagram, compare, a map " +
+        "sequence), marked with \"from_figure\", or show a photograph as it is with {\"op\":\"figure\",\"photo\":true}."] };
+    }
     const parts = reference?.parts?.length ?? 0;
     if (!compiled.source || !parts || written.length) return compiled;
     const missing = uncoveredParts(script, parts);
@@ -864,6 +885,13 @@ async function viaOpenRouter(
           "PANIM_MODEL_WAIT_MINUTES.");
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (pictures.length && Array.isArray(messages[1].content) && /image|vision|modalit|multimodal/i.test(message)) {
+        // A model that reads no images: the figures go as their captions alone, and the turn is asked again.
+        messages[1] = { role: "user", content: user };
+        emit({ type: "message", role: "status",
+          text: `${model} takes no images: it rebuilds the book's figures from their captions alone.` });
+        continue;
+      }
       if (!/idle timeout|upstream/i.test(message)) throw error;
       const done = savedScene();
       if (done) {
@@ -1067,6 +1095,8 @@ async function viaOpenRouter(
         }
       } else if (call.function.name === "find_image") {
         output = await findImage((args as { queries?: unknown }).queries);
+      } else if (call.function.name === "find_drawing") {
+        output = await findDrawings((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_illustration") {
         output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre);
       } else {

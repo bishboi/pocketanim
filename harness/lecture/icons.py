@@ -32,6 +32,50 @@ MONO = ["game-icons", "mdi", "healthicons"]
 # Whiteboard drawings (sketch()): dark outlines and flat colour fills, drawn in on the board.
 SKETCH = ["openmoji", "streamline-plump-color"]
 SKETCH_ONLY = ["streamline-plump-color"]
+# The sets drawings come from, best first: flat colour drawings that, drawn with ink outlines (pocket_lecture.
+# sketch_mob), read as one whiteboard style. About 15,000 drawings between them.
+DRAWINGS = ["fluent-emoji-flat", "openmoji", "twemoji", "noto", "streamline-emojis", "streamline-plump-color"]
+_SKIN = re.compile(r"-(light|medium-light|medium|medium-dark|dark)(-skin-tone)?$")
+
+
+def drawings(query: str, limit: int = 12) -> list[dict]:
+    """Drawings for a query, best first, across DRAWINGS: [{"id", "name", "set"}], one per thing (the same emoji's
+    name in several sets is one thing, its best set's drawing), for a model to choose from. Every word of the query
+    in the name first ("evergreen tree", "palm tree" for "tree"), then names with any one of its words."""
+    words = [w for w in _norm(query).split("-") if len(w) > 1]
+    if not words:
+        return []
+    forms = [{w, *_variants(w)} for w in words]
+    names = _names()
+    first = sketch(query)
+    scored = []
+    for rank, prefix in enumerate(DRAWINGS):
+        for name in names.get(prefix, []):
+            if prefix == "streamline-plump-color" and name.endswith("-flat"):
+                continue
+            if SYMBOLIC.search(name) or UNFIT.search(name) or _SKIN.search(name):
+                continue
+            parts = set(name.split("-"))
+            hits = sum(bool(f & parts) for f in forms)
+            if not hits:
+                continue
+            whole = hits == len(forms)
+            score = (100 if whole else 40 * hits / len(forms)) - len(parts) * 2 - rank
+            if f"{prefix}:{name}" == first:
+                score += 1000
+            scored.append((score, prefix, name))
+    scored.sort(key=lambda row: -row[0])
+    rows, seen = [], set()
+    for _score, prefix, name in scored:
+        if name in seen:
+            continue
+        seen.add(name)
+        rows.append({"id": f"{prefix}:{name}", "name": name.replace("-", " "), "set": prefix})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 # Not for a classroom diagram, whatever the word ("atom" is not an atom bomb).
 UNFIT = re.compile(r"(^|-)(bomb|gun|pistol|knife|dagger|skull|coffin|cigarette|syringe)(-|$)")
 _first = os.environ.get("PANIM_ICON_FAMILY", "").strip()
@@ -296,6 +340,8 @@ def sketch(name: str) -> str | None:
         return resolve(name)
     plain = resolve(name)
     names = _names()
+    if plain and plain.split(":", 1)[0] in DRAWINGS and not UNFIT.search(plain):
+        return plain                   # a flat colour drawing: drawn with outlines, it is a whiteboard drawing
     if plain:
         base = plain.split(":", 1)[1]
         if base in names.get("openmoji", []) and not SYMBOLIC.search(base):
@@ -399,6 +445,10 @@ def credit(icon_ids) -> str:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--drawings"]:
+        # icons.py --drawings cow "solar panel"      drawings a model may choose from, as JSON
+        print(json.dumps({q: drawings(q) for q in sys.argv[2:]}, ensure_ascii=False))
+        raise SystemExit(0)
     if not available():
         print(json.dumps({"error": "no icon sets; run harness/scripts/fetch_icons.py"}))
         raise SystemExit(1)

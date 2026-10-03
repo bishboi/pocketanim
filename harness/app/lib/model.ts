@@ -653,6 +653,8 @@ async function viaOpenRouter(
     const TRIES = 4;
     for (const section of sections) {
       let note: string | undefined;
+      // The longest refused try: kept when every try is refused, so one stubborn section does not lose the lecture.
+      let fallback: { title: string; text: string; problem: string } | null = null;
       for (let attempt = 1; attempt <= TRIES && written.length < section.n; attempt++) {
         if (stopped()) throw new Error("The page closed while the transcript was being written.");
         emit({ type: "message", role: "status",
@@ -699,9 +701,16 @@ async function viaOpenRouter(
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
         if (problem) {
           note = problem;
+          if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
           continue;
         }
         written.push({ n: section.n, title: title || `Section ${section.n}`, text });
+      }
+      const fallbackWords = fallback ? fallback.text.split(/\s+/).filter(Boolean).length : 0;
+      if (written.length < section.n && fallback && fallbackWords >= section.words * 0.6) {
+        written.push({ n: section.n, title: fallback.title || `Section ${section.n}`, text: fallback.text });
+        emit({ type: "message", role: "status",
+          text: `Transcript: section ${section.n} kept after ${TRIES} tries, though not every check passed: ${fallback.problem}` });
       }
       if (written.length < section.n) break;
     }

@@ -83,3 +83,33 @@ def test_a_section_that_skips_an_option_is_refused():
     assert out[0] == [{"id": "q4", "what": "question 2: options C, D"}]
     assert out[1] == []
     assert out[2][0]["what"].startswith("question 2 (")
+
+
+def test_many_questions_are_split_into_sections_a_model_can_write(tmp_path):
+    tsc = APP / "node_modules" / ".bin" / "tsc"
+    if not tsc.exists() or not shutil.which("node"):
+        pytest.skip("no TypeScript compiler")
+    built = subprocess.run([str(tsc), "lib/transcript.ts", "lib/questions.ts", "--outDir", str(tmp_path), "--module",
+                            "commonjs", "--target", "es2022", "--skipLibCheck", "--esModuleInterop"], cwd=APP, capture_output=True, text=True)
+    assert built.returncode == 0, built.stdout + built.stderr
+    script = f"""
+const t = require({json.dumps(str(tmp_path / 'transcript.js'))});
+let md = '# Motion\\n\\n' + 'Motion is change of place. '.repeat(200) + '\\n\\n## Exercises\\n\\n';
+for (let i = 1; i <= 20; i++) md += i + '. Which unit is number ' + i + ' here?\\n(a) metre\\n(b) second\\n(c) newton\\n(d) watt\\n\\n';
+const s = t.bookSections(md, 10);
+const last = s[s.length - 1];
+const said = last.questions.map((x) => 'बच्चों, ' + x.text + ' Option A, metre, यह length है। Option B, second, यह time है। ' +
+  'Option C, newton, यही सही है? Option D, watt, power है।').join(' ') + ' ' + 'और ध्यान से समझो। '.repeat(400);
+console.log(JSON.stringify({{
+  sections: s.map((x) => [x.words, (x.questions || []).length, !!x.questionsOnly]),
+  problem: t.sectionProblem(said, last, 'hinglish'),
+}}));
+"""
+    done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert sum(n for _, n, _ in out["sections"]) == 20
+    assert all(words <= 1600 for words, n, _ in out["sections"] if n)     # no section of 5,000 words of questions
+    assert sum(only for *_, only in out["sections"]) >= 2
+    # Read out as the book prints them, in English, with no example of its own: still a good section.
+    assert out["problem"] is None

@@ -28,6 +28,8 @@ export type Section = {
   book?: boolean;
   /** The book's own questions in this part (its exercises, MCQs): each is explained in full, every choice. */
   questions?: BookQuestion[];
+  /** Only more of the part's questions: its teaching was in the section before. */
+  questionsOnly?: boolean;
 };
 
 export type WrittenSection = { n: number; title: string; text: string };
@@ -78,6 +80,8 @@ export function transcriptSections(reference: DocumentManifest | null, minutes: 
 }
 
 const BOOK_MIN_WORDS = 150;
+/** The most narration a section asks for its book questions: about what a model writes well in one reply. */
+const QUESTION_WORDS = 1500;
 
 /** A book's text as blocks in order: a heading with what follows it, a paragraph, a figure line. */
 function bookBlocks(markdown: string): string[] {
@@ -119,23 +123,40 @@ export function bookSections(markdown: string, minutes: number): Section[] {
     const at = sources.findIndex((src) => src.includes(flat(q.text).trim().slice(0, 40)));
     return at < 0 ? groups.length - 1 : at;
   });
-  return groups.map((group, i) => {
+  const out: Section[] = [];
+  groups.forEach((group, i) => {
     const share = group.reduce((n, b) => n + count(b), 0) / total;
     const own = questions.filter((_, k) => home[k] === i);
-    const asked = own.reduce((n, q) => n + questionWords(q), 0);
-    // Every question explained in full makes the section longer than its share of the chosen length.
-    const words = Math.max(Math.round(Math.max(1, minutes * share) * WORDS_PER_MINUTE),
-      Math.round(asked + Math.max(1, minutes * share) * WORDS_PER_MINUTE * 0.5));
-    return {
-      n: i + 1,
-      parts: [],
-      minutes: Math.round((words / WORDS_PER_MINUTE) * 10) / 10,
-      words,
-      source: group.join("\n\n"),
-      book: true,
-      ...(own.length ? { questions: own } : {}),
-    };
+    const base = Math.round(Math.max(1, minutes * share) * WORDS_PER_MINUTE);
+    // The part's teaching, with as many of its questions as fit one reply; the rest of its questions follow in
+    // sections of their own (a model writes about QUESTION_WORDS words at a time at full length, not 6,000).
+    const chunks: BookQuestion[][] = [[]];
+    let room = Math.max(0, QUESTION_WORDS - Math.round(base * 0.5));
+    for (const q of own) {
+      if (chunks[chunks.length - 1].length && questionWords(q) > room) {
+        chunks.push([]);
+        room = QUESTION_WORDS;
+      }
+      chunks[chunks.length - 1].push(q);
+      room -= questionWords(q);
+    }
+    chunks.forEach((chunk, c) => {
+      const asked = chunk.reduce((n, q) => n + questionWords(q), 0);
+      const words = c === 0 ? Math.max(base, Math.round(asked + base * 0.5)) : Math.max(300, asked);
+      out.push({
+        n: out.length + 1,
+        parts: [],
+        minutes: Math.round((words / WORDS_PER_MINUTE) * 10) / 10,
+        words,
+        // A section of only questions carries its part of the book, for the questions' context.
+        source: group.join("\n\n"),
+        book: true,
+        ...(chunk.length ? { questions: chunk } : {}),
+        ...(c > 0 ? { questionsOnly: true } : {}),
+      });
+    });
   });
+  return out;
 }
 
 export const SECTION_TOOL = {
@@ -258,6 +279,9 @@ export function transcriptPrompt(options: {
     ...sections.map((s) =>
       `SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
       (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}`
+        : s.questionsOnly ? `, explaining more of the book's questions from the part before (its text is there):\n` +
+          (s.questions?.length ? `QUESTIONS IN THIS PART (explain all ${s.questions.length}, every option):\n` +
+            `${s.questions.map(questionLine).join("\n")}\n` : "")
         : s.book ? `, teaching this part of the book:\n${s.source.slice(0, 12000)}\n` +
           (s.questions?.length ? `QUESTIONS IN THIS PART (explain all ${s.questions.length}, every option):\n` +
             `${s.questions.map(questionLine).join("\n")}\n` : "") : "")),
@@ -271,8 +295,23 @@ const EXAMPLE_CUES = /मान लो|मान लीजिए|जैसे|�
 const ROMAN_HINDI = /\b(hai|hain|hota|hoti|matlab|yaani|kya|nahi|aur|toh|lekin|isliye|dekho|samjho|chalo)\b/gi;
 
 /** Why a written section is refused, or null when it is accepted. */
+/**
+ * A sentence that reads out one of the book's questions or one of its options ("Option B, newton."): said as the
+ * book prints it, on purpose, so the checks for copying and for too much English leave it alone.
+ */
+function readsQuestion(line: string, questions: BookQuestion[]): boolean {
+  const said = norm(line);
+  if (!said || !questions.length) return false;
+  return questions.some((q) => {
+    const asked = norm(q.text);
+    return (asked.length > 10 && (asked.includes(said) || said.includes(asked.slice(0, 60)))) ||
+      q.choices.some((c) => norm(c).length >= 3 && said.includes(norm(c)));
+  });
+}
+
 export function sectionProblem(text: string, section: Section, language: Language): string | null {
   const words = text.split(/\s+/).filter(Boolean).length;
+  const questions = section.questions ?? [];
   if (words < section.words * 0.9) {
     return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * 0.9)}). ` +
       "Write it again at full length: explain each statement more (the meaning of each term, an example or two, " +
@@ -288,7 +327,8 @@ export function sectionProblem(text: string, section: Section, language: Languag
     if (section.book) {
       // The video stage refuses narration that reads the book word for word: caught here, while it is cheap.
       const book = norm(section.source);
-      const copied = sentencesOf(text).filter((line) => norm(line).length > 40 && book.includes(norm(line)));
+      const copied = sentencesOf(text).filter((line) => norm(line).length > 40 && book.includes(norm(line)) &&
+        !readsQuestion(line, questions));
       if (copied.length > 1) {
         return `Section ${section.n} reads ${copied.length} sentences of the book word for word (e.g. "${copied[0].slice(0, 90)}"): ` +
           "say each idea in your own words, the way you would explain it to the class.";
@@ -300,7 +340,9 @@ export function sectionProblem(text: string, section: Section, language: Languag
         "question of the section: read it, what it asks, then every option in turn (\"Option A, ...\") and why it is " +
         "right or wrong, then the answer and why.";
     }
-    if (!EXAMPLE_CUES.test(text)) {
+    // A section that is mostly the book's exercises explains questions; it need not bring examples of its own.
+    const askedWords = questions.reduce((n, q) => n + questionWords(q), 0);
+    if (!EXAMPLE_CUES.test(text) && askedWords < section.words * 0.5) {
       return `Section ${section.n} gives no example: explain its ideas with everyday examples (\"मान लो...\", ` +
         "\"जैसे...\", \"for example...\").";
     }
@@ -310,7 +352,7 @@ export function sectionProblem(text: string, section: Section, language: Languag
   }
   if (language === "hinglish") {
     const sentences = text.split(/(?<=[.?!।])\s+/).filter((s) => s.trim());
-    const english = sentences.filter((s) => !DEVANAGARI.test(s)).length;
+    const english = sentences.filter((s) => !DEVANAGARI.test(s) && !readsQuestion(s, questions)).length;
     if (english > sentences.length * 0.25) {
       return `Section ${section.n} is mostly English (${english} of ${sentences.length} sentences). It is Hinglish: ` +
         "simple Hindi in Devanagari with the subject's terms in English.";
@@ -339,7 +381,9 @@ export function sectionRequest(section: Section, count: number, written: Written
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""] : []),
     `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
       `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
-      `${section.parts.join(", ")} of the reference` : section.book ? "; it teaches its part of the book, given under " +
+      `${section.parts.join(", ")} of the reference` : section.questionsOnly ? `; it explains the next ` +
+      `${section.questions?.length ?? 0} of the book's questions, listed under SECTION ${section.n} in your instructions, ` +
+      "each in full, every option in turn, carrying on from the questions before" : section.book ? "; it teaches its part of the book, given under " +
       `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` +
       (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
         `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +

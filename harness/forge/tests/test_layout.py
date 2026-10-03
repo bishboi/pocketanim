@@ -302,3 +302,22 @@ def test_an_option_of_a_question_without_its_answer_says_itself():
     scene = _board_scene()
     scene.question("Which is a force?", ["push", "sleep"])
     assert scene.option(0, right=True) is not None and scene.option(1, right=False) is not None
+
+
+def test_an_empty_animation_group_does_not_stop_the_render(tmp_path):
+    """A step that finds nothing to show hands the beat an empty group; Manim refuses one, whole or nested."""
+    import pocket_lecture as pl
+    from manim import AnimationGroup, FadeIn, LaggedStart, Square, tempconfig
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            self.board()
+            self.beat("Nothing new on this beat.", AnimationGroup(), LaggedStart(*[]))
+            self.beat("Some of it is new.", AnimationGroup(AnimationGroup(), FadeIn(Square())))
+            self.play(AnimationGroup())
+
+    with tempconfig({"dry_run": True, "media_dir": str(tmp_path), "disable_caching": True}):
+        Probe().render()
+    assert pl._playable(AnimationGroup(AnimationGroup())) is None
+    kept = pl._playable(AnimationGroup(AnimationGroup(), FadeIn(Square()), lag_ratio=0.5))
+    assert len(kept.animations) == 1 and kept.lag_ratio == 0.5

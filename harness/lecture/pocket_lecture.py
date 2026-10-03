@@ -390,6 +390,22 @@ def drawing_source(name: str):
     return icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None), icon_id
 
 
+def _playable(anim):
+    """An animation Manim can play, or None: a group with nothing in it (a step that found nothing to show, an
+    empty LaggedStart) is dropped, at any depth, instead of stopping the render with "Called Scene.play with no
+    animations" or "Trying to play AnimationGroup without animations"."""
+    if anim is None:
+        return None
+    if not isinstance(anim, AnimationGroup):
+        return anim
+    kids = [k for k in (_playable(k) for k in anim.animations) if k is not None]
+    if not kids:
+        return None
+    if len(kids) == len(anim.animations):
+        return anim
+    return AnimationGroup(*kids, lag_ratio=anim.lag_ratio)
+
+
 def sketch_mob(name: str, height: float = 0.9):
     """A whiteboard drawing of a thing (icons.sketch): dark outlines in the board's ink and flat colour fills, the
     way a teacher draws on a board. Written in (Write), it draws its outlines first and then fills them."""
@@ -1281,6 +1297,12 @@ class Lecture(Scene):
         self.add(self.chrome)
 
     # ---------------- narration beat ----------------
+    def play(self, *animations, **kwargs):
+        """Manim's play, without the empty groups it refuses (see _playable); nothing to play is no play."""
+        animations = [a for a in (_playable(a) for a in animations) if a is not None]
+        if animations:
+            super().play(*animations, **kwargs)
+
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None) -> float:
         """One narration line and the animations that go with it.
 
@@ -1304,7 +1326,7 @@ class Lecture(Scene):
         self.add(cap)
         self.cap = cap
         spent = 0.0
-        anims = [a for a in anims if a is not None]
+        anims = [a for a in (_playable(a) for a in anims) if a is not None]
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
             head = [a for a in anims if getattr(a, "panel_head", False)]

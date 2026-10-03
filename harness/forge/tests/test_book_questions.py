@@ -129,3 +129,18 @@ def test_a_lecture_over_an_hour_is_cut_between_chapters_into_parts():
     assert all(p["minutes"] <= 60 for p in two) and len(three) == 3
     assert [p["title"] for p in two] == ["Forces · Part 1 of 2", "Forces · Part 2 of 2"]
     assert [(p["intro"], p["recap"], p["credits"]) for p in two] == [(True, False, "c"), (False, True, "c")]
+
+
+def test_chapter_numbered_exercises_and_a_hindi_explanation_of_english_questions():
+    out = _run("import { bookQuestions, unexplainedQuestions } from './lib/questions.ts';"
+               "const md = '## Exercises\\n\\n4.1 Give the magnitude and direction of the net force acting on a drop of rain.\\n\\n"
+               "4.2 A pebble of mass 0.05 kg is thrown vertically upwards. Give the net force on it at 2.5 s.\\n\\n"
+               "4.23 Explain why\\n(a) a horse cannot pull a cart and run in empty space,\\n"
+               "(b) passengers are thrown forward from their seats when a speeding bus stops suddenly,\\n';"
+               "const qs = bookQuestions(md);"
+               "const hindi = 'अब प्रश्न 4.1 देखो, बूंद पर नेट बल शून्य है। कंकड़ का द्रव्यमान 0.05 किलोग्राम, समय 2.5 सेकंड।';"
+               "console.log(JSON.stringify({ qs: qs.map((q) => [q.number, q.choices.length, q.text.slice(0, 12)]),"
+               " left: unexplainedQuestions(hindi, qs).map((x) => x.id) }));")
+    assert out["qs"] == [["4.1", 0, "Give the mag"], ["4.2", 0, "A pebble of "], ["4.23", 0, "Explain why "]]
+    # 4.1 by its number, 4.2 by its numbers (0.05 kg, 2.5 s); 4.23, its parts, never: still to explain.
+    assert out["left"] == ["q3"]

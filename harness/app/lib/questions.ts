@@ -22,7 +22,10 @@ export type BookQuestion = {
 };
 
 const QUESTION_HEADING = /(exercise|questions?\b|question bank|mcq|multiple[- ]choice|objective|test yourself|check your|self[- ]assessment|review|practice|assignment|worksheet|अभ्यास|प्रश्न)/i;
-const QUESTION_START = /^(?:Q(?:uestion)?\s*\.?\s*|प्रश्न\s*)?(\d{1,3})\s*[.):]\s*(.+)$/i;
+// "3." "Q3." "प्रश्न 3." and the chapter-numbered "4.1 Give the magnitude..." of an NCERT exercise: read as 4,
+// every exercise came out as question 4 with its text starting "1 Give...".
+const QUESTION_START =
+  /^(?:Q(?:uestion)?\s*\.?\s*|प्रश्न\s*|Exercise\s*)?(?:(\d{1,2}\.\d{1,3})\s*[.):]?\s+|(\d{1,3})\s*[.):]\s*)(.+)$/i;
 // A choice's mark: (a) a) a. A. (1) 1) (i) (क) क)
 const CHOICE_MARK = /(?:^|\s)(?:\(([a-eA-E]|[1-5]|i{1,3}|iv|v|[कखगघङ])\)|([a-eA-E]|[कखगघङ])[.)](?=\s))\s*/g;
 const ANSWER_LINE = /^(?:ans(?:wer)?|उत्तर|correct answer)\s*[:.\-–]?\s*(.+)$/i;
@@ -62,7 +65,14 @@ export function bookQuestions(markdown: string, start = 0): BookQuestion[] {
     if (!current) return;
     const { counted, open: _open, ...question } = current;
     void _open;
-    if (question.choices.length >= 2 && question.choices.length <= 5) {
+    // Long "choices" are a question's parts ("Explain why (a) a horse cannot pull a cart... (b) ..."), each to be
+    // answered, not options to mark right or wrong: they stay in its text.
+    const long = question.choices.length &&
+      question.choices.reduce((n, c) => n + c.length, 0) / question.choices.length > 45;
+    if (long || question.choices.length > 5) {
+      const parts = question.choices.map((c, i) => `(${"abcdefghij"[i] ?? i + 1}) ${c}`).join(" ");
+      found.push({ ...question, text: `${question.text} ${parts}`.slice(0, 600), choices: [] });
+    } else if (question.choices.length >= 2) {
       found.push(question);
     } else if (counted) {
       found.push({ ...question, choices: [] });
@@ -95,7 +105,7 @@ export function bookQuestions(markdown: string, start = 0): BookQuestion[] {
     const start_ = QUESTION_START.exec(line);
     if (start_) {
       finish();
-      let text = start_[2].trim();
+      let text = start_[3].trim();
       // Choices on the question's own line: "3. Which is a force? (a) push (b) sleep (c) ..."
       const inline = [...text.matchAll(CHOICE_MARK)];
       let choicesHere: string[] = [];
@@ -106,7 +116,7 @@ export function bookQuestions(markdown: string, start = 0): BookQuestion[] {
       }
       current = {
         id: "",
-        number: start_[1],
+        number: start_[1] ?? start_[2],
         text: text.slice(0, 400),
         choices: choicesHere,
         counted: inQuestions || /[?？]\s*$/.test(text),
@@ -145,9 +155,20 @@ export function unexplainedQuestions(text: string, questions: BookQuestion[]): {
   const said = fold(text);
   const out: { id: string; what: string }[] = [];
   for (const q of questions) {
+    // Explained in another language than the book's (an English exercise taught in Hindi), its words are not in
+    // the narration: then its number said out ("प्रश्न 4.1"), or most of its numbers, show it is the one taught.
+    const number = q.number.replace(".", "\\.");
+    const called = new RegExp(
+      q.number.includes(".") ? `(^|[^\\d.])${number}(?![\\d])`
+        : `(question|प्रश्न|सवाल|exercise|अभ्यास|Q\\.?)\\s*(नंबर|संख्या|number|no\\.?)?\\s*${number}(?![\\d])`,
+      "i").test(text);
+    const values = q.text.match(/\d+(?:\.\d+)?/g) ?? [];
+    const valuesHeard = values.filter((v) => text.includes(v)).length;
     const words = q.text.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4);
     const heard = words.filter((w) => said.includes(fold(w))).length;
-    if (words.length && heard < Math.ceil(words.length * 0.5)) {
+    const covered = called || (values.length >= 2 && valuesHeard >= Math.ceil(values.length * 0.6)) ||
+      !words.length || heard >= Math.ceil(words.length * 0.5);
+    if (!covered) {
       out.push({ id: q.id, what: `question ${q.number} ("${q.text.slice(0, 60)}")` });
       continue;
     }

@@ -227,8 +227,8 @@ export function transcriptPrompt(options: {
             "  - QUESTIONS for the class, several in every section: ask, give time (\"सोचो...\"), then the answer and",
             "    why, and why a common wrong answer is wrong.",
             "  - THE BOOK'S OWN QUESTIONS (listed under each section: its in-text questions, exercises, MCQs): explain",
-            "    EVERY ONE, in the book's order, none skipped, none merged. For each: read the question out as the",
-            "    book has it; say what it is really asking and which idea of the chapter it tests; then, for a",
+            "    EVERY ONE, in the book's order, none skipped, none merged. For each: first say its number (\"प्रश्न",
+            "    4.1\", \"Question 4.1\"), then read the question out as the book has it; say what it is really asking and which idea of the chapter it tests; then, for a",
             "    multiple-choice question, take EVERY option in turn, A, B, C, D (\"Option A, ... यह गलत है क्योंकि",
             "    ...\"; \"Option B, ... यही सही है, क्योंकि ...\"): what the option says and exactly why it is right or",
             "    wrong (the trap in it, the mistake that leads a student to pick it); then say the answer again with",
@@ -337,8 +337,8 @@ export function sectionProblem(text: string, section: Section, language: Languag
     const skipped = unexplainedQuestions(text, section.questions ?? []);
     if (skipped.length) {
       return `Section ${section.n} does not explain the book's ${skipped.map((s) => s.what).join("; ")}. Explain every ` +
-        "question of the section: read it, what it asks, then every option in turn (\"Option A, ...\") and why it is " +
-        "right or wrong, then the answer and why.";
+        "question of the section: say its number first (\"प्रश्न 4.1\"), read it, what it asks, then every option in " +
+        "turn (\"Option A, ...\") and why it is right or wrong, then the answer and why.";
     }
     // A section that is mostly the book's exercises explains questions; it need not bring examples of its own.
     const askedWords = questions.reduce((n, q) => n + questionWords(q), 0);

@@ -378,11 +378,11 @@ export const DRAWING_TOOL = {
     name: "find_drawing",
     description:
       "Find the drawing for a thing a diagram, define, compare or icon shows (\"cow\", \"neuron\", \"burette\", " +
-      "\"volcano erupting\"). Words in English. Returns, best first: science drawings from Bioicons (cells, organs, " +
-      "lab apparatus, molecules, organisms: accurate, by scientists), and \"draw:<what>\", an illustration drawn for " +
-      "the lecture in the board's whiteboard style (anything: \"draw:a farmer ploughing a field with two oxen\"). Put " +
-      "the one that shows the thing best as the op's entity. Prefer a Bioicons drawing for science that must be " +
-      "right; otherwise draw, describing the picture you want.",
+      "\"volcano\"). Words in English, a thing or two words each. Returns, best first: science drawings from Bioicons " +
+      "(cells, organs, lab apparatus, molecules, organisms: accurate, by scientists), and hand-drawn illustrations " +
+      "from open libraries (coco:... CocoMaterial: animals, plants, buildings, people, food, school, tech; arcadia:... " +
+      "organisms). Put the id that shows the thing best as the op's entity. Prefer a Bioicons drawing for science " +
+      "that must be right. Nothing fits: search a simpler or broader word (\"ox\" -> \"cow\", \"granary\" -> \"barn\").",
     parameters: {
       type: "object",
       properties: { queries: { type: "array", items: { type: "string" }, description: "Things in English, e.g. [\"cow\", \"wheat\"]" } },
@@ -736,8 +736,8 @@ export function lecturePrompt(
     "  with no map operation has no map at all.",
     "  HOW something works or connects (a process, a food chain, causes and effects, parts of a whole) -> BUILD a",
     "  DIAGRAM whose nodes are drawings of the things (entity: an English word, tree, deer, factory, farmer, which is",
-    "  drawn as an illustration; or a drawing chosen with find_drawing: a Bioicons science drawing, or \"draw:<a",
-    "  description>\" for a specific picture, \"draw:a deer drinking at a river\"),",
+    "  drawn as an illustration; or an id chosen with find_drawing: a Bioicons science drawing, or a hand-drawn",
+    "  library illustration, coco:... or arcadia:...),",
     "  shown a node or two at a time across the paragraph's beats:",
     '  {"op":"diagram","id":"chain","kind":"flow"|"cycle"|"tree"|"hub"|"categories"|"steps","title"?,',
     '   "nodes":[{"id":"sun","label":"Sun","entity":"sun"},{"id":"plants","label":"पौधे","entity":"deciduous tree"}],',

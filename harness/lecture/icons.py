@@ -447,20 +447,16 @@ def credit(icon_ids) -> str:
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--drawings"]:
         # icons.py --drawings cow "solar panel"      drawings a model may choose from, as JSON: science drawings
-        # (Bioicons), an illustration drawn for the lecture (draw:...), and library drawings when nothing is drawn here.
+        # (Bioicons), open-library illustrations (drawlib.py), and emoji-set drawings only when those have none.
         import bioicons
-        import illustrator
+        import drawlib
 
         out = {}
         for q in sys.argv[2:]:
             rows = [{"id": r["id"], "name": f"{r['name']} ({r['category']}, {r['licence']})", "set": "bioicons"}
                     for r in bioicons.search(q, 6)]
-            if illustrator.enabled():
-                rows.append({"id": f"draw:{q}", "name": "an illustration drawn for the lecture (describe it: "
-                             "\"draw:a cow grazing\")", "set": "draw"})
-            else:
-                rows += drawings(q, 8)
-            out[q] = rows
+            rows += drawlib.search(q, 8)
+            out[q] = rows or drawings(q, 8)
         print(json.dumps(out, ensure_ascii=False))
         raise SystemExit(0)
     if not available():

@@ -28,8 +28,6 @@ type ExportState = {
   voiceWarning?: string | null;
   /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
   voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
-  /** The illustrations drawn for this build (illustrator.py), and their cost. */
-  drawCost?: { usd: number; made: number; kept: number; failed: string[]; subjects: number };
   stored?: { configured: boolean; reason?: string; error?: string };
   narrationUrl?: string | null;
 };
@@ -63,8 +61,6 @@ type Version = {
   voiceUsd?: number;
   /** The whole lecture's voice, at the latest build: what its lines cost when they were spoken. */
   voiceLecture?: { usd: number; lines: number; unknown: number };
-  /** The illustrations drawn for this version, added up over its builds (a drawing is made once and kept). */
-  drawUsd?: number;
   exported?: ExportState;
   ir?: SceneIR | null;
   sceneClass?: string;
@@ -330,9 +326,7 @@ export default function Home() {
           { phase?: string; done?: number; total?: number };
         const elapsed = Math.round((Date.now() - started) / 1000);
         const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
-        if (state.phase === "drawings" && state.total) {
-          setBusy(`Drawing the illustrations: ${state.done} of ${state.total} · ${clock}`);
-        } else if (state.phase === "voice" && state.total) {
+        if (state.phase === "voice" && state.total) {
           const share = Math.round((100 * (state.done ?? 0)) / state.total);
           setBusy(`Speaking the lecture: ${state.done} of ${state.total} lines (${share}%) · ${clock}`);
         } else if (state.phase === "render" && state.total) {
@@ -345,13 +339,12 @@ export default function Home() {
     }, 1500) : null;
     let exported: ExportState;
     // The voice's bill for this build goes on the version, whether the build then succeeds or not.
-    const billVoice = (cost?: ExportState["voiceCost"], drawn?: ExportState["drawCost"]) => {
-      if (!cost && !drawn) return;
+    const billVoice = (cost?: ExportState["voiceCost"]) => {
+      if (!cost) return;
       setVersions((all) => all.map((v, i) => i === index ? {
         ...v,
-        ...(cost ? { voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
-          voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown } } : {}),
-        ...(drawn ? { drawUsd: (v.drawUsd ?? 0) + drawn.usd } : {}),
+        voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
+        voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown },
       } : v));
     };
     try {
@@ -363,12 +356,12 @@ export default function Home() {
         jobId,
       });
     } catch (error) {
-      billVoice((error as { data?: ExportState }).data?.voiceCost, (error as { data?: ExportState }).data?.drawCost);
+      billVoice((error as { data?: ExportState }).data?.voiceCost);
       throw error;
     } finally {
       if (poll) clearInterval(poll);
     }
-    billVoice(exported.voiceCost, exported.drawCost);
+    billVoice(exported.voiceCost);
     if (lecture) setBusy("Building the program and the preview…");
     const played = exported.scene || sceneClass;
     let ir: SceneIR | null | undefined;
@@ -1024,9 +1017,8 @@ export default function Home() {
                               ". A line is paid for once; a rebuild speaks only new or changed lines."
                             : undefined}
                         >
-                          {" "}· voice ${version.voiceUsd.toFixed(4)}
-                          {version.drawUsd ? ` · drawings $${version.drawUsd.toFixed(4)}` : ""} · total $
-                          {((version.costUsd ?? 0) + version.voiceUsd + (version.drawUsd ?? 0)).toFixed(4)}
+                          {" "}· voice ${version.voiceUsd.toFixed(4)} · total $
+                          {((version.costUsd ?? 0) + version.voiceUsd).toFixed(4)}
                         </span>
                       )}
                       {busy ? ` · ${busy}` : ""}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { REPO, exportScene, frameCount, prespeak, progressFile, type DrawCost, type VoiceCost } from "@/lib/pocketanim";
+import { REPO, exportScene, frameCount, prespeak, progressFile, type VoiceCost } from "@/lib/pocketanim";
 import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { saveVersion } from "@/lib/store";
@@ -28,17 +28,15 @@ export async function POST(request: NextRequest) {
     const progress = progressFile(String(body?.jobId ?? ""));
     let beats = 0;
     let voiceCost: VoiceCost | undefined;
-    let drawCost: DrawCost | undefined;
     if (/pocket_lecture/.test(source)) {
       const spoken = await prespeak(source, progress);
       if (spoken.error) {
         if (progress) await rm(progress, { force: true });
         // Lines spoken before the refusal were paid for: the page still adds them to the bill.
-        return NextResponse.json({ error: spoken.error, voiceCost: spoken.voice, drawCost: spoken.drawings }, { status: 500 });
+        return NextResponse.json({ error: spoken.error, voiceCost: spoken.voice }, { status: 500 });
       }
       beats = spoken.beats;
       voiceCost = spoken.voice;
-      drawCost = spoken.drawings;
     }
     const { result, buildDir } = await exportScene(source, sceneClass, progress);
     if (progress) await rm(progress, { force: true });
@@ -79,7 +77,7 @@ export async function POST(request: NextRequest) {
         "server log has Google's message).";
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning, voiceCost, drawCost });
+    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning, voiceCost });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

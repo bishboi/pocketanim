@@ -43,6 +43,7 @@ To fetch the libraries again, or only some of them:
 |---|---|---|---|
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
 | Diagram drawings | Emoji-style SVG drawings, used only when illustrations cannot be made (section 4). They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
+| Illustrations | CocoMaterial's 3,000+ hand-drawn illustrations and Arcadia's organism drawings, for diagram nodes and definitions (section 4). | `harness/lecture/data/drawlib/` | 40 MB |
 | Bioicons | About 2,500 science drawings (cells, organs, lab apparatus) for diagram nodes and definitions (section 4). | `harness/lecture/data/bioicons/` | 30 MB |
 | Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
@@ -103,28 +104,25 @@ YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.
 ## 4. The drawings: illustrations, not emoji
 
 Diagram nodes, definitions and comparisons draw the thing they name (a cow, a volcano, a neuron), outlined in ink
-and written onto the board. The drawings come from, in order:
+and written onto the board. Every drawing comes from an open library, downloaded once, free to use, at no cost per
+lecture. In order:
 
 1. **Bioicons** (bioicons.com): about 2,500 science drawings (cells, organs, lab apparatus, molecules, organisms)
    by scientists and illustrators, under CC0, CC BY, CC BY-SA or MIT. The lecture writer picks one when the
-   drawing must be right as well as clear; the credits name the authors. `fetch_all.py` downloads it, or
-   `.venv/bin/python harness/lecture/bioicons.py --fetch`.
-2. **Illustrations drawn for the lecture**: anything else is drawn by **Recraft V4.1 Vector** through OpenRouter,
-   with the `OPENROUTER_API_KEY` the lecture writer already uses. Every drawing is asked for in one whiteboard
-   style (thick dark outlines, flat bright fills, no text), so a lecture's drawings belong together. It answers
-   with real SVG paths, so Manim draws each outline and then fills it. A drawing is made once, before Manim
-   runs (several at once, with progress on the page), and kept in `harness/lecture/data/drawings/`: the next
-   lecture that needs a cow pays nothing. The cost is shown beside the voice's ($0.08 a drawing).
-3. **The emoji library** (section 2) only when neither is available (no key, or `PANIM_DRAWINGS=library`).
+   drawing must be right as well as clear; the credits name the authors.
+2. **CocoMaterial** (cocomaterial.com, by Kaleidos, CC0): 3,000+ hand-drawn illustrations in 17 categories
+   (animals, plants, buildings, people, food, school, science, tech), dark outlines with flat colour, the
+   whiteboard look. A plain word (`"entity": "cow"`) is drawn from here when it has the thing.
+3. **Drawing Open** (Arcadia Science, CC0): professional drawings of organisms, plants, animals and microbes.
+4. **The emoji library** (section 2) only when none of these has the thing.
 
-To try one: `.venv/bin/python harness/lecture/illustrator.py "a cow grazing" cow.svg`
+`fetch_all.py` downloads them all (about 70 MB), or one at a time:
 
-| Variable | What it does |
-|---|---|
-| `PANIM_DRAW_MODEL` | `recraft/recraft-v4.1-vector` (default, $0.08 a drawing), or `recraft/recraft-v4.1-pro-vector` (finer, $0.30). |
-| `PANIM_DRAWINGS` | `library` never makes drawings: Bioicons and the emoji library only, for free. |
-| `PANIM_DRAW_PRICE` | US dollars a drawing, for the cost shown when OpenRouter does not report one. |
-| `PANIM_DRAW_THREADS` | How many drawings are made at once (default 4). |
+```sh
+.venv/bin/python harness/lecture/drawlib.py --fetch        # CocoMaterial and Drawing Open, into data/drawlib
+.venv/bin/python harness/lecture/bioicons.py --fetch       # Bioicons, into data/bioicons
+.venv/bin/python harness/lecture/drawlib.py cow volcano    # what a word finds
+```
 
 ## 5. The web app
 

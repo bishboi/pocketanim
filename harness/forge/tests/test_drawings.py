@@ -1,10 +1,11 @@
-"""Illustrations for diagrams: drawn for the lecture (illustrator.py), or Bioicons science drawings."""
+"""Illustrations for diagrams: open libraries (drawlib.py: CocoMaterial, Arcadia's Drawing Open) and Bioicons."""
 
 from __future__ import annotations
 
-import base64
+import io
 import json
 import threading
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -12,74 +13,76 @@ import pytest
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import bioicons  # noqa: E402
-import illustrator  # noqa: E402
+import drawlib  # noqa: E402
 
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#7CC36E" stroke="#111"/></svg>'
 
 
 @pytest.fixture
-def recraft(monkeypatch, tmp_path):
-    asked = []
+def libraries(monkeypatch, tmp_path):
+    """Stand-ins for CocoMaterial's API (two pages) and the Drawing Open record on Zenodo."""
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("library/Zebrafish/zebrafish_silhouette.svg", SVG.replace("#7CC36E", "#000"))
+        z.writestr("library/Zebrafish/zebrafish_tricolor.svg", SVG)
+        z.writestr("library/Tardigrade/tardigrade_tricolor.svg", SVG)
+    pages = {
+        1: {"next": "page2", "results": [
+            {"id": 7, "name": "cow", "tags": "animal,farm,cattle", "svg_content": "<svg/>", "colored_svg_content": SVG},
+            {"id": 8, "name": "solar panel", "tags": "energy,sun", "svg_content": SVG, "colored_svg_content": None}]},
+        2: {"next": None, "results": [{"id": 9, "name": "barn", "tags": "farm,building", "svg_content": SVG}]},
+    }
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
-        def do_POST(self):
-            asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
-            url = "data:image/svg+xml;base64," + base64.b64encode(SVG.encode()).decode()
-            body = {"choices": [{"message": {"content": None, "images": [{"image_url": {"url": url}}]}}],
-                    "usage": {"cost": 0.08}}
+        def do_GET(self):
+            if self.path.startswith("/coco"):
+                body = json.dumps(pages[int(self.path.rsplit("=", 1)[1])]).encode()
+            elif self.path == "/record":
+                body = json.dumps({"files": [{"key": "arcadia-organism-library-v1.0.zip",
+                                              "links": {"self": f"http://127.0.0.1:{port}/zip"}}]}).encode()
+            else:
+                body = archive.getvalue()
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(body).encode())
+            self.wfile.write(body)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_port
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
-    monkeypatch.delenv("PANIM_DRAWINGS", raising=False)
-    monkeypatch.setattr(illustrator, "FOLDER", tmp_path / "drawings")
-    yield asked
+    monkeypatch.setattr(drawlib, "COCO_API", f"http://127.0.0.1:{port}/coco?page_size=100&page={{page}}")
+    monkeypatch.setattr(drawlib, "ARCADIA_RECORD", f"http://127.0.0.1:{port}/record")
+    monkeypatch.setattr(drawlib, "FOLDER", tmp_path / "drawlib")
+    drawlib._index.cache_clear()
+    yield drawlib
+    drawlib._index.cache_clear()
     server.shutdown()
 
 
-def test_a_drawing_is_made_once_in_the_board_style_and_kept(recraft):
-    path = illustrator.draw("a cow grazing")
-    assert path.read_text().startswith("<svg") and illustrator.cost_of("a cow grazing") == 0.08
-    (request,) = recraft
-    assert request["model"] == "recraft/recraft-v4.1-vector" and request["modalities"] == ["image"]
-    assert "thick dark outlines" in request["messages"][0]["content"] and request["messages"][0]["content"].endswith("a cow grazing")
-    illustrator.draw("a cow grazing")
-    assert len(recraft) == 1                                     # kept: not asked for, nor paid for, again
+def test_the_libraries_download_with_names_and_tags(libraries):
+    assert libraries.fetch() == {"coco": 3, "arcadia": 2}
+    assert (libraries.FOLDER / "coco" / "7-cow.svg").read_text() == SVG          # the coloured version
+    assert libraries.search("cows")[0]["id"] == "coco:7-cow"
+    assert libraries.search("cattle")[0]["id"] == "coco:7-cow"                 # by a tag
+    assert libraries.best("solar panels") == "coco:8-solar-panel"
+    assert libraries.best("solar eclipse") is None                             # half a match is not the thing
+    assert libraries.file("arcadia:zebrafish").read_text() == SVG              # the tricolour drawing, not the silhouette
+    assert libraries.credit(["coco:7-cow", "arcadia:zebrafish", "bioicons:x"]) == (
+        "Illustrations: CocoMaterial (CC0), Drawing Open, Arcadia Science (CC0)")
 
 
-def test_a_word_is_drawn_and_a_library_id_is_not(recraft, monkeypatch):
+def test_a_word_is_drawn_from_the_library_before_the_emoji(libraries):
     import pocket_lecture as pl
 
-    assert pl.drawing_subject("cow") == "cow"
-    assert pl.drawing_subject("draw:a deer at a river") == "a deer at a river"
-    assert pl.drawing_subject("bioicons:cc-0/x/y/neuron") is None
-    monkeypatch.setenv("PANIM_DRAWINGS", "library")
-    assert pl.drawing_subject("cow") is None                     # drawings off: the library's
-
-
-def test_prespeak_finds_the_drawings_a_scene_names():
-    import importlib.util
-    from pathlib import Path
-
-    spec = importlib.util.spec_from_file_location("prespeak", Path(__file__).resolve().parents[2] / "scripts" / "prespeak.py")
-    prespeak = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(prespeak)
-    source = '''
-class S(MapLecture):
-    def construct(self):
-        self.beat("x", self.diagram("d", "flow", [{"id": "a", "label": "A", "entity": "cow"}, {"id": "b", "label": "B"}]))
-        self.beat("y", self.define("Neuron", "a nerve cell", "bioicons:cc-0/c/a/neuron"))
-        self.beat("z", self.icon("wheat", "Punjab"))
-'''
-    assert prespeak.drawing_names(source) == ["cow", "bioicons:cc-0/c/a/neuron", "wheat"]
+    libraries.fetch()
+    assert pl.drawing_source("cow")[1] == "coco:7-cow"
+    assert pl.drawing_source("draw:barn")[1] == "coco:9-barn"                  # an old "draw:" name still works
+    assert pl.drawing_source("arcadia:tardigrade")[1] == "arcadia:tardigrade"
+    assert "coco:7-cow" in pl.USED_DRAWINGS
+    path, found = pl.drawing_source("tree")                                    # no library drawing: the emoji set's
+    assert not found.startswith(("coco:", "arcadia:")) and path.is_file()
 
 
 def test_bioicons_search_by_name_and_category(monkeypatch, tmp_path):

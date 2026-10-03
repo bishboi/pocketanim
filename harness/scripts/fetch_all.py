@@ -27,7 +27,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 LECTURE = SCRIPTS.parent / "lecture"
-STEPS = ("symbols", "bioicons", "openstax", "gazetteer", "maps", "fonts", "latex")
+STEPS = ("symbols", "illustrations", "bioicons", "openstax", "gazetteer", "maps", "fonts", "latex")
 
 
 def run(script: str) -> bool:
@@ -57,6 +57,17 @@ def bioicons() -> bool:
     return library.available()
 
 
+def illustrations() -> bool:
+    """The open illustration libraries (CocoMaterial, Arcadia's Drawing Open) diagrams draw things with."""
+    sys.path.insert(0, str(LECTURE))
+    import drawlib
+
+    if (drawlib.FOLDER / "coco").is_dir() and (drawlib.FOLDER / "arcadia").is_dir():
+        return True
+    print(f"illustrations: {drawlib.fetch()}", flush=True)
+    return drawlib.available()
+
+
 def fonts() -> bool:
     sys.path.insert(0, str(LECTURE))
     import pocket_lecture
@@ -70,7 +81,7 @@ def main() -> int:
     ap.add_argument("--skip", action="append", default=[], choices=STEPS, help="leave one out; repeat for more")
     args = ap.parse_args()
     actions = {"symbols": lambda: run("fetch_icons.py"), "openstax": lambda: run("fetch_openstax.py"), "gazetteer": lambda: run("fetch_gazetteer.py"),
-               "maps": maps, "fonts": fonts, "bioicons": bioicons, "latex": lambda: run("fetch_latex.py")}
+               "maps": maps, "fonts": fonts, "bioicons": bioicons, "illustrations": illustrations, "latex": lambda: run("fetch_latex.py")}
     report = {}
     for step in STEPS:
         if step in args.skip:

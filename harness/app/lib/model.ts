@@ -442,7 +442,9 @@ async function streamCompletion(
       if (args) {
         calls[index].arguments += args;
         const tool = calls[index].name || "tool";
-        if (tool === "write_scene" || tool === "edit_scene" || tool === "write_lecture") deltas.push("assistant", args);
+        if (tool === "write_scene" || tool === "edit_scene" || tool === "write_lecture" || tool === "write_section") {
+          deltas.push("assistant", args);
+        }
       }
     }
   };
@@ -658,28 +660,72 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status",
       text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}.` });
     const TRIES = 4;
-    for (const section of sections) {
+    // A few sections at once (each its own request): one after another, a book chapter took most of an hour.
+    const PARALLEL = Math.max(1, Math.min(6, Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 3));
+    // A reply that streams nothing for this long after it started writing has stalled: asked again.
+    const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 180) * 1000;
+    const done = new Map<number, WrittenSection>();
+    const failed: number[] = [];
+    // What each section in flight is doing, for the progress line: when it started, words so far, its try.
+    const live = new Map<number, { started: number; words: number; attempt: number; thinking: boolean }>();
+    let halted: unknown = null;
+    const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+    const progress = setInterval(() => {
+      if (!live.size) return;
+      const now = Date.now();
+      const parts = [...live.entries()].sort((x, y) => x[0] - y[0]).map(([n, p]) =>
+        `${n} (${clock(now - p.started)}, ${p.words ? `about ${p.words} words` : p.thinking ? "thinking" : "waiting"}` +
+        `${p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
+      emit({ type: "message", role: "status",
+        text: `Transcript: ${done.size} of ${sections.length} sections written; writing ${parts.join(", ")}` });
+    }, 10_000);
+
+    /** One section, tried up to TRIES times; null when no try gave anything usable. */
+    const writeOne = async (section: (typeof sections)[number]): Promise<WrittenSection | null> => {
       let note: string | undefined;
       // The longest refused try: kept when every try is refused, so one stubborn section does not lose the lecture.
       let fallback: { title: string; text: string; problem: string } | null = null;
-      for (let attempt = 1; attempt <= TRIES && written.length < section.n; attempt++) {
-        if (stopped()) throw new Error("The page closed while the transcript was being written.");
+      for (let attempt = 1; attempt <= TRIES; attempt++) {
+        if (stopped() || halted) return null;
+        const state = { started: Date.now(), words: 0, attempt, thinking: false };
+        live.set(section.n, state);
         emit({ type: "message", role: "status",
           text: `Transcript: writing section ${section.n} of ${sections.length} (about ${section.words} words, ` +
             `${section.minutes} min)${attempt > 1 ? `, try ${attempt} of ${TRIES}` : ""}` });
+        const prior = [...done.values()].filter((w) => w.n < section.n).sort((x, y) => x.n - y.n);
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: ChatMessage[] = [
           { role: "system", content: prompt },
-          { role: "user", content: sectionRequest(section, sections.length, written, note) },
+          { role: "user", content: sectionRequest(section, sections.length, prior, note) },
         ];
         const abort = new AbortController();
-        const timer = setTimeout(() => abort.abort(), FIRST_REPLY_MINUTES * 60_000);
+        let why: "silent" | "stalled" | null = null;
+        let lastDelta = 0;
+        const watch = setInterval(() => {
+          const now = Date.now();
+          if (!lastDelta && now - state.started > FIRST_REPLY_MINUTES * 60_000) why = "silent";
+          else if (lastDelta && now - lastDelta > STALL_MS) why = "stalled";
+          if (why) abort.abort();
+        }, 5000);
         let result;
         try {
-          result = await completionWithRetry(key, writer, talk, emit, (kind, text) =>
-            emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text }), [SECTION_TOOL], abort.signal, "required");
+          result = await completionWithRetry(key, writer, talk, emit, (kind, text) => {
+            lastDelta = Date.now();
+            if (kind === "thinking") state.thinking = true;
+            else state.words += (text.match(/\s+/g) ?? []).length;
+          }, [SECTION_TOOL], abort.signal, "required");
+        } catch (error) {
+          if (stopped()) return null;
+          // A reply that stalled, or failed after its own retries, is one failed try, not the end of the lecture.
+          note = why === "silent"
+            ? `Your last try sent nothing for ${FIRST_REPLY_MINUTES} minutes. Write the section straight away, without long planning.`
+            : why === "stalled"
+              ? `Your last try stopped streaming partway (nothing for ${STALL_MS >= 120_000 ? `${Math.round(STALL_MS / 60000)} minutes` : `${Math.round(STALL_MS / 1000)} seconds`}). Write the whole section again, straight away.`
+              : `Your last try failed (${error instanceof Error ? error.message.slice(0, 160) : String(error)}). Write the section again.`;
+          emit({ type: "message", role: "status", text: `Transcript: section ${section.n}, try ${attempt}: ${note}` });
+          continue;
         } finally {
-          clearTimeout(timer);
+          clearInterval(watch);
         }
         const addedIn = result.usage?.prompt_tokens ?? 0;
         const addedOut = result.usage?.completion_tokens ?? 0;
@@ -706,24 +752,53 @@ async function viaOpenRouter(
         const problem = text ? sectionProblem(text, section, language) : `Section ${section.n} came back empty.`;
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
-        if (problem) {
-          note = problem;
-          if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
-          continue;
-        }
-        written.push({ n: section.n, title: title || `Section ${section.n}`, text });
+        if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text };
+        note = problem;
+        if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
       }
       const fallbackWords = fallback ? fallback.text.split(/\s+/).filter(Boolean).length : 0;
-      if (written.length < section.n && fallback && fallbackWords >= section.words * 0.6) {
-        written.push({ n: section.n, title: fallback.title || `Section ${section.n}`, text: fallback.text });
+      if (fallback && fallbackWords >= section.words * 0.6) {
         emit({ type: "message", role: "status",
           text: `Transcript: section ${section.n} kept after ${TRIES} tries, though not every check passed: ${fallback.problem}` });
+        return { n: section.n, title: fallback.title || `Section ${section.n}`, text: fallback.text };
       }
-      if (written.length < section.n) break;
+      return null;
+    };
+
+    let next = 0;
+    const worker = async () => {
+      while (next < sections.length && !halted && !stopped()) {
+        const section = sections[next++];
+        try {
+          const wrote = await writeOne(section);
+          if (wrote) done.set(section.n, wrote);
+          else failed.push(section.n);
+        } catch (error) {
+          halted = error;
+        } finally {
+          live.delete(section.n);
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(PARALLEL, sections.length) }, worker));
+    } finally {
+      clearInterval(progress);
     }
-    if (written.length < sections.length) {
-      throw new Error(`The transcript stopped at section ${written.length} of ${sections.length}: ${writer} did not write ` +
-        "the rest at full length. Generate again, or pick another model.");
+    if (halted) throw halted;
+    if (stopped()) throw new Error("The page closed while the transcript was being written.");
+    written.push(...[...done.values()].sort((x, y) => x.n - y.n));
+    if (failed.length) {
+      failed.sort((x, y) => x - y);
+      // A section or two missing still makes a lecture; most of it missing does not.
+      if (failed.length > Math.max(1, Math.floor(sections.length / 7))) {
+        throw new Error(`The transcript could not be written: ${writer} gave nothing usable for section` +
+          `${failed.length > 1 ? "s" : ""} ${failed.join(", ")} of ${sections.length}, after ${TRIES} tries each. ` +
+          "Generate again, or pick another model for the transcript.");
+      }
+      emit({ type: "message", role: "status",
+        text: `Transcript: section${failed.length > 1 ? "s" : ""} ${failed.join(", ")} could not be written after ${TRIES} ` +
+          "tries each; the lecture goes on without " + (failed.length > 1 ? "them." : "it.") });
     }
     const words = written.reduce((n, s) => n + s.text.split(/\s+/).length, 0);
     emit({ type: "transcript", text: written.map((s) => `SECTION ${s.n}: ${s.title}\n\n${s.text}`).join("\n\n") });

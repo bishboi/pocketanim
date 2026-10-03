@@ -372,13 +372,18 @@ export function sectionProblem(text: string, section: Section, language: Languag
  * an old section over and over ("Write section 7 next." twenty times).
  */
 export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string): string {
-  const last = written[written.length - 1];
+  // Sections are written a few at a time: the one just before this may still be on its way.
+  const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
+  const opening = section.n === 1;
   return [
     written.length
       ? `Written so far: ${written.map((w) => `section ${w.n} "${w.title}"`).join(", ")}.`
-      : "Nothing is written yet: this is the opening of the lecture.",
-    ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""] : []),
+      : opening ? "Nothing is written yet: this is the opening of the lecture." : "",
+    ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
+      : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one. Open with one short ` +
+        "sentence that links back to the topic before (its part of the book is in your instructions), without " +
+        "repeating it, and without a greeting or an introduction to the lecture.", ""]),
     `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
       `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
       `${section.parts.join(", ")} of the reference` : section.questionsOnly ? `; it explains the next ` +
@@ -386,8 +391,8 @@ export function sectionRequest(section: Section, count: number, written: Written
       "each in full, every option in turn, carrying on from the questions before" : section.book ? "; it teaches its part of the book, given under " +
       `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` +
       (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
-        `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
-      `repeat what it said. Call write_section once, with section: ${section.n} and the full text.`,
+        `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}).` + (last ? ` Carry on from where section ${last.n} stopped: do not ` +
+      "repeat what it said." : "") + ` Call write_section once, with section: ${section.n} and the full text.`,
     ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
   ].join("\n");
 }

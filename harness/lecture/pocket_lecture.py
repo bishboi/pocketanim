@@ -2311,7 +2311,8 @@ class Lecture(Scene):
             tick = T("✓", 30, P.GREEN, weight=BOLD).scale_to_fit_height(ring.height * 0.45).move_to(ring) \
                 .align_to(ring, RIGHT).shift(LEFT * 0.25)
             shown = VGroup(ring, tick)
-        self._question = {"track": track, "answer": shown}
+        self._question = {"track": track, "answer": shown, "options": options,
+                          "right": answer if isinstance(answer, int) else None}
         return anim
 
     def _drawing_up(self) -> bool:
@@ -2342,7 +2343,8 @@ class Lecture(Scene):
                 .align_to(ring, RIGHT).shift(LEFT * 0.25)
             shown = VGroup(ring, tick)
             shown.is_aside = True
-        self._question = {"track": track, "answer": shown, "aside": True}
+        self._question = {"track": track, "answer": shown, "aside": True, "options": options,
+                          "right": answer if isinstance(answer, int) else None}
         return anim
 
     def think(self, seconds: float = THINK_SECONDS) -> None:
@@ -2356,6 +2358,37 @@ class Lecture(Scene):
         self._stage_add(bar)
         self._log("think", seconds=round(seconds, 3))
         self.play(Create(bar), run_time=seconds, rate_func=linear)
+
+    def option(self, choice: int, right: bool | None = None):
+        """One choice of the question on the stage, while the narration explains it: the right one ringed in
+        green with a tick (the answer, shown now), a wrong one crossed out in red and faded. `right` decides for
+        a question given without its answer. None when no question with that choice is up."""
+        q = self._question or {}
+        options = q.get("options")
+        if not options or not 0 <= choice < len(options):
+            return None
+        correct = q.get("right") == choice if q.get("right") is not None else bool(right)
+        box, row = options[choice][0], options[choice][1]
+        if correct and q.get("answer") is not None and not isinstance(q.get("answer"), (str, int)):
+            mark = q["answer"]                   # the ring laid out with the card
+            q["answer"] = None                   # answer() has nothing left to show
+        else:
+            colour = P.GREEN if correct else P.ROSE
+            ring = RoundedRectangle(corner_radius=0.16, width=box.width + 0.12, height=box.height + 0.12,
+                                    stroke_color=colour, stroke_width=5).move_to(box)
+            size = ring.height * 0.36
+            sign = (VGroup(Line(LEFT * size * 0.5 + DOWN * size * 0.05, DOWN * size * 0.5, color=colour, stroke_width=7),
+                           Line(DOWN * size * 0.5, RIGHT * size * 0.7 + UP * size * 0.6, color=colour, stroke_width=7))
+                    if correct else
+                    VGroup(Line(UL * size * 0.5, DR * size * 0.5, color=colour, stroke_width=7),
+                           Line(UR * size * 0.5, DL * size * 0.5, color=colour, stroke_width=7)))
+            sign.move_to(ring).align_to(ring, RIGHT).shift(LEFT * 0.3)
+            mark = VGroup(ring, sign)
+        mark.is_aside = q.get("aside", False)
+        self._stage_add(mark)
+        if correct:
+            return FadeIn(mark, scale=1.05)
+        return AnimationGroup(Create(mark[0]), Create(mark[1]), row.animate.set_opacity(0.4))
 
     def answer(self):
         """The answer to the question on the stage: the right choice ringed, or the answer in words. None when

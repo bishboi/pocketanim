@@ -10,6 +10,7 @@
 
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
+import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
 
 /** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
 export const WORDS_PER_MINUTE = 100;
@@ -25,6 +26,8 @@ export type Section = {
   source: string;
   /** The source is a book's (a PDF's) text, to be taught with examples and questions the book does not have. */
   book?: boolean;
+  /** The book's own questions in this part (its exercises, MCQs): each is explained in full, every choice. */
+  questions?: BookQuestion[];
 };
 
 export type WrittenSection = { n: number; title: string; text: string };
@@ -107,16 +110,30 @@ export function bookSections(markdown: string, minutes: number): Section[] {
     }
   }
   if (current.length) groups.push(current);
+  // The book's questions, found in the whole text (an exercise heading may sit in an earlier part), each in the
+  // part where it is printed.
+  const questions = bookQuestions(markdown);
+  const flat = (text: string) => text.replace(/[*_`#>\s]+/g, " ").toLowerCase();
+  const sources = groups.map((group) => flat(group.join("\n\n")));
+  const home = questions.map((q) => {
+    const at = sources.findIndex((src) => src.includes(flat(q.text).trim().slice(0, 40)));
+    return at < 0 ? groups.length - 1 : at;
+  });
   return groups.map((group, i) => {
     const share = group.reduce((n, b) => n + count(b), 0) / total;
-    const sectionMinutes = Math.max(1, minutes * share);
+    const own = questions.filter((_, k) => home[k] === i);
+    const asked = own.reduce((n, q) => n + questionWords(q), 0);
+    // Every question explained in full makes the section longer than its share of the chosen length.
+    const words = Math.max(Math.round(Math.max(1, minutes * share) * WORDS_PER_MINUTE),
+      Math.round(asked + Math.max(1, minutes * share) * WORDS_PER_MINUTE * 0.5));
     return {
       n: i + 1,
       parts: [],
-      minutes: Math.round(sectionMinutes * 10) / 10,
-      words: Math.round(sectionMinutes * WORDS_PER_MINUTE),
+      minutes: Math.round((words / WORDS_PER_MINUTE) * 10) / 10,
+      words,
       source: group.join("\n\n"),
       book: true,
+      ...(own.length ? { questions: own } : {}),
     };
   });
 }
@@ -186,7 +203,16 @@ export function transcriptPrompt(options: {
             "  - EXAMPLES the book does not give: for each important statement, two or three everyday examples",
             "    (\"मान लो...\", \"जैसे...\": a bus braking, a ball on a table, the ceiling fan, cricket, the kitchen).",
             "  - QUESTIONS for the class, several in every section: ask, give time (\"सोचो...\"), then the answer and",
-            "    why, and why a common wrong answer is wrong. Use the book's in-text questions and exercises too.",
+            "    why, and why a common wrong answer is wrong.",
+            "  - THE BOOK'S OWN QUESTIONS (listed under each section: its in-text questions, exercises, MCQs): explain",
+            "    EVERY ONE, in the book's order, none skipped, none merged. For each: read the question out as the",
+            "    book has it; say what it is really asking and which idea of the chapter it tests; then, for a",
+            "    multiple-choice question, take EVERY option in turn, A, B, C, D (\"Option A, ... यह गलत है क्योंकि",
+            "    ...\"; \"Option B, ... यही सही है, क्योंकि ...\"): what the option says and exactly why it is right or",
+            "    wrong (the trap in it, the mistake that leads a student to pick it); then say the answer again with",
+            "    its reason. For a question to answer: think it through out loud and give the full answer the way",
+            "    an exam wants it; a numerical is solved step by step (given, asked, formula, numbers, units, answer",
+            "    twice). Then a one-line tip to remember it.",
             "  - PROBLEMS: in a maths or science chapter, solve numericals slowly, step by step (given, asked, diagram,",
             "    formula, numbers, units, answer twice). Use the book's solved examples, and make up one or two more",
             "    with easy numbers where the book has none.",
@@ -232,7 +258,9 @@ export function transcriptPrompt(options: {
     ...sections.map((s) =>
       `SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
       (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}`
-        : s.book ? `, teaching this part of the book:\n${s.source.slice(0, 12000)}\n` : "")),
+        : s.book ? `, teaching this part of the book:\n${s.source.slice(0, 12000)}\n` +
+          (s.questions?.length ? `QUESTIONS IN THIS PART (explain all ${s.questions.length}, every option):\n` +
+            `${s.questions.map(questionLine).join("\n")}\n` : "") : "")),
     "",
     ...(options.content.trim() ? ["THE CONTENT (notes, a chapter) to teach from:", options.content.slice(0, 60000)] : []),
   ].join("\n");
@@ -265,6 +293,12 @@ export function sectionProblem(text: string, section: Section, language: Languag
         return `Section ${section.n} reads ${copied.length} sentences of the book word for word (e.g. "${copied[0].slice(0, 90)}"): ` +
           "say each idea in your own words, the way you would explain it to the class.";
       }
+    }
+    const skipped = unexplainedQuestions(text, section.questions ?? []);
+    if (skipped.length) {
+      return `Section ${section.n} does not explain the book's ${skipped.map((s) => s.what).join("; ")}. Explain every ` +
+        "question of the section: read it, what it asks, then every option in turn (\"Option A, ...\") and why it is " +
+        "right or wrong, then the answer and why.";
     }
     if (!EXAMPLE_CUES.test(text)) {
       return `Section ${section.n} gives no example: explain its ideas with everyday examples (\"मान लो...\", ` +
@@ -306,15 +340,29 @@ export function sectionRequest(section: Section, count: number, written: Written
     `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
       `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
       `${section.parts.join(", ")} of the reference` : section.book ? "; it teaches its part of the book, given under " +
-      `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
+      `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` +
+      (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
+        `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}). Carry on from where section ${last?.n ?? 0} stopped: do not ` +
       `repeat what it said. Call write_section once, with section: ${section.n} and the full text.`,
     ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
   ].join("\n");
 }
 
 /** The beat script's rules when a transcript has been written: its narration is the transcript. */
-export function fromTranscriptPrompt(written: WrittenSection[]): string {
+export function fromTranscriptPrompt(written: WrittenSection[], questions: BookQuestion[] = []): string {
   return [
+    ...(questions.length ? [
+      "",
+      `THE BOOK'S QUESTIONS (${questions.length}). The transcript explains each; put each one on the stage where it is`,
+      "read out, marked with its id, with ALL its choices in the book's order (in English on the screen):",
+      '  {"op":"question","from_book":"q3","text":"...","choices":["...","...","...","..."],"answer":"B"}',
+      "then, on the beats that explain the options, ONE BEAT PER OPTION, in order, each marking the option it talks",
+      'about: {"op":"option","choice":"A"} (a wrong one is crossed out, the right one ringed), and the answer\'s beat',
+      '{"op":"answer"}. A question to answer (no choices) is a question op with "from_book" and its answer in words;',
+      "a numerical one is worked with problem and work ops. The compiler checks every id is asked and every option",
+      "marked.",
+      ...questions.map(questionLine),
+    ] : []),
     "",
     "THE TRANSCRIPT IS WRITTEN. The lecture's narration is exactly this transcript, in order: each beat's \"say\" is",
     "one or two consecutive sentences of it, word for word, and every sentence of it is said. Do not shorten,",

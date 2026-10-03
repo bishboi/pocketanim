@@ -140,6 +140,8 @@ export async function compileLecture(
     stem?: boolean;
     /** "hinglish": the compiler checks the narration's mix and that the screen stays English. */
     language?: string;
+    /** The uploaded book's own questions: each must be asked (from_book) and every option explained. */
+    bookQuestions?: { id: string; text: string; choices: string[] }[];
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -155,6 +157,8 @@ export async function compileLecture(
           ...(options.genre ? { genre: options.genre } : {}),
           ...(options.sourceText ? { source_text: options.sourceText } : {}),
           ...(options.language ? { language: options.language } : {}),
+          ...(options.bookQuestions?.length ? { book_questions: options.bookQuestions.map((q) =>
+            ({ n: q.id, text: q.text, choices: q.choices })) } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
@@ -659,9 +663,12 @@ export function lecturePrompt(
     '  {"say":"Let us check. Which of these is a force?","do":[{"op":"question","text":"Which of these is a force?",',
     '    "choices":["Kicking a ball","Sleeping","Thinking"],"answer":"A","think"?:5}]},',
     '  {"say":"The answer is A. Kicking a ball is a push, and a push is a force.","do":[{"op":"answer"}]}',
-    "  choices: 2-4 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
+    "  choices: 2-5 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
     "  rolling ball stop?\"), its answer in words: \"answer\":\"Friction slows it down.\". The video leaves think",
     "  seconds (7 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
+    "  To go through the choices (always, for a question from the book), give each its own beat after the thinking",
+    '  time, in order, marking it while you explain it: {"say":"Option B, sleeping. ...is not a force, because...",',
+    '  "do":[{"op":"option","choice":"B"}]}: a wrong choice is crossed out in red, the right one ringed in green.',
     "  A question about a drawing (\"इस diagram में सोचो, कौन सा force लग रहा है?\") goes on the beat right after the",
     "  drawing, with NO new picture in that beat: the question then sits beside the drawing, which stays on the board",
     "  through the thinking time and the answer (reveal the answer's part of it on the answer beat).",

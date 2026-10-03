@@ -106,3 +106,52 @@ def test_the_plan_s_counts_are_checked_for_a_written_lecture():
     assert any("at least 8" in e for e in errors)
     errors, _ = cl.lint(_lecture(beats), min_minutes=0.5, min_questions=1, min_examples=4)
     assert not any("question" in e or "example" in e for e in errors), errors
+
+
+MCQ = {"op": "question", "from_book": "q1", "text": "The SI unit of force is", "choices": ["joule", "newton", "watt", "pascal"],
+       "answer": "B"}
+
+
+def test_option_names_a_choice_of_the_question_up():
+    asked: dict = {}
+    assert "needs a question with choices" in cl._build_problem({"op": "option", "choice": "A"}, asked, {})
+    assert cl._build_problem(MCQ, asked, {}) is None
+    assert cl._build_problem({"op": "option", "choice": "(d)"}, asked, {}) is None
+    assert cl._build_problem({"op": "option", "choice": "newton"}, asked, {}) is None
+    assert "not one of the question's choices" in cl._build_problem({"op": "option", "choice": "E"}, asked, {})
+    assert cl._build_problem({**MCQ, "choices": ["a", "b", "c", "d", "e"], "answer": "E"}, {}, {}) is None  # five
+
+
+def test_every_book_question_is_asked_and_every_option_explained():
+    book = [{"n": "q1", "text": "The SI unit of force is", "choices": ["joule", "newton", "watt", "pascal"]},
+            {"n": "q2", "text": "Define momentum.", "choices": []}]
+    beats = [_beat("Question one.", MCQ)] + [_beat(f"Option {x}.", {"op": "option", "choice": x}) for x in "ABC"] + \
+        [_beat("So it is B.", {"op": "answer"})]
+    errors, _ = cl._book_questions({**_lecture(beats), "book_questions": book})
+    assert any("explains option(s) D nowhere" in e for e in errors)
+    assert any("question q2" in e and "never asked" in e for e in errors)
+    errors, _ = cl._book_questions({**_lecture(beats), "book_questions": book}, whole=False)
+    assert not any("never asked" in e for e in errors)          # a part of a long lecture: the rest may come later
+    beats.insert(4, _beat("Option D.", {"op": "option", "choice": "D"}))
+    beats.append(_beat("Define momentum.", {"op": "question", "from_book": "q2", "text": "Define momentum.",
+                                             "answer": "Mass times velocity."}))
+    assert cl._book_questions({**_lecture(beats), "book_questions": book}) == ([], [])
+    short = [_beat("Q.", {**MCQ, "choices": ["joule", "newton"]})]
+    errors, _ = cl._book_questions({**_lecture(short), "book_questions": book[:1]})
+    assert any("show all of them" in e for e in errors)
+
+
+def test_options_compile_to_marks_on_the_card():
+    script = _lecture([_beat("Question one.", MCQ)] + [_beat(f"Option {x}.", {"op": "option", "choice": x}) for x in "ABCD"]
+                      + [_beat("So it is B.", {"op": "answer"})])
+    source = cl.compile_script(json.loads(json.dumps(script)))
+    assert "answer=1" in source and all(f"self.option({i})" in source for i in range(4))
+
+
+def test_reading_the_books_question_out_is_not_copying():
+    words = "which of the following statements about the inertia of a body at rest is correct here"
+    script = {**_lecture([_beat(words.capitalize() + "?") for _ in range(6)]), "source_text": f"Exercises. 1. {words}?"}
+    errors, warnings = cl._plain_language(script)
+    assert warnings or errors                                   # read out, and not a book question: flagged
+    script["book_questions"] = [{"n": "q1", "text": words, "choices": []}]
+    assert cl._plain_language(script) == ([], [])

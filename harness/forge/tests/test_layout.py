@@ -284,3 +284,21 @@ def test_categories_and_steps_are_cards_of_words_written_in():
     assert "Write" in repr([type(a).__name__ for a in anim.animations[-1].animations])
     scene.diagram("s", "steps", [{"id": "a", "label": "Pick the body"}, {"id": "b", "label": "Draw the forces"}])
     assert len(scene.diagrams["s"]["edges"]) == 1
+
+
+def test_each_option_is_marked_while_it_is_explained():
+    scene = _board_scene()
+    scene.question("The SI unit of force is", ["joule", "newton", "watt", "pascal"], answer=1)
+    ring = scene._question["answer"]
+    crossed = scene.option(0)
+    assert crossed is not None and scene._question["answer"] is ring          # a wrong one: the answer still to come
+    right = scene.option(1)
+    assert right is not None and scene._question["answer"] is None           # the right one is the answer, shown now
+    assert scene.answer() is None
+    assert scene.option(7) is None
+
+
+def test_an_option_of_a_question_without_its_answer_says_itself():
+    scene = _board_scene()
+    scene.question("Which is a force?", ["push", "sleep"])
+    assert scene.option(0, right=True) is not None and scene.option(1, right=False) is not None

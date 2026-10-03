@@ -371,7 +371,8 @@ explains it.
 
 | Operation | What it builds |
 |---|---|
-| `{"op":"question","text","choices"?:[2-4],"answer"?,"think"?:5,"title"?}` | The question card. `answer` is the right choice's letter (`"B"`), its number from 1, or its text. For an open question with no choices, it is the answer in words. The heading reads "Think about it", or "सोचिए" in Hindi. |
+| `{"op":"question","text","choices"?:[2-5],"answer"?,"think"?:5,"title"?,"from_book"?}` | The question card. `answer` is the right choice's letter (`"B"`), its number from 1, or its text. For an open question with no choices, it is the answer in words. The heading reads "Think about it", or "सोचिए" in Hindi. `from_book` names a question of the uploaded PDF (`"q3"`, questions.ts): the compiler then wants all its choices shown and every one explained with `option`. |
+| `{"op":"option","choice":"A","right"?}` | One choice of the question up, on the beat that explains it: a wrong one crossed out in red and faded, the right one ringed in green (the answer, shown now). `right` decides for a question given without its answer. |
 | `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
 
 A lecture written by a model (one with a target length) must ask the class at least one question and give

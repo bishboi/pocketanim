@@ -15,6 +15,7 @@ import { Template, explainWith, filmBrief, isLecture, layoutContract, templateBy
 import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
+import type { BookQuestion } from "./questions";
 import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -620,6 +621,8 @@ async function viaOpenRouter(
     : TOOLS;
   // STAGE 1: the whole lecture as a teacher speaks it, section by section, at full length, before any picture.
   const written: WrittenSection[] = [];
+  // The book's own questions (exercises, MCQs): every one explained, each option marked (questions.ts).
+  let bookQs: BookQuestion[] = [];
   let stageIn = 0;
   let stageOut = 0;
   let stageCost = 0;
@@ -628,9 +631,14 @@ async function viaOpenRouter(
     // remade part by part.
     const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
     const fromBook = sections.some((s) => s.book);
+    bookQs = sections.flatMap((s) => s.questions ?? []);
     if (fromBook) {
+      const total = Math.round(sections.reduce((n, s) => n + s.minutes, 0));
+      const mcqs = bookQs.filter((q) => q.choices.length).length;
       emit({ type: "message", role: "status", text: `Book: ${doc?.pages ?? "?"} pages, about ${doc?.words ?? "?"} words, ` +
-        `taught in ${sections.length} sections with examples, questions and worked problems (about ${minutes} min).` });
+        `taught in ${sections.length} sections with examples, questions and worked problems (about ${Math.max(minutes, total)} min)` +
+        (bookQs.length ? `; its ${bookQs.length} question${bookQs.length > 1 ? "s" : ""}${mcqs ? ` (${mcqs} multiple-choice)` : ""} ` +
+          "explained one by one, every option." : ".") });
     }
     const prompt = transcriptPrompt({
       sections, minutes, language, languageRules: languagePrompt(language), subject: subject?.label,
@@ -710,7 +718,7 @@ async function viaOpenRouter(
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
   const pictures = lecture && doc ? await figurePictures(doc) : [];
   const messages: OutMessage[] = [
-    { role: "system", content: written.length ? `${system}${fromTranscriptPrompt(written)}` : system },
+    { role: "system", content: written.length ? `${system}${fromTranscriptPrompt(written, bookQs)}` : system },
     pictures.length ? { role: "user", content: [{ type: "text", text: user }, ...pictures] } : { role: "user", content: user },
   ];
   if (pictures.length) {
@@ -786,6 +794,7 @@ async function viaOpenRouter(
     // The transcript mimics the reference on purpose: only the content is checked for lines read out word for word.
     sourceText: `${request.content}\n${doc?.markdown ?? ""}${written.length ? "" : `\n${referenceText}`}`,
     language: language === "auto" ? undefined : language,
+    bookQuestions: bookQs,
   });
   // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
   const compileWhole = async (script: unknown) => {

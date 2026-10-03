@@ -291,6 +291,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _language_mix(script)
     errors += e
     warnings += w
+    e, w = _book_questions(script, whole=bool(min_minutes))
+    errors += e
+    warnings += w
     e, w = _teaching(script, min_questions, min_examples, min_problems)
     e2, w2 = _panel_text(script)
     e, w = e + e2, w + w2
@@ -368,8 +371,8 @@ WORK_OPS = {"work"}
 # Subjects taught on the board (no side panel) unless the script says otherwise.
 BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
-# to the question.
-STEP_OPS = {"reveal", "focus", "answer"}
+# to the question, one of its choices marked right or wrong while it is explained.
+STEP_OPS = {"reveal", "focus", "answer", "option"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
@@ -454,15 +457,22 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         choices = op.get("choices") or []
         if not str(op.get("text") or "").strip():
             return "'question' needs text: the question, in the lecture's language"
-        if not isinstance(choices, list) or len(choices) == 1 or len(choices) > 4:
-            return "question choices must be 2-4 short answers, or left out for an open question"
+        if not isinstance(choices, list) or len(choices) == 1 or len(choices) > 5:
+            return "question choices must be 2-5 short answers, or left out for an open question"
         if choices and op.get("answer") is not None and _answer_index(op) is None:
             return (f"question answer {op['answer']!r} is not one of its choices; give the right choice's "
                     "letter (\"B\") or its text")
-        diagrams[QUESTION] = []
+        diagrams[QUESTION] = [str(c) for c in choices]
     if kind == "answer":
         if QUESTION not in diagrams:
             return "'answer' needs a question asked earlier in this chapter (with its answer)"
+        return None
+    if kind == "option":
+        if not diagrams.get(QUESTION):
+            return "'option' needs a question with choices asked earlier in this chapter"
+        if _choice_index(diagrams[QUESTION], op.get("choice")) is None:
+            return (f"option choice {op.get('choice')!r} is not one of the question's choices; give its letter "
+                    "(\"A\") or its text")
         return None
     if kind in STEP_OPS:
         key = str(op.get("diagram") or "")
@@ -524,21 +534,28 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
     return None
 
 
-def _answer_index(op: dict) -> int | None:
-    """The right choice of a question with choices: its answer as a letter (A-D), a 1-based number or the
-    choice's own text. None when it names no choice."""
-    choices = [str(c).strip() for c in op.get("choices") or []]
-    answer = op.get("answer")
-    if answer is None or not choices:
+def _choice_index(choices: list, choice) -> int | None:
+    """Which of `choices` a choice names: a letter (A-E, "(b)"), a 1-based number or the choice's own text."""
+    choices = [str(c).strip() for c in choices]
+    if choice is None or not choices:
         return None
-    if isinstance(answer, int) and not isinstance(answer, bool):
-        return answer - 1 if 1 <= answer <= len(choices) else None
-    text = str(answer).strip()
-    letter = re.fullmatch(r"\(?([A-Da-d])[).]?", text)
-    if letter and "ABCD".index(letter.group(1).upper()) < len(choices):
-        return "ABCD".index(letter.group(1).upper())
+    if isinstance(choice, int) and not isinstance(choice, bool):
+        return choice - 1 if 1 <= choice <= len(choices) else None
+    text = str(choice).strip()
+    letter = re.fullmatch(r"\(?([A-Ea-e])[).]?", text)
+    if letter and "ABCDE".index(letter.group(1).upper()) < len(choices):
+        return "ABCDE".index(letter.group(1).upper())
+    number = re.fullmatch(r"\(?([1-5])[).]?", text)
+    if number and int(number.group(1)) <= len(choices):
+        return int(number.group(1)) - 1
     lowered = [c.lower() for c in choices]
     return lowered.index(text.lower()) if text.lower() in lowered else None
+
+
+def _answer_index(op: dict) -> int | None:
+    """The right choice of a question with choices: its answer as a letter (A-E), a 1-based number or the
+    choice's own text. None when it names no choice."""
+    return _choice_index(op.get("choices") or [], op.get("answer"))
 
 
 def _kit_problem(op: dict) -> str | None:
@@ -613,7 +630,7 @@ ROMAN_HINDI = re.compile(r"\b(hai|hain|hota|hoti|hote|matlab|yaani|yani|kya|kyun
 NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "entity", "subject", "query", "expr",
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
-             "language", "credits", "from_figure"}
+             "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -690,6 +707,10 @@ def _plain_language(script: dict) -> tuple[list[str], list[str]]:
     errors, warnings = [], []
     source = _word_list(script.get("source_text") or "")
     grams = {tuple(source[i:i + COPY_RUN]) for i in range(len(source) - COPY_RUN + 1)}
+    # The book's own questions are read out as they are written, then explained: not copying.
+    for q in script.get("book_questions") or []:
+        words = _word_list(" ".join([str(q.get("text") or "")] + [str(c) for c in q.get("choices") or []]))
+        grams -= {tuple(words[i:i + COPY_RUN]) for i in range(len(words) - COPY_RUN + 1)}
     beats = [(f"chapter {ci + 1} beat {bi + 1}", b) for ci, c in enumerate(script.get("chapters") or [])
              for bi, b in enumerate(c.get("beats") or [])]
     copied = []
@@ -790,6 +811,52 @@ def _panel_text(script: dict) -> tuple[list[str], list[str]]:
                     if len(text) > PANEL_FACT_CHARS:
                         errors.append(f"chapter {ci} beat {bi}: a panel point of {len(text)} characters; keep it "
                                       f"under {PANEL_FACT_CHARS}, a few words the narration expands on")
+    return errors, []
+
+
+def _book_questions(script: dict, whole: bool = True) -> tuple[list[str], list[str]]:
+    """The questions of an uploaded book, each asked and explained: on the stage with its choices
+    ({"op":"question","from_book":"3",...}), then every choice marked and explained ({"op":"option"}), then the
+    answer. `whole`: the script is the whole lecture, so a book question it never asks is an error too."""
+    errors: list[str] = []
+    asked: dict[str, dict] = {}
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        current, explained, at = None, set(), ""
+
+        def close():
+            if current is None or not current.get("from_book"):
+                return
+            choices = current.get("choices") or []
+            left = [("ABCDE"[i]) for i in range(len(choices)) if i not in explained]
+            if left:
+                errors.append(f"{at}: book question {current['from_book']} explains option(s) {', '.join(left)} "
+                              "nowhere. After the question, give every choice a beat of its own: "
+                              '{"op":"option","choice":"A"} while the narration says what it means and why it is '
+                              "right or wrong; then the answer.")
+
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            for op in beat.get("do") or []:
+                if op.get("op") == "question":
+                    close()
+                    current, explained, at = op, set(), f"chapter {ci} beat {bi}"
+                    if op.get("from_book") is not None:
+                        asked[str(op["from_book"]).strip()] = op
+                elif op.get("op") == "option" and current is not None:
+                    index = _choice_index(current.get("choices") or [], op.get("choice"))
+                    if index is not None:
+                        explained.add(index)
+        close()
+    for q in script.get("book_questions") or []:
+        n = str(q.get("n")).strip()
+        op = asked.get(n)
+        want = [str(c) for c in q.get("choices") or []]
+        if op is None:
+            if whole:
+                errors.append(f"the book's question {n} (\"{str(q.get('text') or '')[:80]}\") is never asked. Every "
+                              "question of the book is put on the stage, "
+                              f'{{"op":"question","from_book":"{n}","text":...,"choices":[...]}}, and explained in full.')
+        elif len(want) >= 2 and len(op.get("choices") or []) != len(want):
+            errors.append(f"book question {n} has {len(want)} choices; show all of them on its card, in the book's order")
     return errors, []
 
 
@@ -1385,7 +1452,7 @@ def _op_call(op: dict) -> str:
     if kind in STEM_OPS | WORK_OPS:
         return _stem_call(op)
     if kind == "question":
-        choices = [str(c) for c in op.get("choices") or []][:4]
+        choices = [str(c) for c in op.get("choices") or []][:5]
         answer = _answer_index(op) if choices else (str(op["answer"]) if op.get("answer") else None)
         extra = f", {choices!r}" if choices else ""
         extra += f", answer={answer!r}" if answer is not None else ""
@@ -1393,6 +1460,9 @@ def _op_call(op: dict) -> str:
         return f"self.question({_q(op['text'])}{extra}{title})"
     if kind == "answer":
         return "self.answer()"
+    if kind == "option":
+        return f"self.option({op.get('_index', 0)!r}" + (
+            f", right={bool(op['right'])!r})" if op.get("right") is not None else ")")
     if kind == "compare":
         columns = [{"title": str(c["title"]), "points": [str(p) for p in (c.get("points") or [])][:4],
                     **({"entity": str(c["entity"])} if c.get("entity") else {})} for c in op["columns"]]
@@ -1461,6 +1531,18 @@ def board_chapter(script: dict, chapter: dict) -> bool:
     return True
 
 
+def _resolve_options(script: dict) -> None:
+    """Each option op's choice as the index of the question up when it is said (lint has checked it names one)."""
+    for chapter in script.get("chapters") or []:
+        choices: list = []
+        for beat in chapter.get("beats") or []:
+            for op in beat.get("do") or []:
+                if op.get("op") == "question":
+                    choices = op.get("choices") or []
+                elif op.get("op") == "option":
+                    op["_index"] = _choice_index(choices, op.get("choice"))
+
+
 def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_path: str | None = None) -> str:
     """The Manim source for a script. Raises ValueError with the lint errors."""
     errors, _ = lint(script)
@@ -1474,6 +1556,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     import illustrations
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
+    _resolve_options(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):
         place_figures(script)

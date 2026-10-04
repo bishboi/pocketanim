@@ -119,6 +119,8 @@ export type ExportResult = {
   scene: string;
   tier: 1 | 3 | null;
   blockers?: string[];
+  /** Pictures left out because the engine could not draw them, each with its beat and reason. */
+  skipped?: string[];
   program?: string | null;
   program_bytes?: number;
   assets?: string[];

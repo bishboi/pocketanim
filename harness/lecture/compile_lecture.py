@@ -157,6 +157,58 @@ def estimate_minutes(script: dict) -> float:
     return seconds / 60
 
 
+def _pairs(value):
+    """A point list as [[x, y], ...]: a flat [x1, y1, x2, y2] paired up, an [x, y, z] cut to [x, y]. A model
+    writes both, and a list of the wrong shape reached numpy as a one-dimensional array mid-render."""
+    if not isinstance(value, list):
+        return value
+    if value and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
+        return [[value[i], value[i + 1]] for i in range(0, len(value) - 1, 2)]
+    out = []
+    for p in value:
+        if isinstance(p, (list, tuple)) and len(p) >= 2 and all(isinstance(v, (int, float)) for v in p[:2]):
+            out.append([p[0], p[1]])
+        else:
+            out.append(p)
+    return out
+
+
+POINT_KEYS = ("from", "to", "at", "about", "by")
+
+
+def _normalise_points(value) -> None:
+    """Every point list and point in an op, at any depth (a sketch's items, a graph's items, a problem's figure),
+    in the shapes the engine draws from (_pairs)."""
+    if isinstance(value, dict):
+        for key, item in list(value.items()):
+            if key == "points":
+                value[key] = _pairs(item)
+            elif key in POINT_KEYS and isinstance(item, list) and len(item) >= 3 and \
+                    all(isinstance(v, (int, float)) for v in item[:3]) and not any(isinstance(v, list) for v in item):
+                value[key] = item[:2]
+            else:
+                _normalise_points(item)
+    elif isinstance(value, list):
+        for item in value:
+            _normalise_points(item)
+
+
+def _point_problems(op: dict) -> list[str]:
+    """A curve or polygon with fewer than two points, at any depth: nothing to draw (Manim cannot)."""
+    out = []
+    stack = [op]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            if item.get("type") in ("curve", "polygon") and len([p for p in item.get("points") or []
+                                                                  if isinstance(p, list) and len(p) == 2]) < 2:
+                out.append(f"its {item.get('type')} {item.get('id') or ''} needs at least two points, as [[x, y], ...]")
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return out
+
+
 def lint(script: dict, min_minutes: float | None = None, min_questions: int | None = None,
          min_examples: int | None = None, min_problems: int | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
@@ -196,6 +248,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
             elif len(say) > 184:
                 warnings.append(f"{at}: the caption runs past two lines ({len(say)} characters); split the beat")
             ops = beat.get("do") or []
+            _normalise_points(ops)
+            for op in ops:
+                if isinstance(op, dict):
+                    errors.extend(f"{at}: {kind_problem}" for kind_problem in _point_problems(op))
             if len(ops) > 5:
                 warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
@@ -1859,7 +1915,13 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     staged = True
                 if op.get("op") == "unstage":
                     staged = False
-            calls += [call for call in (_op_call(op) for op in ops) if call]
+            # Each picture is built through self.safe: one the engine cannot draw is left out with its reason and
+            # its beat, not the whole lecture stopped.
+            for op in ops:
+                call = _op_call(op)
+                if call:
+                    what = f"chapter {index} beat {bi + 1} {op.get('op')}"
+                    calls.append(f"self.safe(lambda: {call}, {_q(what)})")
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
             pad = "PARAGRAPH_PAD" if bi in closing else ""

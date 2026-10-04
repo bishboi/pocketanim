@@ -390,6 +390,10 @@ def drawing_source(name: str):
     return icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None), icon_id
 
 
+# Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
+SKIPPED: list[str] = []
+
+
 def _playable(anim):
     """An animation Manim can play, or None: a group with nothing in it (a step that found nothing to show, an
     empty LaggedStart) is dropped, at any depth, instead of stopping the render with "Called Scene.play with no
@@ -1157,7 +1161,12 @@ def safe_function(expr: str):
 
     def f(x):
         with np.errstate(all="ignore"):
-            return eval(code, {"__builtins__": {}}, {**_SAFE, "x": x})  # noqa: S307 -- names checked above
+            out = eval(code, {"__builtins__": {}}, {**_SAFE, "x": x})  # noqa: S307 -- names checked above
+        # A constant ("5", a horizontal line) is one number whatever x is: as many values as x has, so a plot
+        # over 200 points does not get a single one and fail to concatenate it with the others.
+        if np.ndim(x) > 0 and np.ndim(out) == 0:
+            return np.full(np.shape(x), float(out))
+        return out
 
     return f
 
@@ -1265,6 +1274,27 @@ class Lecture(Scene):
         self.section(self.SECTION)
 
     # ---------------- beat log ----------------
+    def safe(self, build, what: str = ""):
+        """One picture's call, run so that one which fails is left out with its reason, not the whole lecture.
+
+        A diagram the model described in a way the engine cannot draw (a point list of the wrong shape, an
+        expression with nothing to plot) stopped an hour-long render with a bare numpy error and no beat named.
+        The narration goes on; the reason, and the beat, are kept in SKIPPED for the build to report."""
+        try:
+            return build()
+        except VoiceUnavailable:
+            raise
+        except Exception as error:  # noqa: BLE001 -- the model's picture: its error is the message
+            import traceback
+
+            frames = traceback.extract_tb(error.__traceback__)
+            where = f" (at {Path(frames[-1].filename).name}:{frames[-1].lineno})" if frames else ""
+            message = f"{what}: {type(error).__name__}: {str(error)[:200]}{where}"
+            SKIPPED.append(message)
+            print("picture skipped:", message, file=sys.stderr)
+            self._log("skipped", what=what, error=message)
+            return None
+
     def _log(self, kind: str, **fields) -> None:
         """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
 

@@ -221,8 +221,11 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         program = emit(rec, mode)
         blockers = list(dict.fromkeys(rec.blockers))
 
+        lecture = sys.modules.get("pocket_lecture")
         result = {
             "scene": scene_class,
+            # Pictures left out because they could not be drawn (pocket_lecture.Lecture.safe), with their beats.
+            "skipped": list(getattr(lecture, "SKIPPED", []) or []),
             "tier": 3 if blockers else 1,
             "blockers": blockers,
             "program": program,
@@ -266,6 +269,24 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         os.chdir(previous)
 
 
+def _where(error: BaseException, scene_file: str) -> str:
+    """Where an error happened, for a one-line report: the innermost frame, and the scene's own line it was
+    running (a lecture's beat), so "IndexError: too many indices" names the file, the line and the beat."""
+    import traceback
+
+    frames = traceback.extract_tb(error.__traceback__)
+    if not frames:
+        return ""
+    inner = frames[-1]
+    parts = [f"at {Path(inner.filename).name}:{inner.lineno} in {inner.name}"]
+    scene = Path(scene_file).name
+    mine = [f for f in frames if Path(f.filename).name == scene]
+    if mine and mine[-1] is not inner:
+        line = (mine[-1].line or "").strip()
+        parts.append(f"scene line {mine[-1].lineno}: {line[:160]}")
+    return " (" + "; ".join(parts) + ")"
+
+
 def main() -> int:
     if len(sys.argv) != 4:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -276,10 +297,13 @@ def main() -> int:
     except Exception as error:  # noqa: BLE001 -- the caller wants the reason
         # A generated scene that does not even import is an ordinary outcome
         # here, not a crash: it is the first thing the edit loop has to report.
+        import traceback
+
+        traceback.print_exc(file=sys.stderr)
         print(json.dumps({
             "scene": scene_class,
             "tier": None,
-            "error": f"{type(error).__name__}: {error}",
+            "error": f"{type(error).__name__}: {error}{_where(error, scene_file)}",
         }))
         return 1
     print(json.dumps(result))

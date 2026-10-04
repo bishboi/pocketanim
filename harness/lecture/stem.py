@@ -1237,7 +1237,9 @@ class BoardMixin:
         start = self.renderer.time
         self._free_ink = _light(pl.P.BG)
         try:
-            free_check.run_block(code, self._free_names, f"<{key}>")
+            # A block that fails here (it passed the check before the render) leaves out the rest of its drawing;
+            # the line is still spoken, and the reason is reported with the build.
+            self.safe(lambda: free_check.run_block(code, self._free_names, f"<{key}>"), f"manim block {key!r}")
         finally:
             self._free_ink = None
         spent = self.renderer.time - start

@@ -16,6 +16,8 @@ type ExportState = {
   tier: 1 | 3 | null;
   scene?: string;
   blockers?: string[];
+  /** Pictures left out because they could not be drawn (the lecture still built), with their beats. */
+  skipped?: string[];
   program?: string | null;
   source?: string;
   program_bytes?: number;
@@ -1303,6 +1305,17 @@ export default function Home() {
                       <li key={b}>{b}</li>
                     ))}
                   </ul>
+                )}
+                {!!exported.skipped?.length && (
+                  <div className="text-xs text-amber-300">
+                    {exported.skipped.length} picture{exported.skipped.length > 1 ? "s" : ""} could not be drawn and
+                    {exported.skipped.length > 1 ? " were" : " was"} left out; the narration plays on:
+                    <ul className="mt-1 list-inside list-disc text-amber-200/90">
+                      {exported.skipped.slice(0, 8).map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {exported.container && exported.buildDir && (
                   <p className="text-xs text-neutral-300">

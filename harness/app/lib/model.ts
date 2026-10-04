@@ -924,6 +924,33 @@ async function viaOpenRouter(
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
   const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
   let nudges = 0;
+  // Chapters a fix-up call sends at most: a long add_chapters call ran into the reply's length limit.
+  const FIX_CHAPTERS = 3;
+  // done: true refused this many times, with every chapter compiling: the lecture is built as it is.
+  const WHOLE_TRIES = 4;
+  let wholeRefused = 0;
+  // The scripts sent in earlier turns are saved (or were refused, with the reasons): only the last stays in the
+  // conversation in full, so each turn does not resend the whole lecture so far (2.5 million tokens in a long one).
+  const slimHistory = () => {
+    const last = messages.length - 1 - [...messages].reverse().findIndex((m) => m.role === "assistant");
+    messages.forEach((message, i) => {
+      if (i === last || message.role !== "assistant" || !message.tool_calls) return;
+      for (const call of message.tool_calls) {
+        if (!["write_lecture", "add_chapters"].includes(call.function.name) || call.function.arguments.length < 400) continue;
+        let args: { chapters?: unknown[]; script?: { chapters?: unknown[] }; replace_from?: unknown; replace_to?: unknown; done?: unknown } = {};
+        try {
+          args = JSON.parse(call.function.arguments);
+        } catch {}
+        const count = (args.chapters ?? args.script?.chapters ?? []).length;
+        call.function.arguments = JSON.stringify({
+          sent_earlier: `${count} chapter(s); see the result that follows`,
+          ...(args.replace_from ? { replace_from: args.replace_from } : {}),
+          ...(args.replace_to ? { replace_to: args.replace_to } : {}),
+          ...(args.done ? { done: true } : {}),
+        });
+      }
+    });
+  };
   let quietTries = 0;           // turns in a row that went silent or stalled
   const QUIET_TRIES = 2;
   let requireTool = false;     // after a reminder, the next reply must be a tool call, not more prose
@@ -954,11 +981,11 @@ async function viaOpenRouter(
   };
 
   /**
-   * Every transcript section's chapters, written at the same time (PANIM_CHAPTERS_PARALLEL requests at once), each
-   * request asked again when it goes silent or stalls; then put together in order. `missing` are the sections that
-   * gave nothing usable. null when no section did.
+   * The chapters of the given transcript sections, written at the same time (PANIM_CHAPTERS_PARALLEL requests at
+   * once), each request asked again when it goes silent or stalls. `notes` are what was wrong with a section's
+   * last chapters. `missing` are the sections that gave nothing usable.
    */
-  const chaptersInParallel = async (): Promise<{ script: Record<string, unknown>; missing: number[] } | null> => {
+  const chaptersInParallel = async (sections: WrittenSection[], notes = new Map<number, string>()) => {
     const PARALLEL = Math.max(1, Math.min(6, Number(process.env.PANIM_CHAPTERS_PARALLEL) ||
       Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 3));
     const TRIES = 4;          // refused or failed replies before a section is given up
@@ -967,8 +994,10 @@ async function viaOpenRouter(
     const missing: number[] = [];
     const live = new Map<number, { started: number; chars: number; attempt: number; thinking: boolean }>();
     const sectionTools: ToolSpec[] = [LECTURE_TOOL, ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL];
-    emit({ type: "message", role: "status", text: `Video: writing the chapters of the ${written.length} sections, ` +
-      `${Math.min(PARALLEL, written.length)} at a time.` });
+    emit({ type: "message", role: "status", text: notes.size
+      ? `Video: writing again the chapters of section${sections.length > 1 ? "s" : ""} ${sections.map((s) => s.n).join(", ")}, ` +
+        "with what the whole lecture's check found."
+      : `Video: writing the chapters of the ${sections.length} sections, ${Math.min(PARALLEL, sections.length)} at a time.` });
     const progress = setInterval(() => {
       if (!live.size) return;
       const now = Date.now();
@@ -976,10 +1005,10 @@ async function viaOpenRouter(
         `${n} (${clock(now - p.started)}, ${p.chars ? size(p.chars) : p.thinking ? "thinking" : "waiting"}` +
         `${p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
       emit({ type: "message", role: "status",
-        text: `Video: ${done.size} of ${written.length} sections' chapters written; writing ${parts.join(", ")}` });
+        text: `Video: ${done.size} of ${sections.length} sections' chapters written; writing ${parts.join(", ")}` });
     }, 10_000);
 
-    const one = async (section: WrittenSection): Promise<Record<string, unknown> | null> => {
+    const one = async (section: WrittenSection, note?: string): Promise<Record<string, unknown> | null> => {
       const first = section.n === written[0].n;
       const last = section.n === written[written.length - 1].n;
       const ask = [
@@ -995,6 +1024,8 @@ async function viaOpenRouter(
         last ? "This is the last section: end the script with the recap." : "No recap: the last section has it.",
         "Call write_lecture once with this script ({title, sub, intro, chapters, recap}); use the find tools first if " +
           "you need pictures. Write it straight away.",
+        ...(note ? ["", "You wrote this section's chapters before, and the check of the whole lecture refused them:", note,
+          "Write all of this section's chapters again, with these fixed."] : []),
       ].join("\n");
       const talk: OutMessage[] = [
         messages[0],
@@ -1108,10 +1139,10 @@ async function viaOpenRouter(
     let next = 0;
     let halted: unknown = null;
     const worker = async () => {
-      while (next < written.length && !halted && !stopped()) {
-        const section = written[next++];
+      while (next < sections.length && !halted && !stopped()) {
+        const section = sections[next++];
         try {
-          const script = await one(section);
+          const script = await one(section, notes.get(section.n));
           if (script) done.set(section.n, script);
           else missing.push(section.n);
         } catch (error) {
@@ -1122,65 +1153,119 @@ async function viaOpenRouter(
       }
     };
     try {
-      await Promise.all(Array.from({ length: Math.min(PARALLEL, written.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(PARALLEL, sections.length) }, worker));
     } finally {
       clearInterval(progress);
     }
     if (halted) throw halted;
     if (stopped()) throw new Error("The page closed while the video was being written.");
-    if (!done.size) return null;
-    // Put together in order: the first section's title and opening, every section's chapters, the last's recap.
-    const scripts = written.filter((s) => done.has(s.n)).map((s) => done.get(s.n)!);
-    const head = done.get(written[0].n) ?? scripts[0];
+    return { done, missing };
+  };
+
+  /** The sections' chapters as one lecture, in order: the first section's title and opening, the last's recap. */
+  const assemble = (bySection: Map<number, Record<string, unknown>>) => {
+    const scripts = written.filter((s) => bySection.has(s.n)).map((s) => bySection.get(s.n)!);
+    const head = bySection.get(written[0].n) ?? scripts[0];
     const recap = [...scripts].reverse().find((s) => s.recap)?.recap;
     const script: Record<string, unknown> = {
       ...head,
       chapters: scripts.flatMap((s) => (Array.isArray(s.chapters) ? s.chapters : [])),
       ...(recap ? { recap } : {}),
     };
-    missing.sort((x, y) => x - y);
-    emit({ type: "message", role: "status", text: `Video: chapters written for ${done.size} of ${written.length} sections` +
-      (missing.length ? ` (section${missing.length > 1 ? "s" : ""} ${missing.join(", ")} still to write)` : "") +
-      "; compiling the whole lecture." });
-    return { script, missing };
+    if (!recap) delete script.recap;
+    return script;
+  };
+
+  /**
+   * The whole lecture's errors that belong to one section ("Section 9: ...", or "chapter 37 ..." of a chapter
+   * of section 9, renumbered within the section), and the rest.
+   */
+  const errorsBySection = (errors: string[], script: Record<string, unknown>) => {
+    const chapters = (Array.isArray(script.chapters) ? script.chapters : []) as { section?: unknown }[];
+    const firstOf = new Map<number, number>();
+    chapters.forEach((c, i) => {
+      const n = Number(c?.section);
+      if (!firstOf.has(n)) firstOf.set(n, i);
+    });
+    const bySection = new Map<number, string[]>();
+    const rest: string[] = [];
+    for (const error of errors) {
+      const named = /^Section (\d+):/.exec(error);
+      const chapter = /^chapter (\d+)\b/.exec(error);
+      const n = named ? Number(named[1]) : chapter ? Number(chapters[Number(chapter[1]) - 1]?.section) : NaN;
+      if (!Number.isFinite(n) || !written.some((s) => s.n === n)) {
+        rest.push(error);
+        continue;
+      }
+      const local = chapter ? error.replace(/^chapter \d+/, `your chapter ${Number(chapter[1]) - (firstOf.get(n) ?? 0)}`) : error;
+      bySection.set(n, [...(bySection.get(n) ?? []), local]);
+    }
+    return { bySection, rest };
   };
 
   // A long lecture with a written transcript: each section's chapters are written at the same time, each by its
   // own request, as the transcript was. One after another (write_lecture, then add_chapters turn by turn) a two-hour
   // lecture took a slow model an hour of turns, each a longer conversation than the last, and looked stuck.
   if (lecture && written.length >= 2 && !scene) {
-    const merged = await chaptersInParallel();
-    if (merged) {
+    const first = await chaptersInParallel(written);
+    const bySection = first.done;
+    let missing = first.missing;
+    let script = assemble(bySection);
+    let compiled = bySection.size ? await compileWhole(script) : null;
+    if (compiled && !compiled.source) {
+      // What the whole lecture's check finds in a section (its transcript not all said, a chapter that does not
+      // compile, no chapters at all) is that section's to fix: those sections are written again, at the same time,
+      // told what was wrong. Only what belongs to no section is left to the turns below.
+      const { bySection: notes } = errorsBySection(compiled.errors, script);
+      // The transcript check runs only once the compiler passes, so each section's is run here as well.
+      for (const s of written) {
+        const gap = bySection.has(s.n) ? transcriptProblem(script, written, [s.n]) : null;
+        if (gap) notes.set(s.n, [...(notes.get(s.n) ?? []), gap]);
+      }
+      const notesFor = new Map([...notes].map(([n, errs]) => [n, errs.join("\n")]));
+      for (const n of missing) notesFor.set(n, "Nothing usable came back for this section last time.");
+      if (notesFor.size) {
+        const again = await chaptersInParallel(written.filter((s) => notesFor.has(s.n)), notesFor);
+        for (const [n, chapters] of again.done) bySection.set(n, chapters);
+        missing = missing.filter((n) => !again.done.has(n));
+        script = assemble(bySection);
+        compiled = await compileWhole(script);
+      }
+    }
+    if (compiled) {
+      missing.sort((x, y) => x - y);
+      emit({ type: "message", role: "status", text: `Video: chapters written for ${bySection.size} of ${written.length} sections` +
+        (missing.length ? ` (section${missing.length > 1 ? "s" : ""} ${missing.join(", ")} still to write)` : "") + "." });
       if (!tools.includes(ADD_CHAPTERS_TOOL)) tools.splice(1, 0, ADD_CHAPTERS_TOOL);
-      const compiled = await compileWhole(merged.script);
-      emit({ type: "tool_call", name: "write_lecture", args: JSON.stringify({ script: merged.script }).slice(0, 1600) });
+      emit({ type: "tool_call", name: "write_lecture", args: JSON.stringify({ script }).slice(0, 1600) });
       if (compiled.source) {
         emit({ type: "tool_result", name: "write_lecture", text: [
-          `Compiled the lecture: ${chapterCount(merged.script)} chapters, ${compiled.source.split("\n").length} lines of Manim, ` +
+          `Compiled the lecture: ${chapterCount(script)} chapters, ${compiled.source.split("\n").length} lines of Manim, ` +
             `about ${compiled.minutes ?? "?"} min.`,
           ...compiled.warnings.map((w) => `warning: ${w}`)].join("\n") });
         scene = compiled.source;
         return savedScene()!;
       }
-      // The sections are written but the whole falls short (a section missing, a question or figure left out, the
-      // length): the chapters are kept and the model fixes only what is wrong, with add_chapters.
-      const partsOk = (await compileLecture(merged.script, partOptions())).source;
-      draft = merged.script;
-      const list = (Array.isArray(merged.script.chapters) ? merged.script.chapters : []).map((c, i) => {
+      // The sections are written but the whole still falls short (a question or figure left out, the length, the
+      // count of problems): the chapters are kept and the model fixes only what is wrong, with add_chapters.
+      const partsOk = (await compileLecture(script, partOptions())).source;
+      draft = script;
+      const list = (Array.isArray(script.chapters) ? script.chapters : []).map((c, i) => {
         const chapter = c as { title?: unknown; section?: unknown };
         return `  chapter ${i + 1}: section ${chapter.section ?? "?"}, ${String(chapter.title ?? "")}`;
       });
       const problem = [
-        partsOk ? `The chapters of every section were written and are saved (${chapterCount(merged.script)} chapters):` :
+        partsOk ? `The chapters of every section were written and are saved (${chapterCount(script)} chapters):` :
           "The chapters of the sections were written, but they do not compile together:",
         ...list,
-        ...merged.missing.map((n) => `  section ${n}: NO CHAPTERS YET; write them and put them in their place`),
+        ...missing.map((n) => `  section ${n}: NO CHAPTERS YET; write them and put them in their place`),
         "",
         "The whole lecture does not pass yet:",
         ...compiled.errors,
         "",
         "Fix only what is wrong, with add_chapters: replace_from n and replace_to m replace chapters n to m with the " +
-          "chapters you send (replace_to n - 1 inserts them before chapter n); done: true when it is complete.",
+          "chapters you send (replace_to n - 1 inserts them before chapter n); done: true when it is complete. Send at " +
+          `most ${FIX_CHAPTERS} chapters a call: a longer call is cut off by the reply's length limit.`,
       ].join("\n");
       emit({ type: "tool_result", name: "write_lecture", text: problem });
       messages.push({ role: "user", content: problem });
@@ -1198,6 +1283,7 @@ async function viaOpenRouter(
       if (done) return done;
     }
     shrinkHistory();
+    if (lecture) slimHistory();
     emit({
       type: "message",
       role: "status",
@@ -1401,14 +1487,21 @@ async function viaOpenRouter(
         replace_to?: number;
         done?: boolean;
       } = {};
+      let cut = false;
       try {
         args = JSON.parse(call.function.arguments || "{}");
       } catch {
         args = {};
+        cut = true;
       }
       emit({ type: "tool_call", name: call.function.name, args: call.function.arguments });
       let output: string;
-      if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
+      if (cut && ["write_lecture", "add_chapters"].includes(call.function.name)) {
+        // A call cut off by the reply's length limit is not complete JSON. Read as empty, it was "saved" with
+        // nothing in it, and the model went on as if its chapters were in.
+        output = `Your ${call.function.name} call was cut off before it ended (the reply's length limit), so nothing ` +
+          `was saved. Send it again in smaller pieces: at most ${FIX_CHAPTERS} chapters a call.`;
+      } else if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
         const first = args.script as Record<string, unknown>;
         const thin = thinChapters(first.chapters);
         const unsaid = written.length ? transcriptProblem(first, written, sectionsOf(first)) : null;
@@ -1441,7 +1534,9 @@ async function viaOpenRouter(
           };
           const thin = thinChapters(args.chapters);
           const part = { chapters: args.chapters ?? [] };
-          const unsaid = written.length && !args.done ? transcriptProblem(part, written, sectionsOf(part)) : null;
+          // The sections these chapters speak are checked in the lecture they make, so a few chapters can replace
+          // part of a section; checked alone, every section touched had to be sent whole again.
+          const unsaid = written.length && !args.done ? transcriptProblem(next, written, sectionsOf(part)) : null;
           const compiled = unsaid
             ? { source: null, errors: [unsaid], minutes: 0, warnings: [] }
             : thin
@@ -1464,6 +1559,7 @@ async function viaOpenRouter(
             // The parts are fine but the whole falls short (length, questions, problems): keep them, ask for more.
             const partsOk = (await compileLecture(next, partOptions())).source;
             if (partsOk && !thin) draft = next;
+            if (partsOk && !thin) wholeRefused += 1;
             output = [
               partsOk ? "Saved these chapters, but the whole lecture is not finished yet:" : "This part did not compile:",
               ...compiled.errors,
@@ -1498,6 +1594,17 @@ async function viaOpenRouter(
       }
       emit({ type: "tool_result", name: call.function.name, text: output });
       messages.push({ role: "tool", tool_call_id: call.id, content: output });
+    }
+    if (draft && wholeRefused >= WHOLE_TRIES && !/from manim import/.test(scene)) {
+      // A complete lecture whose whole-lecture checks still fail after several rounds of fixing: its chapters all
+      // compile, so it is built (the checks named in the log), rather than turning for another hour.
+      const built = await compileLecture(draft, partOptions());
+      if (built.source) {
+        Object.assign(kept, { script: draft, source: built.source, minutes: built.minutes });
+        emit({ type: "message", role: "status", text: `The whole lecture was refused ${wholeRefused} times; building its ` +
+          `${chapterCount(draft)} chapters (about ${built.minutes ?? "?"} min), though not every check passed.` });
+        return { source: built.source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
+      }
     }
   }
   const done = savedScene();

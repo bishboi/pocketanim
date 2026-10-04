@@ -50,11 +50,47 @@ def test_science_beats_get_molecules_and_equations():
     fills = cl.auto_visuals({"beats": [{"say": "Plants turn carbon dioxide and water into glucose."},
                                        {"say": "The equation is 6CO2 + 6H2O -> C6H12O6 + 6O2."}]}, genre="biology")
     assert fills[0]["op"] == "equation" and "C_6H_{12}O_6" in fills[0]["tex"] and fills[1] is None
-    # A new paragraph without an equation: its molecule.
+    # A paragraph that only names substances gets no structural formula: it is said, not drawn.
     fills = cl.auto_visuals({"beats": [{"say": "The equation is 6CO2 + 6H2O -> C6H12O6 + 6O2."},
                                        {"say": "Plants turn carbon dioxide and water into glucose.", "paragraph": True}]},
-                            genre="biology")
-    assert fills[1] == {"op": "molecule", "name": "carbon dioxide"}
+                            genre="chemistry")
+    assert fills[1] is None or fills[1].get("op") != "molecule"
+    # One that explains a structure gets it, once a chapter, never again for the same molecule.
+    fills = cl.auto_visuals({"beats": [
+        {"say": "Carbon dioxide is a linear molecule: two double bonds join the carbon to the oxygen atoms."},
+        {"say": "Now think about the weather today.", "paragraph": True},
+        {"say": "Glucose has six carbon atoms, five of them in a ring.", "paragraph": True}]}, genre="chemistry")
+    assert fills[0] == {"op": "molecule", "name": "carbon dioxide"}
+    assert all(f is None or f.get("op") != "molecule" for f in fills[1:])
+
+
+def test_a_molecule_the_model_draws_stays_only_where_its_structure_is_explained():
+    beat = lambda say, name: {"say": say, "do": [{"op": "molecule", "name": name}]}  # noqa: E731
+    script = {"genre": "chemistry", "chapters": [{"title": "c", "beats": [
+        beat("Water is everywhere in the body.", "water"),
+        beat("Glucose gives us energy.", "glucose"),
+        beat("Glucose has six carbon atoms in a ring with hydroxyl groups.", "glucose"),
+        beat("पानी के अणु की संरचना मुड़ी हुई है।", "water")]}]}
+    notes = cl._unneeded_molecules(script, drop=True)
+    kept = [[op["name"] for op in b["do"]] for b in script["chapters"][0]["beats"]]
+    # Named in passing: left out; its structure explained on the next beat: kept, and not drawn twice; a Hindi
+    # beat about water's structure: kept.
+    assert kept == [[], ["glucose"], [], ["water"]], (kept, notes)
+
+
+def test_a_biology_paragraph_without_a_picture_gets_an_illustration_of_its_topic(monkeypatch):
+    import images
+
+    asked = []
+    monkeypatch.setattr(cl, "script_photos", {})            # the compiler's picture table: this test's own
+    monkeypatch.setattr(cl, "USED_PICTURES", set())
+    monkeypatch.setattr(images, "enabled", lambda: True)
+    monkeypatch.setattr(images, "fetch", lambda **kw: asked.append(kw) or (
+        {"id": "x1", "title": kw.get("illustration"), "credit": "test"} if kw.get("illustration") else None))
+    fills = cl.auto_visuals({"title": "The leaf", "beats": [
+        {"say": "The leaf makes food for the plant in its green cells."}]}, genre="biology")
+    assert fills[0] and fills[0]["op"] == "illustration"
+    assert any(kw.get("illustration") for kw in asked)
 
 
 def test_kit_ops_lint():

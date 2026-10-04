@@ -169,7 +169,7 @@ reported in the log. The kit operations draw on the stage:
 
 | Operation | What it shows |
 |---|---|
-| `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). |
+| `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). Shown only where it teaches: the compiler leaves out a molecule on a beat that explains no structure (bonds, shape, groups, isomers; `STRUCTURE_TALK`, English and Hindi), and one already on the board in its chapter; the automatic pictures add one only to a paragraph that explains a structure, once a chapter. |
 | `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | Typeset by LaTeX (Unicode text without it). During a problem, the next line of its working. |
 | `{"op":"plot","exprs":["sin(x)"],"x_range":[-3,3],"x_label"?,"y_label"?}` | Graphs of functions of x (a safe subset of numpy). |
 | `{"op":"process","steps":["…","…"],"cycle"?:true,"title"?}` | A chain of steps, or a cycle. |

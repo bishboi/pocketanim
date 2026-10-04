@@ -85,16 +85,30 @@ PROFILES = {
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["diagram", "figure", "define", "molecule", "equation", "compare", "illustration"],
-        "guidance": "Biology: show structures with the document's figures (or "
-                    "find_illustration for a textbook diagram), build processes and cycles as diagrams of drawings "
-                    "(kind cycle for cycles, revealed a stage at a time), define hard terms, key molecules (glucose, ATP parts, DNA bases) with "
-                    "molecule, and summary reactions with equation. No map unless the topic is where life lives.",
+        "kit": ["figure", "illustration", "diagram", "sketch", "compare", "define", "manim", "graph", "equation"],
+        "guidance": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
+                    "heart, a neuron, a nephron): the book's figure or a textbook illustration (find_illustration), "
+                    "and when its parts are named one by one, a labelled sketch (or manim) built part by part with "
+                    "each label revealed as it is said. A PROCESS (digestion, photosynthesis, blood flow, a reflex, "
+                    "protein synthesis): a flow or steps diagram with a drawing in each node, a stage at a time; a "
+                    "CYCLE (cell cycle, life cycles, the cardiac cycle, nitrogen cycle): diagram kind cycle. A "
+                    "HIERARCHY or CLASSIFICATION (cell, tissue, organ, system; kingdoms, phyla): diagram kind tree or "
+                    "steps. Two things side by side (mitosis and meiosis, plant and animal cells, arteries and "
+                    "veins): compare. Something that MOVES (diffusion and osmosis, chromosomes separating, a heart "
+                    "beating, a muscle contracting, an impulse along a neuron): manim, set moving as it is said. "
+                    "Measurements (growth, enzyme activity against temperature, populations): graph. Hard terms: "
+                    "define. Photos only of organisms, habitats and scientists the lecture names. A molecule's "
+                    "structural formula only where the lecture explains its structure (DNA's base pairs, ATP's "
+                    "phosphates), never for every substance named; a summary reaction with equation. No map unless "
+                    "the topic is where life lives.",
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
         "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare"],
-        "guidance": "Chemistry: draw every substance you discuss with molecule (name, formula or SMILES), write "
+        "guidance": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only "
+                    "where its structure is what is being taught: its bonds, its shape, its functional groups, "
+                    "isomers, how it reacts because of them; once, not again each time it is named, and never for a "
+                    "substance only mentioned (water, air, salt in passing). Write "
                     "reactions with equation (reactants -> products, subscripts as H_2O), plot rates, concentrations "
                     "and energy profiles with graph, draw apparatus (a beaker, a gas syringe, a burette) with sketch and "
                     "gases with piston. Numerical problems (moles, concentration, gas laws, equilibrium) are solved "

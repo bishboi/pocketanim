@@ -1275,6 +1275,56 @@ def paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
     return out
 
 
+# Narration that explains a structure: the one time a structural formula on the stage teaches more than the name.
+STRUCTURE_TALK = re.compile(
+    r"\b(structur\w*|bond(?:s|ed|ing)?|formula|atoms?|ring|shape|geometr\w*|functional group|isomer\w*|chain|"
+    r"hydroxyl|carboxyl|amino group|carbonyl|lone pair|tetrahedr\w*|planar|linear|bent|helix|helical|"
+    r"base pair\w*|backbone|polymer\w*|monomer\w*|single bond|double bond|triple bond|covalent)\b|"
+    # Hindi has no word boundaries here: बंध alone matched संबंध (a relationship), आकार any size.
+    r"संरचना|आबंध|सूत्र|परमाणु|वलय|आकृति|श्रृंखला|समावयव|क्रियात्मक समूह",
+    re.IGNORECASE)
+
+
+def _unneeded_molecules(script: dict, drop: bool = False) -> list[str]:
+    """The molecule ops that are not needed: the same molecule again in a chapter, or one on a beat (and the beat
+    after it) that explains no structure -- a substance only named ("water is everywhere in the body") is said,
+    not drawn. With `drop`, they are taken out of the script."""
+    notes: list[str] = []
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        beats = chapter.get("beats") or []
+        in_chapter: set[str] = set()
+        for bi, beat in enumerate(beats, 1):
+            ops = beat.get("do")
+            if not isinstance(ops, list):
+                continue
+            said = str(beat.get("say") or "")
+            after = str(beats[bi].get("say") or "") if bi < len(beats) else ""
+            keep = []
+            for op in ops:
+                if not (isinstance(op, dict) and op.get("op") == "molecule"):
+                    keep.append(op)
+                    continue
+                name = str(op.get("name") or "").strip().lower()
+                why = None
+                if name in in_chapter:
+                    why = "it is already on the board in this chapter"
+                # The structure may be explained on the next beat, when that beat is about the same molecule.
+                elif not STRUCTURE_TALK.search(said) and not (name and name in after.lower()
+                                                              and STRUCTURE_TALK.search(after)):
+                    why = "the narration explains no structure here (its bonds, shape or groups)"
+                if why:
+                    notes.append(f"chapter {ci} beat {bi}: the molecule {op.get('name')!r} is left out: {why}. "
+                                 "Show a structural formula only where its structure is being explained.")
+                    if drop:
+                        continue
+                else:
+                    in_chapter.add(name)
+                keep.append(op)
+            if drop:
+                beat["do"] = keep
+    return notes
+
+
 def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> list[dict | None]:
     """What the stage shows where the script chose nothing, a paragraph at a time -- never a picture a sentence.
 
@@ -1295,6 +1345,9 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     out: list[dict | None] = [None] * len(beats)
     is_map_op = is_map_op or _points_at_map
     staged = False                  # something of the script's or ours is on the stage
+    shown_molecules = {str(op.get("name")).lower() for b in beats for op in b.get("do") or []
+                       if isinstance(op, dict) and op.get("op") == "molecule"}
+    auto_molecules = 0
     for group in paragraphs(beats, is_map_op):
         first = beats[group[0]]
         ops = first.get("do") or []
@@ -1310,12 +1363,17 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             equation = next((e for e in (_equation_in(str(beats[i].get("say", ""))) for i in group) if e), None)
             if equation:
                 pick = {"op": "equation", "tex": equation}
-            elif genre in ("chemistry", "biology"):
+            elif genre in ("chemistry", "biology") and STRUCTURE_TALK.search(text) and auto_molecules < 1:
+                # A structural formula only where the paragraph explains a structure (its bonds, its shape, its
+                # groups), once a chapter, and never one already shown: a molecule for every substance named made
+                # every chemistry and biology video a parade of ball-and-stick drawings.
                 import molecules
 
-                named = molecules.find_in_text(text)
+                named = [n for n in molecules.find_in_text(text) if n not in shown_molecules]
                 if named:
                     pick = {"op": "molecule", "name": named[0]}
+                    shown_molecules.add(named[0])
+                    auto_molecules += 1
         if not pick and genre == "history" and group[0] == 0 and not any(
                 op.get("op") == "timeline" for b in beats for op in b.get("do") or []):
             events = _timeline_of(chapter)
@@ -1344,7 +1402,10 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                 pick = found[0]
             elif found:
                 pick = {"op": "gallery", "items": [{"subject": f["subject"], "caption": f["caption"]} for f in found]}
-        if not pick and STYLE_NOW.get("auto_illustrations") and images.enabled() and lookups > 0:
+        # Biology is taught with pictures of what it is about (a cell, a leaf, a heart): a paragraph left without one
+        # gets a textbook illustration of its topic, as an explicit "auto_illustrations" gives any lecture.
+        if not pick and (STYLE_NOW.get("auto_illustrations") or genre == "biology") and images.enabled() \
+                and lookups > 0:
             for query in picture_queries(first, chapter, genre, group[0]):
                 lookups -= 1
                 row = images.fetch(illustration=query, avoid=USED_PICTURES, genre=genre, style=STYLE_NOW["style"])
@@ -1712,6 +1773,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     _resolve_options(script)
     _unneeded_motions(script, drop=True)
+    _unneeded_molecules(script, drop=True)
     _resolve_motion(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):

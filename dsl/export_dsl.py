@@ -523,6 +523,11 @@ def _stroke_bits(entry) -> list[str]:
     return bits
 
 
+# `.animate` methods that only move an object: each becomes a shift, measured on a copy.
+TRANSLATING = {"shift", "move_to", "next_to", "to_edge", "to_corner", "align_to", "center", "set_x", "set_y",
+               "match_x", "match_y", "align_on_border", "set_coord"}
+
+
 def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[str] | None:
     """Map one `.animate` chain onto verbs that run together.
 
@@ -536,8 +541,21 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
     stroke = []
     fill = []
     extra = []
+    # A chain's moves, measured on a copy that takes the chain step by step: next_to, to_edge, align_to and the
+    # like are each a shift of the whole object, whatever they were called with. One by_xy for their sum.
+    probe = mobject.copy() if mobject is not None else None
+    moved = None
     for entry in methods:
         name = entry.method.__name__
+        if name in TRANSLATING:
+            if probe is None:
+                return None
+            kw = getattr(entry, "kwargs", None) or {}
+            before = np.asarray(probe.get_center(), dtype=float).reshape(3)
+            getattr(probe, name)(*(getattr(entry, "args", ()) or ()), **kw)
+            delta = np.asarray(probe.get_center(), dtype=float).reshape(3) - before
+            moved = delta if moved is None else moved + delta
+            continue
         if name == "set_stroke":
             stroke.extend(_stroke_bits(entry))
             continue
@@ -553,14 +571,8 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
             return [f"rotate {target} deg={math.degrees(angle):g}{at} t={duration:g}"]
         if name == "scale" and entry.args:
             parts.append(f"by={float(entry.args[0]):g}")
-        elif name == "shift" and entry.args:
-            vector = np.asarray(entry.args[0], dtype=float).reshape(3)
-            parts.append(f"by_xy={vector[0]:g},{vector[1]:g}")
-        elif name == "move_to" and entry.args and mobject is not None:
-            dest = np.asarray(entry.args[0], dtype=float).reshape(3)
-            origin = np.asarray(mobject.get_center(), dtype=float).reshape(3)
-            delta = dest - origin
-            parts.append(f"by_xy={delta[0]:g},{delta[1]:g}")
+            if probe is not None:
+                probe.scale(float(entry.args[0]))
         elif name == "set_opacity" and entry.args:
             # Manim's set_opacity sets fill and stroke opacity together. Only
             # the stroke used to move, so a filled shape never dimmed.
@@ -590,6 +602,8 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
             stroke.append(f"color={colour}")
         else:
             return None
+    if moved is not None:
+        parts.append(f"by_xy={moved[0]:g},{moved[1]:g}")
     verbs = []
     if parts:
         verbs.append(f"xform {target} " + " ".join(parts) + f" t={duration:g}")
@@ -755,6 +769,10 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
 PROGRAM_FPS = 30
 
 
+# The recording in progress, if any (set by record_scene).
+ACTIVE = None
+
+
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, config, tempconfig
     from manim.renderer.cairo_renderer import CairoRenderer
@@ -779,7 +797,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
     TransformMatchingAbstractBase.__init__ = patched_matching_init
 
+    global ACTIVE
     rec = Recorder()
+    ACTIVE = rec          # for a probe that attributes blockers to the code that made them (free_check.py)
     originals = {
         "play": Scene.play,
         "add": Scene.add,
@@ -1014,6 +1034,20 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.timeline.extend(verbs)
                 else:
                     rec.blockers.append("a part's move could not be written as a verb")
+            elif type(anim).__name__ == "TransformFromCopy" and getattr(anim, "target_mobject", None) is not None:
+                # Manim plays TransformFromCopy(a, b) as b transforming *from* a's shape (Transform(b, a) run
+                # backwards): a stays where it is and b arrives. Written as that Transform, b took a's shape and
+                # sat on a, and b never appeared. A copy of a morphs into b instead, then gives way to b.
+                ghost = rec.declare(anim.target_mobject.copy())
+                arriving = rec.declare(anim.mobject)
+                if ghost and arriving and rec.is_asset(ghost) and rec.is_asset(arriving):
+                    rec.timeline.append(f"morph {ghost} {arriving} t={duration:g}{suffix}")
+                elif ghost and arriving and not (rec.is_asset(ghost) or rec.is_asset(arriving)):
+                    rec.timeline.append(f"transform {ghost} {arriving} t={duration:g}{suffix}{_arc_extra(anim)}")
+                    rec.timeline.append(f"hide {ghost}")
+                    rec.timeline.append(f"show {arriving}")
+                else:
+                    rec.blockers.append("TransformFromCopy between a shape and text or a baked asset")
             elif isinstance(anim, Transform):
                 source = rec.declare(anim.mobject)
                 target = rec.declare(anim.target_mobject)

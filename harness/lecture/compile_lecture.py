@@ -201,8 +201,17 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
             for op in ops:
                 kind = op.get("op")
                 if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo",
-                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS:
+                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
+                    continue
+                if kind == "manim":
+                    if not isinstance(op.get("code"), str) or not op["code"].strip():
+                        errors.append(f"{at}: a manim op needs its code: the Python that draws this beat")
+                    if len(ops) > 1:
+                        errors.append(f"{at}: a manim beat carries only its manim op; draw the rest in its code, "
+                                      "or put the other ops on beats of their own")
+                    if _map_chapter(chapter, has_map):
+                        errors.append(f"{at}: a manim beat draws on the board; give its chapter \"map\": false")
                     continue
                 if kind in BUILD_OPS | STEP_OPS | WORK_OPS:
                     problem = _build_problem(op, diagrams, script.get("figures") or {})
@@ -297,6 +306,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _book_questions(script, whole=bool(min_minutes))
     errors += e
     warnings += w
+    if not any(e.startswith(("chapter", "a lecture")) and "manim" in e for e in errors):
+        import free_check
+
+        errors += free_check.verify(script)
     e, w = _teaching(script, min_questions, min_examples, min_problems)
     e2, w2 = _panel_text(script)
     e, w = e + e2, w + w2
@@ -378,7 +391,9 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 STEP_OPS = {"reveal", "focus", "answer", "option", "motion"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
-VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS
+# A beat drawn by a block of Manim the model wrote (free_check.py): the only op on its beat.
+FREE_OPS = {"manim"}
+VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS
 
 
 def beat_order(ops: list[dict]) -> list[dict]:
@@ -1639,7 +1654,8 @@ def board_chapter(script: dict, chapter: dict) -> bool:
     if _map_chapter(chapter, bool(script.get("region"))):
         return False
     if script.get("layout") == "panel":
-        return any(op.get("op") in STEM_OPS | WORK_OPS for b in chapter.get("beats") or [] for op in b.get("do") or [])
+        return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS for b in chapter.get("beats") or []
+                   for op in b.get("do") or [])
     return True
 
 
@@ -1754,6 +1770,18 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
             ops = beat_order(list(beat.get("do") or []))
+            free = next((op for op in ops if op.get("op") == "manim"), None)
+            if free is not None:
+                # Drawn by the model's own Manim (free_check.py, stem.BoardMixin.free).
+                import free_check
+
+                pad = "PARAGRAPH_PAD" if bi in closing else "BEAT_PAD"
+                if _pause(beat):
+                    pad = f"{pad} + {_pause(beat):g}"
+                out.append(f"        self.free({_q(free_check.free_key(free, index))}, {_q(beat['say'])}, "
+                           f"{_q(free['code'])}, pad={pad})")
+                staged = True
+                continue
             if bi < len(fills) and fills[bi]:
                 ops.append(fills[bi])
             points_at_map = any(op.get("op") in MAP_OPS or (op.get("op") == "icon" and _icon_spots(op)) for op in ops)

@@ -1303,6 +1303,10 @@ class Lecture(Scene):
     def play(self, *animations, **kwargs):
         """Manim's play, without the empty groups it refuses (see _playable); nothing to play is no play."""
         animations = [a for a in (_playable(a) for a in animations) if a is not None]
+        if animations and getattr(self, "_free_ink", None):
+            import stem
+
+            stem.ink_animations(animations, P.CREAM)     # a free block's white, on a light board
         if animations:
             super().play(*animations, **kwargs)
 

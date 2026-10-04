@@ -721,6 +721,45 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
         placed.append(box_of(best, lab))
 
 
+def _light(colour) -> bool:
+    """A light background: white text and lines would not show on it."""
+    from manim import ManimColor
+
+    r, g, b = ManimColor(colour).to_rgb()
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55
+
+
+def _ink(mobjects, ink) -> None:
+    """Manim's default white, on a light style's board, in the style's ink instead."""
+    from manim import VMobject
+
+    for root in mobjects:
+        for m in getattr(root, "get_family", lambda: [])():
+            if not isinstance(m, VMobject):
+                continue
+            try:
+                if m.get_stroke_width() > 0 and m.get_stroke_color().to_hex().upper().startswith("#FFFFFF"):
+                    m.set_stroke(color=ink)
+                if m.get_fill_opacity() > 0 and m.get_fill_color().to_hex().upper().startswith("#FFFFFF"):
+                    m.set_fill(color=ink)
+            except Exception:  # noqa: BLE001 -- a part without colours
+                continue
+
+
+def ink_animations(animations, ink) -> None:
+    """_ink over what a play is about to show: each animation's object and target, through groups."""
+    stack = list(animations)
+    found = []
+    while stack:
+        anim = stack.pop()
+        stack.extend(getattr(anim, "animations", []) or [])
+        for name in ("mobject", "target_mobject"):
+            m = getattr(anim, name, None)
+            if m is not None:
+                found.append(m)
+    _ink(found, ink)
+
+
 class BoardMixin:
     """The board layout and the STEM drawings, for pocket_lecture's MapLecture."""
 
@@ -1161,6 +1200,60 @@ class BoardMixin:
         if key in self.diagrams:
             self.diagrams[key]["preset"] = (kind, dict(params or {}))
         return drawn
+
+    # ---------------- free-form Manim (free_check.py) ----------------
+    def free(self, key: str, text: str, code: str, pad: float | None = None) -> float:
+        """One beat drawn by a block of model-written Manim: the line is spoken, the block runs (its plays land
+        while the line is said), and the rest of the line is held. Blocks with the same key share their names, so
+        a figure built on one beat is moved, ringed or transformed on the next; the first block of a key clears
+        the stage. What the blocks leave on the board goes with the stage, at the next picture or the chapter's
+        end."""
+        import free_check
+        import pocket_lecture as pl
+        from manim import FadeOut, Group
+
+        pad = pl.BEAT_PAD if pad is None else pad
+        if getattr(self, "_free_key", None) != key:
+            going = self._stage_leaving()
+            if self._full_figure is not None:
+                going.append(FadeOut(self._full_figure))
+                self._full_figure = None
+            if going:
+                self.play(*going, run_time=0.5)
+            self._free_key = key
+            self._free_names = free_check.namespace(self)
+            self._free_owned = []
+        wav, seconds = pl.narrate(text)
+        self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
+        pl._progress_beat()
+        cap = self.caption(text)
+        if wav:
+            self.add_sound(wav)
+        if self.cap is not None:
+            self.remove(self.cap)
+        self.add(cap)
+        self.cap = cap
+        before = {id(m) for m in self.mobjects}
+        start = self.renderer.time
+        self._free_ink = _light(pl.P.BG)
+        try:
+            free_check.run_block(code, self._free_names, f"<{key}>")
+        finally:
+            self._free_ink = None
+        spent = self.renderer.time - start
+        new = [m for m in self.mobjects if id(m) not in before]
+        if _light(pl.P.BG):
+            _ink(new, pl.P.CREAM)
+        here = {id(m) for m in self.mobjects}
+        owned = [m for m in [*self._free_owned, *new] if id(m) in here and m is not self.cap]
+        self._free_owned = list({id(m): m for m in owned}.values())
+        # The blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
+        self.stage_extra = [Group(*self._free_owned)] if self._free_owned else []
+        self._beat_new, self._beat_revealed, self._beat_asides, self._beat_added = [], [], [], []
+        rest = seconds + pad - spent
+        if rest > 0.02:
+            self.wait(rest)
+        return seconds
 
     def motion(self, key: str, spec: dict | None = None):
         """Set a diagram going while it is explained (stem.motion_plan): the block slides down the wedge, the bob

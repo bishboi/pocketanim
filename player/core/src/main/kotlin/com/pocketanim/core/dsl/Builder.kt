@@ -134,6 +134,15 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
     }
 
+    /**
+     * The object a verb acts on. A declared primitive that no verb has put on stage yet enters it here, as
+     * dsl/interpret.py's NEEDS_OBJECT does for the same verbs: TransformFromCopy's copy is first seen by the
+     * transform that carries it, and looking it up crashed the phone where the reference played on.
+     */
+    private fun need(name: String): Obj =
+        objects[name] ?: if (program.shapes.containsKey(name)) newShape(name).also { objects[name] = it }
+        else objects.getValue(name)
+
     /** A declared primitive entering the stage. */
     private fun newShape(name: String, alpha: Double = 1.0): Obj {
         val spec = program.shapes.getValue(name)
@@ -477,7 +486,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 // stage -- a fadeout drops its object outright -- so a hide for
                 // an absent name is a no-op rather than an error.
                 is Step.Hide -> objects[step.name]?.visible = false
-                is Step.Show -> objects.getValue(step.name).visible = true
+                // A declared shape no verb put on stage yet is put there, as the reference does.
+                is Step.Show -> need(step.name).visible = true
                 else -> Unit
             }
         }
@@ -690,7 +700,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private lateinit var c1: IntArray
 
         override fun enter() {
-            obj = objects.getValue(step.source)
+            obj = need(step.source)
             val targetSpec = program.shapes.getValue(step.target)
             val aligned = Verbs.align(obj.points!!, geometryFor(targetSpec))
             startPts = aligned.first
@@ -737,7 +747,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
         override fun enter() {
             if (step.name !in objects) objects[step.name] = newShape(step.name)
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             obj.visible = true
             val forced = step.at
             if (obj.kind == "asset") {
@@ -798,7 +808,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var base: List<Inst>? = null
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             if (obj.kind == "shape") {
                 startRgb = intArrayOf(
                     (obj.strokeRgb shr 16) and 0xFF,
@@ -857,7 +867,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var basePoints: DoubleArray? = null
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             // A primitive carries its geometry directly rather than as
             // instances under an object transform, so the matrix has to be
             // applied to its points. `.animate.scale(...).shift(...)` on a
@@ -1053,7 +1063,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var window = 0.0
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             obj.visible = true
             base = obj.instances.toList()
             flags = obj.flags
@@ -1219,7 +1229,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var end = DoubleArray(4)
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             if (obj.kind == "shape") {
                 start = obj.fill.copyOf()
                 end = DoubleArray(4) { start[it].toDouble() }
@@ -1269,8 +1279,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private lateinit var dstBase: List<Inst>
 
         override fun enter() {
-            src = objects.getValue(step.source)
-            dst = objects.getValue(step.target)
+            src = need(step.source)
+            dst = need(step.target)
             src.visible = true
             dst.visible = false
 
@@ -1432,7 +1442,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var baseInst: List<Inst>? = null
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             if (obj.kind == "shape") basePoints = obj.points!!.copyOf()
             else baseInst = obj.instances.toList()
         }
@@ -1482,7 +1492,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private var centre = doubleArrayOf(0.0, 0.0, 0.0)
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             if (obj.kind == "shape") {
                 basePoints = obj.points!!.copyOf()
                 centre = boundsOfPoints(basePoints!!)
@@ -1531,7 +1541,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private lateinit var base: List<Inst>
 
         override fun enter() {
-            obj = objects.getValue(step.name)
+            obj = need(step.name)
             obj.visible = true
             base = obj.instances.toList()
         }

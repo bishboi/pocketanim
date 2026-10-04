@@ -4,6 +4,7 @@ import com.pocketanim.core.Frames
 import com.pocketanim.core.Instance
 import com.pocketanim.core.Json
 import com.pocketanim.core.Library
+import com.pocketanim.core.LibraryImport
 import com.pocketanim.core.Playback
 import com.pocketanim.core.Storage
 import com.pocketanim.core.SystemTimeSource
@@ -219,6 +220,60 @@ private fun libraryChecks(c: Checks) {
     c.equal("same-size corruption passes a size check", 0, corrupt.checkIntegrity().size)
     c.equal("same-size corruption caught by digest", 1,
         corrupt.checkIntegrity(verifyDigests = true).size)
+
+    importChecks(c, full)
+}
+
+/** A zip of [files], each under [prefix] (the harness wraps its library in "library/"). */
+private fun zipOf(files: Map<String, ByteArray>, prefix: String = "library/"): ByteArray {
+    val bytes = java.io.ByteArrayOutputStream()
+    java.util.zip.ZipOutputStream(bytes).use { zip ->
+        for ((path, data) in files) {
+            zip.putNextEntry(java.util.zip.ZipEntry(if (path.startsWith("..")) path else prefix + path))
+            zip.write(data)
+            zip.closeEntry()
+        }
+    }
+    return bytes.toByteArray()
+}
+
+/**
+ * The phone's import of a lecture zip (LibraryImport): what the harness's "Download for the phone" makes is
+ * unpacked and opened; a zip that is not a whole library, or that names a file outside it, is refused, and a
+ * lecture already imported under that name is left as it was.
+ */
+private fun importChecks(c: Checks, full: Map<String, ByteArray>) {
+    val root = java.nio.file.Files.createTempDirectory("panim-import").toFile()
+    try {
+        val dest = java.io.File(root, "Two-blocks-abc123")
+        val library = LibraryImport.unpack(zipOf(full).inputStream(), dest)
+        c.equal("an imported library lists its scenes", 2, library.scenes.size)
+        c.check("an imported library is unpacked without its wrapping folder", java.io.File(dest, "library.json").isFile)
+        c.check("an imported scene is playable", library.isPlayable(library.entry("Present")))
+        c.equal("a library zipped without a folder imports too", 2,
+            LibraryImport.unpack(zipOf(full, prefix = "").inputStream(), java.io.File(root, "flat")).scenes.size)
+
+        c.threw("a zip with a file missing is refused") {
+            LibraryImport.unpack(zipOf(full - "assets/aa.panm").inputStream(), dest)
+        }
+        c.threw("a zip with a corrupt file is refused") {
+            val bad = full["assets/aa.panm"]!!.copyOf().also { it[0] = (it[0] + 1).toByte() }
+            LibraryImport.unpack(zipOf(full + ("assets/aa.panm" to bad)).inputStream(), dest)
+        }
+        c.threw("a zip that is not a library is refused") {
+            LibraryImport.unpack(zipOf(mapOf("notes.txt" to "hi".toByteArray())).inputStream(), dest)
+        }
+        c.threw("a zip naming a file outside the library is refused") {
+            LibraryImport.unpack(zipOf(full + ("../escaped.txt" to "x".toByteArray())).inputStream(), dest)
+        }
+        c.check("nothing escaped the import folder", !java.io.File(root, "escaped.txt").exists() &&
+            !java.io.File(root.parentFile, "escaped.txt").exists())
+        c.equal("a refused import leaves the earlier one in place", 2,
+            Library.load(LibraryImport.DirStorage(dest)).scenes.size)
+        c.check("no staging folder is left behind", root.listFiles().orEmpty().none { it.name.contains('.') })
+    } finally {
+        root.deleteRecursively()
+    }
 }
 
 fun runSelfTest(): Boolean {

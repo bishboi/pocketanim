@@ -99,3 +99,49 @@ def test_a_copy_arrives_beside_its_original_and_next_to_is_a_move(tmp_path):
     dx, dy = (float(v) for v in xform.split("by_xy=")[1].split()[0].split(","))
     assert abs(dx - 3) < 0.05 and dy < -2
     assert parse(program)["timeline"]
+
+
+PHONE = REPO / "player" / "build" / "classes"
+
+
+def test_a_lecture_with_free_manim_plays_on_the_phone(tmp_path, monkeypatch):
+    """The whole road to the phone: a lecture with manim beats is compiled and exported, the phone's interpreter
+    (player/core, the Kotlin that ships) agrees with the reference on its frames, and the zip the web app's
+    "Download for the phone" makes is imported by the phone's own code (LibraryImport) and opens."""
+    import shutil
+
+    import pytest
+
+    if not (PHONE / "core").is_dir() or not shutil.which("java"):
+        pytest.skip("the phone player is not built (player/build.sh)")
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script(BUILD, MOVE, "self.play(Indicate(copy), box.animate.next_to(copy, LEFT, buff=1))")
+    errors, _ = cl.lint(script)
+    assert errors == []
+    scene = tmp_path / "lecture.py"
+    scene.write_text(cl.compile_script(script))
+    build = tmp_path / "build"
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent"}
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(build)], capture_output=True, text=True, timeout=900, env=env)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1, result["blockers"]
+    (build / "player").symlink_to(REPO / "player")
+    cross = subprocess.run([sys.executable, "-m", "tools.crosscheck_interpreter", "dsl/generated/GeneratedScene.panim"],
+                           cwd=build, capture_output=True, text=True, timeout=900,
+                           env={**env, "PYTHONPATH": str(REPO)})
+    assert "both interpreters agree" in cross.stdout, cross.stdout + cross.stderr
+    subprocess.run([sys.executable, "-m", "tools.build_library", "--source", str(build / "dsl" / "generated"),
+                    "--out", str(build / "library")], cwd=REPO, check=True, capture_output=True, timeout=300)
+    zipped = shutil.make_archive(str(tmp_path / "Free-abc123"), "zip", str(build), "library")
+    classpath = ":".join(str(PHONE / p) for p in ("core", "desktop", "kotlin-stdlib.jar"))
+    phone = subprocess.run(["java", "-cp", classpath, "com.pocketanim.desktop.VerifyKt", zipped, "import",
+                            str(tmp_path / "phone" / "Free-abc123")], capture_output=True, text=True, timeout=300)
+    assert phone.returncode == 0, phone.stdout + phone.stderr
+    assert "GeneratedScene" in phone.stdout and " ok" in phone.stdout
+    # Every frame, through the phone's renderer: the cross-check compares a few frames, and a verb the phone
+    # cannot run crashes only on the frame that reaches it.
+    played = subprocess.run(["java", "-cp", classpath, "com.pocketanim.desktop.VerifyKt",
+                             str(tmp_path / "phone" / "Free-abc123"), "devicebench"],
+                            capture_output=True, text=True, timeout=600)
+    assert "GeneratedScene" in played.stdout and "PASS" in played.stdout, played.stdout + played.stderr

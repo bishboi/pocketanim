@@ -2,12 +2,15 @@ package com.pocketanim.player
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Color
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -20,6 +23,7 @@ import com.pocketanim.android.AssetStorage
 import com.pocketanim.android.FileStorage
 import com.pocketanim.android.PanimView
 import com.pocketanim.core.Library
+import com.pocketanim.core.LibraryImport
 import com.pocketanim.core.SceneEntry
 import com.pocketanim.core.Storage
 import java.io.File
@@ -44,15 +48,24 @@ class PlayerActivity : Activity() {
     private lateinit var view: PanimView
     private lateinit var playButton: Button
     private lateinit var sceneButton: Button
+    private lateinit var importButton: Button
     private lateinit var loopButton: Button
     private lateinit var seekBar: SeekBar
     private lateinit var timeLabel: TextView
     private lateinit var titleLabel: TextView
 
-    private lateinit var library: Library
-    private lateinit var storage: Storage
-    private var entries: List<SceneEntry> = emptyList()
-    private var current: SceneEntry? = null
+    /**
+     * One scene the picker offers, with the library it lives in: a lecture imported from the harness, a library
+     * pushed with adb, or the samples inside the APK. [label] is what the viewer sees (an import's file name: every
+     * lecture's scene is called GeneratedScene).
+     */
+    private class Item(val entry: SceneEntry, val library: Library, val storage: Storage, val label: String)
+
+    private var items: List<Item> = emptyList()
+    private var current: Item? = null
+
+    /** Where imported lectures live, one folder each, named after the zip they came from. */
+    private val importRoot: File by lazy { File(filesDir, "imported") }
 
     /** True while a finger is on the bar, so the ticker stops fighting it. */
     private var scrubbing = false
@@ -72,27 +85,123 @@ class PlayerActivity : Activity() {
 
         setContentView(buildUi())
 
+        reload(select = null)
+        // Opened with a lecture's zip (the harness's "Download for the phone", tapped on the phone).
+        handle(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handle(intent)
+    }
+
+    private fun handle(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) intent.data?.let(::importFrom)
+    }
+
+    /**
+     * Every scene there is to play: imported lectures first, newest first; then a library pushed with adb; then
+     * the samples in the APK, HelloPocketanim first. Opens [select] (an import's name) when given, else the first.
+     */
+    private fun reload(select: String?) {
+        val found = ArrayList<Item>()
+        val problems = ArrayList<String>()
+        importRoot.listFiles { f -> f.isDirectory && !f.name.contains('.') }.orEmpty()
+            .sortedByDescending { it.lastModified() }
+            .forEach { dir ->
+                try {
+                    val storage = LibraryImport.DirStorage(dir)
+                    val library = Library.load(storage)
+                    library.scenes.forEach { entry ->
+                        val label = if (library.scenes.size == 1) dir.name else "${dir.name} · ${entry.name}"
+                        found.add(Item(entry, library, storage, label))
+                    }
+                } catch (e: Exception) {
+                    problems.add("${dir.name}: ${e.message}")
+                }
+            }
         // A library pushed next to the app wins over the one inside it, so a
         // scene built in the harness plays without rebuilding the APK:
         //   adb push <library> /sdcard/Android/data/com.pocketanim.player/files/library
         val pushed = getExternalFilesDir(null)?.let { File(it, "library") }
-        storage = if (pushed != null && File(pushed, "library.json").isFile) FileStorage(pushed) else AssetStorage(assets)
-        library = try {
-            Library.load(storage)
+        val storage: Storage = if (pushed != null && File(pushed, "library.json").isFile) FileStorage(pushed)
+            else AssetStorage(assets)
+        try {
+            val library = Library.load(storage)
+            // The sample first, then everything else alphabetically: the point of
+            // the app is that one scene, and a picker that buries it is a worse
+            // demonstration than one that does not.
+            library.scenes.sortedBy { if (it.name == SAMPLE) "" else it.name }
+                .forEach { found.add(Item(it, library, storage, it.name)) }
         } catch (e: Exception) {
-            fail("cannot open the library: ${e.message}")
+            problems.add("the built-in library: ${e.message}")
+        }
+        items = found
+        if (items.isEmpty()) {
+            fail("nothing to play" + if (problems.isEmpty()) "" else ": ${problems.first()}")
             return
         }
+        setControls(true)
+        open(items.firstOrNull { select != null && it.label.startsWith(select) } ?: items.first())
+    }
 
-        // The sample first, then everything else alphabetically: the point of
-        // the app is that one scene, and a picker that buries it is a worse
-        // demonstration than one that does not.
-        entries = library.scenes.sortedBy { if (it.name == SAMPLE) "" else it.name }
-        if (entries.isEmpty()) {
-            fail("the library has no scenes")
-            return
+    /** Pick a lecture's zip from the phone's files (Downloads, a chat app, a drive). */
+    private fun pickZip() {
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed",
+                "application/octet-stream"))
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(pick, PICK_ZIP)
+        } catch (e: Exception) {
+            titleLabel.text = "no file picker on this phone: ${e.message}"
         }
-        open(entries.first())
+    }
+
+    @Deprecated("Activity result API needs AndroidX; this app has no dependencies")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_ZIP && resultCode == RESULT_OK) data?.data?.let(::importFrom)
+    }
+
+    /**
+     * Unpack a lecture's zip into app storage, off the main thread (it hashes every file), then play it. A zip
+     * that is not a whole library is refused with the reason and nothing already imported is touched.
+     */
+    private fun importFrom(uri: Uri) {
+        val name = importName(uri)
+        titleLabel.text = "Importing $name…"
+        view.pause()
+        Thread {
+            val result = runCatching {
+                val input = contentResolver.openInputStream(uri) ?: error("cannot read $uri")
+                input.use { LibraryImport.unpack(it, File(importRoot, name)) }
+            }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { reload(select = name) },
+                    onFailure = { titleLabel.text = "Could not import $name: ${it.message}" },
+                )
+            }
+        }.start()
+    }
+
+    /** The import's folder name: the zip's file name, made safe for a folder and without ".zip". */
+    private fun importName(uri: Uri): String {
+        var shown: String? = null
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) shown = cursor.getString(0)
+            }
+        } catch (_: Exception) {
+        }
+        val raw = (shown ?: uri.lastPathSegment ?: "lecture").substringAfterLast('/')
+            .removeSuffix(".zip").removeSuffix("-library")
+        return raw.replace(Regex("[^A-Za-z0-9_-]+"), "-").trim('-').take(80).ifEmpty { "lecture" }
     }
 
     private fun buildUi(): View {
@@ -126,6 +235,10 @@ class PlayerActivity : Activity() {
         sceneButton = Button(this).apply {
             text = "Scene"
             setOnClickListener { chooseScene() }
+        }
+        importButton = Button(this).apply {
+            text = "Import"
+            setOnClickListener { pickZip() }
         }
         timeLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -163,6 +276,7 @@ class PlayerActivity : Activity() {
             addView(timeLabel, LinearLayout.LayoutParams(WRAP, WRAP))
             addView(loopButton, LinearLayout.LayoutParams(WRAP, WRAP))
             addView(sceneButton, LinearLayout.LayoutParams(WRAP, WRAP))
+            addView(importButton, LinearLayout.LayoutParams(WRAP, WRAP))
         }
 
         return LinearLayout(this).apply {
@@ -174,14 +288,15 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun open(entry: SceneEntry) {
+    private fun open(item: Item) {
+        val entry = item.entry
         val frames = try {
-            library.open(entry.name)
+            item.library.open(entry.name)
         } catch (e: Exception) {
-            fail("cannot open ${entry.name}: ${e.message}")
+            titleLabel.text = "cannot open ${item.label}: ${e.message}"
             return
         }
-        current = entry
+        current = item
         view.load(frames)
         view.playback?.looping = true
 
@@ -191,11 +306,11 @@ class PlayerActivity : Activity() {
         titleLabel.text = String.format(
             Locale.ROOT,
             "%s  ·  tier %d  ·  %d frames at %d fps  ·  %.1fs  ·  %s on the wire",
-            entry.name, entry.tier, frames.frameCount, frames.fps, seconds,
+            item.label, entry.tier, frames.frameCount, frames.fps, seconds,
             humanBytes(entry.playableBytes),
         )
         showTime(0)
-        entry.audio?.let { attachNarration(entry.name, it) }
+        entry.audio?.let { attachNarration(item, it) }
         view.play()
         playButton.text = PAUSE
     }
@@ -208,10 +323,12 @@ class PlayerActivity : Activity() {
      * missing or unreadable still plays, silently -- audio is optional by
      * design (§5.3), and the picture keeps the system clock.
      */
-    private fun attachNarration(name: String, path: String) {
+    private fun attachNarration(item: Item, path: String) {
         try {
-            val file = File(cacheDir, "narration-$name-${path.substringAfterLast('/')}")
-            if (!file.isFile) file.writeBytes(storage.read(path))
+            // Keyed by the item's label too: two imported lectures are both GeneratedScene, with different voices.
+            val key = "${item.label}-${item.entry.name}".replace(Regex("[^A-Za-z0-9_-]+"), "-")
+            val file = File(cacheDir, "narration-$key-${path.substringAfterLast('/')}")
+            if (!file.isFile || file.length() != item.storage.sizeOf(path)) file.writeBytes(item.storage.read(path))
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(file.absolutePath)
@@ -254,10 +371,10 @@ class PlayerActivity : Activity() {
     }
 
     private fun chooseScene() {
-        val names = entries.map { "${it.name}  (tier ${it.tier})" }.toTypedArray()
+        val names = items.map { "${it.label}  (tier ${it.entry.tier})" }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Scene")
-            .setItems(names) { _, which -> open(entries[which]) }
+            .setItems(names) { _, which -> open(items[which]) }
             .show()
     }
 
@@ -293,8 +410,15 @@ class PlayerActivity : Activity() {
 
     private fun fail(message: String) {
         titleLabel.text = message
-        playButton.isEnabled = false
-        seekBar.isEnabled = false
+        setControls(false)
+    }
+
+    /** Import stays usable when nothing else is: it is how there comes to be something to play. */
+    private fun setControls(enabled: Boolean) {
+        playButton.isEnabled = enabled
+        seekBar.isEnabled = enabled
+        sceneButton.isEnabled = enabled
+        loopButton.isEnabled = enabled
     }
 
     override fun onResume() {
@@ -319,6 +443,7 @@ class PlayerActivity : Activity() {
 
     private companion object {
         const val SAMPLE = "HelloPocketanim"
+        const val PICK_ZIP = 7
         const val PLAY = "Play"
         const val PAUSE = "Pause"
         const val TICK_MILLIS = 66L  // ~15 Hz; a scrubber does not need 60

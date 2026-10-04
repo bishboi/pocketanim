@@ -45,6 +45,27 @@ adb shell am start -n com.pocketanim.player/.PlayerActivity
 
 Both APKs are built by `.github/workflows/apk.yml` and attached to the run.
 
+## Lectures from the harness
+
+A lecture made in the web app plays here as a program, like the samples. Under the preview, **Download for the
+phone** gives a zip named after the lecture: the program, its baked shapes, the glyph atlas and the narration. Before
+it is offered, the web app opens it with this player's own core (when `player/build.sh` has been run), so a lecture
+the phone cannot open is reported there, not on the phone.
+
+On the phone:
+
+- **Open the zip with pocketanim**: tap the download in the browser or a file manager; the app is offered for zip
+  files and imports what it is given.
+- or **Import** in the app, and pick the zip (Downloads, a chat app, a drive).
+
+`LibraryImport` (core) unpacks it beside the app's other imports, checks every file against the manifest (size and
+digest), and only then moves it into place, so a broken download never replaces a lecture that played. A zip naming
+a path outside its folder is refused. Imported lectures are listed first under **Scene**, by their file names.
+
+The road is checked here end to end (`harness/forge/tests/test_free_manim.py`): a lecture is exported, the two
+interpreters agree on it, the web app's zip is imported by `LibraryImport`, and every frame is played through the
+phone's renderer (`Verify <zip> import <dir>`, then `Verify <dir> devicebench`).
+
 ## The one seam
 
 `core` asks the platform for exactly one thing:

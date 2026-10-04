@@ -521,6 +521,15 @@ fun main(args: Array<String>) {
         return
     }
 
+    if (args[1] == "import") {
+        // Import a phone-library zip exactly as the app does, then report it: Verify <zip> import <dest>
+        val dest = File(args.getOrElse(2) { "imported" })
+        val library = File(args[0]).inputStream().use { com.pocketanim.core.LibraryImport.unpack(it, dest) }
+        println("imported ${library.scenes.size} scene(s) into $dest")
+        if (!libraryReport(dest)) kotlin.system.exitProcess(1)
+        return
+    }
+
     if (args[1] == "library") {
         if (!libraryReport(File(args[0]))) kotlin.system.exitProcess(1)
         return

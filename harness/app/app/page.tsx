@@ -1373,10 +1373,9 @@ export default function Home() {
                     >
                       Download for the phone
                     </a>{" "}
-                    — a library the player opens as it opens its own. Unzip, then{" "}
-                    <code className="text-neutral-300">
-                      adb push library /sdcard/Android/data/com.pocketanim.player/files/
-                    </code>
+                    — the lecture as a program the pocketanim app plays (no video file). Open this page on the
+                    phone and tap the link, then open the download with pocketanim; or send the zip to the phone
+                    and use <span className="text-neutral-300">Import</span> in the app.
                   </div>
                 )}
                 {exported.stored && !exported.stored.configured && (

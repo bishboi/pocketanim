@@ -9,7 +9,7 @@
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -430,6 +430,44 @@ print(len(load_program(${program}).records))
  * as it opens its own: unzip and `adb push` it to the app's files directory.
  * Narration the scene produced travels with it.
  */
+/**
+ * The library opened by the phone's own code (player/core, through the desktop harness), when the player is built
+ * (player/build.sh): every file the manifest names present and intact, each scene opened and drawn at its first,
+ * middle and last frame. null when it opens, or when there is no built player to ask; else what went wrong.
+ */
+async function phoneCheck(library: string): Promise<string | null> {
+  const classes = path.join(REPO, "player", "build", "classes");
+  if (!existsSync(path.join(classes, "core"))) return null;
+  const classpath = ["core", "desktop", "kotlin-stdlib.jar"].map((p) => path.join(classes, p)).join(":");
+  const checked = await run(["-cp", classpath, "com.pocketanim.desktop.VerifyKt", library, "library"],
+    { binary: "java", timeoutMs: 180_000 }).catch((error: Error) => ({ code: -2, stdout: Buffer.from(""), stderr: error.message }));
+  if (checked.code === -2) return null;     // no java: nothing to ask
+  if (checked.code === 0) return null;
+  const said = `${checked.stdout.toString()}\n${checked.stderr}`.split("\n").filter((l) => /FAIL|missing|expected|Exception/.test(l));
+  return `The phone player could not open this lecture: ${said.slice(0, 4).join("; ") || `exit ${checked.code}`}`;
+}
+
+/**
+ * The phone library's file name: the lecture's title and the build, so lectures imported on the phone keep their
+ * own names (every lecture's scene class is GeneratedScene; the player lists an import by its file name).
+ */
+export function libraryName(buildDir: string, sceneClass: string): string {
+  let title = sceneClass;
+  for (const file of ["source.py", "scene.py"]) {
+    const where = path.join(buildDir, file);
+    if (!existsSync(where)) continue;
+    const found = /self\.title_slide\(("(?:[^"\\]|\\.)*")/.exec(readFileSync(where, "utf8"));
+    if (found) {
+      try {
+        title = JSON.parse(found[1]);
+      } catch {}
+    }
+    break;
+  }
+  const slug = title.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || sceneClass;
+  return `${slug}-${path.basename(buildDir).slice(-6)}`;
+}
+
 export async function bundleLibrary(
   buildDir: string,
   sceneClass: string,
@@ -447,9 +485,11 @@ export async function bundleLibrary(
   if (packed.code !== 0) {
     return { error: packed.stderr.trim().split("\n").slice(-4).join("\n") || `exit ${packed.code}` };
   }
+  const phone = await phoneCheck(out);
+  if (phone) return { error: phone };
   const zipped = await run(
     ["-c", "import shutil, sys; print(shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'library'))",
-     path.join(buildDir, `${sceneClass}-library`), buildDir],
+     path.join(buildDir, libraryName(buildDir, sceneClass)), buildDir],
     { timeoutMs: 120_000 },
   );
   const zip = zipped.stdout.toString().trim().split("\n").pop() ?? "";

@@ -148,7 +148,7 @@ def estimate_minutes(script: dict) -> float:
     if script.get("title"):
         seconds += _say_seconds(script.get("intro") or script["title"]) + 1.6
     for chapter in script.get("chapters") or []:
-        seconds += _say_seconds(chapter.get("narration", "")) + 0.8 + 1.4 + 1.0     # card, map, outro
+        seconds += _say_seconds(chapter.get("narration") or chapter.get("title", "")) + 0.8 + 1.4 + 1.0     # card, map, outro
         seconds += _beat_seconds(chapter.get("beats") or [])
     for head, body in script.get("recap") or []:
         seconds += _say_seconds(f"{head}. {body}")
@@ -184,9 +184,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     for ci, chapter in enumerate(chapters, 1):
         where = f"chapter {ci}"
         diagrams: dict = {}          # diagram id -> node ids, for the chapter's reveal and focus
-        for key in ("title", "narration"):
-            if not chapter.get(key):
-                errors.append(f"{where}: missing {key}")
+        # A chapter card without its own narration says the chapter's title: a missing line cost a whole turn.
+        if not chapter.get("title"):
+            errors.append(f"{where}: missing title")
         used = 0.0
         for bi, beat in enumerate(chapter.get("beats") or [], 1):
             at = f"{where} beat {bi}"
@@ -1717,7 +1717,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     for index, chapter in enumerate(chapters, 1):
         out += ["", f"        # {index:02d}  {chapter['title']}"]
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
-                   f"{_q(chapter['narration'])})")
+                   f"{_q(chapter.get('narration') or chapter['title'])})")
         on_map = _map_chapter(chapter, bool(region))
         out.append("        self.show_map()" if on_map else
                    "        self.board()" if board_chapter(script, chapter) else "        self.add_panel()")

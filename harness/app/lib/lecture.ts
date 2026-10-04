@@ -483,13 +483,15 @@ export const ADD_CHAPTERS_TOOL = {
     description:
       "Add the next part of a long lecture begun with write_lecture (more: true): its next chapters, about 5 minutes. " +
       "Each part is checked when it arrives. done: true on the last part (with the recap): then the whole lecture is " +
-      "checked (length, questions, examples, problems) and compiled. replace_from: n rewrites from chapter n on.",
+      "checked (length, questions, examples, problems) and compiled. replace_from: n rewrites from chapter n on " +
+      "(with replace_to: m, only chapters n to m).",
     parameters: {
       type: "object",
       properties: {
         chapters: { type: "array", items: { type: "object" }, description: "The next chapters, in the script's chapter shape." },
         recap: { type: "array", description: "The recap, with the last part: [[head, body], ...]." },
         replace_from: { type: "integer", description: "Replace chapters from this number (1-based) on, instead of adding after the last." },
+        replace_to: { type: "integer", description: "With replace_from: replace only chapters replace_from..replace_to (1-based, inclusive), keeping those after; replace_from - 1 inserts before chapter replace_from." },
         done: { type: "boolean", description: "true when this is the last part." },
       },
       required: ["chapters", "done"],

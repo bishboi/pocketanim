@@ -71,6 +71,10 @@ export function transcriptModel(chosen?: string): string {
 const SCENE_CLASS = "GeneratedScene";
 /** How long a turn may pass with nothing from the model before it is stopped (PANIM_MODEL_WAIT_MINUTES). */
 const FIRST_REPLY_MINUTES = Math.max(1, Number(process.env.PANIM_MODEL_WAIT_MINUTES) || 15);
+// A reply that streams nothing for this long after it started writing has stalled: asked again.
+const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 180) * 1000;
+/** m:ss, for the progress lines. */
+const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 /** Subjects taught with theory, then long worked problems (compile_lecture.BOARD_GENRES). */
 const STEM_GENRES = ["mathematics", "physics", "chemistry"];
 
@@ -442,7 +446,8 @@ async function streamCompletion(
       if (args) {
         calls[index].arguments += args;
         const tool = calls[index].name || "tool";
-        if (tool === "write_scene" || tool === "edit_scene" || tool === "write_lecture" || tool === "write_section") {
+        if (tool === "write_scene" || tool === "edit_scene" || tool === "write_lecture" || tool === "write_section" ||
+            tool === "add_chapters") {
           deltas.push("assistant", args);
         }
       }
@@ -662,14 +667,11 @@ async function viaOpenRouter(
     const TRIES = 4;
     // A few sections at once (each its own request): one after another, a book chapter took most of an hour.
     const PARALLEL = Math.max(1, Math.min(6, Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 3));
-    // A reply that streams nothing for this long after it started writing has stalled: asked again.
-    const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 180) * 1000;
     const done = new Map<number, WrittenSection>();
     const failed: number[] = [];
     // What each section in flight is doing, for the progress line: when it started, words so far, its try.
     const live = new Map<number, { started: number; words: number; attempt: number; thinking: boolean }>();
     let halted: unknown = null;
-    const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
     const progress = setInterval(() => {
       if (!live.size) return;
       const now = Date.now();
@@ -922,6 +924,8 @@ async function viaOpenRouter(
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
   const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
   let nudges = 0;
+  let quietTries = 0;           // turns in a row that went silent or stalled
+  const QUIET_TRIES = 2;
   let requireTool = false;     // after a reminder, the next reply must be a tool call, not more prose
   // A part of a long lecture is whole chapters: a first part of one chapter with one beat became a 20-second video.
   const partBeats = minutes >= 5 ? 6 : 3;
@@ -930,6 +934,259 @@ async function viaOpenRouter(
       const beats = (c as { beats?: unknown[] })?.beats;
       return !Array.isArray(beats) || beats.length < partBeats;
     }).length;
+  const size = (chars: number) => (chars >= 1024 ? `about ${Math.round(chars / 1024)} KB` : `${chars} characters`);
+
+  /** A section's chapters as a script of their own, checked as a part is: null when they pass, else what is wrong. */
+  const checkSection = async (script: Record<string, unknown>, n: number) => {
+    const chapters = (Array.isArray(script.chapters) ? script.chapters : [])
+      .filter((c) => c && typeof c === "object")
+      .map((c) => ({ ...(c as Record<string, unknown>), section: n }));
+    if (!chapters.length) return { script, errors: ["The script has no chapters."], compiles: false };
+    const own = { ...script, title: script.title || `Section ${n}`, chapters };
+    const thin = thinChapters(chapters);
+    const compiled = await compileLecture(own, partOptions());
+    const errors = [
+      ...(thin ? [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} chapter(s) here have fewer.`] : []),
+      ...[transcriptProblem(own, written, [n])].filter((e): e is string => !!e),
+      ...(compiled.source ? [] : compiled.errors),
+    ];
+    return { script: own, errors, compiles: !!compiled.source };
+  };
+
+  /**
+   * Every transcript section's chapters, written at the same time (PANIM_CHAPTERS_PARALLEL requests at once), each
+   * request asked again when it goes silent or stalls; then put together in order. `missing` are the sections that
+   * gave nothing usable. null when no section did.
+   */
+  const chaptersInParallel = async (): Promise<{ script: Record<string, unknown>; missing: number[] } | null> => {
+    const PARALLEL = Math.max(1, Math.min(6, Number(process.env.PANIM_CHAPTERS_PARALLEL) ||
+      Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 3));
+    const TRIES = 4;          // refused or failed replies before a section is given up
+    const TURNS = 8;          // replies in all, the picture searches among them
+    const done = new Map<number, Record<string, unknown>>();
+    const missing: number[] = [];
+    const live = new Map<number, { started: number; chars: number; attempt: number; thinking: boolean }>();
+    const sectionTools: ToolSpec[] = [LECTURE_TOOL, ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL];
+    emit({ type: "message", role: "status", text: `Video: writing the chapters of the ${written.length} sections, ` +
+      `${Math.min(PARALLEL, written.length)} at a time.` });
+    const progress = setInterval(() => {
+      if (!live.size) return;
+      const now = Date.now();
+      const parts = [...live.entries()].sort((x, y) => x[0] - y[0]).map(([n, p]) =>
+        `${n} (${clock(now - p.started)}, ${p.chars ? size(p.chars) : p.thinking ? "thinking" : "waiting"}` +
+        `${p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
+      emit({ type: "message", role: "status",
+        text: `Video: ${done.size} of ${written.length} sections' chapters written; writing ${parts.join(", ")}` });
+    }, 10_000);
+
+    const one = async (section: WrittenSection): Promise<Record<string, unknown> | null> => {
+      const first = section.n === written[0].n;
+      const last = section.n === written[written.length - 1].n;
+      const ask = [
+        `Write the video's chapters for SECTION ${section.n} of ${written.length} ("${section.title}") ONLY. The other ` +
+          "sections are being written at the same time by others: do not write them.",
+        "Its narration is that section's transcript, above: every sentence of it, word for word and in order, one or " +
+          "two sentences a beat. Split it into chapters where its topics change, 8-12 beats each, each chapter with " +
+          `"section": ${section.n}, a title and a one-line "narration" for its title card.`,
+        "Put on the stage the book's questions this section reads out (with their from_book ids) and build the book's " +
+          "figures it explains; work every problem it solves with problem and work ops.",
+        first ? "This is the first section: the script also has the lecture's title, sub and intro."
+          : "Give the script a title (only the first section's is used) and no intro.",
+        last ? "This is the last section: end the script with the recap." : "No recap: the last section has it.",
+        "Call write_lecture once with this script ({title, sub, intro, chapters, recap}); use the find tools first if " +
+          "you need pictures. Write it straight away.",
+      ].join("\n");
+      const talk: OutMessage[] = [
+        messages[0],
+        pictures.length ? { role: "user", content: [{ type: "text", text: ask }, ...pictures] } : { role: "user", content: ask },
+      ];
+      let refused = 0;
+      // The longest try that compiles, kept when every try is refused, so one stubborn section does not lose the
+      // lecture: the whole lecture's check names what it lacks, and that is fixed afterwards.
+      let fallback: Record<string, unknown> | null = null;
+      for (let turn = 0; turn < TURNS && refused < TRIES; turn++) {
+        if (stopped()) return null;
+        const state = { started: Date.now(), chars: 0, attempt: refused + 1, thinking: false };
+        live.set(section.n, state);
+        const abort = new AbortController();
+        let why: "silent" | "stalled" | null = null;
+        let lastDelta = 0;
+        const watch = setInterval(() => {
+          const now = Date.now();
+          if (!lastDelta && now - state.started > FIRST_REPLY_MINUTES * 60_000) why = "silent";
+          else if (lastDelta && now - lastDelta > STALL_MS) why = "stalled";
+          if (why) abort.abort();
+        }, 5000);
+        let result;
+        try {
+          result = await completionWithRetry(key, model, talk, emit, (kind, text) => {
+            lastDelta = Date.now();
+            if (kind === "thinking") state.thinking = true;
+            else state.chars += text.length;
+          }, sectionTools, abort.signal, "required");
+        } catch (error) {
+          if (stopped()) return null;
+          refused += 1;
+          const note = why === "silent" ? `sent nothing for ${FIRST_REPLY_MINUTES} minutes`
+            : why === "stalled" ? `stopped streaming partway (nothing for ${Math.round(STALL_MS / 1000)} s)`
+              : `failed (${error instanceof Error ? error.message.slice(0, 160) : String(error)})`;
+          emit({ type: "message", role: "status",
+            text: `Video: section ${section.n}, try ${refused}: the reply ${note}.${refused < TRIES ? " Asking again." : ""}` });
+          continue;
+        } finally {
+          clearInterval(watch);
+        }
+        const addedIn = result.usage?.prompt_tokens ?? 0;
+        const addedOut = result.usage?.completion_tokens ?? 0;
+        const addedCost = Number(result.usage?.cost ?? 0);
+        inputTokens += addedIn;
+        outputTokens += addedOut;
+        costUsd += addedCost;
+        emit({ type: "usage", text: `video section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`,
+          inputTokens, outputTokens, costUsd });
+        const calls = result.message.tool_calls ?? [];
+        if (!calls.length) {
+          // A script put in the reply text instead of the tool call is taken as if it had been sent with the tool.
+          const typed = scriptFromText(result.message.content ?? "");
+          if (typed) {
+            const checked = await checkSection(typed, section.n);
+            if (!checked.errors.length) return checked.script;
+            if (checked.compiles) fallback = checked.script;
+          }
+          refused += 1;
+          talk.push({ role: "assistant", content: result.message.content ?? "" });
+          talk.push({ role: "user", content: "Call the write_lecture tool with the script of this section's chapters." });
+          continue;
+        }
+        talk.push({ role: "assistant", content: result.message.content ?? null, tool_calls: calls });
+        let saved: Record<string, unknown> | null = null;
+        for (const call of calls) {
+          let args: { script?: unknown; queries?: unknown } = {};
+          try {
+            args = JSON.parse(call.function.arguments || "{}");
+          } catch {}
+          let output: string;
+          if (call.function.name === "write_lecture") {
+            if (!args.script || typeof args.script !== "object") {
+              refused += 1;
+              output = "write_lecture needs the script: {title, chapters: [...]}.";
+            } else {
+              const checked = await checkSection(args.script as Record<string, unknown>, section.n);
+              if (!checked.errors.length) {
+                saved = checked.script;
+                output = `Saved section ${section.n}'s ${chapterCount(checked.script)} chapter(s). Stop calling tools.`;
+              } else {
+                refused += 1;
+                if (checked.compiles && JSON.stringify(checked.script).length > JSON.stringify(fallback ?? {}).length) {
+                  fallback = checked.script;
+                }
+                output = [`Section ${section.n}'s chapters were refused. Fix these and call write_lecture again:`,
+                  ...checked.errors].join("\n");
+              }
+            }
+          } else if (call.function.name === "find_image") {
+            output = await findImage(args.queries);
+          } else if (call.function.name === "find_drawing") {
+            output = await findDrawings(args.queries);
+          } else if (call.function.name === "find_illustration") {
+            output = await findIllustration(args.queries, subject?.genre);
+          } else {
+            output = "Only write_lecture and the find tools are available here.";
+          }
+          emit({ type: "tool_result", name: call.function.name, text: `Section ${section.n}: ${output}` });
+          talk.push({ role: "tool", tool_call_id: call.id, content: output });
+        }
+        if (saved) return saved;
+      }
+      if (fallback) {
+        emit({ type: "message", role: "status",
+          text: `Video: section ${section.n}'s chapters kept after ${refused} tries, though not every check passed.` });
+      }
+      return fallback;
+    };
+
+    let next = 0;
+    let halted: unknown = null;
+    const worker = async () => {
+      while (next < written.length && !halted && !stopped()) {
+        const section = written[next++];
+        try {
+          const script = await one(section);
+          if (script) done.set(section.n, script);
+          else missing.push(section.n);
+        } catch (error) {
+          halted = error;
+        } finally {
+          live.delete(section.n);
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(PARALLEL, written.length) }, worker));
+    } finally {
+      clearInterval(progress);
+    }
+    if (halted) throw halted;
+    if (stopped()) throw new Error("The page closed while the video was being written.");
+    if (!done.size) return null;
+    // Put together in order: the first section's title and opening, every section's chapters, the last's recap.
+    const scripts = written.filter((s) => done.has(s.n)).map((s) => done.get(s.n)!);
+    const head = done.get(written[0].n) ?? scripts[0];
+    const recap = [...scripts].reverse().find((s) => s.recap)?.recap;
+    const script: Record<string, unknown> = {
+      ...head,
+      chapters: scripts.flatMap((s) => (Array.isArray(s.chapters) ? s.chapters : [])),
+      ...(recap ? { recap } : {}),
+    };
+    missing.sort((x, y) => x - y);
+    emit({ type: "message", role: "status", text: `Video: chapters written for ${done.size} of ${written.length} sections` +
+      (missing.length ? ` (section${missing.length > 1 ? "s" : ""} ${missing.join(", ")} still to write)` : "") +
+      "; compiling the whole lecture." });
+    return { script, missing };
+  };
+
+  // A long lecture with a written transcript: each section's chapters are written at the same time, each by its
+  // own request, as the transcript was. One after another (write_lecture, then add_chapters turn by turn) a two-hour
+  // lecture took a slow model an hour of turns, each a longer conversation than the last, and looked stuck.
+  if (lecture && written.length >= 2 && !scene) {
+    const merged = await chaptersInParallel();
+    if (merged) {
+      if (!tools.includes(ADD_CHAPTERS_TOOL)) tools.splice(1, 0, ADD_CHAPTERS_TOOL);
+      const compiled = await compileWhole(merged.script);
+      emit({ type: "tool_call", name: "write_lecture", args: JSON.stringify({ script: merged.script }).slice(0, 1600) });
+      if (compiled.source) {
+        emit({ type: "tool_result", name: "write_lecture", text: [
+          `Compiled the lecture: ${chapterCount(merged.script)} chapters, ${compiled.source.split("\n").length} lines of Manim, ` +
+            `about ${compiled.minutes ?? "?"} min.`,
+          ...compiled.warnings.map((w) => `warning: ${w}`)].join("\n") });
+        scene = compiled.source;
+        return savedScene()!;
+      }
+      // The sections are written but the whole falls short (a section missing, a question or figure left out, the
+      // length): the chapters are kept and the model fixes only what is wrong, with add_chapters.
+      const partsOk = (await compileLecture(merged.script, partOptions())).source;
+      draft = merged.script;
+      const list = (Array.isArray(merged.script.chapters) ? merged.script.chapters : []).map((c, i) => {
+        const chapter = c as { title?: unknown; section?: unknown };
+        return `  chapter ${i + 1}: section ${chapter.section ?? "?"}, ${String(chapter.title ?? "")}`;
+      });
+      const problem = [
+        partsOk ? `The chapters of every section were written and are saved (${chapterCount(merged.script)} chapters):` :
+          "The chapters of the sections were written, but they do not compile together:",
+        ...list,
+        ...merged.missing.map((n) => `  section ${n}: NO CHAPTERS YET; write them and put them in their place`),
+        "",
+        "The whole lecture does not pass yet:",
+        ...compiled.errors,
+        "",
+        "Fix only what is wrong, with add_chapters: replace_from n and replace_to m replace chapters n to m with the " +
+          "chapters you send (replace_to n - 1 inserts them before chapter n); done: true when it is complete.",
+      ].join("\n");
+      emit({ type: "tool_result", name: "write_lecture", text: problem });
+      messages.push({ role: "user", content: problem });
+      requireTool = true;
+    }
+  }
   for (let turn = 0; turn < (written.length ? 30 + written.length * 5 : 40); turn++) {
     if (stopped()) {
       const done = savedScene();
@@ -948,21 +1205,23 @@ async function viaOpenRouter(
     });
     let sawDelta = false;
     let lastDelta = Date.now();
+    let streamed = 0;
     const started = Date.now();
     const abort = new AbortController();
-    let gaveUp = false;
+    let gaveUp: "silent" | "stalled" | null = null;
     const waiting = setInterval(() => {
       const quiet = Date.now() - lastDelta;
       const minutes = (Date.now() - started) / 60000;
-      if (!sawDelta && minutes >= FIRST_REPLY_MINUTES) {
-        gaveUp = true;
+      if (!sawDelta && minutes >= FIRST_REPLY_MINUTES) gaveUp = "silent";
+      else if (sawDelta && quiet > STALL_MS) gaveUp = "stalled";
+      if (gaveUp) {
         abort.abort();
         return;
       }
       if (!sawDelta) {
         // A reasoning model thinks before it writes and sends nothing meanwhile; a "pro" one for many minutes.
         const hint = minutes >= 2 ? ` (${Math.floor(minutes)} min; it has sent nothing yet: a reasoning model thinks ` +
-          `silently first, and a "pro" model can take many minutes. Stops at ${FIRST_REPLY_MINUTES} min)` : "";
+          `silently first, and a "pro" model can take many minutes. Asked again at ${FIRST_REPLY_MINUTES} min)` : "";
         emit({
           type: "message",
           role: "status",
@@ -972,7 +1231,8 @@ async function viaOpenRouter(
         emit({
           type: "message",
           role: "status",
-          text: `Turn ${turn + 1}: still writing the next beat`,
+          text: `Turn ${turn + 1}: ${model} is writing (${clock(Date.now() - started)}, ${streamed ? size(streamed) : "thinking"}` +
+            `; nothing new for ${Math.round(quiet / 1000)} s, asked again at ${Math.round(STALL_MS / 1000)} s)`,
         });
       }
     }, 8000);
@@ -981,11 +1241,30 @@ async function viaOpenRouter(
       result = await completionWithRetry(key, model, messages, emit, (kind, text) => {
         sawDelta = true;
         lastDelta = Date.now();
+        if (kind !== "thinking") streamed += text.length;
         emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text });
       }, tools, abort.signal, requireTool ? "required" : "auto");
+      quietTries = 0;
     } catch (error) {
-      if (gaveUp) {
-        throw new Error(`${model} sent nothing for ${FIRST_REPLY_MINUTES} minute${FIRST_REPLY_MINUTES === 1 ? "" : "s"}, so the request was stopped. ` +
+      if (gaveUp && !stopped()) {
+        // A turn that went silent or stalled is asked again, not the end of the lecture.
+        quietTries += 1;
+        const what = gaveUp === "silent" ? `sent nothing for ${FIRST_REPLY_MINUTES} minute${FIRST_REPLY_MINUTES === 1 ? "" : "s"}`
+          : `stopped streaming partway (nothing for ${Math.round(STALL_MS / 1000)} s)`;
+        if (quietTries <= QUIET_TRIES) {
+          emit({ type: "message", role: "status",
+            text: `Turn ${turn + 1}: ${model} ${what}. Asking again (try ${quietTries + 1} of ${QUIET_TRIES + 1}).` });
+          continue;
+        }
+        const partial = draft ? await compileLecture(draft, partOptions()) : null;
+        if (partial?.source) {
+          Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
+          emit({ type: "message", role: "status",
+            text: `${model} ${what}, ${QUIET_TRIES + 1} times in a row; building the lecture from the ${chapterCount(draft!)} ` +
+              `chapter(s) written (about ${partial.minutes ?? "?"} of ${minutes} min).` });
+          return { source: partial.source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
+        }
+        throw new Error(`${model} ${what}, ${QUIET_TRIES + 1} times in a row, so the request was stopped. ` +
           "Reasoning models (a \"pro\" model above all) think silently before writing, and a long lecture is a lot " +
           "to plan. Try a faster model in OPENROUTER_MODEL (a non-pro one), a shorter video length, or raise " +
           "PANIM_MODEL_WAIT_MINUTES.");
@@ -1119,6 +1398,7 @@ async function viaOpenRouter(
         chapters?: unknown[];
         recap?: unknown;
         replace_from?: number;
+        replace_to?: number;
         done?: boolean;
       } = {};
       try {
@@ -1151,8 +1431,13 @@ async function viaOpenRouter(
         } else {
           const had = Array.isArray(draft.chapters) ? (draft.chapters as unknown[]) : [];
           const from = args.replace_from && args.replace_from >= 1 ? Math.min(args.replace_from - 1, had.length) : had.length;
+          // replace_to n keeps the chapters after n (replace_to = replace_from - 1 inserts); without it, every
+          // chapter from replace_from on is replaced.
+          const to = args.replace_from && Number.isInteger(args.replace_to)
+            ? Math.max(from, Math.min(Number(args.replace_to), had.length)) : had.length;
           const next: Record<string, unknown> = {
-            ...draft, chapters: [...had.slice(0, from), ...(args.chapters ?? [])], ...(args.recap ? { recap: args.recap } : {}),
+            ...draft, chapters: [...had.slice(0, from), ...(args.chapters ?? []), ...had.slice(to)],
+            ...(args.recap ? { recap: args.recap } : {}),
           };
           const thin = thinChapters(args.chapters);
           const part = { chapters: args.chapters ?? [] };
@@ -1217,6 +1502,16 @@ async function viaOpenRouter(
   }
   const done = savedScene();
   if (done) return done;
+  if (draft) {
+    // Out of turns with a long lecture's chapters saved: they are the video, not an error.
+    const partial = await compileLecture(draft, partOptions());
+    if (partial.source) {
+      Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
+      emit({ type: "message", role: "status", text: `Out of turns; building the lecture from the ${chapterCount(draft)} ` +
+        `chapter(s) written (about ${partial.minutes ?? "?"} of ${minutes} min), though not every check passed.` });
+      return { source: partial.source, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
+    }
+  }
   throw new Error("The agent kept calling tools without writing a scene.");
 }
 

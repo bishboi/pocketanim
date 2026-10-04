@@ -887,8 +887,6 @@ def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
     """Each long problem solved from the very basics: at least MIN_WORK_LINES lines of working between it and the
     next problem (its own solution, the work ops with its id or after it in its chapter), and a problem with a
     figure walked through on it: MIN_FIGURE_STEPS reveals or focuses on the figure's parts."""
-    import stem
-
     errors: list[str] = []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
         current, lines, at, figure, pointed = None, 0, "", None, 0

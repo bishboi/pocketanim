@@ -182,7 +182,7 @@ def test_a_problems_diagram_is_walked_through_while_it_is_solved():
     work = [_beat(f"Step {i}.", {"op": "work", "id": "p1", "lines": [f"x_{i} = {i}"]}) for i in range(6)]
     errors, _ = cl._problem_depth(_lecture([_beat("Problem one.", problem)] + work))
     assert any("pointed at 0 time(s)" in e and '"diagram":"p1_figure"' in e for e in errors)
-    assert any("never moves" in e for e in errors)                  # and a block on a wedge is shown sliding
+    assert not any("never moves" in e for e in errors)              # moving it is not required
     pointing = [_beat("This angle is theta.", {"op": "focus", "diagram": "p1_figure", "node": "theta"}),
                 _beat("This is the block.", {"op": "focus", "diagram": "p1_figure", "node": "block"}),
                 _beat("Its weight acts down.", {"op": "focus", "diagram": "p1_figure", "node": "wedge"}),
@@ -196,8 +196,7 @@ def test_a_problems_diagram_is_walked_through_while_it_is_solved():
 def test_a_diagram_that_can_move_is_set_moving_and_its_moving_parts_drawn_apart():
     incline = {"op": "incline", "id": "ramp", "angle": 30, "forces": ["mg", "N"]}
     beats = [_beat("A block on a wedge.", incline), _beat("It slides down.", {"op": "motion", "diagram": "ramp"})]
-    assert not any("never moves" in e for e in cl._problem_depth(_lecture(beats))[0])
-    assert any("never moves" in e for e in cl._problem_depth(_lecture(beats[:1]))[0])
+    assert cl._unneeded_motions(_lecture(beats)) == []
     asked: dict = {}
     assert cl._build_problem(incline, asked, {}) is None
     assert cl._build_problem({"op": "motion", "diagram": "ramp"}, asked, {}) is None
@@ -209,3 +208,20 @@ def test_a_diagram_that_can_move_is_set_moving_and_its_moving_parts_drawn_apart(
     source = cl.compile_script(json.loads(json.dumps(_lecture(beats))))
     # The block and the forces on it are drawn as parts of their own, so they move without leaving a copy.
     assert "movable=['N', 'block', 'mg']" in source and 'self.motion("ramp", {})' in source
+
+
+def test_a_diagram_moves_only_where_the_narration_says_it_moves():
+    incline = {"op": "incline", "id": "ramp", "angle": 30, "forces": ["mg", "N"]}
+    move = {"op": "motion", "diagram": "ramp"}
+    beats = [_beat("A block on a wedge.", incline),
+             _beat("N equals m g cos theta.", move),                     # a formula: no animation
+             _beat("Watch: the block slides down the slope.", move),
+             _beat("ब्लॉक ढलान पर नीचे फिसलता है।", move),
+             _beat("Again it slides down.", move),                      # a third time: left out
+             _beat("This force is F.", {"op": "motion", "diagram": "ramp", "kind": "pulse", "parts": ["N"]})]
+    script = _lecture(beats)
+    notes = cl._unneeded_motions(script)
+    assert [n.split(":")[0] for n in notes] == ["chapter 1 beat 2", "chapter 1 beat 5"]
+    cl._unneeded_motions(script, drop=True)
+    kept = [[op.get("op") for op in b["do"]] for b in script["chapters"][0]["beats"]]
+    assert kept == [["incline"], [], ["motion"], ["motion"], [], ["motion"]]

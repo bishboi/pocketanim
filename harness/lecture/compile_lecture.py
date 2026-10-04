@@ -833,10 +833,54 @@ MIN_WORK_LINES = 6
 MIN_FIGURE_STEPS = 3
 
 
-MOTION_SAYS = {"slide": "the block slides down the slope and back", "swing": "the bob swings to the other side and back",
-               "fly": "a ball flies along the path and lands", "oscillate": "the block pulls the spring out and back",
-               "pull": "the heavier mass goes down, the lighter one up", "tilt": "the beam tips about the fulcrum",
-               "press": "the piston pushes into the gas and back"}
+
+# Narration that tells of something moving: a motion op plays only on such a beat. Set going on a beat that is about
+# a formula or a force balance, a still diagram jumping about looked forced, not explained.
+MOVING_SAYS = re.compile(
+    r"\b(slid|slide|slip|mov(?:e|es|ed|ing)\b|motion|fall|fell|drop|swing|swung|oscillat|vibrat|roll|accelerat|"
+    r"decelerat|throw|thrown|fl(?:y|ies|ew|ying)\b|launch|land(?:s|ed|ing)?\b|rotat|spin|tip(?:s|ped|ping)?\b|"
+    r"tilt|push|pull|compress|stretch|expand|ris(?:e|es|ing)\b|goes (?:up|down|round|around)|speeds? up|slow|bounc|"
+    r"collid|travel|turn(?:s|ed|ing)? (?:round|around|about)|watch)"
+    r"|फिसल|गिर|लुढ़क|झूल|दोलन|घूम|उछ|फेंक|उड़|टकरा|धकेल|धक्का|खींच|खिंच|दब|फैल|सिकुड़|हिल|मुड़|ऊपर जा|नीचे जा|"
+    r"चलती|चलता|चलने|गति कर|देखो",
+    re.IGNORECASE)
+# How often one diagram is set moving in a lecture: once to show what happens, once more when the solution uses it.
+MAX_MOTIONS = 2
+
+
+def _unneeded_motions(script: dict, drop: bool = False) -> list[str]:
+    """The motion ops that are not needed: on a beat whose narration tells of nothing moving, or a diagram set
+    moving more than MAX_MOTIONS times. A pulse (a part glowing as it is named) is not a motion. With `drop`, they
+    are taken out of the script, so the video animates only where the narration describes motion."""
+    notes: list[str] = []
+    moved: dict[str, int] = {}
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            ops = beat.get("do")
+            if not isinstance(ops, list):
+                continue
+            keep = []
+            for op in ops:
+                if not (isinstance(op, dict) and op.get("op") == "motion") or op.get("kind") == "pulse":
+                    keep.append(op)
+                    continue
+                key = str(op.get("diagram"))
+                why = None
+                if not MOVING_SAYS.search(str(beat.get("say") or "")):
+                    why = "its narration does not describe anything moving"
+                elif moved.get(key, 0) >= MAX_MOTIONS:
+                    why = f"{key!r} has already moved {MAX_MOTIONS} times"
+                if why:
+                    notes.append(f"chapter {ci} beat {bi}: the motion of {key!r} is left out: {why}. Animate a diagram "
+                                 "only on the beat that says what moves, and how.")
+                    if drop:
+                        continue
+                else:
+                    moved[key] = moved.get(key, 0) + 1
+                keep.append(op)
+            if drop:
+                beat["do"] = keep
+    return notes
 
 
 def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
@@ -848,22 +892,6 @@ def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
         current, lines, at, figure, pointed = None, 0, "", None, 0
-        # Diagrams that can move (a block on a wedge, a pendulum, a pulley...): each is set going while explained.
-        still: dict[str, tuple[str, str]] = {}
-        for bi, beat in enumerate(chapter.get("beats") or [], 1):
-            for op in beat.get("do") or []:
-                draws = op if op.get("op") in stem.PRESETS else op.get("figure") if op.get("op") == "problem" else None
-                if isinstance(draws, dict) and stem.MOTIONS.get(str(draws.get("op"))) not in (None, "pulse"):
-                    key = str(draws.get("id") or op.get("id") if draws is op else
-                              draws.get("id") or f"{op.get('id')}_figure")
-                    still[key] = (f"chapter {ci} beat {bi}", str(draws.get("op")))
-                elif op.get("op") == "motion":
-                    still.pop(str(op.get("diagram")), None)
-        for key, (where, kind) in still.items():
-            errors.append(
-                f"{where}: the {kind} {key!r} never moves. Explain it in motion as well as labelled: "
-                f"{{\"op\":\"motion\",\"diagram\":\"{key}\"}} on the beat that says what happens "
-                f"({stem.MOTIONS[kind]}: {MOTION_SAYS[stem.MOTIONS[kind]]}), and again when the solution uses it.")
 
         def close():
             if current is not None and figure and pointed < MIN_FIGURE_STEPS:
@@ -1669,6 +1697,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     _resolve_options(script)
+    _unneeded_motions(script, drop=True)
     _resolve_motion(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):

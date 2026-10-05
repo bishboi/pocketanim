@@ -15,6 +15,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
@@ -24,6 +25,7 @@ import com.pocketanim.android.FileStorage
 import com.pocketanim.android.PanimView
 import com.pocketanim.core.Library
 import com.pocketanim.core.LibraryImport
+import com.pocketanim.core.SavedLectures
 import com.pocketanim.core.SceneEntry
 import com.pocketanim.core.Storage
 import java.io.File
@@ -49,6 +51,7 @@ class PlayerActivity : Activity() {
     private lateinit var playButton: Button
     private lateinit var sceneButton: Button
     private lateinit var importButton: Button
+    private lateinit var savedButton: Button
     private lateinit var loopButton: Button
     private lateinit var seekBar: SeekBar
     private lateinit var timeLabel: TextView
@@ -66,6 +69,9 @@ class PlayerActivity : Activity() {
 
     /** Where imported lectures live, one folder each, named after the zip they came from. */
     private val importRoot: File by lazy { File(filesDir, "imported") }
+
+    /** Where saved lectures are downloaded, one folder each, by build id. */
+    private val savedRoot: File by lazy { File(filesDir, "saved") }
 
     /** True while a finger is on the bar, so the ticker stops fighting it. */
     private var scrubbing = false
@@ -107,14 +113,19 @@ class PlayerActivity : Activity() {
     private fun reload(select: String?) {
         val found = ArrayList<Item>()
         val problems = ArrayList<String>()
-        importRoot.listFiles { f -> f.isDirectory && !f.name.contains('.') }.orEmpty()
+        // Saved lectures (downloaded from Supabase) and imported zips: newest first. A folder with a dot in its name
+        // is one being written (.importing, .downloading, .old).
+        listOf(savedRoot, importRoot)
+            .flatMap { root -> root.listFiles()?.filter { it.isDirectory && !it.name.contains('.') }.orEmpty() }
             .sortedByDescending { it.lastModified() }
-            .forEach { dir ->
+            .forEach { dir: File ->
                 try {
                     val storage = LibraryImport.DirStorage(dir)
                     val library = Library.load(storage)
+                    // A saved lecture's download carries its catalog label; an import is called by its file name.
+                    val name = File(dir, TITLE_FILE).takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null } ?: dir.name
                     library.scenes.forEach { entry ->
-                        val label = if (library.scenes.size == 1) dir.name else "${dir.name} · ${entry.name}"
+                        val label = if (library.scenes.size == 1) name else "$name · ${entry.name}"
                         found.add(Item(entry, library, storage, label))
                     }
                 } catch (e: Exception) {
@@ -144,6 +155,120 @@ class PlayerActivity : Activity() {
         }
         setControls(true)
         open(items.firstOrNull { select != null && it.label.startsWith(select) } ?: items.first())
+    }
+
+    // ---- saved lectures (the harness's Save, in Supabase) ----------------------------------------------------
+
+    /** The Supabase project saved lectures come from: set in the app, or shipped in assets/supabase.json. */
+    private fun project(): SavedLectures.Project? {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        var url = prefs.getString("url", null)
+        var key = prefs.getString("anon_key", null)
+        if (url.isNullOrBlank() || key.isNullOrBlank()) {
+            try {
+                val shipped = com.pocketanim.core.Json.parse(String(assets.open("supabase.json").use { it.readBytes() }))
+                url = shipped["url"]?.asString
+                key = shipped["anon_key"]?.asString
+            } catch (_: Exception) {
+            }
+        }
+        return if (url.isNullOrBlank() || key.isNullOrBlank()) null else SavedLectures.Project(url, key)
+    }
+
+    /** Ask for the project's URL and anon key (Supabase: Project Settings -> API), then show the saved lectures. */
+    private fun configure(then: Boolean = true) {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val known = project()
+        val url = EditText(this).apply {
+            hint = "https://<project>.supabase.co"
+            setText(known?.url ?: "")
+            setSingleLine()
+        }
+        val key = EditText(this).apply {
+            hint = "anon public key"
+            setText(known?.anonKey ?: "")
+            setSingleLine()
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(PAD, PAD / 2, PAD, 0)
+            addView(url)
+            addView(key)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Where lectures are saved")
+            .setMessage("The Supabase project the harness saves to: its URL and anon key (Project Settings → API).")
+            .setView(form)
+            .setPositiveButton("Save") { _, _ ->
+                prefs.edit().putString("url", url.text.toString().trim()).putString("anon_key", key.text.toString().trim()).apply()
+                if (then) showSaved()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** The lectures saved from the harness: pick one, and it is downloaded (once) and played. */
+    private fun showSaved() {
+        val project = project() ?: return configure()
+        titleLabel.text = "Looking for saved lectures…"
+        Thread {
+            val result = runCatching { SavedLectures.catalog(project) }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { entries ->
+                        if (entries.isEmpty()) {
+                            titleLabel.text = "No lectures saved yet: press Save in the harness after a build."
+                            return@fold
+                        }
+                        val names = entries.map { e ->
+                            val have = File(savedRoot, e.buildId).isDirectory
+                            "${e.label}${if (have) "  ✓" else "  (${humanBytes(e.libraryBytes)})"}"
+                        }.toTypedArray()
+                        titleLabel.text = current?.let { "${it.label}" } ?: ""
+                        AlertDialog.Builder(this)
+                            .setTitle("Saved lectures")
+                            .setItems(names) { _, which -> playSaved(project, entries[which]) }
+                            .setNeutralButton("Settings") { _, _ -> configure() }
+                            .setNegativeButton("Close", null)
+                            .show()
+                    },
+                    onFailure = {
+                        titleLabel.text = "Could not list saved lectures: ${it.message}"
+                        AlertDialog.Builder(this)
+                            .setTitle("Saved lectures")
+                            .setMessage("Could not reach the saved lectures:\n${it.message}")
+                            .setPositiveButton("Settings") { _, _ -> configure() }
+                            .setNegativeButton("Close", null)
+                            .show()
+                    },
+                )
+            }
+        }.start()
+    }
+
+    /** Play a saved lecture, downloading it first unless it already is on the phone. */
+    private fun playSaved(project: SavedLectures.Project, entry: SavedLectures.Entry) {
+        val dest = File(savedRoot, entry.buildId)
+        if (dest.isDirectory) {
+            reload(select = entry.label)
+            return
+        }
+        view.pause()
+        titleLabel.text = "Downloading ${entry.label}…"
+        Thread {
+            val result = runCatching {
+                SavedLectures.download(project, entry, dest) { done, total ->
+                    runOnUiThread { titleLabel.text = "Downloading ${entry.label}… $done of $total files" }
+                }
+                File(dest, TITLE_FILE).writeText(entry.label)
+            }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { reload(select = entry.label) },
+                    onFailure = { titleLabel.text = "Could not download ${entry.label}: ${it.message}" },
+                )
+            }
+        }.start()
     }
 
     /** Pick a lecture's zip from the phone's files (Downloads, a chat app, a drive). */
@@ -240,6 +365,14 @@ class PlayerActivity : Activity() {
             text = "Import"
             setOnClickListener { pickZip() }
         }
+        savedButton = Button(this).apply {
+            text = "Saved"
+            setOnClickListener { showSaved() }
+            setOnLongClickListener {
+                configure(then = false)
+                true
+            }
+        }
         timeLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 12f
@@ -276,6 +409,7 @@ class PlayerActivity : Activity() {
             addView(timeLabel, LinearLayout.LayoutParams(WRAP, WRAP))
             addView(loopButton, LinearLayout.LayoutParams(WRAP, WRAP))
             addView(sceneButton, LinearLayout.LayoutParams(WRAP, WRAP))
+            addView(savedButton, LinearLayout.LayoutParams(WRAP, WRAP))
             addView(importButton, LinearLayout.LayoutParams(WRAP, WRAP))
         }
 
@@ -444,6 +578,8 @@ class PlayerActivity : Activity() {
     private companion object {
         const val SAMPLE = "HelloPocketanim"
         const val PICK_ZIP = 7
+        const val PREFS = "saved_lectures"
+        const val TITLE_FILE = "title.txt"
         const val PLAY = "Play"
         const val PAUSE = "Pause"
         const val TICK_MILLIS = 66L  // ~15 Hz; a scrubber does not need 60

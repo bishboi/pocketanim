@@ -521,6 +521,25 @@ fun main(args: Array<String>) {
         return
     }
 
+    if (args[1] == "saved") {
+        // The saved lectures, as the phone finds and fetches them: Verify <supabase url> saved <anon key> <dest>
+        // lists the catalog, downloads every entry into <dest>/<build id>, and reports each library.
+        val project = com.pocketanim.core.SavedLectures.Project(args[0], args.getOrElse(2) { "" })
+        val entries = com.pocketanim.core.SavedLectures.catalog(project)
+        println("catalog: ${entries.size} saved video(s)")
+        entries.forEach { println("  ${it.label}  [${it.libraryPath}, ${it.libraryBytes} B]") }
+        val root = File(args.getOrElse(3) { "saved" })
+        var failed = false
+        for (entry in entries) {
+            val dest = File(root, entry.buildId)
+            com.pocketanim.core.SavedLectures.download(project, entry, dest)
+            println("downloaded ${entry.label}")
+            if (!libraryReport(dest)) failed = true
+        }
+        if (failed) kotlin.system.exitProcess(1)
+        return
+    }
+
     if (args[1] == "import") {
         // Import a phone-library zip exactly as the app does, then report it: Verify <zip> import <dest>
         val dest = File(args.getOrElse(2) { "imported" })

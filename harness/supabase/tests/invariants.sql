@@ -23,7 +23,17 @@ insert into builds (id, scene_version_id, state, tier, program_path, program_byt
   values ('55555555-5555-5555-5555-555555555555','44444444-4444-4444-4444-444444444444',
           'succeeded','tier1','programs/abc.panim',277);
 insert into build_assets values ('55555555-5555-5555-5555-555555555555','d43c418bf3');
+-- A saved series (0002): two videos of one lecture, both GeneratedScene, told apart by ordinal; one published.
+insert into scenes (id, project_id, ordinal, class_name, title, minutes, part_of)
+  values ('66666666-6666-6666-6666-666666666666','22222222-2222-2222-2222-222222222222',1,'GeneratedScene','Newton',24,2),
+         ('77777777-7777-7777-7777-777777777777','22222222-2222-2222-2222-222222222222',2,'GeneratedScene','Friction',26,2);
+insert into scene_versions (id, scene_id, version, source)
+  values ('88888888-8888-8888-8888-888888888888','66666666-6666-6666-6666-666666666666',1,'from manim import *');
+insert into builds (id, scene_version_id, state, tier, program_path, library_path, library_bytes, published)
+  values ('99999999-9999-9999-9999-999999999999','88888888-8888-8888-8888-888888888888',
+          'succeeded','tier1','builds/9999/scenes/GeneratedScene.panim','builds/9999',150000,true);
 \echo '--- happy path inserted'
+select series, lecture, lectures, title, library_path from phone_lectures;
 
 \echo '--- each of these MUST fail:'
 \echo '1. storing a video asset'
@@ -40,3 +50,6 @@ insert into scenes (project_id,ordinal,class_name) values ('22222222-2222-2222-2
 insert into scenes (project_id,ordinal,class_name) values ('22222222-2222-2222-2222-222222222222',0,'Other');
 \echo '7. deleting an asset a build still needs'
 delete from assets where digest = 'd43c418bf3';
+\echo '8. publishing a build for the phone with no library to download'
+insert into builds (scene_version_id, state, tier, program_path, published)
+  values ('44444444-4444-4444-4444-444444444444','succeeded','tier1','programs/x.panim',true);

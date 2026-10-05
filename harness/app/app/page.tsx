@@ -30,7 +30,6 @@ type ExportState = {
   voiceWarning?: string | null;
   /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
   voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
-  stored?: { configured: boolean; reason?: string; error?: string };
   narrationUrl?: string | null;
 };
 
@@ -259,6 +258,17 @@ export default function Home() {
     /** Figures removed from the lecture: kept by the server, restorable. */
     excluded?: { id: string; caption: string; url: string }[];
   }>({ busy: false });
+  const [saving, setSaving] = useState<{
+    busy: boolean;
+    ready?: boolean;
+    problem?: string | null;
+    error?: string;
+    result?: { lectures: { lecture: number; title: string; bytes: number }[]; skipped: string[] };
+  }>({ busy: false });
+  useEffect(() => {
+    fetch("/api/save").then((r) => r.json()).then((d: { ready: boolean; problem: string | null }) =>
+      setSaving((s) => ({ ...s, ready: d.ready, problem: d.problem }))).catch(() => {});
+  }, []);
   const [video, setVideo] = useState<{ busy: boolean; error?: string; quality: string }>({
     busy: false,
     quality: "m",
@@ -267,6 +277,61 @@ export default function Home() {
 
   const version = current >= 0 ? versions[current] : undefined;
   const exported = version?.exported;
+
+  /**
+   * Save the lecture on screen: every micro-lecture of its series, or the one video, with its phone files
+   * (/api/save, lib/store.ts). Each must be built at tier 1: the phone plays programs.
+   */
+  async function saveLecture() {
+    if (!version) return;
+    const videos = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
+    const unbuilt = videos.filter((v) => v.exported?.tier !== 1 || !v.exported?.buildDir);
+    if (unbuilt.length) {
+      setSaving((s) => ({ ...s, error: `${unbuilt.length} of the ${videos.length} videos are not built for the phone yet ` +
+        "(still building, failed, or not tier 1)", result: undefined }));
+      return;
+    }
+    // The series' title: a micro-lecture's title card says "<series> · Lecture k of N"; a single video's is its own.
+    const card = /self\.title_slide\(("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")/.exec(videos[0].source);
+    const read = (text?: string) => {
+      try {
+        return text ? String(JSON.parse(text)) : "";
+      } catch {
+        return "";
+      }
+    };
+    const series = version.part ? read(card?.[2]).split(" · ")[0] : read(card?.[1]);
+    setSaving((s) => ({ ...s, busy: true, error: undefined, result: undefined }));
+    try {
+      const response = await fetch("/api/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: series || videos[0].part?.title || "Untitled lecture",
+          content,
+          subject: subject === "auto" ? undefined : subject,
+          language: language === "auto" ? undefined : language,
+          parts: videos.map((v) => ({
+            buildDir: v.exported!.buildDir,
+            sceneClass: v.sceneClass ?? SCENE,
+            source: v.source,
+            title: v.part?.title ?? (read(card?.[1]) || "Lecture"),
+            minutes: v.part?.minutes ?? (v.exported?.frames ? v.exported.frames / 30 / 60 : undefined),
+            instruction: v.instruction,
+            model: v.model,
+            transcript: v.transcript,
+            inputTokens: v.inputTokens,
+            outputTokens: v.outputTokens,
+          })),
+        }),
+      });
+      const data = await response.json();
+      if (!data.saved) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setSaving((s) => ({ ...s, busy: false, result: { lectures: data.lectures, skipped: data.skipped ?? [] } }));
+    } catch (e) {
+      setSaving((s) => ({ ...s, busy: false, error: e instanceof Error ? e.message : String(e) }));
+    }
+  }
   const ir = version?.ir;
   const template = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[0];
 
@@ -1393,15 +1458,37 @@ export default function Home() {
                     and use <span className="text-neutral-300">Import</span> in the app.
                   </div>
                 )}
-                {exported.stored && !exported.stored.configured && (
-                  <p className="text-xs text-neutral-500">
-                    Not stored: {exported.stored.reason}
-                  </p>
-                )}
-                {exported.stored?.error && (
-                  <p className="text-xs text-amber-300">
-                    Storage: {exported.stored.error}
-                  </p>
+                {exported.tier === 1 && exported.buildDir && (
+                  <div className="flex flex-col gap-1 border-t border-neutral-800 pt-3 text-xs text-neutral-400">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={saveLecture}
+                        disabled={saving.busy || saving.ready === false}
+                        title={saving.problem ?? "Save the lecture and its phone files to Supabase"}
+                      >
+                        {saving.busy ? "Saving…" : "Save"}
+                      </Button>
+                      <span>
+                        {saving.ready === false
+                          ? `Saving is not set up: ${saving.problem}`
+                          : version?.part
+                            ? `Saves all ${version.part.of} micro-lectures, each to the phone app's Saved list.`
+                            : "Saves the lecture, and its .panim files for the phone app's Saved list."}
+                      </span>
+                    </div>
+                    {saving.result && (
+                      <p className="text-emerald-300">
+                        Saved {saving.result.lectures.length} video{saving.result.lectures.length > 1 ? "s" : ""} (
+                        {Math.round(saving.result.lectures.reduce((n, l) => n + l.bytes, 0) / 1024)} KB): open{" "}
+                        <span className="text-neutral-200">Saved</span> in the phone app to play.
+                        {saving.result.skipped.length > 0 && (
+                          <span className="block text-amber-300">Not saved: {saving.result.skipped.join("; ")}</span>
+                        )}
+                      </p>
+                    )}
+                    {saving.error && <p className="text-amber-300">Not saved: {saving.error}</p>}
+                  </div>
                 )}
               </CardContent>
             </Card>

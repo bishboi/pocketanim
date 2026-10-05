@@ -2,15 +2,13 @@
 #
 # Apply the harness schema to a Supabase project.
 #
-# Deliberately psql and a plain .sql file rather than `supabase db push` and a
-# migration history: the schema is one file that is safe to re-run, and a
-# migration chain is a thing to maintain before there is anything to migrate
-# from. When the harness has real users and real data, this grows into the CLI's
-# migration flow; today that would be ceremony.
+# Deliberately psql and plain .sql files rather than `supabase db push` and a
+# migration history: every file in supabase/migrations is safe to re-run, and
+# they are applied in order, all of them, every time.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-migration="$here/supabase/migrations/0001_init.sql"
+migrations=("$here"/supabase/migrations/*.sql)
 
 local_db=0
 dry_run=0
@@ -28,8 +26,8 @@ for arg in "$@"; do
   esac
 done
 
-if [ ! -f "$migration" ]; then
-  echo "no migration at $migration" >&2
+if [ ! -f "${migrations[0]}" ]; then
+  echo "no migrations in $here/supabase/migrations" >&2
   exit 1
 fi
 
@@ -43,7 +41,9 @@ fi
 if [ "$dry_run" -eq 1 ]; then
   # A dry run reports, it does not require: someone checking what this would do
   # should not have to produce a database URL first.
-  echo "would apply $migration ($(wc -l < "$migration") lines)"
+  for migration in "${migrations[@]}"; do
+    echo "would apply $(basename "$migration") ($(wc -l < "$migration") lines)"
+  done
   if [ -n "$url" ]; then
     echo "to ${url##*@}"          # host and database, never the password
   else
@@ -60,12 +60,14 @@ fi
 
 if ! command -v psql > /dev/null; then
   echo "psql not found. Install the postgresql client, or run the SQL in" >&2
-  echo "$migration through the Supabase dashboard's SQL editor." >&2
+  echo "supabase/migrations, in order, through the Supabase dashboard's SQL editor." >&2
   exit 1
 fi
 
 # ON_ERROR_STOP because a half-applied schema is worse than none: without it
 # psql reports success after skipping every statement that failed.
-echo "applying $(basename "$migration")"
-psql "$url" --single-transaction -v ON_ERROR_STOP=1 -f "$migration"
+for migration in "${migrations[@]}"; do
+  echo "applying $(basename "$migration")"
+  psql "$url" --single-transaction -v ON_ERROR_STOP=1 -f "$migration"
+done
 echo "done"

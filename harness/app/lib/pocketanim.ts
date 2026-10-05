@@ -470,10 +470,15 @@ export function libraryName(buildDir: string, sceneClass: string): string {
   return `${slug}-${path.basename(buildDir).slice(-6)}`;
 }
 
-export async function bundleLibrary(
+/**
+ * The build's phone library (tools/build_library.py: library.json, the program, its assets, the glyph atlas and
+ * the narration) in <build>/library, opened by the phone's own code before it is offered (phoneCheck). What the
+ * zip download and Save both send.
+ */
+export async function packLibrary(
   buildDir: string,
   sceneClass: string,
-): Promise<{ zip: string } | { error: string }> {
+): Promise<{ dir: string; buildDir: string; sceneClass: string } | { error: string }> {
   try {
     ({ buildDir, sceneClass } = checkBuild(buildDir, sceneClass));
   } catch (error) {
@@ -489,6 +494,16 @@ export async function bundleLibrary(
   }
   const phone = await phoneCheck(out);
   if (phone) return { error: phone };
+  return { dir: out, buildDir, sceneClass };
+}
+
+export async function bundleLibrary(
+  buildDir: string,
+  sceneClass: string,
+): Promise<{ zip: string } | { error: string }> {
+  const packed = await packLibrary(buildDir, sceneClass);
+  if ("error" in packed) return packed;
+  ({ buildDir, sceneClass } = packed);
   const zipped = await run(
     ["-c", "import shutil, sys; print(shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'library'))",
      path.join(buildDir, libraryName(buildDir, sceneClass)), buildDir],

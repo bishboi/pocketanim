@@ -66,6 +66,15 @@ The road is checked here end to end (`harness/forge/tests/test_free_manim.py`): 
 interpreters agree on it, the web app's zip is imported by `LibraryImport`, and every frame is played through the
 phone's renderer (`Verify <zip> import <dir>`, then `Verify <dir> devicebench`).
 
+### Saved lectures
+
+**Saved** lists the lectures saved with the harness's Save button and plays the one picked: `SavedLectures`
+(core) reads the project's `phone_lectures` view with its anon key, and downloads the lecture's files from the
+public `lectures` bucket (its own folder, the shared assets) into app storage, checked like an import
+(`LibraryImport.install`), so it plays offline after. The project's URL and anon key are asked for once
+(long-press Saved to change them), or shipped in `app/src/main/assets/supabase.json`. Run off-device:
+`Verify <supabase url> saved <anon key> <dir>` lists, downloads and opens every saved lecture.
+
 ## The one seam
 
 `core` asks the platform for exactly one thing:

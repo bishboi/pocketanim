@@ -8,8 +8,8 @@ defined in this one.
 
 ```
 harness/
-  supabase/migrations/0001_init.sql   the schema
-  scripts/apply-schema.sh             applies it to a project
+  supabase/migrations/                the schema (0001 init, 0002 saved lectures and the phone's catalog)
+  scripts/apply-schema.sh             applies every migration, in order, to a project
   scripts/export_scene.py             Manim source -> .panim program, as JSON
   scripts/narration.py                a scene's add_sound calls -> one track
   lecture/                            the narrated map-lecture engine and its compiler
@@ -76,7 +76,7 @@ that has Manim's wheels), creates `.venv` at the repo root, and installs
 Nothing in `.env.local` is required. With no `OPENROUTER_API_KEY` the app uses
 an offline fixture provider that returns real, exportable Manim, so export,
 preview and the edit loop all work with no network and no account. With no
-Supabase project, the pipeline runs and simply writes nothing down.
+Supabase project, the pipeline runs; only Save is unavailable (see "Saving lectures" below).
 
 The app needs the repo's Python environment, because export and preview are the
 repo's own tools: `lib/pocketanim.ts` prefers `.venv/bin/python`, found by
@@ -123,8 +123,9 @@ fallback. Three of the four templates are 2D.
 
 * **OpenRouter is unreachable** from the dev container (the egress proxy refuses
   it) and no API key is set, so generation cannot be run here end to end.
-* **No Supabase project is configured**, so the schema can be applied by the
-  script but not exercised against live data here.
+* **No Supabase project is configured**. The schema is checked against a local
+  Postgres (`scripts/test-schema.sh`), and Save and the phone's download against a
+  stand-in for Supabase (`forge/tests/test_saved_lectures.py`), not a live project.
 
 Neither blocks the deterministic half — source in, program out — which is the
 half the phone depends on.
@@ -143,6 +144,31 @@ harness/scripts/apply-schema.sh --local
 harness/scripts/apply-schema.sh --dry-run
 ```
 
-The script is idempotent: the migration is written so that re-applying it is a
+The script is idempotent: every migration is written so that re-applying it is a
 no-op rather than an error, which is what makes it safe to run from CI or by
-hand against a project someone has already touched.
+hand against a project someone has already touched. Migration 0002 also creates
+the Storage bucket `lectures` (public for reading) when it runs against Supabase.
+
+## Saving lectures, and playing them on the phone
+
+**Save** (under the preview, once a build is tier 1) stores the lecture on screen
+-- one video, or every micro-lecture of a series -- in the project (`lib/store.ts`):
+
+* rows of record: a project for the series, a scene per video (its place in the
+  series as `ordinal`), the version's Manim source, and a build;
+* each video's phone library in Storage, bucket `lectures`: the `.panim` program,
+  its `scenes/*.json`, the glyph atlas and the narration under
+  `builds/<build id>/`, and each asset once at `assets/<digest>.panm`
+  (content-addressed, indexed in `assets` and tied to builds in `build_assets`);
+* the build marked published, which lists it in the view `phone_lectures`.
+
+The app needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in
+`.env.local` (writing the tables and the bucket is the server's alone). Saved
+lectures belong to the user `PANIM_OWNER_EMAIL` (default
+`harness@pocketanim.local`, created on first save) or to `PANIM_OWNER_ID`.
+
+On the phone, **Saved** lists `phone_lectures` and downloads the one picked
+(once; it then plays offline). The app asks once for the project's URL and anon
+key (Supabase: Project Settings -> API; long-press Saved to change them), or
+reads them from `player/app/src/main/assets/supabase.json`
+(`{"url": "...", "anon_key": "..."}`) when an APK is built with one.

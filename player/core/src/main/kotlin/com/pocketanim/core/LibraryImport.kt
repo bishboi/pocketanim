@@ -36,28 +36,38 @@ object LibraryImport {
         try {
             extract(input, staging)
             val root = findRoot(staging) ?: throw ImportFailed("the zip has no library.json: not a phone library")
-            val library = Library.load(DirStorage(root))
-            val absent = library.missing()
-            if (absent.isNotEmpty()) {
-                throw ImportFailed("the library is missing ${absent.size} file(s), e.g. ${absent.first()}")
-            }
-            val problems = library.checkIntegrity(verifyDigests = true)
-            if (problems.isNotEmpty()) {
-                throw ImportFailed("the library is incomplete: " + problems.take(3).joinToString("; "))
-            }
-            if (library.scenes.isEmpty()) throw ImportFailed("the library has no scenes")
-            val old = File(parent, "${dest.name}.old")
-            old.deleteRecursively()
-            if (dest.exists() && !dest.renameTo(old)) throw ImportFailed("cannot replace ${dest.name}")
-            if (!root.renameTo(dest)) {
-                old.renameTo(dest)
-                throw ImportFailed("cannot move the library into place")
-            }
-            old.deleteRecursively()
-            return Library.load(DirStorage(dest))
+            return install(root, dest)
         } finally {
             staging.deleteRecursively()
         }
+    }
+
+    /**
+     * A library unpacked or downloaded into [root], checked the way the player will read it -- the manifest
+     * parses, every file it names is there at the size and digest it says, it has a scene -- and only then moved
+     * to [dest], replacing what was there. Shared by a zip's import and a saved lecture's download (SavedLectures).
+     */
+    fun install(root: File, dest: File): Library {
+        val parent = dest.absoluteFile.parentFile ?: throw ImportFailed("no folder to install into")
+        val library = Library.load(DirStorage(root))
+        val absent = library.missing()
+        if (absent.isNotEmpty()) {
+            throw ImportFailed("the library is missing ${absent.size} file(s), e.g. ${absent.first()}")
+        }
+        val problems = library.checkIntegrity(verifyDigests = true)
+        if (problems.isNotEmpty()) {
+            throw ImportFailed("the library is incomplete: " + problems.take(3).joinToString("; "))
+        }
+        if (library.scenes.isEmpty()) throw ImportFailed("the library has no scenes")
+        val old = File(parent, "${dest.name}.old")
+        old.deleteRecursively()
+        if (dest.exists() && !dest.renameTo(old)) throw ImportFailed("cannot replace ${dest.name}")
+        if (!root.renameTo(dest)) {
+            old.renameTo(dest)
+            throw ImportFailed("cannot move the library into place")
+        }
+        old.deleteRecursively()
+        return Library.load(DirStorage(dest))
     }
 
     private fun extract(input: InputStream, into: File) {

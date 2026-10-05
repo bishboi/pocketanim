@@ -4,7 +4,6 @@ import path from "node:path";
 import { REPO, exportScene, frameCount, prespeak, progressFile, type VoiceCost } from "@/lib/pocketanim";
 import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
-import { saveVersion } from "@/lib/store";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
 
 export const runtime = "nodejs";
@@ -45,15 +44,7 @@ export async function POST(request: NextRequest) {
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
 
-    // Persisted only when a project is configured; the pipeline does not
-    // depend on it, which is what lets the whole thing run with no database.
-    const stored = await saveVersion({
-      source,
-      sceneClass,
-      instruction: body?.instruction ? String(body.instruction) : null,
-      model: body?.model ? String(body.model) : null,
-      result,
-    });
+    // Nothing is stored here: a lecture is saved when the user presses Save (/api/save, lib/store.ts).
 
     // A scene that narrates itself (a lecture's beats call add_sound) comes
     // back with one mixed track beside the program. It is served like the
@@ -77,7 +68,7 @@ export async function POST(request: NextRequest) {
         "server log has Google's message).";
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, stored, source, narrationUrl, voiceWarning, voiceCost });
+    return NextResponse.json({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

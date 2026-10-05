@@ -70,7 +70,7 @@ type Version = {
   sceneClass?: string;
   /** The lecture's spoken transcript, written in full before the video (lib/transcript.ts). */
   transcript?: string;
-  /** One video of a lecture made as several (over an hour, lib/parts.ts): the versions of one n are its parts. */
+  /** One video of a lecture made as several micro-lectures (lib/topics.ts, lib/parts.ts): the versions of one n are its parts. */
   part?: { index: number; of: number; title: string; minutes: number };
 };
 
@@ -516,7 +516,7 @@ export default function Home() {
         if (!spoken.ok && spoken.error) setError(spoken.error);
       }
       if (videoParts.length > 1) {
-        // Over an hour: one video per part, each a version of the same n, built in turn. The first is shown.
+        // A series of micro-lectures: one video per topic, each a version of the same n, built in turn. The first is shown.
         const info = (k: number) => ({ index: k + 1, of: videoParts.length, title: videoParts[k].title, minutes: videoParts[k].minutes });
         setVersions((all) => [
           ...all.map((item, i) => (i === index ? { ...item, source: videoParts[0].source, part: info(0) } : item)),
@@ -528,9 +528,9 @@ export default function Home() {
         for (let k = 0; k < videoParts.length; k++) {
           try {
             await attachBuild(index + k, videoParts[k].source, next.instruction, modelName,
-              `Part ${k + 1} of ${videoParts.length}`);
+              `${videoParts[k].title} (${k + 1} of ${videoParts.length})`);
           } catch (e) {
-            setError(`Part ${k + 1}: ${e instanceof Error ? e.message : String(e)}`);
+            setError(`${videoParts[k].title}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
         return;
@@ -1178,7 +1178,8 @@ export default function Home() {
                   <p className="text-xs text-neutral-400">
                     This lecture runs about{" "}
                     {Math.round(versions.filter((v) => v.n === version.n && v.part).reduce((t, v) => t + (v.part?.minutes ?? 0), 0))}{" "}
-                    min, so it is {version.part.of} videos. Pick one to play:
+                    min, made as {version.part.of} micro-lectures, one per topic, each with its own opening and
+                    recap. Pick one to play:
                   </p>
                   <div role="tablist" aria-label="Videos of this lecture" className="flex flex-wrap gap-2">
                     {versions.map((v, i) => v.n === version.n && v.part ? (
@@ -1198,7 +1199,8 @@ export default function Home() {
                             : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
                         }`}
                       >
-                        Part {v.part.index} · {Math.round(v.part.minutes)} min
+                        {v.part.title.startsWith("Lecture ") ? v.part.title : `Part ${v.part.index}`}
+                        {" "}· {Math.round(v.part.minutes)} min
                         {!v.exported ? " · building…" : v.exported.error ? " · failed" : ""}
                       </button>
                     ) : null)}

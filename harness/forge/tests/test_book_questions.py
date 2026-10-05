@@ -115,16 +115,24 @@ console.log(JSON.stringify({{
     assert out["problem"] is None
 
 
-def test_a_lecture_over_an_hour_is_cut_between_chapters_into_parts():
-    out = _run("import { splitLecture } from './lib/parts.ts';"
-               "const ch = (n, w) => ({ title: 'C' + n, narration: 'x', beats: [{ say: Array(w).fill('w').join(' ') }] });"
-               "const s = { title: 'Forces', intro: 'hi', recap: [['a', 'b']], credits: 'c',"
-               " chapters: [ch(1, 500), ch(2, 700), ch(3, 600), ch(4, 800), ch(5, 400), ch(6, 900)] };"
-               "console.log(JSON.stringify([50, 90, 130].map((m) => splitLecture(s, m, 60).map((p) => ({"
-               " title: p.title, chapters: p.script.chapters.map((c) => c.title), minutes: p.minutes,"
-               " intro: 'intro' in p.script, recap: 'recap' in p.script, credits: p.script.credits })))));")
-    whole, two, three = out
-    assert whole == []                                             # under an hour: one video
+def test_a_long_lecture_without_a_topic_plan_is_cut_between_chapters_into_parts(tmp_path):
+    tsc = APP / "node_modules" / ".bin" / "tsc"
+    if not tsc.exists() or not shutil.which("node"):
+        pytest.skip("no TypeScript compiler")
+    built = subprocess.run([str(tsc), "lib/parts.ts", "--outDir", str(tmp_path), "--module", "commonjs", "--target",
+                            "es2022", "--skipLibCheck", "--esModuleInterop"], cwd=APP, capture_output=True, text=True)
+    assert built.returncode == 0, built.stdout + built.stderr
+    script = (f"const {{ splitLecture }} = require({json.dumps(str(tmp_path / 'parts.js'))});"
+              "const ch = (n, w) => ({ title: 'C' + n, narration: 'x', beats: [{ say: Array(w).fill('w').join(' ') }] });"
+              "const s = { title: 'Forces', intro: 'hi', recap: [['a', 'b']], credits: 'c',"
+              " chapters: [ch(1, 500), ch(2, 700), ch(3, 600), ch(4, 800), ch(5, 400), ch(6, 900)] };"
+              "console.log(JSON.stringify([50, 90, 130].map((m) => splitLecture(s, m, 60).map((p) => ({"
+              " title: p.title, chapters: p.script.chapters.map((c) => c.title), minutes: p.minutes,"
+              " intro: 'intro' in p.script, recap: 'recap' in p.script, credits: p.script.credits })))));")
+    done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    whole, two, three = json.loads(done.stdout)
+    assert whole == []                                             # under the limit: one video
     assert [p["chapters"] for p in two] == [["C1", "C2", "C3"], ["C4", "C5", "C6"]]
     assert all(p["minutes"] <= 60 for p in two) and len(three) == 3
     assert [p["title"] for p in two] == ["Forces · Part 1 of 2", "Forces · Part 2 of 2"]

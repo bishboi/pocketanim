@@ -1,19 +1,77 @@
 /**
- * A lecture longer than an hour, as more than one video. A 90-minute lecture in one file was too long to watch in
- * a sitting, to build in one go, or to play in a browser tab; so a written lecture that runs past
- * PANIM_MAX_VIDEO_MINUTES (60) is cut, between chapters, into the fewest parts that each stay under it, as even as
- * the chapters allow. Each part is a lecture script of its own: the first keeps the opening, the last the recap,
- * every one the credits.
+ * A long lecture as more than one video. A lecture written as a series of micro-lectures (topics.ts) is cut where
+ * its topics meet (splitByTopics): each part a 20-30 minute lecture of its own. One without a plan (no transcript)
+ * that runs past PANIM_MAX_VIDEO_MINUTES (30) is cut, between chapters, into the fewest parts that each stay under
+ * it, as even as the chapters allow (splitLecture). Each part is a lecture script of its own.
  */
+
+import { microMinutes } from "./topics";
 
 type Script = Record<string, unknown> & { title?: unknown; chapters?: unknown; recap?: unknown; intro?: unknown };
 
 export type LecturePart = { index: number; of: number; script: Script; minutes: number; title: string };
 
-/** The longest video, in minutes, before a lecture is split (PANIM_MAX_VIDEO_MINUTES). */
+/**
+ * The longest video, in minutes, before a lecture without a topic plan is split (PANIM_MAX_VIDEO_MINUTES): the
+ * top of a micro-lecture's range (topics.ts), 30 by default.
+ */
 export function maxVideoMinutes(): number {
   const set = Number(process.env.PANIM_MAX_VIDEO_MINUTES);
-  return Number.isFinite(set) && set > 0 ? set : 60;
+  return Number.isFinite(set) && set > 0 ? set : microMinutes().max;
+}
+
+type PlannedTopic = { index?: unknown; title?: unknown; sections?: unknown; recap?: unknown };
+
+/**
+ * A lecture written as a series of micro-lectures (topics.ts: script.topics, each topic's sections and recap), cut
+ * where its topics meet: each chapter goes with the topic of the transcript section it speaks. Each part is a
+ * lecture of its own: its title card names its topic and its place in the series, its opening is the one its
+ * first section was written with, and it ends on its own recap. [] when the script has no plan of two or more.
+ */
+export function splitByTopics(script: Script, minutes: number): LecturePart[] {
+  const plan = (Array.isArray(script.topics) ? script.topics : []) as PlannedTopic[];
+  const chapters = Array.isArray(script.chapters) ? script.chapters : [];
+  if (plan.length < 2 || chapters.length < 2) return [];
+  const topicOf = new Map<number, number>();
+  plan.forEach((t, k) => (Array.isArray(t.sections) ? t.sections : []).forEach((n) => topicOf.set(Number(n), k)));
+  // Each chapter's topic, never going back: a chapter without a section stays with the one before it.
+  const groups: unknown[][] = plan.map(() => []);
+  let at = 0;
+  for (const chapter of chapters) {
+    const k = topicOf.get(Number((chapter as { section?: unknown })?.section));
+    if (k !== undefined && k >= at) at = k;
+    groups[at].push(chapter);
+  }
+  const kept = plan.map((t, k) => ({ topic: t, chapters: groups[k] })).filter((g) => g.chapters.length);
+  if (kept.length < 2) return [];
+  const series = String(script.title ?? "Lecture");
+  const total = chapters.map(words).reduce((a, b) => a + b, 0);
+  return kept.map((group, k) => {
+    const number = k + 1;
+    const name = String(group.topic.title ?? "").trim() || `Part ${number}`;
+    const last = k === kept.length - 1;
+    const part: Script = {
+      ...script,
+      title: name,
+      sub: `${series} · Lecture ${number} of ${kept.length}`,
+      chapters: group.chapters,
+    };
+    delete part.topics;
+    // The first lecture keeps the series' own opening line; each later one is introduced by its title (its first
+    // section's transcript does the rest).
+    if (k > 0) part.intro = `${name}.`;
+    const recap = group.topic.recap ?? (last ? script.recap : null);
+    if (Array.isArray(recap) && recap.length) part.recap = recap;
+    else delete part.recap;
+    const share = group.chapters.map(words).reduce((a, b) => a + b, 0) / total;
+    return {
+      index: number,
+      of: kept.length,
+      script: part,
+      minutes: Math.round(minutes * share * 10) / 10,
+      title: `Lecture ${number}: ${name}`,
+    };
+  });
 }
 
 function words(chapter: unknown): number {
@@ -53,6 +111,7 @@ export function splitLecture(script: Script, minutes: number, limit = maxVideoMi
     const last = k === bounds.length - 2;
     const partTitle = `${title} · Part ${k + 1} of ${bounds.length - 1}`;
     const part: Script = { ...script, title: partTitle, chapters: slice };
+    delete part.topics;
     if (k > 0) delete part.intro;               // the title card opens a later part
     if (!last) delete part.recap;               // the recap closes the lecture, in its last part
     return { index: k + 1, of: bounds.length - 1, script: part, minutes: Math.round(minutes * share * 10) / 10, title: partTitle };

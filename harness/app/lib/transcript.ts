@@ -8,6 +8,7 @@
  * the content is taught in order in sections of about five minutes.
  */
 
+import { topicLabel, type Topic } from "./topics";
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
 import { SOLVING_STEPS } from "./solving";
@@ -188,9 +189,12 @@ export function transcriptPrompt(options: {
   subject?: string;
   hasReference: boolean;
   content: string;
+  /** The lecture as a series of micro-lectures (topics.ts); one topic, or none, is one lecture as before. */
+  topics?: Topic[];
 }): string {
   const { sections, minutes, hasReference } = options;
   const total = sections.reduce((n, s) => n + s.words, 0);
+  const series = (options.topics?.length ?? 0) > 1 ? options.topics! : [];
   return [
     "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. It is",
     "written first, in full, before any picture: a later step turns it into the video, sentence for sentence. So",
@@ -201,6 +205,19 @@ export function transcriptPrompt(options: {
     "call, picking up where the last one stopped. Each section must reach its length (the tool refuses a short",
     "one): reach it by explaining more, never by padding.",
     "",
+    ...(series.length ? [
+      `A SERIES OF ${series.length} MICRO-LECTURES. The lecture is made as ${series.length} separate videos of 20-30 minutes, ` +
+        "one per topic, each watched on its own, perhaps on another day:",
+      ...series.map((t) => `  Lecture ${t.index}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}` +
+        `${t.title ? ` ("${t.title}")` : ""}, about ${Math.round(t.minutes)} min.`),
+      "Each micro-lecture is complete and STRUCTURED: it OPENS (in its first section) with what it covers, a short",
+      "recall of what the lecture before taught, why this topic matters, and what the student will be able to do by",
+      "its end; then it TEACHES, as deeply and slowly as always (every idea, examples, questions for the class, worked",
+      "problems from the very basics); and it CLOSES (in its last section) with the key points, a few quick",
+      "questions for the student to check themselves (each answered after a pause), and one sentence on what the",
+      "next lecture covers. Within a lecture, sections flow on from each other as one class.",
+      "",
+    ] : []),
     hasReference
       ? [
           "MIMIC THE REFERENCE LECTURE (a YouTube video; its words for each section are given below). Keep its order,",
@@ -371,7 +388,8 @@ export function sectionProblem(text: string, section: Section, language: Languag
  * end of the last one quoted: a growing conversation of saved and refused sections confused models into rewriting
  * an old section over and over ("Write section 7 next." twenty times).
  */
-export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string): string {
+export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,
+  topic?: Topic): string {
   // Sections are written a few at a time: the one just before this may still be on its way.
   const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
@@ -393,8 +411,34 @@ export function sectionRequest(section: Section, count: number, written: Written
       (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
         `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}).` + (last ? ` Carry on from where section ${last.n} stopped: do not ` +
       "repeat what it said." : "") + ` Call write_section once, with section: ${section.n} and the full text.`,
+    ...topicDuties(section, topic),
     ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
   ].join("\n");
+}
+
+/** What a section adds when it opens or closes one micro-lecture of a series (topics.ts). */
+function topicDuties(section: Section, topic?: Topic): string[] {
+  if (!topic || topic.of < 2) return [];
+  const first = topic.sections[0] === section.n;
+  const last = topic.sections[topic.sections.length - 1] === section.n;
+  const out: string[] = [];
+  if (first) {
+    out.push("", `This section OPENS ${topicLabel(topic)}, a video of its own. Begin it as a lecture begins: say ` +
+      `it is lecture ${topic.index} of ${topic.of}${topic.title ? ` and what it is about` : ""}; ` +
+      (topic.index > 1 ? "recall in two or three sentences what the lecture before taught that this one builds on; "
+        : "") +
+      "say why this topic matters, with an everyday example; then the three to five things the student will be able " +
+      "to do by its end, one short sentence each (\"इस lecture के बाद आप ... कर पाएंगे\"). Then teach. This opening " +
+      "comes before the section's own teaching and does not replace any of it.");
+  }
+  if (last) {
+    out.push("", `This section CLOSES ${topicLabel(topic)}. After its teaching, end the lecture: the key points of ` +
+      "the whole lecture in four to six short sentences; then three quick questions for the student to check " +
+      "themselves, each followed by a moment to think and its answer with the reason; " +
+      (topic.index < topic.of ? "then one sentence on what the next lecture covers." : "then a closing line: this is " +
+        "the last lecture of the series."));
+  }
+  return out;
 }
 
 /** The beat script's rules when a transcript has been written: its narration is the transcript. */

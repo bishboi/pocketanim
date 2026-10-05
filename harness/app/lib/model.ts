@@ -16,7 +16,8 @@ import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
 import type { BookQuestion } from "./questions";
-import { maxVideoMinutes, splitLecture } from "./parts";
+import { maxVideoMinutes, splitByTopics, splitLecture } from "./parts";
+import { OPEN_CLOSE_MINUTES, planTopics, topicOf, topicLabel, type Topic } from "./topics";
 import { SECTION_TOOL, fromTranscriptPrompt, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type WrittenSection } from "./transcript";
 import { python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -595,7 +596,12 @@ async function completionWithRetry(
 }
 
 /** The lecture script behind the source a generation returns, so it can be cut into parts (lib/parts.ts). */
-type Kept = { script?: unknown; source?: string; minutes?: number; options?: () => Parameters<typeof compileLecture>[1] };
+type Kept = {
+  script?: unknown;
+  source?: string;
+  minutes?: number;
+  options?: () => Parameters<typeof compileLecture>[1];
+};
 
 async function viaOpenRouter(
   request: GenerateRequest,
@@ -637,6 +643,9 @@ async function viaOpenRouter(
   const written: WrittenSection[] = [];
   // The book's own questions (exercises, MCQs): every one explained, each option marked (questions.ts).
   let bookQs: BookQuestion[] = [];
+  // A long lecture as a series of micro-lectures, one per topic (topics.ts): planned from the sections before a
+  // word is written, so each is written as a lecture of its own and cut there.
+  let topics: Topic[] = [];
   let stageIn = 0;
   let stageOut = 0;
   let stageCost = 0;
@@ -644,6 +653,23 @@ async function viaOpenRouter(
     // A book (a PDF) is taught section by section, each with its own slice of the text; a reference video is
     // remade part by part.
     const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
+    topics = planTopics(sections);
+    if (topics.length > 1) {
+      // Opening and closing a lecture take words of their own, on top of the section's teaching.
+      for (const topic of topics) {
+        for (const n of [topic.sections[0], topic.sections[topic.sections.length - 1]]) {
+          const section = sections.find((x) => x.n === n);
+          if (section) {
+            section.words += (OPEN_CLOSE_MINUTES * 100) / 2;
+            section.minutes = Math.round((section.words / 100) * 10) / 10;
+          }
+        }
+      }
+      emit({ type: "message", role: "status", text: `About ${Math.round(sections.reduce((n, x) => n + x.minutes, 0))} min: ` +
+        `made as ${topics.length} micro-lectures of 20-30 min, one per topic, each opening and closing on its own (` +
+        topics.map((t) => `${t.index}${t.title ? ` "${t.title}"` : ""}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}, ` +
+          `${Math.round(t.minutes)} min`).join("; ") + ")." });
+    }
     const fromBook = sections.some((s) => s.book);
     bookQs = sections.flatMap((s) => s.questions ?? []);
     if (fromBook) {
@@ -659,6 +685,7 @@ async function viaOpenRouter(
       hasReference: !!reference?.parts?.length,
       // The book's text is already in its sections; only what was typed goes in beside it.
       content: fromBook ? request.content : `${request.content}\n${doc?.markdown ?? ""}`,
+      topics,
     });
     emit({ type: "input", role: "system", text: prompt });
     const writer = transcriptModel(request.transcriptModel);
@@ -698,7 +725,7 @@ async function viaOpenRouter(
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: ChatMessage[] = [
           { role: "system", content: prompt },
-          { role: "user", content: sectionRequest(section, sections.length, prior, note) },
+          { role: "user", content: sectionRequest(section, sections.length, prior, note, topicOf(topics, section.n)) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -806,6 +833,10 @@ async function viaOpenRouter(
     emit({ type: "transcript", text: written.map((s) => `SECTION ${s.n}: ${s.title}\n\n${s.text}`).join("\n\n") });
     emit({ type: "message", role: "status",
       text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min). Now the video.` });
+    // A topic the book gave no heading is called by its first section's title.
+    for (const topic of topics) {
+      if (!topic.title) topic.title = written.find((w) => w.n === topic.sections[0])?.title ?? "";
+    }
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
@@ -964,6 +995,32 @@ async function viaOpenRouter(
   const size = (chars: number) => (chars >= 1024 ? `about ${Math.round(chars / 1024)} KB` : `${chars} characters`);
 
   /** A section's chapters as a script of their own, checked as a part is: null when they pass, else what is wrong. */
+  /**
+   * What a section's chapters add when it opens or closes one micro-lecture of a series (topics.ts): the
+   * lecture's opening on the board, and its own recap and self-check questions at its end. Without a series, the
+   * last section has the lecture's recap.
+   */
+  const seriesDuties = (n: number, lastOfAll: boolean): string[] => {
+    const topic = topicOf(topics, n);
+    if (!topic) return [lastOfAll ? "This is the last section: end the script with the recap." : "No recap: the last section has it."];
+    const out: string[] = [];
+    if (topic.sections[0] === n) {
+      out.push(`This section OPENS ${topicLabel(topic)}, a video of its own. Its first chapter is that lecture's ` +
+        `opening (title: "Lecture ${topic.index}: ${topic.title || "..."}"): as the transcript says them, put on the board ` +
+        "what the lecture covers and the things the student will be able to do (a steps diagram of them revealed " +
+        "one by one, or one fact each), and a picture of why the topic matters. Then its teaching, as always.");
+    }
+    if (topic.sections[topic.sections.length - 1] === n) {
+      out.push(`This section CLOSES ${topicLabel(topic)}. Its last chapter is that lecture's close: its key ` +
+        "points on the board as they are said, each self-check question on the stage with a question op " +
+        "(then the answer op when it is answered), and the next lecture named. End the script with \"recap\": " +
+        "[[head, body], ...], the key points of THIS lecture only.");
+    } else {
+      out.push("No recap: the last section of this lecture has it.");
+    }
+    return out;
+  };
+
   const checkSection = async (script: Record<string, unknown>, n: number) => {
     const chapters = (Array.isArray(script.chapters) ? script.chapters : [])
       .filter((c) => c && typeof c === "object")
@@ -1021,7 +1078,7 @@ async function viaOpenRouter(
           "figures it explains; work every problem it solves with problem and work ops.",
         first ? "This is the first section: the script also has the lecture's title, sub and intro."
           : "Give the script a title (only the first section's is used) and no intro.",
-        last ? "This is the last section: end the script with the recap." : "No recap: the last section has it.",
+        ...seriesDuties(section.n, last),
         "Call write_lecture once with this script ({title, sub, intro, chapters, recap}); use the find tools first if " +
           "you need pictures. Write it straight away.",
         ...(note ? ["", "You wrote this section's chapters before, and the check of the whole lecture refused them:", note,
@@ -1173,6 +1230,13 @@ async function viaOpenRouter(
       ...(recap ? { recap } : {}),
     };
     if (!recap) delete script.recap;
+    if (topics.length > 1) {
+      // Each micro-lecture's recap, from its last section, for the cut into videos (parts.ts splitByTopics).
+      script.topics = topics.map((t) => ({
+        index: t.index, title: t.title, sections: t.sections,
+        recap: bySection.get(t.sections[t.sections.length - 1])?.recap ?? null,
+      }));
+    }
     return script;
   };
 
@@ -1871,12 +1935,16 @@ export async function generate(
   const template = templateById(request.templateId);
   const kept: Kept = {};
   const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
-  // Over an hour: the lecture as more than one video, cut between chapters (lib/parts.ts).
+  // A long lecture as micro-lectures of 20-30 min: cut where its topics meet when it was written as a series
+  // (topics.ts), else between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).
   if (isLecture(template) && kept.script && kept.options && kept.source === result.source && kept.minutes) {
-    const parts = splitLecture(kept.script as Record<string, unknown>, kept.minutes);
+    const script = kept.script as Record<string, unknown>;
+    const byTopic = splitByTopics(script, kept.minutes);
+    const parts = byTopic.length ? byTopic : splitLecture(script, kept.minutes);
     if (parts.length) {
       emit({ type: "message", role: "status", text: `The lecture runs about ${Math.round(kept.minutes)} min: making it ` +
-        `${parts.length} videos of up to ${maxVideoMinutes()} min (${parts.map((p) => `part ${p.index}, ${Math.round(p.minutes)} min`).join("; ")}).` });
+        (byTopic.length ? `${parts.length} micro-lectures, one per topic` : `${parts.length} videos of up to ${maxVideoMinutes()} min`) +
+        ` (${parts.map((p) => `${p.title}, ${Math.round(p.minutes)} min`).join("; ")}).` });
       const built = [];
       for (const part of parts) {
         const compiled = await compileLecture(part.script, kept.options());

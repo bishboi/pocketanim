@@ -96,6 +96,13 @@ def test_a_saved_series_is_listed_downloaded_and_played_by_the_phone(tmp_path, s
         assert saved["saved"], saved
         assert [s["lecture"] for s in saved["lectures"]] == [1, 2] and not saved["skipped"]
 
+        # What the page's "Check the phone's Saved list" reports: both videos saved, both visible to the phone.
+        status = subprocess.run(["node", "-e", f"require({json.dumps(str(js / 'lib' / 'store.js'))}).storeStatus()"
+                                 ".then((r) => console.log(JSON.stringify(r)));"], cwd=APP, capture_output=True,
+                                text=True, timeout=120, env={**env, "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_test"})
+        assert json.loads(status.stdout.strip().splitlines()[-1]) == {"published": 2, "failed": [], "phoneSees": 2,
+                                                                      "phoneError": None}, status.stderr
+
         dump = json.loads(urllib.request.urlopen(f"{supabase}/__dump").read())
         builds = dump["tables"]["builds"]
         assert all(b["published"] and b["state"] == "succeeded" and b["library_path"].startswith("builds/")

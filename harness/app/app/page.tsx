@@ -287,6 +287,8 @@ export default function Home() {
     problem?: string | null;
     error?: string;
     result?: { lectures: { lecture: number; title: string; bytes: number }[]; skipped: string[] };
+    /** What is saved and what the phone's Saved list sees of it (/api/save?status=1). */
+    status?: string;
   }>({ busy: false });
   useEffect(() => {
     fetch("/api/save").then((r) => r.json()).then((d: { ready: boolean; problem: string | null }) =>
@@ -305,6 +307,30 @@ export default function Home() {
    * Save the lecture on screen: every micro-lecture of its series, or the one video, with its phone files
    * (/api/save, lib/store.ts). Each must be built at tier 1: the phone plays programs.
    */
+  /** What the database holds and what the phone's Saved list can see, in one line (lib/store.ts storeStatus). */
+  async function checkSaved() {
+    setSaving((s) => ({ ...s, status: "Checking…" }));
+    try {
+      const d = await (await fetch("/api/save?status=1")).json() as { problem: string | null; status: null | { error: string } |
+        { published: number; failed: { at: string; error: string }[]; phoneSees: number | null; phoneError: string | null } };
+      const st = d.status;
+      let line: string;
+      if (!st) line = `Saving is not set up: ${d.problem}`;
+      else if ("error" in st) line = `Could not read the database: ${st.error}`;
+      else {
+        line = `Saved in the database: ${st.published} video${st.published === 1 ? "" : "s"}. ` +
+          (st.phoneSees !== null ? `The phone's Saved list sees ${st.phoneSees}.` : `The phone's view could not be read: ${st.phoneError}`);
+        if (st.phoneSees !== null && st.phoneSees < st.published) {
+          line += " The phone cannot see them all: run harness/supabase/setup.sql again in the SQL editor (it grants the phone's view).";
+        }
+        if (st.failed.length) line += ` Last failed save: ${st.failed[0].error}`;
+      }
+      setSaving((s) => ({ ...s, status: line }));
+    } catch (e) {
+      setSaving((s) => ({ ...s, status: `Could not check: ${e instanceof Error ? e.message : String(e)}` }));
+    }
+  }
+
   async function saveLecture() {
     if (!version) return;
     const videos = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
@@ -351,6 +377,7 @@ export default function Home() {
       const data = await response.json();
       if (!data.saved) throw new Error(data.error ?? `HTTP ${response.status}`);
       setSaving((s) => ({ ...s, busy: false, result: { lectures: data.lectures, skipped: data.skipped ?? [] } }));
+      void checkSaved();
     } catch (e) {
       setSaving((s) => ({ ...s, busy: false, error: e instanceof Error ? e.message : String(e) }));
     }
@@ -1528,6 +1555,14 @@ export default function Home() {
                       </p>
                     )}
                     {saving.error && <p className="text-amber-300">Not saved: {saving.error}</p>}
+                    {saving.ready && (
+                      <p>
+                        <button className="underline hover:text-neutral-200" onClick={checkSaved}>
+                          Check the phone&apos;s Saved list
+                        </button>
+                        {saving.status && <span className="ml-2 text-neutral-300">{saving.status}</span>}
+                      </p>
+                    )}
                   </div>
                 )}
               </CardContent>

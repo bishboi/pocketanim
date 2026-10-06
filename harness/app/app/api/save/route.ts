@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkBuild } from "@/lib/pocketanim";
-import { saveLecture, storeProblem, type SavePart } from "@/lib/store";
+import { saveLecture, storeProblem, storeStatus, type SavePart } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
 
-/** Whether Save is set up, for the button to say so before it is pressed. */
-export async function GET() {
+/**
+ * Whether Save is set up, for the button to say so before it is pressed; with ?status=1, what is saved and what
+ * the phone's Saved list can see of it (lib/store.ts storeStatus).
+ */
+export async function GET(request: NextRequest) {
   const problem = storeProblem();
+  if (request.nextUrl.searchParams.get("status")) {
+    return NextResponse.json({ ready: !problem, problem, status: problem ? null : await storeStatus() });
+  }
   return NextResponse.json({ ready: !problem, problem });
 }
 

@@ -78,6 +78,18 @@ const server = http.createServer((req, res) => {
       const table = m[1];
       const single = (req.headers["accept"] || "").includes("vnd.pgrst.object");
       if (req.method === "GET" && table === "phone_lectures") return json(res, 200, phoneLectures());
+      if ((req.method === "GET" || req.method === "HEAD") && tables[table]) {
+        // eq. filters only (published=eq.true, state=eq.failed), and a count when asked (supabase-js head count).
+        let rows = tables[table];
+        for (const [k, v] of url.searchParams) {
+          if (!/^eq\./.test(v)) continue;
+          const want = v.slice(3);
+          rows = rows.filter((r) => String(r[k]) === want);
+        }
+        const headers = { "Content-Type": "application/json", "Content-Range": `0-${Math.max(0, rows.length - 1)}/${rows.length}` };
+        res.writeHead(200, headers);
+        return res.end(req.method === "HEAD" ? undefined : JSON.stringify(rows));
+      }
       if (req.method === "POST") {
         const rows = [].concat(JSON.parse(body.toString()));
         const prefer = req.headers["prefer"] || "";

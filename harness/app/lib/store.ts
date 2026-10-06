@@ -279,3 +279,55 @@ export async function saveLecture(request: SaveRequest): Promise<SaveResult> {
     return { saved: false, error: describeError(error) };
   }
 }
+
+export type StoreStatus = {
+  /** Videos saved (published builds), seen with the service role. */
+  published: number;
+  /** Saves that failed, newest first, with why. */
+  failed: { at: string; error: string }[];
+  /** What the phone's Saved list gets: the view, read with the anon (publishable) key as the phone reads it. */
+  phoneSees: number | null;
+  /** Why the phone's read failed, when it did. */
+  phoneError: string | null;
+};
+
+/**
+ * What Save has stored and what the phone can see of it: the published builds and the failed saves (service role),
+ * and the phone's own read of phone_lectures with the anon key. A gap between the two is the database's to fix
+ * (the view's grant), not the phone's.
+ */
+export async function storeStatus(): Promise<StoreStatus | { error: string }> {
+  const supabase = client();
+  if (!supabase) return { error: storeProblem() ?? "not set up" };
+  try {
+    const { count, error } = await supabase.from("builds").select("id", { count: "exact", head: true }).eq("published", true);
+    if (error) throw error;
+    const { data: failed, error: failedError } = await supabase.from("builds").select("finished_at, error")
+      .eq("state", "failed").order("finished_at", { ascending: false }).limit(5);
+    if (failedError) throw failedError;
+    let phoneSees: number | null = null;
+    let phoneError: string | null = null;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (anon) {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/phone_lectures?select=build_id`,
+          { headers: { apikey: anon, ...(anon.startsWith("eyJ") ? { Authorization: `Bearer ${anon}` } : {}) } });
+        const body = await response.text();
+        if (response.ok) phoneSees = (JSON.parse(body) as unknown[]).length;
+        else phoneError = `HTTP ${response.status}: ${body.slice(0, 300)}`;
+      } catch (error) {
+        phoneError = describeError(error);
+      }
+    } else {
+      phoneError = "NEXT_PUBLIC_SUPABASE_ANON_KEY is not set, so the phone's view cannot be checked from here";
+    }
+    return {
+      published: count ?? 0,
+      failed: (failed ?? []).map((f) => ({ at: String(f.finished_at ?? ""), error: String(f.error ?? "") })),
+      phoneSees,
+      phoneError,
+    };
+  } catch (error) {
+    return { error: describeError(error) };
+  }
+}

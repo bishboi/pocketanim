@@ -217,7 +217,9 @@ class PlayerActivity : Activity() {
                 result.fold(
                     onSuccess = { entries ->
                         if (entries.isEmpty()) {
-                            titleLabel.text = "No lectures saved yet: press Save in the harness after a build."
+                            // Which project it asked, so a phone pointed at another one (Settings) is plain to see.
+                            titleLabel.text = "No saved lectures in ${project.url.removePrefix("https://")}. In the web " +
+                                "app, Save after a build, then \"Check the phone's Saved list\" says what it holds."
                             return@fold
                         }
                         val names = entries.map { e ->

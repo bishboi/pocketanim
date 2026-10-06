@@ -921,6 +921,11 @@ async function viaOpenRouter(
             // Its chapters are written now, while the rest of the transcript is (stage 2).
             ready.set(wrote.n, wrote);
             writtenQueue.push(wrote);
+            const whole = topics.find((t) => t.sections.includes(wrote.n) && t.sections.every((n) => done.has(n)));
+            if (whole && topics.length > 1) {
+              emit({ type: "message", role: "status", text: `Transcript of Lecture ${whole.index} of ${topics.length} ` +
+                `("${whole.title}") written: its scenes are being made${whole.index < topics.length ? " while the next is written" : ""}.` });
+            }
           } else {
             failed.push(section.n);
           }
@@ -1210,7 +1215,7 @@ async function viaOpenRouter(
    * are the sections that gave nothing usable. `onSection` hears of each section's chapters as they are saved.
    */
   const chaptersInParallel = async (source: Queue<WrittenSection>, total: number, notes = new Map<number, string>(),
-    onSection?: (done: Map<number, Record<string, unknown>>) => Promise<void> | void) => {
+    onSection?: (done: Map<number, Record<string, unknown>>, missing: number[]) => Promise<void> | void) => {
     const PARALLEL = Math.max(1, Math.min(8, Number(process.env.PANIM_CHAPTERS_PARALLEL) ||
       Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 6));
     const TRIES = 4;          // refused or failed replies before a section is given up
@@ -1378,12 +1383,9 @@ async function viaOpenRouter(
           section = await source.next();
           if (!section) break;
           const script = await one(section, notes.get(section.n));
-          if (script) {
-            done.set(section.n, script);
-            await onSection?.(done);
-          } else {
-            missing.push(section.n);
-          }
+          if (script) done.set(section.n, script);
+          else missing.push(section.n);
+          await onSection?.(done, missing);
         } catch (error) {
           halted = error;
         } finally {
@@ -1454,34 +1456,151 @@ async function viaOpenRouter(
   // own request, as the transcript was. One after another (write_lecture, then add_chapters turn by turn) a two-hour
   // lecture took a slow model an hour of turns, each a longer conversation than the last, and looked stuck.
   /**
-   * A micro-lecture whose sections all have their chapters is compiled and sent at once ("part"), for the page to
-   * build while the other topics are still being written; the final cut (generate, splitByTopics) is the same
-   * script, so the build is kept when it comes out the same.
+   * A series of micro-lectures (topics.ts) is finished one micro-lecture at a time, never as one long lecture: as
+   * soon as every section of a topic has its chapters, that topic is put together as a lecture of its own, checked
+   * on its own (its sections' transcript said, its ops compiling, its book questions asked, its figures built), its
+   * faulty sections written again in parallel, and it is sent to the page to build ("part") while the other topics
+   * are still being written. Checking and fixing the whole two-hour lecture at once, then cutting it, was the slow
+   * part: every fix-up turn carried the whole lecture.
    */
-  const sentParts = new Set<number>();
-  const earlyParts = async (done: Map<number, Record<string, unknown>>) => {
-    const head = done.get(planned[0]?.n);
-    if (topics.length < 2 || !head) return;
-    for (const [k, topic] of topics.entries()) {
-      if (sentParts.has(k) || !topic.sections.every((n) => done.has(n))) continue;
-      sentParts.add(k);
-      const chapters = topic.sections.flatMap((n) => {
-        const own = done.get(n)!.chapters;
-        return Array.isArray(own) ? own : [];
-      });
-      const part = topicPart({ ...head, chapters }, { title: topic.title, recap: done.get(topic.sections[topic.sections.length - 1])?.recap },
-        k, topics.length, String(head.title ?? "Lecture"), null);
-      const compiled = await compileLecture(part.script, partOptions());
-      if (!compiled.source) continue;           // built with the rest, once the lecture is whole
-      emit({ type: "part", part: { index: k + 1, of: topics.length, title: part.title, minutes: compiled.minutes ?? 0,
-        source: sanitizeScene(compiled.source) } });
-      emit({ type: "message", role: "status", text: `${part.title} is written: building it now, while the rest is written.` });
+  const finished = new Map<number, { index: number; of: number; title: string; minutes: number; source: string }>();
+  const finishing: Promise<void>[] = [];
+  const started = new Set<number>();
+  // The series' title and opening come from the first section's chapters.
+  let headReady: (head: Record<string, unknown>) => void = () => {};
+  const head = new Promise<Record<string, unknown>>((resolve) => (headReady = resolve));
+  const sectionOf = (n: number) => planned.find((p) => p.n === n);
+
+  /** One micro-lecture's errors, each with the section it belongs to (or 0: the lecture's own). */
+  const topicErrors = async (part: Record<string, unknown>, sections: number[]) => {
+    const chapters = (Array.isArray(part.chapters) ? part.chapters : []) as { section?: unknown; beats?: { do?: Record<string, unknown>[] }[] }[];
+    const questions = sections.flatMap((n) => sectionOf(n)?.questions ?? []);
+    const compiled = await compileLecture(part, { ...partOptions(), bookQuestions: questions });
+    const errors = new Map<number, string[]>();
+    const add = (n: number, error: string) => errors.set(n, [...(errors.get(n) ?? []), error]);
+    for (const error of compiled.source ? [] : compiled.errors) {
+      const chapter = /^chapter (\d+)\b/.exec(error);
+      const n = chapter ? Number(chapters[Number(chapter[1]) - 1]?.section) : NaN;
+      if (Number.isFinite(n) && sections.includes(n)) {
+        const first = chapters.findIndex((c) => Number(c?.section) === n);
+        add(n, error.replace(/^chapter \d+/, `your chapter ${Number(chapter![1]) - first}`));
+      } else {
+        add(0, error);
+      }
     }
+    for (const n of sections) {
+      const ws = ready.get(n);
+      const gap = ws && chapters.some((c) => Number(c?.section) === n) ? transcriptProblem(part, [ws], [n]) : null;
+      if (gap) add(n, gap);
+      // Each of the book's questions in this section, asked; each of its figures, built.
+      const asked = new Set(chapters.flatMap((c) => (c.beats ?? []).flatMap((b) => (b.do ?? [])
+        .filter((op) => op?.op === "question" && op.from_book != null).map((op) => String(op.from_book)))));
+      const unasked = (sectionOf(n)?.questions ?? []).filter((q) => !asked.has(q.id));
+      if (unasked.length) {
+        add(n, `The book's question${unasked.length > 1 ? "s" : ""} ${unasked.map((q) => q.id).join(", ")} ` +
+          `${unasked.length > 1 ? "are" : "is"} never asked. Put each on the stage where the transcript reads it out, ` +
+          '{"op":"question","from_book":"<id>","text":...,"choices":[...]}, every option explained, then the answer.');
+      }
+      if (doc) {
+        const marked = new Set([...(sectionOf(n)?.source ?? "").matchAll(/\[FIGURE (\w+):/g)].map((m) => m[1]));
+        const figures = Object.fromEntries(Object.entries(scriptFigures(doc)).filter(([id]) => marked.has(id)));
+        const unbuilt = unbuiltFigures(part, figures);
+        if (unbuilt.length) {
+          add(n, `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not ` +
+            "built. Build each in Manim where the narration explains it, marked with \"from_figure\", or show a " +
+            "photograph as it is with {\"op\":\"figure\",\"photo\":true}.");
+        }
+      }
+    }
+    return { compiled, errors };
   };
+
+  const finishTopic = async (k: number, bySection: Map<number, Record<string, unknown>>, missing: number[]) => {
+    const topic = topics[k];
+    const label = `Lecture ${k + 1} of ${topics.length}`;
+    const own = new Map(topic.sections.filter((n) => bySection.has(n)).map((n) => [n, bySection.get(n)!]));
+    const build = (series: Record<string, unknown>) => {
+      const chapters = topic.sections.flatMap((n) => {
+        const c = own.get(n)?.chapters;
+        return Array.isArray(c) ? c : [];
+      });
+      return topicPart({ ...series, chapters }, { title: topic.title, recap: own.get(topic.sections[topic.sections.length - 1])?.recap },
+        k, topics.length, String(series.title ?? "Lecture"), null);
+    };
+    const series = await head;
+    let part = build(series);
+    let checked = await topicErrors(part.script, topic.sections);
+    // Its faulty sections, and those that gave nothing, written again at the same time, told what was wrong.
+    const notes = new Map<number, string>();
+    for (const [n, errors] of checked.errors) if (n) notes.set(n, errors.join("\n"));
+    for (const n of topic.sections) if (missing.includes(n) && ready.has(n)) notes.set(n, "Nothing usable came back for this section last time.");
+    if (notes.size) {
+      emit({ type: "message", role: "status", text: `${label}: section${notes.size > 1 ? "s" : ""} ` +
+        `${[...notes.keys()].join(", ")} written again, with what its check found.` });
+      const again = await chaptersInParallel(Queue.of([...notes.keys()].map((n) => ready.get(n)!)), notes.size, notes);
+      for (const [n, chapters] of again.done) own.set(n, chapters);
+      part = build(series);
+      checked = await topicErrors(part.script, topic.sections);
+    }
+    let compiled = checked.compiled;
+    if (!compiled.source) {
+      // What still will not compile is left out (those beats' ops), rather than holding the lecture back.
+      if (dropOps(part.script, compiled.errors)) compiled = await compileLecture(part.script, partOptions());
+    }
+    if (!compiled.source) {
+      emit({ type: "message", role: "status", text: `${label} ("${topic.title}") could not be made: ${compiled.errors.slice(0, 2).join("; ")}` });
+      return;
+    }
+    const left = [...checked.errors.values()].flat();
+    const done = { index: k + 1, of: topics.length, title: part.title, minutes: compiled.minutes ?? 0, source: sanitizeScene(compiled.source) };
+    finished.set(k, done);
+    emit({ type: "part", part: done });
+    emit({ type: "message", role: "status", text: `${part.title} is ready (about ${Math.round(done.minutes)} min): ` +
+      `building it now${finished.size < topics.length ? ", while the others are written" : ""}.` +
+      (left.length ? ` Not every check passed: ${left[0].slice(0, 200)}` : "") });
+  };
+
+  /** Each micro-lecture is finished as soon as all its sections are in (or given up). */
+  const startTopics = (done: Map<number, Record<string, unknown>>, missing: number[], all = false) => {
+    const first = done.get(planned[0]?.n);
+    if (first) headReady(first);
+    else if (all) headReady(done.values().next().value ?? { title: topics[0]?.title || "Lecture" });
+    topics.forEach((topic, k) => {
+      if (started.has(k)) return;
+      const settledSections = topic.sections.every((n) => done.has(n) || missing.includes(n));
+      if (!(settledSections || all) || !topic.sections.some((n) => done.has(n) || (all && ready.has(n)))) return;
+      started.add(k);
+      finishing.push(finishTopic(k, done, missing).catch((error) => {
+        emit({ type: "message", role: "status", text: `Lecture ${k + 1} failed: ${error instanceof Error ? error.message : String(error)}` });
+      }));
+    });
+  };
+
+  if (lecture && topics.length > 1 && !scene) {
+    let first;
+    try {
+      first = await chaptersInParallel(writtenQueue, planned.length, new Map(), (done, missing) => startTopics(done, missing));
+      await settle();
+      // Topics with a section the transcript could not write are finished with what they have.
+      startTopics(first.done, first.missing, true);
+      await Promise.all(finishing);
+    } catch (error) {
+      abandoned = true;
+      throw error;
+    }
+    const parts = topics.map((_, k) => finished.get(k)).filter((p): p is NonNullable<typeof p> => !!p);
+    if (!parts.length) throw new Error("None of the micro-lectures could be made; see the messages above.");
+    // Numbered as they stand: a micro-lecture that could not be made is left out of the series.
+    const series = parts.map((p, i) => ({ title: p.title.replace(/^Lecture \d+:/, `Lecture ${i + 1}:`), minutes: p.minutes,
+      source: parts.length === topics.length ? p.source : p.source.replace(/Lecture \d+ of \d+/, `Lecture ${i + 1} of ${parts.length}`) }));
+    emit({ type: "message", role: "status", text: `The series is written: ${series.length} micro-lectures ` +
+      `(${series.map((p) => `${p.title}, ${Math.round(p.minutes)} min`).join("; ")}).` });
+    return { source: series[0].source, parts: series, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
+  }
   if (lecture && planned.length >= 2 && !scene) {
     let first;
     try {
-      first = await chaptersInParallel(writtenQueue, planned.length, new Map(), earlyParts);
+      first = await chaptersInParallel(writtenQueue, planned.length);
       await settle();
     } catch (error) {
       abandoned = true;

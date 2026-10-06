@@ -177,10 +177,15 @@ Put your keys in `.env.local`. All of them are optional.
 
 ### How a long lecture is made quickly
 
-- **The transcript and the video overlap.** Each section's video chapters are asked for as soon as that section's
-  transcript is written, not after the last one. A micro-lecture whose sections all have chapters is compiled at once
-  and sent to the page, which starts building it while the rest is still being written; the final cut is the same
-  script, so that build is kept.
+- **Cut by time before a word is written.** The sections are sized from the time estimate and grouped into
+  micro-lectures of 20-30 min (`lib/topics.ts`) first; the transcript is written in that order, so the first
+  micro-lecture's transcript is done first.
+- **Each micro-lecture is finished on its own.** Each section's scenes (video chapters) are asked for as soon as
+  its transcript is written. When every section of a micro-lecture has its scenes, that micro-lecture is put
+  together, checked as a lecture of its own (its transcript all said, its ops compiling, its book questions asked,
+  its figures built), its faulty sections written again in parallel, and sent to the page, which builds it while
+  the next micro-lectures are still being written. A series is never checked or fixed as one long lecture and cut
+  afterwards: those fix-up turns carried the whole lecture each time and were the slowest part.
 - **Beats name the transcript's lines.** The video's model sees each section as numbered lines (`12| ...`) and
   writes `{"lines": [12, 13], "do": [...]}` instead of copying the sentences out (`lib/lines.ts`). A line no beat
   names is said on a beat of its own; a chapter too thin to stand is merged into its neighbour.

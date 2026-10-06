@@ -28,6 +28,8 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 _MARK = re.compile(r"\\special\{dvisvgm:raw <g id='([^']+)'>\}|\\special\{dvisvgm:raw </g>\}")
@@ -153,12 +155,138 @@ def install(font: str | None = None) -> bool:
 
     _original = tex_mobject.tex_to_svg_file
     tex_mobject.tex_to_svg_file = typeset
+    _atomic_text()
     _installed = True
     return missing
 
 
+# Builds share Manim's TeX and text caches (export_scene.manim_cache) and run several at once. Two writing the same
+# file at the same moment broke the text one ("error while writing to output stream" from manimpango.text2svg) and
+# could leave a half-written formula SVG for a third to read. Text files are now written under a name of their own
+# and moved into place in one step; formulas are typeset under one lock per cache, across processes.
+
+def _atomic(write, at: int):
+    """`write` (a manimpango text2svg) writing to a private file, then renamed over the target: a reader sees no
+    file or a whole one, and two writers no longer write into one. Tried twice before the error is let through."""
+
+    def wrapped(*args, **kwargs):
+        args = list(args)
+        target = str(kwargs["file_name"] if "file_name" in kwargs else args[at])
+        if os.path.exists(target):
+            return target
+        for attempt in (1, 2):
+            temp = f"{target}.{os.getpid()}.{uuid.uuid4().hex[:8]}.svg"
+            if "file_name" in kwargs:
+                kwargs["file_name"] = temp
+            else:
+                args[at] = temp
+            try:
+                write(*args, **kwargs)
+                os.replace(temp, target)
+                return target
+            except Exception:
+                try:
+                    os.remove(temp)
+                except OSError:
+                    pass
+                if os.path.exists(target):
+                    return target       # another build wrote it meanwhile
+                if attempt == 2:
+                    raise
+        return target
+
+    wrapped.__wrapped__ = write
+    return wrapped
+
+
+def _private_svg_scratch() -> None:
+    """SVGMobject parses a cached SVG through a scratch copy beside it, "<name>_.svg", and deletes it: in a cache
+    shared by builds running at once, one build deleted another's copy (FileNotFoundError). Each process now uses
+    a scratch name of its own."""
+    import xml.etree.ElementTree as ET
+
+    import svgelements as se
+    from manim import RIGHT
+    from manim.mobject.svg.svg_mobject import SVGMobject
+
+    if getattr(SVGMobject.generate_mobject, "_panim", False):
+        return
+
+    def generate_mobject(self):
+        file_path = self.get_file_path()
+        new_tree = self.modify_xml_tree(ET.parse(file_path))
+        scratch = file_path.with_name(f"{file_path.stem}_{os.getpid()}_{uuid.uuid4().hex[:8]}{file_path.suffix}")
+        new_tree.write(scratch)
+        try:
+            svg = se.SVG.parse(scratch)
+        finally:
+            scratch.unlink(missing_ok=True)
+        mobjects, mobject_dict = self.get_mobjects_from(svg)
+        self.add(*mobjects)
+        self.id_to_vgroup_dict = mobject_dict
+        self.flip(RIGHT)
+        return self
+
+    generate_mobject._panim = True
+    SVGMobject.generate_mobject = generate_mobject
+
+
+def _remove_last_m(file_name: str) -> None:
+    """manimpango's PangoUtils.remove_last_M, which Text runs on its SVG every time, cached or not: it rewrote the
+    file in place, so a build reading it at that moment read an empty file ("no element found"). Now the file is
+    rewritten only when there is something to remove, and then by a rename."""
+    with open(file_name, "r") as handle:
+        content = handle.read()
+    cleaned = re.sub(r'Z M [^A-Za-z]*? "\/>', 'Z "/>', content)
+    if cleaned == content:
+        return
+    temp = f"{file_name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    with open(temp, "w") as handle:
+        handle.write(cleaned)
+    os.replace(temp, file_name)
+
+
+def _atomic_text() -> None:
+    import manimpango
+
+    _private_svg_scratch()
+    manimpango.PangoUtils.remove_last_M = staticmethod(_remove_last_m)
+
+    if not hasattr(manimpango.text2svg, "__wrapped__"):
+        manimpango.text2svg = _atomic(manimpango.text2svg, 4)
+    markup = manimpango.MarkupUtils
+    if not hasattr(markup.text2svg, "__wrapped__"):
+        markup.text2svg = staticmethod(_atomic(markup.text2svg, 7))
+
+
+@contextmanager
+def _cache_lock():
+    """One formula typeset at a time across the builds sharing this cache (a no-op where flock does not exist)."""
+    try:
+        import fcntl
+        from manim import config
+
+        folder = Path(config.get_dir("tex_dir"))
+        folder.mkdir(parents=True, exist_ok=True)
+        handle = open(folder / ".panim.lock", "a")
+    except Exception:  # noqa: BLE001 -- no lock is the old behaviour, not a failure
+        yield
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        handle.close()
+
+
 def typeset(expression: str, environment: str | None = None, tex_template=None) -> Path:
-    """Manim's tex_to_svg_file, by LaTeX when it can, by XeLaTeX for non-Latin text, by Pango otherwise."""
+    """Manim's tex_to_svg_file, by LaTeX when it can, by XeLaTeX for non-Latin text, by Pango otherwise; one at a
+    time across the builds sharing the cache."""
+    with _cache_lock():
+        return _typeset(expression, environment, tex_template)
+
+
+def _typeset(expression: str, environment: str | None = None, tex_template=None) -> Path:
     if not latex_available():
         return tex_to_svg_file(expression, environment, tex_template)
     source = to_tex(expression)
@@ -266,5 +394,7 @@ def tex_to_svg_file(expression: str, environment: str | None = None, tex_templat
         return "".join(out)
 
     body = write(tree)
-    target.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1">{body}</svg>', encoding="utf-8")
+    temp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    temp.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1">{body}</svg>', encoding="utf-8")
+    os.replace(temp, target)
     return target

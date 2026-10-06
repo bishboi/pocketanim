@@ -1023,7 +1023,10 @@ def build_2d(scene: dict) -> DecodedIR:
                 if rest_points is not None:
                     obj["points"] = rest_points if fading_in else rest_points + shift
                 if not fading_in:
-                    obj["visible"] = False
+                    # Off the stage, as the phone's builder does (objects.remove): Manim removes a faded-out
+                    # mobject, and one faded in again is added on top. Kept hidden in its old place, it was drawn
+                    # under everything added since -- the two interpreters disagreed on the draw order.
+                    objects.pop(name, None)
             else:
                 obj["instances"] = base
                 obj["xform"] = base_xform

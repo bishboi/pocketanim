@@ -919,10 +919,14 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                     rec.blockers.append(
                         "TransformMatchingTex operands could not be declared"
                     )
-            elif isinstance(anim, LaggedStart) or _staggers(anim):
+            elif isinstance(anim, LaggedStart) or _staggers(anim) or type(anim).__name__ == "AnimationGroup":
                 # An AnimationGroup with a lag_ratio is a LaggedStart by
                 # another name (the lecture panel's fade-old-then-show-new).
-                # Flattening it played both halves at once.
+                # Flattening it played both halves at once. A plain group still
+                # here was nested (in a Succession, or in another group: only the
+                # play's own groups are flattened above) and is the same `lag`
+                # verb with ratio 0: its children start together. It used to fall
+                # through to "unsupported animation: AnimationGroup", tier 3.
                 lines = _lag_lines(rec, anim, duration, suffix)
                 if lines:
                     rec.timeline.extend(lines)

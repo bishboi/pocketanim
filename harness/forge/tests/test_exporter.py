@@ -152,3 +152,36 @@ def test_a_diagram_set_moving_moves_its_parts_in_the_program_and_brings_them_bac
     assert slides and all("rate=there_and_back" in line for line in slides)       # block, mg and N, there and back
     assert len(swings) >= 2 and all("rate=there_and_back" in line for line in swings)
     assert "morph" not in program                                                    # no moved copy of a part
+
+
+NESTED = '''
+from manim import *
+
+
+class Nested(Scene):
+    def construct(self):
+        a, b, c = Square().shift(LEFT * 3), Circle(), Triangle().shift(RIGHT * 3)
+        # A group inside a Succession, and a group inside a group: both were "unsupported animation:
+        # AnimationGroup" (tier 3); only a play's own groups were unwrapped.
+        self.play(Succession(AnimationGroup(Create(a), FadeIn(b)), FadeOut(a)))
+        self.play(AnimationGroup(AnimationGroup(Create(c), b.animate.shift(UP)), FadeIn(a)))
+        self.wait(0.5)
+'''
+
+
+def test_nested_animation_groups_are_tier_one_and_both_interpreters_agree(tmp_path):
+    import os
+
+    scene = tmp_path / "scene.py"
+    scene.write_text(NESTED)
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Nested",
+                          str(tmp_path)], capture_output=True, text=True, timeout=600)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1, result["blockers"]
+    program = (tmp_path / "dsl" / "generated" / "Nested.panim").read_text()
+    assert "ratio=0" in program
+    (tmp_path / "player").symlink_to(REPO / "player")
+    cross = subprocess.run([sys.executable, "-m", "tools.crosscheck_interpreter", "dsl/generated/Nested.panim"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=900,
+                           env={**os.environ, "PYTHONPATH": str(REPO)})
+    assert "both interpreters agree" in cross.stdout, cross.stdout + cross.stderr

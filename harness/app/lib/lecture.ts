@@ -131,7 +131,7 @@ export async function compileLecture(
   options: {
     style?: string;
     minMinutes?: number;
-    figures?: Record<string, { file: string; caption: string }>;
+    figures?: Record<string, { file: string; caption: string; svg?: string; parts?: string[] }>;
     genre?: string;
     /** The content the lecture is written from: the compiler flags lines read out of it word for word. */
     sourceText?: string;
@@ -153,7 +153,7 @@ export async function compileLecture(
           ...script,
           ...(options.style ? { style: options.style } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
-          // The book's diagrams are rebuilt in Manim (document.ts figurePrompt), not shown as pictures.
+          // The book's diagrams are drawn as SVG (figures.ts) or rebuilt in Manim, never shown as the scanned picture.
           ...(options.figures && Object.keys(options.figures).length ? { rebuild_figures: true } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
           ...(options.sourceText ? { source_text: options.sourceText } : {}),
@@ -502,10 +502,10 @@ export const ADD_CHAPTERS_TOOL = {
 
 /** The system prompt for a lecture template. */
 /**
- * The book figures a finished script neither rebuilt in Manim (an op with "from_figure") nor showed as a photograph
- * ({"op":"figure","photo":true}).
+ * The book figures a finished script neither showed (a figure drawn as SVG, or a photograph with "photo": true) nor
+ * rebuilt in Manim (an op with "from_figure").
  */
-export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string }>): string[] {
+export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string; svg?: string }>): string[] {
   const done = new Set<string>();
   const chapters = ((script as { chapters?: { beats?: { do?: Record<string, unknown>[] }[] }[] })?.chapters ?? []);
   for (const chapter of chapters) {
@@ -513,6 +513,8 @@ export function unbuiltFigures(script: unknown, figures: Record<string, { captio
       for (const op of beat.do ?? []) {
         if (op?.from_figure) done.add(String(op.from_figure));
         if (op?.op === "figure" && op.photo) done.add(String(op.id));
+        // A figure redrawn as SVG (figures.ts) is shown as itself.
+        if (op?.op === "figure" && figures[String(op.id)]?.svg) done.add(String(op.id));
       }
     }
   }

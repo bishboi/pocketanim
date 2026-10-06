@@ -156,6 +156,23 @@ def weather_svg(icon: str) -> str:
             f'{entry["body"]}</svg>')
 
 
+# Colours a written figure may name instead of a hex value, so one SVG suits every board style (light or dark):
+# INK is the board's writing colour, MUTED its faint lines, BOARD the board itself (to blank out a line behind a
+# symbol), the rest the style's palette.
+TOKENS = ("INK", "MUTED", "BOARD", "ROSE", "GREEN", "GOLD", "RIVER", "TERRA", "TEAL", "VIOLET", "SAND", "DUNE", "RUST", "OLIVE")
+
+
+def paint(text: str, palette: dict) -> str:
+    """The SVG with its colour tokens (fill="ROSE", stroke: INK) replaced by the style's colours."""
+    def swap(m):
+        value = palette.get(m.group(2).upper())
+        return f"{m.group(1)}{value}{m.group(3)}" if value else m.group(0)
+
+    names = "|".join(TOKENS)
+    text = re.sub(rf'((?:fill|stroke|stop-color|color)\s*=\s*")({names})(")', swap, text, flags=re.I)
+    return re.sub(rf"((?:fill|stroke|stop-color|color)\s*:\s*)({names})(\s*[;\"])", swap, text, flags=re.I)
+
+
 # --------------------------------------------------------------------------------------------------------------
 # SVG geometry: transforms as 3x3 matrices in the SVG's user space.
 
@@ -406,6 +423,9 @@ class Doc:
                     self.anims.append(Anim(el, target))
         self.parents = {child: parent for parent in self.root.iter() for child in parent}
         self.leaves = [el for el in self.root.iter() if local(el.tag) in SHAPES and not self._hidden(el)]
+        # Labels: Manim's SVG reader draws no <text>, so each is set in the lecture's own font (make's `label`).
+        self.texts = [el for el in self.root.iter() if local(el.tag) == "text" and not self._hidden(el)
+                      and " ".join("".join(el.itertext()).split())]
         self.by_target: dict = {}
         for anim in self.anims:
             self.by_target.setdefault(anim.target, []).append(anim)
@@ -487,6 +507,47 @@ class Doc:
             out.append(el)
             el = self.parents.get(el)
         return out[::-1]
+
+    def text_spec(self, el) -> dict:
+        """A label: its words, where its anchor point is in user space, its size (user units), colour, weight,
+        and how it hangs off that point (text-anchor, dominant-baseline)."""
+        words = " ".join("".join(el.itertext()).split())
+        x, y = _nums(el.get("x"))[:1], _nums(el.get("y"))[:1]
+        for span in el:
+            if local(span.tag) == "tspan":
+                x = x or _nums(span.get("x"))[:1]
+                y = y or _nums(span.get("y"))[:1]
+        point = self.static_ctm(el) @ np.array([(x or [0.0])[0], (y or [0.0])[0], 1.0])
+        size = _nums(self.inherited(el, "font-size", None)) or [16.0]
+        scale = abs(np.linalg.det(self.static_ctm(el)[:2, :2])) ** 0.5 or 1.0
+        weight = str(self.inherited(el, "font-weight", None) or "")
+        return {"text": words, "at": point[:2], "size": size[0] * scale,
+                "fill": self.inherited(el, "fill", None) or "#000000",
+                "anchor": self.inherited(el, "text-anchor", None) or "start",
+                "middle": (self.inherited(el, "dominant-baseline", None) or "") in ("middle", "central"),
+                "bold": weight in ("bold", "bolder") or (weight.isdigit() and int(weight) >= 600)}
+
+    def part_of(self, el) -> str | None:
+        """The part an element belongs to: the id of its outermost ancestor (or itself) that has one."""
+        for node in self.chain(el):
+            if node.get("id") and local(node.tag) not in ANIMATIONS:
+                return node.get("id")
+        return None
+
+    def part_ids(self) -> list[str]:
+        """The figure's parts, in drawing order (what a lecture reveals and points at by id)."""
+        out: list[str] = []
+        for el in [*self.leaves, *self.texts]:
+            key = self.part_of(el)
+            if key and key not in out:
+                out.append(key)
+        order = {el: i for i, el in enumerate(self.root.iter())}
+        firsts = {}
+        for el in [*self.leaves, *self.texts]:
+            key = self.part_of(el)
+            if key:
+                firsts[key] = min(firsts.get(key, 1 << 30), order[el])
+        return sorted(out, key=lambda k: firsts[k])
 
     @property
     def quick(self) -> bool:
@@ -616,6 +677,10 @@ class Doc:
                     own = self.inherited(leaf, name, state)
                     base = _nums(own)[0] if own is not None and _nums(own) else 1.0
                     _set_style(twin, name, f"{base * alpha:.4f}")
+        for parent in list(root.iter()):
+            for child in list(parent):
+                if local(child.tag) == "text":
+                    parent.remove(child)        # labels are set as text mobjects (make's `label`), not read by Manim
         for el in root.iter():
             if "opacity" in el.attrib:
                 del el.attrib["opacity"]
@@ -694,7 +759,7 @@ def _map(raw0, raw1, user0, user1):
     return scale, raw0 - scale * user0
 
 
-def make(text: str, height: float = 1.0, style=None, strokes: bool = False):
+def make(text: str, height: float = 1.0, style=None, strokes: bool = False, label=None):
     """A Manim mobject of the animated SVG `text`, `height` tall, its motion played by `drawing.show(t)`.
 
     `style(mob)` restyles each freshly read drawing (the board's ink and marker weight). `strokes` scales the
@@ -718,6 +783,14 @@ def make(text: str, height: float = 1.0, style=None, strokes: bool = False):
     user_lo = (lo_raw - to_raw[1]) / to_raw[0]
     user_hi = (hi_raw - to_raw[1]) / to_raw[0]
     u0, u1 = np.minimum(user_lo, user_hi), np.maximum(user_lo, user_hi)     # the drawing's box in user space
+    specs = [doc.text_spec(el) for el in doc.texts]
+    for spec in specs:
+        # Room for the labels too: about half an em a letter, an em tall above the baseline.
+        wide = 0.55 * spec["size"] * len(spec["text"])
+        left = {"middle": spec["at"][0] - wide / 2, "end": spec["at"][0] - wide}.get(spec["anchor"], spec["at"][0])
+        top = spec["at"][1] - (0.5 if spec["middle"] else 0.95) * spec["size"]
+        u0 = np.minimum(u0, [left, top])
+        u1 = np.maximum(u1, [left + wide, top + 1.2 * spec["size"]])
     k = height / max(u1[1] - u0[1], 1e-9)
     width = (u1[0] - u0[0]) * k
     # Scene placement: the box's corners; the anchor's two points carry them through every move and scale.
@@ -727,6 +800,7 @@ def make(text: str, height: float = 1.0, style=None, strokes: bool = False):
     drawing = AnimatedDrawing(doc, still, to_raw, (u0, u1), style, strokes, k)
     drawing.anchor.set_points_as_corners([a0, a1])
     drawing.place()
+    drawing.add_labels(specs, label)
     return drawing
 
 
@@ -845,6 +919,53 @@ class AnimatedDrawing(_VGroup):
     def place(self) -> None:
         self.show(0.0, first=True)
 
+    def add_labels(self, specs: list[dict], label=None) -> None:
+        """Each <text> as a text mobject at its place: `label(words, colour, bold)` makes it (the lecture's font),
+        sized to its font-size and hung off its point as text-anchor says."""
+        from manim import Text
+
+        make_text = label or (lambda words, colour, bold: Text(words, color=colour, weight="BOLD" if bold else "NORMAL"))
+        scale, offset = self._to_scene()
+        unit = abs(scale[0])
+        refs: dict = {}
+        self.labels = []
+        for el, spec in zip(self.doc.texts, specs):
+            colour = _hex(_colour(spec["fill"])) if _colour(spec["fill"]) is not None else "#000000"
+            mob = make_text(spec["text"], colour, spec["bold"])
+            if spec["bold"] not in refs:
+                refs[spec["bold"]] = max(make_text("Mg", colour, spec["bold"]).height, 1e-6)
+            mob.scale(spec["size"] * unit * 0.95 / refs[spec["bold"]])
+            point = np.array([*(spec["at"] * scale + offset), 0.0])
+            centre_y = point[1] if spec["middle"] else point[1] + 0.33 * spec["size"] * unit
+            if spec["anchor"] == "middle":
+                mob.move_to([point[0], centre_y, 0])
+            elif spec["anchor"] == "end":
+                mob.move_to([point[0] - mob.width / 2, centre_y, 0])
+            else:
+                mob.move_to([point[0] + mob.width / 2, centre_y, 0])
+            # Where it sits against its point, in the drawing's units, to follow the point when it moves.
+            rel = (mob.get_center()[:2] - point[:2]) / unit
+            moving = any(n in self.doc.by_target for n in self.doc.chain(el))
+            self.labels.append((el, mob, spec["at"], rel, moving))
+            self.add(mob)
+
+    def parts(self) -> tuple[dict, list]:
+        """{part id: VGroup of its shapes and labels} for the outermost elements with an id, and the rest (drawn
+        with the figure, never revealed on their own). One part only when the drawing is redrawn each frame."""
+        from manim import VGroup
+
+        groups: dict = {}
+        rest: list = []
+        if self.quick:
+            members = list(zip(self.doc.leaves, self.leaves)) + [(el, mob) for el, mob, *_ in self.labels]
+            for el, mob in members:
+                key = self.doc.part_of(el)
+                (groups.setdefault(key, []) if key else rest).append(mob)
+        else:
+            rest = [self.art, *[mob for _, mob, *_ in self.labels]]
+        order = self.doc.part_ids()
+        return {k: VGroup(*groups[k]) for k in order if k in groups}, rest
+
     def show(self, t: float, first: bool = False) -> None:
         """Draw the moment t seconds into the motion (it repeats every period)."""
         frame = int(round(t * FPS)) % max(self.period, 1)
@@ -857,6 +978,8 @@ class AnimatedDrawing(_VGroup):
     def _quick(self, moment: float, first: bool) -> None:
         doc = self.doc
         state = doc.state(moment)
+        if getattr(self, "labels", None):
+            self._move_labels(state, first)
         scale, offset = self._to_scene()
         z = self.base_k * self.zoom()
         for i, (el, leaf) in enumerate(zip(doc.leaves, self.leaves)):
@@ -890,6 +1013,17 @@ class AnimatedDrawing(_VGroup):
                     width = _nums(own)[0]
                 # A stroke as wide, against the drawing, as in the SVG: user units -> Manim's (1/100 of a unit).
                 leaf.set_stroke(width=width * z * 100 * abs(np.linalg.det(m[:2, :2])) ** 0.5, family=False)
+
+    def _move_labels(self, state: dict, first: bool) -> None:
+        scale, offset = self._to_scene()
+        unit = abs(scale[0])
+        for el, mob, at, rel, moving in getattr(self, "labels", []):
+            if not moving and not first:
+                continue
+            m = self.doc.ctm(el, state) @ np.linalg.inv(self.doc.static_ctm(el))
+            point = m @ np.array([at[0], at[1], 1.0])
+            mob.move_to([*(point[:2] * scale + offset + rel * unit), 0.0])
+            mob.set_opacity(self.doc.opacity(el, state))
 
     def _redraw(self, moment: float) -> None:
         key = round(moment * FPS)

@@ -14,13 +14,14 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
-import { figurePictures, figurePrompt, loadDocument, scriptFigures, type DocumentManifest } from "./document";
+import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
+import { drawFigures, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { maxVideoMinutes, splitByTopics, splitLecture, topicPart } from "./parts";
 import { OPEN_CLOSE_MINUTES, planTopics, topicOf, topicLabel, type Topic } from "./topics";
 import { SECTION_TOOL, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
-import { python } from "./pocketanim";
+import { REPO, python } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -718,10 +719,29 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
       `${reference.parts.length} parts; the lecture follows them in order (about ${minutes} min).` });
   }
-  const system = lecture
-    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan) + (doc ? figurePrompt(doc) : "") +
-      languagePrompt(language) + (reference ? referencePrompt(reference) : "")
+  // The book's figures, redrawn as SVG by the model (figures.ts) while the transcript is written; the script
+  // writer is told about them once they are done (stage 2). PANIM_SVG_FIGURES=0 builds them in Manim as before.
+  let drawn: Record<string, Drawn> | undefined;
+  let drawingCost = 0;
+  const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
+    ? drawFigures(teachingFigures(doc), {
+      key: process.env.OPENROUTER_API_KEY ?? "",
+      model,
+      markdown: doc.markdown,
+      repo: REPO,
+      python: python(),
+      onStatus: (text) => emit({ type: "message", role: "status", text }),
+      onCost: (usd) => (drawingCost += usd),
+    }).catch((error) => {
+      emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +
+        "they are built on the board instead." });
+      return undefined;
+    })
+    : Promise.resolve(undefined);
+  const systemBase = lecture
+    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan)
     : systemPrompt(template);
+  const systemTail = lecture ? languagePrompt(language) + (reference ? referencePrompt(reference) : "") : "";
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
   const tools: ToolSpec[] = lecture
@@ -972,7 +992,12 @@ async function viaOpenRouter(
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
-  const pictures = lecture && doc ? await figurePictures(doc) : [];
+  drawn = await drawing;
+  if (drawingCost) costUsd += drawingCost;
+  const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
+  // Figures drawn as SVG are described by their parts; only the others go to the model as pictures.
+  const pictures = lecture && doc ? await figurePictures(doc, new Set(Object.keys(drawn ?? {}).filter(
+    (id) => drawn?.[id]?.svg || drawn?.[id]?.photo))) : [];
   // The whole transcript joins the system prompt once it is all written (settled, below); each section's chapters
   // are asked for with that section's lines only, as soon as it is written.
   const messages: OutMessage[] = [
@@ -1063,7 +1088,7 @@ async function viaOpenRouter(
     minMinutes: minutes,
     plan,
     stem: STEM_GENRES.includes(subject?.genre ?? ""),
-    figures: doc ? scriptFigures(doc) : undefined,
+    figures: doc ? scriptFigures(doc, drawn) : undefined,
     // The transcript mimics the reference on purpose: only the content is checked for lines read out word for word.
     sourceText: `${request.content}\n${doc?.markdown ?? ""}${planned.length ? "" : `\n${referenceText}`}`,
     language: language === "auto" ? undefined : language,
@@ -1079,12 +1104,13 @@ async function viaOpenRouter(
     const compiled = await compileLecture(script, lectureOptions());
     const unsaid = compiled.source ? transcriptProblem(script, written) : null;
     if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
-    const unbuilt = compiled.source && doc ? unbuiltFigures(script, scriptFigures(doc)) : [];
+    const unbuilt = compiled.source && doc ? unbuiltFigures(script, scriptFigures(doc, drawn)) : [];
     if (unbuilt.length) {
       return { ...compiled, source: null, errors: [
         `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not in the ` +
-        "lecture. Build each in Manim where the narration explains it (sketch, preset, graph, diagram, compare, a map " +
-        "sequence), marked with \"from_figure\", or show a photograph as it is with {\"op\":\"figure\",\"photo\":true}."] };
+        "lecture. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal and " +
+        "focus on its parts); build the others in Manim (sketch, preset, graph, diagram), marked with \"from_figure\"; " +
+        "show a photograph as it is with {\"op\":\"figure\",\"photo\":true}."] };
     }
     const parts = reference?.parts?.length ?? 0;
     if (!compiled.source || !parts || written.length) return compiled;
@@ -1503,12 +1529,13 @@ async function viaOpenRouter(
       }
       if (doc) {
         const marked = new Set([...(sectionOf(n)?.source ?? "").matchAll(/\[FIGURE (\w+):/g)].map((m) => m[1]));
-        const figures = Object.fromEntries(Object.entries(scriptFigures(doc)).filter(([id]) => marked.has(id)));
+        const figures = Object.fromEntries(Object.entries(scriptFigures(doc, drawn)).filter(([id]) => marked.has(id)));
         const unbuilt = unbuiltFigures(part, figures);
         if (unbuilt.length) {
           add(n, `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not ` +
-            "built. Build each in Manim where the narration explains it, marked with \"from_figure\", or show a " +
-            "photograph as it is with {\"op\":\"figure\",\"photo\":true}.");
+            "shown. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal " +
+            "its parts); build the others in Manim marked with \"from_figure\", or show a photograph as it is with " +
+            "{\"op\":\"figure\",\"photo\":true}.");
         }
       }
     }

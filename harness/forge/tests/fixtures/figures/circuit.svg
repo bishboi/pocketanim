@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 460">
+  <g id="wire">
+    <path d="M140 120 H660 V380 H140 Z" fill="none" stroke="INK" stroke-width="5"/>
+  </g>
+  <g id="battery">
+    <rect x="118" y="215" width="44" height="50" fill="BOARD" stroke="none"/>
+    <line x1="112" y1="222" x2="168" y2="222" stroke="INK" stroke-width="6"/>
+    <line x1="124" y1="258" x2="156" y2="258" stroke="INK" stroke-width="10"/>
+    <text x="96" y="230" font-size="26" fill="INK" text-anchor="end">+</text>
+    <text x="96" y="270" font-size="26" fill="INK" text-anchor="end">−</text>
+    <text x="96" y="310" font-size="24" fill="MUTED" text-anchor="end">6 V</text>
+  </g>
+  <g id="bulb">
+    <circle cx="400" cy="120" r="34" fill="GOLD" fill-opacity="0.35" stroke="INK" stroke-width="5"/>
+    <path d="M378 98 L422 142 M422 98 L378 142" stroke="INK" stroke-width="4"/>
+    <text x="400" y="66" font-size="24" fill="INK" text-anchor="middle">bulb</text>
+  </g>
+  <g id="switch">
+    <rect x="370" y="368" width="60" height="24" fill="BOARD" stroke="none"/>
+    <circle cx="372" cy="380" r="6" fill="INK"/>
+    <circle cx="428" cy="380" r="6" fill="INK"/>
+    <line x1="372" y1="380" x2="428" y2="380" stroke="INK" stroke-width="5"/>
+    <text x="400" y="425" font-size="24" fill="INK" text-anchor="middle">switch (closed)</text>
+  </g>
+  <g id="current">
+    <path d="M140 200 V120 H360 M440 120 H660 V380 H440 M360 380 H140 V290" fill="none" stroke="GOLD"
+          stroke-width="7" stroke-dasharray="14 26" stroke-linecap="round">
+      <animate attributeName="stroke-dashoffset" values="0; -40" dur="1s" repeatCount="indefinite"/>
+    </path>
+    <polygon points="250,108 274,120 250,132" fill="GOLD"/>
+    <text x="250" y="96" font-size="26" fill="GOLD" text-anchor="middle">I</text>
+  </g>
+</svg>

@@ -2262,6 +2262,50 @@ class Lecture(Scene):
                 order.insert(max(order.index(mobs[a]), order.index(mobs[b])) + 1, m)
         return self._to_stage(Group(body), draw=order)
 
+    def svg_figure(self, key: str, path: str, caption: str | None = None, show=None):
+        """A figure drawn as an SVG (a book's diagram redrawn by the model, harness/app/lib/figures.ts): its shapes
+        and labels written onto the stage, its <g id> parts revealed and pointed at like a diagram's nodes
+        (reveal_nodes, spotlight), and its SMIL animation, if it has any, playing while it is up (animsvg.py).
+
+        Colour names in it (INK, MUTED, ROSE, GOLD...) become this style's colours; black lines become the ink."""
+        import animsvg
+        import icons
+
+        cx, cy, w, h = self.STAGE
+        palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG}
+        # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
+        raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
+        text = animsvg.paint(raw, palette)
+
+        def label(words, colour, bold):
+            return T(words, 30, colour, weight=BOLD if bold else NORMAL)
+
+        room_h = h - (0.75 if caption else 0.25)
+        drawing = animsvg.make(text, height=room_h, strokes=True, label=label)
+        if drawing.width > w - 0.3:
+            # Drawn again at the size it will be: its line widths are set for the size it is drawn at.
+            drawing = animsvg.make(text, height=room_h * (w - 0.3) / drawing.width, strokes=True, label=label)
+        drawing.move_to([cx, cy + (0.25 if caption else 0.0), 0])
+        parts, rest = drawing.parts()
+        under = []
+        if caption:
+            under.append(fit(T(wrap(str(caption), 90), 18, P.MUTED), w - 0.4).next_to(drawing, DOWN, buff=0.15))
+        ids = list(parts)
+        shown = set(ids if show is None else [str(x) for x in show if str(x) in parts])
+        self.diagrams[key] = {"nodes": parts, "edges": [], "shown": shown, "focus": None, "write": True,
+                              "drawing": drawing}
+        self._next_keys.add(key)
+        self._next_pending.extend(parts[i] for i in ids if i not in shown)
+        # The anchor goes on the stage with the rest: it carries where the drawing is, for its moving frames.
+        body = VGroup(drawing.anchor, *rest, *[parts[i] for i in ids if i in shown], *under)
+        order = [m for m in [*rest, *[parts[i] for i in ids if i in shown], *under] if len(m.get_family()) > 0]
+        start = getattr(self, "_live_start", None)
+        if start is not None and drawing.period > 1 and order:
+            # On a piece that is written onto the stage (the stage writes its pieces, not the group they are in,
+            # so the anchor is never in the scene itself and Manim would never run an updater on it).
+            start(order[0], lambda t, _p: drawing.show(t), "loop", True)
+        return self._to_stage(Group(body), draw=order)
+
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
         d = self.diagrams.get(key)

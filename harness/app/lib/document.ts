@@ -6,6 +6,7 @@
  * gets the image files from here -- the model never sees a path.
  */
 
+import { drawnLine, type Drawn } from "./figures";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -188,9 +189,14 @@ export async function figureFile(id: string, figure: string): Promise<string> {
   return found.file;
 }
 
-/** The script's `figures` table: what the compiler resolves figure ops against. */
-export function scriptFigures(doc: DocumentManifest): Record<string, { file: string; caption: string }> {
-  return Object.fromEntries(doc.figures.map((f) => [f.id, { file: f.file, caption: f.caption }]));
+/** The script's `figures` table: what the compiler resolves figure ops against, with each one's SVG drawing. */
+export function scriptFigures(doc: DocumentManifest, drawn: Record<string, Drawn> = {}):
+  Record<string, { file: string; caption: string; svg?: string; parts?: string[] }> {
+  return Object.fromEntries(doc.figures.map((f) => [f.id, {
+    file: f.file,
+    caption: f.caption,
+    ...(drawn[f.id]?.svg ? { svg: drawn[f.id].svg, parts: drawn[f.id].parts ?? [] } : {}),
+  }]));
 }
 
 /** The lines of the prompt that tell the model which figures it may show. */
@@ -198,13 +204,28 @@ export function scriptFigures(doc: DocumentManifest): Record<string, { file: str
 const NOT_A_FIGURE = /\b(QR|bar ?code|logo|watermark)\b|क्यूआर/i;
 
 /** The figures a lecture rebuilds: the document's, less QR codes and logos. */
-function teachingFigures(doc: DocumentManifest): Figure[] {
+export function teachingFigures(doc: DocumentManifest): Figure[] {
   return doc.figures.filter((f) => !NOT_A_FIGURE.test(f.caption));
 }
 
-export function figurePrompt(doc: DocumentManifest): string {
+export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn>): string {
   const figures = teachingFigures(doc);
   if (!figures.length) return "";
+  if (drawn) {
+    // The figures were redrawn as SVG (figures.ts): shown and pointed at, not rebuilt.
+    return [
+      "",
+      `FIGURES from the book (${figures.length}). Each diagram has been REDRAWN AS A CLEAN SVG for the board. Show it`,
+      'where the text explains it: {"op":"figure","id":"fig3","show"?:["wedge","block"]} (show: the parts drawn first;',
+      "leave it out to draw all), then bring in its other parts a beat at a time as you talk about them:",
+      '{"op":"reveal","diagram":"fig3","nodes":["mg"]}, and point at one: {"op":"focus","diagram":"fig3","node":"theta"}.',
+      "Walk the class through it part by part, naming what each is. A figure that moves by itself keeps moving while it",
+      'is up: say what is happening. A photograph is shown as it is ({"op":"figure","id":"fig4","photo":true}). A figure',
+      'listed "build it" could not be drawn: build it in Manim (sketch, preset, graph, diagram) with "from_figure".',
+      "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
+      ...figures.map((f) => drawnLine(f, drawn[f.id])),
+    ].join("\n");
+  }
   return [
     "",
     `FIGURES from the book (${figures.length}). Do NOT show the book's diagrams as they are: BUILD each one in Manim, where`,
@@ -225,14 +246,14 @@ export function figurePrompt(doc: DocumentManifest): string {
  * line naming it: at most PANIM_FIGURE_IMAGES (default 16), 768 px wide JPEGs. Empty when there are none, or with
  * PANIM_FIGURE_IMAGES=0.
  */
-export async function figurePictures(doc: DocumentManifest): Promise<
+export async function figurePictures(doc: DocumentManifest, skip: Set<string> = new Set()): Promise<
   ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[]
 > {
   const limit = Number(process.env.PANIM_FIGURE_IMAGES ?? 16);
   if (!(limit > 0)) return [];
   const sharp = (await import("sharp")).default;
   const out: ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[] = [];
-  for (const figure of teachingFigures(doc).slice(0, limit)) {
+  for (const figure of teachingFigures(doc).filter((f) => !skip.has(f.id)).slice(0, limit)) {
     if (!existsSync(figure.file)) continue;
     try {
       const jpeg = await sharp(figure.file).flatten({ background: "#ffffff" })

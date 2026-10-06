@@ -319,6 +319,16 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     if not figure:
                         known = ", ".join(sorted(script.get("figures") or {})) or "none (no document was uploaded)"
                         errors.append(f"{at}: no figure {op.get('id')!r}; the figures are: {known}")
+                    elif figure.get("svg") and not op.get("photo"):
+                        # Drawn as an SVG (the model redrew the book's diagram): shown with its parts to reveal.
+                        if not Path(str(figure["svg"])).is_file():
+                            errors.append(f"{at}: figure {op.get('id')!r} has no SVG file")
+                        parts = [str(x) for x in figure.get("parts") or []]
+                        unknown = [str(x) for x in op.get("show") or [] if str(x) not in parts]
+                        if unknown:
+                            errors.append(f"{at}: figure {op.get('id')!r} has no part {unknown[0]!r} "
+                                          f"(its parts: {', '.join(parts) or 'none'})")
+                        diagrams[str(op.get("id"))] = parts
                     elif not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
                     elif script.get("rebuild_figures") and not op.get("photo"):
@@ -1727,6 +1737,9 @@ def _op_call(op: dict) -> str:
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
+        if figure.get("svg") and not op.get("photo"):
+            show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
+            return f"self.svg_figure({_q(str(op['id']))}, {_q(figure['svg'])}, {_q(str(caption)[:160])}{show})"
         return (f"self.figure({_q(figure['file'])}, {_q(caption)}, "
                 f"where={_q(op.get('where', 'panel'))})")
     if kind == "unstage":

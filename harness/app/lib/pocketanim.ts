@@ -497,6 +497,21 @@ export async function packLibrary(
   return { dir: out, buildDir, sceneClass };
 }
 
+/**
+ * A packed library (packLibrary's folder) as one zip beside it, with the folder `library/` at its top as the phone's
+ * import expects: what Save uploads, so the phone downloads a lecture in one request instead of hundreds.
+ */
+export async function zipLibrary(dir: string): Promise<{ zip: string } | { error: string }> {
+  const zipped = await run(
+    ["-c", "import shutil, sys; print(shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'library'))",
+     `${dir}-upload`, path.dirname(dir)],
+    { timeoutMs: 120_000 },
+  );
+  const zip = zipped.stdout.toString().trim().split("\n").pop() ?? "";
+  if (zipped.code !== 0 || !zip) return { error: zipped.stderr || "could not zip the library" };
+  return { zip };
+}
+
 export async function bundleLibrary(
   buildDir: string,
   sceneClass: string,

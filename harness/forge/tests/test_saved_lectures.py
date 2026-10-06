@@ -6,6 +6,7 @@ it was sent are then replayed into the real schema (harness/supabase/migrations)
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -125,8 +127,26 @@ def test_a_saved_series_is_listed_downloaded_and_played_by_the_phone(tmp_path, s
         assert all(b["published"] and b["state"] == "succeeded" and b["library_path"].startswith("builds/")
                    for b in builds)
         assert [s["title"] for s in dump["tables"]["scenes"]][:2] == ["Newton", "Friction"]   # no "Lecture k: " in it
-        assets = [o for o in dump["objects"] if o.startswith("lectures/assets/")]
-        assert assets and len(assets) == len(dump["tables"]["assets"])                     # each asset stored once
+        # Each video is one zip and its manifest: the phone downloads it in one request, not hundreds.
+        for b in builds:
+            mine = sorted(o.split("/")[-1] for o in dump["objects"] if o.startswith(f"lectures/{b['library_path']}/"))
+            assert mine == ["library.json", "library.zip"], mine
+        # A lecture saved before the zip existed was its files one by one: the phone still downloads it (file by
+        # file, several at once). The third video is made into one.
+        old_style = builds[-1]["library_path"]
+        zipped = urllib.request.urlopen(f"{supabase}/storage/v1/object/public/lectures/{old_style}/library.zip").read()
+        with zipfile.ZipFile(io.BytesIO(zipped)) as archive:
+            for name in archive.namelist():
+                if name.endswith("/"):
+                    continue
+                rel = name.split("/", 1)[1]
+                # As the old Save laid them out: each asset once, content-addressed, at the bucket's top.
+                key = rel if rel.startswith("assets/") else f"{old_style}/{rel}"
+                put = urllib.request.Request(f"{supabase}/storage/v1/object/lectures/{key}",
+                                             data=archive.read(name), method="POST", headers={"x-upsert": "true"})
+                urllib.request.urlopen(put).read()
+        urllib.request.urlopen(urllib.request.Request(
+            f"{supabase}/__delete?key=lectures/{old_style}/library.zip", method="POST")).read()
 
         classpath = ":".join(str(PHONE / p) for p in ("core", "desktop", "kotlin-stdlib.jar"))
         phone = subprocess.run(["java", "-Dhttp.nonProxyHosts=127.0.0.1|localhost", "-cp", classpath,

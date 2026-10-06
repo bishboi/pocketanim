@@ -104,12 +104,48 @@ object SavedLectures {
         override fun sizeOf(path: String): Long = read(path).size.toLong()
     }
 
+    /** How far a download has got: bytes for a lecture's single file, files for one saved file by file. */
+    class Progress(val done: Long, val total: Long, val unit: String) {
+        override fun toString(): String =
+            if (unit == "bytes") "%.1f of %.1f MB".format(java.util.Locale.ROOT, done / 1048576.0, total / 1048576.0)
+            else "$done of $total files"
+    }
+
+    /** The one file a lecture is saved as (store.ts): its whole phone library, zipped. */
+    const val BUNDLE = "library.zip"
+
+    /** Files downloaded at once for a lecture saved file by file (before the bundle existed). */
+    private const val DOWNLOADS_AT_ONCE = 8
+
     /**
-     * Download a saved lecture into [dest] (replacing an earlier download of it) and open it: the manifest, the
-     * glyph atlas, every scene's program and assets, and its narration, checked before it replaces anything.
+     * Download a saved lecture into [dest] (replacing an earlier download of it) and open it, checked before it
+     * replaces anything.
+     *
+     * A lecture is saved as one zip, downloaded in one request and unpacked as an import is (LibraryImport). It was
+     * hundreds of files, one request each, one after another: the round trips, not the bytes, made a download take
+     * minutes. One saved before the zip existed is still fetched file by file, [DOWNLOADS_AT_ONCE] at a time.
      */
-    fun download(project: Project, entry: Entry, dest: File, progress: (done: Int, total: Int) -> Unit = { _, _ -> }): Library {
+    fun download(project: Project, entry: Entry, dest: File, progress: (Progress) -> Unit = {}): Library {
         val remote = RemoteStorage(project, entry.libraryPath)
+        val parent = dest.absoluteFile.parentFile ?: throw Unavailable("no folder to download into")
+        parent.mkdirs()
+        val zip = File(parent, "${dest.name}.zip.part")
+        try {
+            val fetched = try {
+                fetchTo(project, remote.url(BUNDLE), zip) { done, total -> progress(Progress(done, total, "bytes")) }
+                true
+            } catch (e: Missing) {
+                false
+            }
+            if (fetched) return zip.inputStream().use { LibraryImport.unpack(it, dest) }
+        } finally {
+            zip.delete()
+        }
+        return downloadFiles(project, remote, dest, parent, progress)
+    }
+
+    private fun downloadFiles(project: Project, remote: RemoteStorage, dest: File, parent: File,
+                              progress: (Progress) -> Unit): Library {
         val manifest = Library.load(remote)
         val wanted = LinkedHashSet<String>()
         wanted.add("library.json")
@@ -118,35 +154,46 @@ object SavedLectures {
             wanted.addAll(scene.required())
             scene.audio?.let { wanted.add(it) }
         }
-        val parent = dest.absoluteFile.parentFile ?: throw Unavailable("no folder to download into")
-        parent.mkdirs()
         val staging = File(parent, "${dest.name}.downloading")
         staging.deleteRecursively()
         staging.mkdirs()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(DOWNLOADS_AT_ONCE)
         try {
-            wanted.forEachIndexed { i, path ->
-                val file = File(staging, path)
-                file.parentFile?.mkdirs()
-                try {
-                    // Straight to the file: a lecture's narration is the largest file in it, and held in memory
-                    // whole it could run the phone out.
-                    fetchTo(project, remote.url(path), file)
-                } catch (e: IOException) {
-                    file.delete()
-                    // Narration is optional (the picture plays silently without it); everything else is not.
-                    if (manifest.scenes.any { it.audio == path }) return@forEachIndexed
-                    throw e
+            val done = java.util.concurrent.atomic.AtomicInteger()
+            val jobs = wanted.map { path ->
+                pool.submit {
+                    val file = File(staging, path)
+                    file.parentFile?.mkdirs()
+                    try {
+                        // Straight to the file: held in memory whole, a long narration could run the phone out.
+                        fetchTo(project, remote.url(path), file)
+                    } catch (e: IOException) {
+                        file.delete()
+                        // Narration is optional (the picture plays silently without it); everything else is not.
+                        if (manifest.scenes.none { it.audio == path }) throw e
+                    }
+                    progress(Progress(done.incrementAndGet().toLong(), wanted.size.toLong(), "files"))
                 }
-                progress(i + 1, wanted.size)
+            }
+            for (job in jobs) {
+                try {
+                    job.get()
+                } catch (e: java.util.concurrent.ExecutionException) {
+                    throw (e.cause ?: e)
+                }
             }
             return LibraryImport.install(staging, dest)
         } finally {
+            pool.shutdownNow()
             staging.deleteRecursively()
         }
     }
 
+    /** A Storage object that is not there (HTTP 400/404 from Supabase Storage). */
+    class Missing(message: String) : IOException(message)
+
     /** A public Storage object downloaded into [file], in pieces. */
-    private fun fetchTo(project: Project, url: String, file: File) {
+    private fun fetchTo(project: Project, url: String, file: File, progress: (Long, Long) -> Unit = { _, _ -> }) {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 15_000
@@ -154,9 +201,29 @@ object SavedLectures {
             val code = connection.responseCode
             if (code !in 200..299) {
                 val said = connection.errorStream?.use { String(it.readBytes(), Charsets.UTF_8) }.orEmpty()
+                // Storage answers a missing object with 400 {"statusCode":"404","error":"not_found"} or a 404.
+                if (code == 404 || "not_found" in said || "\"404\"" in said) throw Missing("not found: ${url.substringBefore('?')}")
                 throw Unavailable("HTTP $code from ${url.substringBefore('?')}: ${said.take(300)}")
             }
-            connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it, 64 * 1024) } }
+            val total = connection.contentLengthLong
+            connection.inputStream.use { input ->
+                file.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var done = 0L
+                    var told = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        done += read
+                        if (done - told >= 256 * 1024) {
+                            progress(done, total)
+                            told = done
+                        }
+                    }
+                    progress(done, if (total > 0) total else done)
+                }
+            }
         } finally {
             connection.disconnect()
         }

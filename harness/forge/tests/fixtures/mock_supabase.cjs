@@ -117,6 +117,10 @@ const server = http.createServer((req, res) => {
         return res.end();
       }
     }
+    if (url.pathname === "/__delete") {
+      objects.delete(url.searchParams.get("key"));
+      return json(res, 200, { deleted: true });
+    }
     if (url.pathname === "/__dump") return json(res, 200, { users, tables, objects: [...objects.keys()], log });
     json(res, 404, { message: `mock: no route for ${req.method} ${url.pathname}` });
   });

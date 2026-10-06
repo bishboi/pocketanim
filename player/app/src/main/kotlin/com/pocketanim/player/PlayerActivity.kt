@@ -259,8 +259,8 @@ class PlayerActivity : Activity() {
         titleLabel.text = "Downloading ${entry.label}…"
         Thread {
             val result = runCatching {
-                SavedLectures.download(project, entry, dest) { done, total ->
-                    runOnUiThread { titleLabel.text = "Downloading ${entry.label}… $done of $total files" }
+                SavedLectures.download(project, entry, dest) { progress ->
+                    runOnUiThread { titleLabel.text = "Downloading ${entry.label}… $progress" }
                 }
                 File(dest, TITLE_FILE).writeText(entry.label)
             }

@@ -7,8 +7,8 @@
  *
  *   - a project (the series), a scene (ordinal = its place in the series), the version's Manim source, and a build;
  *   - its phone library (packLibrary: the .panim program, its assets, the glyph atlas, the narration) uploaded to
- *     the `lectures` bucket: builds/<build id>/... and each asset once, content-addressed, at assets/<digest>.panm,
- *     indexed in the assets table and tied to the build in build_assets;
+ *     the `lectures` bucket as one zip, builds/<build id>/library.zip, with its manifest beside it (library.json):
+ *     the phone downloads a lecture in one request (player/core SavedLectures);
  *   - the build marked succeeded and published, so the phone's catalog (the view phone_lectures) lists it.
  *
  * The schema is harness/supabase/migrations. What is never stored, per the brief and the schema's own
@@ -17,9 +17,9 @@
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { packLibrary } from "./pocketanim";
+import { packLibrary, zipLibrary } from "./pocketanim";
 
 export const BUCKET = "lectures";
 
@@ -137,17 +137,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".panim": "text/plain; charset=utf-8",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".zip": "application/zip",
 };
-
-async function filesUnder(dir: string, prefix = ""): Promise<string[]> {
-  const out: string[] = [];
-  for (const entry of await readdir(path.join(dir, prefix), { withFileTypes: true })) {
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) out.push(...(await filesUnder(dir, rel)));
-    else out.push(rel);
-  }
-  return out;
-}
 
 /** An upload that already exists is fine for a content-addressed asset: the same digest is the same bytes. */
 function alreadyThere(error: unknown): boolean {
@@ -158,17 +149,31 @@ function alreadyThere(error: unknown): boolean {
 /** Uploads at once: one after another, a lecture's hundred-odd small files took minutes of round trips. */
 const UPLOADS_AT_ONCE = 4;
 
+/**
+ * What Save uploads for one video: its whole phone library as one zip (library.zip), which the phone downloads in a
+ * single request, and its manifest beside it. Saved file by file, a lecture was hundreds of requests to save and,
+ * one after another on the phone, minutes to download.
+ */
 async function uploadLibrary(supabase: SupabaseClient, dir: string, buildId: string,
   onFile: (filesDone: number, files: number, bytesDone: number, bytes: number) => void = () => {}) {
-  const files = await filesUnder(dir);
-  const sizes = await Promise.all(files.map(async (rel) => (await stat(path.join(dir, rel))).size));
+  const zipped = await zipLibrary(dir);
+  if ("error" in zipped) throw new Error(`zipping the library: ${zipped.error}`);
+  return uploadFiles(supabase, { "library.zip": zipped.zip, "library.json": path.join(dir, "library.json") },
+    buildId, onFile);
+}
+
+/** The given files (published path -> file on disk) under builds/<build id>/, a few at a time. */
+async function uploadFiles(supabase: SupabaseClient, sources: Record<string, string>, buildId: string,
+  onFile: (filesDone: number, files: number, bytesDone: number, bytes: number) => void = () => {}) {
+  const files = Object.keys(sources);
+  const sizes = await Promise.all(files.map(async (rel) => (await stat(sources[rel])).size));
   const bytes = sizes.reduce((a, b) => a + b, 0);
   const assets: { digest: string; size: number }[] = [];
   let filesDone = 0;
   let bytesDone = 0;
   let next = 0;
   const one = async (rel: string, size: number) => {
-    const data = await readFile(path.join(dir, rel));
+    const data = await readFile(sources[rel]);
     const asset = /^assets\/([0-9a-f]{10,64})\.panm$/.exec(rel);
     const key = asset ? rel : `builds/${buildId}/${rel}`;
     const contentType = CONTENT_TYPES[path.extname(rel)] ?? "application/octet-stream";
@@ -201,7 +206,13 @@ async function uploadLibrary(supabase: SupabaseClient, dir: string, buildId: str
     }
   };
   onFile(0, files.length, 0, bytes);
-  await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, files.length) }, worker));
+  // The zip is one long upload: the page hears that it is still going, so its wait for news does not run out.
+  const beat = setInterval(() => onFile(filesDone, files.length, bytesDone, bytes), 10_000);
+  try {
+    await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, files.length) }, worker));
+  } finally {
+    clearInterval(beat);
+  }
   return { files, bytes, assets };
 }
 

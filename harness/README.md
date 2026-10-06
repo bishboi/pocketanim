@@ -9,6 +9,7 @@ defined in this one.
 ```
 harness/
   supabase/migrations/                the schema (0001 init, 0002 saved lectures and the phone's catalog)
+  supabase/setup.sql                  every migration in one file, for the dashboard's SQL editor
   scripts/apply-schema.sh             applies every migration, in order, to a project
   scripts/export_scene.py             Manim source -> .panim program, as JSON
   scripts/narration.py                a scene's add_sound calls -> one track
@@ -131,6 +132,10 @@ Neither blocks the deterministic half — source in, program out — which is th
 half the phone depends on.
 
 ## Applying it
+
+Without psql: in the project's dashboard open **SQL Editor**, paste `harness/supabase/setup.sql` and **Run**
+(regenerate it after changing a migration with `harness/scripts/apply-schema.sh --bundle`). The phone's
+**Saved** answering "Could not find the table 'public.phone_lectures'" means this has not been done.
 
 ```sh
 # against a hosted project

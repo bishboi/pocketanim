@@ -158,6 +158,11 @@ object SavedLectures {
             val code = connection.responseCode
             if (code !in 200..299) {
                 val said = connection.errorStream?.use { String(it.readBytes(), Charsets.UTF_8) }.orEmpty()
+                // PGRST205: the project has no phone_lectures view -- its schema was never applied.
+                if ("PGRST205" in said || "phone_lectures" in said && code == 404) {
+                    throw Unavailable("The Supabase project has no saved-lectures tables yet. In its dashboard, open " +
+                        "SQL Editor, paste harness/supabase/setup.sql and run it; then save a lecture from the web app.")
+                }
                 throw Unavailable("HTTP $code from ${url.substringBefore('?')}: ${said.take(300)}")
             }
             return connection.inputStream.use { it.readBytes() }

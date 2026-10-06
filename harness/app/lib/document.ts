@@ -221,7 +221,7 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
       '{"op":"reveal","diagram":"fig3","nodes":["mg"]}, and point at one: {"op":"focus","diagram":"fig3","node":"theta"}.',
       "Walk the class through it part by part, naming what each is. A figure that moves by itself keeps moving while it",
       'is up: say what is happening. A photograph is shown as it is ({"op":"figure","id":"fig4","photo":true}). A figure',
-      'listed "build it" could not be drawn: build it in Manim (sketch, preset, graph, diagram) with "from_figure".',
+      'listed "build it" could not be drawn from the scan: describe it with draw (or graph for a plot), "from_figure".',
       "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");

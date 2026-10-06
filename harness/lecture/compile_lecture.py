@@ -314,6 +314,13 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                                       "\"water cycle diagram\") or image (a title from find_illustration)")
                     else:
                         photos.append((at, op))
+                drawn_op = op if kind == "draw" else (op.get("figure") if kind == "problem" and isinstance(
+                    op.get("figure"), dict) and op["figure"].get("op") == "draw" else None)
+                if drawn_op is not None and script.get("drawn") and not drawn_op.get("svg"):
+                    # The drawing step ran (harness/app/lib/drawings.ts) and could not make this one.
+                    errors.append(f"{at}: the picture {drawn_op.get('id') or op.get('id')!r} could not be drawn"
+                                  f"{': ' + str(drawn_op['_draw_error']) if drawn_op.get('_draw_error') else ''}. "
+                                  "Describe it again more simply (fewer things, each named), or show it another way.")
                 if kind == "figure":
                     figure = (script.get("figures") or {}).get(str(op.get("id")))
                     if not figure:
@@ -332,8 +339,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     elif not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
                     elif script.get("rebuild_figures") and not op.get("photo"):
-                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Build it in "
-                                      "Manim instead (sketch, preset, graph, diagram, compare, or a map sequence), with "
+                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Draw it "
+                                      "instead (draw, with what it shows and its parts; graph for a plot), with "
                                       f"\"from_figure\":\"{op.get('id')}\" on that op. Only a photograph may be shown as "
                                       "it is, with \"photo\": true.")
                 if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
@@ -446,7 +453,7 @@ KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
 # presets (incline, pulley...), graphs and long problems.
 from stem import PRESETS  # noqa: E402
 
-STEM_OPS = {"sketch", "graph", "problem"} | set(PRESETS)
+STEM_OPS = {"draw", "sketch", "graph", "problem"} | set(PRESETS)
 # Live pictures (live.py): a simulation that moves while its line is said, a counting number.
 LIVE_OPS = {"sim", "counter"}
 BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS | LIVE_OPS
@@ -650,6 +657,32 @@ def _live_problem(op: dict, diagrams: dict) -> str | None:
     return None
 
 
+PART_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,23}")
+
+
+def _draw_problem(op: dict) -> str | None:
+    """A picture to be drawn as an SVG from its description (harness/app/lib/drawings.ts): what it shows, its
+    parts (the ids its <g> groups get, for reveal and focus), what moves in it, if anything."""
+    what = str(op.get("what") or "").strip()
+    if len(what) < 12:
+        return ("'draw' needs what: the picture in words, every part, label, arrow and number on it "
+                "(\"a block on a 30° smooth incline; its weight mg straight down; the normal force N ...\")")
+    parts = op.get("parts")
+    if not isinstance(parts, list) or not 1 <= len(parts) <= 14:
+        return "'draw' needs parts: 1-14 ids, one for each thing the lecture will point at ([\"wedge\", \"block\", \"mg\"])"
+    bad = [p for p in parts if not isinstance(p, str) or not PART_ID.fullmatch(p)]
+    if bad:
+        return f"draw part {bad[0]!r}: a part id is a short name of letters, digits and _ (\"mg\", \"r1\", \"cell_wall\")"
+    if len(set(parts)) != len(parts):
+        return "draw parts must be different"
+    unknown = [str(x) for x in op.get("show") or [] if str(x) not in parts]
+    if unknown:
+        return f"draw {op.get('id')!r} show: no part {unknown[0]!r} (its parts: {', '.join(parts)})"
+    if op.get("moves") is not None and not str(op["moves"]).strip():
+        return "draw moves: what moves and how, in words, or leave it out for a still picture"
+    return None
+
+
 def _stem_problem(op: dict, diagrams: dict) -> str | None:
     """What stops a sketch, preset, graph, worked solution or problem; records the parts reveal can show."""
     import stem
@@ -665,13 +698,23 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
     key = str(op.get("id") or "")
     if not key:
         return f"'{kind}' needs an id (reveal and focus refer to it)"
+    if kind == "draw":
+        if not key:
+            return "'draw' needs an id (reveal and focus refer to it)"
+        problem = _draw_problem(op)
+        if problem:
+            return problem
+        diagrams[key] = [str(p) for p in op["parts"]]
+        diagrams[f"?kind:{key}"] = "draw"
+        return None
     if kind == "problem":
         if not str(op.get("text") or "").strip():
             return "'problem' needs text: the question, in full"
         figure = op.get("figure")
         if figure is not None:
-            if not isinstance(figure, dict) or figure.get("op") not in {"sketch", "graph"} | set(stem.PRESETS):
-                return "a problem's figure is a sketch, a graph or a preset: {\"op\":\"incline\",\"angle\":30,...}"
+            if not isinstance(figure, dict) or figure.get("op") not in {"draw", "sketch", "graph"} | set(stem.PRESETS):
+                return ("a problem's figure is a drawing or a graph: {\"op\":\"draw\",\"what\":\"...\",\"parts\":[...]} "
+                        "or {\"op\":\"graph\",...}")
             inner = _stem_problem({**figure, "id": figure.get("id") or f"{key}_figure"}, diagrams)
             if inner:
                 return f"problem figure: {inner}"
@@ -796,7 +839,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back", "anim"}
+             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -1861,6 +1904,13 @@ def _stem_call(op: dict) -> str:
         box = ", box=True" if op.get("box") else ""
         return f"self.work({_q(key)}, {_clean(op['lines'])!r}{title}{box})"
     movable = f", movable={op['_movable']!r}" if op.get("_movable") else ""
+    if kind == "draw":
+        if op.get("svg"):
+            return f"self.svg_figure({_q(key)}, {_q(op['svg'])}, {_q(op['title']) if op.get('title') else 'None'}{show})"
+        # Not drawn (no drawing step ran, or it failed): its parts as labelled boxes, so reveals still land.
+        import stem
+
+        return f"self.sketch({_q(key)}, {stem._parts_as_cards(op)!r}{show}{title})"
     if kind == "sketch":
         return f"self.sketch({_q(key)}, {_clean(op['items'])!r}{show}{title}{movable})"
     if kind == "graph":
@@ -1906,7 +1956,7 @@ def _resolve_motion(script: dict) -> None:
                 if kind in stem.PRESETS or kind == "sketch":
                     drawn[str(op.get("id"))] = (op, "_movable", kind if kind in stem.PRESETS else None,
                                                 stem.op_elements(op))
-                elif kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") != "graph":
+                elif kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") not in ("graph", "draw"):
                     figure = op["figure"]
                     fkind = figure.get("op") if figure.get("op") in stem.PRESETS else None
                     drawn[str(figure.get("id") or f"{op.get('id')}_figure")] = (figure, "movable", fkind,

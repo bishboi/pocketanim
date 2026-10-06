@@ -2263,15 +2263,21 @@ class Lecture(Scene):
         return self._to_stage(Group(body), draw=order)
 
     def svg_figure(self, key: str, path: str, caption: str | None = None, show=None):
-        """A figure drawn as an SVG (a book's diagram redrawn by the model, harness/app/lib/figures.ts): its shapes
-        and labels written onto the stage, its <g id> parts revealed and pointed at like a diagram's nodes
-        (reveal_nodes, spotlight), and its SMIL animation, if it has any, playing while it is up (animsvg.py).
+        """A picture drawn as an SVG on the stage: a book's diagram the model redrew (harness/app/lib/figures.ts),
+        or a `draw` op's picture the model drew from its description (drawings.ts). Its shapes and labels are
+        written onto the stage, its <g id> parts revealed and pointed at like a diagram's nodes (reveal_nodes,
+        spotlight), and its SMIL animation, if it has any, plays while it is up (animsvg.py)."""
+        shown, order = self._svg_drawing(key, path, self.STAGE, show, caption)
+        return self._to_stage(Group(shown), draw=order)
 
-        Colour names in it (INK, MUTED, ROSE, GOLD...) become this style's colours; black lines become the ink."""
+    def _svg_drawing(self, key: str, path: str, box, show=None, caption: str | None = None):
+        """An SVG drawn to fit `box` (cx, cy, w, h) and recorded as diagram `key`: (what shows now, the pieces to
+        write in, in order). Parts not in `show` wait for reveal_nodes. Colour names in it (INK, MUTED, BOARD,
+        ROSE, GOLD...) become this style's colours; black lines become the ink."""
         import animsvg
         import icons
 
-        cx, cy, w, h = self.STAGE
+        cx, cy, w, h = box
         palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG}
         # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
         raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
@@ -2304,7 +2310,7 @@ class Lecture(Scene):
             # On a piece that is written onto the stage (the stage writes its pieces, not the group they are in,
             # so the anchor is never in the scene itself and Manim would never run an updater on it).
             start(order[0], lambda t, _p: drawing.show(t), "loop", True)
-        return self._to_stage(Group(body), draw=order)
+        return body, order
 
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""

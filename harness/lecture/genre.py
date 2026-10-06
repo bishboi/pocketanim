@@ -85,17 +85,17 @@ PROFILES = {
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["figure", "illustration", "diagram", "sketch", "compare", "define", "manim", "graph", "equation", "sim"],
+        "kit": ["draw", "figure", "illustration", "compare", "define", "manim", "graph", "equation"],
         "guidance": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
                     "heart, a neuron, a nephron): the book's figure or a textbook illustration (find_illustration), "
-                    "and when its parts are named one by one, a labelled sketch (or manim) built part by part with "
+                    "and when its parts are named one by one, a labelled drawing (draw) built part by part with "
                     "each label revealed as it is said. A PROCESS (digestion, photosynthesis, blood flow, a reflex, "
-                    "protein synthesis): a flow or steps diagram with a drawing in each node, a stage at a time; a "
-                    "CYCLE (cell cycle, life cycles, the cardiac cycle, nitrogen cycle): diagram kind cycle. A "
-                    "HIERARCHY or CLASSIFICATION (cell, tissue, organ, system; kingdoms, phyla): diagram kind tree or "
+                    "protein synthesis): a drawing of the process with its arrows, a stage at a time; a "
+                    "CYCLE (cell cycle, life cycles, the cardiac cycle, nitrogen cycle): a drawing of the cycle. A "
+                    "HIERARCHY or CLASSIFICATION (cell, tissue, organ, system; kingdoms, phyla): a drawn tree or "
                     "steps. Two things side by side (mitosis and meiosis, plant and animal cells, arteries and "
                     "veins): compare. Something that MOVES (diffusion and osmosis, chromosomes separating, a heart "
-                    "beating, a muscle contracting, an impulse along a neuron): manim, set moving as it is said. "
+                    "beating, a muscle contracting, an impulse along a neuron): a drawing that moves (draw with moves). "
                     "Measurements (growth, enzyme activity against temperature, populations): graph. Hard terms: "
                     "define. Photos only of organisms, habitats and scientists the lecture names. A molecule's "
                     "structural formula only where the lecture explains its structure (DNA's base pairs, ATP's "
@@ -104,48 +104,46 @@ PROFILES = {
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare", "sim",
-                "counter"],
+        "kit": ["draw", "molecule", "equation", "graph", "problem", "work", "define", "compare", "counter"],
         "guidance": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only "
                     "where its structure is what is being taught: its bonds, its shape, its functional groups, "
                     "isomers, how it reacts because of them; once, not again each time it is named, and never for a "
                     "substance only mentioned (water, air, salt in passing). Write "
                     "reactions with equation (reactants -> products, subscripts as H_2O), plot rates, concentrations "
-                    "and energy profiles with graph, draw apparatus (a beaker, a gas syringe, a burette) with sketch and "
-                    "gases with piston. Numerical problems (moles, concentration, gas laws, equilibrium) are solved "
+                    "and energy profiles with graph, draw apparatus (a beaker, a gas syringe, a burette, a gas under a "
+                    "piston) with draw. Numerical problems (moles, concentration, gas laws, equilibrium) are solved "
                     "with problem and work. "
                     "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "boxed). Label everything. Draw every picture (draw); no photos except of a scientist the "
                     "lecture names.",
     },
     "physics": {
         "label": "Physics", "style": "blueprint", "map": "never",
-        "kit": ["incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
-                "sketch", "graph", "problem", "work", "equation", "define", "sim", "counter", "trace", "zoom"],
-        "guidance": "Physics: draw every situation as a labelled diagram (the presets incline, pulley, piston, spring, "
-                    "pendulum, projectile, circuit, lever, lens, or a sketch for anything else), then reveal its "
+        "kit": ["draw", "graph", "problem", "work", "equation", "define", "counter", "trace", "zoom"],
+        "guidance": "Physics: draw every situation as a labelled picture with draw (an incline, a pulley, a piston, a "
+                    "spring, a pendulum, a projectile's path, a circuit, a lever, a lens and its rays), then reveal its "
                     "forces, velocities and lengths one by one as the narration names them; graph how quantities "
                     "vary (v against t, and the area under it, x against t, P against V); state each law as an "
-                    "equation; show a process happening with a sim (orbit, wave, collision, field, refraction) and a moving "
+                    "equation; show a process happening with a drawing that moves (an orbit, a wave, current, a collision) and a moving "
                     "graph with trace. "
                     "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "boxed). Label everything. Draw every picture (draw); no photos except of a scientist the "
                     "lecture names.",
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["graph", "sketch", "work", "problem", "equation", "define", "trace", "sweep"],
+        "kit": ["graph", "draw", "work", "problem", "equation", "define", "trace", "sweep"],
         "guidance": "Mathematics: graph every function you discuss (curves, points, tangents, areas, roots marked); "
-                    "draw geometry with sketch (triangles and circles with their angles and lengths labelled); derive "
+                    "draw geometry with draw (triangles and circles with their angles and lengths labelled); derive "
                     "and solve with work, one step per beat, each step said and justified. "
                     "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim; no photos except of a scientist the "
+                    "boxed). Label everything. Draw every picture (draw); no photos except of a scientist the "
                     "lecture names.",
     },
     "economics": {

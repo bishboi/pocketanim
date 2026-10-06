@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:draw": "node scripts/check-draw.cjs",
-    "check:figures": "node --experimental-strip-types scripts/check-figures.mjs"
+    "check:figures": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-figures.mjs",
+    "check:drawings": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-drawings.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

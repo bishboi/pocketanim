@@ -41,14 +41,7 @@ export type Drawn = {
   failed?: string;
 };
 
-export const SVG_PROMPT = [
-  "You redraw ONE figure from a textbook as a clean SVG diagram for a teacher's board in a video lecture.",
-  "Reply with the SVG alone in a ```svg block. If the figure is a PHOTOGRAPH (real people, a place, a specimen, an",
-  "object as photographed) that no drawing can replace, reply with the single word PHOTO instead.",
-  "",
-  "WHAT TO DRAW: what the figure shows and teaches: the same parts, labels, arrows, numbers and layout, cleaner.",
-  "Flat shapes and clear lines, as a good teacher draws on a board: no shading, textures or tiny details.",
-  "",
+export const SVG_RULES = [
   "RULES (a checker reads it the way the board draws it, and sends back what breaks them):",
   '- <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 H">, width 800, H to suit the figure (300-600).',
   "- Elements: g, path, rect, circle, ellipse, line, polyline, polygon, text, tspan, and for animation animate and",
@@ -74,6 +67,17 @@ export const SVG_PROMPT = [
   "- Under 30 KB, no comments.",
 ].join("\n");
 
+export const SVG_PROMPT = [
+  "You redraw ONE figure from a textbook as a clean SVG diagram for a teacher's board in a video lecture.",
+  "Reply with the SVG alone in a ```svg block. If the figure is a PHOTOGRAPH (real people, a place, a specimen, an",
+  "object as photographed) that no drawing can replace, reply with the single word PHOTO instead.",
+  "",
+  "WHAT TO DRAW: what the figure shows and teaches: the same parts, labels, arrows, numbers and layout, cleaner.",
+  "Flat shapes and clear lines, as a good teacher draws on a board: no shading, textures or tiny details.",
+  "",
+  SVG_RULES,
+].join("\n");
+
 function drawnPaths(figure: FigureInfo): { svg: string; meta: string } {
   const base = figure.file.replace(/\.[a-z0-9]+$/i, "");
   return { svg: `${base}.drawn.svg`, meta: `${base}.drawn.json` };
@@ -96,11 +100,11 @@ export function svgOf(reply: string): string | "PHOTO" | null {
   return bare ? bare[0] : null;
 }
 
-type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
-type Message = { role: "system" | "user" | "assistant"; content: string | Part[] };
+export type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+export type Message = { role: "system" | "user" | "assistant"; content: string | Part[] };
 
 /** One chat completion (not streamed): the reply's text, and what it cost. */
-async function ask(key: string, model: string, messages: Message[], signal?: AbortSignal):
+export async function ask(key: string, model: string, messages: Message[], signal?: AbortSignal):
   Promise<{ text: string; cost: number }> {
   let last: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -128,11 +132,12 @@ async function ask(key: string, model: string, messages: Message[], signal?: Abo
   throw last instanceof Error ? last : new Error(String(last));
 }
 
-type Check = { ok: boolean; errors: string[]; warnings?: string[]; parts: string[]; labels?: Record<string, string>;
+export type Check = { ok: boolean; errors: string[]; warnings?: string[]; parts: string[]; labels?: Record<string, string>;
   animated?: boolean };
 
 /** svgcheck.py on these SVG files: what the board makes of each. */
-export function checkSvgs(repo: string, python: string, files: Record<string, string>): Promise<Record<string, Check>> {
+export function checkSvgs(repo: string, python: string, files: Record<string, string>,
+  parts: Record<string, string[]> = {}): Promise<Record<string, Check>> {
   return new Promise((resolve, reject) => {
     const child = spawn(python, [path.join(repo, "harness", "lecture", "svgcheck.py")], { cwd: repo });
     let out = "";
@@ -147,7 +152,7 @@ export function checkSvgs(repo: string, python: string, files: Record<string, st
         reject(new Error(`svgcheck failed (${code}): ${err.slice(-400)}`));
       }
     });
-    child.stdin.end(JSON.stringify({ figures: Object.entries(files).map(([id, svg]) => ({ id, svg })) }));
+    child.stdin.end(JSON.stringify({ figures: Object.entries(files).map(([id, svg]) => ({ id, svg, parts: parts[id] })) }));
   });
 }
 
@@ -267,5 +272,5 @@ export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
     const parts = (drawn.parts ?? []).map((p) => (drawn.labels?.[p] ? `${p} (${drawn.labels[p]})` : p)).join(", ");
     return `${head} — drawn as SVG${drawn.animated ? ", it moves by itself" : ""}; parts: ${parts}`;
   }
-  return `${head} — build it on the board (sketch, preset, graph, diagram) marked "from_figure":"${figure.id}"`;
+  return `${head} — draw it (draw, or graph for a plot) marked "from_figure":"${figure.id}"`;
 }

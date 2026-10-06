@@ -25,7 +25,7 @@ FORBIDDEN = {"image": "an embedded picture (draw it with shapes)", "foreignObjec
              "animateMotion": "animateMotion (use animateTransform type=translate)"}
 
 
-def check(svg_path: str) -> dict:
+def check(svg_path: str, expected: list[str] | None = None) -> dict:
     import animsvg
 
     out = {"ok": False, "errors": [], "warnings": [], "parts": [], "labels": {}, "animated": False}
@@ -82,6 +82,11 @@ def check(svg_path: str) -> dict:
                              "will point at: the block, each force, each label's object)")
     if not doc.texts:
         out["warnings"].append("it has no <text> labels")
+    missing = [p for p in expected or [] if p not in out["parts"]]
+    if missing:
+        # The lecture already reveals and points at these by id: each must be a group of its own.
+        out["errors"].append(f"it has no part {', '.join(missing)}: wrap each in <g id=\"...\"> with exactly that id "
+                             f"(the parts are {', '.join(expected)})")
     out["ok"] = not out["errors"]
     return out
 
@@ -91,7 +96,7 @@ def main() -> int:
     results = {}
     for figure in request.get("figures", []):
         try:
-            results[figure["id"]] = check(figure["svg"])
+            results[figure["id"]] = check(figure["svg"], figure.get("parts"))
         except Exception as error:  # noqa: BLE001 -- one bad figure does not stop the others
             results[figure["id"]] = {"ok": False, "errors": [f"{type(error).__name__}: {error}"], "parts": []}
     print(json.dumps(results))

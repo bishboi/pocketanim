@@ -80,7 +80,7 @@ def test_a_drawn_figure_is_shown_and_its_parts_revealed():
     # Without its SVG, the book's picture may not be shown as it is: it is built, or it is a photograph.
     undrawn = _lecture()
     undrawn["figures"]["fig1"].pop("svg")
-    assert any("Build it in Manim" in e for e in cl.lint(undrawn)[0])
+    assert any("shown as it is. Draw it" in e for e in cl.lint(undrawn)[0])
 
 
 def test_drawn_figures_play_on_the_phone_as_shapes(tmp_path):
@@ -93,6 +93,66 @@ def test_drawn_figures_play_on_the_phone_as_shapes(tmp_path):
     assert result["tier"] == 1 and result["blockers"] == [] and not result.get("skipped"), result
     program = (tmp_path / "dsl" / "generated" / "GeneratedScene.panim").read_text()
     assert any(line.startswith("clip ") and "loop=" in line for line in program.splitlines())   # the current flows
+    (tmp_path / "player").symlink_to(REPO / "player")
+    cross = subprocess.run([sys.executable, "-m", "tools.crosscheck_interpreter", "dsl/generated/GeneratedScene.panim"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=1800,
+                           env={**os.environ, "PYTHONPATH": str(REPO)})
+    assert "both interpreters agree" in cross.stdout, cross.stdout[-3000:] + cross.stderr[-2000:]
+
+
+def _drawn_lecture(with_svg: bool = True):
+    """A lecture whose pictures are draw ops (described by the script writer, drawn as SVG before compiling)."""
+    ramp = {"op": "draw", "id": "ramp", "what": "A block on a smooth slope with its weight and the normal force",
+            "parts": ["ground", "wedge", "theta", "block", "mg", "N"], "show": ["ground", "wedge", "block"]}
+    loop = {"op": "draw", "id": "loop", "what": "A cell, a bulb and a switch in a closed loop; current flowing",
+            "parts": ["wire", "battery", "bulb", "switch", "current"], "moves": "current flows round the wire"}
+    figure = {"op": "draw", "what": "A block on a smooth slope with its weight and the normal force",
+              "parts": ["ground", "wedge", "theta", "block", "mg", "N"], "show": ["wedge", "block"]}
+    if with_svg:
+        ramp["svg"] = figure["svg"] = str(HERE / "incline.svg")
+        loop["svg"] = str(HERE / "circuit.svg")
+    return {
+        "title": "Drawn", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "drawn": with_svg,
+        "chapters": [{"title": "Pictures", "map": False, "narration": "One.", "beats": [
+            {"say": "A block rests on a smooth slope.", "do": [ramp]},
+            {"say": "Its weight pulls straight down.", "do": [{"op": "reveal", "diagram": "ramp", "nodes": ["mg"]}]},
+            {"say": "Now a circuit, with the current flowing round it.", "do": [loop]},
+            {"say": "A problem on the slope.", "do": [{"op": "problem", "id": "p1", "text": "Find the acceleration.",
+                                                       "given": ["θ = 30°"], "find": "a", "figure": figure}]},
+            {"say": "The normal force acts at right angles to the slope.",
+             "do": [{"op": "reveal", "diagram": "p1_figure", "nodes": ["N"]}]},
+            {"say": "Along the slope, the weight's component is m g sine theta.",
+             "do": [{"op": "work", "id": "p1", "lines": ["a = g\\sin\\theta"]}]},
+        ]}],
+    }
+
+
+def test_a_described_picture_is_linted_compiled_and_falls_back_to_its_parts():
+    script = _drawn_lecture()
+    assert cl.lint(script)[0] == []
+    source = cl.compile_script(json.loads(json.dumps(script)))
+    assert source.count("self.svg_figure(") == 2 and "'op': 'draw'" in source and "incline.svg" in source
+    # Not drawn (no drawing pass): its parts as labelled boxes, so the reveals still land.
+    plain = cl.compile_script(_drawn_lecture(with_svg=False))
+    assert "self.svg_figure(" not in plain and "self.sketch(\"ramp\"" in plain
+    # The pass ran and could not draw one: the compiler sends back why.
+    failed = _drawn_lecture()
+    failed["chapters"][0]["beats"][0]["do"][0].pop("svg")
+    failed["chapters"][0]["beats"][0]["do"][0]["_draw_error"] = "it has no part mg"
+    assert any("could not be drawn: it has no part mg" in e for e in cl.lint(failed)[0])
+    bad = _drawn_lecture()
+    bad["chapters"][0]["beats"][0]["do"][0]["parts"] = ["a part"]
+    assert any("a part id is a short name" in e for e in cl.lint(bad)[0])
+
+
+def test_described_pictures_play_on_the_phone(tmp_path):
+    scene = tmp_path / "scene.py"
+    scene.write_text(cl.compile_script(_drawn_lecture()))
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(tmp_path)], capture_output=True, text=True, timeout=1500,
+                         env={**os.environ, "PANIM_VOICE": "silent"})
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1 and result["blockers"] == [] and not result.get("skipped"), result
     (tmp_path / "player").symlink_to(REPO / "player")
     cross = subprocess.run([sys.executable, "-m", "tools.crosscheck_interpreter", "dsl/generated/GeneratedScene.panim"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=1800,

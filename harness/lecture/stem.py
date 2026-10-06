@@ -796,6 +796,20 @@ def ink_animations(animations, ink) -> None:
     _ink(found, ink)
 
 
+def _parts_as_cards(op: dict) -> list[dict]:
+    """A drawing that could not be made, as sketch elements: each part a labelled box, so the lecture's reveals
+    and focuses of its parts still have something to show."""
+    parts = [str(p) for p in op.get("parts") or []][:12]
+    cols = max(1, min(4, len(parts)))
+    out = []
+    for i, part in enumerate(parts):
+        r, c = divmod(i, cols)
+        out.append({"id": part, "type": "rect", "at": [1.3 + c * (7.4 / max(cols - 1, 1)) if cols > 1 else 5.0,
+                                                      4.6 - r * 1.6], "w": 2.2, "h": 1.0,
+                    "label": part.replace("_", " ")})
+    return out
+
+
 class BoardMixin:
     """The board layout and the STEM drawings, for pocket_lecture's MapLecture."""
 
@@ -2036,6 +2050,11 @@ class BoardMixin:
             fkey = str(figure.get("id") or f"{key}_figure")
             if figure.get("op") == "graph":
                 drawing = self._build_graph(fkey, figure, fig_box)
+            elif figure.get("op") == "draw" and figure.get("svg"):
+                # The figure drawn as an SVG from its description (drawings.ts).
+                drawing, _ = self._svg_drawing(fkey, figure["svg"], fig_box, figure.get("show"))
+            elif figure.get("op") == "draw":
+                drawing = self._build_sketch(fkey, _parts_as_cards(figure), fig_box, figure.get("show"))
             else:
                 drawing = self._build_sketch(fkey, op_elements(figure), fig_box, figure.get("show"),
                                              figure.get("movable") or ())
@@ -2072,7 +2091,7 @@ class BoardMixin:
         if drawing is not None:
             self._stage_add(drawing)
             show = AnimationGroup(show, FadeIn(drawing))
-            if figure and figure.get("op") != "graph":
+            if figure and figure.get("op") not in ("graph", "draw"):
                 show = self._show_movable(str(figure.get("id") or f"{key}_figure"), show)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 

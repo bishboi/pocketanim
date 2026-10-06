@@ -1082,7 +1082,17 @@ async function viaOpenRouter(
   };
 
   // How every lecture script is compiled, whether it came by the tool or in the reply text.
+  // The script's pictures are drawn as SVG by the same model before each compile (drawings.ts).
+  const drawOptions = process.env.OPENROUTER_API_KEY ? {
+    key: process.env.OPENROUTER_API_KEY,
+    model,
+    repo: REPO,
+    python: python(),
+    onStatus: (text: string) => emit({ type: "message", role: "status", text }),
+    onCost: (usd: number) => { costUsd += usd; },
+  } : undefined;
   const lectureOptions = () => ({
+    draw: drawOptions,
     style,
     genre: subject?.genre,
     minMinutes: minutes,
@@ -1109,7 +1119,7 @@ async function viaOpenRouter(
       return { ...compiled, source: null, errors: [
         `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not in the ` +
         "lecture. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal and " +
-        "focus on its parts); build the others in Manim (sketch, preset, graph, diagram), marked with \"from_figure\"; " +
+        "focus on its parts); draw the others from their description (draw, or graph for a plot), marked with \"from_figure\"; " +
         "show a photograph as it is with {\"op\":\"figure\",\"photo\":true}."] };
     }
     const parts = reference?.parts?.length ?? 0;
@@ -1534,7 +1544,7 @@ async function viaOpenRouter(
         if (unbuilt.length) {
           add(n, `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not ` +
             "shown. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal " +
-            "its parts); build the others in Manim marked with \"from_figure\", or show a photograph as it is with " +
+            "its parts); draw the others (draw, or graph for a plot) marked with \"from_figure\", or show a photograph as it is with " +
             "{\"op\":\"figure\",\"photo\":true}.");
         }
       }

@@ -1357,7 +1357,10 @@ class BoardMixin:
     def _live_start(self, mob, step, mode: str = "loop", keep: bool = False):
         """Run `step(t, p)` on `mob` every frame from now: t seconds since it started, p (0..1) through the line
         it starts on. It stops when the next line starts, unless `keep` (then when its picture leaves)."""
-        state = {"t": 0.0}
+        state = {"t": 0.0, "frames": 0}
+        from manim import config
+
+        fps = float(config.frame_rate or 30)
 
         def updater(_mob, dt):
             # Once per frame: a part inside two groups on stage is updated twice a frame, and counting both ran
@@ -1366,7 +1369,12 @@ class BoardMixin:
             if key == state.get("key"):
                 return
             state["key"] = key
-            state["t"] += dt
+            # The clock counts frames, not the seconds between them: the exporter samples a play in steps of its
+            # length over its frame count (not quite 1/30 s), and a motion that repeats every 120 frames must
+            # come back to exactly the same drawing, or its clip cannot be stored once and played round.
+            if dt > 0:
+                state["frames"] += 1
+            state["t"] = state["frames"] / fps
             span = max(float(getattr(self, "_beat_span", 4.0)), 0.5)
             try:
                 step(state["t"], min(1.0, state["t"] / span) if mode == "process" else 0.0)

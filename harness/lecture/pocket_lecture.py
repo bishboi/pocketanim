@@ -423,15 +423,47 @@ def sketch_mob(name: str, height: float = 0.9):
         text = icons.flatten_gradients(source.read_text(encoding="utf-8", errors="replace"))
         path.write_text(_ink_svg(text, ink), encoding="utf-8")
     mob = SVGMobject(str(path), height=height)
-    # Thick ink outlines and flat colour, as a marker draws: the set's own outlines at a marker's weight, and an
-    # outline on every coloured shape that has none (a drawing from a set without them).
+    _marker(mob, height)
+    return mob
+
+
+def _marker(mob, height: float):
+    """Thick ink outlines and flat colour, as a marker draws: the set's own outlines at a marker's weight, and an
+    outline on every coloured shape that has none (a drawing from a set without them)."""
+    ink = P.CREAM
     weight = OUTLINE * min(1.0, max(0.55, height / 1.2))
     for part in mob.family_members_with_points():
         if part.get_stroke_width() > 0 and part.get_stroke_opacity() > 0:
             part.set_stroke(width=weight)
         elif part.get_fill_opacity() > 0:
             part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
-    return mob
+
+
+def animated_mob(name: str, height: float = 0.9, motion: str | None = None):
+    """A drawing of a thing that moves (animsvg.py), or None when it holds still: an animated weather drawing
+    (rain falling, a sun turning: its own SMIL), or a library drawing given the motion that suits it (a gear
+    spins, a heart beats, a tree sways) or the one asked for. `motion` "none" keeps it still."""
+    import animsvg
+    import icons
+
+    if motion == "none":
+        return None
+    weather = animsvg.weather_icon(name) if motion in (None, "auto") else None
+    if weather:
+        text = icons.flatten_gradients(animsvg.weather_svg(weather))
+        USED_ICONS.add(f"meteocons:{weather}")
+        return animsvg.make(text, height=height, strokes=True)
+    source, drawing_id = drawing_source(name)
+    text = _ink_svg(icons.flatten_gradients(source.read_text(encoding="utf-8", errors="replace")), P.CREAM)
+    if "<animate" not in text:
+        # The word asked for first ("boat"), then the drawing's own name ("motor-boat" would spin).
+        chosen = motion if motion in animsvg.MOTIONS else (animsvg.motion_for(name) or animsvg.motion_for(drawing_id))
+        if not chosen:
+            return None
+        still = animsvg.make(text, height=height)
+        (u0, u1) = still.box
+        text = animsvg.add_motion(text, chosen, (u0[0], u0[1], u1[0] - u0[0], u1[1] - u0[1]))
+    return animsvg.make(text, height=height, style=lambda mob: _marker(mob, height))
 
 
 def icon_mob(name: str, color: str | None = None, height: float = 0.5):
@@ -2053,19 +2085,28 @@ class Lecture(Scene):
         show = LaggedStart(*arrivals, lag_ratio=0.35)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
-    def _entity(self, name: str | None, height: float):
-        """A whiteboard drawing of what a diagram's node stands for (a tree, a factory, a cow), or None."""
+    def _entity(self, name: str | None, height: float, motion: str | None = None):
+        """A whiteboard drawing of what a diagram's node stands for (a tree, a factory, a cow), or None. One that
+        moves (animated_mob) when there is a motion for it and the diagram is animated."""
         if not name:
             return None
+        if motion != "none":
+            try:
+                moving = animated_mob(str(name), height=height, motion=motion)
+                if moving is not None:
+                    return moving
+            except Exception as error:  # noqa: BLE001 -- the still drawing will do
+                SKIPPED.append(f"a drawing of {name!r} holds still: {type(error).__name__}: {error}"[:300])
         try:
             return sketch_mob(str(name), height=height)
         except Exception:  # noqa: BLE001 -- no drawing for it (or none downloaded): the label carries the node
             return None
 
-    def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None):
+    def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None,
+              motion: str | None = None):
         """A diagram's node, as drawn on a board: the thing's drawing above its name in an outlined box; or, for a
         diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items."""
-        drawing = self._entity(entity, 1.0 if small else 1.35)
+        drawing = self._entity(entity, 1.0 if small else 1.35, motion)
         items = [str(i) for i in (items or [])][:5]
         words_only = drawing is None
         size = (19 if small else 23) + (2 if words_only and not items else 0)
@@ -2098,7 +2139,8 @@ class Lecture(Scene):
                                fill_color=_tint_on_bg(tone, 0.45), fill_opacity=1)
         return VGroup(box, inner.move_to(box))
 
-    def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None):
+    def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
+                animate: bool = True, flow: bool | None = None):
         """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
 
         kind: flow (in order, left to right, wrapping), cycle (round), tree (from the first node down),
@@ -2108,7 +2150,11 @@ class Lecture(Scene):
         listed in the node (a category's members). edges: [[from, to, label?]] (a flow, cycle or steps without
         edges joins its nodes in order; categories join the first node to the rest). `show` is the node ids to
         draw now (default all); `reveal_nodes` brings in the rest, a beat at a time. Everything is written in as
-        on a whiteboard: outlines first, then their colours."""
+        on a whiteboard: outlines first, then their colours.
+
+        Moving pictures (animsvg.py): with `animate`, a node's drawing moves the way its thing does for as long as
+        the diagram is up (rain falls, a gear spins, a heart beats; a node's "anim" names a motion, or "none"),
+        and with `flow` (a flow or cycle by default) dots run along the arrows, the way the process goes."""
         cx, cy, w, h = self.STAGE
         nodes = [dict(n) for n in list(nodes)[:9]]
         ids = [str(n["id"]) for n in nodes]
@@ -2119,8 +2165,10 @@ class Lecture(Scene):
             edges = [[ids[0], i] for i in ids[1:]]
         tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
         small = len(nodes) > 5
+        flow = kind in ("flow", "cycle", "steps") if flow is None else bool(flow)
         mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small, items=n.get("items"),
-                              number=k + 1 if kind == "steps" else None)
+                              number=k + 1 if kind == "steps" else None,
+                              motion=(n.get("anim") or "auto") if animate else "none")
                 for k, (i, n) in enumerate(zip(ids, nodes))}
         if kind == "categories":
             kind = "tree"
@@ -2157,15 +2205,14 @@ class Lecture(Scene):
                 seen.update(nxt)
                 frontier = nxt
             levels[-1] += [i for i in ids if i not in seen]            # any node the edges do not reach
-            for r, level in enumerate(levels):
-                row = VGroup(*[mobs[i] for i in level]).arrange(RIGHT, buff=0.5)
-                row.move_to(DOWN * r * 2.0)
+            rows = [VGroup(*[mobs[i] for i in level]).arrange(RIGHT, buff=0.5) for level in levels]
+            # A row below the one above it by the taller of them: tall drawings never run into the names above.
+            VGroup(*rows).arrange(DOWN, buff=0.55)
         else:                                                           # flow
             per_row = 3 if len(ids) > 4 else max(len(ids), 1) if len(ids) <= 3 else 2
-            for r in range(0, len(ids), per_row):
-                row = VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
-                    RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8)
-                row.move_to(DOWN * (r // per_row) * 2.0)
+            rows = [VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
+                RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8) for r in range(0, len(ids), per_row)]
+            VGroup(*rows).arrange(DOWN, buff=0.7)
         arrows = []
         for e in edges:
             a, b = str(e[0]), str(e[1])
@@ -2181,7 +2228,11 @@ class Lecture(Scene):
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
                 label.move_to(arrow.get_center() + side)
-            arrows.append((a, b, VGroup(arrow, *([label] if label else []))))
+            edge = VGroup(arrow, *([label] if label else []))
+            if flow and arrow.get_length() > 0.55:          # (before the fit to the stage, about x1.5)
+                edge.flow = self._flow_dots(arrow)
+                edge.add(edge.flow)
+            arrows.append((a, b, edge))
         whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
         head = None
         if title:
@@ -2197,6 +2248,8 @@ class Lecture(Scene):
                 head.move_to([cx, cy + h / 2 - head.height / 2, 0])
         shown = set(ids if show is None else [str(x) for x in show])
         self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None, "write": True}
+        self._diagram_moves(key, [mobs[i] for i in ids if i in shown]
+                            + [m for a, b, m in arrows if a in shown and b in shown])
         self._next_keys.add(key)
         first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
         self._next_pending.extend([mobs[i] for i in ids if i not in shown]
@@ -2228,7 +2281,38 @@ class Lecture(Scene):
         for a, b, mob in d["edges"]:
             if (a in new or b in new) and a in d["shown"] and b in d["shown"]:
                 anims.append(Create(self._stage_add(mob)))
+        self._diagram_moves(key, drawn)
         return LaggedStart(*anims, lag_ratio=0.3) if anims else None
+
+    def _flow_dots(self, arrow, count: int = 3):
+        """Dots that run along an arrow, start to tip, over and over: which way the process goes."""
+        dots = VGroup(*[Dot(radius=0.055, color=P.GOLD) for _ in range(count)])
+
+        def place(t: float) -> None:
+            for k, dot in enumerate(dots):
+                f = (t / 2.0 + k / count) % 1.0                  # once along every 2 s: a period LOOP divides
+                dot.move_to(arrow.point_from_proportion(0.04 + 0.86 * f))
+                dot.set_fill(opacity=math.sin(math.pi * f) ** 0.6)
+
+        dots.place = place
+        place(0.0)
+        return dots
+
+    def _diagram_moves(self, key: str, parts) -> None:
+        """Set the moving pictures among a diagram's parts going (drawings that move, dots along arrows): from
+        the line they are drawn on, for as long as the diagram is on the stage (export_dsl bakes them)."""
+        import animsvg
+
+        start = getattr(self, "_live_start", None)
+        if start is None:
+            return
+        for part in parts:
+            for mob in part.get_family():
+                if isinstance(mob, animsvg.AnimatedDrawing) and mob.period > 1:
+                    start(mob, lambda t, _p, mob=mob: mob.show(t), "loop", True)
+            dots = getattr(part, "flow", None)
+            if dots is not None:
+                start(dots, lambda t, _p, dots=dots: dots.place(t), "loop", True)
 
     def spotlight(self, key: str, node: str):
         """Draw the eye to one node of a diagram: a ring around it (the last ring goes)."""

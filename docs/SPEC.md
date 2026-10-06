@@ -1123,6 +1123,14 @@ meant a video. It is now baked, and stays tier 1:
   animation asks for it (`_panim_bake`; the lecture engine's zoom does). `PANIM_BAKE=0` turns baking off;
   3D scenes and camera moves are never baked.
 
+A clip that repeats is stored once. When a play's sampled frames repeat (frame k equals frame
+k + N for the whole play, checked to three decimals), the clip keeps one period, rotated to start at
+its smallest frame, and is declared `clip K asset=... frames=N loop=P`; `run` then shows frame
+`(P + k) mod N`. The same period met on a later line is the same asset (to rounding), so a moving
+diagram on the board for minutes costs one period. The lecture engine keeps every motion within a
+4-second period and counts its live clock in frames, not summed seconds, so its loops come back
+exactly. Both players load a shared asset once.
+
 A baked second is larger than a verb, typically 10–150 KB, but it still draws from shapes on the phone,
 so it stays sharp at any size and seeks exactly. The lecture engine's simulations, counters, traces,
 sweeps, continuous motion and zoom all export this way.

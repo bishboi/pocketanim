@@ -11,6 +11,8 @@ compile_lecture.py   beat script (JSON) -> Manim on the engine, with a linter
 resolve_region.py    the country or state a piece of content is about
 examples/india.json  the reference India lecture, condensed
 examples/motion.json  every moving picture: trace, sweep, live motion, the ten sims, counters, zoom
+examples/animated-diagrams.json  diagrams whose drawings move (animated SVGs) and whose arrows flow
+animsvg.py           animated SVG drawings: SMIL played on Manim's shapes, motions for still drawings
 ```
 
 ## What is the same as the guide
@@ -381,6 +383,7 @@ explains it.
 | `{"op":"sim","id","kind",...settings,"title"?,"keep"?}` | A simulation for the line (live.py): `orbit`, `wave`, `collision`, `field`, `refraction`, `titration`, `mitosis`, `heart`, `gas`, `decay`. Each kind's settings are in `live.SIM_PARAMS`; `live.sim_problem` lints them. |
 | `{"op":"counter","id","from","to","label"?,"unit"?,"style"?:"bar\|dial\|number","max"?}` | A value counting from one number to the other over the line. |
 | `{"op":"zoom","diagram","node"?,"scale"?}` | Moves in on one part of the picture on the stage (scaled about it and brought to the middle); without `node`, back out. Played as a baked clip, so the phone moves the picture and does not draw a copy over it. |
+| diagram `"animate"`, `"flow"`, node `"anim"` | A diagram's drawings move while it is up, as animated SVGs (animsvg.py): weather drawings play their own SMIL (Meteocons: rain falling, a sun turning, lightning flashing, wind blowing), and library drawings get the motion that suits the thing (a gear spins, a heart beats, a tree sways, a boat bobs, a flame flickers, a bell shakes), or the one a node's `anim` names (`spin`, `pulse`, `breathe`, `bob`, `sway`, `shake`, `flicker`, `drift`, `hop`, `none`). `flow` runs dots along the arrows (on for flow and cycle). Every motion repeats within 4 s, so the exporter stores one period per line and the phone plays it round (`clip ... loop=`). |
 | `{"op":"manim","id","code"}` | Free-form Manim for a picture the menu cannot draw (`free_check.py`, `stem.BoardMixin.free`): `code` is the body of `construct()` for its beat, the only op on that beat. Beats with the same `id` share their variables, so a figure built on one beat is indicated, copied into a free-body diagram or transformed on the next. The beat's line is spoken while the block plays, then held. The block runs in a sandbox (no imports, dunders, files or exec; of the scene only `play`, `wait`, `add`, `remove`) with Manim's names, `np`, `INK`, `MUTED_INK`, `PALETTE` and the board's bounds; Manim's default white is drawn in the style's ink on a light board. Before a script is accepted each id's blocks run in a probe scene under the exporter: one that raises, draws off the board (x -6.9..6.9, y -3.05..2.85), runs far longer than its line, or uses an animation the phone cannot play is refused with the reason. Verdicts are cached in `.cache/free/` by the code. |
 | `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
 

@@ -319,7 +319,7 @@
   }
  },
  "diagram": {
-  "doc": "A diagram built on the stage from SVG drawings of the things (entity: an English word) and arrows; kind flow|cycle|tree|hub; show some nodes now, reveal the rest across the paragraph.",
+  "doc": "A diagram built on the stage from SVG drawings of the things (entity: an English word) and arrows; kind flow|cycle|tree|hub; show some nodes now, reveal the rest across the paragraph. Drawings move while it is up (rain falls, a gear spins, a heart beats); a node's anim (spin|pulse|breathe|bob|sway|shake|flicker|drift|hop|none) picks the motion; flow puts dots along the arrows (on for flow and cycle).",
   "required": {
    "id": "str",
    "nodes": "list"
@@ -328,7 +328,9 @@
    "kind": "str",
    "edges": "list",
    "title": "str",
-   "show": "list"
+   "show": "list",
+   "animate": "bool",
+   "flow": "bool"
   }
  },
  "reveal": {

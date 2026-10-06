@@ -526,6 +526,13 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
         if unknown:
             return f"diagram show: no node {unknown[0]!r}"
+        import animsvg
+
+        motions = set(animsvg.MOTIONS) | {"none", "auto"}
+        wrong = [n for n in nodes if n.get("anim") is not None and str(n["anim"]) not in motions]
+        if wrong:
+            return (f"diagram node {wrong[0]['id']!r}: anim is one of {', '.join(sorted(motions))} "
+                    "(leave it out and the drawing moves the way its thing does, if it does)")
         diagrams[key] = ids
     if kind in STEM_OPS | WORK_OPS:
         return _stem_problem(op, diagrams)
@@ -779,7 +786,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back"}
+             "about", "heavier", "distance", "back", "anim"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -1744,13 +1751,14 @@ def _op_call(op: dict) -> str:
         return f"self.gallery([{items}]{title})"
     if kind == "diagram":
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
-                  **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {})}
+                  **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {}),
+                  **({"anim": str(n["anim"])} if n.get("anim") else {})}
                  for n in op["nodes"]]
         edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
         show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         return (f"self.diagram({_q(str(op['id']))}, {_q(op.get('kind', 'flow'))}, {nodes!r}, {edges!r}"
-                f"{title}{show})")
+                f"{title}{show}{_diagram_motion(op)})")
     if kind == "reveal":
         return f"self.reveal_nodes({_q(str(op['diagram']))}, {[str(x) for x in op['nodes']]!r})"
     if kind == "focus":
@@ -1816,6 +1824,17 @@ def _clean(value):
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _diagram_motion(op: dict) -> str:
+    """A diagram's moving-picture switches as call arguments: animate (drawings that move) and flow (dots along
+    its arrows), only when the script set them."""
+    out = ""
+    if op.get("animate") is not None:
+        out += f", animate={bool(op['animate'])!r}"
+    if op.get("flow") is not None:
+        out += f", flow={bool(op['flow'])!r}"
+    return out
 
 
 def _stem_call(op: dict) -> str:

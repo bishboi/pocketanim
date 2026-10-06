@@ -224,12 +224,16 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         title = f", title={op['title']!r}" if op.get("title") else ""
         return f"self.gallery({shown!r}{title})"
     if kind == "diagram":
-        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {})}
+        nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
+                  **({"anim": str(n["anim"])} if n.get("anim") else {})}
                  for n in op["nodes"]]
         edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
         show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
         title = f", title={op['title']!r}" if op.get("title") else ""
-        return f"self.diagram({str(op['id'])!r}, {op.get('kind', 'flow')!r}, {nodes!r}, {edges!r}{title}{show})"
+        from compile_lecture import _diagram_motion
+
+        return (f"self.diagram({str(op['id'])!r}, {op.get('kind', 'flow')!r}, {nodes!r}, {edges!r}{title}{show}"
+                f"{_diagram_motion(op)})")
     if kind == "reveal":
         return f"self.reveal_nodes({str(op['diagram'])!r}, {[str(x) for x in op['nodes']]!r})"
     if kind == "focus":

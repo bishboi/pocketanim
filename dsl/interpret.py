@@ -239,6 +239,9 @@ def parse(text: str) -> dict:
                 scene["z"][positional[0]] = float(args["z"])
         elif verb == "clip":
             scene["clips"][positional[0]] = args["asset"]
+            if "loop" in args:
+                # A looping clip: one period, played round from this phase (export_dsl._loop).
+                scene.setdefault("clip_loops", {})[positional[0]] = int(args["loop"])
             if "z" in args:
                 scene["z"][positional[0]] = float(args["z"])
         elif verb == "run":
@@ -467,14 +470,18 @@ def build_2d(scene: dict) -> DecodedIR:
     # Baked clips: their shapes join the atlas now; their instances are the clip's frame while `run` plays.
     from exporter.decode import load as load_ir
 
+    loaded_clips: dict = {}         # an asset many clips play (a looping period) is loaded and shaped once
     for name, asset_id in scene.get("clips", {}).items():
-        clip = load_ir((Path("dsl/generated/assets") / f"{asset_id}.panm").read_bytes())
-        offset = len(shapes)
-        shapes.extend(clip.shapes)
+        if asset_id not in loaded_clips:
+            clip = load_ir((Path("dsl/generated/assets") / f"{asset_id}.panm").read_bytes())
+            loaded_clips[asset_id] = (clip, len(shapes))
+            shapes.extend(clip.shapes)
+        clip, offset = loaded_clips[asset_id]
         objects[name] = {
             "kind": "asset", "visible": False, "centre": np.zeros(3), "xform": identity.copy(),
             "instances": [], "flags": [], "normals": [], "glyph_ids": [],
             "z": scene["z"].get(name, 0.0), "clip": clip, "clip_offset": offset,
+            "clip_loop": scene.get("clip_loops", {}).get(name),
         }
 
     def new_shape(name: str, alpha: float = 1.0) -> dict:
@@ -508,6 +515,9 @@ def build_2d(scene: dict) -> DecodedIR:
                 # every object after the first overwrite the one before it.
                 offset = len(frame)
                 token = (id(obj["instances"]), id(obj["xform"]), offset)
+                # The token names objects by id, so the cache holds them too (drawn[2]): a list freed after two
+                # verb steps between snapshots (a lag group running a child two frames at once) gave its id to
+                # the next one, and the frame showed the drawing from two steps before.
                 drawn = obj.get("_drawn")
                 if drawn is None or drawn[0] != token:
                     normals = obj.get("normals")
@@ -533,7 +543,7 @@ def build_2d(scene: dict) -> DecodedIR:
                                 normal=normal,
                             )
                         )
-                    drawn = (token, built)
+                    drawn = (token, built, (obj["instances"], obj["xform"]))
                     obj["_drawn"] = drawn
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
@@ -546,7 +556,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 if drawn is not None and drawn[0] == token and drawn[1][0].slot != offset:
                     # Same picture, new position in the draw order: keep the
                     # atlas entry, renumber the slot.
-                    drawn = (token, [replace(drawn[1][0], slot=offset)])
+                    drawn = (token, [replace(drawn[1][0], slot=offset)], obj["points"])
                     obj["_drawn"] = drawn
                 if drawn is None or drawn[0] != token:
                     shapes.append(obj["points"])
@@ -560,7 +570,7 @@ def build_2d(scene: dict) -> DecodedIR:
                             stroke=(*obj["stroke"], int(255 * obj.get("alpha", 1.0))),
                             stroke_width=obj["width"],
                         )
-                    ])
+                    ], obj["points"])
                     obj["_drawn"] = drawn
                 frame.extend(drawn[1])
                 groups.append(drawn[1])
@@ -749,13 +759,20 @@ def build_2d(scene: dict) -> DecodedIR:
                 obj["normals"] = [None] * len(drawn)
                 obj["glyph_ids"] = [i.atlas_id for i in drawn]
 
+            loop = obj.get("clip_loop")
+
+            def at(frame_index: int) -> int:
+                if loop is not None:
+                    return (loop + frame_index) % count
+                return min(count - 1, max(0, ((frame_index + 1) * count + total - 1) // total - 1))
+
             yield BEGUN
             total = play_frames(duration, fps)
             for frame_index in range(total):
-                put(min(count - 1, max(0, ((frame_index + 1) * count + total - 1) // total - 1)))
+                put(at(frame_index))
                 yield
             if total == 0 and count:
-                put(count - 1)
+                put(loop % count if loop is not None else count - 1)
 
         elif step[0] == "xform":
             _, name, factor, offset_xy, duration, rate_name = step

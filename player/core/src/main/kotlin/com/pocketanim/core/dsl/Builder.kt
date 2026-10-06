@@ -138,11 +138,15 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private val clips = HashMap<String, Pair<Scene, Int>>()
 
     private fun declareClips() {
+        // A looping period is one asset that many clips play: it is read, and its shapes added, once.
+        val loaded = HashMap<String, Pair<Scene, Int>>()
         for ((name, assetId) in program.clips) {
-            val clip = Scene.parse(loader.asset(assetId))
-            val offset = shapes.size
-            for (shape in clip.atlas) shapes.add(DoubleArray(shape.size) { shape[it].toDouble() })
-            clips[name] = Pair(clip, offset)
+            clips[name] = loaded.getOrPut(assetId) {
+                val clip = Scene.parse(loader.asset(assetId))
+                val offset = shapes.size
+                for (shape in clip.atlas) shapes.add(DoubleArray(shape.size) { shape[it].toDouble() })
+                Pair(clip, offset)
+            }
             objects[name] = Obj(kind = "asset", visible = false, z = program.z[name] ?: 0.0)
         }
     }
@@ -917,14 +921,22 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             offset = at
         }
 
-        override fun render(k: Int) {
+        /** Program frame k of the run in the clip: round the period from its phase, or spread over the run. */
+        private fun at(k: Int): Int {
             val count = clip.frameCount
-            put((((k + 1) * count + frames - 1) / frames - 1).coerceIn(0, count - 1))
+            val loop = program.clipLoops[step.name]
+            return if (loop != null) Math.floorMod(loop + k, count)
+            else (((k + 1) * count + frames - 1) / frames - 1).coerceIn(0, count - 1)
+        }
+
+        override fun render(k: Int) {
+            put(at(k))
             emit()
         }
 
         override fun exit() {
-            if (clip.frameCount > 0) put(clip.frameCount - 1)
+            // Its last frame stays: the frame the run ended on (a loop's phase, if it had no frames).
+            if (clip.frameCount > 0) put(if (step.name in program.clipLoops) at(maxOf(frames - 1, 0)) else clip.frameCount - 1)
         }
     }
 
@@ -1008,7 +1020,15 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         private lateinit var base: List<Inst>
         private var lag = 0.0
         private var window = 0.0
-        private var shapeFloor = 0
+        /**
+         * The atlas slots this reveal draws its partial paths into, reused every frame. Partial paths are per
+         * frame and never outlive it, so the atlas does not grow for the whole reveal. It used to be wound back
+         * to where the reveal began instead -- and when two reveals ran at once (a lag of writes, a diagram's
+         * drawings written in turn) each one's wind-back deleted the paths the other had just drawn, so the
+         * phone drew the wrong outline for one of them.
+         */
+        private val slots = ArrayList<Int>()
+        private var used = 0
 
         override fun enter() {
             obj = objects[name] ?: throw IllegalStateException("reveal target '$name' was never declared")
@@ -1020,14 +1040,22 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             val count = maxOf(base.size, 1)
             lag = if (sequential) sequenceLag else minOf(4.0 / count, 0.2)
             window = 1.0 / (1.0 + lag * (count - 1))
-            shapeFloor = shapes.size
+            slots.clear()
+        }
+
+        /** A partial path into this reveal's next slot: its atlas id. */
+        private fun scratch(points: DoubleArray): Int {
+            if (used < slots.size) {
+                shapes[slots[used]] = points
+            } else {
+                shapes.add(points)
+                slots.add(shapes.size - 1)
+            }
+            return slots[used++]
         }
 
         override fun render(k: Int) {
-            // Partial paths are per frame and never outlive it, so the atlas is
-            // wound back rather than allowed to grow for the whole reveal.
-            while (shapes.size > shapeFloor) shapes.removeAt(shapes.size - 1)
-
+            used = 0
             val alpha = (k + 1).toDouble() / frames
             val revealed = ArrayList<Inst>(base.size)
             for ((index, inst) in base.withIndex()) {
@@ -1041,8 +1069,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 if (sequential) {
                     // Create on a group: a plain partial reveal, eased.
                     val partial = Verbs.pointwiseBecomePartial(shapes[inst.atlasId], 0.0, Verbs.smooth(local))
-                    shapes.add(partial)
-                    revealed.add(Inst(shapes.size - 1, inst.transform, inst.fill, inst.stroke, inst.width))
+                    revealed.add(Inst(scratch(partial), inst.transform, inst.fill, inst.stroke, inst.width))
                 } else {
                     revealed.add(drawBorderThenFill(inst, local))
                 }
@@ -1052,7 +1079,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
 
         override fun exit() {
-            while (shapes.size > shapeFloor) shapes.removeAt(shapes.size - 1)
+            // The slots go back only when they are the atlas's last entries (nothing after them still in use).
+            val top = slots.maxOrNull()
+            if (top != null && top == shapes.size - 1 && slots.size == slots.toSet().size &&
+                slots.minOrNull() == shapes.size - slots.size) {
+                while (shapes.size > slots.min()) shapes.removeAt(shapes.size - 1)
+            }
+            slots.clear()
             obj.instances = base.toMutableList()
         }
 
@@ -1081,9 +1114,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
             if (local < 0.5) {
                 val partial = Verbs.pointwiseBecomePartial(shapes[inst.atlasId], 0.0, 2.0 * local)
-                shapes.add(partial)
                 return Inst(
-                    shapes.size - 1,
+                    scratch(partial),
                     inst.transform,
                     intArrayOf(inst.fill[0], inst.fill[1], inst.fill[2], 0),
                     outline,

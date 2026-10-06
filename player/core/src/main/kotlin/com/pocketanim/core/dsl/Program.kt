@@ -133,6 +133,8 @@ class Program(
     val background: Int = 0xFF000000.toInt(),
     /** name -> assetId of each baked clip (`clip K asset=...`). */
     val clips: Map<String, String> = emptyMap(),
+    /** name -> phase of each looping clip (`loop=P`): it holds one period, played round from frame P. */
+    val clipLoops: Map<String, Int> = emptyMap(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -150,6 +152,7 @@ class Program(
             val timeline = ArrayList<Step>()
             val z = HashMap<String, Double>()
             val clips = LinkedHashMap<String, String>()
+            val clipLoops = HashMap<String, Int>()
 
             for (raw in text.lineSequence()) {
                 val line = raw.trim()
@@ -185,7 +188,10 @@ class Program(
                         at = (args["at"] ?: "0,0").split(",").map { it.toDouble() }.toDoubleArray(),
                     )
                     "text", "geom" -> assets[positional[0]] = Pair(verb, args.getValue("asset"))
-                    "clip" -> clips[positional[0]] = args.getValue("asset")
+                    "clip" -> {
+                        clips[positional[0]] = args.getValue("asset")
+                        args["loop"]?.let { clipLoops[positional[0]] = it.toInt() }
+                    }
                     "run" -> timeline.add(Step.Run(positional[0], t()))
                     "surface" -> surfaces.add(
                         SurfaceSpec(
@@ -292,7 +298,8 @@ class Program(
                 }
             }
 
-            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background, clips)
+            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background, clips,
+                clipLoops)
         }
 
         private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom", "clip")

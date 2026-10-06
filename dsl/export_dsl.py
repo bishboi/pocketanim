@@ -90,6 +90,7 @@ class Recorder:
         self.sounds: list[tuple[float, str, float]] = []
         # Plays recorded as baked clips (see record_scene's bake).
         self.baked = 0
+        self.loops: dict = {}     # a looping clip's canonical content -> its asset, shared by every play of it
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -776,6 +777,53 @@ PROGRAM_FPS = 30
 ACTIVE = None
 
 
+
+LOOP_MIN_CHECK = 30     # frames a repeat must hold for (or one whole period, if shorter) before a clip loops
+
+
+def _frame_keys(frames, member_ids, pre) -> list[bytes]:
+    """Each sampled frame of a bake as a digest of what its moving members draw, to three decimals: frames that
+    look the same have the same key."""
+    import hashlib
+
+    import numpy as np
+
+    keys = []
+    for row in frames:
+        h = hashlib.sha1()
+        for place, (mob, snap) in enumerate(m for m in row if id(m[0]) in member_ids):
+            entries = snap if snap is not None else pre[id(mob)][2]
+            if not entries:
+                continue                    # draws nothing (an empty holder the engine adds with every line)
+            h.update(str(place).encode())   # where it is among the members, not which object: a key for content
+            for entry in entries:
+                h.update(np.round(np.asarray(entry[0], dtype=np.float64), 3).tobytes())
+                h.update(repr((entry[1], entry[2], round(float(entry[3]), 2))).encode())
+        keys.append(h.digest())
+    return keys
+
+
+def _loop(frames, member_ids, pre) -> tuple[int, int, bytes | None]:
+    """(period, phase, key) when a bake's frames repeat from the first: frame k is frame k mod period. The phase
+    is where the play starts in the period's canonical order (the rotation starting at its smallest frame key),
+    so the same motion met at another moment is the same clip. (0, 0, None) when it does not repeat."""
+    import hashlib
+
+    keys = _frame_keys(frames, member_ids, pre)
+    count = len(keys)
+    for period in range(1, count):
+        overlap = count - period
+        if overlap < min(period, LOOP_MIN_CHECK):
+            break
+        if keys[period] != keys[0]:
+            continue
+        if all(keys[k] == keys[k + period] for k in range(overlap)):
+            start = min(range(period), key=lambda i: keys[i])
+            canon = hashlib.sha1(b"".join(keys[(start + i) % period] for i in range(period))).digest()
+            return period, (-start) % period, canon
+    return 0, 0, None
+
+
 def record_scene(scene_file: str, scene_class: str) -> Recorder:
     from manim import Scene, config, tempconfig
     from manim.renderer.cairo_renderer import CairoRenderer
@@ -868,12 +916,27 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 and not state["in_camera_move"])
 
     def has_updaters(scene, animations) -> bool:
+        """Whether anything will run an updater during this play. What an animation of the play moves has its
+        updaters held while it plays (Manim's suspend_mobject_updating): a moving diagram written in or faded
+        out plays as verbs, and only what goes on moving beside the animation needs baking."""
+        held: set = set()
+
+        def hold(anim) -> None:
+            subs = getattr(anim, "animations", None)
+            if subs:
+                for sub in subs:
+                    hold(sub)
+            elif getattr(anim, "suspend_mobject_updating", False) and getattr(anim, "mobject", None) is not None:
+                held.update(id(m) for m in anim.mobject.get_family())
+
+        for anim in animations:
+            hold(anim)
         roots = list(scene.mobjects) + [getattr(a, "mobject", None) for a in animations]
         for root in roots:
             if root is None:
                 continue
             for sub in root.get_family():
-                if getattr(sub, "updaters", None):
+                if getattr(sub, "updaters", None) and id(sub) not in held:
                     return True
         return False
 
@@ -995,6 +1058,14 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             rec.flush(at=emitted_before)
             return result
 
+        # A motion that repeats (a diagram's drawings and flowing arrows, a loop sim) is stored for one period
+        # only, from a canonical frame, and played round from the phase this play starts at: a picture that stays
+        # on the stage for minutes then costs one period, shared by every line it is on.
+        period, phase, loop_key = _loop(frames, member_ids, pre)
+        if period:
+            start = (-phase) % period
+            frames = [frames[(start + i) % period] for i in range(period)]
+
         atlas = Atlas()
         records = []
         slots: dict = {}
@@ -1018,16 +1089,22 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 records.append((REC_KEYFRAME, {s: i for s, i in current.items() if i.key() != previous[s].key()}))
             previous = current
 
-        blob = serialise(atlas, records, fps=PROGRAM_FPS)
-        digest = hashlib.sha1(blob).hexdigest()[:10]
-        path = Path("dsl/generated/assets") / f"{digest}.panm"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(blob)
-        rec.assets[digest] = len(blob)
+        digest = rec.loops.get(loop_key) if period else None
+        if digest is None:
+            blob = serialise(atlas, records, fps=PROGRAM_FPS)
+            digest = hashlib.sha1(blob).hexdigest()[:10]
+            path = Path("dsl/generated/assets") / f"{digest}.panm"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(blob)
+            rec.assets[digest] = len(blob)
+            if period:
+                # The same period seen again (to rounding) is this asset again, not a near-copy of it.
+                rec.loops[loop_key] = digest
         holder = object()
         clip = rec.name_for(holder)
         z = max((z_order(m) for m in members), default=0.0)
-        rec.declarations.append(f"clip {clip} asset={digest} frames={len(frames)}" + (f" z={z:g}" if z else ""))
+        rec.declarations.append(f"clip {clip} asset={digest} frames={len(frames)}" + (f" z={z:g}" if z else "")
+                                + (f" loop={phase}" if period else ""))
 
         # What was on stage and moves is drawn by the clip while it runs.
         lines = []

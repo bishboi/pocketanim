@@ -148,7 +148,11 @@ object SavedLectures {
             connection.readTimeout = 60_000
             if (rest) {
                 connection.setRequestProperty("apikey", project.anonKey)
-                connection.setRequestProperty("Authorization", "Bearer ${project.anonKey}")
+                // A legacy anon key is a JWT and goes in Authorization too; a publishable key (sb_publishable_...)
+                // is not a JWT and belongs in apikey alone.
+                if (project.anonKey.startsWith("eyJ")) {
+                    connection.setRequestProperty("Authorization", "Bearer ${project.anonKey}")
+                }
                 connection.setRequestProperty("Accept", "application/json")
             }
             val code = connection.responseCode

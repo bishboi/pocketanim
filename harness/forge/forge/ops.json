@@ -547,5 +547,94 @@
    "figure": "dict",
    "think": "num"
   }
+ },
+ "motion": {
+  "doc": "A drawn diagram moving, only on the beat whose narration says what moves. Presets move as they would (live: true keeps it going for the line); on a sketch, kind move|turn|pulse|orbit|spin|vibrate|follow|flow with parts, by, angle, about, through, along.",
+  "required": {
+   "diagram": "str"
+  },
+  "optional": {
+   "kind": "str",
+   "parts": "list",
+   "by": "list",
+   "angle": "num",
+   "about": "list",
+   "through": "list",
+   "along": "list",
+   "from": "list",
+   "to": "list",
+   "period": "num",
+   "live": "bool",
+   "keep": "bool",
+   "trail": "bool",
+   "dots": "num",
+   "back": "bool",
+   "distance": "num"
+  }
+ },
+ "trace": {
+  "doc": "A point riding a curve of a graph over the line, with its tangent, the area under it and a live readout (value|slope|area).",
+  "required": {
+   "diagram": "str"
+  },
+  "optional": {
+   "curve": "str",
+   "from": "num",
+   "to": "num",
+   "tangent": "bool",
+   "area": "bool",
+   "readout": "str"
+  }
+ },
+ "sweep": {
+  "doc": "A graph's curve redrawn as one number in its equation changes from one value to another, the number shown live.",
+  "required": {
+   "diagram": "str",
+   "expr": "str"
+  },
+  "optional": {
+   "param": "str",
+   "from": "num",
+   "to": "num",
+   "color": "str"
+  }
+ },
+ "zoom": {
+  "doc": "Move in on one part (node) of the picture on the stage; without node, back out.",
+  "required": {
+   "diagram": "str"
+  },
+  "optional": {
+   "node": "str",
+   "scale": "num"
+  }
+ },
+ "sim": {
+  "doc": "A moving simulation for the line. kind: orbit (period, radius, vectors), wave (wave: travelling|standing|superpose, amplitude, wavelength, speed), collision (m1, m2, u1, u2, elastic), field (charges [[q,x,y]], lines, test), refraction (n1, n2, from_deg, to_deg), titration (kind, indicator, equivalence), mitosis, heart (bpm, flow), gas (particles, speed, hot), decay (atoms, half_life, curve).",
+  "required": {
+   "id": "str",
+   "kind": "str"
+  },
+  "optional": {
+   "params": "dict",
+   "title": "str",
+   "keep": "bool",
+   "labels": "dict"
+  }
+ },
+ "counter": {
+  "doc": "A value counting from one number to another over the line (style bar|dial|number).",
+  "required": {
+   "id": "str",
+   "from": "num",
+   "to": "num"
+  },
+  "optional": {
+   "label": "str",
+   "unit": "str",
+   "style": "str",
+   "max": "num",
+   "title": "str"
+  }
  }
 }

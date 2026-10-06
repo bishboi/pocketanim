@@ -134,6 +134,19 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
     }
 
+    /** Each baked clip's sampled frames and where its shapes start in [shapes]. */
+    private val clips = HashMap<String, Pair<Scene, Int>>()
+
+    private fun declareClips() {
+        for ((name, assetId) in program.clips) {
+            val clip = Scene.parse(loader.asset(assetId))
+            val offset = shapes.size
+            for (shape in clip.atlas) shapes.add(DoubleArray(shape.size) { shape[it].toDouble() })
+            clips[name] = Pair(clip, offset)
+            objects[name] = Obj(kind = "asset", visible = false, z = program.z[name] ?: 0.0)
+        }
+    }
+
     /**
      * The object a verb acts on. A declared primitive that no verb has put on stage yet enters it here, as
      * dsl/interpret.py's NEEDS_OBJECT does for the same verbs: TransformFromCopy's copy is first seen by the
@@ -365,6 +378,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     fun prepare() {
         declareSurfaces()
         declareAssets()
+        declareClips()
 
         // Rewrite create-on-asset to a lagged reveal in a PRE-PASS. Appending
         // the rewrite to the list being iterated pushed every asset reveal to
@@ -533,6 +547,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Create -> createRunner(step)
         is Step.Transform -> transformRunner(step)
         is Step.Xform -> xformRunner(step)
+        is Step.Run -> runRunner(step)
         is Step.Stroke -> strokeRunner(step)
         is Step.Grow -> growRunner(step)
         is Step.Write -> revealRunner(step.name, step.seconds, sequential = false)
@@ -873,6 +888,46 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     }
 
     /** Manim scales about the object's centre, then translates. */
+    /** A baked clip: frame k of the verb shows the clip's frame at the same moment (dsl/interpret.py does the same). */
+    private fun runRunner(step: Step.Run) = object : Runner {
+        override val frames = frames(step.seconds)
+        private lateinit var obj: Obj
+        private lateinit var clip: Scene
+        private var offset = 0
+
+        private fun put(j: Int) {
+            val drawn = clip.frame(j)
+            obj.instances = drawn.mapTo(ArrayList(drawn.size)) { inst ->
+                Inst(
+                    inst.atlasId + offset,
+                    DoubleArray(12) { inst.transform[it].toDouble() },
+                    rgbaOf(inst.fill), rgbaOf(inst.stroke), inst.strokeWidth.toDouble(),
+                )
+            }
+            obj.flags = IntArray(drawn.size)
+            obj.normals = arrayOfNulls(drawn.size)
+            obj.glyphIds = IntArray(drawn.size) { drawn[it].atlasId }
+        }
+
+        override fun enter() {
+            obj = need(step.name)
+            obj.visible = true
+            val (scene, at) = clips.getValue(step.name)
+            clip = scene
+            offset = at
+        }
+
+        override fun render(k: Int) {
+            val count = clip.frameCount
+            put((((k + 1) * count + frames - 1) / frames - 1).coerceIn(0, count - 1))
+            emit()
+        }
+
+        override fun exit() {
+            if (clip.frameCount > 0) put(clip.frameCount - 1)
+        }
+    }
+
     private fun xformRunner(step: Step.Xform) = object : Runner {
         override val frames = frames(step.seconds)
         private lateinit var obj: Obj
@@ -1161,7 +1216,9 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             objects[name]?.visible = true
             // A declared shape only enters the scene when something animates it
             // in; fade is one of those entry points, not just create.
-            if (fadingIn && name !in objects) objects[name] = newShape(name, alpha = 0.0)
+            // A fade out of a declared shape never put on stage (a stage card faded with a group the exporter
+            // took apart) starts from nothing, as dsl/interpret.py does, instead of stopping the lecture.
+            if (name !in objects && program.shapes.containsKey(name)) objects[name] = newShape(name, alpha = 0.0)
             obj = objects.getValue(name)
             base = if (obj.kind == "asset") obj.instances.toList() else null
             moves = shift[0] != 0.0 || shift[1] != 0.0 || from != 1.0

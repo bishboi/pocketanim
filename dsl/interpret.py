@@ -191,6 +191,8 @@ def parse(text: str) -> dict:
         "surfaces": [],
         "shapes": {},
         "assets": {},
+        # Baked motion (`clip K asset=...`): a sampled .panm of the objects one play moved, played by `run`.
+        "clips": {},
         "timeline": [],
         "phi": 0.0,
         "theta": 0.0,
@@ -235,6 +237,12 @@ def parse(text: str) -> dict:
             scene["assets"][positional[0]] = (verb, args["asset"])
             if "z" in args:
                 scene["z"][positional[0]] = float(args["z"])
+        elif verb == "clip":
+            scene["clips"][positional[0]] = args["asset"]
+            if "z" in args:
+                scene["z"][positional[0]] = float(args["z"])
+        elif verb == "run":
+            scene["timeline"].append(("run", positional[0], float(args["t"])))
         elif verb in ("create", "uncreate"):
             # `lag` is Create's lag_ratio across a group's children. Only an
             # asset has children; a primitive is one path and ignores it.
@@ -454,6 +462,19 @@ def build_2d(scene: dict) -> DecodedIR:
             # glyph even though each is offset into the combined shape list.
             "glyph_ids": [inst.atlas_id for inst in instances],
             "z": scene["z"].get(name, 0.0),
+        }
+
+    # Baked clips: their shapes join the atlas now; their instances are the clip's frame while `run` plays.
+    from exporter.decode import load as load_ir
+
+    for name, asset_id in scene.get("clips", {}).items():
+        clip = load_ir((Path("dsl/generated/assets") / f"{asset_id}.panm").read_bytes())
+        offset = len(shapes)
+        shapes.extend(clip.shapes)
+        objects[name] = {
+            "kind": "asset", "visible": False, "centre": np.zeros(3), "xform": identity.copy(),
+            "instances": [], "flags": [], "normals": [], "glyph_ids": [],
+            "z": scene["z"].get(name, 0.0), "clip": clip, "clip_offset": offset,
         }
 
     def new_shape(name: str, alpha: float = 1.0) -> dict:
@@ -712,6 +733,30 @@ def build_2d(scene: dict) -> DecodedIR:
                         grown.append((aid, transform, fill, (*rgb, channel), new_w))
                     obj["instances"] = grown
                     yield
+        elif step[0] == "run":
+            # A baked clip (export_dsl's bake): frame k of the verb shows the clip's frame at the same moment.
+            _, name, duration = step
+            obj = objects[name]
+            obj["visible"] = True
+            clip, offset = obj["clip"], obj["clip_offset"]
+            count = len(clip.records)
+
+            def put(j):
+                drawn = clip.frame(j)
+                obj["instances"] = [(i.atlas_id + offset, i.transform, i.fill, i.stroke, i.stroke_width)
+                                    for i in drawn]
+                obj["flags"] = [0] * len(drawn)
+                obj["normals"] = [None] * len(drawn)
+                obj["glyph_ids"] = [i.atlas_id for i in drawn]
+
+            yield BEGUN
+            total = play_frames(duration, fps)
+            for frame_index in range(total):
+                put(min(count - 1, max(0, ((frame_index + 1) * count + total - 1) // total - 1)))
+                yield
+            if total == 0 and count:
+                put(count - 1)
+
         elif step[0] == "xform":
             _, name, factor, offset_xy, duration, rate_name = step
             rate_fn = RATE_FUNCS[rate_name]

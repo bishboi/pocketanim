@@ -238,6 +238,10 @@ def op_call(op: dict, places: Places, has_map: bool) -> str | None:
         from compile_lecture import _stem_call
 
         return _stem_call(op)
+    if kind in ("motion", "trace", "sweep", "zoom", "sim", "counter"):
+        from compile_lecture import _op_call   # the editor's code for moving pictures, unchanged
+
+        return _op_call(op)
     if kind == "question":
         from compile_lecture import _answer_index
 
@@ -370,7 +374,7 @@ def points_at_map(op: dict) -> bool:
 STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define",
              "question",
              "sketch", "graph", "problem", "work", "incline", "pulley", "piston", "spring", "pendulum",
-             "projectile", "circuit", "lever", "lens"}
+             "projectile", "circuit", "lever", "lens", "sim", "counter"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,

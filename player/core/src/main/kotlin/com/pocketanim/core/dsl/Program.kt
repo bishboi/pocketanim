@@ -84,6 +84,12 @@ sealed class Step {
     class Wait(val seconds: Double) : Step()
 
     /**
+     * A baked clip played over [seconds]: motion the other verbs cannot say (updaters, a value tracker, a path,
+     * any rate function), recorded by the exporter frame by frame into a small sampled asset (`clip` declaration).
+     */
+    class Run(val name: String, val seconds: Double) : Step()
+
+    /**
      * A marker, not a verb: the next [count] steps share one clock.
      *
      * Manim's `play(A(), B())` runs its animations together, and a timeline of
@@ -125,6 +131,8 @@ class Program(
     val z: Map<String, Double> = emptyMap(),
     /** The clear colour, ARGB, from `bg=` on the scene line. */
     val background: Int = 0xFF000000.toInt(),
+    /** name -> assetId of each baked clip (`clip K asset=...`). */
+    val clips: Map<String, String> = emptyMap(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -141,6 +149,7 @@ class Program(
             val surfaces = ArrayList<SurfaceSpec>()
             val timeline = ArrayList<Step>()
             val z = HashMap<String, Double>()
+            val clips = LinkedHashMap<String, String>()
 
             for (raw in text.lineSequence()) {
                 val line = raw.trim()
@@ -176,6 +185,8 @@ class Program(
                         at = (args["at"] ?: "0,0").split(",").map { it.toDouble() }.toDoubleArray(),
                     )
                     "text", "geom" -> assets[positional[0]] = Pair(verb, args.getValue("asset"))
+                    "clip" -> clips[positional[0]] = args.getValue("asset")
+                    "run" -> timeline.add(Step.Run(positional[0], t()))
                     "surface" -> surfaces.add(
                         SurfaceSpec(
                             name = positional.firstOrNull() ?: "S",
@@ -281,10 +292,10 @@ class Program(
                 }
             }
 
-            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background)
+            return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background, clips)
         }
 
-        private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom")
+        private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom", "clip")
 
         private fun shiftOf(args: Map<String, String>): DoubleArray {
             val parts = (args["shift"] ?: "0,0").split(",")

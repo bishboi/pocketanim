@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -87,6 +88,8 @@ class Recorder:
         # new title into one asset that no removal ever named.
         self.containers: dict[int, object] = {}
         self.sounds: list[tuple[float, str, float]] = []
+        # Plays recorded as baked clips (see record_scene's bake).
+        self.baked = 0
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -811,7 +814,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         "begin_spin": ThreeDScene.begin_ambient_camera_rotation,
         "stop_spin": ThreeDScene.stop_ambient_camera_rotation,
     }
-    state = {"spin_rate": None, "in_camera_move": False}
+    state = {"spin_rate": None, "in_camera_move": False, "baking": False}
 
     def animation_blockers(anim) -> None:
         """Name the animation arguments the verb set cannot carry.
@@ -850,14 +853,222 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.containers[id(group)] = group
             remember_containers(children)
 
+    # ---- baked motion --------------------------------------------------------
+    #
+    # The verbs say what a play does in a few words: create this, move that by so much. Motion that is not one of
+    # them -- an updater following a ValueTracker, MoveAlongPath, a dot riding a curve while its tangent turns, a
+    # number counting, any rate function or animation without a verb -- used to make the scene tier 3, and the phone
+    # had nothing to play. Such a play is now *baked*: Manim runs it frame by frame here, the objects that change
+    # are recorded into a small sampled clip (the .panm container: shapes once, then per frame only what changed,
+    # rigid motion as transforms), and the program plays the clip with one verb (`run`). The objects that moved are
+    # declared again afterwards in their final state, so later verbs act on where they ended up.
+
+    def can_bake(scene) -> bool:
+        return (os.environ.get("PANIM_BAKE", "1") != "0" and not isinstance(scene, ThreeDScene)
+                and not state["in_camera_move"])
+
+    def has_updaters(scene, animations) -> bool:
+        roots = list(scene.mobjects) + [getattr(a, "mobject", None) for a in animations]
+        for root in roots:
+            if root is None:
+                continue
+            for sub in root.get_family():
+                if getattr(sub, "updaters", None):
+                    return True
+        return False
+
+    def asks_to_bake(animations) -> bool:
+        """An animation marked _panim_bake (or one inside a group so marked): the lecture engine's camera moves,
+        which move parts nested inside a picture already on stage, where verbs would draw a moved copy over it."""
+        todo = list(animations)
+        while todo:
+            anim = todo.pop()
+            if getattr(anim, "_panim_bake", False):
+                return True
+            todo.extend(getattr(anim, "animations", None) or [])
+        return False
+
+    def stage_entries(scene) -> list:
+        """The scene's top-level mobjects, with an animation group's plumbing container opened into its members."""
+        out, seen = [], set()
+
+        def add(mob):
+            if id(mob) in seen:
+                return
+            seen.add(id(mob))
+            if id(mob) in rec.containers:
+                for sub in mob.submobjects:
+                    add(sub)
+                return
+            out.append(mob)
+
+        for mob in scene.mobjects:
+            add(mob)
+        return out
+
+    def signature(mob) -> int:
+        import zlib
+
+        import numpy as np
+
+        h = 0
+        for sub in mob.get_family():
+            points = getattr(sub, "points", None)
+            if points is None or len(points) == 0:
+                continue
+            h = zlib.crc32(np.ascontiguousarray(points, dtype=np.float64).tobytes(), h)
+            try:
+                style = (sub.get_fill_color(), sub.get_fill_opacity(), sub.get_stroke_color(),
+                         sub.get_stroke_opacity(), sub.get_stroke_width())
+            except Exception:  # noqa: BLE001 -- a mobject without VMobject styling; its points still count
+                style = ()
+            h = zlib.crc32(repr(style).encode(), h)
+        return h
+
+    def bake(scene, animations, kwargs, emitted_before):
+        import hashlib
+        import math as _math
+
+        from dsl.library import snapshot_family
+        from exporter.ir import REC_KEYFRAME, REC_SNAPSHOT, Atlas, Instance, serialise
+
+        pre = {}
+        for mob in stage_entries(scene):
+            pre[id(mob)] = (mob, signature(mob), snapshot_family(mob))
+        frames: list[list] = []
+        timing = {}
+
+        def capture():
+            row = []
+            for mob in stage_entries(scene):
+                known = pre.get(id(mob))
+                if known is not None and known[1] == signature(mob):
+                    row.append((mob, None))
+                else:
+                    row.append((mob, snapshot_family(mob)))
+            frames.append(row)
+
+        def sampling_play(renderer, scene_, *args, **kw):
+            scene_.compile_animation_data(*args, **kw)
+            scene_.begin_animations()
+            duration = float(scene_.duration)
+            count = int(_math.ceil(duration * PROGRAM_FPS - 1e-9)) if duration > 0 else 0
+            for k in range(1, count + 1):
+                scene_.update_to_time(duration * k / count)
+                capture()
+            for animation in scene_.animations:
+                animation.finish()
+                animation.clean_up_from_scene(scene_)
+            scene_.update_mobjects(0)
+            renderer.time += duration
+            renderer.num_plays += 1
+            timing["t"] = duration
+
+        state["baking"] = True
+        CairoRenderer.play = sampling_play
+        try:
+            result = originals["play"](scene, *animations, **kwargs)
+        finally:
+            CairoRenderer.play = fast_play
+            state["baking"] = False
+        duration = timing.get("t", 0.0)
+
+        members = []
+        member_ids = set()
+        for row in frames:
+            for mob, snap in row:
+                if (snap is not None or id(mob) not in pre) and id(mob) not in member_ids:
+                    member_ids.add(id(mob))
+                    members.append(mob)
+        # Taken off the stage during the play (removals pass straight through while baking): the clip draws it for
+        # the frames it was still there, and the hide below takes it off the program's stage. The lecture engine
+        # swaps its stage group like this when a beat moves the picture; left out, the old picture stayed drawn
+        # under the moving one.
+        for key, (mob, _, _) in pre.items():
+            if key not in member_ids and any(key not in {id(m) for m, _ in row} for row in frames):
+                member_ids.add(key)
+                members.append(mob)
+        if not members:
+            # Nothing on stage changed (an updater that holds still, a tracker nothing reads): a hold.
+            if duration > 0:
+                rec.timeline.append(f"wait t={duration:g}")
+            rec.flush(at=emitted_before)
+            return result
+
+        atlas = Atlas()
+        records = []
+        slots: dict = {}
+        last_atlas: dict = {}
+        previous = None
+        for row in frames:
+            current = {}
+            for mob, snap in row:
+                if id(mob) not in member_ids:
+                    continue
+                entries = snap if snap is not None else pre[id(mob)][2]
+                for index, entry in enumerate(entries):
+                    array, fill, stroke, width = entry[0], entry[1], entry[2], entry[3]
+                    slot = slots.setdefault((id(mob), index), len(slots))
+                    atlas_id, transform = atlas.resolve(array, last_atlas.get(slot))
+                    last_atlas[slot] = atlas_id
+                    current[slot] = Instance(atlas_id, transform, fill, stroke, width)
+            if previous is None or current.keys() != previous.keys():
+                records.append((REC_SNAPSHOT, current))
+            else:
+                records.append((REC_KEYFRAME, {s: i for s, i in current.items() if i.key() != previous[s].key()}))
+            previous = current
+
+        blob = serialise(atlas, records, fps=PROGRAM_FPS)
+        digest = hashlib.sha1(blob).hexdigest()[:10]
+        path = Path("dsl/generated/assets") / f"{digest}.panm"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(blob)
+        rec.assets[digest] = len(blob)
+        holder = object()
+        clip = rec.name_for(holder)
+        z = max((z_order(m) for m in members), default=0.0)
+        rec.declarations.append(f"clip {clip} asset={digest} frames={len(frames)}" + (f" z={z:g}" if z else ""))
+
+        # What was on stage and moves is drawn by the clip while it runs.
+        lines = []
+        for mob in members:
+            if id(mob) not in pre:
+                continue
+            for sub in mob.get_family():
+                name = rec.names.get(id(sub))
+                if name and rec.declared(name) and f"hide {name}" not in lines:
+                    lines.append(f"hide {name}")
+        lines.append(f"run {clip} t={duration:g}")
+        rec.timeline.extend(lines)
+        rec.flush(at=emitted_before)
+        # Afterwards: the clip off, each member that stayed declared anew in its final state.
+        rec.timeline.append(f"hide {clip}")
+        final = {id(m) for m in stage_entries(scene)}
+        for mob in members:
+            if id(mob) not in final:
+                continue
+            for sub in mob.get_family():
+                rec.names.pop(id(sub), None)
+            name = rec.declare(mob)
+            rec.flush()
+            if name:
+                rec.timeline.append(f"show {name}")
+        rec.baked += 1
+        return result
+
     def patched_play(self, *animations, **kwargs):
         remember_containers(animations)
+        given = animations
         run_time = kwargs.get("run_time")
         if not state["in_camera_move"]:
             spans = [run_time if run_time is not None else float(getattr(a, "run_time", 1.0) or 0.0)
                      for a in animations]
             rec.clock += max(spans, default=0.0)
         emitted_before = len(rec.timeline)
+        blockers_before = len(rec.blockers)
+        pending_before = list(rec.pending)
+        if can_bake(self) and (asks_to_bake(given) or has_updaters(self, given)):
+            return bake(self, given, kwargs, emitted_before)
         flat = []
         sequential = False
         for anim in animations:
@@ -1148,6 +1359,15 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
                 rec.timeline.insert(
                     emitted_before, f"par n={produced} t={max(spans):g}"
                 )
+        # A play the verbs could not say is baked instead of leaving the scene to tier 3. A raster image is not
+        # motion: it stays a blocker (the preview draws it from its own track).
+        added = rec.blockers[blockers_before:]
+        motion = [b for b in added if not b.startswith("raster image")]
+        if motion and can_bake(self):
+            del rec.timeline[emitted_before:]
+            rec.blockers[blockers_before:] = [b for b in added if b.startswith("raster image")]
+            rec.pending = pending_before
+            return bake(self, given, kwargs, emitted_before)
         # Hides go ahead of the play's verbs and of its `par` header: a `par`
         # claims the next n lines, and a hide inside one is not a verb.
         rec.flush(at=emitted_before)
@@ -1272,6 +1492,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             image_snapshot(self, len(rec.timeline), timing, before)
 
     def patched_add(self, *mobjects, **kw):
+        if state["baking"]:
+            # Inside a baked play the clip records what goes on stage; bake() declares what stays.
+            return originals["add"](self, *mobjects, **kw)
         # Objects put on stage directly rather than animated in. Missing these
         # produced a program that claimed tier 1 while drawing nothing.
         for mob in mobjects:
@@ -1286,6 +1509,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         return originals["add"](self, *mobjects, **kw)
 
     def patched_remove(self, *mobjects, **kw):
+        if state["baking"]:
+            return originals["remove"](self, *mobjects, **kw)
         # Manim takes things off stage as well as putting them on, and until
         # this existed the program had no way to say so. TransformMatchingTex
         # adds its working groups through add() and drops them again in

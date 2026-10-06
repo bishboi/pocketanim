@@ -1,0 +1,406 @@
+{
+ "title": "Motion on the phone",
+ "style": "chalkboard",
+ "auto_visuals": false,
+ "place_figures": false,
+ "chapters": [
+  {
+   "title": "Graphs that move",
+   "map": false,
+   "beats": [
+    {
+     "say": "Here is a parabola, and a point that will ride along it.",
+     "do": [
+      {
+       "op": "graph",
+       "id": "g1",
+       "x": [
+        -3,
+        3
+       ],
+       "y": [
+        -1,
+        4
+       ],
+       "items": [
+        {
+         "kind": "curve",
+         "id": "f",
+         "expr": "0.4*x^2",
+         "label": "y = 0.4x²"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "As the point moves, its tangent turns, and the slope reads out live, from negative through zero to positive.",
+     "do": [
+      {
+       "op": "trace",
+       "diagram": "g1",
+       "curve": "f",
+       "from": -2.5,
+       "to": 2.5,
+       "tangent": true,
+       "readout": "slope"
+      }
+     ]
+    },
+    {
+     "say": "Now the area under the curve fills in as we go, and its value grows with it.",
+     "do": [
+      {
+       "op": "trace",
+       "diagram": "g1",
+       "curve": "f",
+       "from": 0,
+       "to": 2.5,
+       "area": true,
+       "readout": "area"
+      }
+     ]
+    },
+    {
+     "say": "Change one number in the equation and the whole curve reshapes: watch a sweep from minus one to one.",
+     "do": [
+      {
+       "op": "graph",
+       "id": "g2",
+       "x": [
+        -3,
+        3
+       ],
+       "y": [
+        -4,
+        4
+       ],
+       "items": [
+        {
+         "kind": "curve",
+         "id": "base",
+         "expr": "x^2",
+         "color": "MUTED"
+        }
+       ]
+      },
+      {
+       "op": "sweep",
+       "diagram": "g2",
+       "expr": "a*x^2",
+       "param": "a",
+       "from": -1,
+       "to": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Sketches that move",
+   "map": false,
+   "beats": [
+    {
+     "say": "A planet goes round its star, leaving a trail behind it.",
+     "do": [
+      {
+       "op": "sketch",
+       "id": "s1",
+       "items": [
+        {
+         "id": "sun",
+         "type": "circle",
+         "at": [
+          5,
+          3
+         ],
+         "r": 0.5,
+         "fill": "GOLD",
+         "label": "Sun"
+        },
+        {
+         "id": "planet",
+         "type": "circle",
+         "at": [
+          7.6,
+          3
+         ],
+         "r": 0.22,
+         "fill": "RIVER",
+         "label": "Earth"
+        }
+       ]
+      },
+      {
+       "op": "motion",
+       "diagram": "s1",
+       "kind": "orbit",
+       "parts": [
+        "planet"
+       ],
+       "about": [
+        5,
+        3
+       ],
+       "period": 3
+      }
+     ]
+    },
+    {
+     "say": "A pendulum swings back and forth for as long as we talk about it.",
+     "do": [
+      {
+       "op": "pendulum",
+       "id": "p1",
+       "angle": 25
+      },
+      {
+       "op": "motion",
+       "diagram": "p1",
+       "live": true,
+       "period": 2
+      }
+     ]
+    },
+    {
+     "say": "In a circuit, charge flows round the wire through each resistor in turn.",
+     "do": [
+      {
+       "op": "circuit",
+       "id": "c1",
+       "kind": "series"
+      },
+      {
+       "op": "motion",
+       "diagram": "c1",
+       "kind": "flow",
+       "along": [
+        [
+         2.4,
+         3.0
+        ],
+        [
+         2.4,
+         1.0
+        ],
+        [
+         9.0,
+         1.0
+        ],
+        [
+         9.0,
+         5.0
+        ],
+        [
+         1.0,
+         5.0
+        ],
+        [
+         1.0,
+         3.0
+        ]
+       ],
+       "dots": 9
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Simulations",
+   "map": false,
+   "beats": [
+    {
+     "say": "In circular motion the velocity points along the path while the acceleration points to the centre.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "o1",
+       "kind": "orbit",
+       "period": 3.5,
+       "labels": {
+        "body": "m",
+        "centre": "O"
+       }
+      }
+     ]
+    },
+    {
+     "say": "A travelling wave moves along, but each bit of the string only moves up and down.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "w1",
+       "kind": "wave",
+       "wave": "travelling"
+      }
+     ]
+    },
+    {
+     "say": "A standing wave has nodes that never move and antinodes that swing the most.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "w2",
+       "kind": "wave",
+       "wave": "standing"
+      }
+     ]
+    },
+    {
+     "say": "Two carts collide; their momenta change, but the total stays exactly the same.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "k1",
+       "kind": "collision",
+       "m1": 2,
+       "m2": 1,
+       "u1": 3,
+       "u2": -1
+      }
+     ]
+    },
+    {
+     "say": "Field lines run from the positive charge to the negative, and a test charge follows them.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "e1",
+       "kind": "field"
+      }
+     ]
+    },
+    {
+     "say": "As the angle grows, the refracted ray bends further, until past the critical angle the light reflects back.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "r1",
+       "kind": "refraction",
+       "n1": 1.5,
+       "n2": 1.0,
+       "from_deg": 10,
+       "to_deg": 60
+      }
+     ]
+    },
+    {
+     "say": "Adding base slowly, the pH creeps up, then jumps at the equivalence point, and the indicator turns pink.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "t1",
+       "kind": "titration"
+      }
+     ]
+    },
+    {
+     "say": "In mitosis the chromosomes condense, line up in the middle, separate, and the cell splits in two.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "m1",
+       "kind": "mitosis"
+      }
+     ]
+    },
+    {
+     "say": "The heart beats, and blood flows out to the body and back through the lungs.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "h1",
+       "kind": "heart"
+      }
+     ]
+    },
+    {
+     "say": "Gas particles fly in straight lines and bounce off the walls of their container.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "g1",
+       "kind": "gas",
+       "particles": 28
+      }
+     ]
+    },
+    {
+     "say": "Radioactive atoms decay at random, yet the number left halves at a steady rate.",
+     "do": [
+      {
+       "op": "sim",
+       "id": "d1",
+       "kind": "decay"
+      }
+     ]
+    },
+    {
+     "say": "A car speeds up from zero to thirty metres per second.",
+     "do": [
+      {
+       "op": "counter",
+       "id": "n1",
+       "label": "speed",
+       "from": 0,
+       "to": 30,
+       "unit": "m/s",
+       "style": "dial"
+      }
+     ]
+    },
+    {
+     "say": "Its battery charge falls from ninety to twenty per cent on the way.",
+     "do": [
+      {
+       "op": "counter",
+       "id": "n2",
+       "label": "battery",
+       "from": 90,
+       "to": 20,
+       "unit": "%",
+       "max": 100
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Moving in close",
+   "map": false,
+   "beats": [
+    {
+     "say": "Here is a simple circuit with two resistors.",
+     "do": [
+      {
+       "op": "circuit",
+       "id": "z1",
+       "kind": "series"
+      }
+     ]
+    },
+    {
+     "say": "Let us move in on the first resistor.",
+     "do": [
+      {
+       "op": "zoom",
+       "diagram": "z1",
+       "node": "R1",
+       "scale": 2.0
+      }
+     ]
+    },
+    {
+     "say": "And back out to the whole circuit.",
+     "do": [
+      {
+       "op": "zoom",
+       "diagram": "z1"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

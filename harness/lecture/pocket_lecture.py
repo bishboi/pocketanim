@@ -1145,23 +1145,24 @@ _SAFE = {name: getattr(np, name) for name in ("sin", "cos", "tan", "exp", "log",
 _SAFE.update(pi=np.pi, e=np.e, ln=np.log)
 
 
-def safe_function(expr: str):
-    """f(x) from an expression like "x^2 - 3*x" or "sin(x)*exp(-x/5)": numpy names only, nothing else."""
+def safe_function(expr: str, params: tuple = ()):
+    """f(x) from an expression like "x^2 - 3*x" or "sin(x)*exp(-x/5)": numpy names only, nothing else. `params`
+    are further names the expression may use ("a" in "a*x^2"), given to f as keywords: f(x, a=2)."""
     import ast as _ast
 
     source = str(expr).replace("^", "**").strip()
     tree = _ast.parse(source, mode="eval")
     for node in _ast.walk(tree):
-        if isinstance(node, _ast.Name) and node.id != "x" and node.id not in _SAFE:
+        if isinstance(node, _ast.Name) and node.id != "x" and node.id not in _SAFE and node.id not in params:
             raise ValueError(f"unknown name {node.id!r} in {expr!r}")
         if isinstance(node, (_ast.Attribute, _ast.Subscript, _ast.Lambda, _ast.Call)) and not (
                 isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name)):
             raise ValueError(f"not a plain expression: {expr!r}")
     code = compile(tree, "<plot>", "eval")
 
-    def f(x):
+    def f(x, **values):
         with np.errstate(all="ignore"):
-            out = eval(code, {"__builtins__": {}}, {**_SAFE, "x": x})  # noqa: S307 -- names checked above
+            out = eval(code, {"__builtins__": {}}, {**_SAFE, **values, "x": x})  # noqa: S307 -- names checked above
         # A constant ("5", a horizontal line) is one number whatever x is: as many values as x has, so a plot
         # over 200 points does not get a single one and fail to concatenate it with the others.
         if np.ndim(x) > 0 and np.ndim(out) == 0:
@@ -1348,6 +1349,8 @@ class Lecture(Scene):
         the rest of the line plus a pause (`pad`, BEAT_PAD by default) is a hold.
         """
         pad = BEAT_PAD if pad is None else pad
+        # Live pictures (stem.py: sims, traces, sweeps, continuous motions) stop at the next line unless kept.
+        getattr(self, "_live_next", lambda: None)()
         if self._full_figure is not None:
             self.play(FadeOut(self._full_figure), run_time=0.4)
             self._full_figure = None
@@ -1366,6 +1369,9 @@ class Lecture(Scene):
         anims = [a for a in (_playable(a) for a in anims) if a is not None]
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
+        # A live process (a titration, cell division) runs from when its picture is in to the end of the line.
+        self._beat_span = max(0.6, seconds + pad - spent)
+        if anims:
             head = [a for a in anims if getattr(a, "panel_head", False)]
             items = [a for a in anims if getattr(a, "panel_item", False)]
             if head and items:

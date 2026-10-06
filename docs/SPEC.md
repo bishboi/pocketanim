@@ -1102,6 +1102,31 @@ Hybrid result, program plus text asset:
 The exporter attempts tier 1 and falls back, so nothing already built is wasted
 and the worst case for any scene is the 9× the sampled IR already delivers.
 
+### Baked motion: `clip` and `run`
+
+Motion the verbs cannot say (updaters, `always_redraw`, a `ValueTracker` driving a number or a curve,
+`MoveAlongPath`, a part moved inside a group already on stage) used to be a tier 3 blocker, and tier 3
+meant a video. It is now baked, and stays tier 1:
+
+- The exporter samples that `play()` itself, frame by frame (`Scene.update_to_time`), and keeps only
+  the top-level stage entries that changed (a crc32 of their points and colours), entries added during
+  it, and entries taken off during it.
+- Those frames become a small `.panm` of their own: the same atlas and instances as every other asset,
+  so a part that only moves or turns is one shape plus a transform per frame, not new geometry.
+- The program declares it, `clip K asset=<digest> frames=N [z=]`, and plays it:
+  `hide <what it replaces>`, `run K t=<seconds>`, `hide K`, then `show` of what stayed, declared again
+  in its final state.
+- `run` maps program frame k of a play lasting F frames to clip frame
+  `j = ((k + 1) * N + F - 1) / F - 1`, clamped to `[0, N - 1]`. The Python and Kotlin interpreters share
+  that formula, and the cross-check holds them to it frame for frame.
+- A play is baked when it carries updaters, when the verb path would have produced a blocker, or when an
+  animation asks for it (`_panim_bake`; the lecture engine's zoom does). `PANIM_BAKE=0` turns baking off;
+  3D scenes and camera moves are never baked.
+
+A baked second is larger than a verb, typically 10–150 KB, but it still draws from shapes on the phone,
+so it stays sharp at any size and seeks exactly. The lecture engine's simulations, counters, traces,
+sweeps, continuous motion and zoom all export this way.
+
 ## 10. Exporter v2 — mostly overtaken by tier 1
 
 **This section was written when six of ten corpus scenes fell back to sampled IR and three of

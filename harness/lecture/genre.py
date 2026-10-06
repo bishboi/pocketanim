@@ -85,7 +85,7 @@ PROFILES = {
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["figure", "illustration", "diagram", "sketch", "compare", "define", "manim", "graph", "equation"],
+        "kit": ["figure", "illustration", "diagram", "sketch", "compare", "define", "manim", "graph", "equation", "sim"],
         "guidance": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
                     "heart, a neuron, a nephron): the book's figure or a textbook illustration (find_illustration), "
                     "and when its parts are named one by one, a labelled sketch (or manim) built part by part with "
@@ -104,7 +104,8 @@ PROFILES = {
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare"],
+        "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare", "sim",
+                "counter"],
         "guidance": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only "
                     "where its structure is what is being taught: its bonds, its shape, its functional groups, "
                     "isomers, how it reacts because of them; once, not again each time it is named, and never for a "
@@ -122,12 +123,13 @@ PROFILES = {
     "physics": {
         "label": "Physics", "style": "blueprint", "map": "never",
         "kit": ["incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
-                "sketch", "graph", "problem", "work", "equation", "define"],
+                "sketch", "graph", "problem", "work", "equation", "define", "sim", "counter", "trace", "zoom"],
         "guidance": "Physics: draw every situation as a labelled diagram (the presets incline, pulley, piston, spring, "
                     "pendulum, projectile, circuit, lever, lens, or a sketch for anything else), then reveal its "
                     "forces, velocities and lengths one by one as the narration names them; graph how quantities "
                     "vary (v against t, and the area under it, x against t, P against V); state each law as an "
-                    "equation. "
+                    "equation; show a process happening with a sim (orbit, wave, collision, field, refraction) and a moving "
+                    "graph with trace. "
                     "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
@@ -136,7 +138,7 @@ PROFILES = {
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["graph", "sketch", "work", "problem", "equation", "define"],
+        "kit": ["graph", "sketch", "work", "problem", "equation", "define", "trace", "sweep"],
         "guidance": "Mathematics: graph every function you discuss (curves, points, tangents, areas, roots marked); "
                     "draw geometry with sketch (triangles and circles with their angles and lengths labelled); derive "
                     "and solve with work, one step per beat, each step said and justified. "

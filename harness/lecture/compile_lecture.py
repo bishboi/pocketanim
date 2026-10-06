@@ -437,14 +437,16 @@ KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
 from stem import PRESETS  # noqa: E402
 
 STEM_OPS = {"sketch", "graph", "problem"} | set(PRESETS)
-BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS
+# Live pictures (live.py): a simulation that moves while its line is said, a counting number.
+LIVE_OPS = {"sim", "counter"}
+BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS | LIVE_OPS
 # A worked solution: lines added beside the figure on the stage (or on a problem's solution side).
 WORK_OPS = {"work"}
 # Subjects taught on the board (no side panel) unless the script says otherwise.
 BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
 # to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
-STEP_OPS = {"reveal", "focus", "answer", "option", "motion"}
+STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
 # A beat drawn by a block of Manim the model wrote (free_check.py): the only op on its beat.
@@ -527,6 +529,8 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         diagrams[key] = ids
     if kind in STEM_OPS | WORK_OPS:
         return _stem_problem(op, diagrams)
+    if kind in LIVE_OPS:
+        return _live_problem(op, diagrams)
     if kind == "question":
         choices = op.get("choices") or []
         if not str(op.get("text") or "").strip():
@@ -552,6 +556,15 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         key = str(op.get("diagram") or "")
         if key not in diagrams:
             return f"'{kind}' needs diagram: the id of a diagram drawn earlier in this chapter"
+        if kind in ("trace", "sweep"):
+            return _graph_step_problem(op, key, diagrams)
+        if kind == "zoom":
+            node = op.get("node")
+            if node is not None and str(node) not in diagrams[key]:
+                return f"zoom node: no part {node!r} in {key!r} ({', '.join(diagrams[key]) or 'none named'})"
+            if op.get("scale") is not None and not 1.1 <= float(op["scale"]) <= 3:
+                return "zoom scale is between 1.1 and 3 (how much closer)"
+            return None
         if kind == "motion":
             import stem
 
@@ -565,6 +578,58 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         columns = op.get("columns") or []
         if not 2 <= len(columns) <= 3 or not all(isinstance(c, dict) and c.get("title") for c in columns):
             return "'compare' needs 2-3 columns, each {title, entity?, points: [up to 4 short lines]}"
+    return None
+
+
+def _graph_step_problem(op: dict, key: str, diagrams: dict) -> str | None:
+    """A trace (a point riding a curve) or a sweep (a curve redrawn as a parameter changes) on a graph."""
+    import pocket_lecture as pl
+
+    kind = op["op"]
+    if diagrams.get(f"?kind:{key}") != "graph":
+        return f"'{kind}' works on a graph: {key!r} is not one drawn in this chapter"
+    if kind == "trace":
+        curve = op.get("curve")
+        if curve is not None and str(curve) not in diagrams.get(f"?curves:{key}", []):
+            return (f"trace curve: {curve!r} is not a curve of {key!r} "
+                    f"({', '.join(diagrams.get(f'?curves:{key}', [])) or 'give its curve an id'})")
+        if not diagrams.get(f"?curves:{key}"):
+            return f"trace needs a curve on {key!r} (an item {{\"kind\": \"curve\", \"id\": ...}})"
+        if op.get("readout") not in (None, "value", "slope", "area"):
+            return "trace readout is value, slope or area"
+        return None
+    param = str(op.get("param") or "a")
+    if not re.fullmatch(r"[a-zA-Z]\w{0,7}", param) or param == "x":
+        return "sweep param is a short name other than x (\"a\", \"k\")"
+    try:
+        f = pl.safe_function(str(op.get("expr") or ""), (param,))
+        f(1.0, **{param: 1.0})
+    except Exception as error:  # noqa: BLE001 -- the reason goes back to the model
+        return f"sweep expr must be an expression in x and {param} (\"{param}*x^2\"): {error}"
+    for end in ("from", "to"):
+        if not isinstance(op.get(end, 0), (int, float)):
+            return f"sweep {end} must be a number"
+    return None
+
+
+def _live_problem(op: dict, diagrams: dict) -> str | None:
+    import live
+
+    key = str(op.get("id") or "")
+    if not key:
+        return f"'{op['op']}' needs an id"
+    if op["op"] == "sim":
+        problem = live.sim_problem(op)
+        if problem:
+            return problem
+    else:
+        for end in ("from", "to"):
+            if not isinstance(op.get(end), (int, float)):
+                return f"counter needs {end}: a number (it counts from one to the other over the line)"
+        if op.get("style", "bar") not in ("bar", "dial", "number"):
+            return "counter style is bar, dial or number"
+    diagrams[key] = []
+    diagrams[f"?kind:{key}"] = op["op"]
     return None
 
 
@@ -600,6 +665,9 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
         if problem:
             return problem
         ids = [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
+        diagrams[f"?kind:{key}"] = "graph"
+        diagrams[f"?curves:{key}"] = [str(i.get("id")) for i in op.get("items") or []
+                                      if i.get("id") and i.get("kind") == "curve"]
     else:
         problem = stem.sketch_problem(op)
         if problem:
@@ -683,7 +751,7 @@ COPY_RUN = 8            # this many words in a row, word for word from the sourc
 LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
 TEXT_OPS = {"process", "quote"}
 PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars", "gallery", "diagram",
-               "define", "compare", "reveal", "focus", "work"} | STEM_OPS
+               "define", "compare", "reveal", "focus", "work", "trace", "sweep", "motion"} | STEM_OPS | LIVE_OPS
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
@@ -911,9 +979,10 @@ MOVING_SAYS = re.compile(
     r"\b(slid|slide|slip|mov(?:e|es|ed|ing)\b|motion|fall|fell|drop|swing|swung|oscillat|vibrat|roll|accelerat|"
     r"decelerat|throw|thrown|fl(?:y|ies|ew|ying)\b|launch|land(?:s|ed|ing)?\b|rotat|spin|tip(?:s|ped|ping)?\b|"
     r"tilt|push|pull|compress|stretch|expand|ris(?:e|es|ing)\b|goes (?:up|down|round|around)|speeds? up|slow|bounc|"
-    r"collid|travel|turn(?:s|ed|ing)? (?:round|around|about)|watch)"
+    r"collid|travel|turn(?:s|ed|ing)? (?:round|around|about)|watch|flow|stream|current|orbit|revolv|circl|"
+    r"pump|beat(?:s|ing)?\b|drift|spread|diffus|wave|ripple|swirl|circulat)"
     r"|फिसल|गिर|लुढ़क|झूल|दोलन|घूम|उछ|फेंक|उड़|टकरा|धकेल|धक्का|खींच|खिंच|दब|फैल|सिकुड़|हिल|मुड़|ऊपर जा|नीचे जा|"
-    r"चलती|चलता|चलने|गति कर|देखो",
+    r"चलती|चलता|चलने|गति कर|देखो|बह|परिक्रमा|धड़क|फैल",
     re.IGNORECASE)
 # How often one diagram is set moving in a lecture: once to show what happens, once more when the solution uses it.
 MAX_MOTIONS = 2
@@ -1703,6 +1772,22 @@ def _op_call(op: dict) -> str:
     if kind == "motion":
         spec = _clean({k: v for k, v in op.items() if k not in ("op", "diagram")})
         return f"self.motion({_q(str(op['diagram']))}, {spec!r})"
+    if kind in ("trace", "sweep"):
+        spec = _clean({k: v for k, v in op.items() if k not in ("op", "diagram")})
+        return f"self.{kind}({_q(str(op['diagram']))}, {spec!r})"
+    if kind == "zoom":
+        node = _q(str(op["node"])) if op.get("node") is not None else "None"
+        return f"self.zoom({_q(str(op['diagram']))}, {node}, {float(op.get('scale') or 1.8)!r})"
+    if kind == "sim":
+        params = _clean({**(op.get("params") or {}),
+                         **{k: v for k, v in op.items() if k not in ("op", "id", "kind", "title", "keep", "params")}})
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        keep = ", keep=True" if op.get("keep") else ""
+        return f"self.sim({_q(str(op['id']))}, {_q(str(op['kind']))}, {params!r}{title}{keep})"
+    if kind == "counter":
+        spec = _clean({k: v for k, v in op.items() if k not in ("op", "id", "title")})
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return f"self.counter({_q(str(op['id']))}, {spec!r}{title})"
     if kind == "option":
         return f"self.option({op.get('_index', 0)!r}" + (
             f", right={bool(op['right'])!r})" if op.get("right") is not None else ")")
@@ -1771,7 +1856,7 @@ def board_chapter(script: dict, chapter: dict) -> bool:
     if _map_chapter(chapter, bool(script.get("region"))):
         return False
     if script.get("layout") == "panel":
-        return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS for b in chapter.get("beats") or []
+        return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS | LIVE_OPS for b in chapter.get("beats") or []
                    for op in b.get("do") or [])
     return True
 

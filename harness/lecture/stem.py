@@ -347,6 +347,8 @@ PRESET_FUNCS = {"incline": incline, "pulley": pulley, "piston": piston, "spring"
 MOTIONS = {"incline": "slide", "pendulum": "swing", "projectile": "fly", "spring": "oscillate", "pulley": "pull",
            "lever": "tilt", "piston": "press", "circuit": "pulse", "lens": "pulse"}
 MOTION_KINDS = {"slide", "swing", "fly", "oscillate", "pull", "tilt", "press", "move", "turn", "pulse"}
+# Continuous motions (live.py's lifecycle: for the whole line, or kept going with keep: true) on any sketch's parts.
+LIVE_MOTIONS = {"orbit", "follow", "vibrate", "spin", "flow"}
 # Kinds that need a particular preset; move, turn and pulse work on any sketch.
 MOTION_PRESET = {"slide": "incline", "swing": "pendulum", "fly": "projectile", "oscillate": "spring",
                  "pull": "pulley", "tilt": "lever", "press": "piston"}
@@ -358,6 +360,8 @@ def motion_problem(preset: str | None, ids: list[str], op: dict) -> str | None:
     if not kind:
         return ("'motion' on a sketch needs kind: move (parts, by: [dx, dy]), turn (parts, angle, about: [x, y]) "
                 "or pulse (parts)")
+    if kind in LIVE_MOTIONS:
+        return _live_motion_problem(kind, ids, op)
     if kind not in MOTION_KINDS:
         return f"motion kind {kind!r} is not one of {', '.join(sorted(MOTION_KINDS))}"
     if kind in MOTION_PRESET and preset != MOTION_PRESET[kind]:
@@ -373,6 +377,38 @@ def motion_problem(preset: str | None, ids: list[str], op: dict) -> str | None:
     if kind == "turn" and (op.get("angle") is None or not (isinstance(op.get("about"), (list, tuple))
                                                            and len(op["about"]) == 2)):
         return "motion turn needs angle (degrees, + is anticlockwise) and about: [x, y], the point it turns about"
+    return None
+
+
+def _integral(ys, xs) -> float:
+    """The trapezoid rule (numpy 2 renamed trapz to trapezoid)."""
+    import numpy as np
+
+    ys, xs = np.asarray(ys, dtype=float), np.asarray(xs, dtype=float)
+    return float(np.sum((ys[1:] + ys[:-1]) * np.diff(xs)) / 2)
+
+
+def _point(value) -> bool:
+    return isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value)
+
+
+def _live_motion_problem(kind: str, ids: list[str], op: dict) -> str | None:
+    parts = [str(x) for x in op.get("parts") or []]
+    unknown = [x for x in parts if x not in ids]
+    if unknown:
+        return f"motion parts: no part {unknown[0]!r} (its parts: {', '.join(ids) or 'none named'})"
+    if kind != "flow" and not parts:
+        return f"motion {kind!r} needs parts: the ids of the parts that move"
+    if kind in ("orbit", "spin") and not _point(op.get("about")):
+        return f"motion {kind!r} needs about: [x, y], the point it goes round, in the sketch's units"
+    if kind == "follow" and not (isinstance(op.get("through"), list) and len(op["through"]) >= 2
+                                 and all(_point(p) for p in op["through"])):
+        return "motion follow needs through: [[x, y], [x, y], ...], the path's points in the sketch's units"
+    if kind == "vibrate" and not _point(op.get("by")):
+        return "motion vibrate needs by: [dx, dy], how far the parts swing each way"
+    if kind == "flow" and not ((_point(op.get("from")) and _point(op.get("to"))) or (
+            isinstance(op.get("along"), list) and len(op["along"]) >= 2 and all(_point(p) for p in op["along"]))):
+        return "motion flow needs from: [x, y] and to: [x, y] (or along: [[x, y], ...]), where the stream runs"
     return None
 
 
@@ -1283,8 +1319,13 @@ class BoardMixin:
         def vec(v):
             return at([v[0], v[1]]) - at([0.0, 0.0])
 
-        rate = there_and_back if back else smooth
         live = lambda ids: [d["nodes"][i] for i in ids if i in d["nodes"] and i in d["shown"]]  # noqa: E731
+        spec = spec or {}
+        if spec.get("kind") in LIVE_MOTIONS:
+            return self._live_motion(key, spec, at, vec, live)
+        if spec.get("live"):
+            return self._live_steps(steps, spec, at, vec, live)
+        rate = there_and_back if back else smooth
         anims = []
         for step in steps:
             if "move" in step:
@@ -1311,6 +1352,349 @@ class BoardMixin:
             elif "pulse" in step:
                 anims += [Indicate(node, color=pl.P.GOLD) for node in live(step["pulse"])]
         return AnimationGroup(*anims) if anims else None
+
+    # ---------------- live pictures (live.py) ----------------
+    def _live_start(self, mob, step, mode: str = "loop", keep: bool = False):
+        """Run `step(t, p)` on `mob` every frame from now: t seconds since it started, p (0..1) through the line
+        it starts on. It stops when the next line starts, unless `keep` (then when its picture leaves)."""
+        state = {"t": 0.0}
+
+        def updater(_mob, dt):
+            # Once per frame: a part inside two groups on stage is updated twice a frame, and counting both ran
+            # its clock at double speed (a trace done halfway through its line).
+            key = (getattr(self.renderer, "num_plays", 0), round(float(getattr(self, "last_t", 0.0)), 6))
+            if key == state.get("key"):
+                return
+            state["key"] = key
+            state["t"] += dt
+            span = max(float(getattr(self, "_beat_span", 4.0)), 0.5)
+            try:
+                step(state["t"], min(1.0, state["t"] / span) if mode == "process" else 0.0)
+            except Exception as error:  # noqa: BLE001 -- one live picture that fails stops moving; the lecture goes on
+                import pocket_lecture as pl
+
+                mob.remove_updater(updater)
+                pl.SKIPPED.append(f"a live picture stopped: {type(error).__name__}: {error}"[:300])
+
+        mob.add_updater(updater)
+        if not hasattr(self, "_live"):
+            self._live = []
+        self._live.append({"mob": mob, "updater": updater, "keep": keep, "fresh": True})
+
+    def _live_next(self) -> None:
+        """At a new line: the live pictures of the line before stop (kept ones go on while they are on stage)."""
+        on_stage = {id(m) for top in self.mobjects for m in top.get_family()}
+        going = []
+        for entry in getattr(self, "_live", []):
+            if entry["fresh"]:
+                entry["fresh"] = False
+                going.append(entry)
+            elif entry["keep"] and id(entry["mob"]) in on_stage:
+                going.append(entry)
+            else:
+                entry["mob"].remove_updater(entry["updater"])
+        self._live = going
+
+    def _replace_live_part(self, d: dict, group) -> list:
+        """A graph's new trace or sweep takes the place of the one before it (its point, its readout)."""
+        from manim import FadeOut
+
+        going = []
+        old = d.get("live_part")
+        if old is not None:
+            if old in self.stage_extra:
+                self.stage_extra.remove(old)
+            going.append(FadeOut(old))
+        d["live_part"] = group
+        self._stage_add(group)
+        return going
+
+    def sim(self, key: str, kind: str, params: dict | None = None, title: str | None = None, keep: bool = False):
+        """A live picture that moves while the line is said (live.py: orbit, wave, collision, field, refraction,
+        titration, mitosis, heart, gas, decay), on the stage."""
+        import live as lv
+        from manim import Group, VGroup
+
+        head, box = self._titled(title, self.STAGE)
+        made = lv.BUILDERS[kind](dict(params or {}), box)
+        _fit_into([made.body], box)
+        self.diagrams[key] = {"nodes": {}, "edges": [], "shown": set(), "focus": None, "draw": False, "sim": kind}
+        self._next_keys.add(key)
+        self._live_start(made.body, made.step, made.mode, keep and made.mode == "loop")
+        return self._to_stage(Group(VGroup(*([head] if head else []), made.body)))
+
+    def counter(self, key: str, spec: dict, title: str | None = None):
+        """A number that counts from one value to another over the line, with a bar or a dial (live.counter)."""
+        import live as lv
+        from manim import Group, VGroup
+
+        head, box = self._titled(title, self.STAGE)
+        made = lv.counter(dict(spec), box)
+        self.diagrams[key] = {"nodes": {}, "edges": [], "shown": set(), "focus": None, "draw": False}
+        self._next_keys.add(key)
+        self._live_start(made.body, made.step, "process")
+        return self._to_stage(Group(VGroup(*([head] if head else []), made.body)))
+
+    def trace(self, key: str, spec: dict | None = None):
+        """A point rides along a graph's curve over the line, with (optionally) its tangent turning, the area under
+        it filling in, and a live readout of its value, slope or area."""
+        import live as lv
+        import numpy as np
+        import pocket_lecture as pl
+        from manim import AnimationGroup, Dot, FadeIn, Line, Polygon, VGroup
+
+        d = self.diagrams.get(key)
+        if not d or d.get("gone") or not d.get("functions"):
+            return None
+        spec = dict(spec or {})
+        name = str(spec.get("curve") or next(iter(d["functions"])))
+        f, item = d["functions"].get(name, next(iter(d["functions"].values())))
+        axes = d["axes"]
+        x0, x1 = d["x"]
+        y0, y1 = d["y"]
+        a = float(spec["from"]) if spec.get("from") is not None else float((item.get("x") or [x0, x1])[0])
+        b = float(spec["to"]) if spec.get("to") is not None else float((item.get("x") or [x0, x1])[1])
+        ink = self._colour(spec.get("color"), pl.P.GOLD)
+        dot = Dot(radius=0.09, color=ink).set_z_index(pl.Z_MARK + 14)
+        tangent = Line(np.zeros(3), np.array([0.01, 0, 0]), color=pl.P.ROSE, stroke_width=4).set_z_index(pl.Z_MARK + 13)
+        area = Polygon(*[np.zeros(3) + np.array([i * 1e-3, 0, 0]) for i in range(3)], stroke_width=0,
+                       fill_color=ink, fill_opacity=0.3).set_z_index(pl.Z_MARK + 12)
+        show_tangent = spec.get("tangent", False)
+        show_area = spec.get("area", False)
+        readout = spec.get("readout")
+        read, put = lv._readout(" ", 22, ink)
+        parts = [dot] + ([tangent] if show_tangent else []) + ([area] if show_area else []) + ([read] if readout else [])
+        group = VGroup(*parts)
+
+        def y(x):
+            return float(np.clip(f(x), y0, y1))
+
+        def step(t, p):
+            x = a + (b - a) * p
+            at = axes.c2p(x, y(x))
+            dot.move_to(at)
+            slope = (f(x + 1e-4) - f(x - 1e-4)) / 2e-4
+            if show_tangent:
+                half = (x1 - x0) / 7
+                tangent.put_start_and_end_on(axes.c2p(x - half, f(x) - slope * half), axes.c2p(x + half, f(x) + slope * half))
+            if show_area:
+                xs = np.linspace(a, max(x, a + 1e-3), 40)
+                pts = [axes.c2p(a, 0)] + [axes.c2p(v, y(v)) for v in xs] + [axes.c2p(xs[-1], 0)]
+                area.set_points_as_corners([*pts, pts[0]])
+            if readout:
+                if readout == "slope":
+                    text = f"slope {slope:.2f}"
+                elif readout == "area":
+                    xs = np.linspace(a, x, 200)
+                    text = f"area {float(_integral(f(xs), xs)) if x > a else 0.0:.2f}"
+                else:
+                    text = f"x = {x:.2f}   y = {f(x):.2f}"
+                put(text.replace("-", "−"), axes.c2p(x0 + (x1 - x0) * 0.72, y1 - (y1 - y0) * 0.06))
+
+        step(0.0, 0.0)
+        going = self._replace_live_part(d, group)
+        self._live_start(group, step, "process" if not spec.get("loop") else "loop")
+        return AnimationGroup(*going, FadeIn(group))
+
+    def sweep(self, key: str, spec: dict):
+        """A curve on a graph redrawn as a parameter changes over the line ("a*x^2" with a from -2 to 2), with the
+        parameter's value on the board."""
+        import live as lv
+        import numpy as np
+        import pocket_lecture as pl
+        from manim import AnimationGroup, FadeIn, VGroup, VMobject
+
+        d = self.diagrams.get(key)
+        if not d or d.get("gone") or not d.get("axes"):
+            return None
+        name = str(spec.get("param") or "a")
+        f = pl.safe_function(str(spec["expr"]), (name,))
+        lo, hi = float(spec.get("from", -2)), float(spec.get("to", 2))
+        axes = d["axes"]
+        x0, x1 = d["x"]
+        y0, y1 = d["y"]
+        ink = self._colour(spec.get("color"), pl.P.RIVER)
+        curve = VMobject(stroke_color=ink, stroke_width=5).set_z_index(pl.Z_MARK + 12)
+        read, put = lv._readout(" ", 24, ink)
+        xs = np.linspace(x0, x1, 160)
+        group = VGroup(curve, read)
+
+        def step(t, p):
+            value = lo + (hi - lo) * p
+            ys = np.clip(np.asarray(f(xs, **{name: value}), dtype=float), y0, y1)
+            ys = np.where(np.isfinite(ys), ys, y1)
+            curve.set_points_as_corners([axes.c2p(x, v) for x, v in zip(xs, ys)])
+            put(f"{spec.get('label') or name} = {value:.2f}".replace("-", "−"),
+                axes.c2p(x0 + (x1 - x0) * 0.2, y1 - (y1 - y0) * 0.06))
+
+        step(0.0, 0.0)
+        going = self._replace_live_part(d, group)
+        self._live_start(group, step, "process")
+        return AnimationGroup(*going, FadeIn(group))
+
+    def zoom(self, key: str, node: str | None = None, scale: float = 1.8):
+        """Move in on a part of the picture on the stage (scaled up about it and brought to the middle), or, with
+        no node, back out to the whole picture."""
+        import numpy as np
+        from manim import AnimationGroup
+
+        d = self.diagrams.get(key)
+        body = getattr(self, "stage_body", None)
+        if not d or d.get("gone") or body is None:
+            return None
+        zoomed = getattr(self, "_zoomed", {})
+        self._zoomed = zoomed
+        # each piece on the stage moves by itself: a new Group around them would be added to the scene as a
+        # second copy of the picture
+        on_stage = set(map(id, self.get_mobject_family_members()))
+        parts = [m for m in (body, *self.stage_extra) if id(m) in on_stage]
+
+        def baked(*anims):
+            # the phone gets this as a clip of whole frames (export_dsl asks_to_bake): the parts sit inside the
+            # stage card, and a verb for one would move a copy of it over the unmoved picture
+            group = AnimationGroup(*anims)
+            group._panim_bake = True
+            return group
+
+        def move(f, about, shift):
+            return baked(*(m.animate.scale(f, about_point=about).shift(shift) for m in parts))
+
+        if not parts:
+            return None
+
+        cx, cy, _, _ = self.STAGE
+        middle = np.array([cx, cy, 0.0])
+        if node is None:
+            done = zoomed.pop(key, None)
+            if not done:
+                return None
+            f, about = done
+            # undo the move in: back by the shift, then down about the same point
+            return baked(*(m.animate.shift(about - middle).scale(1 / f, about_point=about) for m in parts))
+        if key in zoomed or node not in d.get("nodes", {}):
+            return None
+        f = max(1.1, min(float(scale or 1.8), 3.0))
+        about = d["nodes"][node].get_center()
+        zoomed[key] = (f, about)
+        return move(f, about, middle - about)
+
+    def _live_motion(self, key: str, spec: dict, at, vec, live):
+        """Continuous motion of a sketch's parts for the line (orbit, follow, vibrate, spin, flow)."""
+        import numpy as np
+        import pocket_lecture as pl
+        from manim import Dot, FadeIn, VGroup, VMobject
+
+        kind = spec["kind"]
+        keep = bool(spec.get("keep"))
+        nodes = live([str(x) for x in spec.get("parts") or []])
+        period = float(spec.get("period") or (4.0 if kind in ("orbit", "spin") else 1.4))
+        if kind == "flow":
+            route = [at(p) for p in (spec.get("along") or [spec["from"], spec["to"]])]
+            lengths = [np.linalg.norm(b - a) for a, b in zip(route, route[1:])]
+            total = sum(lengths) or 1.0
+            count = int(spec.get("dots") or 7)
+            ink = self._colour(spec.get("color"), pl.P.GOLD)
+            dots = VGroup(*[Dot(radius=0.07, color=ink) for _ in range(count)]).set_z_index(pl.Z_MARK + 14)
+            speed = float(spec.get("speed") or 1.0)
+
+            def point(u):
+                u = (u % 1.0) * total
+                for (a, b), length in zip(zip(route, route[1:]), lengths):
+                    if u <= length or length == lengths[-1]:
+                        return a + (b - a) * (u / max(length, 1e-9))
+                    u -= length
+                return route[-1]
+
+            def step(t, p):
+                for i, dot in enumerate(dots):
+                    dot.move_to(point(i / count + t * speed * 1.2 / total))
+
+            step(0.0, 0.0)
+            self._stage_add(dots)
+            self._live_start(dots, step, "loop", keep)
+            return FadeIn(dots)
+        if not nodes:
+            return None
+        bases = [n.copy() for n in nodes]
+        trail = None
+        if spec.get("trail", kind in ("orbit", "follow")):
+            trail = VMobject(stroke_color=self._colour(spec.get("color"), pl.P.GOLD), stroke_width=3,
+                             stroke_opacity=0.7).set_z_index(pl.Z_MARK + 11)
+            trail.set_points_as_corners([nodes[0].get_center(), nodes[0].get_center() + np.array([1e-3, 0, 0])])
+            self._stage_add(trail)
+            self.add(trail)
+        history: list = []
+        if kind == "follow":
+            through = [at(p) for p in spec["through"]]
+            seg = [np.linalg.norm(b - a) for a, b in zip(through, through[1:])]
+            total = sum(seg) or 1.0
+
+            def along(u):
+                u = min(max(u, 0.0), 1.0) * total
+                for (a, b), length in zip(zip(through, through[1:]), seg):
+                    if u <= length:
+                        return a + (b - a) * (u / max(length, 1e-9))
+                    u -= length
+                return through[-1]
+
+        def step(t, p):
+            for node, base in zip(nodes, bases):
+                node.become(base)
+                if kind == "orbit":
+                    node.rotate(2 * np.pi * t / period, about_point=at(spec["about"]))
+                    node.rotate(-2 * np.pi * t / period)          # it goes round; it does not tumble
+                elif kind == "spin":
+                    node.rotate(2 * np.pi * t / period, about_point=at(spec["about"]))
+                elif kind == "vibrate":
+                    node.shift(vec(spec["by"]) * np.sin(2 * np.pi * t / period))
+                elif kind == "follow":
+                    u = (t / period) % 1.0 if spec.get("loop") else p
+                    node.shift(along(u) - through[0])
+            if trail is not None:
+                history.append(nodes[0].get_center())
+                del history[:-40]
+                if len(history) > 1:
+                    trail.set_points_as_corners(history)
+
+        mode = "process" if kind == "follow" and not spec.get("loop") else "loop"
+        # On a part that is on the stage: Manim updates only what is in the scene (a group made here is not).
+        self._live_start(nodes[0], step, mode, keep)
+        return None
+
+    def _live_steps(self, steps, spec, at, vec, live):
+        """A preset's own motion (the block slides, the bob swings) going there and back for the whole line."""
+        import numpy as np
+
+        moves = []
+        for step in steps:
+            for kind in ("move", "turn"):
+                for node in live(step.get(kind, [])):
+                    moves.append((kind, node, node.copy(), step))
+            if "stretch" in step:
+                for node in live([step["stretch"]]):
+                    moves.append(("stretch", node, node.copy(), step))
+        if not moves:
+            return None
+        from manim import VGroup
+
+        group = VGroup(*{id(m[1]): m[1] for m in moves}.values())
+        period = float(spec.get("period") or 2.4)
+
+        def step_fn(t, p):
+            s = (1 - np.cos(2 * np.pi * t / period)) / 2
+            for kind, node, base, step in moves:
+                node.become(base)
+                if kind == "move":
+                    node.shift(vec(step["by"]) * s)
+                elif kind == "turn":
+                    node.rotate(np.radians(step["deg"]) * s, about_point=at(step["about"]))
+                else:
+                    fixed, end = np.array(step["fixed"], float), np.array(step["end"], float)
+                    long = np.linalg.norm(end + np.array(step["by"], float) * s - fixed)
+                    node.scale(long / max(np.linalg.norm(end - fixed), 1e-6), about_point=at(fixed))
+
+        self._live_start(next(iter(group)), step_fn, "loop", bool(spec.get("keep")))
+        return None
 
     # ---------------- graphs ----------------
     def _build_graph(self, key: str, spec: dict, box):
@@ -1441,7 +1825,9 @@ class BoardMixin:
         _settle_labels([axes, xl, yl, *nodes.values()], box)
         _fit_into([axes, xl, yl, *nodes.values()], box)
         shown = set(nodes if spec.get("show") is None else [str(x) for x in spec["show"]])
-        self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True}
+        functions = {str(i.get("id") or f"_{k}"): (fns[id(i)], i) for k, i in enumerate(items) if id(i) in fns}
+        self.diagrams[key] = {"nodes": nodes, "edges": [], "shown": shown, "focus": None, "draw": True,
+                              "axes": axes, "functions": functions, "x": (x0, x1), "y": (y0, y1)}
         self._next_keys.add(key)
         self._next_pending.extend(m for i, m in nodes.items() if i not in shown)
         return VGroup(axes, xl, yl, *[m for i, m in nodes.items() if i in shown])

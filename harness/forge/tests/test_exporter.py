@@ -2,7 +2,9 @@
 
 morph matches instances by glyph id; a primitive has none. The exporter used to
 emit it anyway, claim tier 1, and ship a program both interpreters crashed on
-(KeyError 'glyph_ids'). It is a blocker now, and the partial program still plays.
+(KeyError 'glyph_ids'). The verbs still cannot say it: that play is baked into a
+clip of shapes instead (tier 1), and with baking off it is a blocker and the
+partial program still plays.
 """
 
 from __future__ import annotations
@@ -28,11 +30,32 @@ class Mixed(Scene):
 '''
 
 
-def test_shape_text_transform_is_a_blocker_and_the_program_plays(tmp_path):
+def test_shape_text_transform_is_baked_and_both_interpreters_agree(tmp_path):
+    import os
+
     scene = tmp_path / "scene.py"
     scene.write_text(SCENE)
     out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Mixed",
                           str(tmp_path)], capture_output=True, text=True, timeout=600)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1 and result["blockers"] == [], result
+    program = (tmp_path / "dsl" / "generated" / "Mixed.panim").read_text()
+    assert "morph" not in program and "\nrun " in program
+    (tmp_path / "player").symlink_to(REPO / "player")
+    cross = subprocess.run([sys.executable, "-m", "tools.crosscheck_interpreter", "dsl/generated/Mixed.panim"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=900,
+                           env={**os.environ, "PYTHONPATH": str(REPO)})
+    assert "both interpreters agree" in cross.stdout, cross.stdout + cross.stderr
+
+
+def test_without_baking_shape_text_transform_is_a_blocker_and_the_program_plays(tmp_path):
+    import os
+
+    scene = tmp_path / "scene.py"
+    scene.write_text(SCENE)
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Mixed",
+                          str(tmp_path)], capture_output=True, text=True, timeout=600,
+                         env={**os.environ, "PANIM_BAKE": "0"})
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert result["tier"] == 3
     assert "Transform between a shape and text or a baked asset" in result["blockers"]

@@ -47,31 +47,38 @@ export function splitByTopics(script: Script, minutes: number): LecturePart[] {
   const series = String(script.title ?? "Lecture");
   const total = chapters.map(words).reduce((a, b) => a + b, 0);
   return kept.map((group, k) => {
-    const number = k + 1;
-    const name = String(group.topic.title ?? "").trim() || `Part ${number}`;
     const last = k === kept.length - 1;
-    const part: Script = {
-      ...script,
-      title: name,
-      sub: `${series} · Lecture ${number} of ${kept.length}`,
-      chapters: group.chapters,
-    };
-    delete part.topics;
-    // The first lecture keeps the series' own opening line; each later one is introduced by its title (its first
-    // section's transcript does the rest).
-    if (k > 0) part.intro = `${name}.`;
-    const recap = group.topic.recap ?? (last ? script.recap : null);
-    if (Array.isArray(recap) && recap.length) part.recap = recap;
-    else delete part.recap;
+    const part = topicPart({ ...script, chapters: group.chapters }, group.topic, k, kept.length, series,
+      last ? script.recap : null);
     const share = group.chapters.map(words).reduce((a, b) => a + b, 0) / total;
     return {
-      index: number,
+      index: k + 1,
       of: kept.length,
-      script: part,
+      script: part.script,
       minutes: Math.round(minutes * share * 10) / 10,
-      title: `Lecture ${number}: ${name}`,
+      title: part.title,
     };
   });
+}
+
+/**
+ * One micro-lecture of a series as a lecture of its own: `script` with that topic's chapters, its title card naming
+ * the topic and its place in the series, and its own recap (`fallbackRecap` when the topic has none). Shared by the
+ * final cut (splitByTopics) and the early build of a topic written before the rest (model.ts), so the two agree.
+ */
+export function topicPart(script: Script, topic: PlannedTopic, k: number, count: number, series: string,
+  fallbackRecap: unknown): { script: Script; title: string } {
+  const number = k + 1;
+  const name = String(topic.title ?? "").trim() || `Part ${number}`;
+  const part: Script = { ...script, title: name, sub: `${series} · Lecture ${number} of ${count}` };
+  delete part.topics;
+  // The first lecture keeps the series' own opening line; each later one is introduced by its title (its first
+  // section's transcript does the rest).
+  if (k > 0) part.intro = `${name}.`;
+  const recap = topic.recap ?? fallbackRecap;
+  if (Array.isArray(recap) && recap.length) part.recap = recap;
+  else delete part.recap;
+  return { script: part, title: `Lecture ${number}: ${name}` };
 }
 
 function words(chapter: unknown): number {

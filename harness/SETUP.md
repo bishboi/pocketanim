@@ -94,9 +94,10 @@ Settings (all optional, in `.env.local`):
 | `PANIM_TTS_VOICE` | The speaker. `Achird` by default, for every style; any other Gemini prebuilt voice (`Charon`, `Kore`, `Aoede`, `Puck`...) instead. |
 | `PANIM_TTS_PRICE` | The voice's price in US dollars per million tokens, `in,out` (text in, audio out), for the cost shown in the agent log. Default: Google's list price, Flash-Lite TTS $0.50 / $6.00 and Flash TTS $0.50 / $9.00 until 31 December 2026, double from 1 January 2027. Set it for the batch tier (half) or priority (1.8×). |
 | `PANIM_TTS_THREADS` | How many lines are spoken at once before Manim draws the lecture (default 8). Lower it if Google answers "429: Resource exhausted" often; raise it on a paid tier. |
-| `PANIM_TRANSCRIPT_PARALLEL` | How many transcript sections are written at once (default 3, at most 6). One after another, a book chapter's transcript took most of an hour. |
+| `PANIM_TRANSCRIPT_PARALLEL` | How many transcript sections are written at once (default 6, at most 8; lower it if the provider answers 429, too many requests). One after another, a book chapter's transcript took most of an hour. |
 | `PANIM_STALL_SECONDS` | A reply (transcript or video) that streams nothing for this long after it started (default 180) has stalled: it is stopped and asked again. One that sends nothing at all is stopped after `PANIM_MODEL_WAIT_MINUTES` (15). A section that fails every try is left out, with a note, rather than stopping the lecture (unless more than about one in seven fail). |
-| `PANIM_CHAPTERS_PARALLEL` | How many transcript sections have their video chapters written at once (default: `PANIM_TRANSCRIPT_PARALLEL`, else 3). Each section's chapters are a request of their own, checked on their own, then put together and checked as a whole; a section the whole check still faults (transcript not all said, a chapter that does not compile, nothing written) is written again, in parallel, with the reasons; only what belongs to no section (the count of problems or questions, the length) is fixed with `add_chapters`, at most 3 chapters a call. After 4 refusals of the finished lecture, its chapters are built as they are. A turn that goes silent or stalls is asked again (twice), and if the model still does not answer, the chapters already written are built rather than lost. |
+| `PANIM_CHAPTERS_PARALLEL` | How many transcript sections have their video chapters written at once (default: `PANIM_TRANSCRIPT_PARALLEL`, else 6; at most 8). Each section's chapters are a request of their own, checked on their own, then put together and checked as a whole; a section the whole check still faults (transcript not all said, a chapter that does not compile, nothing written) is written again, in parallel, with the reasons; only what belongs to no section (the count of problems or questions, the length) is fixed with `add_chapters`, at most 3 chapters a call. After 4 refusals of the finished lecture, its chapters are built as they are. A turn that goes silent or stalls is asked again (twice), and if the model still does not answer, the chapters already written are built rather than lost. |
+| `PANIM_MANIM_CACHE` | Where every build keeps Manim's LaTeX and text renders (default `harness/.cache/manim`). They used to go in each build's own folder, so every build ran LaTeX again for every formula. The server fills it as it starts (`scripts/warm_caches.py`, from `app/instrumentation.ts`: Manim and the engine imported, the common formulas and each style's fonts drawn), so the first build does not pay for that; `PANIM_WARM=0` turns the warm-up off. |
 | `PANIM_MANIM_CHECK` | `off` skips running a lecture's free-form Manim blocks (the `manim` op) before they are accepted; the sandbox's rules still apply. By default each block is run once in a probe scene and its verdict cached by its code. |
 | `PANIM_MANIM_CHECK_SECONDS` | How long that probe may run (default 240). |
 | `PANIM_MICRO_MINUTES` | The length a micro-lecture aims for (default 25, so 20-30 min). A lecture longer than the top of that range is planned, before its transcript is written, as a series of micro-lectures, one per topic (`lib/topics.ts`): its sections grouped, cutting at the book's headings where it can, a book's questions kept with their teaching. Each lecture's first section opens it (what it covers, what came before, what the student will be able to do), its last closes it (key points, self-check questions, what comes next), and the video is cut there, each part with its own title card and recap. The editor shows them as Lecture 1, Lecture 2... of one version. |
@@ -173,6 +174,25 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_ALLOW_NC=1` | Also use non-commercial collections (most OpenStax books). Only for non-commercial lectures. |
 | `PANIM_PACE` | The teaching pace. The voice speaks at its own (1×) speed in every pace; the pace is the pauses. `slow` (the default): 1.4 s after each line, 2.8 s between paragraphs, 7 s to think about a question. `relaxed`: shorter pauses. `brisk`: short pauses. |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
+
+### How a long lecture is made quickly
+
+- **The transcript and the video overlap.** Each section's video chapters are asked for as soon as that section's
+  transcript is written, not after the last one. A micro-lecture whose sections all have chapters is compiled at once
+  and sent to the page, which starts building it while the rest is still being written; the final cut is the same
+  script, so that build is kept.
+- **Beats name the transcript's lines.** The video's model sees each section as numbered lines (`12| ...`) and
+  writes `{"lines": [12, 13], "do": [...]}` instead of copying the sentences out (`lib/lines.ts`). A line no beat
+  names is said on a beat of its own; a chapter too thin to stand is merged into its neighbour.
+- **Each request carries only its own part.** The transcript's system prompt is an outline of the sections, the same
+  for every section's request (cached by the provider; marked for caching on Anthropic and Google models); each
+  request adds its own slice of the book or reference. A section's video request carries its numbered lines, its own
+  book questions and the figures its text marks.
+- **Mended, not rewritten.** A transcript section refused for being short, or for a missing question or example, is
+  sent back with "add only the new paragraphs"; headings, bullet marks and [stage directions] are taken out rather
+  than refused. A section's chapters refused once for ops that will not compile have those beats' ops left out on
+  the next try instead (the beat is said over the picture before it).
+- **Three builds at once.** The page builds a series' micro-lectures three at a time.
 
 ## 6. Check that everything is in place
 

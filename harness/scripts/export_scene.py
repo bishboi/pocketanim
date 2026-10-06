@@ -202,6 +202,24 @@ _HarnessScene.play = _harness_play
     return chosen
 
 
+def manim_cache() -> Path:
+    """Where every build keeps Manim's LaTeX and text renders (PANIM_MANIM_CACHE): one folder for all of them.
+
+    Manim keeps them under the working directory, and a build runs in its own fresh folder, so every build ran
+    LaTeX again for every formula it had and Pango for every caption -- the same ones, lecture after lecture. The
+    files are named by a hash of what they draw, so builds share them safely; warm_caches.py fills it at start."""
+    return Path(os.environ.get("PANIM_MANIM_CACHE") or REPO / "harness" / ".cache" / "manim").resolve()
+
+
+def share_caches() -> None:
+    from manim import config
+
+    cache = manim_cache()
+    for key, folder in (("tex_dir", "Tex"), ("text_dir", "texts")):
+        (cache / folder).mkdir(parents=True, exist_ok=True)
+        config[key] = str(cache / folder)
+
+
 def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
     from dsl.export_dsl import decimate_assets, emit, record_scene
 
@@ -212,6 +230,7 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
     previous = Path.cwd()
     os.chdir(out_dir)
     try:
+        share_caches()
         _install_layout(scene_file)
         scene_class = _prepare_playback(scene_file, scene_class)
         rec = record_scene(str(scene_file), scene_class)

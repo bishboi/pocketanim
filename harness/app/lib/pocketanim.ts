@@ -601,3 +601,18 @@ async function renderMp4(
   }
   return { file: out };
 }
+
+/**
+ * Manim, the lecture engine, LaTeX and the styles' fonts warmed once as the server starts (scripts/warm_caches.py),
+ * so the first build does not pay for them. In the background; PANIM_WARM=0 turns it off.
+ */
+export async function warmCaches(): Promise<void> {
+  if (process.env.PANIM_WARM === "0") return;
+  try {
+    const { stdout, stderr, code } = await run([path.join(REPO, "harness", "scripts", "warm_caches.py")], { timeoutMs: 600_000 });
+    const said = (stdout.toString().trim() || stderr.trim()).split("\n").pop();
+    console.log(code === 0 ? said : `warm: failed (${said ?? `exit ${code}`}); builds warm their own caches`);
+  } catch (error) {
+    console.log(`warm: not run (${error instanceof Error ? error.message : String(error)})`);
+  }
+}

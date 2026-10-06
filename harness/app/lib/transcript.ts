@@ -8,6 +8,7 @@
  * the content is taught in order in sections of about five minutes.
  */
 
+import { linesOf, numberedSection } from "./lines";
 import { topicLabel, type Topic } from "./topics";
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
@@ -293,15 +294,15 @@ export function transcriptPrompt(options: {
     "Only speech: no [brackets], no stage directions (\"(draws a diagram)\"), no headings, no bullet lists, no",
     "markdown. When a picture helps, just say what to look at (\"इस diagram में देखो...\"); the pictures are added later.",
     "",
-    ...sections.map((s) =>
-      `SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
-      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference:\n  ${s.source.slice(0, 12000)}`
-        : s.questionsOnly ? `, explaining more of the book's questions from the part before (its text is there):\n` +
-          (s.questions?.length ? `QUESTIONS IN THIS PART (explain all ${s.questions.length}, every option):\n` +
-            `${s.questions.map(questionLine).join("\n")}\n` : "")
-        : s.book ? `, teaching this part of the book:\n${s.source.slice(0, 12000)}\n` +
-          (s.questions?.length ? `QUESTIONS IN THIS PART (explain all ${s.questions.length}, every option):\n` +
-            `${s.questions.map(questionLine).join("\n")}\n` : "") : "")),
+    // An outline only: each section's own text and questions come with the request for it (sectionSource), so
+    // these instructions are the same for every section -- one prefix the provider can cache -- and a request does
+    // not carry the whole book.
+    "THE SECTIONS, in order (each request gives that section's own text):",
+    ...sections.map((s) => `  SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
+      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference`
+        : s.questionsOnly ? ", more of the book's questions from the section before"
+        : s.book ? `, teaching ${headingIn(s.source) || "its part of the book"}` : "") +
+      (s.questions?.length ? ` (${s.questions.length} of the book's questions)` : "")),
     "",
     ...(options.content.trim() ? ["THE CONTENT (notes, a chapter) to teach from:", options.content.slice(0, 60000)] : []),
   ].join("\n");
@@ -384,10 +385,79 @@ export function sectionProblem(text: string, section: Section, language: Languag
 }
 
 /**
+ * A section's text without what a teacher does not say, removed rather than refused: markdown headings, bullet
+ * marks, and [stage directions]. A section refused for one heading line was written again, at full length.
+ */
+export function cleanSection(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*#{1,6}\s/.test(line))
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+(?=\S)/, "").replace(/\[[^\]\n]{0,200}\]/g, "").replace(/ {2,}/g, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Whether a refusal can be mended by adding to the end of the section rather than writing it again: too short, too
+ * few questions for the class, no example, or some of the book's questions not explained. Copying the book, or the
+ * wrong language, needs the section written again.
+ */
+export function repairable(problem: string): boolean {
+  return /has \d+ words; it needs|asks the class \d+ question|gives no example|does not explain the book's/.test(problem);
+}
+
+/** The request that mends a refused section by adding to it (repairable): only the new paragraphs, at its end. */
+export function repairRequest(section: Section, count: number, text: string, problem: string): string {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const more = Math.max(0, Math.round(section.words * 0.95) - words);
+  return [
+    `SECTION ${section.n} of ${count} is written, and it ends like this:`,
+    `  ...${text.slice(-1500)}`,
+    "",
+    `It was refused: ${problem}`,
+    "",
+    "Do NOT write the section again. Write ONLY the new paragraphs that mend this, to be added at its end, " +
+      "carrying on naturally from where it stops, in the same voice and language, without repeating anything it " +
+      "already says" + (more > 0 ? `: about ${more} more words (it has ${words}, it needs about ${section.words}),` : ",") +
+      " teaching more of the section's ideas in depth: more examples, a question for the class, a worked step.",
+    ...(sectionSource(section) ? ["", sectionSource(section)] : []),
+    "",
+    `Call write_section with section: ${section.n} and, as its text, only the new paragraphs.`,
+  ].join("\n");
+}
+
+/** Whether a reply to repairRequest wrote the whole section again instead of only what to add. */
+export function rewroteWhole(addition: string, before: string): boolean {
+  const start = norm(before.slice(0, 160));
+  return addition.length > before.length * 0.7 && start.length > 20 && norm(addition.slice(0, 400)).includes(start.slice(0, 40));
+}
+
+/**
  * The request for one section. Each section is asked for on its own, with the sections before it summed up and the
  * end of the last one quoted: a growing conversation of saved and refused sections confused models into rewriting
  * an old section over and over ("Write section 7 next." twenty times).
  */
+/** The first heading of a section's book text, or "". */
+function headingIn(source: string): string {
+  return (/^#{1,6}\s+(.+)$/m.exec(source ?? "")?.[1] ?? "").replace(/[*_`]/g, "").trim().slice(0, 80);
+}
+
+/** What one section is to say: its slice of the reference or the book, and the book's questions in it. */
+export function sectionSource(section: Section): string {
+  const questions = section.questions?.length
+    ? `\nQUESTIONS IN THIS SECTION (explain all ${section.questions.length}, every option):\n` +
+      section.questions.map(questionLine).join("\n")
+    : "";
+  if (section.parts.length) {
+    return `WHAT THE REFERENCE SAYS IN PART${section.parts.length > 1 ? "S" : ""} ${section.parts.join(", ")}:\n` +
+      section.source.slice(0, 12000);
+  }
+  if (section.questionsOnly) return `THE BOOK'S TEXT THESE QUESTIONS COME FROM:\n${section.source.slice(0, 6000)}${questions}`;
+  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}${questions}`;
+  return "";
+}
+
 export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,
   topic?: Topic): string {
   // Sections are written a few at a time: the one just before this may still be on its way.
@@ -400,18 +470,19 @@ export function sectionRequest(section: Section, count: number, written: Written
       : opening ? "Nothing is written yet: this is the opening of the lecture." : "",
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
       : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one. Open with one short ` +
-        "sentence that links back to the topic before (its part of the book is in your instructions), without " +
+        "sentence that links back to the topic before (named in the outline of sections), without " +
         "repeating it, and without a greeting or an introduction to the lecture.", ""]),
     `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
       `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
       `${section.parts.join(", ")} of the reference` : section.questionsOnly ? `; it explains the next ` +
-      `${section.questions?.length ?? 0} of the book's questions, listed under SECTION ${section.n} in your instructions, ` +
-      "each in full, every option in turn, carrying on from the questions before" : section.book ? "; it teaches its part of the book, given under " +
-      `SECTION ${section.n} in your instructions, with your own examples, questions for the class and worked problems` +
+      `${section.questions?.length ?? 0} of the book's questions, listed below, ` +
+      "each in full, every option in turn, carrying on from the questions before" : section.book ? "; it teaches its part of the book, given below, with your own examples, questions for the class " +
+      "and worked problems" +
       (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
-        `${section.questions.length > 1 ? "s" : ""} listed there explained in full, each option in turn` : "") : ""}).` + (last ? ` Carry on from where section ${last.n} stopped: do not ` +
+        `${section.questions.length > 1 ? "s" : ""} listed below explained in full, each option in turn` : "") : ""}).` + (last ? ` Carry on from where section ${last.n} stopped: do not ` +
       "repeat what it said." : "") + ` Call write_section once, with section: ${section.n} and the full text.`,
     ...topicDuties(section, topic),
+    ...(sectionSource(section) ? ["", sectionSource(section)] : []),
     ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
   ].join("\n");
 }
@@ -441,33 +512,60 @@ function topicDuties(section: Section, topic?: Topic): string[] {
   return out;
 }
 
-/** The beat script's rules when a transcript has been written: its narration is the transcript. */
+/** The book's questions, as the video's writer is told to put them on the stage. */
+function questionRules(questions: BookQuestion[]): string[] {
+  if (!questions.length) return [];
+  return [
+    "",
+    `THE BOOK'S QUESTIONS (${questions.length}). The transcript explains each; put each one on the stage where it is`,
+    "read out, marked with its id, with ALL its choices in the book's order (in English on the screen):",
+    '  {"op":"question","from_book":"q3","text":"...","choices":["...","...","...","..."],"answer":"B"}',
+    "then, on the beats that explain the options, ONE BEAT PER OPTION, in order, each marking the option it talks",
+    'about: {"op":"option","choice":"A"} (a wrong one is crossed out, the right one ringed), and the answer\'s beat',
+    '{"op":"answer"}. A question to answer (no choices) is a question op with "from_book" and its answer in words;',
+    "a numerical one is worked with problem and work ops. The compiler checks every id is asked and every option",
+    "marked.",
+    ...questions.map(questionLine),
+  ];
+}
+
+/** How the video's beats say the transcript: by its numbered lines (lines.ts), never copied out again. */
+export const LINES_RULES = [
+  "THE TRANSCRIPT IS WRITTEN, and its sentences are NUMBERED (\"12| ...\"). The lecture's narration is exactly",
+  "this transcript, in order: each beat says one or two consecutive sentences, and names them by number instead of",
+  "writing them out: {\"lines\": [12, 13], \"do\": [...]} (no \"say\": the words are filled in from the transcript).",
+  "Use every line of the section once, in order. Give each chapter \"section\": the number of the section it",
+  "speaks (a section may take several chapters). Your work is the picture: for each beat the operations that show",
+  "what is being said (a sketch or preset built and revealed step by step, a graph, a define card, a question on",
+  "the stage when the transcript asks the class one, then the answer; work lines for each step of a problem as it",
+  "is said; the problem op when a problem is read out). The length, the examples and the questions are already in",
+  "the transcript; the checks on them follow from it.",
+];
+
+/** The beat script's rules when a transcript has been written: its narration is the transcript, by line number. */
 export function fromTranscriptPrompt(written: WrittenSection[], questions: BookQuestion[] = []): string {
   return [
-    ...(questions.length ? [
-      "",
-      `THE BOOK'S QUESTIONS (${questions.length}). The transcript explains each; put each one on the stage where it is`,
-      "read out, marked with its id, with ALL its choices in the book's order (in English on the screen):",
-      '  {"op":"question","from_book":"q3","text":"...","choices":["...","...","...","..."],"answer":"B"}',
-      "then, on the beats that explain the options, ONE BEAT PER OPTION, in order, each marking the option it talks",
-      'about: {"op":"option","choice":"A"} (a wrong one is crossed out, the right one ringed), and the answer\'s beat',
-      '{"op":"answer"}. A question to answer (no choices) is a question op with "from_book" and its answer in words;',
-      "a numerical one is worked with problem and work ops. The compiler checks every id is asked and every option",
-      "marked.",
-      ...questions.map(questionLine),
-    ] : []),
+    ...questionRules(questions),
     "",
-    "THE TRANSCRIPT IS WRITTEN. The lecture's narration is exactly this transcript, in order: each beat's \"say\" is",
-    "one or two consecutive sentences of it, word for word, and every sentence of it is said. Do not shorten,",
-    "merge, summarise or reword it (the compiler compares). Give each chapter \"section\": the number of the",
-    "section it speaks (a section may take several chapters). Your work is the picture: for each beat the",
-    "operations that show what is being said (a sketch or preset built and revealed step by step, a graph, a define",
-    "card, a question on the stage when the transcript asks the class one, then the answer; work lines for each",
-    "step of a problem as it is said; the problem op when a problem is read out).",
-    "The length, the examples and the questions are already in the transcript; the checks on them follow from it.",
+    ...LINES_RULES,
     "",
-    ...written.map((s) => `SECTION ${s.n} (${s.title}):\n${s.text}`),
+    ...written.map((s) => `SECTION ${s.n} (${s.title}):\n${numberedSection(s)}`),
     "",
+  ].join("\n");
+}
+
+/**
+ * One section as its own video request carries it (model.ts, the chapters of each section written at the same
+ * time): its numbered transcript, and only its own questions -- not the whole lecture again in every request.
+ */
+export function sectionForVideo(section: WrittenSection, questions: BookQuestion[] = []): string {
+  return [
+    ...questionRules(questions),
+    "",
+    ...LINES_RULES,
+    "",
+    `SECTION ${section.n} (${section.title}):`,
+    numberedSection(section),
   ].join("\n");
 }
 
@@ -510,8 +608,12 @@ export function transcriptProblem(script: unknown, written: WrittenSection[], on
   }
   const gaps = unsaidSentences(script, written, sections).filter((g) => g.missing.length > g.total * 0.1);
   if (!gaps.length) return null;
-  return gaps.map((g) =>
-    `Section ${g.n}: ${g.missing.length} of ${g.total} transcript sentences are not said word for word, e.g. ` +
-    g.missing.slice(0, 3).map((m) => `"${m.slice(0, 90)}"`).join("; ") +
-    ". Every sentence of the transcript is said, unchanged, in order (one or two a beat).").join("\n");
+  return gaps.map((g) => {
+    const own = linesOf(written.find((w) => w.n === g.n)?.text ?? "");
+    const numbers = g.missing.map((m) => own.indexOf(m) + 1).filter((k) => k > 0);
+    return `Section ${g.n}: ${g.missing.length} of ${g.total} transcript sentences are not said` +
+      (numbers.length ? ` (lines ${numbers.slice(0, 12).join(", ")}${numbers.length > 12 ? ", ..." : ""})` : "") + ", e.g. " +
+      g.missing.slice(0, 2).map((m) => `"${m.slice(0, 90)}"`).join("; ") +
+      ". Every line of the transcript is said, in order, one or two a beat ({\"lines\": [n]}).";
+  }).join("\n");
 }

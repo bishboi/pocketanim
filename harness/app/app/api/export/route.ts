@@ -53,7 +53,8 @@ export async function POST(request: NextRequest) {
     if (result.narration?.file) {
       const voiceDir = path.join(REPO, "harness", "app", ".voice");
       await mkdir(voiceDir, { recursive: true });
-      const name = `narration-${Date.now()}.wav`;
+      // Parts of a series are built at once: the name must not collide within a millisecond.
+      const name = `narration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`;
       await copyFile(path.join(buildDir, result.narration.file), path.join(voiceDir, name));
       narrationUrl = `/api/audio?file=${encodeURIComponent(name)}`;
     }

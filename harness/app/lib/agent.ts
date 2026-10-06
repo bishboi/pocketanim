@@ -10,7 +10,7 @@ import path from "node:path";
 import { REPO, python } from "./pocketanim";
 
 export type AgentEvent = {
-  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript";
+  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part";
   role?: string;
   name?: string;
   text?: string;
@@ -22,6 +22,8 @@ export type AgentEvent = {
   model?: string;
   /** A lecture made as more than one video (lib/parts.ts): each part's title, length and scene. */
   parts?: { title: string; minutes: number; source: string }[];
+  /** One micro-lecture of a series, compiled as soon as its sections' chapters are written, for an early build. */
+  part?: { index: number; of: number; title: string; minutes: number; source: string };
 };
 
 export const TOOLS = [

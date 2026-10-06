@@ -47,7 +47,28 @@ type TraceEvent = {
   streaming?: boolean;
   /** A lecture made as several videos: each part's title, length and scene (lib/parts.ts). */
   parts?: { title: string; minutes: number; source: string }[];
+  /** One micro-lecture, written before the rest: built at once, while the others are still being written. */
+  part?: { index: number; of: number; title: string; minutes: number; source: string };
 };
+
+/** A build already under way: its progress id and the export it will finish with. */
+type StartedBuild = { jobId: string; exported: Promise<ExportState> };
+
+/** Builds at once, at most: a series of micro-lectures built one after the other took as long again as writing them. */
+const BUILD_SLOTS = 3;
+let buildsRunning = 0;
+const buildWaiting: (() => void)[] = [];
+
+async function inBuildSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (buildsRunning >= BUILD_SLOTS) await new Promise<void>((resolve) => buildWaiting.push(resolve));
+  buildsRunning += 1;
+  try {
+    return await work();
+  } finally {
+    buildsRunning -= 1;
+    buildWaiting.shift()?.();
+  }
+}
 
 type Version = {
   n: number;
@@ -163,6 +184,8 @@ function TraceLine({ event }: { event: TraceEvent }) {
 }
 
 function applyTrace(trace: TraceEvent[], event: TraceEvent): TraceEvent[] {
+  // An early part's scene is built, not shown in the trace (the status line before it says so).
+  if (event.type === "part") return trace;
   if (event.type === "delta") {
     const last = trace[trace.length - 1];
     if (last?.type === "message" && last.role === event.role && last.streaming) {
@@ -383,12 +406,28 @@ export default function Home() {
     return geometry as SceneIR;
   }
 
+  /** A build started now (or as soon as a slot is free), for attachBuild to finish: early, for a part. */
+  function startBuild(source: string, instruction: string | null, model: string): StartedBuild {
+    const jobId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const exported = inBuildSlot(() => post("/api/export", {
+      source,
+      sceneClass: sceneClassOf(source),
+      instruction,
+      model,
+      jobId,
+    }) as Promise<ExportState>);
+    // Awaited by attachBuild; until then a failure is not an unhandled rejection.
+    exported.catch(() => {});
+    return { jobId, exported };
+  }
+
   async function attachBuild(
     index: number,
     source: string,
     instruction: string | null,
     model: string,
     label = "",
+    started?: StartedBuild,
   ) {
     // A lecture made as several videos builds them one after the other: each says which it is.
     const setBusy = (text: string | null) => setBusyText(text && label ? `${label}: ${text}` : text);
@@ -398,13 +437,14 @@ export default function Home() {
       ? "Speaking the lecture, running Manim and building the program…"
       : "Running Manim and building the program…");
     // The server writes how far it has got (lines spoken, beats drawn); the busy line shows it.
-    const jobId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-    const started = Date.now();
+    const build = started ?? startBuild(source, instruction, model);
+    const jobId = build.jobId;
+    const startedAt = Date.now();
     const poll = lecture ? setInterval(async () => {
       try {
         const state = await (await fetch(`/api/progress?id=${jobId}`)).json() as
           { phase?: string; done?: number; total?: number };
-        const elapsed = Math.round((Date.now() - started) / 1000);
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
         const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
         if (state.phase === "voice" && state.total) {
           const share = Math.round((100 * (state.done ?? 0)) / state.total);
@@ -428,13 +468,7 @@ export default function Home() {
       } : v));
     };
     try {
-      exported = await post("/api/export", {
-        source,
-        sceneClass,
-        instruction,
-        model,
-        jobId,
-      });
+      exported = await build.exported;
     } catch (error) {
       billVoice((error as { data?: ExportState }).data?.voiceCost);
       throw error;
@@ -519,6 +553,8 @@ export default function Home() {
       let source = "";
       let modelName = "";
       let videoParts: { title: string; minutes: number; source: string }[] = [];
+      // Micro-lectures sent before the rest was written, already building, by their scene.
+      const early = new Map<string, StartedBuild>();
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
@@ -535,6 +571,9 @@ export default function Home() {
             source = event.source ?? source;
             modelName = event.model ?? modelName;
             videoParts = event.parts ?? [];
+          }
+          if (event.type === "part" && event.part && !early.has(event.part.source)) {
+            early.set(event.part.source, startBuild(event.part.source, next.instruction, modelName));
           }
           const phase = phaseFor(event);
           if (phase) setBusy(phase);
@@ -590,14 +629,15 @@ export default function Home() {
             transcript: undefined, inputTokens: undefined, outputTokens: undefined, costUsd: undefined,
           })),
         ]);
-        for (let k = 0; k < videoParts.length; k++) {
+        // Up to three at once (inBuildSlot); a part built early, from the same scene, is that build.
+        await Promise.all(videoParts.map(async (p, k) => {
           try {
-            await attachBuild(index + k, videoParts[k].source, next.instruction, modelName,
-              `${videoParts[k].title} (${k + 1} of ${videoParts.length})`);
+            await attachBuild(index + k, p.source, next.instruction, modelName,
+              `${p.title} (${k + 1} of ${videoParts.length})`, early.get(p.source));
           } catch (e) {
-            setError(`${videoParts[k].title}: ${e instanceof Error ? e.message : String(e)}`);
+            setError(`${p.title}: ${e instanceof Error ? e.message : String(e)}`);
           }
-        }
+        }));
         return;
       }
       await attachBuild(index, source, next.instruction, modelName);

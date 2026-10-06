@@ -44,6 +44,8 @@ harness/forge/cache/
 
 # Geocoded place names, cached per machine
 harness/lecture/.cache/
+# Manim LaTeX/text renders shared by every build (scripts/export_scene.py manim_cache)
+harness/.cache/
 harness/lecture/data/geonames/
 harness/lecture/data/icons/
 harness/lecture/data/illustrations/

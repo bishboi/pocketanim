@@ -291,6 +291,9 @@ export default function Home() {
     status?: string;
     /** Builds already saved in this session: Save again (after rebuilding a failed video) saves only the rest. */
     savedDirs?: string[];
+    /** What the save in progress is doing, and how far through it is (0-100). */
+    progress?: string;
+    percent?: number;
   }>({ busy: false });
   useEffect(() => {
     fetch("/api/save").then((r) => r.json()).then((d: { ready: boolean; problem: string | null }) =>
@@ -361,11 +364,23 @@ export default function Home() {
       }
     };
     const series = version.part ? read(card?.[2]).split(" · ")[0] : read(card?.[1]);
-    setSaving((s) => ({ ...s, busy: true, error: undefined, result: undefined }));
+    setSaving((s) => ({ ...s, busy: true, error: undefined, result: undefined, progress: "Starting…" }));
+    // A save that sends nothing for this long has stalled (a dropped connection): stopped, so Save works again.
+    const QUIET_MS = 5 * 60_000;
+    const abort = new AbortController();
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const heard = () => {
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(() => abort.abort(), QUIET_MS);
+    };
+    const savedNow: string[] = [];
+    const mb = (n?: number) => `${((n ?? 0) / 1048576).toFixed(1)} MB`;
     try {
+      heard();
       const response = await fetch("/api/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        signal: abort.signal,
+        headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
         body: JSON.stringify({
           title: series || videos[0].part?.title || "Untitled lecture",
           content,
@@ -387,14 +402,57 @@ export default function Home() {
           })),
         }),
       });
-      const data = await response.json();
-      if (!data.saved) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setSaving((s) => ({ ...s, busy: false, savedDirs: [...(s.savedDirs ?? []), ...videos.map((v) => v.exported!.buildDir!)],
-        result: { lectures: data.lectures,
-        skipped: [...left.map((l) => `${l} (pick it and press Rebuild preview, then Save it)`), ...(data.skipped ?? [])] } }));
+      // A refusal before the save started (not set up, not a build) comes back as one JSON object.
+      if (!response.ok || !response.body || !(response.headers.get("content-type") ?? "").includes("ndjson")) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${response.status}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: { saved: boolean; error?: string; lectures?: { lecture: number; title: string; bytes: number }[];
+        skipped?: string[] } | null = null;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        heard();
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines.filter(Boolean)) {
+          const event = JSON.parse(line);
+          if (event.type === "result") {
+            result = event;
+            continue;
+          }
+          const which = event.videos > 1 ? `Video ${event.video} of ${event.videos} (${event.title})` : event.title;
+          if (event.stage === "saved") savedNow.push(videos[event.video - 1].exported!.buildDir!);
+          const text = event.stage === "packing" ? `${which}: packing the phone files…`
+            : event.stage === "uploading" ? `${which}: uploading ${event.filesDone} of ${event.files} files ` +
+              `(${mb(event.bytesDone)} of ${mb(event.bytes)})`
+              : event.stage === "saved" ? `${which}: saved`
+                : `${which}: not saved (${event.error})`;
+          const share = event.stage === "uploading" && event.bytes ? event.bytesDone / event.bytes : event.stage === "saved" ? 1 : 0;
+          setSaving((s) => ({ ...s, progress: text,
+            percent: Math.round(((event.video - 1 + share) / event.videos) * 100) }));
+        }
+      }
+      if (!result) throw new Error("the save stopped before it finished");
+      if (!result.saved) throw new Error(result.error ?? "nothing was saved");
+      const done = result;
+      setSaving((s) => ({ ...s, result: { lectures: done.lectures ?? [],
+        skipped: [...left.map((l) => `${l} (pick it and press Rebuild preview, then Save it)`), ...(done.skipped ?? [])] } }));
       void checkSaved();
     } catch (e) {
-      setSaving((s) => ({ ...s, busy: false, error: e instanceof Error ? e.message : String(e) }));
+      const why = abort.signal.aborted ? `nothing came back for ${QUIET_MS / 60_000} minutes; press Save to try again`
+        : e instanceof Error ? e.message : String(e);
+      setSaving((s) => ({ ...s, error: savedNow.length ? `${why} (${savedNow.length} of ${videos.length} saved before it ` +
+        "stopped; Save again sends only the rest)" : why }));
+    } finally {
+      // Whatever happened, Save can be pressed again, and the videos that did get saved are not sent twice.
+      if (quiet) clearTimeout(quiet);
+      setSaving((s) => ({ ...s, busy: false, progress: undefined, percent: undefined,
+        savedDirs: [...(s.savedDirs ?? []), ...savedNow] }));
     }
   }
   const ir = version?.ir;
@@ -1540,7 +1598,8 @@ export default function Home() {
                     and use <span className="text-neutral-300">Import</span> in the app.
                   </div>
                 )}
-                {exported.tier === 1 && exported.buildDir && (
+                {((exported.tier === 1 && exported.buildDir) || (version?.part && versions.some((v) =>
+                  v.n === version.n && v.part && v.exported?.tier === 1 && v.exported.buildDir))) && (
                   <div className="flex flex-col gap-1 border-t border-neutral-800 pt-3 text-xs text-neutral-400">
                     <div className="flex items-center gap-2">
                       <Button
@@ -1559,6 +1618,14 @@ export default function Home() {
                             : "Saves the lecture, and its .panim files for the phone app's Saved list."}
                       </span>
                     </div>
+                    {saving.busy && saving.progress && (
+                      <div className="flex flex-col gap-1">
+                        <div className="h-1.5 w-full overflow-hidden rounded bg-neutral-800">
+                          <div className="h-full bg-emerald-400 transition-all" style={{ width: `${saving.percent ?? 0}%` }} />
+                        </div>
+                        <span className="text-neutral-300">{saving.progress}</span>
+                      </div>
+                    )}
                     {saving.result && (
                       <p className="text-emerald-300">
                         Saved {saving.result.lectures.length} video{saving.result.lectures.length > 1 ? "s" : ""} (
@@ -1569,7 +1636,9 @@ export default function Home() {
                         )}
                       </p>
                     )}
-                    {saving.error && <p className="text-amber-300">Not saved: {saving.error}</p>}
+                    {saving.error && (/^Already saved/.test(saving.error)
+                      ? <p className="text-emerald-300">{saving.error}</p>
+                      : <p className="text-amber-300">Not saved: {saving.error}</p>)}
                     {saving.ready && (
                       <p>
                         <button className="underline hover:text-neutral-200" onClick={checkSaved}>

@@ -112,6 +112,22 @@ export type SaveRequest = {
 
 export type SavedLecture = { lecture: number; title: string; buildId: string; libraryPath: string; bytes: number };
 
+/** How far a save has got, for the page's progress line: one event per step of each video. */
+export type SaveProgress = {
+  /** Which video of this save (1-based) and how many it saves. */
+  video: number;
+  videos: number;
+  title: string;
+  stage: "packing" | "uploading" | "saved" | "failed";
+  files?: number;
+  filesDone?: number;
+  bytes?: number;
+  bytesDone?: number;
+  /** For "saved": the build this video was saved as; for "failed": why. */
+  buildId?: string;
+  error?: string;
+};
+
 export type SaveResult =
   | { saved: true; projectId: string; lectures: SavedLecture[]; skipped: string[] }
   | { saved: false; error: string };
@@ -120,6 +136,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json",
   ".panim": "text/plain; charset=utf-8",
   ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
 };
 
 async function filesUnder(dir: string, prefix = ""): Promise<string[]> {
@@ -138,25 +155,59 @@ function alreadyThere(error: unknown): boolean {
   return /already exists|Duplicate|409/i.test(said);
 }
 
-async function uploadLibrary(supabase: SupabaseClient, dir: string, buildId: string) {
+/** Uploads at once: one after another, a lecture's hundred-odd small files took minutes of round trips. */
+const UPLOADS_AT_ONCE = 4;
+
+async function uploadLibrary(supabase: SupabaseClient, dir: string, buildId: string,
+  onFile: (filesDone: number, files: number, bytesDone: number, bytes: number) => void = () => {}) {
   const files = await filesUnder(dir);
-  let bytes = 0;
+  const sizes = await Promise.all(files.map(async (rel) => (await stat(path.join(dir, rel))).size));
+  const bytes = sizes.reduce((a, b) => a + b, 0);
   const assets: { digest: string; size: number }[] = [];
-  for (const rel of files) {
+  let filesDone = 0;
+  let bytesDone = 0;
+  let next = 0;
+  const one = async (rel: string, size: number) => {
     const data = await readFile(path.join(dir, rel));
-    bytes += data.length;
     const asset = /^assets\/([0-9a-f]{10,64})\.panm$/.exec(rel);
     const key = asset ? rel : `builds/${buildId}/${rel}`;
     const contentType = CONTENT_TYPES[path.extname(rel)] ?? "application/octet-stream";
-    const { error } = await supabase.storage.from(BUCKET).upload(key, data, { contentType, upsert: !asset });
-    if (error && !(asset && alreadyThere(error))) throw new Error(`uploading ${rel}: ${describeError(error)}`);
-    if (asset) assets.push({ digest: asset[1], size: data.length });
-  }
+    // A dropped connection is tried again, twice, before the save gives up on it.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const { error } = await supabase.storage.from(BUCKET).upload(key, data, { contentType, upsert: !asset });
+        if (error && !(asset && alreadyThere(error))) {
+          const said = describeError(error);
+          throw new Error(/payload too large|exceeded the maximum|413/i.test(said)
+            ? `uploading ${rel} (${Math.round(size / 1048576)} MB): larger than the project's upload limit (${said})`
+            : `uploading ${rel}: ${said}`);
+        }
+        break;
+      } catch (error) {
+        const said = describeError(error);
+        if (attempt >= 3 || /upload limit|row-level security|not found|Unauthorized|403|401/i.test(said)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+      }
+    }
+    if (asset) assets.push({ digest: asset[1], size });
+    filesDone += 1;
+    bytesDone += size;
+    onFile(filesDone, files.length, bytesDone, bytes);
+  };
+  const worker = async () => {
+    while (next < files.length) {
+      const i = next++;
+      await one(files[i], sizes[i]);
+    }
+  };
+  onFile(0, files.length, 0, bytes);
+  await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, files.length) }, worker));
   return { files, bytes, assets };
 }
 
 /** Save a lecture, every video of it. Each video that cannot be saved is reported; the rest are kept. */
-export async function saveLecture(request: SaveRequest): Promise<SaveResult> {
+export async function saveLecture(request: SaveRequest,
+  onProgress: (progress: SaveProgress) => void = () => {}): Promise<SaveResult> {
   const problem = storeProblem();
   const supabase = client();
   if (problem || !supabase) return { saved: false, error: `Saving is not set up: ${problem}` };
@@ -181,100 +232,113 @@ export async function saveLecture(request: SaveRequest): Promise<SaveResult> {
     const lectures: SavedLecture[] = [];
     const skipped: string[] = [];
     for (const [k, part] of request.parts.entries()) {
-      const label = request.parts.length > 1 ? `lecture ${k + 1} (${part.title})` : part.title;
-      const { data: scene, error: sceneError } = await supabase
-        .from("scenes")
-        .insert({
-          project_id: project.id,
-          ordinal: part.lecture ?? k + 1,
-          class_name: part.sceneClass,
-          // The topic's own name: "Lecture 2 of 3" is its ordinal and part_of, not part of its title.
-          title: part.title.replace(/^Lecture \d+:\s*/, "").slice(0, 300),
-          transcript: (part.transcript ?? "").slice(0, 500_000),
-          minutes: part.minutes ?? null,
-          part_of: part.of ?? request.parts.length,
-        })
-        .select("id")
-        .single();
-      if (sceneError) throw sceneError;
-      const { data: version, error: versionError } = await supabase
-        .from("scene_versions")
-        .insert({
-          scene_id: scene.id,
-          version: 1,
-          source: part.source,
-          instruction: part.instruction ?? null,
-          model: part.model ?? null,
-          input_tokens: part.inputTokens ?? null,
-          output_tokens: part.outputTokens ?? null,
-        })
-        .select("id")
-        .single();
-      if (versionError) throw versionError;
-      const started = new Date();
-      const { data: build, error: buildError } = await supabase
-        .from("builds")
-        .insert({ scene_version_id: version.id, state: "running", started_at: started.toISOString() })
-        .select("id")
-        .single();
-      if (buildError) throw buildError;
-
-      const fail = async (why: string) => {
-        skipped.push(`${label}: ${why}`);
-        await supabase.from("builds").update({ state: "failed", error: why.slice(0, 2000),
-          finished_at: new Date().toISOString() }).eq("id", build.id);
-      };
-      const packed = await packLibrary(part.buildDir, part.sceneClass);
-      if ("error" in packed) {
-        await fail(packed.error);
-        continue;
-      }
-      let uploaded;
+      // One video failing (a dropped connection, a row refused) is that video skipped, not the save lost.
       try {
-        uploaded = await uploadLibrary(supabase, packed.dir, build.id);
+        const label = request.parts.length > 1 ? `lecture ${k + 1} (${part.title})` : part.title;
+        const step = { video: k + 1, videos: request.parts.length, title: part.title };
+        onProgress({ ...step, stage: "packing" });
+        const { data: scene, error: sceneError } = await supabase
+          .from("scenes")
+          .insert({
+            project_id: project.id,
+            ordinal: part.lecture ?? k + 1,
+            class_name: part.sceneClass,
+            // The topic's own name: "Lecture 2 of 3" is its ordinal and part_of, not part of its title.
+            title: part.title.replace(/^Lecture \d+:\s*/, "").slice(0, 300),
+            transcript: (part.transcript ?? "").slice(0, 500_000),
+            minutes: part.minutes ?? null,
+            part_of: part.of ?? request.parts.length,
+          })
+          .select("id")
+          .single();
+        if (sceneError) throw sceneError;
+        const { data: version, error: versionError } = await supabase
+          .from("scene_versions")
+          .insert({
+            scene_id: scene.id,
+            version: 1,
+            source: part.source,
+            instruction: part.instruction ?? null,
+            model: part.model ?? null,
+            input_tokens: part.inputTokens ?? null,
+            output_tokens: part.outputTokens ?? null,
+          })
+          .select("id")
+          .single();
+        if (versionError) throw versionError;
+        const started = new Date();
+        const { data: build, error: buildError } = await supabase
+          .from("builds")
+          .insert({ scene_version_id: version.id, state: "running", started_at: started.toISOString() })
+          .select("id")
+          .single();
+        if (buildError) throw buildError;
+
+        const fail = async (why: string) => {
+          skipped.push(`${label}: ${why}`);
+          onProgress({ ...step, stage: "failed", error: why });
+          await supabase.from("builds").update({ state: "failed", error: why.slice(0, 2000),
+            finished_at: new Date().toISOString() }).eq("id", build.id);
+        };
+        const packed = await packLibrary(part.buildDir, part.sceneClass);
+        if ("error" in packed) {
+          await fail(packed.error);
+          continue;
+        }
+        // Checked before anything is uploaded: a video the phone cannot play leaves nothing in Storage.
+        const manifest = JSON.parse(await readFile(path.join(packed.dir, "library.json"), "utf8")) as {
+          scenes?: { name: string; tier?: number; program?: string; frames?: number; audio?: string }[];
+        };
+        const entry = manifest.scenes?.find((s) => s.name === packed.sceneClass) ?? manifest.scenes?.[0];
+        if (!entry?.program || entry.tier !== 1) {
+          await fail("the build has no program the phone can play (not tier 1)");
+          continue;
+        }
+        let uploaded;
+        try {
+          uploaded = await uploadLibrary(supabase, packed.dir, build.id, (filesDone, files, bytesDone, bytes) =>
+            onProgress({ ...step, stage: "uploading", files, filesDone, bytes, bytesDone }));
+        } catch (error) {
+          await fail(describeError(error));
+          continue;
+        }
+        if (uploaded.assets.length) {
+          const { error: assetError } = await supabase.from("assets").upsert(
+            uploaded.assets.map((a) => ({ digest: a.digest, byte_size: a.size, content_type: "application/octet-stream" })),
+            { onConflict: "digest", ignoreDuplicates: true });
+          if (assetError) throw assetError;
+          const { error: linkError } = await supabase.from("build_assets").insert(
+            [...new Set(uploaded.assets.map((a) => a.digest))].map((digest) => ({ build_id: build.id, digest })));
+          if (linkError) throw linkError;
+        }
+        const program = await stat(path.join(packed.dir, entry.program));
+        const finished = new Date();
+        const libraryPath = `builds/${build.id}`;
+        const { error: doneError } = await supabase
+          .from("builds")
+          .update({
+            state: "succeeded",
+            tier: "tier1",
+            program_path: `${libraryPath}/${entry.program}`,
+            program_bytes: program.size,
+            frame_count: entry.frames ?? null,
+            fps: 30,
+            library_path: libraryPath,
+            library_bytes: uploaded.bytes,
+            audio_path: entry.audio ? `${libraryPath}/${entry.audio}` : null,
+            published: true,
+            finished_at: finished.toISOString(),
+            duration_ms: finished.getTime() - started.getTime(),
+          })
+          .eq("id", build.id);
+        if (doneError) throw doneError;
+        onProgress({ ...step, stage: "saved", buildId: build.id });
+        lectures.push({ lecture: part.lecture ?? k + 1, title: part.title, buildId: build.id, libraryPath, bytes: uploaded.bytes });
       } catch (error) {
-        await fail(describeError(error));
-        continue;
+        const why = describeError(error);
+        skipped.push(`${request.parts.length > 1 ? `lecture ${k + 1} (${part.title})` : part.title}: ${why}`);
+        onProgress({ video: k + 1, videos: request.parts.length, title: part.title, stage: "failed", error: why });
       }
-      const manifest = JSON.parse(await readFile(path.join(packed.dir, "library.json"), "utf8")) as {
-        scenes?: { name: string; tier?: number; program?: string; frames?: number; audio?: string }[];
-      };
-      const entry = manifest.scenes?.find((s) => s.name === packed.sceneClass) ?? manifest.scenes?.[0];
-      if (!entry?.program || entry.tier !== 1) {
-        await fail("the build has no program the phone can play (not tier 1)");
-        continue;
-      }
-      if (uploaded.assets.length) {
-        const { error: assetError } = await supabase.from("assets").upsert(
-          uploaded.assets.map((a) => ({ digest: a.digest, byte_size: a.size, content_type: "application/octet-stream" })),
-          { onConflict: "digest", ignoreDuplicates: true });
-        if (assetError) throw assetError;
-        const { error: linkError } = await supabase.from("build_assets").insert(
-          [...new Set(uploaded.assets.map((a) => a.digest))].map((digest) => ({ build_id: build.id, digest })));
-        if (linkError) throw linkError;
-      }
-      const program = await stat(path.join(packed.dir, entry.program));
-      const finished = new Date();
-      const libraryPath = `builds/${build.id}`;
-      const { error: doneError } = await supabase
-        .from("builds")
-        .update({
-          state: "succeeded",
-          tier: "tier1",
-          program_path: `${libraryPath}/${entry.program}`,
-          program_bytes: program.size,
-          frame_count: entry.frames ?? null,
-          fps: 30,
-          library_path: libraryPath,
-          library_bytes: uploaded.bytes,
-          audio_path: entry.audio ? `${libraryPath}/${entry.audio}` : null,
-          published: true,
-          finished_at: finished.toISOString(),
-          duration_ms: finished.getTime() - started.getTime(),
-        })
-        .eq("id", build.id);
-      if (doneError) throw doneError;
-      lectures.push({ lecture: part.lecture ?? k + 1, title: part.title, buildId: build.id, libraryPath, bytes: uploaded.bytes });
     }
     if (!lectures.length) return { saved: false, error: `Nothing could be saved: ${skipped.join("; ")}` };
     return { saved: true, projectId: project.id, lectures, skipped };

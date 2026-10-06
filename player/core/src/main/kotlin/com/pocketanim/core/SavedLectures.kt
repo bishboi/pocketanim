@@ -94,10 +94,12 @@ object SavedLectures {
             false
         }
 
-        override fun read(path: String): ByteArray = cache.getOrPut(path) {
+        fun url(path: String): String {
             val key = objectPath(path).split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
-            get(project, "${project.url}/storage/v1/object/public/$BUCKET/$key", rest = false)
+            return "${project.url}/storage/v1/object/public/$BUCKET/$key"
         }
+
+        override fun read(path: String): ByteArray = cache.getOrPut(path) { get(project, url(path), rest = false) }
 
         override fun sizeOf(path: String): Long = read(path).size.toLong()
     }
@@ -123,21 +125,40 @@ object SavedLectures {
         staging.mkdirs()
         try {
             wanted.forEachIndexed { i, path ->
-                val bytes = try {
-                    remote.read(path)
+                val file = File(staging, path)
+                file.parentFile?.mkdirs()
+                try {
+                    // Straight to the file: a lecture's narration is the largest file in it, and held in memory
+                    // whole it could run the phone out.
+                    fetchTo(project, remote.url(path), file)
                 } catch (e: IOException) {
+                    file.delete()
                     // Narration is optional (the picture plays silently without it); everything else is not.
                     if (manifest.scenes.any { it.audio == path }) return@forEachIndexed
                     throw e
                 }
-                val file = File(staging, path)
-                file.parentFile?.mkdirs()
-                file.writeBytes(bytes)
                 progress(i + 1, wanted.size)
             }
             return LibraryImport.install(staging, dest)
         } finally {
             staging.deleteRecursively()
+        }
+    }
+
+    /** A public Storage object downloaded into [file], in pieces. */
+    private fun fetchTo(project: Project, url: String, file: File) {
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 60_000
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val said = connection.errorStream?.use { String(it.readBytes(), Charsets.UTF_8) }.orEmpty()
+                throw Unavailable("HTTP $code from ${url.substringBefore('?')}: ${said.take(300)}")
+            }
+            connection.inputStream.use { input -> file.outputStream().use { input.copyTo(it, 64 * 1024) } }
+        } finally {
+            connection.disconnect()
         }
     }
 

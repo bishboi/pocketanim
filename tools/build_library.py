@@ -15,7 +15,8 @@ not a protocol.
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
       assets/<digest>.panm  baked geometry, shared
-      audio/<name>.wav      narration, fetched on demand (§5.3)
+      audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 24 kbit/s
+                            (audio/<name>.wav when ffmpeg cannot encode it)
 
 Usage:
     python -m tools.build_library [--out library] [--source dsl/generated]
@@ -31,7 +32,9 @@ import argparse
 import hashlib
 import json
 import re
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +51,32 @@ ASSET_REF = re.compile(r"\basset=([0-9a-f]+)")
 # The limit is per *path*, not per frame, and a path here is one atlas shape:
 # four points per cubic, plus a move and a close per subpath.
 SKIA_GPU_VERB_LIMIT = 16_384
+
+
+def compress_narration(source: Path, stem: Path) -> Path:
+    """The narration as the phone gets it: Opus in Ogg, mono, PANIM_NARRATION_KBPS (24) kbit/s.
+
+    The exporter mixes it as WAV, which is 300 MB for an hour of speech; Opus at 24 kbit/s is about 11 MB, and
+    speech at that rate is clear. Android plays Ogg Opus from version 10, the player's minimum, through the same
+    MediaExtractor/MediaCodec path it used for the WAV, and the decoder drops Opus's pre-skip, so the voice stays
+    on its frames. Without an ffmpeg that has an Opus encoder the WAV is shipped as before.
+    """
+    kbps = os.environ.get("PANIM_NARRATION_KBPS", "24")
+    target = stem.with_suffix(".ogg")
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        for codec in (["-c:a", "libopus", "-application", "voip", "-vbr", "on"],
+                      # ffmpeg's own Opus encoder, where it was built without libopus: 48 kHz only.
+                      ["-c:a", "opus", "-strict", "-2", "-ar", "48000"]):
+            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(source), "-ac", "1", *codec,
+                                   "-b:a", f"{kbps}k", str(target)], capture_output=True, text=True)
+            if done.returncode == 0 and target.exists() and target.stat().st_size > 0:
+                return target
+        target.unlink(missing_ok=True)
+        print(f"narration of {source.name} could not be encoded as Opus; shipping the WAV", file=sys.stderr)
+    plain = stem.with_suffix(".wav")
+    shutil.copy(source, plain)
+    return plain
 
 
 def verb_count(points_len: int) -> int:
@@ -196,9 +225,9 @@ def main() -> int:
 
         narration = PROGRAMS / f"{name}.narration.wav"
         if narration.exists():
-            shutil.copy(narration, out / "audio" / f"{name}.wav")
-            entry["audio"] = f"audio/{name}.wav"
-            entry["audio_bytes"] = narration.stat().st_size
+            track = compress_narration(narration, out / "audio" / name)
+            entry["audio"] = f"audio/{track.name}"
+            entry["audio_bytes"] = track.stat().st_size
 
         (out / "scenes" / f"{name}.json").write_text(json.dumps(entry, indent=2) + "\n")
         scenes.append(entry)

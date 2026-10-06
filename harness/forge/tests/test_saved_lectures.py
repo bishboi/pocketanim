@@ -86,15 +86,21 @@ def test_a_saved_series_is_listed_downloaded_and_played_by_the_phone(tmp_path, s
         parts = [{"buildDir": str(build), "sceneClass": "GeneratedScene", "source": "from manim import *",
                   "title": f"Lecture {k}: {name}", "minutes": m, "model": "test"}
                  for k, (name, m) in enumerate([("Newton", 24), ("Friction", 26)], 1)]
-        script = (f"require({json.dumps(str(js / 'lib' / 'store.js'))}).saveLecture("
-                  f"{json.dumps({'title': 'Forces', 'subject': 'physics', 'parts': parts})})"
-                  ".then((r) => console.log(JSON.stringify(r)));")
+        script = ("const steps = [];"
+                  f"require({json.dumps(str(js / 'lib' / 'store.js'))}).saveLecture("
+                  f"{json.dumps({'title': 'Forces', 'subject': 'physics', 'parts': parts})}, (p) => steps.push(p))"
+                  ".then((r) => console.log(JSON.stringify({ ...r, steps })));")
         env = {**os.environ, "NODE_PATH": str(APP / "node_modules"), "NEXT_PUBLIC_SUPABASE_URL": supabase,
                "SUPABASE_SERVICE_ROLE_KEY": "service-test"}
         done = subprocess.run(["node", "-e", script], cwd=APP, capture_output=True, text=True, timeout=600, env=env)
         saved = json.loads(done.stdout.strip().splitlines()[-1])
         assert saved["saved"], saved
         assert [s["lecture"] for s in saved["lectures"]] == [1, 2] and not saved["skipped"]
+        # The page's progress: each video packed, its files uploaded one by one, then saved.
+        stages = [(p["video"], p["stage"]) for p in saved["steps"]]
+        assert stages[0] == (1, "packing") and (1, "saved") in stages and stages[-1] == (2, "saved")
+        uploads = [p for p in saved["steps"] if p["stage"] == "uploading" and p["video"] == 1]
+        assert uploads[-1]["filesDone"] == uploads[-1]["files"] and uploads[-1]["bytesDone"] == uploads[-1]["bytes"]
 
         # A video saved on its own later (a series' failed build, rebuilt) keeps its place: lecture 3 of 4.
         late = {**parts[0], "title": "Lecture 3: Energy", "lecture": 3, "of": 4}

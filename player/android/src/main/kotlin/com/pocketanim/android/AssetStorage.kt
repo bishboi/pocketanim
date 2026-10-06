@@ -34,6 +34,8 @@ class AssetStorage(
     override fun read(path: String): ByteArray =
         assets.open(full(path)).use { it.readBytes() }
 
+    override fun open(path: String): java.io.InputStream = assets.open(full(path))
+
     override fun sizeOf(path: String): Long =
         assets.open(full(path)).use { stream ->
             var total = 0L
@@ -52,4 +54,6 @@ class FileStorage(private val root: File) : Storage {
     override fun exists(path: String) = File(root, path).exists()
     override fun read(path: String) = File(root, path).readBytes()
     override fun sizeOf(path: String) = File(root, path).length()
+    override fun open(path: String): java.io.InputStream = File(root, path).inputStream().buffered()
+    override fun file(path: String): File = File(root, path)
 }

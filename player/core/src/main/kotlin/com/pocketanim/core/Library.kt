@@ -19,6 +19,15 @@ interface Storage {
     fun exists(path: String): Boolean
     fun read(path: String): ByteArray
     fun sizeOf(path: String): Long
+
+    /**
+     * The file as a stream. A lecture's narration was tens to hundreds of MB, and reading it whole (to check its
+     * digest, to copy it out for the decoder) ran the phone out of memory: big files are only ever streamed.
+     */
+    fun open(path: String): java.io.InputStream = read(path).inputStream()
+
+    /** The file itself, when the storage is a folder on this device: the decoder reads it in place. */
+    fun file(path: String): java.io.File? = null
 }
 
 /** A file the manifest names, with what it should be when it arrives. */
@@ -78,7 +87,7 @@ class Library(
             }
             val expected = record.digest ?: continue
             if (verifyDigests) {
-                val got = digestOf(storage.read(record.path))
+                val got = storage.open(record.path).use { digestOf(it) }
                 if (got != expected) {
                     problems.add(IntegrityProblem(record.path, "digest $got, expected $expected"))
                 }
@@ -171,8 +180,18 @@ class Library(
          * a forged one, and 64 bits of it is already far past the point where
          * an accidental collision is conceivable.
          */
-        fun digestOf(bytes: ByteArray): String {
-            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        fun digestOf(bytes: ByteArray): String = digestOf(bytes.inputStream())
+
+        /** The same digest, read through a stream in 64 KB pieces, so a file of any size fits in memory. */
+        fun digestOf(stream: java.io.InputStream): String {
+            val sha = java.security.MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                sha.update(buffer, 0, read)
+            }
+            val hash = sha.digest()
             val out = StringBuilder(16)
             for (i in 0 until 8) out.append(String.format("%02x", hash[i]))
             return out.toString()

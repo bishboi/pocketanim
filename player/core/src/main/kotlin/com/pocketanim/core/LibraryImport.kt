@@ -114,5 +114,7 @@ object LibraryImport {
         override fun exists(path: String) = File(root, path).exists()
         override fun read(path: String) = File(root, path).readBytes()
         override fun sizeOf(path: String) = File(root, path).length()
+        override fun open(path: String): java.io.InputStream = File(root, path).inputStream().buffered()
+        override fun file(path: String): File = File(root, path)
     }
 }

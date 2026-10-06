@@ -3,7 +3,8 @@ import { checkBuild } from "@/lib/pocketanim";
 import { saveLecture, storeProblem, storeStatus, type SavePart } from "@/lib/store";
 
 export const runtime = "nodejs";
-export const maxDuration = 600;
+// An hour of lectures is a few hundred files and tens of MB to upload.
+export const maxDuration = 1800;
 
 /**
  * Whether Save is set up, for the button to say so before it is pressed; with ?status=1, what is saved and what
@@ -49,12 +50,40 @@ export async function POST(request: NextRequest) {
     });
   }
   if (!parts.length) return NextResponse.json({ saved: false, error: "nothing to save" }, { status: 400 });
-  const result = await saveLecture({
+  const save = {
     title: String(body?.title ?? parts[0].title),
     content: body?.content ? String(body.content) : undefined,
     subject: body?.subject ? String(body.subject) : undefined,
     language: body?.language ? String(body.language) : undefined,
     parts,
+  };
+  if (!(request.headers.get("accept") ?? "").includes("application/x-ndjson")) {
+    const result = await saveLecture(save);
+    return NextResponse.json(result, { status: result.saved ? 200 : 500 });
+  }
+  // The page's Save: one JSON line per step (packing, each file uploaded, each video saved or failed), then the
+  // result, so it can show how far it has got and which videos are already in, whatever happens after.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (line: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        } catch {
+          // the page went away; the save carries on and its rows say what was saved
+        }
+      };
+      try {
+        const result = await saveLecture(save, (progress) => send({ type: "progress", ...progress }));
+        send({ type: "result", ...result });
+      } catch (error) {
+        send({ type: "result", saved: false, error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        try {
+          controller.close();
+        } catch {}
+      }
+    },
   });
-  return NextResponse.json(result, { status: result.saved ? 200 : 500 });
+  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" } });
 }

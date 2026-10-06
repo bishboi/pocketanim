@@ -314,6 +314,9 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private val staging = HashMap<Int, List<Step>>()
     private val checkpoints = HashMap<Int, Checkpoint>()
 
+    /** Verb boundaries between kept copies of the stage (see [reach]). */
+    private val CHECKPOINT_EVERY = 32
+
     private var cursorStep = -1
     private var cursorFrame = -1
 
@@ -450,17 +453,20 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
 
         // Finishing the current verb is the cheap way into the next one; it
-        // avoids replaying a verb we have just finished playing.
+        // avoids replaying a verb we have just finished playing. Playing on
+        // goes straight into the next verb; only every CHECKPOINT_EVERY-th
+        // boundary keeps a copy of the stage.
         if (cursorStep >= 0 && step == cursorStep + 1 &&
-            cursorFrame == runners[cursorStep].frames - 1 &&
-            !checkpoints.containsKey(step)
+            cursorFrame == runners[cursorStep].frames - 1
         ) {
             runners[cursorStep].exit()
-            checkpoint(step)
+            if (step % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(step)) checkpoint(step)
+            // As restore() leaves it: the next frame's shapes start a new run.
+            emitStart = -1
+            emitEnd = -1
+        } else {
+            reach(step)
         }
-
-        ensureCheckpoint(step)
-        restore(step)
         applyStaging(step)
         runners[step].enter()
         for (k in 0..local) runners[step].render(k)
@@ -468,15 +474,24 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         cursorFrame = local
     }
 
-    private fun ensureCheckpoint(step: Int) {
-        if (checkpoints.containsKey(step)) return
-        var from = checkpoints.keys.filter { it < step }.max()
+    /**
+     * The stage as it stands at the start of [step]: the nearest kept boundary
+     * at or before it, then the verbs between played whole. A copy of the stage
+     * was kept at every boundary, and an hour's lecture is thousands of verbs:
+     * the copies ran a phone out of memory. One every CHECKPOINT_EVERY verbs
+     * keeps a seek to at most that many verbs of replay.
+     */
+    private fun reach(step: Int) {
+        var from = checkpoints.keys.filter { it <= step }.max()
         restore(from)
         while (from < step) {
             playWhole(from)
             from++
-            checkpoint(from)
+            if (from % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(from)) checkpoint(from)
         }
+        // As restore() leaves it, after the verbs played up to the step.
+        emitStart = -1
+        emitEnd = -1
     }
 
     private fun applyStaging(stepIndex: Int) {

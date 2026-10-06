@@ -428,8 +428,9 @@ class PlayerActivity : Activity() {
         val entry = item.entry
         val frames = try {
             item.library.open(entry.name)
-        } catch (e: Exception) {
-            titleLabel.text = "cannot open ${item.label}: ${e.message}"
+        } catch (e: Throwable) {
+            // OutOfMemoryError included: a lecture too big for this phone is a message, not the app closing.
+            titleLabel.text = "cannot open ${item.label}: ${e.message ?: e.javaClass.simpleName}"
             return
         }
         current = item
@@ -463,8 +464,14 @@ class PlayerActivity : Activity() {
         try {
             // Keyed by the item's label too: two imported lectures are both GeneratedScene, with different voices.
             val key = "${item.label}-${item.entry.name}".replace(Regex("[^A-Za-z0-9_-]+"), "-")
-            val file = File(cacheDir, "narration-$key-${path.substringAfterLast('/')}")
-            if (!file.isFile || file.length() != item.storage.sizeOf(path)) file.writeBytes(item.storage.read(path))
+            // An imported or downloaded lecture's track is already a file: decoded where it is. One packed in the
+            // APK is copied out once, streamed -- read whole, an hour of narration ran the phone out of memory.
+            val file = item.storage.file(path)?.takeIf { it.isFile }
+                ?: File(cacheDir, "narration-$key-${path.substringAfterLast('/')}").also { copy ->
+                    if (!copy.isFile || copy.length() != item.storage.sizeOf(path)) {
+                        item.storage.open(path).use { input -> copy.outputStream().use { input.copyTo(it, 64 * 1024) } }
+                    }
+                }
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(file.absolutePath)
@@ -480,8 +487,9 @@ class PlayerActivity : Activity() {
             } finally {
                 extractor.release()
             }
-        } catch (e: Exception) {
-            titleLabel.text = "${titleLabel.text}  ·  narration unavailable: ${e.message}"
+        } catch (e: Throwable) {
+            // OutOfMemoryError included: the lecture plays on, silent, rather than the app closing.
+            titleLabel.text = "${titleLabel.text}  ·  narration unavailable: ${e.message ?: e.javaClass.simpleName}"
         }
     }
 

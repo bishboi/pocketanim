@@ -289,6 +289,8 @@ export default function Home() {
     result?: { lectures: { lecture: number; title: string; bytes: number }[]; skipped: string[] };
     /** What is saved and what the phone's Saved list sees of it (/api/save?status=1). */
     status?: string;
+    /** Builds already saved in this session: Save again (after rebuilding a failed video) saves only the rest. */
+    savedDirs?: string[];
   }>({ busy: false });
   useEffect(() => {
     fetch("/api/save").then((r) => r.json()).then((d: { ready: boolean; problem: string | null }) =>
@@ -333,11 +335,20 @@ export default function Home() {
 
   async function saveLecture() {
     if (!version) return;
-    const videos = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
-    const unbuilt = videos.filter((v) => v.exported?.tier !== 1 || !v.exported?.buildDir);
-    if (unbuilt.length) {
-      setSaving((s) => ({ ...s, error: `${unbuilt.length} of the ${videos.length} videos are not built for the phone yet ` +
-        "(still building, failed, or not tier 1)", result: undefined }));
+    const all = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
+    // A series saves the micro-lectures that built for the phone; one that did not is named, with why, so it can be
+    // rebuilt (pick it, Rebuild preview) and saved on its own afterwards. One failed video no longer held back the rest.
+    const built = (v: Version) => v.exported?.tier === 1 && !!v.exported?.buildDir;
+    const done = new Set(saving.savedDirs ?? []);
+    const videos = all.filter((v) => built(v) && !done.has(v.exported!.buildDir!));
+    const why = (v: Version) => !v.exported ? "still building, or its build stopped"
+      : v.exported.error ? v.exported.error.split("\n")[0].slice(0, 160)
+        : v.exported.tier === 3 ? `not playable on the phone (${(v.exported.blockers ?? []).slice(0, 2).join("; ") || "tier 3"})`
+          : "no build";
+    const left = all.filter((v) => !built(v)).map((v) => `${v.part?.title ?? "this video"}: ${why(v)}`);
+    if (!videos.length) {
+      setSaving((s) => ({ ...s, result: undefined, error: left.length
+        ? `Nothing new is built for the phone: ${left.join("; ")}` : "Already saved: every video of this lecture is saved." }));
       return;
     }
     // The series' title: a micro-lecture's title card says "<series> · Lecture k of N"; a single video's is its own.
@@ -371,12 +382,16 @@ export default function Home() {
             transcript: v.transcript,
             inputTokens: v.inputTokens,
             outputTokens: v.outputTokens,
+            lecture: v.part?.index,
+            of: v.part?.of,
           })),
         }),
       });
       const data = await response.json();
       if (!data.saved) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setSaving((s) => ({ ...s, busy: false, result: { lectures: data.lectures, skipped: data.skipped ?? [] } }));
+      setSaving((s) => ({ ...s, busy: false, savedDirs: [...(s.savedDirs ?? []), ...videos.map((v) => v.exported!.buildDir!)],
+        result: { lectures: data.lectures,
+        skipped: [...left.map((l) => `${l} (pick it and press Rebuild preview, then Save it)`), ...(data.skipped ?? [])] } }));
       void checkSaved();
     } catch (e) {
       setSaving((s) => ({ ...s, busy: false, error: e instanceof Error ? e.message : String(e) }));
@@ -1540,7 +1555,7 @@ export default function Home() {
                         {saving.ready === false
                           ? `Saving is not set up: ${saving.problem}`
                           : version?.part
-                            ? `Saves all ${version.part.of} micro-lectures, each to the phone app's Saved list.`
+                            ? `Saves the ${version.part.of} micro-lectures that are built (one that failed is named), each to the phone app's Saved list.`
                             : "Saves the lecture, and its .panim files for the phone app's Saved list."}
                       </span>
                     </div>

@@ -96,18 +96,29 @@ def test_a_saved_series_is_listed_downloaded_and_played_by_the_phone(tmp_path, s
         assert saved["saved"], saved
         assert [s["lecture"] for s in saved["lectures"]] == [1, 2] and not saved["skipped"]
 
+        # A video saved on its own later (a series' failed build, rebuilt) keeps its place: lecture 3 of 4.
+        late = {**parts[0], "title": "Lecture 3: Energy", "lecture": 3, "of": 4}
+        again = subprocess.run(["node", "-e", f"require({json.dumps(str(js / 'lib' / 'store.js'))}).saveLecture("
+                                f"{json.dumps({'title': 'Forces', 'parts': [late]})})"
+                                ".then((r) => console.log(JSON.stringify(r)));"], cwd=APP, capture_output=True,
+                               text=True, timeout=600, env=env)
+        assert [s["lecture"] for s in json.loads(again.stdout.strip().splitlines()[-1])["lectures"]] == [3], again.stderr
+        scene = json.loads(urllib.request.urlopen(f"{supabase}/__dump").read())["tables"]["scenes"][-1]
+        assert (scene["ordinal"], scene["part_of"], scene["title"]) == (3, 4, "Energy")
+        published = 3
+
         # What the page's "Check the phone's Saved list" reports: both videos saved, both visible to the phone.
         status = subprocess.run(["node", "-e", f"require({json.dumps(str(js / 'lib' / 'store.js'))}).storeStatus()"
                                  ".then((r) => console.log(JSON.stringify(r)));"], cwd=APP, capture_output=True,
                                 text=True, timeout=120, env={**env, "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_test"})
-        assert json.loads(status.stdout.strip().splitlines()[-1]) == {"published": 2, "failed": [], "phoneSees": 2,
+        assert json.loads(status.stdout.strip().splitlines()[-1]) == {"published": published, "failed": [], "phoneSees": published,
                                                                       "phoneError": None}, status.stderr
 
         dump = json.loads(urllib.request.urlopen(f"{supabase}/__dump").read())
         builds = dump["tables"]["builds"]
         assert all(b["published"] and b["state"] == "succeeded" and b["library_path"].startswith("builds/")
                    for b in builds)
-        assert [s["title"] for s in dump["tables"]["scenes"]] == ["Newton", "Friction"]   # no "Lecture k: " in it
+        assert [s["title"] for s in dump["tables"]["scenes"]][:2] == ["Newton", "Friction"]   # no "Lecture k: " in it
         assets = [o for o in dump["objects"] if o.startswith("lectures/assets/")]
         assert assets and len(assets) == len(dump["tables"]["assets"])                     # each asset stored once
 
@@ -116,9 +127,9 @@ def test_a_saved_series_is_listed_downloaded_and_played_by_the_phone(tmp_path, s
                                 "com.pocketanim.desktop.VerifyKt", supabase, "saved", "anon-test",
                                 str(tmp_path / "phone")], capture_output=True, text=True, timeout=600)
         assert phone.returncode == 0, phone.stdout + phone.stderr
-        assert "catalog: 2 saved video(s)" in phone.stdout
+        assert "catalog: 3 saved video(s)" in phone.stdout
         assert "Lecture 2 of 2: Friction (26 min)" in phone.stdout
-        assert phone.stdout.count("GeneratedScene             1") == 2
+        assert phone.stdout.count("GeneratedScene             1") == 3
 
         database = os.environ.get("PANIM_TEST_DATABASE_URL")
         if database and shutil.which("psql"):

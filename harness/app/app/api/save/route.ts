@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
       transcript: p.transcript ? String(p.transcript) : undefined,
       inputTokens: Number.isFinite(Number(p.inputTokens)) ? Number(p.inputTokens) : undefined,
       outputTokens: Number.isFinite(Number(p.outputTokens)) ? Number(p.outputTokens) : undefined,
+      lecture: Number.isInteger(Number(p.lecture)) && Number(p.lecture) >= 1 ? Number(p.lecture) : undefined,
+      of: Number.isInteger(Number(p.of)) && Number(p.of) >= 1 ? Number(p.of) : undefined,
     });
   }
   if (!parts.length) return NextResponse.json({ saved: false, error: "nothing to save" }, { status: 400 });

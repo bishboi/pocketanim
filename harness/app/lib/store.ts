@@ -96,6 +96,9 @@ export type SavePart = {
   transcript?: string;
   inputTokens?: number;
   outputTokens?: number;
+  /** Its place in the series and the series' length, when only some of a series' videos are saved at once. */
+  lecture?: number;
+  of?: number;
 };
 
 export type SaveRequest = {
@@ -183,13 +186,13 @@ export async function saveLecture(request: SaveRequest): Promise<SaveResult> {
         .from("scenes")
         .insert({
           project_id: project.id,
-          ordinal: k + 1,
+          ordinal: part.lecture ?? k + 1,
           class_name: part.sceneClass,
           // The topic's own name: "Lecture 2 of 3" is its ordinal and part_of, not part of its title.
           title: part.title.replace(/^Lecture \d+:\s*/, "").slice(0, 300),
           transcript: (part.transcript ?? "").slice(0, 500_000),
           minutes: part.minutes ?? null,
-          part_of: request.parts.length,
+          part_of: part.of ?? request.parts.length,
         })
         .select("id")
         .single();
@@ -271,7 +274,7 @@ export async function saveLecture(request: SaveRequest): Promise<SaveResult> {
         })
         .eq("id", build.id);
       if (doneError) throw doneError;
-      lectures.push({ lecture: k + 1, title: part.title, buildId: build.id, libraryPath, bytes: uploaded.bytes });
+      lectures.push({ lecture: part.lecture ?? k + 1, title: part.title, buildId: build.id, libraryPath, bytes: uploaded.bytes });
     }
     if (!lectures.length) return { saved: false, error: `Nothing could be saved: ${skipped.join("; ")}` };
     return { saved: true, projectId: project.id, lectures, skipped };

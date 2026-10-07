@@ -17,7 +17,9 @@ const server = http.createServer((req, res) => {
     const first = ask.messages[1].content;
     const parts = /PARTS \(each a <g id>, exactly these ids\): (.*)/.exec(first)[1].split(", ");
     let text;
-    if (/IMPOSSIBLE/.test(first)) text = "I cannot draw that.";
+    const latest = ask.messages.at(-1).content;
+    if (Array.isArray(latest) && latest.some((p) => p.type === "image_url")) text = "LOOKS GOOD";   // the review
+    else if (/IMPOSSIBLE/.test(first)) text = "I cannot draw that.";
     else {
       // The first answer forgets the last part; the repair has them all.
       const drawn = ask.messages.length === 2 ? parts.slice(0, -1) : parts;
@@ -61,6 +63,11 @@ assert.ok(/<g id="mg">/.test(readFileSync(ramp.svg, "utf8")));        // the for
 assert.ok(/animateTransform/.test(readFileSync(circuit.svg, "utf8")));
 assert.ok(!odd.svg && odd._draw_error, "a picture that never draws says why");
 assert.equal(drawn.drawn, true);
+// Each picture that passed was shown to the model as the board renders it (a PNG), once.
+const reviews = requests.filter((r) => Array.isArray(r.messages.at(-1).content));
+assert.equal(reviews.length, 2);
+assert.match(reviews[0].messages.at(-1).content[1].image_url.url, /^data:image\/png;base64,/);
+assert.ok(reviews.every((r) => r.model === "test/model"));
 const asked = requests.length;
 assert.equal(requests.filter((r) => r.messages.length === 2 && /smooth 30 degree/.test(r.messages[1].content)).length, 1);
 const again = await drawScript(script, options);

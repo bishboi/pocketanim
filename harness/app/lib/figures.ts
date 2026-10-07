@@ -15,11 +15,11 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAWING_VERSION = 1;
+export const DRAWING_VERSION = 2;
 /** Figures drawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 /** Rounds of "here is what is wrong, fix it". */
@@ -65,6 +65,37 @@ export const SVG_RULES = [
   '  values="0; -40" .../> for something flowing along a line. dur 0.5s, 1s, 2s or 4s; repeatCount="indefinite".',
   "  Animate transforms and opacity only (not d, width or points).",
   "- Under 30 KB, no comments.",
+  "",
+  "QUALITY (it is shown full screen to a class, on a phone, and judged against a good textbook figure):",
+  "- Plan the layout before writing: where each thing goes on a grid, its size, where each label sits. Then write",
+  "  coordinates that follow the plan. Use the whole viewBox with a margin of 30 or more on every side; the main",
+  "  subject large and central; nothing crammed into a corner, nothing touching the edge.",
+  "- Correct geometry and science: angles drawn at the angle they are (30° looks like 30°), forces from the point",
+  "  they act on and in their true direction, perpendiculars perpendicular, parallel lines parallel, rays obeying",
+  "  the laws of reflection and refraction, circuits closed, proportions believable.",
+  "- Arrows: a line plus a filled triangle head (a polygon about 18 long and 14 wide) at the exact end, pointing",
+  "  along the line; never <marker>. Force arrows long enough to read (80+).",
+  "- Labels: every label clear of every line, arrow and other label (leave 8+ units of space); a leader line",
+  "  (MUTED, thin) from a label to a small part when it cannot sit right beside it; the same size for labels of the",
+  "  same kind; never upside down or rotated.",
+  "- Consistent style: the same line width for the same kind of thing, a few colours with a meaning each (forces",
+  "  one colour, motion another), fills light (fill-opacity 0.3-0.6) so lines and labels stay readable on top.",
+  "- Simple, smooth shapes: real curves (arcs, cubic Béziers) for round things, not jagged polylines; few points.",
+].join("\n");
+
+/** Rounds of looking at the drawing as the board shows it and fixing it (PANIM_SVG_REVIEWS; 0 turns it off). */
+export const REVIEWS = Math.max(0, Number(process.env.PANIM_SVG_REVIEWS ?? 1));
+
+export const REVIEW_PROMPT = [
+  "Here is your SVG as the lecture's board shows it (the colour names become the board's colours; labels are set in",
+  "the lecture's own font, so they may be a little wider than you planned). Look at it hard, as the teacher who will",
+  "use it in front of a class:",
+  "- Is everything asked for there, correct and in the right place (the science, the angles, the directions)?",
+  "- Is any label on top of a line, an arrow, a shape or another label, cut off, or hard to read?",
+  "- Is the layout clear and balanced: the subject large, nothing cramped, nothing stranded, arrows meeting what",
+  "  they point at, shapes joined where they should be?",
+  "If it is right and clear, reply with exactly LOOKS GOOD. Otherwise reply with the whole corrected SVG in a ```svg",
+  "block (same part ids, same rules).",
 ].join("\n");
 
 export const SVG_PROMPT = [
@@ -133,11 +164,11 @@ export async function ask(key: string, model: string, messages: Message[], signa
 }
 
 export type Check = { ok: boolean; errors: string[]; warnings?: string[]; parts: string[]; labels?: Record<string, string>;
-  animated?: boolean };
+  animated?: boolean; preview?: string };
 
-/** svgcheck.py on these SVG files: what the board makes of each. */
+/** svgcheck.py on these SVG files: what the board makes of each (and, given `previews`, a PNG of it on the board). */
 export function checkSvgs(repo: string, python: string, files: Record<string, string>,
-  parts: Record<string, string[]> = {}): Promise<Record<string, Check>> {
+  parts: Record<string, string[]> = {}, previews: Record<string, string> = {}): Promise<Record<string, Check>> {
   return new Promise((resolve, reject) => {
     const child = spawn(python, [path.join(repo, "harness", "lecture", "svgcheck.py")], { cwd: repo });
     let out = "";
@@ -152,8 +183,93 @@ export function checkSvgs(repo: string, python: string, files: Record<string, st
         reject(new Error(`svgcheck failed (${code}): ${err.slice(-400)}`));
       }
     });
-    child.stdin.end(JSON.stringify({ figures: Object.entries(files).map(([id, svg]) => ({ id, svg, parts: parts[id] })) }));
+    child.stdin.end(JSON.stringify({ figures: Object.entries(files).map(([id, svg]) =>
+      ({ id, svg, parts: parts[id], ...(previews[id] ? { preview: previews[id] } : {}) })) }));
   });
+}
+
+export type SettleOptions = {
+  key: string;
+  model: string;
+  repo: string;
+  python: string;
+  signal?: AbortSignal;
+  onCost?: (usd: number) => void;
+};
+
+/**
+ * The conversation that makes one drawing: ask, check what comes back the way the board draws it (svgcheck.py),
+ * send faults back (REPAIRS rounds), then show the model its passing drawing as the board renders it and let it fix
+ * what it sees (REVIEWS rounds). A fix that breaks the rules is dropped and the last good drawing kept. Writes the
+ * final SVG to `file`.
+ */
+export async function settle(messages: Message[], file: string, parts: string[] | undefined, options: SettleOptions,
+  allowPhoto = false): Promise<{ svg?: string; check?: Check; photo?: boolean; error?: string }> {
+  const made: string[] = [];
+  const scratch = (n: string) => {
+    const name = `${file}.${process.pid}.${n}`;
+    made.push(name);
+    return name;
+  };
+  try {
+    return await converse();
+  } finally {
+    await Promise.all(made.map((name) => rm(name, { force: true })));
+  }
+
+  async function converse(): Promise<{ svg?: string; check?: Check; photo?: boolean; error?: string }> {
+  const checkOne = async (svg: string, n: string, look: boolean) => {
+    await writeFile(scratch(`${n}.svg`), svg, "utf8");
+    const result = await checkSvgs(options.repo, options.python, { pic: scratch(`${n}.svg`) },
+      parts ? { pic: parts } : {}, look ? { pic: scratch(`${n}.png`) } : {});
+    return result.pic;
+  };
+  let good: { svg: string; check: Check } | null = null;
+  let last = "the SVG did not pass the board's checks";
+  for (let round = 0; round <= REPAIRS && !good; round++) {
+    const reply = await ask(options.key, options.model, messages, options.signal);
+    options.onCost?.(reply.cost);
+    const svg = svgOf(reply.text);
+    if (svg === "PHOTO" && allowPhoto) return { photo: true };
+    messages.push({ role: "assistant", content: reply.text });
+    if (!svg || svg === "PHOTO") {
+      messages.push({ role: "user", content: "No SVG came back. Reply with the SVG in a ```svg block." });
+      last = "no SVG came back";
+      continue;
+    }
+    const check = await checkOne(svg, `r${round}`, REVIEWS > 0);
+    if (check?.ok) {
+      good = { svg, check };
+      break;
+    }
+    last = (check?.errors ?? ["it could not be read"]).join("; ");
+    messages.push({ role: "user", content: `The board cannot use it yet:\n- ${(check?.errors ?? ["it could not be read"])
+      .join("\n- ")}\nSend the corrected SVG, whole, in a \`\`\`svg block.` });
+  }
+  if (!good) return { error: last.slice(0, 300) };
+  for (let look = 0; look < REVIEWS && good.check.preview && existsSync(good.check.preview); look++) {
+    let reply;
+    try {
+      const png = (await readFile(good.check.preview)).toString("base64");
+      messages.push({ role: "user", content: [{ type: "text", text: REVIEW_PROMPT },
+        { type: "image_url", image_url: { url: `data:image/png;base64,${png}` } }] });
+      reply = await ask(options.key, options.model, messages, options.signal);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      break;                                      // a model that cannot read images: the drawing stands as it is
+    }
+    options.onCost?.(reply.cost);
+    messages.push({ role: "assistant", content: reply.text });
+    const svg = svgOf(reply.text);
+    if (/LOOKS GOOD/i.test(reply.text) && !svg) break;
+    if (!svg || svg === "PHOTO") break;
+    const check = await checkOne(svg, `v${look}`, look + 1 < REVIEWS);
+    if (!check?.ok) break;                        // the fix broke a rule: keep the drawing that passed
+    good = { svg, check };
+  }
+  await writeFile(file, good.svg, "utf8");
+  return { svg: file, check: good.check };
+  }
 }
 
 async function picture(file: string): Promise<string | null> {
@@ -216,28 +332,10 @@ export async function drawFigures(
     if (image) ask0.push({ type: "image_url", image_url: { url: image } });
     const messages: Message[] = [{ role: "system", content: SVG_PROMPT }, { role: "user", content: ask0 }];
     const { svg: file } = drawnPaths(figure);
-    for (let round = 0; round <= REPAIRS; round++) {
-      const reply = await ask(options.key, options.model, messages, options.signal);
-      options.onCost?.(reply.cost);
-      const svg = svgOf(reply.text);
-      if (svg === "PHOTO") return { photo: true };
-      messages.push({ role: "assistant", content: reply.text });
-      if (!svg) {
-        messages.push({ role: "user", content: "No SVG came back. Reply with the SVG in a ```svg block, or PHOTO." });
-        continue;
-      }
-      await writeFile(file, svg, "utf8");
-      const check = (await checkSvgs(options.repo, options.python, { [figure.id]: file }))[figure.id];
-      if (check?.ok) {
-        return { svg: file, parts: check.parts, labels: check.labels ?? {}, animated: !!check.animated };
-      }
-      messages.push({
-        role: "user",
-        content: `The board cannot use it yet:\n- ${(check?.errors ?? ["it could not be read"]).join("\n- ")}\n` +
-          "Send the corrected SVG, whole, in a ```svg block.",
-      });
-    }
-    return { failed: "the SVG did not pass the board's checks" };
+    const made = await settle(messages, file, undefined, options, true);
+    if (made.photo) return { photo: true };
+    if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks" };
+    return { svg: made.svg, parts: made.check.parts, labels: made.check.labels ?? {}, animated: !!made.check.animated };
   };
 
   const queue = [...todo];

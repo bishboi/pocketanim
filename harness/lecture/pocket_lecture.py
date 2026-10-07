@@ -439,6 +439,28 @@ def _marker(mob, height: float):
             part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
 
 
+def board_svg(path, width: float, height: float):
+    """An SVG drawing (a book figure redrawn, or a draw op's picture) as the board shows it, at most width x height:
+    colour names in it (INK, MUTED, BOARD, ROSE, GOLD...) in this style's colours, black lines in the ink, its labels
+    in the lecture's font. Shared by the lecture (svg_figure) and svgcheck.py's preview, so both look the same."""
+    import animsvg
+    import icons
+
+    palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG}
+    # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
+    raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
+    text = animsvg.paint(raw, palette)
+
+    def label(words, colour, bold):
+        return T(words, 30, colour, weight=BOLD if bold else NORMAL)
+
+    drawing = animsvg.make(text, height=height, strokes=True, label=label)
+    if drawing.width > width - 0.3:
+        # Drawn again at the size it will be: its line widths are set for the size it is drawn at.
+        drawing = animsvg.make(text, height=height * (width - 0.3) / drawing.width, strokes=True, label=label)
+    return drawing
+
+
 def animated_mob(name: str, height: float = 0.9, motion: str | None = None):
     """A drawing of a thing that moves (animsvg.py), or None when it holds still: an animated weather drawing
     (rain falling, a sun turning: its own SMIL), or a library drawing given the motion that suits it (a gear
@@ -2274,23 +2296,8 @@ class Lecture(Scene):
         """An SVG drawn to fit `box` (cx, cy, w, h) and recorded as diagram `key`: (what shows now, the pieces to
         write in, in order). Parts not in `show` wait for reveal_nodes. Colour names in it (INK, MUTED, BOARD,
         ROSE, GOLD...) become this style's colours; black lines become the ink."""
-        import animsvg
-        import icons
-
         cx, cy, w, h = box
-        palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG}
-        # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
-        raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
-        text = animsvg.paint(raw, palette)
-
-        def label(words, colour, bold):
-            return T(words, 30, colour, weight=BOLD if bold else NORMAL)
-
-        room_h = h - (0.75 if caption else 0.25)
-        drawing = animsvg.make(text, height=room_h, strokes=True, label=label)
-        if drawing.width > w - 0.3:
-            # Drawn again at the size it will be: its line widths are set for the size it is drawn at.
-            drawing = animsvg.make(text, height=room_h * (w - 0.3) / drawing.width, strokes=True, label=label)
+        drawing = board_svg(path, w, h - (0.75 if caption else 0.25))
         drawing.move_to([cx, cy + (0.25 if caption else 0.0), 0])
         parts, rest = drawing.parts()
         under = []

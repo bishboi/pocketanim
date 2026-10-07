@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toolchain } from "@/lib/pocketanim";
-import { transcriptModel, usingFixture, videoModel } from "@/lib/model";
+import { svgModel, transcriptModel, usingFixture, videoModel } from "@/lib/model";
 import { latexStatus, resources, versionInfo } from "@/lib/version";
 
 export const runtime = "nodejs";
@@ -20,5 +20,6 @@ export async function GET() {
     fixture: usingFixture(),
     model: usingFixture() ? "fixture" : videoModel(),
     transcriptModel: usingFixture() ? "fixture" : transcriptModel(),
+    svgModel: usingFixture() ? "fixture" : svgModel(),
   });
 }

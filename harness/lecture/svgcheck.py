@@ -82,6 +82,12 @@ def check(svg_path: str, expected: list[str] | None = None) -> dict:
                              "will point at: the block, each force, each label's object)")
     if not doc.texts:
         out["warnings"].append("it has no <text> labels")
+    # Readable on a phone: a label's font-size, against the drawing's width, at least about 20 in an 800-wide picture.
+    width = (animsvg._nums(root.get("viewBox")) + [0, 0, 800, 600])[2] or 800
+    small = [doc.text_spec(el)["text"] for el in doc.texts if doc.text_spec(el)["size"] < 0.022 * width]
+    if small:
+        out["errors"].append(f"labels too small to read on a phone ({', '.join(repr(t) for t in small[:4])}): "
+                             f"font-size at least {round(0.025 * width)} in this viewBox")
     missing = [p for p in expected or [] if p not in out["parts"]]
     if missing:
         # The lecture already reveals and points at these by id: each must be a group of its own.
@@ -91,12 +97,61 @@ def check(svg_path: str, expected: list[str] | None = None) -> dict:
     return out
 
 
+def board(svg_path: str, style: str = "chalkboard"):
+    """The drawing exactly as the lecture's board draws it (pocket_lecture.board_svg), in a 16:9 frame."""
+    import pocket_lecture as pl
+
+    pl.use_style(style)
+    return pl.board_svg(svg_path, 13.0, 6.8)
+
+
+def overlaps(drawing) -> list[str]:
+    """Labels that sit on each other, as the board sets them (its own font, its own sizes)."""
+    boxes = []
+    for el, mob, *_ in getattr(drawing, "labels", []):
+        words = " ".join("".join(el.itertext()).split())
+        (x0, y0), (x1, y1) = mob.get_corner([-1, -1, 0])[:2], mob.get_corner([1, 1, 0])[:2]
+        boxes.append((words, x0, y0, x1, y1))
+    out = []
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            # Overlapping by more than a sliver (a fifth of the smaller label's height) both ways.
+            pad = 0.2 * min(a[4] - a[2], b[4] - b[2])
+            if a[1] < b[3] - pad and b[1] < a[3] - pad and a[2] < b[4] - pad and b[2] < a[4] - pad:
+                out.append(f"{a[0]!r} and {b[0]!r}")
+    return out
+
+
+def preview(drawing, png_path: str) -> None:
+    """A still of the drawing on the board (its first frame), for the model to look at its own picture."""
+    from manim import config
+    from manim.camera.camera import Camera
+
+    import pocket_lecture as pl
+
+    config.pixel_width, config.pixel_height = 1280, 720
+    camera = Camera(background_color=pl.P.BG)
+    camera.capture_mobjects([drawing])
+    camera.get_image().convert("RGB").save(png_path)
+
+
 def main() -> int:
     request = json.load(sys.stdin)
     results = {}
     for figure in request.get("figures", []):
         try:
-            results[figure["id"]] = check(figure["svg"], figure.get("parts"))
+            result = check(figure["svg"], figure.get("parts"))
+            if result.get("ok") and (figure.get("preview") or figure.get("layout", True)):
+                drawing = board(figure["svg"], figure.get("style") or "chalkboard")
+                clash = overlaps(drawing)
+                if clash:
+                    result["errors"].append(f"labels overlap: {'; '.join(clash[:4])}. Move them apart (or shorten "
+                                            "them) so each sits clear beside what it names")
+                    result["ok"] = False
+                if figure.get("preview"):
+                    preview(drawing, figure["preview"])
+                    result["preview"] = figure["preview"]
+            results[figure["id"]] = result
         except Exception as error:  # noqa: BLE001 -- one bad figure does not stop the others
             results[figure["id"]] = {"ok": False, "errors": [f"{type(error).__name__}: {error}"], "parts": []}
     print(json.dumps(results))

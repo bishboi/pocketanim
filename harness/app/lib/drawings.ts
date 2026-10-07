@@ -18,12 +18,11 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { SVG_RULES, ask, checkSvgs, svgOf, type Message } from "./figures";
+import { SVG_RULES, settle, type Message } from "./figures";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAW_VERSION = 1;
+export const DRAW_VERSION = 2;
 const AT_ONCE = Number(process.env.PANIM_DRAWERS ?? 4);
-const REPAIRS = 2;
 
 export const DRAW_PROMPT = [
   "You draw ONE picture for a teacher's board in a video lecture, as an SVG, from the teacher's description of it.",
@@ -35,7 +34,8 @@ export const DRAW_PROMPT = [
   "it, a circuit closed). Big enough to read from the back of a class.",
   "",
   "PARTS: you are given the part ids. Each is one <g id=\"...\"> with EXACTLY that id, holding that thing and its",
-  "label; every visible thing belongs to one of them. The lecture reveals and points at these ids.",
+  "label; every visible thing belongs to one of them. The lecture reveals and points at these ids, often one at a",
+  "time, so each part must make sense drawn alone on top of the parts before it.",
   "MOTION: animate ONLY what MOVES says, and only that part. With no MOVES, nothing moves: no animation at all.",
   "",
   SVG_RULES,
@@ -97,34 +97,12 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
     `It goes with this line of the lecture${chapter ? ` (chapter "${chapter}")` : ""}: "${say}"`,
   ].join("\n");
   const messages: Message[] = [{ role: "system", content: DRAW_PROMPT }, { role: "user", content: ask0 }];
-  let last = "the SVG did not pass the board's checks";
-  for (let round = 0; round <= REPAIRS; round++) {
-    const reply = await ask(options.key, options.model, messages, options.signal);
-    options.onCost?.(reply.cost);
-    messages.push({ role: "assistant", content: reply.text });
-    const svg = svgOf(reply.text);
-    if (!svg || svg === "PHOTO") {
-      messages.push({ role: "user", content: "No SVG came back. Reply with the SVG in a ```svg block." });
-      last = "no SVG came back";
-      continue;
-    }
-    const scratch = `${file}.${process.pid}.${round}.svg`;
-    await writeFile(scratch, svg, "utf8");
-    const check = (await checkSvgs(options.repo, options.python, { pic: scratch }, { pic: op.parts })).pic;
-    if (check?.ok) {
-      await writeFile(file, svg, "utf8");
-      await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: check.parts,
-        animated: !!check.animated }), "utf8");
-      return { svg: file };
-    }
-    last = (check?.errors ?? ["it could not be read"]).join("; ");
-    messages.push({
-      role: "user",
-      content: `The board cannot use it yet:\n- ${(check?.errors ?? ["it could not be read"]).join("\n- ")}\n` +
-        "Send the corrected SVG, whole, in a ```svg block.",
-    });
-  }
-  return { error: last.slice(0, 300) };
+  // Drawn, checked, repaired, then looked at as the board shows it and fixed (figures.ts settle).
+  const made = await settle(messages, file, op.parts, options);
+  if (!made.svg || !made.check) return { error: made.error ?? "the SVG did not pass the board's checks" };
+  await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: made.check.parts,
+    animated: !!made.check.animated }), "utf8");
+  return { svg: file };
 }
 
 /**

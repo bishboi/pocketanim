@@ -29,6 +29,8 @@ export async function POST(request: NextRequest) {
     // An OpenRouter model id ("anthropic/claude-opus-4.1"); anything else is ignored.
     transcriptModel: typeof body.transcriptModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.transcriptModel.trim())
       ? body.transcriptModel.trim() : undefined,
+    svgModel: typeof body.svgModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.svgModel.trim())
+      ? body.svgModel.trim() : undefined,
   };
 
   const encoder = new TextEncoder();

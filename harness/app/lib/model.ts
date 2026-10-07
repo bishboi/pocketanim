@@ -53,6 +53,8 @@ export type GenerateRequest = {
   language?: string;
   /** The model that writes the lecture's transcript (stage 1); without it, OPENROUTER_TRANSCRIPT_MODEL. */
   transcriptModel?: string;
+  /** The model that draws the lecture's pictures as SVG (figures.ts, drawings.ts); without it, OPENROUTER_SVG_MODEL. */
+  svgModel?: string;
 };
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
@@ -69,6 +71,15 @@ export function videoModel(): string {
  */
 export function transcriptModel(chosen?: string): string {
   return chosen?.trim() || process.env.OPENROUTER_TRANSCRIPT_MODEL || videoModel();
+}
+
+/**
+ * The model that draws the lecture's pictures as SVG (the book's figures and every draw op): the page's choice, else
+ * OPENROUTER_SVG_MODEL, else the video's model. Drawing well is its own skill (and a model that reads images can
+ * check its own drawing), so it can have the model that does it best.
+ */
+export function svgModel(chosen?: string): string {
+  return chosen?.trim() || process.env.OPENROUTER_SVG_MODEL || videoModel();
 }
 
 const SCENE_CLASS = "GeneratedScene";
@@ -726,7 +737,7 @@ async function viaOpenRouter(
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
       key: process.env.OPENROUTER_API_KEY ?? "",
-      model,
+      model: svgModel(request.svgModel),
       markdown: doc.markdown,
       repo: REPO,
       python: python(),
@@ -1085,7 +1096,7 @@ async function viaOpenRouter(
   // The script's pictures are drawn as SVG by the same model before each compile (drawings.ts).
   const drawOptions = process.env.OPENROUTER_API_KEY ? {
     key: process.env.OPENROUTER_API_KEY,
-    model,
+    model: svgModel(request.svgModel),
     repo: REPO,
     python: python(),
     onStatus: (text: string) => emit({ type: "message", role: "status", text }),

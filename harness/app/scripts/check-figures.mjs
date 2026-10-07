@@ -2,7 +2,7 @@
 // reasons and comes back fixed; a photograph is left as one; a second run reuses the drawings.
 //   node --experimental-strip-types scripts/check-figures.mjs
 import http from "node:http";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -25,7 +25,11 @@ const server = http.createServer((req, res) => {
     requests.push(ask);
     const first = JSON.stringify(ask.messages[1].content);
     let text;
-    if (first.includes("figP")) text = "PHOTO";
+    const latest = ask.messages.at(-1).content;
+    if (Array.isArray(latest) && latest.some((p) => p.type === "image_url") && ask.messages.length > 2) {
+      // The review: it looked at its drawing on the board and renamed the battery's label.
+      text = "The battery wants its name.\n```svg\n" + GOOD.replace(">V<", ">cell<") + "\n```";
+    } else if (first.includes("figP")) text = "PHOTO";
     else if (ask.messages.length === 2) text = "```svg\n" + BROKEN + "\n```";
     else text = "Fixed.\n```svg\n" + GOOD + "\n```";
     res.setHeader("content-type", "application/json");
@@ -52,12 +56,14 @@ assert.equal(drawn.figP.photo, true);
 assert.ok(drawn.figC.svg && existsSync(drawn.figC.svg), "figC drawn");
 assert.deepEqual(drawn.figC.parts, ["battery", "wire", "current"]);
 assert.equal(drawn.figC.animated, true);
-assert.equal(requests.length, 3);                       // figC: broken, then fixed; figP: one PHOTO
+assert.equal(requests.length, 4);                       // figC: broken, fixed, reviewed; figP: one PHOTO
 assert.match(JSON.stringify(requests.find((r) => r.messages.length > 2).messages.at(-1)), /viewBox/);   // the reason went back
 assert.ok(requests.every((r) => r.messages[1].content.some((p) => p.type === "image_url")));   // it saw the figure
+assert.match(readFileSync(drawn.figC.svg, "utf8"), />cell</);   // what it fixed on looking is what is kept
+assert.equal(drawn.figC.labels.battery, "cell");
 console.log("  ", drawnLine(figures[0], drawn.figC));
 const again = await drawFigures(figures, options);
-assert.equal(requests.length, 3);                       // drawn already: nothing asked
+assert.equal(requests.length, 4);                       // drawn already: nothing asked
 assert.equal(again.figC.svg, drawn.figC.svg);
 server.close();
 console.log("ok: figures drawn, repaired, cached");

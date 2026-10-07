@@ -103,6 +103,8 @@ type Status = {
   model: string;
   /** The model that writes the lecture's transcript (OPENROUTER_TRANSCRIPT_MODEL, else the video's). */
   transcriptModel?: string;
+  /** The model that draws the pictures as SVG (OPENROUTER_SVG_MODEL, else the video's). */
+  svgModel?: string;
   error?: string;
 };
 
@@ -240,6 +242,23 @@ export default function Home() {
       // no storage here: the server's setting
     }
   }, []);
+  /** The pictures' model (SVG drawings), typed on the page (kept in this browser); empty: the server's setting. */
+  const [drawer, setDrawer] = useState("");
+  useEffect(() => {
+    try {
+      setDrawer(localStorage.getItem("panim.svgModel") ?? "");
+    } catch {
+      // no storage here: the server's setting
+    }
+  }, []);
+  function chooseDrawer(value: string) {
+    setDrawer(value);
+    try {
+      localStorage.setItem("panim.svgModel", value.trim());
+    } catch {
+      // not remembered, still used for this lecture
+    }
+  }
   function chooseWriter(value: string) {
     setWriter(value);
     try {
@@ -640,6 +659,7 @@ export default function Home() {
           subject: template.kind === "lecture" ? subject : undefined,
           language: template.kind === "lecture" ? language : undefined,
           transcriptModel: template.kind === "lecture" && writer.trim() ? writer.trim() : undefined,
+          svgModel: template.kind === "lecture" && drawer.trim() ? drawer.trim() : undefined,
           referenceId: template.kind === "lecture" ? reference.id : undefined,
         }),
       });
@@ -1190,7 +1210,23 @@ export default function Home() {
                       onChange={(e) => chooseWriter(e.target.value)}
                     />
                     <span className="text-neutral-500">
-                      writes what the teacher says; the video (pictures, Manim) uses {status?.model ?? "OPENROUTER_MODEL"}
+                      writes what the teacher says; the video (the script, Manim) uses {status?.model ?? "OPENROUTER_MODEL"}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span className="text-neutral-300">Drawing model</span>
+                    <input
+                      aria-label="Drawing model"
+                      data-testid="svg-model"
+                      className="w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-200"
+                      placeholder={status?.svgModel ?? "OpenRouter model id"}
+                      value={drawer}
+                      disabled={!!busy}
+                      onChange={(e) => chooseDrawer(e.target.value)}
+                    />
+                    <span className="text-neutral-500">
+                      draws every picture and the book&apos;s figures as SVG, then looks at each and fixes it (pick a
+                      model that reads images)
                     </span>
                   </label>
                   <span>

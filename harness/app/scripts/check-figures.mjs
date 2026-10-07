@@ -1,5 +1,5 @@
 // The figure drawer (lib/figures.ts) against a stand-in for OpenRouter: a broken SVG goes back with the board's
-// reasons and comes back fixed; a photograph is left as one; a second run reuses the drawings.
+// reasons and comes back fixed; a photograph is left as one; a graph goes back to Manim; a second run reuses the drawings.
 //   node --experimental-strip-types scripts/check-figures.mjs
 import http from "node:http";
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
@@ -30,6 +30,7 @@ const server = http.createServer((req, res) => {
       // The review: it looked at its drawing on the board and renamed the battery's label.
       text = "The battery wants its name.\n```svg\n" + GOOD.replace(">V<", ">cell<") + "\n```";
     } else if (first.includes("figP")) text = "PHOTO";
+    else if (first.includes("figG")) text = "MANIM";
     else if (ask.messages.length === 2) text = "```svg\n" + BROKEN + "\n```";
     else text = "Fixed.\n```svg\n" + GOOD + "\n```";
     res.setHeader("content-type", "application/json");
@@ -43,27 +44,32 @@ const { drawFigures, drawnLine } = await import("../lib/figures.ts");
 const dir = mkdtempSync(path.join(tmpdir(), "figs-"));
 // A 1x1 PNG for each figure.
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
-for (const id of ["figC", "figP"]) writeFileSync(path.join(dir, `${id}.png`), png);
+for (const id of ["figC", "figP", "figG"]) writeFileSync(path.join(dir, `${id}.png`), png);
 const figures = [
   { id: "figC", file: path.join(dir, "figC.png"), caption: "Current in a simple circuit" },
   { id: "figP", file: path.join(dir, "figP.png"), caption: "A photograph of a power station" },
+  { id: "figG", file: path.join(dir, "figG.png"), caption: "Velocity against time" },
 ];
 const repo = path.resolve(process.cwd(), "..", "..");
 const options = { key: "test", model: "test/model", markdown: "Current flows. [FIGURE figC: Current in a simple circuit] It goes round.",
   repo, python: path.join(repo, ".venv", "bin", "python"), onStatus: (t) => console.log("  ", t) };
 const drawn = await drawFigures(figures, options);
 assert.equal(drawn.figP.photo, true);
+assert.equal(drawn.figG.manim, true);                   // a graph: rebuilt in Manim, not drawn
+assert.ok(!drawn.figG.svg);
+assert.match(drawnLine(figures[2], drawn.figG), /build it on the board/);
 assert.ok(drawn.figC.svg && existsSync(drawn.figC.svg), "figC drawn");
 assert.deepEqual(drawn.figC.parts, ["battery", "wire", "current"]);
 assert.equal(drawn.figC.animated, true);
-assert.equal(requests.length, 4);                       // figC: broken, fixed, reviewed; figP: one PHOTO
+assert.equal(requests.length, 5);                       // figC: broken, fixed, reviewed; figP: PHOTO; figG: MANIM
 assert.match(JSON.stringify(requests.find((r) => r.messages.length > 2).messages.at(-1)), /viewBox/);   // the reason went back
 assert.ok(requests.every((r) => r.messages[1].content.some((p) => p.type === "image_url")));   // it saw the figure
 assert.match(readFileSync(drawn.figC.svg, "utf8"), />cell</);   // what it fixed on looking is what is kept
 assert.equal(drawn.figC.labels.battery, "cell");
 console.log("  ", drawnLine(figures[0], drawn.figC));
 const again = await drawFigures(figures, options);
-assert.equal(requests.length, 4);                       // drawn already: nothing asked
+assert.equal(requests.length, 5);                       // decided already: nothing asked
+assert.equal(again.figG.manim, true);
 assert.equal(again.figC.svg, drawn.figC.svg);
 server.close();
 console.log("ok: figures drawn, repaired, cached");

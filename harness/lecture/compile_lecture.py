@@ -339,8 +339,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     elif not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
                     elif script.get("rebuild_figures") and not op.get("photo"):
-                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Draw it "
-                                      "instead (draw, with what it shows and its parts; graph for a plot), with "
+                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Build it in "
+                                      "Manim instead (sketch, preset, graph, diagram, compare; draw only what those "
+                                      "cannot show well), with "
                                       f"\"from_figure\":\"{op.get('id')}\" on that op. Only a photograph may be shown as "
                                       "it is, with \"photo\": true.")
                 if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
@@ -713,8 +714,8 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
         figure = op.get("figure")
         if figure is not None:
             if not isinstance(figure, dict) or figure.get("op") not in {"draw", "sketch", "graph"} | set(stem.PRESETS):
-                return ("a problem's figure is a drawing or a graph: {\"op\":\"draw\",\"what\":\"...\",\"parts\":[...]} "
-                        "or {\"op\":\"graph\",...}")
+                return ("a problem's figure is a sketch, a graph or a preset: {\"op\":\"incline\",\"angle\":30,...} "
+                        "(or a draw op, only for what those cannot show)")
             inner = _stem_problem({**figure, "id": figure.get("id") or f"{key}_figure"}, diagrams)
             if inner:
                 return f"problem figure: {inner}"

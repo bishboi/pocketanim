@@ -80,7 +80,7 @@ def test_a_drawn_figure_is_shown_and_its_parts_revealed():
     # Without its SVG, the book's picture may not be shown as it is: it is built, or it is a photograph.
     undrawn = _lecture()
     undrawn["figures"]["fig1"].pop("svg")
-    assert any("shown as it is. Draw it" in e for e in cl.lint(undrawn)[0])
+    assert any("shown as it is. Build it in" in e for e in cl.lint(undrawn)[0])
 
 
 def test_drawn_figures_play_on_the_phone_as_shapes(tmp_path):

@@ -215,13 +215,14 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
     // The figures were redrawn as SVG (figures.ts): shown and pointed at, not rebuilt.
     return [
       "",
-      `FIGURES from the book (${figures.length}). Each diagram has been REDRAWN AS A CLEAN SVG for the board. Show it`,
+      `FIGURES from the book (${figures.length}). The detailed ones were REDRAWN AS CLEAN SVGs for the board. Show each`,
       'where the text explains it: {"op":"figure","id":"fig3","show"?:["wedge","block"]} (show: the parts drawn first;',
       "leave it out to draw all), then bring in its other parts a beat at a time as you talk about them:",
       '{"op":"reveal","diagram":"fig3","nodes":["mg"]}, and point at one: {"op":"focus","diagram":"fig3","node":"theta"}.',
       "Walk the class through it part by part, naming what each is. A figure that moves by itself keeps moving while it",
       'is up: say what is happening. A photograph is shown as it is ({"op":"figure","id":"fig4","photo":true}). A figure',
-      'listed "build it" could not be drawn from the scan: describe it with draw (or graph for a plot), "from_figure".',
+      'listed "build it" is rebuilt in Manim (sketch, preset, graph, diagram) with "from_figure"; draw it only if they',
+      "cannot show it well.",
       "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");

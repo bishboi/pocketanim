@@ -19,7 +19,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAWING_VERSION = 2;
+export const DRAWING_VERSION = 3;
 /** Figures drawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 /** Rounds of "here is what is wrong, fix it". */
@@ -30,6 +30,8 @@ export type FigureInfo = { id: string; file: string; caption: string; page?: num
 export type Drawn = {
   /** The figure is a photograph: shown as it is, not drawn. */
   photo?: boolean;
+  /** The board's own shapes build it well (a graph, a preset, a sketch, a diagram): it is rebuilt in Manim. */
+  manim?: boolean;
   /** The SVG file, when it was drawn and passed the check. */
   svg?: string;
   /** Its parts, in drawing order, and the words in each (for the script writer to point at). */
@@ -81,6 +83,16 @@ export const SVG_RULES = [
   "- Consistent style: the same line width for the same kind of thing, a few colours with a meaning each (forces",
   "  one colour, motion another), fills light (fill-opacity 0.3-0.6) so lines and labels stay readable on top.",
   "- Simple, smooth shapes: real curves (arcs, cubic Béziers) for round things, not jagged polylines; few points.",
+  "",
+  "EDUCATIONAL (it teaches; it is not decoration):",
+  "- Label every part the lesson names with the exact term students must learn (the textbook's word), and the key",
+  "  values with their units (2 kg, 30°, 5 Ω, 10 m/s).",
+  "- Make the idea being taught stand out: the part the lesson is about drawn largest or in the highlight colour,",
+  "  the rest quieter (MUTED or thin) so the eye goes where the teacher points.",
+  "- Show cause, direction and flow with arrows (what pushes what, which way blood, current, light, energy goes).",
+  "- True to a good textbook: correct relative sizes and positions (the nucleus inside the cell, the left ventricle's",
+  "  wall thicker than the right's), nothing scientifically wrong even if simplified.",
+  "- One clear idea per picture: nothing decorative, no background scenery, no faces, no parts the lesson never uses.",
 ].join("\n");
 
 /** Rounds of looking at the drawing as the board shows it and fixing it (PANIM_SVG_REVIEWS; 0 turns it off). */
@@ -91,6 +103,8 @@ export const REVIEW_PROMPT = [
   "the lecture's own font, so they may be a little wider than you planned). Look at it hard, as the teacher who will",
   "use it in front of a class:",
   "- Is everything asked for there, correct and in the right place (the science, the angles, the directions)?",
+  "- Does it teach: every key part labelled with its proper term, the idea being taught standing out, arrows",
+  "  showing what flows or acts and which way? Would a student learn the right thing from it alone?",
   "- Is any label on top of a line, an arrow, a shape or another label, cut off, or hard to read?",
   "- Is the layout clear and balanced: the subject large, nothing cramped, nothing stranded, arrows meeting what",
   "  they point at, shapes joined where they should be?",
@@ -102,6 +116,11 @@ export const SVG_PROMPT = [
   "You redraw ONE figure from a textbook as a clean SVG diagram for a teacher's board in a video lecture.",
   "Reply with the SVG alone in a ```svg block. If the figure is a PHOTOGRAPH (real people, a place, a specimen, an",
   "object as photographed) that no drawing can replace, reply with the single word PHOTO instead.",
+  "If the board builds it well from its own shapes -- a graph or plot, a block on an incline, a pulley, a spring,",
+  "a pendulum, a projectile's path, a simple circuit, a lever, a lens or mirror with its rays, a geometric figure,",
+  "a flowchart, a cycle or tree of labelled boxes, a table -- reply with the single word MANIM instead: it is",
+  "rebuilt there. Draw an SVG only for what those shapes cannot show well: a cell or an organ, a cross-section,",
+  "an organism, a real apparatus or machine, a detailed structure.",
   "",
   "WHAT TO DRAW: what the figure shows and teaches: the same parts, labels, arrows, numbers and layout, cleaner.",
   "Flat shapes and clear lines, as a good teacher draws on a board: no shading, textures or tiny details.",
@@ -121,10 +140,11 @@ export function figureContext(markdown: string, id: string, around = 900): strin
   return markdown.slice(Math.max(0, at - around), at + around).replace(/\s+/g, " ").trim();
 }
 
-/** The SVG in a reply (a ```svg block, or a bare <svg>...</svg>), "PHOTO", or null. */
-export function svgOf(reply: string): string | "PHOTO" | null {
+/** The SVG in a reply (a ```svg block, or a bare <svg>...</svg>), "PHOTO", "MANIM", or null. */
+export function svgOf(reply: string): string | "PHOTO" | "MANIM" | null {
   const text = reply.trim();
   if (/^PHOTO\b/i.test(text) || /^```\s*PHOTO\s*```$/i.test(text)) return "PHOTO";
+  if (/^MANIM\b/i.test(text) || /^```\s*MANIM\s*```$/i.test(text)) return "MANIM";
   const fenced = /```(?:svg|xml)?\s*([\s\S]*?<svg[\s\S]*?<\/svg>)\s*```/i.exec(text);
   if (fenced) return fenced[1].trim();
   const bare = /<svg[\s\S]*<\/svg>/i.exec(text);
@@ -204,7 +224,7 @@ export type SettleOptions = {
  * final SVG to `file`.
  */
 export async function settle(messages: Message[], file: string, parts: string[] | undefined, options: SettleOptions,
-  allowPhoto = false): Promise<{ svg?: string; check?: Check; photo?: boolean; error?: string }> {
+  asFigure = false): Promise<{ svg?: string; check?: Check; photo?: boolean; manim?: boolean; error?: string }> {
   const made: string[] = [];
   const scratch = (n: string) => {
     const name = `${file}.${process.pid}.${n}`;
@@ -217,7 +237,7 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     await Promise.all(made.map((name) => rm(name, { force: true })));
   }
 
-  async function converse(): Promise<{ svg?: string; check?: Check; photo?: boolean; error?: string }> {
+  async function converse(): Promise<{ svg?: string; check?: Check; photo?: boolean; manim?: boolean; error?: string }> {
   const checkOne = async (svg: string, n: string, look: boolean) => {
     await writeFile(scratch(`${n}.svg`), svg, "utf8");
     const result = await checkSvgs(options.repo, options.python, { pic: scratch(`${n}.svg`) },
@@ -230,9 +250,11 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     const reply = await ask(options.key, options.model, messages, options.signal);
     options.onCost?.(reply.cost);
     const svg = svgOf(reply.text);
-    if (svg === "PHOTO" && allowPhoto) return { photo: true };
+    // A book figure may be a photograph (shown as it is) or one the board builds itself (rebuilt in Manim).
+    if (svg === "PHOTO" && asFigure) return { photo: true };
+    if (svg === "MANIM" && asFigure) return { manim: true };
     messages.push({ role: "assistant", content: reply.text });
-    if (!svg || svg === "PHOTO") {
+    if (!svg || svg === "PHOTO" || svg === "MANIM") {
       messages.push({ role: "user", content: "No SVG came back. Reply with the SVG in a ```svg block." });
       last = "no SVG came back";
       continue;
@@ -262,7 +284,7 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     messages.push({ role: "assistant", content: reply.text });
     const svg = svgOf(reply.text);
     if (/LOOKS GOOD/i.test(reply.text) && !svg) break;
-    if (!svg || svg === "PHOTO") break;
+    if (!svg || svg === "PHOTO" || svg === "MANIM") break;
     const check = await checkOne(svg, `v${look}`, look + 1 < REVIEWS);
     if (!check?.ok) break;                        // the fix broke a rule: keep the drawing that passed
     good = { svg, check };
@@ -308,7 +330,7 @@ export async function drawFigures(
     const { meta } = drawnPaths(figure);
     try {
       const kept = JSON.parse(await readFile(meta, "utf8"));
-      if (kept.version === DRAWING_VERSION && (kept.photo || (kept.svg && existsSync(kept.svg)))) {
+      if (kept.version === DRAWING_VERSION && (kept.photo || kept.manim || (kept.svg && existsSync(kept.svg)))) {
         out[figure.id] = kept;
         continue;
       }
@@ -318,7 +340,8 @@ export async function drawFigures(
     todo.push(figure);
   }
   if (!todo.length) return out;
-  options.onStatus?.(`Drawing the book's ${todo.length} figure${todo.length > 1 ? "s" : ""} as SVG for the board.`);
+  options.onStatus?.(`Looking at the book's ${todo.length} figure${todo.length > 1 ? "s" : ""}: built in Manim where ` +
+    "the board's shapes can, drawn as SVG where they cannot.");
   let done = 0;
 
   const drawOne = async (figure: FigureInfo): Promise<Drawn> => {
@@ -327,13 +350,14 @@ export async function drawFigures(
     const ask0: Part[] = [{
       type: "text",
       text: `Figure ${figure.id}${figure.page ? ` (page ${figure.page})` : ""}: ${figure.caption || "(no caption)"}` +
-        (context ? `\n\nThe book around it:\n${context}` : "") + "\n\nRedraw it as the SVG (or reply PHOTO).",
+        (context ? `\n\nThe book around it:\n${context}` : "") + "\n\nRedraw it as the SVG (or reply MANIM or PHOTO).",
     }];
     if (image) ask0.push({ type: "image_url", image_url: { url: image } });
     const messages: Message[] = [{ role: "system", content: SVG_PROMPT }, { role: "user", content: ask0 }];
     const { svg: file } = drawnPaths(figure);
     const made = await settle(messages, file, undefined, options, true);
     if (made.photo) return { photo: true };
+    if (made.manim) return { manim: true };
     if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks" };
     return { svg: made.svg, parts: made.check.parts, labels: made.check.labels ?? {}, animated: !!made.check.animated };
   };
@@ -353,7 +377,8 @@ export async function drawFigures(
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
       done++;
-      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? "is a photograph (shown as it is)" : drawn.svg
+      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? "is a photograph (shown as it is)"
+        : drawn.manim ? "is built in Manim" : drawn.svg
         ? `drawn as SVG${drawn.animated ? ", moving" : ""} (${(drawn.parts ?? []).length} parts)`
         : `not drawn (${drawn.failed}); built on the board instead`} — ${done} of ${todo.length}.`);
     }
@@ -370,5 +395,5 @@ export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
     const parts = (drawn.parts ?? []).map((p) => (drawn.labels?.[p] ? `${p} (${drawn.labels[p]})` : p)).join(", ");
     return `${head} — drawn as SVG${drawn.animated ? ", it moves by itself" : ""}; parts: ${parts}`;
   }
-  return `${head} — draw it (draw, or graph for a plot) marked "from_figure":"${figure.id}"`;
+  return `${head} — build it on the board (sketch, preset, graph, diagram) marked "from_figure":"${figure.id}"`;
 }

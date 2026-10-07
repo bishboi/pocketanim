@@ -21,7 +21,7 @@ import path from "node:path";
 import { SVG_RULES, settle, type Message } from "./figures";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAW_VERSION = 2;
+export const DRAW_VERSION = 3;
 const AT_ONCE = Number(process.env.PANIM_DRAWERS ?? 4);
 
 export const DRAW_PROMPT = [

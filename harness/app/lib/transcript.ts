@@ -256,7 +256,7 @@ export function transcriptPrompt(options: {
             "  - PROBLEMS: in a maths or science chapter, solve numericals from the very basics (below). Use the",
             "    book's solved examples, and make up one or two more with easy numbers where the book has none.",
             "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
-            "    देखो...\"): the video draws it there, redrawn from the figure. Build every diagram out loud, piece by piece.",
+            "    देखो...\"): the video draws it there, built in Manim from the figure. Build every diagram out loud, piece by piece.",
             "  - Tie each new idea to the one before, and end each section with a short recap.",
           ].join("\n")
         : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +
@@ -536,7 +536,7 @@ export const LINES_RULES = [
   "writing them out: {\"lines\": [12, 13], \"do\": [...]} (no \"say\": the words are filled in from the transcript).",
   "Use every line of the section once, in order. Give each chapter \"section\": the number of the section it",
   "speaks (a section may take several chapters). Your work is the picture: for each beat the operations that show",
-  "what is being said (a drawing built and revealed step by step, a graph, a define card, a question on",
+  "what is being said (a sketch or preset built and revealed step by step, a graph, a define card, a question on",
   "the stage when the transcript asks the class one, then the answer; work lines for each step of a problem as it",
   "is said; the problem op when a problem is read out). The length, the examples and the questions are already in",
   "the transcript; the checks on them follow from it.",

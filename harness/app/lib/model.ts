@@ -732,7 +732,6 @@ async function viaOpenRouter(
   }
   // The book's figures, redrawn as SVG by the model (figures.ts) while the transcript is written; the script
   // writer is told about them once they are done (stage 2). PANIM_SVG_FIGURES=0 builds them in Manim as before.
-  let drawn: Record<string, Drawn> | undefined;
   let drawingCost = 0;
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
@@ -1003,7 +1002,7 @@ async function viaOpenRouter(
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
-  drawn = await drawing;
+  const drawn: Record<string, Drawn> | undefined = await drawing;
   if (drawingCost) costUsd += drawingCost;
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
   // Figures drawn as SVG are described by their parts; only the others go to the model as pictures.

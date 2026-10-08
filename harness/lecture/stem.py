@@ -683,14 +683,18 @@ def curve_samples(points, per_curve: int = 8):
     return curve.reshape(-1, 3)[:, :2]
 
 
-def _settle_labels(mobs, box, gap: float = 0.06) -> None:
+def _settle_labels(mobs, box, gap: float = 0.06, backing=None) -> list:
     """Move each label that sits on a line, on a filled part or on another label to the nearest clear spot
-    around where it was put (up to about a label's size away), and keep it inside the box."""
+    around where it was put (up to about a label's size away), and keep it inside the box.
+
+    With `backing` (the board's colour), a label that no clear spot was found for gets a patch of the board behind
+    it, so the line under it stops short of the words instead of running through them. Returns the labels that
+    still sit on a line (backed or not)."""
     import numpy as np
 
     labels, ink = _labels_and_ink(mobs)
     if not labels:
-        return
+        return []
     parts = [curve_samples(part.points, 24) for part in ink if len(part.points) >= 2]
     # Whose each label and shape is, and the bodies (a ball, a block) another element's label must not sit in.
     owner = {}
@@ -706,6 +710,7 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
     cx, cy, w, h = box
     lo_x, hi_x, lo_y, hi_y = cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2
     placed = []
+    crossing = []
 
     def box_of(centre, lab):
         return (centre[0] - lab.width / 2 - gap, centre[1] - lab.height / 2 - gap,
@@ -755,6 +760,26 @@ def _settle_labels(mobs, box, gap: float = 0.06) -> None:
                 break
         lab.move_to([best[0], best[1], 0])
         placed.append(box_of(best, lab))
+        b = box_of(best, lab)
+        if any(((pts[:, 0] > b[0]) & (pts[:, 0] < b[2]) & (pts[:, 1] > b[1]) & (pts[:, 1] < b[3])).any()
+               for pts in parts):
+            crossing.append(lab)
+            if backing is not None:
+                _back(lab, backing)
+    return crossing
+
+
+def _back(label, colour) -> None:
+    """A patch of the board behind a label (part of it: it moves, fades and is revealed with it)."""
+    from manim import RoundedRectangle
+
+    if getattr(label, "backed", False):
+        return
+    patch = RoundedRectangle(corner_radius=0.06, width=label.width + 0.14, height=label.height + 0.1, stroke_width=0,
+                             fill_color=colour, fill_opacity=1).move_to(label.get_center())
+    patch.is_backing = True
+    label.add_to_back(patch)
+    label.backed = True
 
 
 def _light(colour) -> bool:
@@ -1125,6 +1150,7 @@ class BoardMixin:
         """Draw the elements into `box`; record them for reveal and focus. Returns what shows now. `movable`: parts
         a motion will move, drawn as objects of their own (_show_movable) rather than in the picture, which the
         program draws as one piece: moved out of it, a part left its copy behind."""
+        import pocket_lecture as pl
         from manim import VGroup
 
         to, s = self._mapper(elements, box)
@@ -1150,7 +1176,7 @@ class BoardMixin:
             first.append(mob)          # in the script's order: a part listed later is drawn over one before
         # Every part, shown now or later, is laid out together: a label clear of every line and label, and
         # the whole drawing, labels included, inside its box.
-        _settle_labels(built, box)
+        _settle_labels(built, box, backing=pl.P.BG)
         before = _bounds(built)
         _fit_into(built, box)
         after = _bounds(built)
@@ -1844,7 +1870,7 @@ class BoardMixin:
                     if type(part).__name__ == "Text":
                         part.is_label = True
             nodes[str(i.get("id") or f"_{k}")] = VGroup(*parts)
-        _settle_labels([axes, xl, yl, *nodes.values()], box)
+        _settle_labels([axes, xl, yl, *nodes.values()], box, backing=pl.P.BG)
         _fit_into([axes, xl, yl, *nodes.values()], box)
         shown = set(nodes if spec.get("show") is None else [str(x) for x in spec["show"]])
         functions = {str(i.get("id") or f"_{k}"): (fns[id(i)], i) for k, i in enumerate(items) if id(i) in fns}

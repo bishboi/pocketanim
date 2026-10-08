@@ -1544,8 +1544,8 @@ export default function Home() {
               <CardContent className="flex flex-col gap-3 text-sm">
                 {!!exported.blockers?.length && (
                   <ul className="list-inside list-disc text-amber-300">
-                    {exported.blockers.map((b) => (
-                      <li key={b}>{b}</li>
+                    {exported.blockers.map((b, i) => (
+                      <li key={`${i}:${b}`}>{b}</li>
                     ))}
                   </ul>
                 )}
@@ -1554,8 +1554,8 @@ export default function Home() {
                     {exported.skipped.length} picture{exported.skipped.length > 1 ? "s" : ""} could not be drawn and
                     {exported.skipped.length > 1 ? " were" : " was"} left out; the narration plays on:
                     <ul className="mt-1 list-inside list-disc text-amber-200/90">
-                      {exported.skipped.slice(0, 8).map((s) => (
-                        <li key={s}>{s}</li>
+                      {exported.skipped.slice(0, 8).map((s, i) => (
+                        <li key={`${i}:${s}`}>{s}</li>
                       ))}
                     </ul>
                   </div>

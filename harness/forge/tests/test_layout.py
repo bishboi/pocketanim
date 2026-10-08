@@ -321,3 +321,104 @@ def test_an_empty_animation_group_does_not_stop_the_render(tmp_path):
     assert pl._playable(AnimationGroup(AnimationGroup())) is None
     kept = pl._playable(AnimationGroup(AnimationGroup(), FadeIn(Square()), lag_ratio=0.5))
     assert len(kept.animations) == 1 and kept.lag_ratio == 0.5
+
+
+def _crosses(label, mobs) -> bool:
+    """Whether a line or shape outline of `mobs` runs through the label's box (its own backing patch aside)."""
+    import stem
+
+    left, bottom = label.get_corner([-1, -1, 0])[:2]
+    right, top = label.get_corner([1, 1, 0])[:2]
+    own = {id(m) for m in label.get_family()}
+    for mob in mobs:
+        for part in mob.family_members_with_points():
+            if id(part) in own or len(part.points) < 2:
+                continue
+            if part.get_stroke_opacity() == 0 and part.get_fill_opacity() == 0:
+                continue                              # an invisible anchor, not a line on the board
+            pts = stem.curve_samples(part.points, 24)
+            if ((pts[:, 0] > left) & (pts[:, 0] < right) & (pts[:, 1] > bottom) & (pts[:, 1] < top)).any():
+                return True
+    return False
+
+
+SVG_LABELS_ON_LINES = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400">
+<g id="wire"><line x1="50" y1="200" x2="750" y2="200" stroke="INK" stroke-width="5"/>
+<text x="400" y="208" font-size="28" fill="INK" text-anchor="middle">wire</text></g>
+<g id="box"><rect x="300" y="60" width="200" height="80" fill="none" stroke="ROSE" stroke-width="4"/>
+<text x="300" y="70" font-size="26" fill="ROSE" text-anchor="middle">block</text>
+<animateTransform attributeName="transform" type="translate" values="0 0; 60 0; 0 0" dur="2s"
+ repeatCount="indefinite" additive="sum"/></g>
+<g id="a"><text x="400" y="300" font-size="28" fill="GOLD" text-anchor="middle">overlap one</text></g>
+<g id="b"><text x="410" y="305" font-size="28" fill="GREEN" text-anchor="middle">overlap two</text></g>
+</svg>"""
+
+
+def test_an_svgs_labels_are_set_clear_of_its_lines_and_of_each_other(tmp_path):
+    import pocket_lecture as pl
+
+    _board_scene()
+    path = tmp_path / "bad.svg"
+    path.write_text(SVG_LABELS_ON_LINES)
+    drawing = pl.board_svg(str(path), 8.0, 5.0)
+    labels = [mob for _, mob, *_ in drawing.labels]
+    shapes = [m for m in drawing.family_members_with_points() if not any(m in lab.get_family() for lab in labels)]
+    for lab in labels:
+        assert getattr(lab, "backed", False) or not _crosses(lab, shapes), lab
+    one, two = labels[2], labels[3]
+    apart_x = one.get_right()[0] <= two.get_left()[0] or two.get_right()[0] <= one.get_left()[0]
+    apart_y = one.get_top()[1] <= two.get_bottom()[1] or two.get_top()[1] <= one.get_bottom()[1]
+    assert apart_x or apart_y
+    # The moving part's label keeps its new place through the motion's loop.
+    where = [lab.get_center().copy() for lab in labels]
+    drawing.show(0.5)
+    drawing.show(0.0)
+    assert all(abs(lab.get_center() - w).max() < 1e-6 for lab, w in zip(labels, where))
+
+
+def test_a_label_with_nowhere_clear_gets_a_patch_of_board_behind_it():
+    import pocket_lecture as pl
+    import stem
+    from manim import Line, VGroup
+
+    _board_scene()
+    # Lines every 0.15 across a field far wider than a label moves: it cannot get clear, so the lines stop short
+    # of its words (a patch of the board behind them) instead of running through them.
+    grid = VGroup(*[Line([-4, y, 0], [4, y, 0]) for y in [k * 0.15 for k in range(-20, 21)]])
+    label = pl.T("trapped", 26, pl.P.CREAM).move_to([0, 0.07, 0])
+    label.is_label = True
+    crossing = stem._settle_labels([grid, label], (0.0, 0.0, 8.0, 6.0), backing=pl.P.BG)
+    assert crossing == [label] and getattr(label, "backed", False)
+    patch = label.submobjects[0]
+    assert getattr(patch, "is_backing", False) and patch.get_fill_color().to_hex().lower() == str(pl.P.BG).lower()
+    assert patch.width > label.submobjects[1].width     # behind the whole word
+
+
+def test_a_diagrams_arrow_words_sit_clear_of_the_other_arrows():
+    scene = _board_scene()
+    nodes = [{"id": i, "label": i} for i in ("Sun", "Plant", "Deer", "Tiger")]
+    edges = [["Sun", "Plant", "light energy"], ["Plant", "Deer", "eaten by"], ["Deer", "Tiger", "eaten by"],
+             ["Sun", "Deer", "warmth"]]
+    scene.diagram("chain", "flow", nodes, edges)
+    d = scene.diagrams["chain"]
+    words = [edge[-1] for _, _, edge in d["edges"] if getattr(edge[-1], "is_label", False)]
+    assert words
+    for word in words:
+        others = [*d["nodes"].values(), *[e[0] for _, _, e in d["edges"]]]
+        assert getattr(word, "backed", False) or not _crosses(word, others)
+
+
+def test_a_name_with_no_drawing_is_not_reported_and_a_report_is_made_once():
+    import pocket_lecture as pl
+
+    scene = _board_scene()
+    pl.SKIPPED.clear()
+    for _ in range(3):
+        scene._entity("zzqx thing", 1.0, motion="auto")
+    assert pl.SKIPPED == []                     # no drawing at all: the node's name carries it, nothing to report
+    for _ in range(3):
+        pl.skipped("a drawing of 'x' holds still: ValueError: bad")
+    assert pl.SKIPPED == ["a drawing of 'x' holds still: ValueError: bad"]
+    pl.SKIPPED.clear()
+    # The thing named last is drawn: a rice plant is a plant.
+    assert "plant" in pl.drawing_source("rice plant")[1]

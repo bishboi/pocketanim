@@ -363,6 +363,10 @@ def _ink_svg(text: str, ink: str) -> str:
 USED_DRAWINGS: set[str] = set()
 
 
+_VAGUE_NOUNS = {"thing", "things", "part", "parts", "item", "items", "object", "objects", "stuff", "type", "types",
+                "kind", "kinds", "one", "ones", "way", "ways", "idea", "process", "system", "step", "stage", "example"}
+
+
 def drawing_source(name: str):
     """(SVG path, id) of the drawing for a name: a Bioicons science drawing ("bioicons:..."), an open-library
     illustration ("coco:...", "arcadia:...", "clip:...", drawlib.py), or for a plain word the library illustration of it, and
@@ -384,6 +388,20 @@ def drawing_source(name: str):
             USED_DRAWINGS.add(found)
             return drawlib.file(found), found
     icon_id = icons.sketch(text)
+    if icon_id is None and ":" not in text and " " in text.strip():
+        # "rice plant", "wheat field": the thing named last is what is drawn (a plant, a field), unless it is a word
+        # for anything at all ("thing", "part").
+        words = re.findall(r"[A-Za-z]{3,}", text)
+        head = words[-1].lower() if words else ""
+        if head and head not in _VAGUE_NOUNS:
+            found = drawlib.best(head)
+            if found:
+                USED_DRAWINGS.add(found)
+                return drawlib.file(found), found
+            hit = icons.sketch(head)
+            # Only a drawing OF it ("potted-plant" for plant), not one that merely starts with it ("field-hockey").
+            if hit and hit.split(":", 1)[-1].split("-")[-1] in {head, head.rstrip("s"), f"{head}s"}:
+                icon_id = hit
     if icon_id is None:
         raise KeyError(f"no drawing for {name!r}")
     USED_ICONS.add(icon_id)
@@ -392,6 +410,12 @@ def drawing_source(name: str):
 
 # Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
 SKIPPED: list[str] = []
+
+
+def skipped(message: str) -> None:
+    """Report a picture left out, once: a drawing used on every node of a diagram is one problem, not ten."""
+    if message not in SKIPPED:
+        SKIPPED.append(message)
 
 
 def _playable(anim):
@@ -455,10 +479,32 @@ def board_svg(path, width: float, height: float):
         return T(words, 30, colour, weight=BOLD if bold else NORMAL)
 
     drawing = animsvg.make(text, height=height, strokes=True, label=label)
+    settle_svg_labels(drawing)
     if drawing.width > width - 0.3:
         # Drawn again at the size it will be: its line widths are set for the size it is drawn at.
         drawing = animsvg.make(text, height=height * (width - 0.3) / drawing.width, strokes=True, label=label)
+        settle_svg_labels(drawing)
     return drawing
+
+
+def settle_svg_labels(drawing) -> list:
+    """An SVG's labels as the board sets them: in the lecture's font they come out a little wider than the drawing
+    planned, and may run onto a line or a shape. Each is moved to the nearest clear spot (stem._settle_labels), a
+    patch of the board put behind one that has none, and its new place kept for when its part moves. Returns the
+    labels still on a line, for svgcheck.py to send back."""
+    import stem
+
+    labels = getattr(drawing, "labels", None)
+    if not labels:
+        return []
+    for _, mob, *_ in labels:
+        mob.is_label = True
+    parts, rest = drawing.parts()
+    b = drawing.get_center(), drawing.width, drawing.height
+    crossing = stem._settle_labels([*parts.values(), *rest], (b[0][0], b[0][1], b[1] + 0.2, b[2] + 0.2), gap=0.1,
+                                   backing=P.BG)
+    drawing.keep_labels_where_they_are()
+    return crossing
 
 
 def animated_mob(name: str, height: float = 0.9, motion: str | None = None):
@@ -1345,7 +1391,7 @@ class Lecture(Scene):
             frames = traceback.extract_tb(error.__traceback__)
             where = f" (at {Path(frames[-1].filename).name}:{frames[-1].lineno})" if frames else ""
             message = f"{what}: {type(error).__name__}: {str(error)[:200]}{where}"
-            SKIPPED.append(message)
+            skipped(message)
             print("picture skipped:", message, file=sys.stderr)
             self._log("skipped", what=what, error=message)
             return None
@@ -2117,8 +2163,10 @@ class Lecture(Scene):
                 moving = animated_mob(str(name), height=height, motion=motion)
                 if moving is not None:
                     return moving
+            except KeyError:
+                pass                          # no drawing of it at all: the node's name carries it (below)
             except Exception as error:  # noqa: BLE001 -- the still drawing will do
-                SKIPPED.append(f"a drawing of {name!r} holds still: {type(error).__name__}: {error}"[:300])
+                skipped(f"a drawing of {name!r} holds still: {type(error).__name__}: {error}"[:300])
         try:
             return sketch_mob(str(name), height=height)
         except Exception:  # noqa: BLE001 -- no drawing for it (or none downloaded): the label carries the node
@@ -2250,12 +2298,20 @@ class Lecture(Scene):
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
                 label.move_to(arrow.get_center() + side)
+                label.is_label = True         # stem._settle_labels moves it off another arrow or a node
             edge = VGroup(arrow, *([label] if label else []))
             if flow and arrow.get_length() > 0.55:          # (before the fit to the stage, about x1.5)
                 edge.flow = self._flow_dots(arrow)
                 edge.add(edge.flow)
             arrows.append((a, b, edge))
         whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
+        if any(len(e) > 2 and e[2] for e in edges):
+            import stem
+
+            # An arrow's words beside it, clear of the other arrows and the nodes they join (before the fit).
+            stem._settle_labels([*mobs.values(), *[m for _, _, m in arrows]],
+                                (whole.get_center()[0], whole.get_center()[1], whole.width + 0.6, whole.height + 0.6),
+                                backing=P.BG)
         head = None
         if title:
             head = fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4)

@@ -273,7 +273,9 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     let reply;
     try {
       const png = (await readFile(good.check.preview)).toString("base64");
-      messages.push({ role: "user", content: [{ type: "text", text: REVIEW_PROMPT },
+      // What the board had to work around (a label it could only set over a line) is said, not just shown.
+      const noted = good.check.warnings?.length ? `\n\nThe board also found:\n- ${good.check.warnings.join("\n- ")}` : "";
+      messages.push({ role: "user", content: [{ type: "text", text: REVIEW_PROMPT + noted },
         { type: "image_url", image_url: { url: `data:image/png;base64,${png}` } }] });
       reply = await ask(options.key, options.model, messages, options.signal);
     } catch (error) {

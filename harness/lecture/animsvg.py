@@ -1014,6 +1014,22 @@ class AnimatedDrawing(_VGroup):
                 # A stroke as wide, against the drawing, as in the SVG: user units -> Manim's (1/100 of a unit).
                 leaf.set_stroke(width=width * z * 100 * abs(np.linalg.det(m[:2, :2])) ** 0.5, family=False)
 
+    def keep_labels_where_they_are(self) -> None:
+        """After the labels were moved on the board (pocket_lecture.settle_svg_labels): each keeps its new place
+        against its point, so a moving part carries it from there."""
+        if not getattr(self, "labels", None):
+            return
+        scale, offset = self._to_scene()
+        unit = abs(scale[0]) or 1.0
+        state = self.doc.state(0.0)
+        kept = []
+        for el, mob, at, rel, moving in self.labels:
+            m = self.doc.ctm(el, state) @ np.linalg.inv(self.doc.static_ctm(el))
+            point = m @ np.array([at[0], at[1], 1.0])
+            expected = point[:2] * scale + offset + rel * unit
+            kept.append((el, mob, at, rel + (mob.get_center()[:2] - expected) / unit, moving))
+        self.labels = kept
+
     def _move_labels(self, state: dict, first: bool) -> None:
         scale, offset = self._to_scene()
         unit = abs(scale[0])

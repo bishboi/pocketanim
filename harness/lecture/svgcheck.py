@@ -148,6 +148,14 @@ def main() -> int:
                     result["errors"].append(f"labels overlap: {'; '.join(clash[:4])}. Move them apart (or shorten "
                                             "them) so each sits clear beside what it names")
                     result["ok"] = False
+                # Labels the board could not move clear of a line: shown on a patch of the board, but the drawing
+                # should leave them room (figures.ts puts this in the look-and-fix round).
+                crossed = [" ".join("".join(el.itertext()).split()) for el, mob, *_ in getattr(drawing, "labels", [])
+                           if getattr(mob, "backed", False)]
+                if crossed:
+                    result.setdefault("warnings", []).append(
+                        f"labels on a line or a shape: {', '.join(repr(c) for c in crossed[:6])}. Give each room "
+                        "beside what it names, clear of every line and arrow (a thin leader line if it must sit apart)")
                 if figure.get("preview"):
                     preview(drawing, figure["preview"])
                     result["preview"] = figure["preview"]

@@ -324,8 +324,9 @@ export async function drawFigures(
     signal?: AbortSignal;
     onStatus?: (text: string) => void;
     onCost?: (usd: number) => void;
-    /** Each figure as soon as it is settled (found drawn, drawn, or not), for a caller that will not wait for all. */
-    onDrawn?: (id: string, drawn: Drawn) => void;
+    /** Each figure as soon as it is settled (found drawn, drawn, or not), for a caller that will not wait for all;
+     * `kept` when it was drawn by an earlier run (and cost nothing now). */
+    onDrawn?: (id: string, drawn: Drawn, kept: boolean) => void;
   },
 ): Promise<Record<string, Drawn>> {
   const out: Record<string, Drawn> = {};
@@ -336,7 +337,7 @@ export async function drawFigures(
       const kept = JSON.parse(await readFile(meta, "utf8"));
       if (kept.version === DRAWING_VERSION && (kept.photo || kept.manim || (kept.svg && existsSync(kept.svg)))) {
         out[figure.id] = kept;
-        options.onDrawn?.(figure.id, kept);
+        options.onDrawn?.(figure.id, kept, true);
         continue;
       }
     } catch {
@@ -378,7 +379,7 @@ export async function drawFigures(
         drawn = { failed: String(error instanceof Error ? error.message : error).slice(0, 200) };
       }
       out[figure.id] = drawn;
-      options.onDrawn?.(figure.id, drawn);
+      options.onDrawn?.(figure.id, drawn, false);
       if (!drawn.failed) {
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }

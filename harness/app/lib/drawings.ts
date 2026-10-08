@@ -52,6 +52,8 @@ export type DrawOptions = {
   signal?: AbortSignal;
   onStatus?: (text: string) => void;
   onCost?: (usd: number) => void;
+  /** A picture newly drawn as SVG (one from the cache is not counted). */
+  onDrawn?: () => void;
 };
 
 /** Where a picture's drawing is kept: named by what it shows. */
@@ -102,6 +104,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
   if (!made.svg || !made.check) return { error: made.error ?? "the SVG did not pass the board's checks" };
   await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: made.check.parts,
     animated: !!made.check.animated }), "utf8");
+  options.onDrawn?.();
   return { svg: file };
 }
 

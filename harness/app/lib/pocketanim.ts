@@ -132,6 +132,8 @@ export type ExportResult = {
   error?: string;
   /** A mixed narration track the scene's own add_sound calls produced. */
   narration?: { file: string; clips: number; seconds: number };
+  /** Illustrations an image model drew during the build (illustrations.ai), and what they cost. */
+  ai_images?: { count: number; usd: number };
 };
 
 function quietStderr(stderr: string): string {

@@ -221,7 +221,7 @@ def storyweaver(query: str, limit: int = 6) -> list[dict]:
 
 
 # ---------------- an AI illustration, last ----------------
-AI_MADE = {"count": 0}
+AI_MADE = {"count": 0, "usd": 0.0}
 
 
 def ai_enabled() -> bool:
@@ -248,7 +248,7 @@ def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
     prompt = (f"An educational illustration of {query}, {look}. Accurate, simple, uncluttered, suitable for a "
               "school lesson. No words, letters, numbers or labels anywhere in the image. No real, identifiable people.")
     url = os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
-    body = json.dumps({"model": model, "modalities": ["image", "text"],
+    body = json.dumps({"model": model, "modalities": ["image", "text"], "usage": {"include": True},
                        "messages": [{"role": "user", "content": prompt}]}).encode()
     import urllib.request
 
@@ -264,8 +264,12 @@ def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
         return []
     CACHE.mkdir(parents=True, exist_ok=True)
     target.write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
+    # What it cost (OpenRouter's usage), for the lecture's bill: on the row for the caller, and added up here
+    # for a build (export_scene.py reports it).
+    usd = float((reply.get("usage") or {}).get("cost") or 0.0)
     AI_MADE["count"] += 1
-    return [row]
+    AI_MADE["usd"] += usd
+    return [{**row, "usd": usd, "made": True}]
 
 
 # ---------------- all of them ----------------
@@ -311,6 +315,7 @@ def reset() -> None:
     """Forget the local collections (after a download) and the AI budget (a new lecture)."""
     _collections.cache_clear()
     AI_MADE["count"] = 0
+    AI_MADE["usd"] = 0.0
 
 
 if __name__ == "__main__":

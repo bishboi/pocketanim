@@ -5,6 +5,7 @@
  * never given a rendered frame, so it cannot revise from the picture.
  */
 
+import type { Costs } from "./costs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
@@ -18,6 +19,8 @@ export type AgentEvent = {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  /** The cost so far, task by task (lib/costs.ts), with each usage event. */
+  costs?: Costs;
   source?: string;
   model?: string;
   /** A lecture made as more than one video (lib/parts.ts): each part's title, length and scene. */

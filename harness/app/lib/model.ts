@@ -11,6 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
+import { CostLedger } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
@@ -704,6 +705,8 @@ type Kept = {
   source?: string;
   minutes?: number;
   options?: () => Parameters<typeof compileLecture>[1];
+  /** The generation's cost ledger, for the repair after it and the done event. */
+  ledger?: CostLedger;
 };
 
 async function viaOpenRouter(
@@ -743,11 +746,23 @@ async function viaOpenRouter(
   }
   // The book's figures, redrawn as SVG by the model (figures.ts) while the transcript is written; the script
   // writer is told about them once they are done (stage 2). PANIM_SVG_FIGURES=0 builds them in Manim as before.
-  let drawingCost = 0;
+  // What the lecture cost, task by task (lib/costs.ts); costUsd is its total. Both stages and the figures run at
+  // once, so every bill goes through the ledger and is sent with a usage event straight away.
+  const ledger = new CostLedger();
+  kept.ledger = ledger;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let costUsd = 0;
+  const sendCosts = (text: string) =>
+    emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot() });
+  const figureTally = { svg: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
+  const billImages = (usd: number, made: number) => {
+    costUsd = ledger.bill("images", usd, { items: made });
+    sendCosts(`${made} illustration${made > 1 ? "s" : ""} generated: $${usd.toFixed(4)}`);
+  };
   // Figures settled so far: stage 2 waits for them only so long (PANIM_FIGURE_WAIT_SECONDS), then goes on with
   // these; a figure drawn later is kept on disk for the next run, and this one rebuilds it in Manim.
   const figuresReady: Record<string, Drawn> = {};
-  let figuresLate = false;
   const drawingStarted = Date.now();
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
@@ -758,11 +773,22 @@ async function viaOpenRouter(
       python: python(),
       onStatus: (text) => emit({ type: "message", role: "status", text }),
       onCost: (usd) => {
-        if (figuresLate) costUsd += usd;
-        else drawingCost += usd;
+        costUsd = ledger.bill("figures", usd);
+        sendCosts(`book figure drawn: $${usd.toFixed(4)}`);
       },
-      onDrawn: (id, made) => {
+      onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
+        if (made.svg) figureTally[kept ? "kept" : "svg"] += 1;
+        else if (made.manim) figureTally.manim += 1;
+        else if (made.photo) figureTally.photo += 1;
+        else figureTally.failed += 1;
+        ledger.count("figures", made.svg && !kept ? 1 : 0, [
+          figureTally.kept ? `${figureTally.kept} drawn by an earlier run (free)` : "",
+          figureTally.manim ? `${figureTally.manim} built in Manim` : "",
+          figureTally.photo ? `${figureTally.photo} photograph${figureTally.photo > 1 ? "s" : ""}` : "",
+          figureTally.failed ? `${figureTally.failed} not drawn` : "",
+        ].filter(Boolean).join(", "));
+        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? "a photograph" : "not drawn"}`);
       },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +
@@ -779,10 +805,6 @@ async function viaOpenRouter(
   const tools: ToolSpec[] = lecture
     ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL, EDIT_TOOL]
     : TOOLS;
-  // What the lecture cost, both stages together (they run at the same time).
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let costUsd = 0;
   // STAGE 1: the whole lecture as a teacher speaks it, section by section, at full length, before any picture.
   const written: WrittenSection[] = [];
   // Each section as it is written, for its video chapters to start on (stage 2), and the end of the transcript.
@@ -918,9 +940,8 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd += addedCost;
-        emit({ type: "usage", text: `transcript section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`,
-          inputTokens, outputTokens, costUsd });
+        costUsd = ledger.bill("transcript", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+        sendCosts(`transcript section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         // The section is whatever the reply wrote: the longest write_section text, whatever number it gave, or,
         // from a provider that answered in plain text instead of calling the tool, the reply itself.
         let title = "";
@@ -1027,8 +1048,6 @@ async function viaOpenRouter(
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
   const drawn = await figuresWithin(drawing, figuresReady, drawingStarted, (text) =>
     emit({ type: "message", role: "status", text }));
-  figuresLate = true;
-  if (drawingCost) costUsd += drawingCost;
   mark("figures ready");
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
   // Figures drawn as SVG are described by their parts; only the others go to the model as pictures.
@@ -1125,7 +1144,11 @@ async function viaOpenRouter(
     repo: REPO,
     python: python(),
     onStatus: (text: string) => emit({ type: "message", role: "status", text }),
-    onCost: (usd: number) => { costUsd += usd; },
+    onCost: (usd: number) => {
+      costUsd = ledger.bill("drawings", usd);
+      sendCosts(`picture drawn: $${usd.toFixed(4)}`);
+    },
+    onDrawn: () => ledger.count("drawings", 1),
   } : undefined;
   const lectureOptions = () => ({
     draw: drawOptions,
@@ -1385,9 +1408,8 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd += addedCost;
-        emit({ type: "usage", text: `video section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`,
-          inputTokens, outputTokens, costUsd });
+        costUsd = ledger.bill("script", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+        sendCosts(`video section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         const calls = result.message.tool_calls ?? [];
         if (!calls.length) {
           // A script put in the reply text instead of the tool call is taken as if it had been sent with the tool.
@@ -1434,7 +1456,7 @@ async function viaOpenRouter(
           } else if (call.function.name === "find_drawing") {
             output = await findDrawings(args.queries);
           } else if (call.function.name === "find_illustration") {
-            output = await findIllustration(args.queries, subject?.genre);
+            output = await findIllustration(args.queries, subject?.genre, billImages);
           } else {
             output = "Only write_lecture and the find tools are available here.";
           }
@@ -1872,14 +1894,10 @@ async function viaOpenRouter(
     const addedCost = Number(result.usage?.cost ?? 0);
     inputTokens += addedIn;
     outputTokens += addedOut;
-    costUsd += addedCost;
-    emit({
-      type: "usage",
-      text: `turn ${turn + 1}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`,
-      inputTokens,
-      outputTokens,
-      costUsd,
-    });
+    // The whole-lecture turns after the sections were written: checking and fixing the script (for a plain scene,
+    // which has no sections, these turns write it).
+    costUsd = ledger.bill(lecture ? "fixes" : "script", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+    sendCosts(`turn ${turn + 1}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
 
     const text = result.message.content?.trim() ?? "";
     const calls = result.message.tool_calls ?? [];
@@ -2077,7 +2095,7 @@ async function viaOpenRouter(
       } else if (call.function.name === "find_drawing") {
         output = await findDrawings((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_illustration") {
-        output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre);
+        output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre, billImages);
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);
@@ -2424,6 +2442,10 @@ export async function generate(
           emit({ type: "delta", role: kind === "thinking" ? "thinking" : "assistant", text });
         },
       );
+      const repairCost = Number(repaired.usage?.cost ?? 0);
+      result.costUsd = kept.ledger ? kept.ledger.bill("fixes", repairCost, {
+        inputTokens: repaired.usage?.prompt_tokens ?? 0, outputTokens: repaired.usage?.completion_tokens ?? 0,
+      }) : result.costUsd + repairCost;
       const text = repaired.message.content?.trim() ?? "";
       if (!text) throw new Error(broken);
       result.source = exposeMapProject(sanitizeScene(enforceStyle(extractScene(text), template)));
@@ -2439,7 +2461,8 @@ export async function generate(
     model: result.model,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
-    costUsd: result.costUsd,
+    costUsd: kept.ledger ? kept.ledger.total : result.costUsd,
+    costs: kept.ledger?.snapshot(),
   });
   return result;
 }

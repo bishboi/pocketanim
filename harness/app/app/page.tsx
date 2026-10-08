@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
+import { CostBreakdown, versionTotal } from "@/components/cost-breakdown";
+import type { Costs } from "@/lib/costs";
 import type { SceneIR } from "@/lib/pocketanim";
 
 type ExportState = {
@@ -31,6 +33,10 @@ type ExportState = {
   /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
   voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
   narrationUrl?: string | null;
+  /** Illustrations an image model drew during the build, and what they cost. */
+  ai_images?: { count: number; usd: number };
+  /** How long speaking the lines and building the program took (seconds). */
+  timing?: { voiceSeconds: number; buildSeconds: number };
 };
 
 type TraceEvent = {
@@ -42,6 +48,8 @@ type TraceEvent = {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  /** The cost so far, task by task (lib/costs.ts). */
+  costs?: Costs;
   source?: string;
   model?: string;
   streaming?: boolean;
@@ -84,7 +92,11 @@ type Version = {
   /** The voice's cost for this version, added up over its builds (each line is paid for once, when spoken). */
   voiceUsd?: number;
   /** The whole lecture's voice, at the latest build: what its lines cost when they were spoken. */
-  voiceLecture?: { usd: number; lines: number; unknown: number };
+  voiceLecture?: { usd: number; lines: number; unknown: number; engine?: string };
+  /** What writing it cost, task by task (lib/costs.ts): transcript, script, fixes, SVGs, illustrations. */
+  costs?: Costs;
+  /** Its builds: how long the latest took, and the illustrations an image model drew while building. */
+  build?: { seconds: number; voiceSeconds: number; count: number; aiImages: number; aiUsd: number };
   exported?: ExportState;
   ir?: SceneIR | null;
   sceneClass?: string;
@@ -577,24 +589,35 @@ export default function Home() {
       }
     }, 1500) : null;
     let exported: ExportState;
-    // The voice's bill for this build goes on the version, whether the build then succeeds or not.
-    const billVoice = (cost?: ExportState["voiceCost"]) => {
-      if (!cost) return;
+    // The voice's bill for this build goes on the version, whether the build then succeeds or not; with it, how
+    // long the build took and the illustrations drawn while building.
+    const billBuild = (done?: ExportState) => {
+      if (!done) return;
+      const cost = done.voiceCost;
       setVersions((all) => all.map((v, i) => i === index ? {
         ...v,
-        voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
-        voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown },
+        ...(cost ? {
+          voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
+          voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown, engine: cost.engine },
+        } : {}),
+        build: {
+          seconds: done.timing?.buildSeconds ?? v.build?.seconds ?? 0,
+          voiceSeconds: done.timing?.voiceSeconds ?? v.build?.voiceSeconds ?? 0,
+          count: (v.build?.count ?? 0) + 1,
+          aiImages: (v.build?.aiImages ?? 0) + (done.ai_images?.count ?? 0),
+          aiUsd: (v.build?.aiUsd ?? 0) + (done.ai_images?.usd ?? 0),
+        },
       } : v));
     };
     try {
       exported = await build.exported;
     } catch (error) {
-      billVoice((error as { data?: ExportState }).data?.voiceCost);
+      billBuild((error as { data?: ExportState }).data);
       throw error;
     } finally {
       if (poll) clearInterval(poll);
     }
-    billVoice(exported.voiceCost);
+    billBuild(exported);
     if (lecture) setBusy("Building the program and the preview…");
     const played = exported.scene || sceneClass;
     let ir: SceneIR | null | undefined;
@@ -715,6 +738,7 @@ export default function Home() {
                     inputTokens: event.inputTokens ?? item.inputTokens,
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
+                    costs: event.costs ?? item.costs,
                   }
                 : item,
             ),
@@ -1277,6 +1301,13 @@ export default function Home() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
+                {(version.costs || version.costUsd || version.voiceLecture || version.build || version.part) && (() => {
+                  // A lecture made as several videos: the first part carries the writing, each part its voice and build.
+                  const series = version.part
+                    ? versions.filter((v) => v.n === version.n && v.part).sort((a, b) => (a.part?.index ?? 0) - (b.part?.index ?? 0))
+                    : [];
+                  return <CostBreakdown version={series[0] ?? version} series={series} />;
+                })()}
                 {(version.trace.length > 0 || busy) && (
                   <div
                     id="agent-log"
@@ -1285,19 +1316,12 @@ export default function Home() {
                   >
                     <p className="sticky top-0 bg-neutral-900 pb-1 text-neutral-400">
                       Agent log · {version.inputTokens ?? 0} in ·{" "}
-                      {version.outputTokens ?? 0} out · $
+                      {version.outputTokens ?? 0} out · writing $
                       {(version.costUsd ?? 0).toFixed(4)}
-                      {version.voiceUsd !== undefined && (
-                        <span
-                          data-testid="voice-cost"
-                          title={version.voiceLecture
-                            ? `The whole lecture's voice: $${version.voiceLecture.usd.toFixed(4)} for ${version.voiceLecture.lines} lines` +
-                              (version.voiceLecture.unknown ? ` (${version.voiceLecture.unknown} spoken before costs were kept)` : "") +
-                              ". A line is paid for once; a rebuild speaks only new or changed lines."
-                            : undefined}
-                        >
-                          {" "}· voice ${version.voiceUsd.toFixed(4)} · total $
-                          {((version.costUsd ?? 0) + version.voiceUsd).toFixed(4)}
+                      {version.voiceLecture !== undefined && (
+                        <span data-testid="voice-cost">
+                          {" "}· voice ${version.voiceLecture.usd.toFixed(4)} · total $
+                          {versionTotal(version).toFixed(4)}
                         </span>
                       )}
                       {busy ? ` · ${busy}` : ""}

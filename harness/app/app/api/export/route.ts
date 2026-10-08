@@ -25,6 +25,9 @@ export async function POST(request: NextRequest) {
     // The lines are spoken first, several at once, with progress the page polls (/api/progress); Manim then finds
     // each line ready instead of waiting for them one by one.
     const progress = progressFile(String(body?.jobId ?? ""));
+    // How long the voice and the build took, for the page's cost breakdown (the build itself runs here, free).
+    const started = Date.now();
+    let voiceSeconds = 0;
     let beats = 0;
     let voiceCost: VoiceCost | undefined;
     if (/pocket_lecture/.test(source)) {
@@ -36,13 +39,16 @@ export async function POST(request: NextRequest) {
       }
       beats = spoken.beats;
       voiceCost = spoken.voice;
+      voiceSeconds = (Date.now() - started) / 1000;
     }
+    const building = Date.now();
     const { result, buildDir } = await exportScene(source, sceneClass, progress);
     if (progress) await rm(progress, { force: true });
     // The video render (/api/video) counts its progress against this.
     if (beats) await writeFile(path.join(buildDir, "beats.json"), JSON.stringify({ beats }));
     const frames =
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
+    const timing = { voiceSeconds: Math.round(voiceSeconds), buildSeconds: Math.round((Date.now() - building) / 1000) };
 
     // Nothing is stored here: a lecture is saved when the user presses Save (/api/save, lib/store.ts).
 
@@ -69,7 +75,7 @@ export async function POST(request: NextRequest) {
         "server log has Google's message).";
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost });
+    return NextResponse.json({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

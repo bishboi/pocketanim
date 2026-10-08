@@ -267,3 +267,42 @@ def test_forge_leaves_out_figures_removed_on_the_upload_page(monkeypatch, tmp_pa
     _name, text, figures, _manifest = ingest.read_pdf(str(pdf), tmp_path, "s1", tmp_path / "out")
     assert [f["id"] for f in figures] == ["s1_fig1"]
     assert "[FIGURE s1_fig1: One]" in text and "fig2" not in text
+
+
+def test_an_ai_illustration_says_what_it_cost(monkeypatch, tmp_path):
+    """The image model's bill (OpenRouter's usage) comes back on the row and is added up for the build."""
+    import base64
+    import io
+    import json as _json
+    import urllib.request
+
+    import illustrations
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setattr(illustrations, "CACHE", tmp_path)
+    illustrations.reset()
+    asked = []
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 32).decode()
+
+    def fake(request, timeout=0):
+        asked.append(_json.loads(request.data))
+        reply = {"choices": [{"message": {"images": [{"image_url": {"url": f"data:image/png;base64,{png}"}}]}}],
+                 "usage": {"cost": 0.039}}
+        return io.BytesIO(_json.dumps(reply).encode())
+
+    class Opened(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: Opened(fake(request).read()))
+    rows = illustrations.ai("a leaf in cross section")
+    assert rows and rows[0]["usd"] == 0.039 and rows[0]["made"]
+    assert asked[0]["usage"] == {"include": True}
+    assert illustrations.AI_MADE == {"count": 1, "usd": 0.039}
+    again = illustrations.ai("a leaf in cross section")        # drawn already: from the cache, free
+    assert again and "usd" not in again[0] and illustrations.AI_MADE["count"] == 1
+    illustrations.reset()
+    assert illustrations.AI_MADE == {"count": 0, "usd": 0.0}

@@ -401,7 +401,7 @@ def test_a_diagrams_arrow_words_sit_clear_of_the_other_arrows():
              ["Sun", "Deer", "warmth"]]
     scene.diagram("chain", "flow", nodes, edges)
     d = scene.diagrams["chain"]
-    words = [edge[-1] for _, _, edge in d["edges"] if getattr(edge[-1], "is_label", False)]
+    words = [part for _, _, edge in d["edges"] for part in edge.submobjects if getattr(part, "is_label", False)]
     assert words
     for word in words:
         others = [*d["nodes"].values(), *[e[0] for _, _, e in d["edges"]]]
@@ -422,3 +422,13 @@ def test_a_name_with_no_drawing_is_not_reported_and_a_report_is_made_once():
     pl.SKIPPED.clear()
     # The thing named last is drawn: a rice plant is a plant.
     assert "plant" in pl.drawing_source("rice plant")[1]
+
+
+def test_a_ring_of_big_drawings_leaves_room_for_every_arrow():
+    scene = _board_scene()
+    nodes = [{"id": "s", "label": "Sun heats the sea", "entity": "sun"}, {"id": "c", "label": "Vapour forms clouds",
+             "entity": "cloud"}, {"id": "r", "label": "Rain falls", "entity": "rain"},
+             {"id": "v", "label": "Rivers run back", "entity": "boat"}]
+    scene.diagram("w", "cycle", nodes)
+    lengths = [edge[0].get_length() for _, _, edge in scene.diagrams["w"]["edges"]]
+    assert len(lengths) == 4 and min(lengths) > 0.5, lengths     # rain -> rivers was 0.05 long: never seen

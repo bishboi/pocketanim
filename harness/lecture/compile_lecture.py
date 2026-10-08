@@ -364,7 +364,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
                  if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
-    warnings += _bare_stretches(script)
+    e, w = _bare_stretches(script)
+    errors += e
+    warnings += w
     e, w = _plain_language(script)
     errors += e
     warnings += w
@@ -1257,23 +1259,43 @@ def _map_chapter(chapter: dict, has_region: bool) -> bool:
                for b in chapter.get("beats") or [] for op in b.get("do") or [])
 
 
-def _bare_stretches(script: dict) -> list[str]:
-    """Advice: long runs of beats in a map-less chapter with no picture."""
-    out = []
+BARE_OPENING = 3         # beats a chapter may open with before something is on the stage (an error)
+
+
+def _bare_stretches(script: dict) -> tuple[list[str], list[str]]:
+    """(errors, warnings) about beats with nothing on the stage. A picture stays up until the next one (a chapter's
+    map, its diagrams, its figures), so the stage is only ever empty where a chapter opens without one: three beats
+    of that (half a minute of an empty board) is an error. Long runs that go on talking over the same picture are
+    advice."""
+    errors, warnings = [], []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
         if _map_chapter(chapter, bool(script.get("region"))):
             continue
+        beats = chapter.get("beats") or []
+        opening = 0
+        for beat in beats:
+            if any(op.get("op") in VISUAL_OPS | WORK_OPS or op.get("op") == "manim" for op in beat.get("do") or []):
+                break
+            opening += 1
+        # Only where the writer draws the pictures (sciences, mathematics): elsewhere the compiler puts up photos
+        # of what a paragraph names (auto_visuals).
+        drawn_here = script.get("genre") in BOARD_GENRES or any(
+            op.get("op") in STEM_OPS | WORK_OPS for b in beats for op in b.get("do") or [])
+        if opening >= BARE_OPENING and drawn_here:
+            errors.append(f"chapter {ci} ({chapter.get('title', '')!r}): its first {opening} beats show nothing on "
+                          "the stage. Put up the chapter's first picture on its first beat (a diagram, a preset, a "
+                          "sketch, a graph, a figure, a define card), and build on it as the narration goes on")
         run = 0
-        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+        for bi, beat in enumerate(beats, 1):
             # Revealing more of a drawing, or adding to a worked solution, keeps the picture going.
             if any(op.get("op") in VISUAL_OPS | STEP_OPS | WORK_OPS for op in beat.get("do") or []):
                 run = 0
                 continue
             run += 1
-            if run == 4:
-                out.append(f"chapter {ci} beat {bi}: four beats without a picture; add a photo, a figure or an "
-                           "illustration (the compiler fills gaps with diagrams, but a chosen picture is better)")
-    return out
+            if run == 6:
+                warnings.append(f"chapter {ci} beat {bi}: six beats talking over the same picture; show the next "
+                                "thing being explained (a new diagram, or reveal more of this one)")
+    return errors, warnings
 
 
 FIGURE_STOP = set("""figure fig the and for with from this that shows show showing into over under between
@@ -1520,8 +1542,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     - else pictures of the people, communities and places it names (Wikipedia's picture of each; two or
       three together as a gallery);
     - else, only when the script sets "auto_illustrations": true, a fetched illustration of its topic;
-    - else nothing: the stage clears rather than keep the last paragraph's picture. The panel and the
-      narration carry it, and a diagram the writer builds is always better than a guessed image.
+    - else nothing new: the last paragraph's picture stays up (a board is never left empty mid-chapter), and a
+      diagram the writer builds is always better than a guessed image.
     The picture then holds through the paragraph.
     """
     import images
@@ -1530,7 +1552,6 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     lookups = SUBJECT_LOOKUPS * 2
     out: list[dict | None] = [None] * len(beats)
     is_map_op = is_map_op or _points_at_map
-    staged = False                  # something of the script's or ours is on the stage
     shown_molecules = {str(op.get("name")).lower() for b in beats for op in b.get("do") or []
                        if isinstance(op, dict) and op.get("op") == "molecule"}
     auto_molecules = 0
@@ -1538,10 +1559,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
         first = beats[group[0]]
         ops = first.get("do") or []
         if any(is_map_op(op) for op in ops):
-            staged = False          # the map is the picture (compile clears the stage for it)
-            continue
+            continue                # the map is the picture (compile clears the stage for it)
         if any(op.get("op") in VISUAL_OPS for op in ops):
-            staged = True
             continue
         text = " ".join(str(beats[i].get("say", "")) for i in group)
         pick = None
@@ -1602,10 +1621,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                     break
         if pick:
             out[group[0]] = pick
-            staged = True
-        elif staged:
-            out[group[0]] = {"op": "unstage"}       # a new paragraph: the last one's picture goes
-            staged = False
+        # Nothing new for this paragraph: the last picture stays up. Taking it down left the board empty while
+        # the teacher went on explaining it (every fifth beat of a long explanation, in sciences with no photos).
     return out
 
 
@@ -1982,6 +1999,71 @@ def _resolve_options(script: dict) -> None:
                     op["_index"] = _choice_index(choices, op.get("choice"))
 
 
+def _diagram_parts(op: dict) -> list[str] | None:
+    """The part ids of a picture an op puts up that "show" and reveal can name, or None when it has none."""
+    import stem
+
+    kind = op.get("op")
+    try:
+        if kind == "diagram":
+            return [str(n.get("id")) for n in op.get("nodes") or [] if isinstance(n, dict) and n.get("id")]
+        if kind == "draw":
+            return [str(p) for p in op.get("parts") or []]
+        if kind == "figure":
+            return [str(p) for p in (script_figures.get(str(op.get("id"))) or {}).get("parts") or []]
+        if kind == "graph":
+            return [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
+        if kind == "sketch" or kind in stem.PRESETS:
+            return list(stem.element_ids(stem.op_elements(op)))
+    except Exception:  # noqa: BLE001 -- a picture whose parts cannot be read is left as it is
+        return None
+    return None
+
+
+def _complete_reveals(script: dict) -> int:
+    """Parts of a picture its script never shows: a "show" that starts with some parts and reveals that never
+    name the others left them off the board for good (a force never drawn, a diagram's last node missing).
+    Each such part joins the picture's last reveal in its chapter, or, when nothing of it is ever revealed, the
+    whole picture is drawn at once. Returns how many parts were brought back."""
+    added = 0
+    for chapter in script.get("chapters") or []:
+        pictures: dict[str, tuple[dict, list[str]]] = {}
+        revealed: dict[str, set] = {}
+        last_reveal: dict[str, dict] = {}
+        for beat in chapter.get("beats") or []:
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                if op.get("op") == "reveal":
+                    key = str(op.get("diagram"))
+                    revealed.setdefault(key, set()).update(str(n) for n in op.get("nodes") or [])
+                    last_reveal[key] = op
+                    continue
+                # The picture an op puts up, under the name reveals use (a problem's figure is "<id>_figure").
+                holders = [(op, op.get("id"))]
+                if op.get("op") == "problem" and isinstance(op.get("figure"), dict):
+                    holders.append((op["figure"], f"{op.get('id')}_figure"))
+                for holder, key in holders:
+                    if not key or holder.get("show") is None:
+                        continue
+                    parts = _diagram_parts(holder)
+                    if parts:
+                        pictures[str(key)] = (holder, parts)
+                        revealed.pop(str(key), None)
+                        last_reveal.pop(str(key), None)
+        for key, (holder, parts) in pictures.items():
+            shown = {str(x) for x in holder.get("show") or []} | revealed.get(key, set())
+            missing = [p for p in parts if p not in shown]
+            if not missing:
+                continue
+            if key in last_reveal:
+                last_reveal[key]["nodes"] = [*(last_reveal[key].get("nodes") or []), *missing]
+            else:
+                holder.pop("show", None)            # nothing of it is ever revealed: all of it, at once
+            added += len(missing)
+    return added
+
+
 def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_path: str | None = None) -> str:
     """The Manim source for a script. Raises ValueError with the lint errors."""
     errors, _ = lint(script)
@@ -1999,6 +2081,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     _unneeded_motions(script, drop=True)
     _unneeded_molecules(script, drop=True)
     _resolve_motion(script)
+    _complete_reveals(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):
         place_figures(script)

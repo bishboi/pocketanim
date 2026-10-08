@@ -225,3 +225,36 @@ def test_a_diagram_moves_only_where_the_narration_says_it_moves():
     cl._unneeded_motions(script, drop=True)
     kept = [[op.get("op") for op in b["do"]] for b in script["chapters"][0]["beats"]]
     assert kept == [["incline"], [], ["motion"], ["motion"], [], ["motion"]]
+
+
+def test_a_picture_stays_up_while_it_is_explained_and_a_chapter_opens_with_one():
+    import compile_lecture as clx
+
+    talk = [{"say": f"More about the slope, point {k}."} for k in range(8)]
+    script = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
+        {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30}]}, *talk]}]}
+    # Eight beats explaining the same picture: it is not taken down halfway (the board went blank).
+    assert clx.auto_visuals(script["chapters"][0], genre="physics") == [None] * 9
+    assert "unstage" not in clx.compile_script(json.loads(json.dumps(script)))
+    # Three beats with nothing on the board at a chapter's start: sent back.
+    bare = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
+        *talk[:3], {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30}]}]}]}
+    assert any("first 3 beats show nothing" in e for e in clx.lint(bare)[0])
+    bare["chapters"][0]["beats"] = bare["chapters"][0]["beats"][1:]
+    assert not any("show nothing" in e for e in clx.lint(bare)[0])
+
+
+def test_a_part_never_revealed_is_brought_in_with_the_last_reveal():
+    import compile_lecture as clx
+
+    script = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
+        {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30, "forces": ["mg", "N"],
+                                                     "show": ["ground", "wedge", "theta", "block"]}]},
+        {"say": "Its weight pulls it down.", "do": [{"op": "reveal", "diagram": "r", "nodes": ["mg"]}]},
+        {"say": "A chain of who eats whom.", "do": [{"op": "diagram", "id": "d", "kind": "flow", "show": ["a"],
+                                                     "nodes": [{"id": "a", "label": "Grass"}, {"id": "b", "label": "Deer"}]}]},
+    ]}]}
+    assert clx._complete_reveals(script) == 2
+    beats = script["chapters"][0]["beats"]
+    assert beats[1]["do"][0]["nodes"] == ["mg", "N"]          # the normal force, never revealed, comes in with mg
+    assert "show" not in beats[2]["do"][0]                     # never revealed at all: the whole diagram is drawn

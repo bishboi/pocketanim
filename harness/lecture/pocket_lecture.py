@@ -2061,6 +2061,23 @@ class Lecture(Scene):
         self._fit_stage(parts, grow=1.4)
         return self._to_stage(Group(parts))
 
+    def _room_for_arrows(self, mobs: dict, edges, shortest: float = 0.75) -> None:
+        """Spread a diagram's nodes apart (their places, not their sizes) until every arrow between them has room to
+        be seen: a ring of four big drawings left the arrows between them a few hundredths long, so they were never
+        drawn. The diagram is fitted to the stage afterwards, so spreading it only makes the nodes a little smaller."""
+        pairs = [(mobs[str(e[0])], mobs[str(e[1])]) for e in edges
+                 if str(e[0]) in mobs and str(e[1]) in mobs and str(e[0]) != str(e[1])]
+        if not pairs:
+            return
+        centre = VGroup(*mobs.values()).get_center()
+        for _ in range(12):
+            gaps = [np.linalg.norm(end - start) * (1 if np.dot(end - start, b.get_center() - a.get_center()) > 0 else -1)
+                    for a, b in pairs for start, end in [self._edge_points(a, b)]]
+            if min(gaps) >= shortest:
+                return
+            for mob in mobs.values():
+                mob.shift((mob.get_center() - centre) * 0.15)
+
     @staticmethod
     def _edge_points(a, b):
         """Where an arrow between two boxes leaves one and meets the other."""
@@ -2283,6 +2300,7 @@ class Lecture(Scene):
             rows = [VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
                 RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8) for r in range(0, len(ids), per_row)]
             VGroup(*rows).arrange(DOWN, buff=0.7)
+        self._room_for_arrows(mobs, edges)
         arrows = []
         for e in edges:
             a, b = str(e[0]), str(e[1])

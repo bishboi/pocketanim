@@ -322,6 +322,8 @@ export async function drawFigures(
     signal?: AbortSignal;
     onStatus?: (text: string) => void;
     onCost?: (usd: number) => void;
+    /** Each figure as soon as it is settled (found drawn, drawn, or not), for a caller that will not wait for all. */
+    onDrawn?: (id: string, drawn: Drawn) => void;
   },
 ): Promise<Record<string, Drawn>> {
   const out: Record<string, Drawn> = {};
@@ -332,6 +334,7 @@ export async function drawFigures(
       const kept = JSON.parse(await readFile(meta, "utf8"));
       if (kept.version === DRAWING_VERSION && (kept.photo || kept.manim || (kept.svg && existsSync(kept.svg)))) {
         out[figure.id] = kept;
+        options.onDrawn?.(figure.id, kept);
         continue;
       }
     } catch {
@@ -373,6 +376,7 @@ export async function drawFigures(
         drawn = { failed: String(error instanceof Error ? error.message : error).slice(0, 200) };
       }
       out[figure.id] = drawn;
+      options.onDrawn?.(figure.id, drawn);
       if (!drawn.failed) {
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
@@ -396,4 +400,26 @@ export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
     return `${head} — drawn as SVG${drawn.animated ? ", it moves by itself" : ""}; parts: ${parts}`;
   }
   return `${head} — build it on the board (sketch, preset, graph, diagram) marked "from_figure":"${figure.id}"`;
+}
+
+/** How long stage 2 waits for the book's figures, from when their drawing began (PANIM_FIGURE_WAIT_SECONDS). */
+const FIGURE_WAIT_MS = Math.max(0, Number(process.env.PANIM_FIGURE_WAIT_SECONDS ?? 120)) * 1000;
+
+/**
+ * The book's figures once all are settled, or, if that takes longer than FIGURE_WAIT_MS, the ones settled by then
+ * (the rest are rebuilt in Manim on this run; their drawings are kept for the next).
+ */
+export async function figuresWithin(drawing: Promise<Record<string, Drawn> | undefined>, ready: Record<string, Drawn>,
+  started: number, onStatus: (text: string) => void): Promise<Record<string, Drawn> | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), Math.max(0, FIGURE_WAIT_MS - (Date.now() - started)));
+  });
+  const done = await Promise.race([drawing.then((all) => ({ all })), late]);
+  clearTimeout(timer);
+  if (done) return done.all;
+  const settled = { ...ready };
+  onStatus(`${Object.keys(settled).length} of the book's figures were ready in ${Math.round(FIGURE_WAIT_MS / 1000)} s; ` +
+    "the script goes on without waiting, and the rest are built in Manim this time (their drawings are kept for the next run).");
+  return Object.keys(settled).length ? settled : undefined;
 }

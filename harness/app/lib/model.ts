@@ -15,13 +15,13 @@ import { Template, explainWith, filmBrief, isLecture, layoutContract, templateBy
 import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
-import { drawFigures, type Drawn } from "./figures";
+import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { maxVideoMinutes, splitByTopics, splitLecture, topicPart } from "./parts";
 import { OPEN_CLOSE_MINUTES, planTopics, topicOf, topicLabel, type Topic } from "./topics";
 import { SECTION_TOOL, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
-import { REPO, python } from "./pocketanim";
+import { REPO, python, speakAhead } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -309,6 +309,13 @@ function cachedSystem(content: string, model: string): OutMessage {
   return { role: "system", content };
 }
 
+/** The messages as sent: a plain system prompt at the front marked for caching (the fix-up turns resend it each turn). */
+function withCachedSystem(messages: OutMessage[], model: string): OutMessage[] {
+  const first = messages[0];
+  if (first?.role !== "system" || typeof first.content !== "string") return messages;
+  return [cachedSystem(first.content, model), ...messages.slice(1)];
+}
+
 /** Items handed from one stage to the next as they are made: next() waits for one, null once it is closed. */
 class Queue<T> {
   private items: T[] = [];
@@ -486,7 +493,7 @@ async function streamCompletion(
     },
     body: JSON.stringify({
       model,
-      messages,
+      messages: withCachedSystem(messages, model),
       tools,
       tool_choice: toolChoice,
       stream: true,
@@ -706,6 +713,10 @@ async function viaOpenRouter(
   kept: Kept = {},
 ): Promise<Generated> {
   const key = process.env.OPENROUTER_API_KEY!;
+  // How long each stage took, from the start of the run, in the status stream.
+  const startedAt = Date.now();
+  const mark = (stage: string) =>
+    emit({ type: "message", role: "status", text: `[time] ${stage}: ${Math.round((Date.now() - startedAt) / 1000)} s` });
   // The transcript runs in the background of the video's chapters: when they fail, it stops too.
   let abandoned = false;
   const pageClosed = stopped;
@@ -733,6 +744,11 @@ async function viaOpenRouter(
   // The book's figures, redrawn as SVG by the model (figures.ts) while the transcript is written; the script
   // writer is told about them once they are done (stage 2). PANIM_SVG_FIGURES=0 builds them in Manim as before.
   let drawingCost = 0;
+  // Figures settled so far: stage 2 waits for them only so long (PANIM_FIGURE_WAIT_SECONDS), then goes on with
+  // these; a figure drawn later is kept on disk for the next run, and this one rebuilds it in Manim.
+  const figuresReady: Record<string, Drawn> = {};
+  let figuresLate = false;
+  const drawingStarted = Date.now();
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
       key: process.env.OPENROUTER_API_KEY ?? "",
@@ -741,7 +757,13 @@ async function viaOpenRouter(
       repo: REPO,
       python: python(),
       onStatus: (text) => emit({ type: "message", role: "status", text }),
-      onCost: (usd) => (drawingCost += usd),
+      onCost: (usd) => {
+        if (figuresLate) costUsd += usd;
+        else drawingCost += usd;
+      },
+      onDrawn: (id, made) => {
+        figuresReady[id] = made;
+      },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +
         "they are built on the board instead." });
@@ -993,6 +1015,7 @@ async function viaOpenRouter(
       emit({ type: "transcript", text: written.map((w) => `SECTION ${w.n}: ${w.title}\n\n${w.text}`).join("\n\n") });
       emit({ type: "message", role: "status",
         text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min).` });
+      mark("transcript written");
       for (const topic of topics) {
         if (!topic.title) topic.title = written.find((w) => w.n === topic.sections[0])?.title ?? "";
       }
@@ -1002,8 +1025,11 @@ async function viaOpenRouter(
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
-  const drawn: Record<string, Drawn> | undefined = await drawing;
+  const drawn = await figuresWithin(drawing, figuresReady, drawingStarted, (text) =>
+    emit({ type: "message", role: "status", text }));
+  figuresLate = true;
   if (drawingCost) costUsd += drawingCost;
+  mark("figures ready");
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
   // Figures drawn as SVG are described by their parts; only the others go to the model as pictures.
   const pictures = lecture && doc ? await figurePictures(doc, new Set(Object.keys(drawn ?? {}).filter(
@@ -1118,6 +1144,7 @@ async function viaOpenRouter(
   const compileWhole = async (script: unknown) => {
     const compiled = await compileWholeChecked(script);
     if (compiled.source) Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes });
+    mark(`whole lecture compiled${compiled.source ? "" : " (with faults)"}`);
     return compiled;
   };
   const compileWholeChecked = async (script: unknown) => {
@@ -1251,6 +1278,8 @@ async function viaOpenRouter(
         dropped ? `the ops of ${dropped} beat${dropped > 1 ? "s" : ""} that would not compile left out` : "",
       ].filter(Boolean).join("; ") + "." });
     }
+    // Its lines are final unless it is sent back: speak them now, while the other sections are written.
+    if (!errors.length && compiled.source && !usingFixture()) speakAhead(compiled.source);
     return { script: own, errors, compiles: !!compiled.source, dropped };
   };
 
@@ -1627,6 +1656,7 @@ async function viaOpenRouter(
     let first;
     try {
       first = await chaptersInParallel(writtenQueue, planned.length, new Map(), (done, missing) => startTopics(done, missing));
+      mark("chapters written");
       await settle();
       // Topics with a section the transcript could not write are finished with what they have.
       startTopics(first.done, first.missing, true);
@@ -1648,6 +1678,7 @@ async function viaOpenRouter(
     let first;
     try {
       first = await chaptersInParallel(writtenQueue, planned.length);
+      mark("chapters written");
       await settle();
     } catch (error) {
       abandoned = true;
@@ -2330,6 +2361,7 @@ export async function generate(
 ): Promise<Generated> {
   const template = templateById(request.templateId);
   const kept: Kept = {};
+  const startedAt = Date.now();
   const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
   // A long lecture as micro-lectures of 20-30 min: cut where its topics meet when it was written as a series
   // (topics.ts), else between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).
@@ -2342,8 +2374,11 @@ export async function generate(
         (byTopic.length ? `${parts.length} micro-lectures, one per topic` : `${parts.length} videos of up to ${maxVideoMinutes()} min`) +
         ` (${parts.map((p) => `${p.title}, ${Math.round(p.minutes)} min`).join("; ")}).` });
       const built = [];
-      for (const part of parts) {
-        const compiled = await compileLecture(part.script, kept.options());
+      // The parts compile at once (each is its own process); the first that fails keeps the lecture whole.
+      const options = kept.options();
+      const compiledParts = await Promise.all(parts.map((part) => compileLecture(part.script, options)));
+      for (const [i, part] of parts.entries()) {
+        const compiled = compiledParts[i];
         if (!compiled.source) {
           emit({ type: "message", role: "status", text: `Part ${part.index} did not compile on its own ` +
             `(${compiled.errors[0] ?? "no reason given"}); keeping the lecture as one video.` });
@@ -2396,6 +2431,7 @@ export async function generate(
       if (still) throw new Error(still);
     }
   }
+  emit({ type: "message", role: "status", text: `[time] script ready: ${Math.round((Date.now() - startedAt) / 1000)} s` });
   emit({
     type: "done",
     source: result.source,

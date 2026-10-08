@@ -212,7 +212,37 @@ export type VoiceCost = {
   engine: string;
 };
 
+/**
+ * Speaking ahead: while a lecture is still being written, each section that passes its checks is spoken in the
+ * background into the same cache (PANIM_SPEAK_AHEAD=0 turns it off), so the build finds most lines spoken. One
+ * pass runs at a time and only the newest waiting one is kept. Kept on globalThis: the build's route shares it.
+ */
+type Ahead = { running: Promise<void> | null; next: string | null };
+const ahead: Ahead = ((globalThis as { __panimSpeakAhead?: Ahead }).__panimSpeakAhead ??= { running: null, next: null });
+
+export function speakAhead(source: string): void {
+  if (process.env.PANIM_SPEAK_AHEAD === "0" || process.env.PANIM_VOICE === "silent") return;
+  ahead.next = source;
+  if (ahead.running) return;
+  ahead.running = (async () => {
+    for (let next = ahead.next; next; next = ahead.next) {
+      ahead.next = null;
+      await speak(next, null).catch(() => undefined);   // a line it could not speak is spoken again by the build
+    }
+  })().finally(() => {
+    ahead.running = null;
+  });
+}
+
 export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {
+  // A build speaks the whole lecture: what was waiting to be spoken ahead is in it, and the pass under way is let
+  // finish first, so the two never write the same line at once.
+  ahead.next = null;
+  await ahead.running;
+  return speak(source, progress);
+}
+
+async function speak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {
   const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
   const scenePath = path.join(dir, "scene.py");
   await writeFile(scenePath, source, "utf8");

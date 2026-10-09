@@ -1810,12 +1810,13 @@ class Lecture(Scene):
         self._problem = None
         return going
 
-    def _to_stage(self, group, draw=None):
+    def _to_stage(self, group, draw=None, still: bool = False):
         """Put a picture on the stage, over the map; the one there before fades.
 
         A second picture for the same beat (a figure and its equation, say) goes beside the first rather
         than replacing it before it was ever seen: the stage splits in two. `draw`: the picture's parts, to be
-        written in one after another (outlines, then their colours, as on a whiteboard) instead of faded in."""
+        written in one after another (outlines, then their colours, as on a whiteboard) instead of faded in.
+        `still`: the picture simply appears (a timeline: nothing about it moves or is drawn in)."""
         # Drawn in the lecture's art style (artstyle.py): the picture, and its parts still to be revealed.
         for picture in [group, *self._next_pending]:
             _art(picture)
@@ -1830,6 +1831,13 @@ class Lecture(Scene):
         self.stage_pending, self._next_pending = self._next_pending, []
         self._stage_keys, self._next_keys = set(self._next_keys), set()
         self._beat_new.append(group)
+        if still:
+            # No entrance at all: the picture before it leaves, and it is simply there. (An animation returned to
+            # the beat is stretched over the line, so a fade of a frame became a fade of seconds.)
+            if going:
+                self.play(*going, run_time=0.4)
+            self.add(new)
+            return None
         if draw:
             show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[write_in(m) for m in draw], lag_ratio=0.3))
         else:
@@ -2200,7 +2208,8 @@ class Lecture(Scene):
     def big_timeline(self, events, title: str | None = None):
         """A timeline across the stage: dates large, labels alternating above and below, each event's picture (a
         photo, a figure, a drawing: (date, label, picture)) beyond its words. Events on the same side are two slots
-        apart, so each one's words and picture are kept narrower than that, and shrunk until no two touch."""
+        apart, so each one's words and picture are kept narrower than that, and shrunk until no two touch. It is
+        still: it appears whole, and its pictures do not move."""
         cx, cy, w, h = self.STAGE
         events = [tuple(e) + (None,) * (3 - len(e)) for e in list(events)[:7]]
         n = max(len(events), 1)
@@ -2217,7 +2226,7 @@ class Lecture(Scene):
                 dot = Dot([x, 0, 0], radius=0.1, color=P.SAND)
                 d = T(str(date), 24, P.SAND, font=TH["serif"], weight=BOLD)
                 lab = fit(T(wrap(str(label), 16 if pictured else 14), 15, P.CREAM, line_spacing=0.85), room)
-                pic = self._picture(picture, picture_height, room) if picture else None
+                pic = self._picture(picture, picture_height, room, motion="none") if picture else None
                 up = i % 2 == 0
                 d.next_to(dot, UP if up else DOWN, buff=0.15)
                 lab.next_to(d, UP if up else DOWN, buff=0.08)
@@ -2242,7 +2251,7 @@ class Lecture(Scene):
             parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.5)
         self._fit_stage(parts)
-        return self._to_stage(Group(parts))
+        return self._to_stage(Group(parts), still=True)
 
     # ---------------- several pictures at once, and diagrams built on the stage ----------------
     def gallery(self, items, title: str | None = None):
@@ -3367,9 +3376,9 @@ class Lecture(Scene):
                 d.next_to(tick, DOWN, buff=0.1)
                 lab.next_to(d, DOWN, buff=0.05)
             parts.add(VGroup(tick, d, lab))
-        group = self._stack(parts, 0.3)
-        return AnimationGroup(Create(line), LaggedStart(*[FadeIn(p, shift=UP * 0.05) for p in parts[1:]],
-                                                         lag_ratio=0.2), lag_ratio=0.3)
+        self._stack(parts, 0.3)
+        self.add(parts)                                   # still: simply there, nothing drawn in
+        return None
 
     def network(self, nodes, edges=(), tone: str = "accent"):
         """People and alliances: labelled nodes on a ring, edges between them.

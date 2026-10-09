@@ -125,7 +125,7 @@ def test_timeline_events_never_touch(tmp_path, photos):
     built = {}
 
     class Probe(pl.MapLecture):
-        def _to_stage(self, group, draw=None):
+        def _to_stage(self, group, draw=None, still=False):
             built["group"] = group
 
     scene = Probe.__new__(Probe)
@@ -151,3 +151,26 @@ def test_pictures_play_on_the_phone(tmp_path, photos):
     assert not result.get("skipped"), result["skipped"]
     track = json.loads((tmp_path / "dsl" / "generated" / "GeneratedScene.images.json").read_text())
     assert len(track) == 6                                  # 2 rock photos, 2 timeline photos, 2 marker photos
+
+
+def test_timelines_are_still():
+    """A timeline appears whole, at once: no zoom, nothing drawn in, nothing moving."""
+    called = {}
+
+    class Probe(pl.MapLecture):
+        def _to_stage(self, group, draw=None, still=False):
+            called.update(draw=draw, still=still)
+
+    scene = Probe.__new__(Probe)
+    scene.STAGE = (-2.0, 0.0, 9.0, 6.0)
+    pl.use_style("chalkboard")
+    scene.big_timeline([("1526", "Panipat"), ("1556", "Akbar")])
+    assert called == {"draw": None, "still": True}
+    # A zooming timeline the writer asks for becomes the still timeline of its events.
+    script = {"title": "T", "style": "parchment", "chapters": [{"title": "A", "beats": [
+        {"say": "From the revolt to independence.", "do": [{"op": "sim", "id": "z", "kind": "timeline_zoom",
+                                                            "events": [[1857, "Revolt"], [1947, "Independence"]],
+                                                            "zoom": [1940, 1950]}]}]}]}
+    assert cl._still_timelines(script) == 1
+    assert script["chapters"][0]["beats"][0]["do"][0] == {"op": "timeline", "events": [[1857, "Revolt"],
+                                                                                     [1947, "Independence"]]}

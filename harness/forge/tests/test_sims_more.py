@@ -83,7 +83,7 @@ def test_a_journey_is_checked_and_drawn():
 
 def test_the_script_writer_is_told_about_every_new_sim():
     prompt = (REPO / "harness" / "app" / "lib" / "lecture.ts").read_text()
-    missing = [kind for kind in sims_more.MORE if f"{kind}:" not in prompt]
+    missing = [kind for kind in sims_more.MORE if f"{kind}:" not in prompt and kind not in sims_more.RETIRED]
     assert not missing, missing
     assert '"op":"journey"' in prompt
 

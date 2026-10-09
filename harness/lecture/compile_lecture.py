@@ -2251,6 +2251,24 @@ def _resolve_motion(script: dict) -> None:
                     owner[field] = sorted(set(owner.get(field) or []) | ids)
 
 
+def _still_timelines(script: dict) -> int:
+    """A timeline is still: a timeline_zoom sim (a timeline that zooms from a century into a decade) becomes the
+    timeline of its events, shown at once. Returns how many were changed."""
+    changed = 0
+    for chapter in script.get("chapters") or []:
+        for beat in chapter.get("beats") or []:
+            ops = beat.get("do") or []
+            for k, op in enumerate(ops):
+                if isinstance(op, dict) and op.get("op") == "sim" and op.get("kind") == "timeline_zoom":
+                    params = {**(op.get("params") or {}), **op}
+                    events = [list(e)[:2] for e in params.get("events") or [] if isinstance(e, (list, tuple)) and len(e) >= 2]
+                    if len(events) >= 2:
+                        ops[k] = {"op": "timeline", "events": events[:7],
+                                  **({"title": op["title"]} if op.get("title") else {})}
+                        changed += 1
+    return changed
+
+
 def _resolve_options(script: dict) -> None:
     """Each option op's choice as the index of the question up when it is said (lint has checked it names one)."""
     for chapter in script.get("chapters") or []:
@@ -2346,6 +2364,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     _resolve_options(script)
+    _still_timelines(script)
     _unneeded_motions(script, drop=True)
     _unneeded_molecules(script, drop=True)
     _resolve_motion(script)

@@ -82,8 +82,8 @@ PROFILES = {
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
         "kit": ["timeline", "gallery", "diagram", "figure", "marker", "journey", "arrow", "quote", "compare", "sim"],
-        "guidance": "History: open each era with a timeline on the stage, and zoom from the century into the decade "
-                    "the lecture is about (sim timeline_zoom); show the people, communities and places of a "
+        "guidance": "History: open each era with a timeline on the stage (a still one: its dates, events and "
+                    "pictures of the people and places); show the people, communities and places of a "
                     "paragraph together in a gallery (portraits, monuments, paintings); build causes and consequences "
                     "as a chain (diagram kind flow, edges saying why) revealed step by step; journeys on the map as "
                     "they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); differences between two "

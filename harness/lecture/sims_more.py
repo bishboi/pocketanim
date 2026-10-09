@@ -2269,6 +2269,9 @@ _register("construction", construction, "construction (perpendicular_bisector | 
           "triangle_sss), sides ([5, 4, 3] cm, for triangle_sss): ruler and compass, step by step, each step written")
 _register("balance", balance, "steps ([\"2x + 3 = 11\", \"2x = 8\", \"x = 4\"]), notes ([\"take 3 from both sides\", "
           "...]): the equation as a balance, the same done to both pans")
+# Kept so an older script still builds, but no longer offered to the writer: timelines are still, and the compiler
+# turns a timeline_zoom into the timeline of its events (compile_lecture._still_timelines).
+RETIRED = {"timeline_zoom"}
 _register("timeline_zoom", timeline_zoom, "events ([[year, \"what\"], ...]), range ([from, to], all of them), zoom "
           "([1940, 1950]): a wide timeline zooming into a decade")
 _register("bar_race", bar_race, "years ([...]), series ({name: [a value a year]}), unit, top (8), label: bars "

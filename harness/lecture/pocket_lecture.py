@@ -491,6 +491,43 @@ def _marker(mob, height: float):
             part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
 
 
+def _bbox(mob, pad: float = 0.0):
+    """(x0, y0, x1, y1) of a mobject, padded."""
+    lo, hi = mob.get_corner(DL), mob.get_corner(UR)
+    return (lo[0] - pad, lo[1] - pad, hi[0] + pad, hi[1] + pad)
+
+
+def _overlap(a, b) -> float:
+    """The area two boxes share."""
+    return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+
+
+def _touching(groups, pad: float = 0.04) -> bool:
+    """Whether any piece of one group overlaps any piece of another."""
+    boxes = [[_bbox(m, pad) for m in g] for g in groups]
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if any(_overlap(a, b) > 0 for a in boxes[i] for b in boxes[j]):
+                return True
+    return False
+
+
+def has_image(mob) -> bool:
+    """Whether a picture holds a photo (an ImageMobject): it is then grouped with Group and faded in, as a photo
+    cannot be written like a line."""
+    return mob is not None and any(isinstance(m, ImageMobject) for m in mob.get_family())
+
+
+def group_of(*mobs):
+    """VGroup of these, or Group when one holds a photo."""
+    return Group(*mobs) if any(has_image(m) for m in mobs) else VGroup(*mobs)
+
+
+def write_in(mob):
+    """Write a picture onto the board, or fade it in when it holds a photo."""
+    return FadeIn(mob) if has_image(mob) else Write(mob)
+
+
 def board_svg(path, width: float, height: float):
     """An SVG drawing (a book figure redrawn, or a draw op's picture) as the board shows it, at most width x height:
     colour names in it (INK, MUTED, BOARD, ROSE, GOLD...) in this style's colours, black lines in the ink, its labels
@@ -1794,7 +1831,7 @@ class Lecture(Scene):
         self._stage_keys, self._next_keys = set(self._next_keys), set()
         self._beat_new.append(group)
         if draw:
-            show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[Write(m) for m in draw], lag_ratio=0.3))
+            show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[write_in(m) for m in draw], lag_ratio=0.3))
         else:
             show = FadeIn(new, scale=1.02)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
@@ -2134,7 +2171,7 @@ class Lecture(Scene):
                  if str(e[0]) in mobs and str(e[1]) in mobs and str(e[0]) != str(e[1])]
         if not pairs:
             return
-        centre = VGroup(*mobs.values()).get_center()
+        centre = Group(*mobs.values()).get_center()
         for _ in range(12):
             gaps = [np.linalg.norm(end - start) * (1 if np.dot(end - start, b.get_center() - a.get_center()) > 0 else -1)
                     for a, b in pairs for start, end in [self._edge_points(a, b)]]
@@ -2161,26 +2198,46 @@ class Lecture(Scene):
         return exit_point(a, 1), exit_point(b, -1)
 
     def big_timeline(self, events, title: str | None = None):
-        """A timeline across the stage: dates large, labels alternating above and below."""
+        """A timeline across the stage: dates large, labels alternating above and below, each event's picture (a
+        photo, a figure, a drawing: (date, label, picture)) beyond its words. Events on the same side are two slots
+        apart, so each one's words and picture are kept narrower than that, and shrunk until no two touch."""
         cx, cy, w, h = self.STAGE
-        events = list(events)[:7]
+        events = [tuple(e) + (None,) * (3 - len(e)) for e in list(events)[:7]]
+        n = max(len(events), 1)
         width = w - 0.6
+        slot = width / n
+        room = (2 * slot if n > 1 else width) - 0.3        # what one event may take across, clear of its neighbours
+        pictured = any(e[2] for e in events)
         line = Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=4)
-        marks = VGroup()
-        for i, (date, label) in enumerate(events):
-            x = -width / 2 + width * (i + 0.5) / max(len(events), 1)
-            dot = Dot([x, 0, 0], radius=0.1, color=P.SAND)
-            d = T(str(date), 24, P.SAND, font=TH["serif"], weight=BOLD)
-            lab = fit(T(wrap(str(label), 14), 15, P.CREAM, line_spacing=0.85), width / max(len(events), 1) + 0.3)
-            if i % 2 == 0:
-                d.next_to(dot, UP, buff=0.15)
-                lab.next_to(d, UP, buff=0.08)
-            else:
-                d.next_to(dot, DOWN, buff=0.15)
-                lab.next_to(d, DOWN, buff=0.08)
-            marks.add(VGroup(dot, d, lab))
-        drawing = VGroup(line, marks)
-        parts = VGroup(drawing)
+
+        def build(picture_height):
+            marks = []
+            for i, (date, label, picture) in enumerate(events):
+                x = -width / 2 + slot * (i + 0.5)
+                dot = Dot([x, 0, 0], radius=0.1, color=P.SAND)
+                d = T(str(date), 24, P.SAND, font=TH["serif"], weight=BOLD)
+                lab = fit(T(wrap(str(label), 16 if pictured else 14), 15, P.CREAM, line_spacing=0.85), room)
+                pic = self._picture(picture, picture_height, room) if picture else None
+                up = i % 2 == 0
+                d.next_to(dot, UP if up else DOWN, buff=0.15)
+                lab.next_to(d, UP if up else DOWN, buff=0.08)
+                parts = [dot, d, lab]
+                if pic is not None:
+                    pic.next_to(lab, UP if up else DOWN, buff=0.12).set_x(x)
+                    parts.append(pic)
+                marks.append(group_of(*parts))
+            return marks
+
+        height = min(1.5, (h - 1.6) / 2 - 0.9) if pictured else 0
+        marks = build(height)
+        for _ in range(6):
+            # Two events on the same side that touch (a wide picture, a long label): smaller pictures.
+            if not pictured or not _touching([m[1:] for m in marks]):
+                break
+            height *= 0.8
+            marks = build(height)
+        drawing = Group(line, *marks)
+        parts = Group(drawing)
         if title:
             parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.5)
@@ -2235,6 +2292,30 @@ class Lecture(Scene):
         show = LaggedStart(*arrivals, lag_ratio=0.35)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
+    def _picture(self, spec, height: float, width: float | None = None, motion: str | None = None):
+        """A picture beside words in a diagram's node, a timeline's event or a map's label, at most height x width:
+        spec is (kind, value) as the compiler resolved it -- ("image", a photo or figure file), ("svg", a drawing),
+        ("entity", a library drawing's name). None when it cannot be drawn (the words carry on alone)."""
+        if not spec:
+            return None
+        kind, value = str(spec[0]), spec[1]
+        width = width or height * 1.6
+        try:
+            if kind == "entity":
+                return self._entity(str(value), height, motion)
+            if kind == "svg":
+                return board_svg(str(value), width + 0.3, height)
+            if kind == "image":
+                image = ImageMobject(str(value))
+                image.scale_to_fit_height(height)
+                if image.width > width:
+                    image.scale_to_fit_width(width)
+                frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
+                return Group(image, frame)
+        except Exception as error:  # noqa: BLE001 -- a picture that will not draw leaves its words alone
+            skipped(f"a picture {value!r} left out: {type(error).__name__}: {error}"[:300])
+        return None
+
     def _entity(self, name: str | None, height: float, motion: str | None = None):
         """A whiteboard drawing of what a diagram's node stands for (a tree, a factory, a cow), or None. One that
         moves (animated_mob) when there is a motion for it and the diagram is animated."""
@@ -2255,17 +2336,20 @@ class Lecture(Scene):
             return None
 
     def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None,
-              motion: str | None = None):
+              motion: str | None = None, picture=None):
         """A diagram's node, as drawn on a board: the thing's drawing above its name in an outlined box; or, for a
         diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items."""
         drawing = self._entity(entity, 1.0 if small else 1.35, motion)
+        if drawing is None and picture:
+            # A photo, a book figure or a drawing of the thing (the compiler fetched or drew it).
+            drawing = self._picture(picture, 1.05 if small else 1.4, motion=motion)
         items = [str(i) for i in (items or [])][:5]
         words_only = drawing is None
         size = (19 if small else 23) + (2 if words_only and not items else 0)
         text = marker(wrap(str(label), 14 if words_only else 12), size)
         if drawing is not None and not items and number is None:
             # A thing as a teacher draws it: the drawing, its name in capitals under it, no box.
-            node = VGroup(drawing, text).arrange(DOWN, buff=0.18)
+            node = group_of(drawing, text).arrange(DOWN, buff=0.18)
             node.is_drawing = True
             return node
         parts = [drawing] if drawing is not None else []
@@ -2282,14 +2366,14 @@ class Lecture(Scene):
             lines.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
             rule.set_width(max(lines.width, head.width))
             parts += [rule, lines]
-        inner = VGroup(*parts).arrange(DOWN, buff=0.14)
+        inner = group_of(*parts).arrange(DOWN, buff=0.14)
         if items:
             inner[-1].align_to(inner[-2], LEFT)
         # Words alone sit on a card of flat colour, like a marker-filled box; a drawing keeps a light one.
         box = RoundedRectangle(corner_radius=0.18, width=max(inner.width + 0.45, 1.8), height=inner.height + 0.4,
                                stroke_color=P.CREAM, stroke_width=OUTLINE * 0.8,
                                fill_color=_tint_on_bg(tone, 0.45), fill_opacity=1)
-        return VGroup(box, inner.move_to(box))
+        return group_of(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
                 animate: bool = True, flow: bool | None = None):
@@ -2334,6 +2418,7 @@ class Lecture(Scene):
         small = len(nodes) > 5
         flow = kind in ("flow", "cycle", "steps") if flow is None else bool(flow)
         mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small, items=n.get("items"),
+                              picture=n.get("picture"),
                               number=k + 1 if kind == "steps" else None,
                               motion=(n.get("anim") or "auto") if animate else "none")
                 for k, (i, n) in enumerate(zip(ids, nodes))}
@@ -2361,9 +2446,9 @@ class Lecture(Scene):
                 edges = [[ids[0], i] for i in ring]
         else:                                                           # flow
             per_row = 3 if len(ids) > 4 else max(len(ids), 1) if len(ids) <= 3 else 2
-            rows = [VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
+            rows = [Group(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
                 RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8) for r in range(0, len(ids), per_row)]
-            VGroup(*rows).arrange(DOWN, buff=0.7)
+            Group(*rows).arrange(DOWN, buff=0.7)
         self._room_for_arrows(mobs, edges)
         arrows = []
         for e in edges:
@@ -2415,6 +2500,7 @@ class Lecture(Scene):
         for n in nodes:
             i = str(n["id"])
             mobs[i] = self._node(n.get("label", i), n.get("entity"), tones[branch.get(i, 0)], many, items=n.get("items"),
+                                 picture=n.get("picture"),
                                  motion=(n.get("anim") or "auto") if animate else "none")
         sizes = {i: (m.width, m.height) for i, m in mobs.items()}
         lay = hi.layout(ids, edges, sizes, board=(w - 0.3, h - (0.9 if title else 0.3)))
@@ -2452,15 +2538,17 @@ class Lecture(Scene):
                   "store": "TEAL", "note": "MUTED"}
 
     def _flow_node(self, label: str, shape: str, tone: str, size: float, width: float | None = None,
-                   entity: str | None = None, motion: str | None = None):
+                   entity: str | None = None, motion: str | None = None, picture=None):
         """A flowchart's step, in the shape a flowchart gives it: a rounded box for a process, a diamond for a
         decision, a pill for start and end, a slanted box for what goes in or comes out, a drum for a store, a
         folded note. Its name is written inside; a step with an entity has its drawing beside the name."""
         text = marker(wrap(str(label), 12 if shape == "decision" else 14), size)
         inner = text
         drawing = self._entity(entity, 0.75, motion) if entity else None
+        if drawing is None and picture:
+            drawing = self._picture(picture, 0.9, 1.4, motion)
         if drawing is not None:
-            inner = VGroup(drawing, text).arrange(RIGHT, buff=0.15)
+            inner = group_of(drawing, text).arrange(RIGHT, buff=0.15)
         fill = _tint_on_bg(tone, 0.4)
         line = dict(stroke_color=tone, stroke_width=OUTLINE * 0.75, fill_color=fill, fill_opacity=1)
         w = max(inner.width + 0.55, width or 0)
@@ -2495,7 +2583,7 @@ class Lecture(Scene):
             frame = VGroup(frame, ear)
         else:
             frame = RoundedRectangle(corner_radius=0.16, width=w, height=hgt, **line)
-        node = VGroup(frame, inner.move_to(frame.get_center()))
+        node = group_of(frame, inner.move_to(frame.get_center()))
         node.flow_shape = shape
         return node
 
@@ -2544,7 +2632,8 @@ class Lecture(Scene):
         for i, n in zip(ids, nodes):
             mobs[i] = self._flow_node(n.get("label", i), shapes[i], tone_of[i], size,
                                       width=common if shapes[i] in ("process", "io", "store", "note") else None,
-                                      entity=n.get("entity"), motion=(n.get("anim") or "auto") if animate else "none")
+                                      entity=n.get("entity"), motion=(n.get("anim") or "auto") if animate else "none",
+                                      picture=n.get("picture"))
         lanes = {str(n["id"]): str(n["lane"]) for n in nodes if n.get("lane")}
         lay = fc.layout(ids, [(str(e[0]), str(e[1])) for e in edges],
                         {i: (m.width, m.height) for i, m in mobs.items()}, lanes=lanes or None,
@@ -2691,7 +2780,7 @@ class Lecture(Scene):
 
         backdrop = None
         if lay.lanes:
-            all_nodes = VGroup(*mobs.values())
+            all_nodes = Group(*mobs.values())
             bands = VGroup()
             for k, (name, b_lo, b_hi) in enumerate(lay.lanes):
                 if right:
@@ -2721,7 +2810,7 @@ class Lecture(Scene):
         """A diagram's last steps, for every kind: its arrows' words settled clear of the rest, its title, the
         whole fitted to the stage, and what shows now and what waits for a reveal."""
         cx, cy, w, h = self.STAGE
-        whole = VGroup(*([backdrop] if backdrop is not None else []), *mobs.values(), *[m for _, _, m in arrows])
+        whole = Group(*([backdrop] if backdrop is not None else []), *mobs.values(), *[m for _, _, m in arrows])
         if settle and any(len(e) > 2 and e[2] for e in edges):
             import stem
 
@@ -2750,7 +2839,7 @@ class Lecture(Scene):
         self._next_pending.extend([mobs[i] for i in ids if i not in shown]
                                   + [m for a, b, m in arrows if not (a in shown and b in shown)])
         lead = ([head] if head else []) + ([backdrop] if backdrop is not None else [])
-        body = VGroup(*lead, *first)
+        body = Group(*lead, *first)
         # Written in node by node, each arrow after the nodes it joins, as a teacher draws it on a board.
         order = lead + [mobs[i] for i in ids if i in shown]
         for a, b, m in arrows:
@@ -2813,7 +2902,8 @@ class Lecture(Scene):
         self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
         self._beat_revealed.extend(drawn)
         # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
-        anims = [Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
+        anims = [FadeIn(self._stage_add(d["nodes"][i])) if has_image(d["nodes"][i]) else
+                 Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
                  Write(self._stage_add(d["nodes"][i])) if d.get("write") else
                  FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
         for a, b, mob in d["edges"]:
@@ -3496,6 +3586,7 @@ class MapLecture(BoardMixin, Lecture):
         """Draw the base map (and the panel) in one move."""
         self.leave_board()
         self._map_on = True
+        self._map_taken = []          # what the map's labels and pictures cover so far (place_label)
         nb, inner, outline = self.base()
         anims = [FadeIn(nb), Create(outline)]
         if len(inner):
@@ -3531,7 +3622,7 @@ class MapLecture(BoardMixin, Lecture):
         m.set_z_index(8)
         return Create(m)
 
-    def journey(self, stops, color: str | None = None, labels=None, width: float = 5):
+    def journey(self, stops, color: str | None = None, labels=None, width: float = 5, pictures=None):
         """A journey on the map, drawn as it happens: a traveller moves from stop to stop over the line, the route
         drawn behind it, each stop marked and named as it is reached (the Dandi March, Vasco da Gama's voyage, the
         Silk Road, the monsoon winds). `stops` are place names or (lon, lat); `labels` rename them."""
@@ -3545,11 +3636,17 @@ class MapLecture(BoardMixin, Lecture):
         full = self.frame.path(lonlats, smooth=False, stroke_color=color, stroke_width=width)
         route = full.copy().set_z_index(8)
         traveller = Dot(radius=0.12, color=color).set_z_index(Z_MARK + 1)
-        markers = [self.marker(s, label=n or None, color=color, size=14) for s, n in zip(stops, names)]
         points = [self.frame.pt(*ll) for ll in lonlats]
+        # Every stop's dot is spoken for before any label is placed, so no stop's name covers a later stop.
+        for q in points:
+            self._taken().append((q[0] - 0.13, q[1] - 0.13, q[0] + 0.13, q[1] + 0.13))
+        # A journey is one moving picture (its stops shown as it reaches them): drawings only, not photos.
+        pictures = [pic if pic and str(pic[0]) != "image" else None for pic in list(pictures or [])] + [None] * len(stops)
+        markers = [self.marker(s, label=n or None, color=color, size=14, picture=pic)
+                   for s, n, pic in zip(stops, names, pictures)]
         legs = np.cumsum([0.0] + [float(np.linalg.norm(b - a)) for a, b in zip(points, points[1:])])
         reach = [float(x / max(legs[-1], 1e-9)) for x in legs]
-        body = VGroup(route, *markers, traveller)
+        body = group_of(route, *markers, traveller)
 
         def where(f):
             """The point a fraction f of the way along the route, by distance travelled."""
@@ -3585,28 +3682,91 @@ class MapLecture(BoardMixin, Lecture):
         return AnimationGroup(Create(line), FadeIn(tip), lag_ratio=0.8)
 
     def marker(self, where, label: str | None = None, color: str | None = None, d=RIGHT, size: float = 15,
-               r: float = 0.055) -> VGroup:
-        """Dot, halo and label at a place name or (lon, lat)."""
+               r: float = 0.055, picture=None):
+        """Dot, halo and label at a place name or (lon, lat); with a picture (a photo, a figure, a drawing of what
+        is there) above the label. The label goes where it overlaps nothing on the map (place_label)."""
         color = color or P.CREAM
         p = self.frame.pt(*self.at(where))
         dot = Dot(p, radius=r, color=color)
         halo = Circle(radius=r * 2.2, color=color, stroke_width=1.5, stroke_opacity=0.6).move_to(p)
         text = T(label or (where if isinstance(where, str) else ""), size, color)
-        text.next_to(dot, d, buff=r * 2.2 + 0.05)
-        # A label that would cross the panel or the frame flips to the left.
-        if text.get_right()[0] > PANEL_X - 0.05 or text.get_left()[0] < -config.frame_width / 2 + 0.2:
-            text.next_to(dot, LEFT if d is RIGHT else RIGHT, buff=r * 2.2 + 0.05)
-        group = VGroup(halo, dot, text)
+        pic = self._picture(picture, 0.7, 1.1) if picture else None
+        tag = group_of(pic, text).arrange(DOWN, buff=0.06) if pic is not None else text
+        lead = self.place_label(tag, p, r * 2.2 + 0.05, d)
+        if pic is not None and tag.get_center()[1] < p[1]:
+            # Set below the place: its name above the picture, next to the dot (the same box, so still clear).
+            text.align_to(tag, UP)
+            pic.next_to(text, DOWN, buff=0.06)
+        group = group_of(halo, dot, tag, *([lead] if lead is not None else []))
         group.set_z_index(Z_MARK)
         return group
 
+    def reserve_places(self, places, gap: float = 0.13) -> None:
+        """Speak for these places' dots before any label is placed (all a chapter will mark), so a label set now
+        never covers a marker that comes later. A place the map cannot find is passed over."""
+        for where in places:
+            try:
+                q = self.frame.pt(*self.at(where))
+            except Exception:  # noqa: BLE001 -- unknown here: its marker reports it when it comes
+                continue
+            self._taken().append((q[0] - gap, q[1] - gap, q[0] + gap, q[1] + gap))
+
+    def _taken(self) -> list:
+        if not hasattr(self, "_map_taken"):
+            self._map_taken = []
+        return self._map_taken
+
+    def place_label(self, tag, point, gap: float, prefer=RIGHT, reserve_point: bool = True):
+        """Put a map label (words, or a picture with its words) beside `point` where it overlaps no label, picture
+        or marker already on the map, and stays on the map (clear of the panel and the frame's edge): beside it
+        first (the preferred side, then right, left, above, below, the corners), then a little further out with a
+        line back to the point. If nowhere is clear, the place it overlaps least. Returns that line, or None."""
+        taken = self._taken()
+        point = np.array(point, dtype=float)
+        left_edge, right_edge = -config.frame_width / 2 + 0.15, PANEL_X - 0.08
+        bottom, top = -config.frame_height / 2 + 0.55, config.frame_height / 2 - 0.45   # caption, title strip
+        sides = []
+        for v in (prefer, RIGHT, LEFT, UP, DOWN, UR, DR, UL, DL):
+            v = np.array(v, dtype=float)
+            if not any(np.allclose(v, x) for x in sides):
+                sides.append(v)
+        best = None
+        for reach in (0.0, 0.35, 0.8, 1.3):
+            for v in sides:
+                u = v / np.linalg.norm(v)
+                # The label's near edge (or corner) `gap + reach` from the point, along u.
+                half = np.array([tag.width / 2, tag.height / 2, 0])
+                centre = point + u * (gap + reach) + np.sign(np.round(u, 6)) * half
+                tag.move_to(centre)
+                box = _bbox(tag, 0.04)
+                out = (max(0.0, left_edge - box[0]) + max(0.0, box[2] - right_edge)
+                       + max(0.0, bottom - box[1]) + max(0.0, box[3] - top))
+                cost = sum(_overlap(box, t) for t in taken) + 10 * out
+                if best is None or cost < best[0] - 1e-9:
+                    best = (cost, centre, reach)
+                if cost == 0:
+                    break
+            if best[0] == 0:
+                break
+        _, centre, reach = best
+        tag.move_to(centre)
+        taken.append(_bbox(tag, 0.04))
+        if reserve_point:
+            taken.append((point[0] - gap, point[1] - gap, point[0] + gap, point[1] + gap))
+        if reach == 0:
+            return None
+        # A thin line from the point to the label's nearest edge, so a label set further out still says where.
+        lo, hi = tag.get_corner(DL), tag.get_corner(UR)
+        near = np.array([min(max(point[0], lo[0]), hi[0]), min(max(point[1], lo[1]), hi[1]), 0.0])
+        return Line(point, near, stroke_color=P.MUTED, stroke_width=1.5, stroke_opacity=0.8, buff=gap * 0.6)
+
     def pop(self, m: VGroup):
         return LaggedStart(GrowFromCenter(m[1]), GrowFromCenter(m[0]), FadeIn(m[2], shift=UP * 0.05),
-                           lag_ratio=0.25)
+                           *[FadeIn(x) for x in m[3:]], lag_ratio=0.25)
 
-    def mark(self, where, label=None, color=None, d=RIGHT):
+    def mark(self, where, label=None, color=None, d=RIGHT, picture=None):
         """Build and pop a marker: the one-call form used by beat scripts."""
-        return self.pop(self.marker(where, label, color, d))
+        return self.pop(self.marker(where, label, color, d, picture=picture))
 
     def graticule(self, lat: float | None = None, lon: float | None = None, color: str | None = None,
                   label: str | None = None):
@@ -3631,6 +3791,7 @@ class MapLecture(BoardMixin, Lecture):
                 tag.next_to(end, UP, buff=0.06).align_to(end, RIGHT)
             else:
                 tag.next_to(end, RIGHT, buff=0.08)
+            self._taken().append(_bbox(tag, 0.04))
             group.add(tag)
         group.set_z_index(12)
         return AnimationGroup(Create(line), *(FadeIn(m) for m in group[1:]))

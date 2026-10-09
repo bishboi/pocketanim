@@ -74,6 +74,23 @@ function cachePaths(repo: string, op: DrawOp): { svg: string; meta: string } {
   return { svg: path.join(dir, `${digest}.svg`), meta: path.join(dir, `${digest}.json`) };
 }
 
+/** The pictures an op carries beside its words (compile_lecture.pictures_of): diagram nodes', timeline events',
+ * a marker's, a journey's stops'. */
+function picturesOf(op: Record<string, unknown> | undefined): Record<string, unknown>[] {
+  const isPicture = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+  if (!op) return [];
+  if (op.op === "diagram") {
+    return ((op.nodes as Record<string, unknown>[] | undefined) ?? []).map((n) => n?.picture).filter(isPicture);
+  }
+  if (op.op === "timeline") {
+    return ((op.events as unknown[] | undefined) ?? []).map((e) =>
+      Array.isArray(e) ? e[2] : isPicture(e) ? e.picture : undefined).filter(isPicture);
+  }
+  if (op.op === "marker") return isPicture(op.picture) ? [op.picture] : [];
+  if (op.op === "journey") return ((op.pictures as unknown[] | undefined) ?? []).filter(isPicture);
+  return [];
+}
+
 /** Each draw op in a script (a problem's figure too), with the line it is said on and its chapter. */
 function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[] {
   const out: { op: DrawOp; say: string; chapter: string }[] = [];
@@ -87,6 +104,15 @@ function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[
           if (candidate?.op === "draw" && typeof candidate.what === "string" && Array.isArray(candidate.parts)) {
             out.push({ op: candidate as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? "") });
           }
+        }
+        // A picture to draw beside the words of a diagram's node, a timeline's event or a map's label: one part,
+        // drawn small, so plainly (its `svg` is set on the picture itself).
+        for (const picture of picturesOf(op)) {
+          if (typeof picture.draw !== "string" || !picture.draw.trim()) continue;
+          picture.what = `${picture.draw.trim()} (a small picture beside a label: one clear subject, bold shapes, ` +
+            "no words in it)";
+          picture.parts = ["picture"];
+          out.push({ op: picture as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? "") });
         }
       }
     }

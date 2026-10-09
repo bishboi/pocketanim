@@ -269,6 +269,16 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if drawn_map:
                     errors.append(f"{at}: {drawn_map}")
                     continue
+                for where, spec in pictures_of(op):
+                    problem = _picture_problem(spec, script.get("figures") or {})
+                    if problem:
+                        errors.append(f"{at}: {where}: {problem}")
+                    elif _picture_fetch(spec):
+                        photos.append((at, _picture_fetch(spec)))
+                    elif spec.get("draw") and script.get("drawn") and not spec.get("svg"):
+                        warnings.append(f"{at}: {where}: the picture {spec['draw']!r} could not be drawn"
+                                        f"{': ' + str(spec['_draw_error']) if spec.get('_draw_error') else ''}; "
+                                        "its words are shown alone")
                 if kind == "manim":
                     if not isinstance(op.get("code"), str) or not op["code"].strip():
                         errors.append(f"{at}: a manim op needs its code: the Python that draws this beat")
@@ -439,6 +449,115 @@ def _photo_key(op: dict) -> str:
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}"
 
 
+# ---------------- pictures in diagrams, timelines and map labels ----------------
+# A diagram's node, a timeline's event, a map marker (and a journey's stop) may carry a picture beside its words:
+#   {"subject": "Mahatma Gandhi"}     Wikipedia's picture of a person, place or thing (a photo from the web)
+#   {"query": "steam locomotive"}     a photo found by these words (from the web)
+#   {"illustration": "water cycle"}   an educational illustration (from the web)
+#   {"figure": "fig3"}                one of the book's figures (its SVG drawing when it has one)
+#   {"draw": "A steam engine, side view"}   drawn for the lecture as an SVG (drawings.ts)
+#   {"entity": "cow"}                 a drawing from the library
+PICTURE_KEYS = ("subject", "query", "illustration", "figure", "draw", "entity")
+
+
+def _timeline_events(op: dict) -> list[tuple]:
+    """A timeline's events as (date, label, picture or None): from [date, label], [date, label, picture] or
+    {date, label, picture}."""
+    out = []
+    for e in op.get("events") or []:
+        if isinstance(e, dict):
+            out.append((e.get("date", ""), e.get("label", ""), e.get("picture")))
+        elif isinstance(e, (list, tuple)) and len(e) >= 2:
+            out.append((e[0], e[1], e[2] if len(e) > 2 else None))
+    return out
+
+
+def pictures_of(op: dict) -> list[tuple[str, dict]]:
+    """(where, picture) for each picture an op carries in a node, an event or a label."""
+    kind = op.get("op")
+    out = []
+    if kind == "diagram":
+        out = [(f"node {n.get('id')!r}", n["picture"]) for n in op.get("nodes") or []
+               if isinstance(n, dict) and n.get("picture") is not None]
+    elif kind == "timeline":
+        out = [(f"event {d!r}", pic) for d, _, pic in _timeline_events(op) if pic is not None]
+    elif kind == "marker" and op.get("picture") is not None:
+        out = [("its label", op["picture"])]
+    elif kind == "journey":
+        out = [(f"stop {k + 1}", pic) for k, pic in enumerate(op.get("pictures") or []) if pic is not None]
+    return out
+
+
+def _picture_problem(spec, figures: dict) -> str | None:
+    if not isinstance(spec, dict) or len([k for k in PICTURE_KEYS if spec.get(k)]) != 1:
+        return ("a picture is one of {\"subject\": \"<a person, place or thing>\"}, {\"query\": \"<photo search>\"}, "
+                "{\"illustration\": \"<what it shows>\"}, {\"figure\": \"<book figure id>\"}, "
+                "{\"draw\": \"<what to draw>\"} or {\"entity\": \"<library drawing>\"}")
+    if spec.get("figure") and str(spec["figure"]) not in figures:
+        return f"no book figure {spec['figure']!r} for a picture"
+    return None
+
+
+def _picture_fetch(spec: dict) -> dict | None:
+    """The web fetch a picture needs, as the photo op it amounts to (optional: a picture that cannot be found
+    leaves its words alone)."""
+    if spec.get("subject"):
+        return {"op": "photo", "subject": str(spec["subject"]), "optional": True}
+    if spec.get("query"):
+        return {"op": "photo", "query": str(spec["query"]), "optional": True}
+    if spec.get("illustration"):
+        return {"op": "illustration", "query": str(spec["illustration"]), "optional": True}
+    return None
+
+
+def _chapter_spots(chapter: dict) -> list[str]:
+    """The places a map chapter's markers and journeys stop at, as the engine's arguments (names or (lon, lat))."""
+    out = []
+    for beat in chapter.get("beats") or []:
+        for op in beat.get("do") or []:
+            if not isinstance(op, dict):
+                continue
+            where = []
+            if op.get("op") == "marker":
+                where = [op.get("place") or op.get("lonlat")]
+            elif op.get("op") == "journey":
+                where = list(op.get("stops") or [])
+            for w in where:
+                if isinstance(w, str) and w:
+                    out.append(_q(w))
+                elif isinstance(w, (list, tuple)) and len(w) == 2:
+                    out.append(f"({float(w[0]):g}, {float(w[1]):g})")
+    return list(dict.fromkeys(out))
+
+
+def _picture_value(spec) -> tuple | None:
+    """A picture as the engine takes it: ("image", file), ("svg", file), ("entity", name), or None (not found or
+    not drawn: the words stand alone)."""
+    value = _picture_found(spec)
+    return value if value is None or value[0] == "entity" or Path(value[1]).exists() else None
+
+
+def _picture_found(spec) -> tuple | None:
+    if not isinstance(spec, dict):
+        return None
+    if spec.get("entity"):
+        return ("entity", str(spec["entity"]))
+    if spec.get("draw"):
+        return ("svg", str(spec["svg"])) if spec.get("svg") else None
+    if spec.get("figure"):
+        figure = script_figures.get(str(spec["figure"])) or {}
+        if figure.get("svg"):
+            return ("svg", str(figure["svg"]))
+        return ("image", str(figure["file"])) if figure.get("file") else None
+    fetch = _picture_fetch(spec)
+    row = script_photos.get(_photo_key(fetch)) if fetch else None
+    return ("image", str(row["file"])) if row and row.get("file") else None
+
+
+def _picture_arg(spec) -> str:
+    return repr(_picture_value(spec))
+
+
 def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, style: str | None = None) -> list[str]:
     """Download every photo now (cached), so the scene draws local files; report the ones that failed."""
     if not photos:
@@ -527,8 +646,9 @@ def map_drawn_by(op: dict) -> str | None:
                                                                            f"{drawn.get('title') or ''}"):
         return f"the picture {drawn.get('id') or op.get('id')!r} is a map; {mapguard.MAP_ADVICE}"
     asked = [op] if kind in ("illustration", "photo") else _gallery_items(op) if kind == "gallery" else []
+    asked += [spec for _, spec in pictures_of(op) if isinstance(spec, dict)]
     for item in asked:
-        text = " ".join(str(item.get(k) or "") for k in ("query", "image", "illustration"))
+        text = " ".join(str(item.get(k) or "") for k in ("query", "image", "illustration", "draw"))
         if mapguard.is_map(text):
             return f"{text.strip()!r} is a map; {mapguard.MAP_ADVICE}"
     return None
@@ -904,6 +1024,8 @@ def web_pictures(script: dict) -> list[str]:
                     out.append(f"chapter {c + 1} beat {b + 1}")
                 elif kind == "gallery":
                     out += [f"chapter {c + 1} beat {b + 1}" for item in _gallery_items(op) if item["op"] != "figure"]
+                out += [f"chapter {c + 1} beat {b + 1}" for _, spec in pictures_of(op)
+                        if isinstance(spec, dict) and _picture_fetch(spec)]
     return out
 
 
@@ -1851,7 +1973,8 @@ def _op_call(op: dict) -> str:
         label = f", label={_q(op['label'])}" if op.get("label") else ""
         color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
         side = f", d={SIDES[op['side']]}" if op.get("side") in SIDES else ""
-        return f"self.mark({where}{label}{color}{side})"
+        picture = f", picture={_picture_arg(op['picture'])}" if op.get("picture") else ""
+        return f"self.mark({where}{label}{color}{side}{picture})"
     if kind == "river":
         color = f", {_colour(op.get('color'))}" if op.get("color") else ""
         return f"self.river({_q(op['name'])}{color})"
@@ -1864,7 +1987,9 @@ def _op_call(op: dict) -> str:
         stops = ", ".join(_q(x) if isinstance(x, str) else f"({float(x[0]):g}, {float(x[1]):g})" for x in op["stops"])
         color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
         labels = f", labels={[str(x) for x in op['labels']]!r}" if isinstance(op.get("labels"), list) else ""
-        return f"self.journey([{stops}]{color}{labels})"
+        pictures = (f", pictures=[{', '.join(_picture_arg(p) for p in op['pictures'])}]"
+                    if isinstance(op.get("pictures"), list) and any(op["pictures"]) else "")
+        return f"self.journey([{stops}]{color}{labels}{pictures})"
     if kind == "state":
         color = _colour(op.get("color"), "P.SAND")
         return f"self.fill_state({_q(op['name'])}, {color}, {float(op.get('opacity', 0.6)):g})"
@@ -1903,7 +2028,7 @@ def _op_call(op: dict) -> str:
         title = f", {_q(op['title'])}" if op.get("title") else ", None"
         return f"self.process([{', '.join(_q(x) for x in op['steps'])}]{title}, cycle={bool(op.get('cycle'))})"
     if kind == "timeline":
-        events = ", ".join(f"({_q(d)}, {_q(l)})" for d, l in op["events"])
+        events = ", ".join(f"({_q(d)}, {_q(lab)}, {_picture_arg(pic)})" for d, lab, pic in _timeline_events(op))
         title = f", {_q(op['title'])}" if op.get("title") else ""
         return f"self.big_timeline([{events}]{title})"
     if kind == "quote":
@@ -1947,7 +2072,8 @@ def _op_call(op: dict) -> str:
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
                   **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {}),
                   **({"anim": str(n["anim"])} if n.get("anim") else {}),
-                  **({k: str(n[k]) for k in ("shape", "lane", "tone") if n.get(k)})}
+                  **({k: str(n[k]) for k in ("shape", "lane", "tone") if n.get(k)}),
+                  **({"picture": _picture_value(n["picture"])} if _picture_value(n.get("picture")) else {})}
                  for n in op["nodes"]]
         edges = [[str(e[0]), str(e[1])] + ([str(e[2]) if len(e) > 2 and e[2] else ""] if len(e) > 2 else [])
                  + ([str(e[3])] if len(e) > 3 and e[3] and str(e[3]) != "solid" else []) for e in op.get("edges") or []]
@@ -2276,6 +2402,11 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         on_map = _map_chapter(chapter, bool(region))
         out.append("        self.show_map()" if on_map else
                    "        self.board()" if board_chapter(script, chapter) else "        self.add_panel()")
+        if on_map:
+            # Every place the chapter will mark, spoken for now: no label set early covers a later marker's dot.
+            spots = _chapter_spots(chapter)
+            if spots:
+                out.append(f"        self.reserve_places([{', '.join(spots)}])")
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
         staged = False
         # A paragraph ends with a longer pause, so an idea settles before the next begins.

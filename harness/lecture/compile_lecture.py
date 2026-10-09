@@ -9,7 +9,8 @@ A script:
 
     {
       "title": "India", "sub": "The geography of a subcontinent",
-      "style": "vox",                                  # a pocket_lecture style
+      "style": "vox",                                  # a pocket_lecture style: the template, the film's frame
+      "art": "blueprint",                              # how its pictures are drawn (artstyle.py); "auto": the style's
       "region": {"country": "India", "view": "ind"},   # omit for no map
       "intro": "Welcome to this lecture on India.",
       "chapters": [
@@ -60,6 +61,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 STYLES = ("atlas", "vox", "cardboard", "whiteboard", "blueprint", "chalkboard", "parchment", "lab", "cosmos")
+# Art styles (artstyle.ART_STYLES), and "auto" for the one the template draws with.
+ARTS = ("auto", "clean", "detailed", "blueprint", "chalk", "sketch", "neon", "watercolour")
 PALETTE = {"SAND", "DUNE", "TERRA", "RUST", "TEAL", "RIVER", "GREEN", "OLIVE", "CREAM", "MUTED",
            "ROSE", "GOLD", "VIOLET", "HI", "MOUNT"}
 MAP_OPS = {"marker", "river", "path", "arrow", "state", "dim", "graticule", "journey"}
@@ -223,6 +226,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     warnings: list[str] = []
     if script.get("style", "atlas") not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
+    if str(script.get("art") or "auto").lower().replace("watercolor", "watercolour") not in ARTS:
+        errors.append(f"art must be one of {', '.join(ARTS)}")
     if script.get("region") and not isinstance(script["region"], dict):
         errors.append('region must be an object, e.g. {"country": "India", "view": "ind"}, or left out for no map')
         script = {**script, "region": None}
@@ -854,7 +859,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error"}
+             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -2125,6 +2130,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         "import sys",
         "",
         f"os.environ.setdefault(\"LECTURE_STYLE\", {_q(style)})",
+        f"os.environ.setdefault(\"LECTURE_ART\", {_q(str(script.get('art') or 'auto'))})",
     ]
     if engine_path:
         out.append(f"sys.path.insert(0, {_q(engine_path)})")

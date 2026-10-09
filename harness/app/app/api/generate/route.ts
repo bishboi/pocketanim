@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { generate, usingFixture, type GenerateRequest } from "@/lib/model";
 import type { AgentEvent } from "@/lib/agent";
+import { artStyle } from "@/lib/artstyles";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     // An OpenRouter model id ("anthropic/claude-opus-4.1"); anything else is ignored.
     transcriptModel: typeof body.transcriptModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.transcriptModel.trim())
       ? body.transcriptModel.trim() : undefined,
+    art: artStyle(body.art),
     svgModel: typeof body.svgModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.svgModel.trim())
       ? body.svgModel.trim() : undefined,
   };

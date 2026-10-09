@@ -22,6 +22,8 @@ export type LectureScript = {
   title?: string;
   sub?: string;
   style?: string;
+  /** How its pictures are drawn (lib/artstyles.ts, artstyle.py); "auto" or left out: the template's own. */
+  art?: string;
   region?: LectureRegion | null;
   intro?: string;
   chapters: {
@@ -146,6 +148,8 @@ export async function compileLecture(
     bookQuestions?: { id: string; text: string; choices: string[] }[];
     /** How to draw the script's pictures (draw ops) as SVG before compiling (drawings.ts); left out, they are not. */
     draw?: DrawOptions;
+    /** The art style the pictures are drawn in (lib/artstyles.ts); left out or "auto", the template's own. */
+    art?: string;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -157,6 +161,7 @@ export async function compileLecture(
       ? {
           ...script,
           ...(options.style ? { style: options.style } : {}),
+          ...(options.art && options.art !== "auto" ? { art: options.art } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
           // The book's diagrams are drawn as SVG (figures.ts) or rebuilt in Manim, never shown as the scanned picture.
           ...(options.figures && Object.keys(options.figures).length ? { rebuild_figures: true } : {}),

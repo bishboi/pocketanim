@@ -1439,6 +1439,15 @@ class BoardMixin:
         from manim import config
 
         fps = float(config.frame_rate or 30)
+        import artstyle
+
+        # Its parts move, so the art style paints them after every step and adds no extras that would stay behind.
+        artstyle.mark_live(mob)
+        drawn = step
+
+        def step(t, p):  # noqa: F811 -- the step, then the art style's colours on what it changed
+            drawn(t, p)
+            artstyle.live_paint(mob)
 
         def updater(_mob, dt):
             # Once per frame: a part inside two groups on stage is updated twice a frame, and counting both ran

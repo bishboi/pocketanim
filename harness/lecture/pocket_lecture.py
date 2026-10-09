@@ -256,7 +256,8 @@ def register_style(name: str, theme: dict) -> None:
     base = dict(THEMES.get(theme.get("base", "atlas"), THEMES["atlas"]))
     pal = dict(base["pal"])
     pal.update(theme.get("pal") or {})
-    merged = {**base, **{k: v for k, v in theme.items() if k not in ("pal", "base")}, "pal": pal}
+    merged = {**base, **{k: v for k, v in theme.items() if k not in ("pal", "base")}, "pal": pal,
+              "base_style": theme.get("base", "atlas")}
     THEMES[name] = merged
 
 
@@ -278,6 +279,10 @@ def use_style(name: str) -> dict:
     if TH.get("land") and "land" not in roles:
         P.role_land = TH["land"]
     config.background_color = TH["bg"]
+    # The art style draws the pictures; left to "auto" it is the one this template draws with (artstyle.py).
+    import artstyle
+
+    artstyle.from_env(TH.get("art") or (name if name in artstyle.TEMPLATE_ART else TH.get("base_style", name)))
     return TH
 
 
@@ -309,6 +314,17 @@ def T(text: str, size: float = 24, color: str | None = None, font: str | None = 
         mob = Text(text, font=font, font_size=LAYOUT_SIZE, color=color or P.CREAM, weight=weight, **kw)
         return mob.scale(size / LAYOUT_SIZE)
     return Text(text, font=font, font_size=size, color=color or P.CREAM, weight=weight, **kw)
+
+
+def _art(mob) -> None:
+    """Draw a picture in the lecture's art style (artstyle.py): its colours and lines, and the extras on its still
+    parts. Parts that move were marked live and are painted every frame instead."""
+    import artstyle
+
+    try:
+        artstyle.dress(mob)
+    except Exception as error:  # noqa: BLE001 -- a picture the style cannot dress is shown as it was drawn
+        SKIPPED.append(f"art style left a picture as drawn: {type(error).__name__}: {error}"[:300])
 
 
 def tok(name: str, default: float) -> float:
@@ -1114,7 +1130,9 @@ class MapFrame:
         if self.clip:
             g = _valid(g).intersection(box(*self.clip))
         polys = [g] if g.geom_type == "Polygon" else [p for p in getattr(g, "geoms", []) if p.geom_type == "Polygon"]
-        jitter = TH.get("jitter", 0)
+        import artstyle
+
+        jitter = artstyle.map_jitter(TH.get("jitter", 0))
         group = VGroup()
         for p in polys:
             if p.area < min_area:
@@ -1698,7 +1716,13 @@ class Lecture(Scene):
         covering = bool(getattr(self, "layers", None)) and getattr(self, "_map_on", False)
         card = Rectangle(width=w + 0.5, height=h + 0.6, fill_color=P.BG, fill_opacity=1 if covering else 0,
                          stroke_width=0)
-        return card.move_to([cx, cy, 0])
+        card.move_to([cx, cy, 0])
+        import artstyle
+
+        marks = artstyle.stage_marks(self.STAGE)
+        if len(marks):
+            card.add(marks)
+        return card
 
     def _stage_leaving(self) -> list:
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
@@ -1722,6 +1746,9 @@ class Lecture(Scene):
         A second picture for the same beat (a figure and its equation, say) goes beside the first rather
         than replacing it before it was ever seen: the stage splits in two. `draw`: the picture's parts, to be
         written in one after another (outlines, then their colours, as on a whiteboard) instead of faded in."""
+        # Drawn in the lecture's art style (artstyle.py): the picture, and its parts still to be revealed.
+        for picture in [group, *self._next_pending]:
+            _art(picture)
         if len(self._beat_new) == 1 and self.stage_body is self._beat_new[0] and len(group.get_family()) > 1 \
                 and len(self.stage_body.get_family()) > 1:
             return self._beside(group)
@@ -2396,6 +2423,13 @@ class Lecture(Scene):
             # On a piece that is written onto the stage (the stage writes its pieces, not the group they are in,
             # so the anchor is never in the scene itself and Manim would never run an updater on it).
             start(order[0], lambda t, _p: drawing.show(t), "loop", True)
+            import artstyle
+
+            # Its pieces move with its animation: all of them are painted each frame, none decorated.
+            moving = VGroup(*[m for m in [*rest, *parts.values()] if isinstance(m, VMobject)])
+            for piece in moving:
+                artstyle.mark_live(piece)
+            order[0]._art_scope = moving
         return body, order
 
     def reveal_nodes(self, key: str, nodes):
@@ -3073,6 +3107,9 @@ class MapLecture(BoardMixin, Lecture):
                               stroke_width=0))
             under.set_z_index(Z_LAND)
             nb.add(under)
+        import artstyle
+
+        artstyle.dress_map(nb, inner, outline)
         inner.set_z_index(Z_LINES)
         outline.set_z_index(Z_OUTLINE)
         self.layers = SimpleNamespace(neighbours=nb, lines=inner, outline=outline)
@@ -3094,6 +3131,7 @@ class MapLecture(BoardMixin, Lecture):
     def region_fill(self, geom, color: str, opacity: float = 0.6, z: float = Z_FILL) -> VGroup:
         m = self.frame.poly(_valid(geom).intersection(self.focus), simplify=0.006, min_area=0.002,
                             fill_color=color, fill_opacity=opacity, stroke_width=0)
+        _art(m)
         m.set_z_index(z)
         return m
 
@@ -3105,12 +3143,14 @@ class MapLecture(BoardMixin, Lecture):
     def river(self, name: str, color: str | None = None, width: float = 5):
         """Create a Natural Earth river, cut to the map's box."""
         m = self.frame.line(river(name, self.lonlat_bounds()), stroke_color=color or P.RIVER, stroke_width=width)
+        _art(m)
         m.set_z_index(7)
         return Create(m)
 
     def path(self, lonlats, color: str | None = None, width: float = 5, smooth: bool = True):
         """Create a hand-digitised line (a ridge, a canal) from lon/lat points."""
         m = self.frame.path(lonlats, smooth=smooth, stroke_color=color or P.HI, stroke_width=width)
+        _art(m)
         m.set_z_index(8)
         return Create(m)
 

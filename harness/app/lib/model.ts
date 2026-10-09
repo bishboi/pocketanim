@@ -56,6 +56,8 @@ export type GenerateRequest = {
   transcriptModel?: string;
   /** The model that draws the lecture's pictures as SVG (figures.ts, drawings.ts); without it, OPENROUTER_SVG_MODEL. */
   svgModel?: string;
+  /** How the pictures are drawn (lib/artstyles.ts): "auto" or left out, the template's own art. */
+  art?: string;
 };
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
@@ -1176,6 +1178,7 @@ async function viaOpenRouter(
   const lectureOptions = () => ({
     draw: drawOptions,
     style,
+    art: request.art,
     genre: subject?.genre,
     minMinutes: minutes,
     plan,
@@ -2208,7 +2211,7 @@ async function lectureFixture(
   const doc = await documentOf(request);
   const args = JSON.stringify({ script });
   emit({ type: "tool_call", name: "write_lecture", args: args.length > 1600 ? `${args.slice(0, 1600)}…` : args });
-  const options = { style, genre: subject.genre, figures: doc ? scriptFigures(doc) : undefined };
+  const options = { style, art: request.art, genre: subject.genre, figures: doc ? scriptFigures(doc) : undefined };
   const compiled = await compileLecture(script, options);
   if (!compiled.source) throw new Error(`The beat script did not compile:\n${compiled.errors.join("\n")}`);
   Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes, options: () => options });

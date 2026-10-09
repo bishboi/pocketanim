@@ -48,7 +48,7 @@ def cmd_new(args) -> int:
     job = Job.create(job_id, template=args.template, style=args.style, content=brief, sources=sources,
                      title=args.title or "", lang=args.lang, region=args.region, target_minutes=args.minutes,
                      review={"outline": args.review_outline, "preview": args.review_preview}, overrides=overrides)
-    job.update_spec(quality=args.quality, phone=not args.no_phone, subtitle=args.subtitle)
+    job.update_spec(quality=args.quality, phone=not args.no_phone, subtitle=args.subtitle, art=args.art)
     _print({"id": job.id, "dir": str(job.dir), "state": job.state["state"]})
     return 0
 
@@ -147,6 +147,8 @@ def main(argv=None) -> int:
     p.add_argument("id")
     p.add_argument("--template", default="auto", help="a template id, or auto: chosen from the content's subject")
     p.add_argument("--style", default="auto", help="a style pack id, or auto: the subject's style")
+    p.add_argument("--art", default="auto", help="how the pictures are drawn (clean, detailed, blueprint, chalk, "
+                   "sketch, neon, watercolour), or auto: the style's own")
     p.add_argument("--title")
     p.add_argument("--subtitle")
     p.add_argument("--brief")

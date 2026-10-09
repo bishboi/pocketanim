@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { ART_STYLES, artFor, artPreview } from "@/lib/artstyles";
 import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
@@ -84,6 +85,8 @@ async function inBuildSlot<T>(work: () => Promise<T>): Promise<T> {
 type Version = {
   n: number;
   templateId: string;
+  /** The art style its pictures were drawn in (lib/artstyles.ts). */
+  art?: string;
   instruction: string | null;
   source: string;
   voiceUrl?: string | null;
@@ -242,6 +245,7 @@ function phaseFor(event: TraceEvent): string | null {
 export default function Home() {
   const [content, setContent] = useState("");
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
+  const [art, setArt] = useState("auto");
   const [versions, setVersions] = useState<Version[]>([]);
   const [current, setCurrent] = useState(-1);
   // The version on screen, for work that finishes later (a part built in the background).
@@ -675,6 +679,7 @@ export default function Home() {
     const next: Version = {
       n: (versions[versions.length - 1]?.n ?? 0) + 1,
       templateId: styleId,
+      art,
       instruction: edit ? instruction : null,
       source: "",
       model: "",
@@ -691,6 +696,7 @@ export default function Home() {
         body: JSON.stringify({
           content,
           templateId: styleId,
+          art: template.kind === "lecture" ? art : undefined,
           previousSource: edit ? version?.source : undefined,
           instruction: edit ? instruction : undefined,
           documentId: doc.id,
@@ -1049,6 +1055,37 @@ export default function Home() {
             />
           ))}
         </div>
+        {template.kind === "lecture" && (
+          <div className="mt-3" data-testid="art-styles">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h2 className="text-sm font-medium text-neutral-200">Art style</h2>
+              <p className="text-xs text-neutral-500">
+                How the sims, diagrams, drawings and maps are drawn; the template is the frame around them.
+              </p>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {ART_STYLES.map((item) => {
+                const drawn = item.id === "auto" ? artFor("auto", template.style) : item.id;
+                const picked = art === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setArt(item.id)}
+                    title={item.id === "auto" && drawn !== "auto"
+                      ? `${item.summary} (${ART_STYLES.find((a) => a.id === drawn)?.name ?? drawn})` : item.summary}
+                    className={`flex w-28 shrink-0 flex-col overflow-hidden rounded border text-left text-xs ${
+                      picked ? "border-emerald-400" : "border-neutral-800 hover:border-neutral-600"}`}
+                  >
+                    <svg viewBox="0 0 64 36" className="h-14 w-full" style={{ background: template.background }}
+                      dangerouslySetInnerHTML={{ __html: artPreview(drawn, template.ink, template.palette[0] ?? template.ink) }} />
+                    <span className={`px-2 py-1 ${picked ? "text-emerald-300" : "text-neutral-300"}`}>{item.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">

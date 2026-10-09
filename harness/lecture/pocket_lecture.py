@@ -1839,7 +1839,12 @@ class Lecture(Scene):
             if id(m) in arriving or (m is self.stage_items and id(self.stage_body) in arriving):
                 m.scale(f, about_point=centre).shift(shift)
             else:
-                slides.append(m.animate.scale(f, about_point=centre).shift(shift))
+                # Written as the move it is (an xform the players apply to the whole picture), not a morph of the
+                # picture into a copy of itself: a morph pairs the shapes up one by one, and with a drawing that
+                # moves (a gear turning) they no longer line up, so parts shrank late and the picture warped.
+                import stem
+
+                slides.append(stem._moving(m.animate.scale(f, about_point=centre).shift(shift)))
         for m in self.stage_pending:
             m.scale(f, about_point=centre).shift(shift)
         return AnimationGroup(*slides) if slides else None

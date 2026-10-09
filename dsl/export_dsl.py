@@ -683,6 +683,10 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
     from manim.animation.indication import Indicate
     from manim.animation.transform import Transform
 
+    # Groups a move is written on (a picture slid aside as one): each is drawn as one baked asset while it moves,
+    # its pieces hidden for it, so it must be put on stage before the lines run.
+    before: list[str] = []
+
     def leaf(a, dur: float) -> list[str] | None:
         kind = type(a).__name__
         if isinstance(a, LaggedStart) or _staggers(a):
@@ -734,6 +738,14 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
             return [line] if line else None
         if isinstance(a, Indicate):
             return [f"indicate {name} t={dur:g}"]
+        if getattr(a, "panim_xform", False) and getattr(a, "methods", None):
+            # A part moved in place (stem._moving), inside a group: the move itself, as play_verbs writes it. Its
+            # animation is a Transform, so it was written as a morph into a copy of itself, which pairs shapes up
+            # one by one and warped a picture whose drawings move while it slides.
+            verbs = animate_verbs(a.methods, name, dur, a.mobject)
+            if verbs and f"show {name}" not in before:
+                before.append(f"show {name}")
+            return verbs
         if isinstance(a, Transform) and getattr(a, "target_mobject", None) is not None:
             target = rec.declare(a.target_mobject)
             if not target:
@@ -766,7 +778,8 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
         )
         return [header, *chunks]
 
-    return pack(anim, duration)
+    lines = pack(anim, duration)
+    return [*before, *lines] if lines else lines
 
 
 # The rate every program is emitted at; see emit().

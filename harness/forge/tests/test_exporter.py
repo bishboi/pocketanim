@@ -107,7 +107,9 @@ def test_a_drawing_slid_aside_leaves_with_the_stage(tmp_path):
     plain, _ = _last_frame_instances(tmp_path / "plain", LECTURE.replace("{aside}", ""))
     slid, program = _last_frame_instances(
         tmp_path / "slid", LECTURE.replace("{aside}", 'self.beat("Beside it.", self.define("Isolated", "no force"))'))
-    assert "keep=1" in program
+    # The slide is the move it is (an xform of the whole picture), not a morph into a copy: a morph paired the
+    # shapes one by one, and the players drew parts shrinking late (a warped picture) while Manim moved it whole.
+    assert "xform " in program and "morph " not in program
     assert slid == plain
 
 

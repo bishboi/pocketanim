@@ -47,7 +47,7 @@ const DEFAULT_MODELS = [
 const STYLES = ["chalkboard", "atlas", "vox", "whiteboard", "blueprint", "parchment", "lab", "cosmos", "cardboard"];
 
 type Cell = {
-  status: "queued" | "drawing" | "done" | "failed";
+  status: "queued" | "drawing" | "done" | "failed" | "stopped" | "interrupted";
   started?: number;
   ok?: boolean;
   file?: string;
@@ -63,6 +63,10 @@ type ModelInfo = { id: string; name: string; input: number; output: number; imag
 
 const key = (model: string, diagram: string) => `${model}||${diagram}`;
 const SCORES = "svg-lab-scores";
+/** The page's inputs and its latest run, kept in this browser: a reload comes back to them. */
+const KEPT = "svg-lab-page";
+
+type Run = { id: string; running: boolean; models: string[]; diagrams: Diagram[]; cells: Record<string, Cell> };
 
 function loadScores(): Record<string, number> {
   try {
@@ -84,8 +88,71 @@ export default function SvgLab() {
   const [keySet, setKeySet] = useState<boolean | null>(null);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [now, setNow] = useState(() => Date.now());
-  const abort = useRef<AbortController | null>(null);
-  const run = useRef(`lab-${Date.now()}`);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [runShape, setRunShape] = useState<{ models: string[]; diagrams: Diagram[] } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const run = useRef("lab");
+
+  // The page as it was left: its inputs and its run (which goes on in the server while the page is away).
+  useEffect(() => {
+    try {
+      const kept = JSON.parse(localStorage.getItem(KEPT) ?? "null") as {
+        modelsText?: string; chosen?: string[]; custom?: Diagram; style?: string; atOnce?: number; runId?: string | null;
+      } | null;
+      if (kept) {
+        if (typeof kept.modelsText === "string") setModelsText(kept.modelsText);
+        if (Array.isArray(kept.chosen)) setChosen(new Set(kept.chosen));
+        if (kept.custom) setCustom(kept.custom);
+        if (kept.style) setStyle(kept.style);
+        if (kept.atOnce) setAtOnce(kept.atOnce);
+        if (kept.runId) setRunId(kept.runId);
+      }
+    } catch {
+      // nothing kept
+    }
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem(KEPT, JSON.stringify({ modelsText, chosen: [...chosen], custom, style, atOnce, runId }));
+    } catch {
+      // not kept
+    }
+  }, [loaded, modelsText, chosen, custom, style, atOnce, runId]);
+
+  // Follow the run: poll the server while it draws, once when it is over.
+  useEffect(() => {
+    if (!runId) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/svg-lab/run?id=${encodeURIComponent(runId)}`);
+        const data = await response.json() as { run?: Run; error?: string };
+        if (!alive) return;
+        if (!data.run) {
+          setProblem(data.error ?? "the run could not be found");
+          setRunning(false);
+          return;
+        }
+        run.current = data.run.id;
+        setCells(data.run.cells);
+        setRunShape({ models: data.run.models, diagrams: data.run.diagrams.map((d) => ({ ...d,
+          parts: Array.isArray(d.parts) ? (d.parts as unknown as string[]).join(", ") : String(d.parts) })) });
+        setRunning(data.run.running);
+        if (data.run.running) timer = setTimeout(poll, 2000);
+      } catch {
+        if (alive) timer = setTimeout(poll, 4000);
+      }
+    };
+    void poll();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [runId]);
 
   useEffect(() => {
     setScores(loadScores());
@@ -123,45 +190,33 @@ export default function SvgLab() {
 
   async function start() {
     if (!models.length || !diagrams.length || badModels.length) return;
-    abort.current?.abort();
-    const controller = new AbortController();
-    abort.current = controller;
-    run.current = `lab-${Date.now()}`;
-    const jobs = diagrams.flatMap((d) => models.map((m) => ({ model: m, diagram: d })));
-    setCells(Object.fromEntries(jobs.map((j) => [key(j.model, j.diagram.id), { status: "queued" as const }])));
+    setProblem(null);
+    const response = await fetch("/api/svg-lab/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ models, diagrams, atOnce }),
+    });
+    const data = await response.json() as { run?: Run; error?: string };
+    if (!response.ok || !data.run) {
+      setProblem(data.error ?? `HTTP ${response.status}`);
+      return;
+    }
+    // The server draws them; the page follows the run (and follows it again after a reload).
+    setCells(data.run.cells);
     setRunning(true);
-    const queue = [...jobs];
-    const worker = async () => {
-      for (let job = queue.shift(); job && !controller.signal.aborted; job = queue.shift()) {
-        const id = key(job.model, job.diagram.id);
-        setCells((c) => ({ ...c, [id]: { status: "drawing", started: Date.now() } }));
-        try {
-          const response = await fetch("/api/svg-lab", {
-            method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model: job.model, what: job.diagram.what, parts: job.diagram.parts,
-              moves: job.diagram.moves, run: run.current }),
-          });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
-          setCells((c) => ({ ...c, [id]: { ...result, status: result.ok ? "done" : "failed" } }));
-        } catch (error) {
-          setCells((c) => ({ ...c, [id]: { status: "failed", error: error instanceof Error ? error.message : String(error) } }));
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.max(1, Math.min(atOnce, jobs.length)) }, worker));
-    setRunning(false);
+    setRunId(data.run.id);
   }
 
-  function stop() {
-    abort.current?.abort();
-    setRunning(false);
+  async function stop() {
+    if (runId) await fetch(`/api/svg-lab/run?id=${encodeURIComponent(runId)}`, { method: "DELETE" }).catch(() => undefined);
   }
 
+  // A run shows the models and diagrams it was started with, whatever the inputs say now.
+  const shownModels = runShape?.models ?? models;
+  const shownDiagrams = runShape?.diagrams ?? diagrams;
   // Each model's totals over the diagrams it drew in this run.
-  const totals = models.map((model) => {
-    const mine = diagrams.map((d) => ({ d, cell: cells[key(model, d.id)] })).filter((x) => x.cell);
-    const finished = mine.filter((x) => x.cell.status === "done" || x.cell.status === "failed");
+  const totals = shownModels.map((model) => {
+    const mine = shownDiagrams.map((d) => ({ d, cell: cells[key(model, d.id)] })).filter((x) => x.cell);
+    const finished = mine.filter((x) => x.cell.status === "done" || x.cell.status === "failed" || x.cell.status === "stopped");
     const passed = finished.filter((x) => x.cell.ok);
     const spent = finished.reduce((t, x) => t + (x.cell.usd ?? 0), 0);
     const time = finished.reduce((t, x) => t + (x.cell.seconds ?? 0), 0);
@@ -177,7 +232,7 @@ export default function SvgLab() {
   const grand = totals.reduce((t, m) => t + m.spent, 0);
 
   function download(kind: "csv" | "json") {
-    const rows = diagrams.flatMap((d) => models.map((m) => ({ model: m, diagram: d.id, ...cells[key(m, d.id)],
+    const rows = shownDiagrams.flatMap((d) => shownModels.map((m) => ({ model: m, diagram: d.id, ...cells[key(m, d.id)],
       score: scores[key(m, d.id)] ?? null })));
     const text = kind === "json" ? JSON.stringify({ run: run.current, totals, rows }, null, 2)
       : ["model,diagram,status,usd,seconds,requests,bytes,score,error",
@@ -207,6 +262,9 @@ export default function SvgLab() {
         </div>
         <Link href="/" className="text-sm text-sky-300 underline-offset-2 hover:underline">← Lectures</Link>
       </header>
+      {problem && (
+        <div className="mb-4 rounded border border-rose-900 bg-rose-950/40 p-3 text-sm text-rose-200">{problem}</div>
+      )}
       {keySet === false && (
         <div className="mb-4 rounded border border-rose-900 bg-rose-950/40 p-3 text-sm text-rose-200">
           OPENROUTER_API_KEY is not set on the server: nothing can be drawn.
@@ -354,19 +412,21 @@ export default function SvgLab() {
             <thead>
               <tr>
                 <th />
-                {models.map((m) => <th key={m} className="min-w-[260px] text-left font-mono font-normal text-neutral-300">{m}</th>)}
+                {shownModels.map((m) => <th key={m} className="min-w-[260px] text-left font-mono font-normal text-neutral-300">{m}</th>)}
               </tr>
             </thead>
             <tbody>
-              {diagrams.map((d) => (
+              {shownDiagrams.map((d) => (
                 <tr key={d.id} className="align-top">
                   <th className="w-28 pt-2 text-left font-normal text-neutral-300">{d.id}</th>
-                  {models.map((m) => {
+                  {shownModels.map((m) => {
                     const cell = cells[key(m, d.id)];
                     const given = scores[key(m, d.id)];
                     return (
                       <td key={m} className="w-[260px] rounded border border-neutral-800 bg-neutral-950 p-2">
                         {!cell || cell.status === "queued" ? <p className="text-neutral-500">Waiting</p>
+                          : cell.status === "interrupted" ? <p className="text-amber-300">Interrupted (the server restarted)</p>
+                          : cell.status === "stopped" && !cell.file ? <p className="text-neutral-500">Stopped</p>
                           : cell.status === "drawing" ? (
                             <p className="text-amber-300">Drawing… {duration((now - (cell.started ?? now)) / 1000)}</p>
                           ) : (

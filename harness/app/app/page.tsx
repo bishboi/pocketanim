@@ -14,6 +14,7 @@ import { Player } from "@/components/player";
 import { CostBreakdown, versionTotal } from "@/components/cost-breakdown";
 import type { AiPicture, Costs } from "@/lib/costs";
 import { AiPictures } from "@/components/ai-pictures";
+import { clearPage, loadPage, savePage } from "@/lib/pagestate";
 import type { SceneIR } from "@/lib/pocketanim";
 
 type ExportState = {
@@ -44,6 +45,8 @@ type ExportState = {
 type TraceEvent = {
   type: string;
   role?: string;
+  /** When the server sent it (lib/jobs.ts). */
+  at?: number;
   name?: string;
   text?: string;
   args?: string;
@@ -65,6 +68,22 @@ type TraceEvent = {
 
 /** A build already under way: its progress id and the export it will finish with. */
 type StartedBuild = { jobId: string; exported: Promise<ExportState> };
+
+/** Work under way when the page was last saved, followed again when it is reloaded: a lecture being written (its
+ * server job, replayed from the start, which also brings back its builds), and builds started on their own. */
+type Pending = {
+  generate?: { jobId: string; index: number; next: Version; began: number; styleId: string };
+  builds: Record<string, { index: number; source: string; instruction: string | null; model: string; label: string }>;
+};
+
+/** What the page keeps across a reload (lib/pagestate.ts). */
+type Saved = {
+  content: string; templateId: string; art: string; minutes: number | null; subject: string; language: string;
+  instruction: string; versions: Version[]; current: number; pending: Pending;
+  doc: unknown; reference: unknown;
+};
+
+const PAGE_KEY = "lecture-page";
 
 /** Builds at once, at most: a series of micro-lectures built one after the other took as long again as writing them. */
 const BUILD_SLOTS = 3;
@@ -360,6 +379,117 @@ export default function Home() {
   const version = current >= 0 ? versions[current] : undefined;
   const exported = version?.exported;
 
+  // ---- Kept across a reload (lib/pagestate.ts): the page as it was, and the work under way, followed again.
+  const pending = useRef<Pending>({ builds: {} });
+  const [restored, setRestored] = useState(false);
+  // Read by work that outlives the render that started it (a resumed lecture): a ref, not the state.
+  const restoredRef = useRef(false);
+  const snapshot = (): Saved => ({
+    content, templateId, art, minutes, subject, language, instruction, current, pending: pending.current,
+    // The preview's geometry is fetched again from its build; the rest is kept.
+    versions: versions.map((v) => ({ ...v, ir: undefined })),
+    doc: doc.busy ? { ...doc, busy: false } : doc,
+    reference: { ...reference, busy: false },
+  });
+  const latest = useRef(snapshot);
+  latest.current = snapshot;
+  const persist = () => {
+    if (restoredRef.current) void savePage(PAGE_KEY, latest.current());
+  };
+  useEffect(() => {
+    if (!restored) return;
+    const timer = setTimeout(() => void savePage(PAGE_KEY, latest.current()), 600);
+    return () => clearTimeout(timer);
+  }, [restored, content, templateId, art, minutes, subject, language, instruction, versions, current, doc, reference]);
+  useEffect(() => {
+    const save = () => {
+      if (restoredRef.current) void savePage(PAGE_KEY, latest.current());
+    };
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    void loadPage<Saved>(PAGE_KEY).then((saved) => {
+      if (!alive) return;
+      if (saved) {
+        setContent(saved.content ?? "");
+        if (saved.templateId) setTemplateId(saved.templateId);
+        setArt(saved.art ?? "auto");
+        setMinutes(saved.minutes ?? null);
+        setSubject(saved.subject ?? "auto");
+        setLanguage(saved.language ?? "auto");
+        setInstruction(saved.instruction ?? "");
+        setVersions(saved.versions ?? []);
+        setCurrent(saved.current ?? -1);
+        currentRef.current = saved.current ?? -1;
+        if (saved.doc) setDoc(saved.doc as typeof doc);
+        if (saved.reference) setReference(saved.reference as typeof reference);
+        pending.current = saved.pending ?? { builds: {} };
+      }
+      restoredRef.current = true;
+      setRestored(true);
+      if (saved) void resume(saved.pending ?? { builds: {} });
+    });
+    return () => {
+      alive = false;
+    };
+    // Once, when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // A version shown again after a reload fetches its preview from its build.
+  useEffect(() => {
+    const v = current >= 0 ? versions[current] : undefined;
+    const ex = v?.exported;
+    if (!v || v.ir !== undefined || !ex?.buildDir || !ex.program || ex.error) return;
+    let alive = true;
+    void (async () => {
+      const response = await fetch(`/api/ir?build=${encodeURIComponent(ex.buildDir!)}&scene=${v.sceneClass ?? SCENE}`);
+      const geometry = response.ok ? await response.json() as SceneIR : null;
+      if (alive) setVersions((all) => all.map((item, i) => (i === current ? { ...item, ir: geometry } : item)));
+    })().catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [current, versions]);
+
+  /** Follow again the work that was under way when the page was reloaded. */
+  async function resume(saved: Pending) {
+    if (saved.generate) {
+      const g = saved.generate;
+      setBusy("Reconnecting to the lecture being written…");
+      try {
+        const response = await fetch(`/api/generate?job=${encodeURIComponent(g.jobId)}`);
+        if (!response.ok || !response.body) {
+          delete pending.current.generate;
+          persist();
+          setError("The lecture that was being written is no longer on the server (it was restarted). Generate it again.");
+          setBusy(null);
+          return;
+        }
+        // Replayed from its first event: what it had drawn so far is drawn again, then it goes on live.
+        setVersions((all) => all.map((item, i) => (i === g.index ? { ...item, trace: [], pictures: [] } : item)));
+        await followGenerate(response, g.index, g.next, g.began, g.styleId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setBusy(null);
+      }
+    }
+    for (const [jobId, b] of Object.entries(saved.builds ?? {})) {
+      void (async () => {
+        try {
+          await attachBuild(b.index, b.source, b.instruction, b.model, b.label, startBuild(b.source, b.instruction, b.model, jobId));
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          delete pending.current.builds[jobId];
+          persist();
+          setBusy(null);
+        }
+      })();
+    }
+  }
+
   /**
    * Save the lecture on screen: every micro-lecture of its series, or the one video, with its phone files
    * (/api/save, lib/store.ts). Each must be built at tier 1: the phone plays programs.
@@ -565,8 +695,9 @@ export default function Home() {
   }
 
   /** A build started now (or as soon as a slot is free), for attachBuild to finish: early, for a part. */
-  function startBuild(source: string, instruction: string | null, model: string): StartedBuild {
-    const jobId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  function startBuild(source: string, instruction: string | null, model: string, id?: string): StartedBuild {
+    // The same id asks the server for the same build (lib/jobs.ts once): a reload attaches to it.
+    const jobId = id ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
     const exported = inBuildSlot(() => post("/api/export", {
       source,
       sceneClass: sceneClassOf(source),
@@ -725,11 +856,26 @@ export default function Home() {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error ?? `${response.status}`);
       }
-      const reader = response.body.getReader();
+      await followGenerate(response, index, next, began, styleId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Follow a lecture being written (a server job, lib/jobs.ts) to its end, then voice and build it. The same for a
+   * lecture just started and for one followed again after a reload (its events replayed from the first): builds
+   * have ids made from the job's, so a replay attaches to the builds already running instead of starting more.
+   */
+  async function followGenerate(response: Response, index: number, next: Version, began: number, styleId: string) {
+    try {
+      const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       let source = "";
       let modelName = "";
+      let jobId = "";
       let videoParts: { title: string; minutes: number; source: string }[] = [];
       // Micro-lectures sent before the rest was written, already building, by their scene.
       const early = new Map<string, StartedBuild>();
@@ -743,6 +889,12 @@ export default function Home() {
           const line = part.split("\n").find((row) => row.startsWith("data: "));
           if (!line) continue;
           const event = JSON.parse(line.slice(6)) as TraceEvent;
+          if (event.type === "job") {
+            jobId = event.text ?? "";
+            pending.current.generate = { jobId, index, next, began, styleId };
+            persist();
+            continue;
+          }
           if (event.type === "error")
             throw new Error(event.text || "agent failed");
           if (event.type === "done") {
@@ -751,7 +903,8 @@ export default function Home() {
             videoParts = event.parts ?? [];
           }
           if (event.type === "part" && event.part && !early.has(event.part.source)) {
-            early.set(event.part.source, startBuild(event.part.source, next.instruction, modelName));
+            early.set(event.part.source, startBuild(event.part.source, next.instruction, modelName,
+              `${jobId}-p${early.size}`));
           }
           const phase = phaseFor(event);
           if (phase) setBusy(phase);
@@ -774,7 +927,8 @@ export default function Home() {
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
                     costs: event.costs ?? item.costs,
-                    writeSeconds: (Date.now() - began) / 1000,
+                    // The server's clock for the event: a replayed lecture keeps the time it really took.
+                    writeSeconds: ((event.at ?? Date.now()) - began) / 1000,
                     pictures: event.type === "picture" && event.picture
                       && !(item.pictures ?? []).some((p) => p.file === event.picture!.file)
                       ? [...(item.pictures ?? []), event.picture] : item.pictures,
@@ -805,28 +959,36 @@ export default function Home() {
       if (videoParts.length > 1) {
         // A series of micro-lectures: one video per topic, each a version of the same n, built in turn. The first is shown.
         const info = (k: number) => ({ index: k + 1, of: videoParts.length, title: videoParts[k].title, minutes: videoParts[k].minutes });
-        setVersions((all) => [
-          ...all.map((item, i) => (i === index ? { ...item, source: videoParts[0].source, part: info(0) } : item)),
-          ...videoParts.slice(1).map((p, k) => ({
+        setVersions((all) => {
+          const others = videoParts.slice(1).map((p, k) => ({
             ...next, source: p.source, model: modelName, trace: [], part: info(k + 1),
             transcript: undefined, inputTokens: undefined, outputTokens: undefined, costUsd: undefined,
-          })),
-        ]);
+          }));
+          // A replay after a reload finds the parts already added: they are updated, not added twice.
+          const kept = all.slice(0, index + 1).map((item, i) => (i === index ? { ...item, source: videoParts[0].source, part: info(0) } : item));
+          const after = all.slice(index + 1).filter((item) => item.n !== next.n);
+          return [...kept, ...others.map((o, k) => ({ ...(all[index + 1 + k]?.n === next.n ? all[index + 1 + k] : {}), ...o,
+            exported: all[index + 1 + k]?.n === next.n ? all[index + 1 + k].exported : undefined })), ...after];
+        });
         // Up to three at once (inBuildSlot); a part built early, from the same scene, is that build.
         await Promise.all(videoParts.map(async (p, k) => {
           try {
             await attachBuild(index + k, p.source, next.instruction, modelName,
-              `${p.title} (${k + 1} of ${videoParts.length})`, early.get(p.source));
+              `${p.title} (${k + 1} of ${videoParts.length})`,
+              early.get(p.source) ?? startBuild(p.source, next.instruction, modelName, `${jobId}-q${k}`));
           } catch (e) {
             setError(`${p.title}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }));
         return;
       }
-      await attachBuild(index, source, next.instruction, modelName);
+      await attachBuild(index, source, next.instruction, modelName, "",
+        startBuild(source, next.instruction, modelName, `${jobId}-b`));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      delete pending.current.generate;
+      persist();
       setBusy(null);
     }
   }
@@ -865,7 +1027,7 @@ export default function Home() {
         );
         if (!spoken.ok && spoken.error) setError(spoken.error);
       }
-      await attachBuild(index, source, null, "pasted");
+      await trackedBuild(index, source, null, "pasted");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -873,16 +1035,24 @@ export default function Home() {
     }
   }
 
+  /** A build of its own (a rebuild, a pasted scene), kept in the page's saved work so a reload follows it. */
+  async function trackedBuild(index: number, source: string, instruction: string | null, model: string) {
+    const started = startBuild(source, instruction, model);
+    pending.current.builds[started.jobId] = { index, source, instruction, model, label: "" };
+    persist();
+    try {
+      await attachBuild(index, source, instruction, model, "", started);
+    } finally {
+      delete pending.current.builds[started.jobId];
+      persist();
+    }
+  }
+
   async function runExport() {
     if (!version) return;
     setError(null);
     try {
-      await attachBuild(
-        current,
-        version.source,
-        version.instruction,
-        version.model,
-      );
+      await trackedBuild(current, version.source, version.instruction, version.model);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1011,6 +1181,20 @@ export default function Home() {
           <Link href="/svg-lab" className="text-sm text-sky-300 underline-offset-2 hover:underline">
             SVG lab →
           </Link>
+          <button
+            type="button"
+            className="text-sm text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
+            title="The page keeps its lectures across a reload; this clears them (saved lectures stay saved)"
+            onClick={async () => {
+              if (busy && !window.confirm("Something is still being written or built. Start over anyway? (It goes on in the server, unwatched.)")) return;
+              if (!busy && versions.length && !window.confirm("Clear this page's lectures and start over?")) return;
+              await clearPage(PAGE_KEY);
+              restoredRef.current = false;
+              window.location.reload();
+            }}
+          >
+            Start over
+          </button>
           {status?.manim ? (
             <Badge tone="good">Manim {status.manim}</Badge>
           ) : (

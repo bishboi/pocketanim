@@ -11,7 +11,7 @@ import path from "node:path";
 import { REPO, python } from "./pocketanim";
 
 export type AgentEvent = {
-  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part"
+  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part" | "job"
     | "picture";
   role?: string;
   name?: string;
@@ -24,6 +24,8 @@ export type AgentEvent = {
   costs?: Costs;
   /** Seconds since the generation began, with each usage event: its whole time once it is done. */
   seconds?: number;
+  /** When the server sent it (ms since the epoch; lib/jobs.ts stamps every event). */
+  at?: number;
   /** A picture the AI made for the lecture (type "picture"), with what it cost. */
   picture?: AiPicture;
   source?: string;

@@ -108,3 +108,92 @@ export async function labModels(): Promise<{ id: string; name: string; input: nu
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
+
+// ---------------------------------------------------------------- runs that outlive the page
+
+export type LabCell = {
+  model: string;
+  diagram: string;
+  status: "queued" | "drawing" | "done" | "failed" | "stopped" | "interrupted";
+  started?: number;
+} & Partial<Omit<LabResult, "model">>;
+
+export type LabRun = {
+  id: string;
+  created: number;
+  running: boolean;
+  atOnce: number;
+  models: string[];
+  diagrams: (LabDiagram & { id: string })[];
+  cells: Record<string, LabCell>;
+};
+
+type Live = { run: LabRun; abort: AbortController };
+const runs: Map<string, Live> = ((globalThis as { __panimLabRuns?: Map<string, Live> }).__panimLabRuns ??= new Map());
+
+export const cellKey = (model: string, diagram: string) => `${model}||${diagram}`;
+
+function runDir(id: string): string {
+  return path.join(REPO, "harness", "lecture", ".cache", "svglab", id.replace(/[^\w-]/g, "").slice(0, 40));
+}
+
+async function saveRun(run: LabRun): Promise<void> {
+  const { writeFile } = await import("node:fs/promises");
+  await mkdir(runDir(run.id), { recursive: true });
+  await writeFile(path.join(runDir(run.id), "run.json"), JSON.stringify(run), "utf8");
+}
+
+/** Start a run: every diagram by every model, `atOnce` drawings at a time, in the server, whatever the page does. */
+export function startRun(models: string[], diagrams: (LabDiagram & { id: string })[], atOnce: number): LabRun {
+  const id = `lab-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const run: LabRun = { id, created: Date.now(), running: true, atOnce, models, diagrams, cells: {} };
+  for (const d of diagrams) for (const m of models) run.cells[cellKey(m, d.id)] = { model: m, diagram: d.id, status: "queued" };
+  const abort = new AbortController();
+  runs.set(id, { run, abort });
+  void saveRun(run);
+  const queue = diagrams.flatMap((d) => models.map((m) => ({ m, d })));
+  const worker = async () => {
+    for (let job = queue.shift(); job && !abort.signal.aborted; job = queue.shift()) {
+      const key = cellKey(job.m, job.d.id);
+      run.cells[key] = { model: job.m, diagram: job.d.id, status: "drawing", started: Date.now() };
+      void saveRun(run);
+      const result = await drawForLab(job.m, job.d, id, abort.signal);
+      run.cells[key] = { ...result, model: job.m, diagram: job.d.id,
+        status: abort.signal.aborted && !result.ok ? "stopped" : result.ok ? "done" : "failed" };
+      void saveRun(run);
+    }
+  };
+  void Promise.all(Array.from({ length: Math.max(1, Math.min(atOnce, queue.length)) }, worker)).then(() => {
+    for (const cell of Object.values(run.cells)) if (cell.status === "queued") cell.status = "stopped";
+    run.running = false;
+    void saveRun(run);
+  });
+  return run;
+}
+
+/** A run's state: from this process if it is running here, else as it was last saved (a drawing that was under
+ * way when the server stopped is marked interrupted). */
+export async function getRun(id: string): Promise<LabRun | null> {
+  const live = runs.get(id);
+  if (live) return live.run;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const run = JSON.parse(await readFile(path.join(runDir(id), "run.json"), "utf8")) as LabRun;
+    if (run.running) {
+      run.running = false;
+      for (const cell of Object.values(run.cells)) {
+        if (cell.status === "queued" || cell.status === "drawing") cell.status = "interrupted";
+      }
+    }
+    return run;
+  } catch {
+    return null;
+  }
+}
+
+export function stopRun(id: string): boolean {
+  const live = runs.get(id);
+  if (!live) return false;
+  live.abort.abort();
+  return true;
+}

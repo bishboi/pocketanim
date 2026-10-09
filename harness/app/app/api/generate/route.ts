@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { generate, usingFixture, type GenerateRequest } from "@/lib/model";
 import type { AgentEvent } from "@/lib/agent";
+import { SSE_HEADERS, createJob, finishJob, followStream, getJob, pushEvent, validJobId, type JobEvent } from "@/lib/jobs";
 import { artStyle } from "@/lib/artstyles";
 
 export const runtime = "nodejs";
@@ -35,52 +36,36 @@ export async function POST(request: NextRequest) {
       ? body.svgModel.trim() : undefined,
   };
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      let closed = false;
-      const send = (event: AgentEvent) => {
-        if (closed) return;
-        try {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-          );
-        } catch {
-          closed = true;
-        }
-      };
-      const stop = () => {
-        closed = true;
-      };
-      request.signal.addEventListener("abort", stop);
-      try {
-        send({
-          type: "message",
-          role: "system",
-          text: usingFixture() ? "Fixture agent" : "Model agent",
-        });
-        await generate(job, send, () => closed);
-      } catch (error) {
-        send({
-          type: "error",
-          text: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // The browser already went away.
-        }
-      }
-    },
-  });
+  // The lecture is written as a job of the server's (lib/jobs.ts): the page follows it, and a page that is
+  // reloaded follows it again (GET ?job=). Closing the page no longer stops it; Stop (DELETE ?job=) does.
+  const running = createJob("generate");
+  void (async () => {
+    try {
+      pushEvent(running, { type: "message", role: "system", text: usingFixture() ? "Fixture agent" : "Model agent" });
+      await generate(job, (event: AgentEvent) => pushEvent(running, event as JobEvent), () => running.stopped);
+    } catch (error) {
+      pushEvent(running, { type: "error", text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      finishJob(running);
+    }
+  })();
+  return new Response(followStream(running, 0, { type: "job", text: running.id }), { headers: SSE_HEADERS });
+}
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      "X-Accel-Buffering": "no",
-    },
-  });
+/** GET ?job=<id>&from=<n>: follow a lecture being written (or written already), from its n-th event. */
+export async function GET(request: NextRequest) {
+  const id = request.nextUrl.searchParams.get("job") ?? "";
+  const running = validJobId(id) ? getJob(id) : undefined;
+  if (!running) return Response.json({ error: "no such lecture being written (the server may have restarted)" }, { status: 404 });
+  const from = Math.max(0, Number(request.nextUrl.searchParams.get("from") ?? 0) || 0);
+  return new Response(followStream(running, from, { type: "job", text: running.id }), { headers: SSE_HEADERS });
+}
+
+/** DELETE ?job=<id>: stop writing it. */
+export async function DELETE(request: NextRequest) {
+  const id = request.nextUrl.searchParams.get("job") ?? "";
+  const running = validJobId(id) ? getJob(id) : undefined;
+  if (!running) return Response.json({ error: "no such job" }, { status: 404 });
+  running.stopped = true;
+  return Response.json({ stopped: true });
 }

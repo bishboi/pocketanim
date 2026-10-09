@@ -5,23 +5,52 @@ import { REPO, exportScene, frameCount, prespeak, progressFile, type VoiceCost }
 import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
+import { once, resultOf, validJobId } from "@/lib/jobs";
 
 export const runtime = "nodejs";
 // An export speaks the lecture and runs Manim: a long lecture takes a while.
 export const maxDuration = 10800;
 
+type Reply = { status: number; body: Record<string, unknown> };
+
+const reply = (body: Record<string, unknown>, init?: { status?: number }): Reply => ({ status: init?.status ?? 200, body });
+
+/**
+ * POST {source, sceneClass, jobId}: speak and build a scene. Run once per jobId (lib/jobs.ts once): a page reloaded
+ * while it built asks again with the same id and gets the same build, still running or finished, instead of a
+ * second one.
+ */
 export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => null);
+  const jobId = String(body?.jobId ?? "");
+  const work = () => build(body);
+  const done = validJobId(jobId) ? await once(`export-${jobId}`, work) : await work();
+  return NextResponse.json(done.body, { status: done.status });
+}
+
+/** GET ?job=<jobId>: a build's result once it has finished; {state: "running"} while it runs. */
+export async function GET(request: NextRequest) {
+  const jobId = request.nextUrl.searchParams.get("job") ?? "";
+  if (!validJobId(jobId)) return NextResponse.json({ error: "no job" }, { status: 400 });
+  const found = await resultOf(`export-${jobId}`);
+  if (found.state === "done") {
+    const done = found.result as Reply;
+    return NextResponse.json(done.body, { status: done.status });
+  }
+  return NextResponse.json({ state: found.state }, { status: found.state === "running" ? 202 : 404 });
+}
+
+async function build(body: Record<string, unknown> | null): Promise<Reply> {
   try {
-    const body = await request.json();
     const source = exposeMapProject(sanitizeScene(String(body?.source ?? "")));
     if (!source.trim()) {
-      return NextResponse.json({ error: "no source to export" }, { status: 400 });
+      return reply({ error: "no source to export" }, { status: 400 });
     }
     const sceneClass = String(body?.sceneClass ?? "GeneratedScene");
 
     // A lecture is voiced by its narration voice (Gemini 3.8 Flash-Lite TTS) and nothing else: without it, say so first.
     const noVoice = /pocket_lecture/.test(source) ? voiceProblem() : null;
-    if (noVoice) return NextResponse.json({ error: noVoice }, { status: 400 });
+    if (noVoice) return reply({ error: noVoice }, { status: 400 });
     // The lines are spoken first, several at once, with progress the page polls (/api/progress); Manim then finds
     // each line ready instead of waiting for them one by one.
     const progress = progressFile(String(body?.jobId ?? ""));
@@ -35,7 +64,7 @@ export async function POST(request: NextRequest) {
       if (spoken.error) {
         if (progress) await rm(progress, { force: true });
         // Lines spoken before the refusal were paid for: the page still adds them to the bill.
-        return NextResponse.json({ error: spoken.error, voiceCost: spoken.voice }, { status: 500 });
+        return reply({ error: spoken.error, voiceCost: spoken.voice }, { status: 500 });
       }
       beats = spoken.beats;
       voiceCost = spoken.voice;
@@ -75,9 +104,9 @@ export async function POST(request: NextRequest) {
         "server log has Google's message).";
     }
 
-    return NextResponse.json({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing });
+    return reply({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing });
   } catch (error) {
-    return NextResponse.json(
+    return reply(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );

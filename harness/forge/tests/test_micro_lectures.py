@@ -99,3 +99,51 @@ console.log(JSON.stringify({ cut: cut.map((p) => ({ title: p.title, chapters: p.
     assert one["recap"] == [["n", "newton"]] and two["recap"] == [["f", "friction"]]
     assert not one["topics"] and one["minutes"] == 25
     assert out["none"] == 0                                     # no plan of two: not cut by topic
+
+
+def test_a_whole_book_is_ten_to_fifteen_micro_lectures(lib):
+    """A book read without paragraph breaks (pypdf) came as one block, one section and one video of hours: it is cut
+    into small sections, planned as micro-lectures of 20-30 min, never more than 15."""
+    out = _node(lib, """
+const sentence = 'The force on a body changes its motion, and this is what Newton saw. ';
+const book = '# Laws of motion\\n' + Array.from({ length: 2400 }, () => sentence).join('');   // 31,000 words, no blank line
+const sections = transcript.bookSections(book, 375);
+const plan = topics.planTopics(sections);
+console.log(JSON.stringify({ sections: sections.length, longest: Math.max(...sections.map((s) => s.minutes)),
+  plan: plan.map((t) => t.minutes), most: topics.maxVideos(), cap: topics.maxSeriesMinutes() }));
+""")
+    assert out["most"] == 15 and out["cap"] == 375
+    assert out["sections"] >= 40 and out["longest"] <= 12
+    assert 12 <= len(out["plan"]) <= 15 and max(out["plan"]) <= 30
+
+
+def _chapter(k, beats, diagram=False):
+    return {"title": f"C{k}", "section": k, "beats": [
+        {"say": " ".join(["word"] * 300), "do": ([{"op": "diagram", "id": f"d{k}", "kind": "flow", "nodes": []}]
+                                                if diagram and b == 0 else
+                                                [{"op": "reveal", "diagram": f"d{k}", "nodes": []}] if diagram and b == 1 else [])}
+        for b in range(beats)]}
+
+
+def test_a_long_video_is_cut_again_and_never_more_than_fifteen(lib):
+    script = {"title": "Book", "chapters": [_chapter(1, 40, diagram=True), _chapter(2, 40)]}   # two chapters of ~120 min
+    out = _node(lib, f"""
+const script = {json.dumps(script)};
+const one = {{ index: 1, of: 1, script, minutes: 240, title: 'Lecture 1: Book' }};
+const bounded = parts.boundParts([one]);
+const many = Array.from({{ length: 20 }}, (_, k) => ({{ index: k + 1, of: 20, script: {{ title: 'x', chapters: [] }},
+  minutes: 12, title: 'L' + k }}));
+const pieces = parts.expandChapters(script.chapters, 3000);
+console.log(JSON.stringify({{
+  bounded: bounded.map((p) => [p.minutes, p.index, p.of]),
+  joined: parts.boundParts(many).length,
+  // the reveal of d1 stays in the piece that draws d1
+  firstPiece: pieces[0].beats.slice(0, 2).map((b) => b.do.map((o) => o.op)),
+  continued: pieces.filter((c) => /continued/.test(c.title)).length,
+}}));
+""")
+    assert len(out["bounded"]) >= 8 and max(m for m, _, _ in out["bounded"]) <= 33
+    assert [i for _, i, _ in out["bounded"]] == list(range(1, len(out["bounded"]) + 1))
+    assert out["joined"] == 15
+    assert out["firstPiece"] == [["diagram"], ["reveal"]]
+    assert out["continued"] >= 4

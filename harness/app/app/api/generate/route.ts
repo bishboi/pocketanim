@@ -1,3 +1,4 @@
+import { maxSeriesMinutes } from "@/lib/topics";
 import { NextRequest } from "next/server";
 import { generate, usingFixture, type GenerateRequest } from "@/lib/model";
 import type { AgentEvent } from "@/lib/agent";
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     instruction: body.instruction ? String(body.instruction) : undefined,
     documentId: typeof body.documentId === "string" ? body.documentId : undefined,
     minutes:
-      typeof body.minutes === "number" && body.minutes >= 1 && body.minutes <= 90 ? body.minutes : undefined,
+      typeof body.minutes === "number" && body.minutes >= 1 && body.minutes <= maxSeriesMinutes() ? body.minutes : undefined,
     subject: typeof body.subject === "string" && body.subject !== "auto" ? body.subject : undefined,
     referenceId: typeof body.referenceId === "string" ? body.referenceId : undefined,
     language: typeof body.language === "string" && body.language !== "auto" ? body.language : undefined,

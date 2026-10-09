@@ -88,12 +88,37 @@ const BOOK_MIN_WORDS = 150;
 const QUESTION_WORDS = 1500;
 
 /** A book's text as blocks in order: a heading with what follows it, a paragraph, a figure line. */
+/** The longest block a section is cut from, in words: a book read without paragraph breaks (pypdf, no blank lines)
+ * came as one block of the whole chapter, a single section, and a single video of two hours. */
+const BLOCK_WORDS = 250;
+
 function bookBlocks(markdown: string): string[] {
-  return markdown
+  const blocks = markdown
     .replace(/^#+\s*page \d+\s*$/gim, "")
     .split(/\n\s*\n|\n(?=#)/)
     .map((b) => b.trim())
     .filter((b) => b && !/^#+\s*$/.test(b));
+  return blocks.flatMap((block) => cutBlock(block, BLOCK_WORDS));
+}
+
+/** A long block in pieces of about `most` words: at its line breaks, else between sentences. */
+function cutBlock(block: string, most: number): string[] {
+  const size = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  if (size(block) <= most * 1.5) return [block];
+  const lines = block.split(/\n+/);
+  const units = lines.length > 1 ? lines : block.split(/(?<=[.?!।])\s+/);
+  const out: string[] = [];
+  let current: string[] = [];
+  for (const unit of units) {
+    if (current.length && size(current.join(" ")) + size(unit) > most) {
+      out.push(current.join(lines.length > 1 ? "\n" : " "));
+      current = [];
+    }
+    current.push(unit);
+  }
+  if (current.length) out.push(current.join(lines.length > 1 ? "\n" : " "));
+  // A line longer than the limit (a page without line breaks) is cut again, by sentences.
+  return out.flatMap((piece) => (lines.length > 1 && size(piece) > most * 1.5 ? cutBlock(piece.replace(/\n+/g, " "), most) : [piece]));
 }
 
 /**

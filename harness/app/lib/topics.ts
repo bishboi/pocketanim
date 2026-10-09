@@ -30,6 +30,17 @@ export function microMinutes(): { target: number; min: number; max: number } {
   return { target, min: Math.max(3, target - 5), max: target + 5 };
 }
 
+/** The most videos one lecture is made as (PANIM_MAX_VIDEOS, 15): a whole book in micro-lectures of 20-30 min. */
+export function maxVideos(): number {
+  const set = Number(process.env.PANIM_MAX_VIDEOS);
+  return Number.isFinite(set) && set >= 1 ? Math.round(set) : 15;
+}
+
+/** The longest lecture, in minutes, that maxVideos micro-lectures hold at their target length. */
+export function maxSeriesMinutes(): number {
+  return maxVideos() * microMinutes().target;
+}
+
 /** What opening and closing a micro-lecture adds to its sections' teaching (model.ts gives each 150 words more). */
 export const OPEN_CLOSE_MINUTES = 3;
 
@@ -60,13 +71,14 @@ export function planTopics(sections: Section[], range = microMinutes()): Topic[]
   // nearest the target; when none fits, the fewest that stay under its top.
   const length = (count: number) => total / count + OPEN_CLOSE_MINUTES;
   let count = 0;
-  for (let k = 2; k <= sections.length; k++) {
+  const most = Math.min(sections.length, maxVideos());
+  for (let k = 2; k <= most; k++) {
     const fits = length(k) <= range.max && length(k) >= range.min;
     if (fits && (!count || Math.abs(length(k) - range.target) < Math.abs(length(count) - range.target))) count = k;
   }
   if (!count) {
     count = 2;
-    while (count < sections.length && length(count) > range.max) count++;
+    while (count < most && length(count) > range.max) count++;
   }
   // Where each cut may go (before section i), and what the running total is there.
   const before: number[] = [];

@@ -330,7 +330,8 @@ export function layoutContract(): string {
 
 /** The lecture lengths the page offers, in minutes. The length decides how deep a lecture goes into its topics:
  * how many examples each statement gets and how many questions the class is asked (lib/lecture.ts teachingPlan). */
-export const LENGTH_CHOICES = [5, 10, 15, 20, 30, 40, 45, 60, 75, 90];
+// Past 30 minutes a lecture is a series of micro-lectures of 20-30 min (topics.ts), up to 15 of them.
+export const LENGTH_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 375];
 
 /** The subjects a lecture can be taught as (the page's Subject menu); "auto" lets the content decide. Mathematics,
  * physics and chemistry are taught as theory, then long problems solved step by step, on diagrams and graphs. */

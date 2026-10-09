@@ -814,7 +814,7 @@ async function viaOpenRouter(
           figureTally.photo ? `${figureTally.photo} photograph${figureTally.photo > 1 ? "s" : ""}` : "",
           figureTally.failed ? `${figureTally.failed} not drawn` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? "a photograph" : "not drawn"}`);
+        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? (made.web ? "a photograph, shown as a real photo like it" : "a photograph") : "not drawn"}`);
       },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +

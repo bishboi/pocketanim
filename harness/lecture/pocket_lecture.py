@@ -2295,9 +2295,10 @@ class Lecture(Scene):
                 animate: bool = True, flow: bool | None = None):
         """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
 
-        kind: flow (in order, left to right, wrapping), cycle (round), tree (from the first node down),
-        hub (the first node in the middle, the rest around it), categories (the first node, the whole, above its
-        kinds, each a card of words with its items: a classification), steps (a flow of numbered cards).
+        kind: flow (in order, left to right, wrapping), cycle (round), tree, hierarchy or categories (the whole on
+        top, its kinds below, theirs below them: _hierarchy; a category's card lists its items; a flow whose edges
+        only branch downwards is drawn so too), hub (the first node in the middle, the rest around it), steps (a
+        flow of numbered cards).
         nodes: [{id, label, entity?, items?}]: entity is a thing to draw (a tree, a factory); items are short lines
         listed in the node (a category's members). edges: [[from, to, label?]] (a flow, cycle or steps without
         edges joins its nodes in order; categories join the first node to the rest). `show` is the node ids to
@@ -2311,6 +2312,15 @@ class Lecture(Scene):
         nodes = [dict(n) for n in list(nodes)[:16]]
         ids = [str(n["id"]) for n in nodes]
         edges = [list(e) for e in edges or []]
+        import hierarchy as _hier
+
+        plain = not any(len(e) > 2 and e[2] for e in edges) and not any(n.get("shape") or n.get("lane") for n in nodes)
+        if kind in ("tree", "categories", "hierarchy") or (kind == "flow" and plain and _hier.is_tree(ids, edges)):
+            # A whole above its kinds, each above its own kinds (hierarchy.py): the main thing on top.
+            nodes, ids = nodes[:20], ids[:20]
+            if not edges:
+                edges = [[ids[0], i] for i in ids[1:]]
+            return self._hierarchy(key, nodes, edges, title, show, animate, bool(flow))
         if kind == "flowchart" or (kind == "flow" and edges and self._branching(ids, edges)):
             # Branches, joins, decisions and loops: laid out as a flowchart (flowchart.py), not a row of boxes.
             if not edges:
@@ -2320,8 +2330,6 @@ class Lecture(Scene):
         ids = ids[:9]
         if not edges and kind in ("flow", "cycle", "steps"):
             edges = [[a, b] for a, b in zip(ids, ids[1:])] + ([[ids[-1], ids[0]]] if kind == "cycle" and len(ids) > 2 else [])
-        if not edges and kind == "categories":
-            edges = [[ids[0], i] for i in ids[1:]]
         tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
         small = len(nodes) > 5
         flow = kind in ("flow", "cycle", "steps") if flow is None else bool(flow)
@@ -2329,9 +2337,7 @@ class Lecture(Scene):
                               number=k + 1 if kind == "steps" else None,
                               motion=(n.get("anim") or "auto") if animate else "none")
                 for k, (i, n) in enumerate(zip(ids, nodes))}
-        if kind == "categories":
-            kind = "tree"
-        elif kind == "steps":
+        if kind == "steps":
             kind = "flow"
         # Layout.
         if kind == "cycle":
@@ -2353,20 +2359,6 @@ class Lecture(Scene):
                 mobs[i].move_to([4.2 * math.cos(angle), 2.2 * math.sin(angle), 0])
             if not edges:
                 edges = [[ids[0], i] for i in ring]
-        elif kind == "tree":
-            children: dict = {}
-            for e in edges:
-                children.setdefault(str(e[0]), []).append(str(e[1]))
-            levels, seen, frontier = [], {ids[0]}, [ids[0]]
-            while frontier:
-                levels.append(frontier)
-                nxt = [c for f in frontier for c in children.get(f, []) if c not in seen]
-                seen.update(nxt)
-                frontier = nxt
-            levels[-1] += [i for i in ids if i not in seen]            # any node the edges do not reach
-            rows = [VGroup(*[mobs[i] for i in level]).arrange(RIGHT, buff=0.5) for level in levels]
-            # A row below the one above it by the taller of them: tall drawings never run into the names above.
-            VGroup(*rows).arrange(DOWN, buff=0.55)
         else:                                                           # flow
             per_row = 3 if len(ids) > 4 else max(len(ids), 1) if len(ids) <= 3 else 2
             rows = [VGroup(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
@@ -2395,6 +2387,63 @@ class Lecture(Scene):
                 edge.add(edge.flow)
             arrows.append((a, b, edge))
         return self._diagram_finish(key, ids, mobs, arrows, edges, title, show)
+
+    # ------------------------------------------------------------------ hierarchies
+
+    def _hierarchy(self, key, nodes, edges, title, show, animate, flow):
+        """A classification drawn as a tree (hierarchy.py lays it out): the whole at the top, its kinds in a row
+        below it, each over its own kinds, down to the last; leaves stacked in columns when a row would be too
+        wide. Each child is joined straight up to a bar it shares with its siblings and on into its parent, where
+        an open triangle marks "is a kind of". Each branch of the top keeps one colour all the way down."""
+        import hierarchy as hi
+
+        cx, cy, w, h = self.STAGE
+        ids = [str(n["id"]) for n in nodes]
+        roots, children, parent = hi.structure(ids, edges)
+        many = len(ids) > 9
+        tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
+        branch = {}
+        for r in roots:
+            branch[r] = 0
+            for k, c in enumerate(children[r]):
+                stack = [c]
+                while stack:
+                    v = stack.pop()
+                    branch[v] = 1 + k % (len(tones) - 1)
+                    stack.extend(children[v])
+        mobs = {}
+        for n in nodes:
+            i = str(n["id"])
+            mobs[i] = self._node(n.get("label", i), n.get("entity"), tones[branch.get(i, 0)], many, items=n.get("items"),
+                                 motion=(n.get("anim") or "auto") if animate else "none")
+        sizes = {i: (m.width, m.height) for i, m in mobs.items()}
+        lay = hi.layout(ids, edges, sizes, board=(w - 0.3, h - (0.9 if title else 0.3)))
+        for i, (x, y) in lay.centres.items():
+            mobs[i].move_to([x, y, 0])
+        line = dict(stroke_color=P.CREAM, stroke_width=OUTLINE * 0.75)
+        labels = {(str(e[0]), str(e[1])): str(e[2]) for e in edges if len(e) > 2 and e[2]}
+        built = []
+        for p, c, pts in lay.connectors:
+            path = VMobject(**line).set_fill(opacity=0)
+            path.set_points_as_corners([[x, y, 0] for x, y in pts])
+            jx, jy = lay.joins[p]
+            t = 0.2
+            mark = Polygon([jx, jy, 0], [jx - t * 0.6, jy - t, 0], [jx + t * 0.6, jy - t, 0], fill_color=P.BG,
+                           fill_opacity=1, **line)
+            parts = [path, mark]
+            if (p, c) in labels:
+                tag = marker(labels[(p, c)], 14)
+                x0, y0 = pts[0]
+                tag.next_to([x0, y0, 0], UP, buff=0.08).shift(RIGHT * (tag.width / 2 + 0.1))
+                tag.is_label = True
+                parts.append(tag)
+            edge = VGroup(*parts)
+            edge.path = path
+            if flow and path.get_arc_length() > 0.7:
+                edge.flow = self._flow_dots(path)
+                edge.add(edge.flow)
+            built.append((p, c, edge))
+        return self._diagram_finish(key, ids, mobs, built, edges, title, show)
 
     # ------------------------------------------------------------------ flowcharts
 
@@ -3051,14 +3100,15 @@ class Lecture(Scene):
         self._fit_stage(parts)
         return self._to_stage(Group(parts))
 
-    def figure(self, path: str, caption: str = "", where: str = "panel"):
-        """A figure from a source document: in the panel, or across the frame for one beat."""
+    def figure(self, path: str, caption: str = "", where: str = "panel", credit: str = ""):
+        """A figure from a source document: in the panel, or across the frame for one beat. `credit`: a photo the
+        web had in place of the book's own (its author and licence, shown under it on the stage)."""
         if where in ("panel", "full") and self.board_mode:
             # The board already spans the frame: a "full" figure there covered the title strip, and anything
             # else the beat put on the stage stayed hidden under it.
             where = "stage"
         if where == "stage":
-            return self.stage_image(path, caption)
+            return self.stage_image(path, caption, credit=credit)
         image = ImageMobject(path)
         if where == "full":
             image.scale_to_fit_height(5.4)

@@ -28,8 +28,15 @@ const REPAIRS = 2;
 export type FigureInfo = { id: string; file: string; caption: string; page?: number | null };
 
 export type Drawn = {
-  /** The figure is a photograph: shown as it is, not drawn. */
+  /** The figure is a photograph: not drawn, but shown as a real photo like it from the web, else as it is. */
   photo?: boolean;
+  /** What the photograph shows, in search words, and the named thing in it (a person, a monument), if any. */
+  query?: string;
+  subject?: string;
+  /** The web's photograph most like the book's (lookalike), shown instead of the scan, with its credit. */
+  web?: { file: string; title?: string; credit?: string; license?: string };
+  /** The web was searched for one (whether or not one was found), so a later run does not search again. */
+  looked?: boolean;
   /** The board's own shapes build it well (a graph, a preset, a sketch, a diagram): it is rebuilt in Manim. */
   manim?: boolean;
   /** The SVG file, when it was drawn and passed the check. */
@@ -135,13 +142,18 @@ export const REVIEW_PROMPT = [
 
 export const SVG_PROMPT = [
   "You redraw ONE figure from a textbook as a detailed, clean SVG illustration for a teacher's board in a video lecture.",
-  "Reply with the SVG alone in a ```svg block. If the figure is a PHOTOGRAPH (real people, a place, a specimen, an",
-  "object as photographed) that no drawing can replace, reply with the single word PHOTO instead.",
-  "If the board builds it well from its own shapes -- a graph or plot, a block on an incline, a pulley, a spring,",
-  "a pendulum, a projectile's path, a simple circuit, a lever, a lens or mirror with its rays, a geometric figure,",
-  "a flowchart, a cycle or tree of labelled boxes, a table -- reply with the single word MANIM instead: it is",
-  "rebuilt there. Draw an SVG only for what those shapes cannot show well: a cell or an organ, a cross-section,",
-  "an organism, a real apparatus or machine, a detailed structure.",
+  "Reply with the SVG alone in a ```svg block, unless the figure is one of these two:",
+  "- A PHOTOGRAPH (a real person, place, building, specimen, animal, plant or object, as photographed): reply",
+  "  PHOTO: <English search words for a real photo of the same thing seen the same way, most telling first:",
+  '  "Taj Mahal Agra front view white marble", "honey bee on flower close-up", "basalt rock sample">',
+  "  and, when it shows one named thing (a person, a monument, a place, a species), a second line",
+  "  SUBJECT: <its name as Wikipedia titles it>. A real photo like it is found on the web and shown instead.",
+  "- SIMPLE ENOUGH FOR THE BOARD'S OWN SHAPES: made of triangles, circles, rectangles, lines, arrows and a few",
+  "  labels -- a graph or plot, a block on an incline, a pulley, a spring, a pendulum, a projectile's path, a simple",
+  "  circuit, a lever, a lens or mirror with its rays, a geometric figure, a flowchart, a cycle or tree of labelled",
+  "  boxes, a table, a bar chart: reply with the single word MANIM. It is rebuilt there, cleaner and moving.",
+  "Draw an SVG only for a drawing (not a photograph) that those shapes cannot show well: a cell or an organ, a",
+  "cross-section, an organism, a real apparatus or machine, a detailed structure.",
   "",
   "WHAT TO DRAW: what the figure shows and teaches: the same parts, labels, arrows, numbers and layout, cleaner.",
   "Flat shapes and clear lines, as a good teacher draws on a board: no shading, textures or tiny details.",
@@ -159,6 +171,14 @@ export function figureContext(markdown: string, id: string, around = 900): strin
   const at = markdown.search(new RegExp(`\\[FIGURE ${id}:`));
   if (at < 0) return "";
   return markdown.slice(Math.max(0, at - around), at + around).replace(/\s+/g, " ").trim();
+}
+
+/** A PHOTO reply's search words and subject: "PHOTO: Taj Mahal front view\nSUBJECT: Taj Mahal". */
+export function photoWords(reply: string): { query?: string; subject?: string } {
+  const text = reply.replace(/```/g, "").trim();
+  const query = /^PHOTO\b[:\s-]*(.*)$/im.exec(text)?.[1]?.trim();
+  const subject = /^SUBJECT\b[:\s-]*(.+)$/im.exec(text)?.[1]?.trim();
+  return { ...(query ? { query: query.slice(0, 120) } : {}), ...(subject && subject !== "-" ? { subject: subject.slice(0, 80) } : {}) };
 }
 
 /** The SVG in a reply (a ```svg block, or a bare <svg>...</svg>), "PHOTO", "MANIM", or null. */
@@ -229,6 +249,9 @@ export function checkSvgs(repo: string, python: string, files: Record<string, st
   });
 }
 
+type Settled = { svg?: string; check?: Check; photo?: boolean; query?: string; subject?: string; manim?: boolean;
+  error?: string };
+
 export type SettleOptions = {
   key: string;
   model: string;
@@ -245,7 +268,7 @@ export type SettleOptions = {
  * final SVG to `file`.
  */
 export async function settle(messages: Message[], file: string, parts: string[] | undefined, options: SettleOptions,
-  asFigure = false): Promise<{ svg?: string; check?: Check; photo?: boolean; manim?: boolean; error?: string }> {
+  asFigure = false): Promise<Settled> {
   const made: string[] = [];
   const scratch = (n: string) => {
     const name = `${file}.${process.pid}.${n}`;
@@ -258,7 +281,7 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     await Promise.all(made.map((name) => rm(name, { force: true })));
   }
 
-  async function converse(): Promise<{ svg?: string; check?: Check; photo?: boolean; manim?: boolean; error?: string }> {
+  async function converse(): Promise<Settled> {
   const checkOne = async (svg: string, n: string, look: boolean) => {
     await writeFile(scratch(`${n}.svg`), svg, "utf8");
     const result = await checkSvgs(options.repo, options.python, { pic: scratch(`${n}.svg`) },
@@ -272,7 +295,7 @@ export async function settle(messages: Message[], file: string, parts: string[] 
     options.onCost?.(reply.cost);
     const svg = svgOf(reply.text);
     // A book figure may be a photograph (shown as it is) or one the board builds itself (rebuilt in Manim).
-    if (svg === "PHOTO" && asFigure) return { photo: true };
+    if (svg === "PHOTO" && asFigure) return { photo: true, ...photoWords(reply.text) };
     if (svg === "MANIM" && asFigure) return { manim: true };
     messages.push({ role: "assistant", content: reply.text });
     if (!svg || svg === "PHOTO" || svg === "MANIM") {
@@ -330,6 +353,71 @@ async function picture(file: string): Promise<string | null> {
   }
 }
 
+export const LOOKALIKE_PROMPT = [
+  "The first image is a photograph printed in a textbook. The others, numbered, are real photographs found on the",
+  "web. Which one shows the SAME thing (the same kind of subject: the same monument, person, species, rock or",
+  "object) seen most like the book's photo (similar view, framing and content), so a class could see it instead and",
+  "learn the same thing? It must be a real photograph, not a drawing, map, chart or collage, and nothing else may",
+  "dominate it. Reply with its number alone, or NONE if no photo is close enough.",
+].join("\n");
+
+function runPython(python: string, repo: string, args: string[], signal?: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, args, { cwd: repo, signal });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`${args[0]} failed (${code}): ${err.slice(-300)}`))));
+  });
+}
+
+/**
+ * The web's real photograph most like a book's photo (a reverse image search: lookalike.py finds photos for what
+ * the model said the book's shows, and the model compares each with the book's and picks the closest), or none.
+ * PANIM_PHOTO_LOOKALIKE=0 keeps the book's own photos.
+ */
+export async function lookalike(figure: FigureInfo, image: string | null, query: string | undefined,
+  subject: string | undefined, options: SettleOptions): Promise<Drawn["web"] | undefined> {
+  if (process.env.PANIM_PHOTO_LOOKALIKE === "0" || !image || !(query || subject)) return undefined;
+  const script = path.join(options.repo, "harness", "lecture", "lookalike.py");
+  const out = path.join(path.dirname(figure.file), ".lookalike", figure.id);
+  let found: { id: string; title?: string; thumb: string }[] = [];
+  try {
+    found = JSON.parse((await runPython(options.python, options.repo, [script, "candidates", query || subject || "",
+      ...(subject ? ["--subject", subject] : []), "--out", out], options.signal)).trim().split("\n").pop() || "[]");
+  } catch {
+    return undefined;                       // offline, or the search failed: the book's photo is shown
+  }
+  if (!found.length) return undefined;
+  const parts: Part[] = [{ type: "text", text: `${LOOKALIKE_PROMPT}\n\nThe book's photo (${figure.caption || figure.id}):` },
+    { type: "image_url", image_url: { url: image } }];
+  for (const [k, c] of found.entries()) {
+    const thumb = await picture(c.thumb);
+    if (!thumb) continue;
+    parts.push({ type: "text", text: `${k + 1}. ${c.title ?? ""}` }, { type: "image_url", image_url: { url: thumb } });
+  }
+  let pick: number | null = null;
+  try {
+    const reply = await ask(options.key, options.model, [{ role: "user", content: parts }], options.signal);
+    options.onCost?.(reply.cost);
+    const n = /\b(\d{1,2})\b/.exec(reply.text.replace(/NONE[\s\S]*/i, ""))?.[1];
+    pick = n ? Number(n) - 1 : null;
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    return undefined;
+  }
+  if (pick === null || !found[pick]) return undefined;
+  try {
+    const row = JSON.parse((await runPython(options.python, options.repo, [script, "fetch", found[pick].id], options.signal))
+      .trim().split("\n").pop() || "null");
+    return row?.file ? { file: row.file, title: row.title, credit: row.credit, license: row.license } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Draw each figure as an SVG (or find it drawn already). Returns what became of each, by id. Figures that cannot
  * be drawn come back with `failed` and the lecture builds them in Manim as before.
@@ -358,7 +446,9 @@ export async function drawFigures(
     const { meta } = drawnPaths(figure);
     try {
       const kept = JSON.parse(await readFile(meta, "utf8"));
-      if (kept.version === DRAWING_VERSION && (kept.photo || kept.manim || (kept.svg && existsSync(kept.svg)))) {
+      // A photograph decided before the web was searched for one like it is looked at again.
+      const photoDone = kept.photo && kept.looked && (!kept.web || existsSync(kept.web.file));
+      if (kept.version === DRAWING_VERSION && (photoDone || kept.manim || (kept.svg && existsSync(kept.svg)))) {
         out[figure.id] = kept;
         options.onDrawn?.(figure.id, kept, true);
         continue;
@@ -390,7 +480,13 @@ export async function drawFigures(
       usd += cost;
       options.onCost?.(cost);
     } }, true);
-    if (made.photo) return { photo: true, usd };
+    if (made.photo) {
+      const found = await lookalike(figure, image, made.query, made.subject, { ...options, onCost: (cost) => {
+        usd += cost;
+        options.onCost?.(cost);
+      } });
+      return { photo: true, query: made.query, subject: made.subject, looked: true, ...(found ? { web: found } : {}), usd };
+    }
     if (made.manim) return { manim: true, usd };
     if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks", usd };
     return { svg: made.svg, parts: made.check.parts, labels: made.check.labels ?? {}, animated: !!made.check.animated,
@@ -415,7 +511,8 @@ export async function drawFigures(
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
       done++;
-      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? "is a photograph (shown as it is)"
+      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? (drawn.web ? `is a photograph; shown as a real photo like it (${
+        drawn.web.title ?? "from the web"})` : "is a photograph (shown as it is: no real photo like it was found)")
         : drawn.manim ? "is built in Manim" : drawn.svg
         ? `drawn as SVG${drawn.animated ? ", moving" : ""} (${(drawn.parts ?? []).length} parts)`
         : `not drawn (${drawn.failed}); built on the board instead`} — ${done} of ${todo.length}.`);
@@ -433,7 +530,8 @@ export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
     const parts = (drawn.parts ?? []).map((p) => (drawn.labels?.[p] ? `${p} (${drawn.labels[p]})` : p)).join(", ");
     return `${head} — drawn as SVG${drawn.animated ? ", it moves by itself" : ""}; parts: ${parts}`;
   }
-  return `${head} — build it on the board (sketch, preset, graph, diagram) marked "from_figure":"${figure.id}"`;
+  return `${head} — simple shapes: build it on the board (sketch, preset, graph, diagram, or a manim op) marked ` +
+    `"from_figure":"${figure.id}"`;
 }
 
 /** How long stage 2 waits for the book's figures, from when their drawing began (PANIM_FIGURE_WAIT_SECONDS). */

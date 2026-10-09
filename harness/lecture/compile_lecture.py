@@ -403,6 +403,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _book_questions(script, whole=bool(min_minutes))
     errors += e
     warnings += w
+    errors += _web_pictures_problem(script)
     if not any(e.startswith(("chapter", "a lecture")) and "manim" in e for e in errors):
         import free_check
 
@@ -489,7 +490,7 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
 STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
-DIAGRAM_KINDS = {"flow", "flowchart", "cycle", "tree", "hub", "categories", "steps"}
+DIAGRAM_KINDS = {"flow", "flowchart", "cycle", "tree", "hub", "categories", "steps", "hierarchy"}
 # A flowchart's step shapes (pocket_lecture._flow_node) and the edge styles it draws.
 FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
 EDGE_STYLES = ("solid", "dashed", "bold")
@@ -575,12 +576,12 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if op.get("kind", "flow") not in DIAGRAM_KINDS:
             return f"diagram kind must be one of {', '.join(sorted(DIAGRAM_KINDS))}"
         _edges_as_lists(op)
-        most = 16 if op.get("kind", "flow") in ("flow", "flowchart") else 9
+        # A hierarchy (tree, categories) goes as deep and wide as a classification needs; a flowchart up to 16.
+        tree_kind = op.get("kind", "flow") in ("tree", "categories", "hierarchy")
+        most = 20 if tree_kind else 16 if op.get("kind", "flow") in ("flow", "flowchart") else 9
         if not 2 <= len(nodes) <= most or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
             return (f"'diagram' needs 2-{most} nodes, each {{id, label, entity?, items?"
                     + (", shape?, lane?" if most == 16 else "") + "}")
-        if most == 9 and len(nodes) > 9:
-            return "'diagram' of this kind needs 2-9 nodes; a flowchart takes up to 16"
         bad_shape = [n["id"] for n in nodes if n.get("shape") and str(n["shape"]) not in FLOW_SHAPES]
         if bad_shape:
             return f"diagram node {bad_shape[0]!r}: shape is one of {', '.join(FLOW_SHAPES)}"
@@ -871,6 +872,51 @@ TEXT_OPS = {"process", "quote"}
 PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars", "gallery", "diagram",
                "define", "compare", "reveal", "focus", "work", "trace", "sweep", "motion"} | STEM_OPS | LIVE_OPS
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
+
+
+def book_figure_count(script: dict) -> int:
+    return sum(1 for f in (script.get("figures") or {}).values()
+               if not NOT_A_FIGURE.search(str((f or {}).get("caption", ""))))
+
+
+def web_budget(script: dict) -> int | None:
+    """How many new pictures from the web (photos, illustrations, gallery items) a lecture may add: no limit
+    without a book, fewer the more figures the book has of its own (they come first), PANIM_WEB_PICTURES if set.
+    The app's prompt says the same (document.ts webBudget)."""
+    figures = book_figure_count(script)
+    if os.environ.get("PANIM_WEB_PICTURES", "").strip().isdigit():
+        return int(os.environ["PANIM_WEB_PICTURES"])
+    if not figures:
+        return None
+    return max(1, 10 - 2 * figures)
+
+
+def web_pictures(script: dict) -> list[str]:
+    """Where the script asks for a picture from the web: one entry per photo, illustration or gallery item."""
+    out = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                kind = op.get("op")
+                if kind in ("photo", "illustration"):
+                    out.append(f"chapter {c + 1} beat {b + 1}")
+                elif kind == "gallery":
+                    out += [f"chapter {c + 1} beat {b + 1}" for item in _gallery_items(op) if item["op"] != "figure"]
+    return out
+
+
+def _web_pictures_problem(script: dict) -> list[str]:
+    budget = web_budget(script)
+    if budget is None:
+        return []
+    asked = web_pictures(script)
+    if len(asked) <= budget:
+        return []
+    return [f"{asked[budget]}: the book has {book_figure_count(script)} figures of its own, so the lecture adds at "
+            f"most {budget} new picture{'s' if budget != 1 else ''} from the web (photo, illustration, gallery item); "
+            f"this script asks for {len(asked)}. Show the book's figures (figure ops) and build diagrams instead"]
 
 
 def _word_list(text: str) -> list[str]:
@@ -1639,7 +1685,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             events = _timeline_of(chapter)
             if events:
                 pick = {"op": "timeline", "events": events}
-        if not pick and images.enabled():
+        if not pick and images.enabled() and _web_left() > 0:
             # People, communities and places the paragraph names: their pictures, together.
             found = []
             names = []
@@ -1649,7 +1695,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                     continue
                 names += [n for n in named_subjects(beats[i], limit=3) if n not in names]
             for subject in names[:4]:
-                if lookups <= 0 or len(found) >= 3:
+                if lookups <= 0 or len(found) >= min(3, _web_left()):
                     break
                 lookups -= 1
                 row = images.fetch(subject=subject)
@@ -1658,6 +1704,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                     script_photos[_photo_key(item)] = row
                     USED_PICTURES.add(row["id"])
                     found.append(item)
+            _web_used(len(found))
             if len(found) == 1:
                 pick = found[0]
             elif found:
@@ -1665,7 +1712,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
         # Biology is taught with pictures of what it is about (a cell, a leaf, a heart): a paragraph left without one
         # gets a textbook illustration of its topic, as an explicit "auto_illustrations" gives any lecture.
         if not pick and (STYLE_NOW.get("auto_illustrations") or genre == "biology") and images.enabled() \
-                and lookups > 0:
+                and lookups > 0 and _web_left() > 0:
             for query in picture_queries(first, chapter, genre, group[0]):
                 lookups -= 1
                 row = images.fetch(illustration=query, avoid=USED_PICTURES, genre=genre, style=STYLE_NOW["style"])
@@ -1673,6 +1720,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
                     pick = {"op": "illustration", "query": query, "caption": ""}
                     script_photos[_photo_key(pick)] = row
                     USED_PICTURES.add(row["id"])
+                    _web_used(1)
                     break
         if pick:
             out[group[0]] = pick
@@ -1684,7 +1732,17 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
 # Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile), and the
 # lecture's style, which an AI illustration is drawn in.
 USED_PICTURES: set = set()
-STYLE_NOW: dict = {"style": None, "auto_illustrations": False}
+STYLE_NOW: dict = {"style": None, "auto_illustrations": False, "web_left": None}
+
+
+def _web_left() -> float:
+    left = STYLE_NOW.get("web_left")
+    return float("inf") if left is None else left
+
+
+def _web_used(n: int) -> None:
+    if STYLE_NOW.get("web_left") is not None:
+        STYLE_NOW["web_left"] = max(0, STYLE_NOW["web_left"] - n)
 PLAIN = set("""
 about above after again against almost along also although always among another around because become before
 being below between both came come could does doing down during each even every first from further have having
@@ -1861,8 +1919,9 @@ def _op_call(op: dict) -> str:
         if figure.get("svg") and not op.get("photo"):
             show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
             return f"self.svg_figure({_q(str(op['id']))}, {_q(figure['svg'])}, {_q(str(caption)[:160])}{show})"
+        credit = f", credit={_q(figure['credit'])}" if figure.get("credit") else ""
         return (f"self.figure({_q(figure['file'])}, {_q(caption)}, "
-                f"where={_q(op.get('where', 'panel'))})")
+                f"where={_q(op.get('where', 'panel'))}{credit})")
     if kind == "unstage":
         return "self.clear_stage()"
     if kind == "gallery":
@@ -2153,6 +2212,10 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     USED_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")
     STYLE_NOW["auto_illustrations"] = bool(script.get("auto_illustrations"))
+    # What is left of the web-picture budget once the script's own are counted: the paragraphs' automatic
+    # pictures take no more than that (none at all when a book with many figures has used it up).
+    budget = web_budget(script)
+    STYLE_NOW["web_left"] = None if budget is None else max(0, budget - len(web_pictures(script)))
     import illustrations
 
     illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
@@ -2271,11 +2334,14 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out.append(f"        self.recap([{points}])")
     uses_icons = any(op.get("op") in ("icon", "illustration") for c in chapters for b in c.get("beats") or []
                      for op in b.get("do") or []) or any("illustration" in line for line in out)
-    if script.get("credits") or uses_icons or script_photos:
+    # The web's photos shown in place of the book's own (figures.lookalike) are credited with the others.
+    web_figures = [{"title": f.get("caption") or fid, "credit": f["credit"]} for fid, f in script_figures.items()
+                   if f.get("web") and f.get("credit")]
+    if script.get("credits") or uses_icons or script_photos or web_figures:
         import images
 
         line = script.get("credits") or ("Map data: Natural Earth · Animation: Manim" if region else "Animation: Manim")
-        photos = images.credit(script_photos.values())
+        photos = images.credit([*script_photos.values(), *web_figures])
         out.append(f"        self.credits({_q(line)}" + (f", extra={_q(photos)}" if photos else "") + ")")
     return "\n".join(out) + "\n"
 

@@ -389,7 +389,11 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if used > PANEL_ROOM:
                     warnings.append(f"{at}: the panel overflows into the caption; start a new panel")
                     used = _panel_height(op)
-    errors += _unknown_places(places, (script.get("region") or {}).get("country"))
+    region_problem, home = _region_problem(script.get("region"))
+    if region_problem:
+        errors.append(region_problem)
+    else:
+        errors += _unknown_places(places, home)
     errors += _unknown_icons(icon_names)
     errors += _unfetched_photos(photos, script.get("genre"), script.get("style"))
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
@@ -1931,6 +1935,25 @@ def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
             out.append(f"{at}: no icon for {name!r}; search with find_icon and use a name it returns, "
                        "or a simpler word (wheat, factory, cow, dam)")
     return out
+
+
+def _region_problem(region) -> tuple[str | None, str | None]:
+    """(why the script's region cannot be drawn, or None; the country its places are looked up in). A region is a
+    country, a state with its country, or an area: the world, a continent, a world region (pocket_lecture)."""
+    if not isinstance(region, dict) or not region:
+        return None, None
+    try:
+        from pocket_lecture import region_kind
+    except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
+        return None, region.get("country")
+    try:
+        kind = region_kind(region)
+    except KeyError as error:
+        return (f"region: {str(error).strip(chr(34))}. A region is a country ({{\"country\": \"India\"}}), a state "
+                f"({{\"state\": \"Kerala\", \"country\": \"India\"}}) or an area: the world, a continent or a world "
+                f"region ({{\"area\": \"World\"}}, {{\"area\": \"Asia\"}}, {{\"area\": \"South Asia\"}}, "
+                f"{{\"area\": \"Middle East\"}})"), None
+    return None, None if kind == "area" else region.get("country")
 
 
 def _unknown_places(places: list[tuple[str, str]], country: str | None) -> list[str]:

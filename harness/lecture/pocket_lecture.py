@@ -919,6 +919,80 @@ def country(name: str, view: str | None = None):
     raise KeyError(f"no country named {name!r} in Natural Earth")
 
 
+# ---------------- areas: the world, a continent, a world region ----------------
+WORLD_NAMES = {"world", "the world", "whole world", "earth", "the earth", "globe", "world map", "planet earth"}
+# Groups Natural Earth does not tag, by their member countries (its ADMIN names).
+AREA_GROUPS = {
+    "middle east": ["Saudi Arabia", "Iran", "Iraq", "Syria", "Jordan", "Israel", "Palestine", "Lebanon", "Turkey",
+                    "Egypt", "Yemen", "Oman", "United Arab Emirates", "Qatar", "Bahrain", "Kuwait", "Cyprus"],
+    "indian subcontinent": ["India", "Pakistan", "Bangladesh", "Nepal", "Bhutan", "Sri Lanka", "Maldives"],
+    "subcontinent": ["India", "Pakistan", "Bangladesh", "Nepal", "Bhutan", "Sri Lanka", "Maldives"],
+    "saarc": ["India", "Pakistan", "Bangladesh", "Nepal", "Bhutan", "Sri Lanka", "Maldives", "Afghanistan"],
+    "americas": None, "the americas": None,      # both continents (below)
+}
+# Where the map of an area is framed, when its countries reach far beyond it (Natural Earth's Europe holds all of
+# Russia, to the Pacific).
+AREA_FRAMES = {"europe": (-25.0, 34.0, 45.0, 72.0)}
+
+
+def _area_key(name: str) -> str:
+    return _norm(str(name).replace("&", "and"))
+
+
+@lru_cache(None)
+def area_members(name: str) -> tuple:
+    """The countries (ADMIN names) of an area -- the world, a continent ("Asia"), a UN subregion ("Southern Asia",
+    "Western Europe"), a World Bank region ("South Asia", "Middle East and North Africa") or a group ("Middle
+    East", "Indian subcontinent") -- or () when the name is none of these."""
+    key = _area_key(name)
+    rows = [(str(a.get("ADMIN")), a) for a, _ in _records("admin_0_countries")]
+    if key in WORLD_NAMES:
+        return tuple(n for n, a in rows if a.get("CONTINENT") not in ("Antarctica", "Seven seas (open ocean)"))
+    if key in ("americas", "the americas"):
+        return tuple(n for n, a in rows if a.get("CONTINENT") in ("North America", "South America"))
+    if key in AREA_GROUPS:
+        wanted = {_norm(x) for x in AREA_GROUPS[key]}
+        return tuple(n for n, _ in rows if _norm(n) in wanted)
+    for field in ("CONTINENT", "SUBREGION", "REGION_WB", "REGION_UN"):
+        found = tuple(n for n, a in rows if _area_key(a.get(field) or "") == key)
+        if found:
+            return found
+    return ()
+
+
+@lru_cache(None)
+def area(name: str):
+    """An area's land, the union of its countries (simplified a little: a continent need not be drawn to the
+    metre)."""
+    from shapely.ops import unary_union
+
+    members = {_norm(m) for m in area_members(name)}
+    if not members:
+        raise KeyError(f"no country, continent or world area named {name!r}")
+    parts = [_valid(g).simplify(0.02) for a, g in _records("admin_0_countries") if _norm(a.get("ADMIN")) in members]
+    return _valid(unary_union(parts))
+
+
+def region_kind(region: dict) -> str:
+    """"state", "country" or "area" (the world, a continent, a world region) for a script's region; KeyError when
+    it names none of these."""
+    if region.get("state"):
+        state(region["state"], region.get("country"))
+        return "state"
+    name = region.get("area") or region.get("continent") or region.get("country")
+    if not name:
+        raise KeyError("a region names a country, a state (with its country) or an area")
+    if not (region.get("area") or region.get("continent")):
+        try:
+            country(name, region.get("view"))
+            return "country"
+        except KeyError:
+            pass
+    if area_members(name):
+        return "area"
+    raise KeyError(f"no country, state, continent or world area named {name!r}")
+
+
 def state(name: str, country_name: str | None = None):
     """A first-level division (state, province) by name."""
     wanted = _norm(name)
@@ -1156,6 +1230,18 @@ class MapFrame:
         import cartopy.crs as ccrs
 
         lon0, lat0, lon1, lat1 = focus.bounds
+        # What is drawn is cut to a window round the map first: a conic projection sends what lies far from it (the
+        # far side of Russia on a map of Europe) to infinity. Robinson can draw anything: no window.
+        self.window = None
+        if crs is None and lon1 - lon0 > 100:
+            # The world, or most of a hemisphere: a conic projection tears; Robinson draws it as an atlas does.
+            crs = ccrs.Robinson(central_longitude=0.0 if lon1 - lon0 > 300 else (lon0 + lon1) / 2)
+        elif crs is None:
+            from shapely.geometry import box as _shape_box
+
+            pad = max(lon1 - lon0, lat1 - lat0, 5.0)
+            self.window = _shape_box(max(-180.0, lon0 - pad), max(-85.0, lat0 - pad),
+                                     min(180.0, lon1 + pad), min(85.0, lat1 + pad))
         if crs is None:
             span = max(lat1 - lat0, 1.0)
             crs = ccrs.LambertConformal(
@@ -1184,6 +1270,9 @@ class MapFrame:
 
     def project_geom(self, geom, scale=True):
         from shapely.ops import transform
+
+        if self.window is not None and not self.window.contains(geom):
+            geom = geom.intersection(self.window)
 
         def f(x, y, z=None):
             p = self.crs.transform_points(self.pc, np.asarray(x, float), np.asarray(y, float))
@@ -3485,11 +3574,28 @@ class MapLecture(BoardMixin, Lecture):
 
     # ---------------- region ----------------
     @property
+    def area_name(self) -> str | None:
+        """The world, a continent or a world region this map shows (REGION area, continent, or a country name that
+        is not a country), or None for a country's or a state's map."""
+        if not hasattr(self, "_area_name"):
+            self._area_name = None
+            if region_kind(self.REGION) == "area":
+                self._area_name = self.REGION.get("area") or self.REGION.get("continent") or self.REGION.get("country")
+        return self._area_name
+
+    @property
+    def home_country(self) -> str | None:
+        """The country places are looked up in first: none on a map of an area."""
+        return None if self.area_name else self.REGION.get("country")
+
+    @property
     def focus(self):
         if not hasattr(self, "_focus"):
             region = self.REGION
             if region.get("state"):
                 self._focus = state(region["state"], region.get("country"))
+            elif self.area_name:
+                self._focus = area(self.area_name)
             else:
                 self._focus = country(region["country"], region.get("view"))
         return self._focus
@@ -3497,6 +3603,10 @@ class MapLecture(BoardMixin, Lecture):
     @property
     def mainland(self):
         g = self.focus
+        if self.area_name:
+            # An area is framed whole (all its countries), or to its own frame where its countries reach far away.
+            frame = AREA_FRAMES.get(_area_key(self.area_name))
+            return _box(frame) if frame else g
         return max(g.geoms, key=lambda p: p.area) if g.geom_type == "MultiPolygon" else g
 
     # A lon/lat box to fit the map to instead of the whole focus: a
@@ -3533,7 +3643,7 @@ class MapLecture(BoardMixin, Lecture):
             lon, lat = self.ANCHORS[where]
             return float(lon), float(lat)
         if isinstance(where, str):
-            return place(where, self.REGION.get("country"))
+            return place(where, self.home_country)
         lon, lat = where
         return float(lon), float(lat)
 
@@ -3546,7 +3656,18 @@ class MapLecture(BoardMixin, Lecture):
         home = region.get("country")
         nb = VGroup()
         style = dict(fill_color=TH["nb_fill"], fill_opacity=1, stroke_color=TH["nb_stroke"], stroke_width=1)
-        if region.get("state"):
+        if self.area_name:
+            # Every country of the area outlined inside it; the countries round it as neighbours.
+            members = list(area_members(self.area_name))
+            for name, geom in countries_in(bounds, region.get("view"), exclude=members):
+                nb.add(fr.poly(geom, simplify=0.01, min_area=0.001, **style))
+            wanted = {_norm(m) for m in members}
+            inner = VGroup(*[
+                fr.poly(geom, simplify=0.01, min_area=0.0005, fill_opacity=0, stroke_color=TH["st_stroke"],
+                        stroke_width=0.8)
+                for name, geom in countries_in(bounds, region.get("view")) if _norm(name) in wanted
+            ])
+        elif region.get("state"):
             for name, geom in states_of(home or ""):
                 if _norm(name) == _norm(region["state"]):
                     continue
@@ -3614,7 +3735,13 @@ class MapLecture(BoardMixin, Lecture):
 
     def fill_state(self, name: str, color: str | None = None, opacity: float = 0.6):
         """FadeIn one first-level division of the focus country."""
-        m = self.region_fill(state(name, self.REGION.get("country")), color or P.SAND, opacity)
+        try:
+            shape = state(name, self.home_country)
+        except KeyError:
+            if not self.area_name:
+                raise
+            shape = country(name)            # on a map of an area, a whole country is filled
+        m = self.region_fill(shape, color or P.SAND, opacity)
         return FadeIn(m)
 
     def river(self, name: str, color: str | None = None, width: float = 5):

@@ -15,7 +15,7 @@ import { REPO, python } from "./pocketanim";
 import { drawScript, type DrawOptions } from "./drawings";
 import type { Template } from "./templates";
 
-export type LectureRegion = { country?: string; state?: string; view?: string };
+export type LectureRegion = { country?: string; state?: string; view?: string; area?: string };
 
 export type BeatOp = { op: string; [key: string]: unknown };
 export type LectureScript = {
@@ -751,7 +751,9 @@ export function lecturePrompt(
     "were given or be well established; say 'about' for rough figures.",
     "",
     "Script shape:",
-    '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} | null,',
+    '{"title", "sub", "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} |',
+    '   {"area": "World" | a continent ("Asia", "Europe", "Africa") | a world region ("South Asia", "Middle East",',
+    '   "Western Europe", "Southern Africa", "Indian subcontinent")} | null,  (an area\'s "state" op fills a country)',
     ' "intro", "chapters": [{"title", "sub", "narration": "Chapter one. ...",',
     '   "beats": [{"say": "...", "paragraph"?: true, "about"?: "Chipko movement", "pause"?: 2, "do": [ops]}]}],',
     ' "recap": [["Head", "short body"]], "credits": "..."}',

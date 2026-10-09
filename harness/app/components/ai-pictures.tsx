@@ -9,21 +9,26 @@ import { PICTURE_KINDS, usd, type AiPicture } from "@/lib/costs";
  */
 export function AiPictures({ pictures, style }: { pictures: AiPicture[]; style?: string }) {
   if (!pictures.length) return null;
-  const svgs = pictures.filter((p) => p.kind !== "illustration");
-  const images = pictures.filter((p) => p.kind === "illustration");
-  const spent = (list: AiPicture[]) => list.reduce((t, p) => t + p.usd, 0);
+  // The book's figures first, in the book's order (fig1, fig2, ... fig10), then the lecture's own pictures.
+  const BOOK = new Set<AiPicture["kind"]>(["figure", "photo", "rebuilt"]);
+  const order = (p: AiPicture) => Number(/fig(?:ure)?\s*(\d+)/i.exec(p.title)?.[1] ?? 1e6);
+  const sorted = [...pictures].sort((a, b) => Number(BOOK.has(b.kind)) - Number(BOOK.has(a.kind)) || order(a) - order(b));
+  const spent = (list: AiPicture[]) => list.reduce((t, p) => t + (p.reused ? 0 : p.usd), 0);
   const made = (list: AiPicture[]) => list.filter((p) => !p.reused).length;
+  const book = pictures.filter((p) => BOOK.has(p.kind));
+  const own = pictures.filter((p) => !BOOK.has(p.kind));
   const sum = (list: AiPicture[], word: string) =>
     list.length ? `${list.length} ${word}${list.length > 1 ? "s" : ""} (${made(list)} new) ${usd(spent(list))}` : "";
   return (
-    <details className="rounded border border-neutral-800 bg-neutral-950 text-xs" data-testid="ai-pictures">
-      <summary className="cursor-pointer select-none px-3 py-2 text-neutral-300">
-        Pictures the AI made <span className="font-mono text-neutral-100">{usd(spent(pictures))}</span>
-        <span className="text-neutral-500"> · {[sum(svgs, "SVG"), sum(images, "illustration")].filter(Boolean).join(" · ")}</span>
+    <details open className="rounded border border-neutral-800 bg-neutral-950 text-xs" data-testid="ai-pictures">
+      <summary className="cursor-pointer select-none px-3 py-2 text-sm text-neutral-200">
+        Figures and pictures <span className="font-mono text-neutral-100">{usd(spent(pictures))}</span>
+        <span className="text-xs text-neutral-500"> · {[sum(book, "book figure"), sum(own, "picture")].filter(Boolean).join(" · ")}</span>
       </summary>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 px-3 pb-3">
-        {pictures.map((p) => (
-          <figure key={p.file} className="flex min-w-0 flex-col overflow-hidden rounded border border-neutral-800 bg-neutral-900">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3 px-3 pb-3">
+        {sorted.map((p) => (
+          <figure key={p.file} className="flex min-w-0 flex-col overflow-hidden rounded border border-neutral-800 bg-neutral-900"
+            data-testid="ai-picture">
             <a href={src(p, style)} target="_blank" rel="noreferrer" title="Open full size">
               {/* An <img> keeps an SVG's own animation running and its scripts off. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -32,18 +37,20 @@ export function AiPictures({ pictures, style }: { pictures: AiPicture[]; style?:
             </a>
             <figcaption className="flex flex-col gap-1 p-2">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] uppercase tracking-wide text-neutral-500">{PICTURE_KINDS[p.kind]}</span>
-                <span className="font-mono text-neutral-100">
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500">{PICTURE_KINDS[p.kind] ?? p.kind}</span>
+                <span className="font-mono text-sm text-neutral-100">
                   {p.reused ? "reused" : usd(p.usd)}
                 </span>
               </div>
-              <p className="line-clamp-3 text-neutral-300" title={p.title}>{p.title}</p>
+              <p className="line-clamp-3 text-neutral-200" title={p.title}>{p.title}</p>
+              {p.status && <p className="text-sky-300/90">{p.status}</p>}
               {p.reused && (
                 <p className="text-neutral-500">
                   Made for an earlier lecture{p.paid ? ` for ${usd(p.paid)}` : ""}; free this time.
                 </p>
               )}
-              {p.detail && <p className="truncate text-neutral-500" title={p.detail}>{p.kind === "illustration" ? `by ${p.detail}` : `parts: ${p.detail}`}</p>}
+              {p.detail && <p className="truncate text-neutral-500" title={p.detail}>
+                {p.kind === "illustration" ? `by ${p.detail}` : p.kind === "photo" ? p.detail : `parts: ${p.detail}`}</p>}
             </figcaption>
           </figure>
         ))}

@@ -139,7 +139,10 @@ export function usd(value: number): string {
  * image model drew. `usd` is what it cost this lecture; one `reused` from an earlier run cost nothing now, and
  * `paid` says what it cost when it was made. */
 export type AiPicture = {
-  kind: "figure" | "drawing" | "illustration";
+  /** figure: a book figure redrawn as SVG; photo: a book photo (shown as the web's photo like it, or as it is);
+   * rebuilt: a book figure built in Manim instead (or not drawn); drawing: a picture drawn as SVG; illustration:
+   * one an image model drew. */
+  kind: "figure" | "photo" | "rebuilt" | "drawing" | "illustration";
   /** Where it is on the server (/api/picture serves it). */
   file: string;
   title: string;
@@ -148,10 +151,14 @@ export type AiPicture = {
   paid?: number | null;
   /** Its parts (an SVG), or the model that drew it (an illustration). */
   detail?: string;
+  /** What became of a book figure, in a few words ("shown as a real photo like it", "built in Manim"). */
+  status?: string;
 };
 
 export const PICTURE_KINDS: Record<AiPicture["kind"], string> = {
   figure: "Book figure, drawn as SVG",
+  photo: "Book photo",
+  rebuilt: "Book figure, built in Manim",
   drawing: "Picture drawn as SVG",
   illustration: "AI illustration",
 };

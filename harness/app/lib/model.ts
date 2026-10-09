@@ -799,10 +799,21 @@ async function viaOpenRouter(
       },
       onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
+        // Every book figure is listed with what it cost, whatever became of it: drawn as SVG, a photo (shown as the
+        // web's photo most like it, or as it is), or built in Manim.
+        const figure = teachingFigures(doc).find((f) => f.id === id);
+        const title = `${id}: ${figure?.caption ?? ""}`.trim();
+        const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
         if (made.svg) {
-          const caption = teachingFigures(doc).find((f) => f.id === id)?.caption ?? "";
-          showPicture({ kind: "figure", file: made.svg, title: `${id}: ${caption}`.trim(), usd: kept ? 0 : made.usd ?? 0,
-            reused: kept, paid: made.usd ?? null, detail: (made.parts ?? []).join(", ") });
+          showPicture({ kind: "figure", file: made.svg, title, ...paid, detail: (made.parts ?? []).join(", "),
+            status: made.animated ? "drawn as SVG, moving" : "drawn as SVG" });
+        } else if (made.photo && (made.web?.file || figure?.file)) {
+          showPicture({ kind: "photo", file: made.web?.file ?? figure!.file, title, ...paid,
+            detail: made.web?.credit ?? made.query,
+            status: made.web ? "shown as a real photo like it" : "shown as it is (no photo like it found)" });
+        } else if (figure?.file) {
+          showPicture({ kind: "rebuilt", file: figure.file, title, ...paid,
+            status: made.manim ? "simple shapes: built in Manim" : `not drawn (${made.failed ?? "no SVG"}): built in Manim` });
         }
         if (made.svg) figureTally[kept ? "kept" : "svg"] += 1;
         else if (made.manim) figureTally.manim += 1;

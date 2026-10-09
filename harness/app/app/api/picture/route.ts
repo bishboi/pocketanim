@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const asked = params.get("file") ?? "";
   const style = (params.get("style") ?? "chalkboard").replace(/[^a-z_-]/gi, "") || "chalkboard";
-  if (!/\.(svg|png)$/i.test(asked)) return NextResponse.json({ error: "not a picture" }, { status: 400 });
+  if (!/\.(svg|png|jpe?g|webp)$/i.test(asked)) return NextResponse.json({ error: "not a picture" }, { status: 400 });
   let file: string;
   try {
     file = await realpath(asked);
@@ -59,9 +59,12 @@ export async function GET(request: NextRequest) {
   }
   if (!(await allowed(file))) return NextResponse.json({ error: "not a picture the AI made" }, { status: 403 });
   try {
-    if (file.toLowerCase().endsWith(".png")) {
+    const raster = /\.(png|jpe?g|webp)$/i.exec(file)?.[1]?.toLowerCase();
+    if (raster) {
+      // A photo (a book's, or the web's photo like it) or an illustration: as it is.
+      const type = raster === "png" ? "image/png" : raster === "webp" ? "image/webp" : "image/jpeg";
       return new NextResponse(new Uint8Array(await readFile(file)), {
-        headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=3600" },
+        headers: { "Content-Type": type, "Cache-Control": "private, max-age=3600" },
       });
     }
     const svg = await paint(file, style, (await stat(file)).mtimeMs);

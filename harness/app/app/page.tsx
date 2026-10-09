@@ -1569,14 +1569,6 @@ export default function Home() {
                     : [];
                   return <CostBreakdown version={series[0] ?? version} series={series} />;
                 })()}
-                {(() => {
-                  // A series' pictures were made with its first part (its writing); each part's build adds its own.
-                  const holders = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
-                  const pictures = holders.flatMap((v) => v.pictures ?? [])
-                    .filter((p, i, all) => all.findIndex((q) => q.file === p.file) === i);
-                  return <AiPictures pictures={pictures}
-                    style={TEMPLATES.find((t) => t.id === version.templateId)?.style} />;
-                })()}
                 {(version.trace.length > 0 || busy) && (
                   <div
                     id="agent-log"
@@ -1983,6 +1975,19 @@ export default function Home() {
           )}
         </div>
       </div>
+      {version && (() => {
+        // The book's figures and the lecture's pictures, each with what it cost: across the page, open, so they are
+        // seen (tucked under the scene source in the left column they were missed).
+        // A series' pictures were made with its first part (its writing); each part's build adds its own.
+        const holders = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
+        const pictures = holders.flatMap((v) => v.pictures ?? [])
+          .filter((p, i, all) => all.findIndex((q) => q.file === p.file) === i);
+        return pictures.length ? (
+          <div className="mt-4">
+            <AiPictures pictures={pictures} style={TEMPLATES.find((t) => t.id === version.templateId)?.style} />
+          </div>
+        ) : null;
+      })()}
     </main>
   );
 }

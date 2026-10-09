@@ -232,6 +232,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         errors.append('region must be an object, e.g. {"country": "India", "view": "ind"}, or left out for no map')
         script = {**script, "region": None}
     has_map = bool(script.get("region"))
+    if has_map:
+        e, w = _resolve_map_points(script)
+        errors += e
+        warnings += w
     chapters = script.get("chapters") or []
     places: list[tuple[str, str]] = []
     icon_names: list[tuple[str, str]] = []
@@ -393,7 +397,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     if region_problem:
         errors.append(region_problem)
     else:
-        errors += _unknown_places(places, home)
+        errors += _unknown_places(places, home, script.get("region"))
     errors += _unknown_icons(icon_names)
     errors += _unfetched_photos(photos, script.get("genre"), script.get("style"))
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
@@ -437,10 +441,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         need = int((min_minutes * 60 - (minutes * 60 - words * WORD_SECONDS)) / WORD_SECONDS) - words
         errors.append(f"the lecture runs about {minutes:.1f} min ({beats} beats, {words} words of narration); "
                       f"it must run at least {min_minutes:g} min. Add about {max(need, 50)} more words of narration "
-                      "by teaching in more depth: after each statement from the content, explain what it means in "
-                      "easy words, give two or three examples from daily life, explain every hard term, add what "
-                      "a student should also know beyond the book, say the key idea again in other words, and "
-                      "ask the class a question. Keep every existing beat that is right.")
+                      "by teaching more of the content: a step or idea left out, an example from daily life, a "
+                      "hard term explained, a worked problem, a question for the class. Never restate what is "
+                      "already said. Keep every existing beat that is right.")
     return errors, warnings
 
 
@@ -1213,7 +1216,8 @@ def teaching_plan(minutes: float, source_words: int = 0) -> dict:
     else:
         topics = min(12, max(2, round(minutes / 3)))
     per_topic = minutes / topics
-    examples = 1 if per_topic < 1.5 else 2 if per_topic < 3 else 3 if per_topic < 5 else 4
+    # One example makes an idea clear; a second only where there is time for a hard one. More was repetition.
+    examples = 1 if per_topic < 4 else 2
     problems = 1 if per_topic < 2 else 2 if per_topic < 4 else 3
     questions = 0.5 if per_topic < 2 else 1 if per_topic < 4 else 2 if per_topic < 7 else 3
     return {"minutes": minutes, "topics": topics, "examples": examples, "questions_per_topic": questions,
@@ -1937,6 +1941,91 @@ def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
     return out
 
 
+def _km(a, b) -> float:
+    import math
+
+    lon1, lat1, lon2, lat2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(min(1.0, h)))
+
+
+# A coordinate further than this from where the gazetteer has the place it is labelled with is the model's guess,
+# and is replaced.
+GUESS_KM = 30
+
+
+def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
+    """Where the map's points really are, before anything is drawn: a model's own [lon, lat] is often far off.
+
+    A marker that names its place is drawn at the place (its lonlat dropped); one given only lonlat and a label the
+    gazetteer knows is moved there when the two are more than GUESS_KM apart; a journey's [lon, lat] stops are
+    checked against their labels the same way; an arrow's or path's points may be place names, looked up. A
+    point that is off the map is refused. Returns (errors, warnings)."""
+    try:
+        import pocket_lecture as pl
+    except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
+        return [], []
+    region = script.get("region") or {}
+    problem, home = _region_problem(region)
+    if problem:
+        return [], []
+    bounds = pl.map_bounds(region)
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    def known(name):
+        try:
+            return pl.place(str(name), home, bounds)
+        except KeyError:
+            return None
+
+    def checked(at, point, label):
+        """The point, or where its label really is; an error when it is off the map."""
+        point = [float(point[0]), float(point[1])]
+        if label:
+            found = known(label)
+            if found and pl._inside(found, bounds) and _km(point, found) > GUESS_KM:
+                warnings.append(f"{at}: {label!r} was given at {point}, {_km(point, found):.0f} km from where it is; "
+                                f"drawn at {list(found)}")
+                point = [round(found[0], 4), round(found[1], 4)]
+        if bounds and not pl._inside(point, bounds):
+            errors.append(f"{at}: {label or point!r} at {point} is off this map; check it, or name the place instead "
+                          "of giving lon/lat")
+        return point
+
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            at = f"chapter {c + 1} beat {b + 1}"
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                kind = op.get("op")
+                if kind == "marker":
+                    if op.get("place") and op.get("lonlat"):
+                        op.pop("lonlat")                       # the name is where it is
+                    elif isinstance(op.get("lonlat"), (list, tuple)) and len(op["lonlat"]) == 2:
+                        op["lonlat"] = checked(at, op["lonlat"], op.get("label"))
+                elif kind == "journey" and isinstance(op.get("stops"), list):
+                    labels = op.get("labels") if isinstance(op.get("labels"), list) else []
+                    op["stops"] = [checked(at, s, labels[k] if k < len(labels) else None)
+                                   if isinstance(s, (list, tuple)) and len(s) == 2 and
+                                   all(isinstance(v, (int, float)) for v in s) else s
+                                   for k, s in enumerate(op["stops"])]
+                elif kind in ("arrow", "path") and isinstance(op.get("points"), list):
+                    points = []
+                    for p in op["points"]:
+                        if isinstance(p, str):
+                            found = known(p)
+                            if found is None:
+                                errors.append(f"{at}: no place named {p!r} for the {kind}; use a nearby town's name")
+                                continue
+                            points.append([round(found[0], 4), round(found[1], 4)])
+                        else:
+                            points.append(p)
+                    op["points"] = points
+    return errors, warnings
+
+
 def _region_problem(region) -> tuple[str | None, str | None]:
     """(why the script's region cannot be drawn, or None; the country its places are looked up in). A region is a
     country, a state with its country, or an area: the world, a continent, a world region (pocket_lecture)."""
@@ -1956,21 +2045,26 @@ def _region_problem(region) -> tuple[str | None, str | None]:
     return None, None if kind == "area" else region.get("country")
 
 
-def _unknown_places(places: list[tuple[str, str]], country: str | None) -> list[str]:
-    """Marker places the gazetteer cannot find: caught here, not halfway through a render."""
+def _unknown_places(places: list[tuple[str, str]], country: str | None, region: dict | None = None) -> list[str]:
+    """Marker places the gazetteer cannot find, or finds only off this map: caught here, not halfway through a
+    render."""
     if not places:
         return []
     try:
-        from pocket_lecture import place
+        import pocket_lecture as pl
     except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
         return []
+    bounds = pl.map_bounds(region) if region else None
     out = []
     for at, name in places:
         try:
-            place(name, country)
+            found = pl.place(name, country, bounds)
+            if not pl._inside(found, bounds):
+                out.append(f"{at}: {name!r} is at {[round(found[0], 2), round(found[1], 2)]}, off this map; name a "
+                           "place on it (or widen the region)")
         except KeyError:
             out.append(f"{at}: no place named {name!r}" + (f" in {country}" if country else "")
-                       + "; use a nearby larger town, or give its position as lonlat [lon, lat] instead of place")
+                       + "; use the modern town it is in, or a nearby larger town (a guessed lon/lat is usually wrong)")
     return out
 
 

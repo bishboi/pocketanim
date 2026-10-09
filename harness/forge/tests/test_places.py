@@ -48,8 +48,10 @@ def test_geonames(gazetteer):
     assert pl.place("Mahmudabad", "India") == (81.12, 27.30)
     assert pl.place("महमूदाबाद", "India") == (81.12, 27.30)          # an alternate name, in Devanagari
     assert pl.place("Fakeville", "United States of America") == (-72.59, 42.1)     # the most populous
+    # Looked up in the country first, then anywhere (Harappa on a map of India): Nepal has none, India's is found.
+    assert pl.place("Mahmudabad", "Nepal") == (81.12, 27.30)
     with pytest.raises(KeyError):
-        pl.place("Mahmudabad", "Nepal")                                 # the country filter holds
+        pl.place("Nowhere At All", "Nepal")
 
 
 def test_unknown_place_is_a_lint_error(monkeypatch):
@@ -60,4 +62,4 @@ def test_unknown_place_is_a_lint_error(monkeypatch):
     out = subprocess.run([sys.executable, str(LECTURE / "compile_lecture.py"), "-", "--check"],
                          input=json.dumps(script), capture_output=True, text=True, env={**__import__("os").environ})
     errors = json.loads(out.stdout.strip().splitlines()[-1])["errors"]
-    assert any("Nowhere Town" in e and "lonlat" in e for e in errors)
+    assert any("Nowhere Town" in e and "town" in e for e in errors)

@@ -1153,7 +1153,15 @@ def _extra_places() -> dict:
     return out
 
 
-def _natural_earth_place(name: str, scope: str | None):
+def _inside(point, bounds) -> bool:
+    if not bounds or point is None:
+        return True
+    lon0, lat0, lon1, lat1 = bounds
+    return lon0 <= point[0] <= lon1 and lat0 <= point[1] <= lat1
+
+
+def _natural_earth_place(name: str, scope: str | None, bounds=None):
+    """The most populous place of that name, preferring one on the map (`bounds`): two towns share a name."""
     wanted = _norm(name)
     if not wanted:
         return None
@@ -1163,10 +1171,11 @@ def _natural_earth_place(name: str, scope: str | None):
             continue
         if scope and scope not in (_norm(attrs.get("ADM0NAME")), _norm(attrs.get("SOV0NAME")), _norm(attrs.get("ADM0_A3"))):
             continue
-        pop = float(attrs.get("POP_MAX") or 0)
-        if best is None or pop > best[0]:
-            best = (pop, float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))
-    return (best[1], best[2]) if best else None
+        point = (float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))
+        rank = (_inside(point, bounds), float(attrs.get("POP_MAX") or 0))
+        if best is None or rank > best[0]:
+            best = (rank, point)
+    return best[1] if best else None
 
 
 GEONAMES = HERE / "data" / "geonames" / "cities.txt"
@@ -1208,7 +1217,7 @@ def _geonames() -> dict:
     return index
 
 
-def _geonames_place(name: str, country_name: str | None):
+def _geonames_place(name: str, country_name: str | None, bounds=None):
     rows = _geonames().get(_norm(name))
     if not rows:
         return None
@@ -1217,7 +1226,7 @@ def _geonames_place(name: str, country_name: str | None):
         rows = [r for r in rows if r[3] == code] if code else rows
     if not rows:
         return None
-    best = max(rows, key=lambda r: r[0])
+    best = max(rows, key=lambda r: (_inside((r[1], r[2]), bounds), r[0]))
     return best[1], best[2]
 
 
@@ -1225,17 +1234,25 @@ def _geocode_cache_path() -> Path:
     return Path(os.environ.get("PANIM_GEOCODE_CACHE") or (HERE / ".cache" / "geocode.json"))
 
 
-def _geocode(name: str, country_name: str | None):
+# What a teaching map marks: towns, regions, historic sites, natural features. A hospital or a shop that shares a
+# name ("Kalinga") is not it.
+_GEO_CLASSES = {"place": 3, "boundary": 3, "historic": 3, "natural": 2, "tourism": 2, "waterway": 1, "landuse": 1}
+
+
+def _geocode(name: str, country_name: str | None, bounds=None):
     """OpenStreetMap's Nominatim, once per name, cached on disk. PANIM_GEOCODE=0 turns it off.
 
-    The cache makes a render reproducible and offline after the first lookup;
-    a failed lookup is cached too, so a missing name costs one request.
+    It is asked for a few answers, near the map when its bounds are known, and the best is kept: one on the map
+    before one off it, a town, region or historic site before a building that shares the name, then the most
+    important. The cache makes a render reproducible and offline after the first lookup; a failed lookup is
+    cached too, so a missing name costs one request.
     """
     import json
 
     if os.environ.get("PANIM_GEOCODE", "1") == "0":
         return None
-    key = f"{_norm(name)}|{_norm(country_name)}"
+    box = ",".join(f"{v:.1f}" for v in bounds) if bounds else ""
+    key = f"{_norm(name)}|{_norm(country_name)}|{box}"
     path = _geocode_cache_path()
     try:
         cache = json.loads(path.read_text()) if path.exists() else {}
@@ -1248,14 +1265,21 @@ def _geocode(name: str, country_name: str | None):
         import urllib.parse
         import urllib.request
 
-        query = urllib.parse.urlencode({"q": f"{name}, {country_name}" if country_name else name, "format": "json",
-                                        "limit": 1})
-        request = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?{query}",
+        params = {"q": f"{name}, {country_name}" if country_name else name, "format": "json", "limit": 6}
+        if bounds:
+            lon0, lat0, lon1, lat1 = bounds
+            params["viewbox"] = f"{lon0},{lat1},{lon1},{lat0}"
+        request = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?{urllib.parse.urlencode(params)}",
                                          headers={"User-Agent": "pocketanim-lecture/0.4 (map lectures)"})
         with urllib.request.urlopen(request, timeout=8) as response:
             rows = json.loads(response.read().decode())
-        if rows:
-            found = (round(float(rows[0]["lon"]), 4), round(float(rows[0]["lat"]), 4))
+        best = None
+        for row in rows:
+            point = (round(float(row["lon"]), 4), round(float(row["lat"]), 4))
+            rank = (_inside(point, bounds), _GEO_CLASSES.get(str(row.get("class")), 0), float(row.get("importance") or 0))
+            if rank[1] and (best is None or rank > best[0]):
+                best = (rank, point)
+        found = best[1] if best else None
     except Exception:  # noqa: BLE001 -- offline, blocked or rate limited: not cached, tried again next time
         return None
     cache[key] = list(found) if found else None
@@ -1264,39 +1288,59 @@ def _geocode(name: str, country_name: str | None):
     return found
 
 
-def place(name: str, country_name: str | None = None) -> tuple[float, float]:
+def place(name: str, country_name: str | None = None, bounds=None) -> tuple[float, float]:
     """(lon, lat) of a place.
 
-    In order: Natural Earth's populated places (the most populous match),
-    under the name or its renamed form; data/places_extra.csv; the GeoNames
-    gazetteer when fetch_gazetteer.py has downloaded it; then OpenStreetMap,
-    cached. Raises KeyError when none knows it.
+    From, in order: Natural Earth's populated places (the most populous match), under the name or its renamed
+    form; data/places_extra.csv (historic and teaching sites); the GeoNames gazetteer when fetch_gazetteer.py has
+    downloaded it; then OpenStreetMap, cached. First in `country_name`, then anywhere (Harappa on a map of India
+    is in Pakistan). With the map's `bounds`, a place on the map wins over one of the same name off it (two towns
+    called Aurangabad); one off it is kept only if nothing on it matches. Raises KeyError when none knows it.
     """
-    scope = _norm(country_name) if country_name else None
     names = [name]
     for old, new in PLACE_ALIASES.items():
         if _norm(name) == _norm(old):
             names.append(new)
         elif _norm(name) == _norm(new):
             names.append(old)
-    for candidate in names:
-        found = _natural_earth_place(candidate, scope)
-        if found:
-            return found
     extra = _extra_places()
-    for candidate in names:
-        row = extra.get(_norm(candidate))
-        if row and (not scope or row[2] == scope):
-            return row[0], row[1]
-    for candidate in names:
-        found = _geonames_place(candidate, country_name)
-        if found:
-            return found
-    found = _geocode(name, country_name)
-    if found:
-        return found
+    off_map = None
+    for scope_name in ([country_name, None] if country_name else [None]):
+        scope = _norm(scope_name) if scope_name else None
+        found = []
+        for candidate in names:
+            found.append(_natural_earth_place(candidate, scope, bounds))
+            row = extra.get(_norm(candidate))
+            found.append((row[0], row[1]) if row and (not scope or row[2] == scope) else None)
+            found.append(_geonames_place(candidate, scope_name, bounds))
+        found.append(_geocode(name, scope_name, bounds))
+        for point in found:
+            if point and _inside(point, bounds):
+                return point
+            if point and off_map is None:
+                off_map = point
+    if off_map:
+        return off_map
     hint = "" if GEONAMES.exists() else " (run harness/scripts/fetch_gazetteer.py to add 150,000 more towns)"
     raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else "") + hint)
+
+
+def map_bounds(region: dict) -> tuple | None:
+    """The lon/lat window a region's map shows (MapLecture.lonlat_bounds), for looking places up on it."""
+    try:
+        if region_kind(region) == "state":
+            focus = state(region["state"], region.get("country"))
+        elif region_kind(region) == "area":
+            name = region.get("area") or region.get("continent") or region.get("country")
+            frame = AREA_FRAMES.get(_area_key(name))
+            focus = _box(frame) if frame else area(name)
+        else:
+            focus = country(region["country"], region.get("view"))
+    except KeyError:
+        return None
+    lon0, lat0, lon1, lat1 = focus.bounds
+    pad = max(lon1 - lon0, lat1 - lat0) * 0.45
+    return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
 
 
 class MapFrame:
@@ -3723,7 +3767,7 @@ class MapLecture(BoardMixin, Lecture):
             lon, lat = self.ANCHORS[where]
             return float(lon), float(lat)
         if isinstance(where, str):
-            return place(where, self.home_country)
+            return place(where, self.home_country, self.lonlat_bounds())
         lon, lat = where
         return float(lon), float(lat)
 

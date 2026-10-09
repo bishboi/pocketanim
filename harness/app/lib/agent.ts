@@ -22,6 +22,8 @@ export type AgentEvent = {
   costUsd?: number;
   /** The cost so far, task by task (lib/costs.ts), with each usage event. */
   costs?: Costs;
+  /** Seconds since the generation began, with each usage event: its whole time once it is done. */
+  seconds?: number;
   /** A picture the AI made for the lecture (type "picture"), with what it cost. */
   picture?: AiPicture;
   source?: string;

@@ -643,7 +643,9 @@ async function completionWithRetry(
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
-): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string }> {
+): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string; span: [number, number] }> {
+  // When the request began and its answer came: the task's time (lib/costs.ts), retries included.
+  const began = Date.now();
   let empties = 0;
   let cut = false;
   for (let attempt = 1; attempt <= EMPTY_RETRIES; attempt++) {
@@ -666,7 +668,7 @@ async function completionWithRetry(
         const why = result.finishReason ? ` (${result.finishReason})` : "";
         throw new Error(`OpenRouter returned an empty message${why}`);
       }
-      return result;
+      return { ...result, span: [began, Date.now()] };
     } catch (error) {
       if (!signal?.aborted && isNetworkError(error)) {
         // A dropped connection: the same request again, after a pause, before giving up with the real reason.
@@ -756,7 +758,7 @@ async function viaOpenRouter(
   let outputTokens = 0;
   let costUsd = 0;
   const sendCosts = (text: string) =>
-    emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot() });
+    emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot(), seconds: ledger.elapsed });
   const figureTally = { svg: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
   // Each picture the AI made for the lecture goes to the page as it is made (once), with what it cost.
   const shownPictures = new Set<string>();
@@ -789,6 +791,7 @@ async function viaOpenRouter(
       repo: REPO,
       python: python(),
       onStatus: (text) => emit({ type: "message", role: "status", text }),
+      onTime: (start, end) => ledger.time("figures", start, end),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);
         sendCosts(`book figure drawn: $${usd.toFixed(4)}`);
@@ -962,7 +965,7 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd = ledger.bill("transcript", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+        costUsd = ledger.bill("transcript", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span });
         sendCosts(`transcript section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         // The section is whatever the reply wrote: the longest write_section text, whatever number it gave, or,
         // from a provider that answered in plain text instead of calling the tool, the reply itself.
@@ -1171,6 +1174,7 @@ async function viaOpenRouter(
       sendCosts(`picture drawn: $${usd.toFixed(4)}`);
     },
     onDrawn: () => ledger.count("drawings", 1),
+    onTime: (start: number, end: number) => ledger.time("drawings", start, end),
     onPicture: (p: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) =>
       showPicture({ kind: "drawing", file: p.file, title: p.what, usd: p.kept ? 0 : p.usd, reused: p.kept, paid: p.usd,
         detail: p.parts.join(", ") }),
@@ -1434,7 +1438,7 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd = ledger.bill("script", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+        costUsd = ledger.bill("script", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span });
         sendCosts(`video section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         const calls = result.message.tool_calls ?? [];
         if (!calls.length) {
@@ -1482,7 +1486,9 @@ async function viaOpenRouter(
           } else if (call.function.name === "find_drawing") {
             output = await findDrawings(args.queries);
           } else if (call.function.name === "find_illustration") {
+            const looked = Date.now();
             output = await findIllustration(args.queries, subject?.genre, billImages);
+            ledger.time("images", looked, Date.now());
           } else {
             output = "Only write_lecture and the find tools are available here.";
           }
@@ -1849,7 +1855,7 @@ async function viaOpenRouter(
         });
       }
     }, 8000);
-    let result: { message: ChatMessage; usage?: Usage; finishReason?: string };
+    let result: { message: ChatMessage; usage?: Usage; finishReason?: string; span?: [number, number] };
     try {
       result = await completionWithRetry(key, model, messages, emit, (kind, text) => {
         sawDelta = true;
@@ -1922,7 +1928,8 @@ async function viaOpenRouter(
     outputTokens += addedOut;
     // The whole-lecture turns after the sections were written: checking and fixing the script (for a plain scene,
     // which has no sections, these turns write it).
-    costUsd = ledger.bill(lecture ? "fixes" : "script", addedCost, { inputTokens: addedIn, outputTokens: addedOut });
+    costUsd = ledger.bill(lecture ? "fixes" : "script", addedCost, { inputTokens: addedIn, outputTokens: addedOut,
+      span: result.span });
     sendCosts(`turn ${turn + 1}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
 
     const text = result.message.content?.trim() ?? "";
@@ -2121,7 +2128,9 @@ async function viaOpenRouter(
       } else if (call.function.name === "find_drawing") {
         output = await findDrawings((args as { queries?: unknown }).queries);
       } else if (call.function.name === "find_illustration") {
+        const looked = Date.now();
         output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre, billImages);
+        ledger.time("images", looked, Date.now());
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);
@@ -2471,6 +2480,7 @@ export async function generate(
       const repairCost = Number(repaired.usage?.cost ?? 0);
       result.costUsd = kept.ledger ? kept.ledger.bill("fixes", repairCost, {
         inputTokens: repaired.usage?.prompt_tokens ?? 0, outputTokens: repaired.usage?.completion_tokens ?? 0,
+        span: repaired.span,
       }) : result.costUsd + repairCost;
       const text = repaired.message.content?.trim() ?? "";
       if (!text) throw new Error(broken);

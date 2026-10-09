@@ -55,6 +55,8 @@ export type DrawOptions = {
   onCost?: (usd: number) => void;
   /** A picture newly drawn as SVG (one from the cache is not counted). */
   onDrawn?: () => void;
+  /** How long a picture newly drawn took, from its first request to its last check (ms since the epoch). */
+  onTime?: (start: number, end: number) => void;
   /** Each picture the script uses, drawn now or earlier (`kept`), with what it cost when it was drawn. Called again
    * at each compile: a caller lists them by file. */
   onPicture?: (picture: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) => void;
@@ -104,6 +106,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
     return { svg: file };
   }
   await mkdir(path.dirname(file), { recursive: true });
+  const began = Date.now();
   const ask0 = [
     `THE PICTURE: ${op.what.trim()}`,
     `PARTS (each a <g id>, exactly these ids): ${op.parts.join(", ")}`,
@@ -118,6 +121,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
     usd += cost;
     options.onCost?.(cost);
   } });
+  options.onTime?.(began, Date.now());          // a picture that failed its checks took its time too
   if (!made.svg || !made.check) return { error: made.error ?? "the SVG did not pass the board's checks" };
   await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: made.check.parts,
     animated: !!made.check.animated, usd }), "utf8");

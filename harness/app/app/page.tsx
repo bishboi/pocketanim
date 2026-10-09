@@ -105,6 +105,12 @@ type Version = {
   pictures?: AiPicture[];
   /** Its builds: how long the latest took, and the illustrations an image model drew while building. */
   build?: { seconds: number; voiceSeconds: number; count: number; aiImages: number; aiUsd: number };
+  /** How long writing it took, from Generate to the agent's last word (seconds of the clock). */
+  writeSeconds?: number;
+  /** How long its MP4 took to render, the last time it was downloaded. */
+  mp4Seconds?: number;
+  /** How long saving it took (packing its phone files and uploading them), the last time it was saved. */
+  saveSeconds?: number;
   exported?: ExportState;
   ir?: SceneIR | null;
   sceneClass?: string;
@@ -420,6 +426,7 @@ export default function Home() {
       quiet = setTimeout(() => abort.abort(), QUIET_MS);
     };
     const savedNow: string[] = [];
+    const savingFrom = Date.now();
     const mb = (n?: number) => `${((n ?? 0) / 1048576).toFixed(1)} MB`;
     try {
       heard();
@@ -486,6 +493,11 @@ export default function Home() {
       if (!result) throw new Error("the save stopped before it finished");
       if (!result.saved) throw new Error(result.error ?? "nothing was saved");
       const done = result;
+      // How long the save took goes on the series' first video, beside what writing and building it cost.
+      const took = (Date.now() - savingFrom) / 1000;
+      const first = videos[0];
+      setVersions((all) => all.map((v) => v.exported?.buildDir && v.exported.buildDir === first.exported?.buildDir
+        ? { ...v, saveSeconds: took } : v));
       setSaving((s) => ({ ...s, result: { lectures: done.lectures ?? [],
         skipped: [...left.map((l) => `${l} (pick it and press Rebuild preview, then Save it)`), ...(done.skipped ?? [])] } }));
       void checkSaved();
@@ -676,6 +688,7 @@ export default function Home() {
     );
     const index = versions.length;
     const styleId = templateId;
+    const began = Date.now();                       // the writing's time, for the cost breakdown
     const next: Version = {
       n: (versions[versions.length - 1]?.n ?? 0) + 1,
       templateId: styleId,
@@ -761,6 +774,7 @@ export default function Home() {
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
                     costs: event.costs ?? item.costs,
+                    writeSeconds: (Date.now() - began) / 1000,
                     pictures: event.type === "picture" && event.picture
                       && !(item.pictures ?? []).some((p) => p.file === event.picture!.file)
                       ? [...(item.pictures ?? []), event.picture] : item.pictures,
@@ -944,6 +958,8 @@ export default function Home() {
     if (!exported?.buildDir) return;
     const scene = version?.sceneClass ?? SCENE;
     setVideo((v) => ({ ...v, busy: true, error: undefined }));
+    const rendering = Date.now();
+    const at = current;
     try {
       const response = await fetch(
         `/api/video?build=${encodeURIComponent(exported.buildDir)}&scene=${scene}&quality=${video.quality}`,
@@ -953,6 +969,8 @@ export default function Home() {
         throw new Error(body.error ?? `HTTP ${response.status}`);
       }
       const url = URL.createObjectURL(await response.blob());
+      const took = (Date.now() - rendering) / 1000;
+      setVersions((all) => all.map((v, i) => i === at ? { ...v, mp4Seconds: took } : v));
       const link = document.createElement("a");
       link.href = url;
       link.download = `${scene}.mp4`;

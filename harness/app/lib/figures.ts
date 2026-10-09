@@ -348,6 +348,8 @@ export async function drawFigures(
     /** Each figure as soon as it is settled (found drawn, drawn, or not), for a caller that will not wait for all;
      * `kept` when it was drawn by an earlier run (and cost nothing now). */
     onDrawn?: (id: string, drawn: Drawn, kept: boolean) => void;
+    /** How long a figure drawn now took (ms since the epoch), whatever came of it. */
+    onTime?: (start: number, end: number) => void;
   },
 ): Promise<Record<string, Drawn>> {
   const out: Record<string, Drawn> = {};
@@ -399,12 +401,14 @@ export async function drawFigures(
   const workers = Array.from({ length: Math.max(1, Math.min(AT_ONCE, queue.length)) }, async () => {
     for (let figure = queue.shift(); figure; figure = queue.shift()) {
       let drawn: Drawn;
+      const began = Date.now();
       try {
         drawn = await drawOne(figure);
       } catch (error) {
         if (options.signal?.aborted) throw error;
         drawn = { failed: String(error instanceof Error ? error.message : error).slice(0, 200) };
       }
+      options.onTime?.(began, Date.now());
       out[figure.id] = drawn;
       options.onDrawn?.(figure.id, drawn, false);
       if (!drawn.failed) {

@@ -57,6 +57,31 @@ def _num(value: float, decimals: int) -> str:
     return text.replace("-", "−")
 
 
+def _set_text(mob, new) -> None:
+    """mob shows new's words, glyph for glyph, keeping its own pieces. Manim's become() aligned every outline point
+    of every glyph each frame (most of a long lecture's build went there); the pieces are kept so the exporter
+    sees the same shapes change, not new ones each frame."""
+    from manim import VMobject
+
+    glyphs = new.family_members_with_points()
+    pieces = [m for m in mob.submobjects]
+    while len(pieces) < len(glyphs):
+        piece = VMobject()
+        mob.add(piece)
+        pieces.append(piece)
+    for k, piece in enumerate(pieces):
+        if k < len(glyphs):
+            glyph = glyphs[k]
+            piece.points = np.array(glyph.points, dtype=float)
+            piece.fill_rgbas = np.array(glyph.fill_rgbas, dtype=float)
+            piece.stroke_rgbas = np.array(glyph.stroke_rgbas, dtype=float)
+            piece.stroke_width = glyph.stroke_width
+        else:
+            piece.points = np.zeros((0, 3))
+    if len(mob.points) and not len(new.points):
+        mob.points = np.zeros((0, 3))
+
+
 def _readout(label: str, size: float = 22, color=None):
     """A text readout that can be re-set every frame (Pango text, cached per string)."""
     pl = _engine()
@@ -67,7 +92,7 @@ def _readout(label: str, size: float = 22, color=None):
         new.move_to(at if at is not None else mob.get_center())
         if at is None:
             new.align_to(mob, np.array([-1, 0, 0]))
-        mob.become(new)
+        _set_text(mob, new)
 
     return mob, put
 

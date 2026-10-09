@@ -24,19 +24,56 @@ from exporter.ir import GLYPH_TOLERANCE, REC_SNAPSHOT, Atlas, Instance, serialis
 LIBRARY_PATH = Path("dsl/generated/library.atlas")
 
 
+def library_path() -> Path:
+    """The glyph library this build writes to: its own, or (PANIM_GLYPH_LIBRARY) the one the builds of a
+    lecture's chapters share, so their text assets number the same glyphs the same way when joined."""
+    import os
+
+    shared = os.environ.get("PANIM_GLYPH_LIBRARY")
+    return Path(shared) if shared else LIBRARY_PATH
+
+
+class library_lock:
+    """Held while a text asset reads, adds to and writes the library: builds side by side share it, and two
+    adding a glyph at once would give two glyphs one number. A no-op for a build with its own library."""
+
+    def __enter__(self):
+        import os
+
+        self.handle = None
+        if os.environ.get("PANIM_GLYPH_LIBRARY"):
+            import fcntl
+
+            lock = Path(os.environ["PANIM_GLYPH_LIBRARY"] + ".lock")
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            self.handle = open(lock, "a+")
+            fcntl.flock(self.handle, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        if self.handle is not None:
+            import fcntl
+
+            fcntl.flock(self.handle, fcntl.LOCK_UN)
+            self.handle.close()
+        return False
+
+
 class GlyphLibrary:
     """Accumulating atlas keyed by glyph shape, persisted across exports."""
 
-    def __init__(self, path: Path = LIBRARY_PATH):
-        self.path = path
+    def __init__(self, path: Path | None = None):
+        self.path = path or library_path()
         self.atlas = Atlas()
-        if path.exists():
-            existing = load(path.read_bytes())
+        if self.path.exists():
+            existing = load(self.path.read_bytes())
             for shape in existing.shapes:
                 self.atlas.shapes.append(shape)
                 self.atlas._by_count.setdefault(len(shape), []).append(
                     len(self.atlas.shapes) - 1
                 )
+                self.atlas._exact.setdefault((len(shape), np.round(shape - shape.mean(axis=0), 6).tobytes()),
+                                             len(self.atlas.shapes) - 1)
 
     def resolve(self, points: np.ndarray) -> tuple[int, np.ndarray]:
         """Map a glyph onto the shared atlas, adding it only if new.

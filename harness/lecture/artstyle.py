@@ -38,7 +38,7 @@ ART_STYLES: dict[str, dict] = {
 # The font each style writes its pictures' words in (labels, a node's name, a sim's readout); titles, the panel
 # and the captions keep the template's. None: the template's own. A font not on this machine falls back to it too.
 ART_FONTS = {
-    "clean": None, "detailed": "Source Sans 3", "blueprint": "IBM Plex Mono", "chalk": "Cabin Sketch",
+    "clean": None, "detailed": "Source Sans 3", "blueprint": "IBM Plex Mono", "chalk": "Patrick Hand",
     "sketch": "Architects Daughter", "neon": "Quicksand", "watercolour": "Caveat",
 }
 

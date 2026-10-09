@@ -53,6 +53,10 @@ AFFINE_TOLERANCE = 1e-4
 # animation rather than a sub-pixel outline.
 GLYPH_TOLERANCE = 2e-3
 
+# How many of the latest atlas shapes with the same point count a new shape is fitted against (after an exact
+# repeat and the hint): enough for a picture's repeated parts, few enough that baking stays linear.
+RECENT_CANDIDATES = 48
+
 
 def fit_affine(src: np.ndarray, dst: np.ndarray) -> tuple[np.ndarray, float] | None:
     """Least-squares affine taking src -> dst, with its max residual.
@@ -73,6 +77,7 @@ class Atlas:
 
     shapes: list[np.ndarray] = field(default_factory=list)
     _by_count: dict[int, list[int]] = field(default_factory=dict)
+    _exact: dict = field(default_factory=dict)
     hits: int = 0
     misses: int = 0
     affine_hits: int = 0
@@ -100,16 +105,30 @@ class Atlas:
                 self.affine_hits += 1
                 return hint, fit[0]
 
-        for candidate in self._by_count.get(len(points), []):
+        # An exact repeat (a loop coming round, a copy) is found at once; otherwise only the latest shapes with
+        # this many points are tried. Trying every one made baking a clip whose shapes change every frame (a
+        # liquid's level, a growing curve) quadratic: each new shape fitted against all the earlier ones.
+        canonical = points - points.mean(axis=0)
+        key = (len(points), np.round(canonical, 6).tobytes())
+        same = self._exact.get(key)
+        if same is not None:
+            fit = fit_affine(self.shapes[same], points)
+            if fit and fit[1] < limit:
+                self.hits += 1
+                return same, fit[0]
+        everyone = self._by_count.get(len(points), [])
+        # Glyphs (a tolerance given) are looked up once a text, not every frame: they try every shape, so the
+        # library a whole corpus shares never holds the same letter twice.
+        for candidate in (everyone if tolerance is not None else everyone[-RECENT_CANDIDATES:]):
             fit = fit_affine(self.shapes[candidate], points)
             if fit and fit[1] < limit:
                 self.hits += 1
                 return candidate, fit[0]
 
-        canonical = points - points.mean(axis=0)
         atlas_id = len(self.shapes)
         self.shapes.append(canonical)
         self._by_count.setdefault(len(points), []).append(atlas_id)
+        self._exact.setdefault(key, atlas_id)
         self.misses += 1
 
         fit = fit_affine(canonical, points)

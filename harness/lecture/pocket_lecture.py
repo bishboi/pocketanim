@@ -185,8 +185,6 @@ FONTS = {
     "IBMPlexMono-Bold.ttf": "ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
     # The art styles' picture fonts (artstyle.ART_FONTS).
     "SourceSans3[wght].ttf": "ofl/sourcesans3/SourceSans3%5Bwght%5D.ttf",
-    "CabinSketch-Regular.ttf": "ofl/cabinsketch/CabinSketch-Regular.ttf",
-    "CabinSketch-Bold.ttf": "ofl/cabinsketch/CabinSketch-Bold.ttf",
     "ArchitectsDaughter-Regular.ttf": "ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf",
     "Quicksand[wght].ttf": "ofl/quicksand/Quicksand%5Bwght%5D.ttf",
     "Caveat[wght].ttf": "ofl/caveat/Caveat%5Bwght%5D.ttf",
@@ -438,6 +436,8 @@ def drawing_source(name: str):
 
 # Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
 SKIPPED: list[str] = []
+# Called with (scene, chapter number) as each chapter begins, before anything of it is drawn.
+CHAPTER_HOOKS: list = []
 
 
 def skipped(message: str) -> None:
@@ -760,21 +760,42 @@ def line_cost(mode: str, spoken: str) -> float | None:
 _BEATS_DONE = 0
 
 
+# Off while a build of some chapters runs the chapters before them (export_dsl's window): those beats are
+# another build's to count.
+PROGRESS_ON = [True]
+
+
 def _progress_beat() -> None:
-    """One more beat drawn, for the page's progress (PANIM_PROGRESS_FILE, which prespeak.py started)."""
+    """One more beat drawn, for the page's progress (PANIM_PROGRESS_FILE, which prespeak.py started). Builds of a
+    lecture's chapters side by side (PANIM_CHUNK) each keep their own count in the file, and the page sees the
+    sum."""
     global _BEATS_DONE
+    if not PROGRESS_ON[0]:
+        return
     _BEATS_DONE += 1
     path = os.environ.get("PANIM_PROGRESS_FILE")
     if not path:
         return
+    window = os.environ.get("PANIM_CHUNK")
     try:
-        state = json.loads(Path(path).read_text()) if Path(path).exists() else {}
-        # The phase is the caller's ("render" while exporting, "video" while rendering the MP4).
-        state.update(phase=state.get("phase") or "render", done=_BEATS_DONE,
-                     total=state.get("beats") or state.get("total") or 0)
-        tmp = Path(path + ".tmp")
-        tmp.write_text(json.dumps(state))
-        tmp.replace(path)
+        import fcntl
+
+        with open(path + ".lock", "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = json.loads(Path(path).read_text()) if Path(path).exists() else {}
+            if window:
+                counts = dict(state.get("windows") or {})
+                counts[window] = _BEATS_DONE
+                state["windows"] = counts
+                done = sum(int(v) for v in counts.values())
+            else:
+                done = _BEATS_DONE
+            # The phase is the caller's ("render" while exporting, "video" while rendering the MP4).
+            state.update(phase=state.get("phase") or "render", done=done,
+                         total=state.get("beats") or state.get("total") or 0)
+            tmp = Path(path + f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(state))
+            tmp.replace(path)
     except (OSError, ValueError):
         pass                                  # progress is a nicety: never a reason for a render to fail
 
@@ -3113,6 +3134,10 @@ class Lecture(Scene):
         lecture, the last chapter's map and panel are cleared first rather
         than left under the card.
         """
+        # A build that records some chapters only (export_dsl's chapter window, chapters built side by side)
+        # starts and stops recording here.
+        for hook in CHAPTER_HOOKS:
+            hook(self, num)
         if self.on_stage():
             self.outro_fade(0.6)
         self._log("chapter", number=num, title=title)

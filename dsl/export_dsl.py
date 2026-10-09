@@ -91,6 +91,8 @@ class Recorder:
         # Plays recorded as baked clips (see record_scene's bake).
         self.baked = 0
         self.loops: dict = {}     # a looping clip's canonical content -> its asset, shared by every play of it
+        # Off while a chapter window's build runs the chapters before it (record_scene's window).
+        self.recording = True
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -346,11 +348,12 @@ class Recorder:
             # onto one asset and the program referenced the wrong content.
             digest = hashlib.sha1(geometry_digest(mob)).hexdigest()[:10]
             asset = Path("dsl/generated/assets") / f"{digest}.panm"
-            from dsl.library import GlyphLibrary, export_text_instances
+            from dsl.library import GlyphLibrary, export_text_instances, library_lock
 
-            library = GlyphLibrary()
-            self.assets[digest] = export_text_instances(mob, asset, library)
-            library.save()
+            with library_lock():
+                library = GlyphLibrary()
+                self.assets[digest] = export_text_instances(mob, asset, library)
+                library.save()
             self.declarations.append(f"text {name} asset={digest}")
             return name
 
@@ -837,7 +840,15 @@ def _loop(frames, member_ids, pre) -> tuple[int, int, bytes | None]:
     return 0, 0, None
 
 
-def record_scene(scene_file: str, scene_class: str) -> Recorder:
+class ChunkDone(Exception):
+    """The last chapter of a build's window is recorded: the rest of the scene is another build's."""
+
+
+def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | None = None) -> Recorder:
+    """Record a scene as a program. With `window` (first, last), a lecture's chapters first..last only: the
+    chapters before it run without recording (their pictures are built, their plays finished at once, nothing
+    baked), the window starts on the stage as they left it, and the scene stops after the last of it. The
+    builds of a lecture's windows run side by side and are joined (harness/scripts/export_scene.py).""" 
     from manim import Scene, config, tempconfig
     from manim.renderer.cairo_renderer import CairoRenderer
     from manim.animation.creation import Create, DrawBorderThenFill
@@ -1598,6 +1609,9 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     play_verbs = patched_play
 
     def patched_play(self, *animations, **kwargs):
+        if not rec.recording:
+            # A chapter before this build's window: played to its end at once, nothing recorded.
+            return originals["play"](self, *animations, **kwargs)
         before = len(rec.timeline)
         image_snapshot(self, before)
         try:
@@ -1610,7 +1624,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             image_snapshot(self, len(rec.timeline), timing, before)
 
     def patched_add(self, *mobjects, **kw):
-        if state["baking"]:
+        if state["baking"] or not rec.recording:
             # Inside a baked play the clip records what goes on stage; bake() declares what stays.
             return originals["add"](self, *mobjects, **kw)
         # Objects put on stage directly rather than animated in. Missing these
@@ -1627,7 +1641,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         return originals["add"](self, *mobjects, **kw)
 
     def patched_remove(self, *mobjects, **kw):
-        if state["baking"]:
+        if state["baking"] or not rec.recording:
             return originals["remove"](self, *mobjects, **kw)
         # Manim takes things off stage as well as putting them on, and until
         # this existed the program had no way to say so. TransformMatchingTex
@@ -1652,6 +1666,8 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         return originals["remove"](self, *mobjects, **kw)
 
     def patched_clear(self):
+        if not rec.recording:
+            return originals["clear"](self)
         # A new Manim scene starts empty. Chained lecture scenes share one
         # Scene, and Scene.clear() drops mobjects without calling remove, so
         # the program kept every earlier scene on stage.
@@ -1733,7 +1749,7 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         from dsl.interpret import parse, timeline_frames
 
         path = _Path(str(sound_file))
-        if path.is_file():
+        if path.is_file() and rec.recording:
             # The frame the program has reached, not the wall clock: verbs run
             # whole frames, and a lecture of a few hundred beats would drift
             # seconds out of sync the other way.
@@ -1779,6 +1795,63 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
     sys.path.insert(0, str(path.parent))
     module = __import__(path.stem)
 
+    hooks = None
+    if window is not None:
+        import os as _os
+
+        first, last = window
+        rec.recording = first <= 1
+        ai_setting = _os.environ.get("PANIM_AI_ILLUSTRATIONS")
+
+        def quiet_ai(off: bool) -> None:
+            # A chapter another build records draws its own AI illustrations: not this one too.
+            if off:
+                _os.environ["PANIM_AI_ILLUSTRATIONS"] = "0"
+            elif ai_setting is None:
+                _os.environ.pop("PANIM_AI_ILLUSTRATIONS", None)
+            else:
+                _os.environ["PANIM_AI_ILLUSTRATIONS"] = ai_setting
+
+        quiet_ai(not rec.recording)
+
+        def counting(on: bool) -> None:
+            # The page's progress counts the beats this build records, not the ones it runs through.
+            flags = getattr(sys.modules.get("pocket_lecture"), "PROGRESS_ON", None)
+            if flags is not None:
+                flags[0] = on
+
+        counting(rec.recording)
+
+        def at_chapter(scene, num) -> None:
+            if num == first and not rec.recording:
+                # The window opens on the stage the chapters before it left: each thing on it declared and shown.
+                rec.recording = True
+                quiet_ai(False)
+                counting(True)
+                for mob in list(scene.mobjects):
+                    if id(mob) in rec.covered or id(mob) in rec.containers:
+                        continue
+                    name = rec.declare(mob)
+                    rec.flush()
+                    if name:
+                        rec.timeline.append(f"show {name}")
+            elif num == last + 1 and rec.recording:
+                # The window closes: what it left on stage goes, for the next window shows its own.
+                hidden = set()
+                for top in list(scene.mobjects):
+                    for sub in top.get_family():
+                        name = rec.names.get(id(sub))
+                        if name and name not in hidden and rec.declared(name):
+                            hidden.add(name)
+                            rec.timeline.append(f"hide {name}")
+                rec.recording = False
+                raise ChunkDone()
+
+        lecture = sys.modules.get("pocket_lecture")
+        hooks = getattr(lecture, "CHAPTER_HOOKS", None)
+        if hooks is not None:
+            hooks.append(at_chapter)
+
     try:
         with tempconfig(
             {
@@ -1790,12 +1863,17 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
             }
         ):
             scene = getattr(module, scene_class)()
-            scene.render()
+            try:
+                scene.render()
+            except ChunkDone:
+                pass
             rec.images = _image_track(rec, images)
             rec.background = _colour_text(
                 getattr(scene.camera, "background_color", None) or config.background_color
             )[:7]
     finally:
+        if hooks is not None:
+            hooks.clear()
         CairoRenderer.play = original_cairo_play
         TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]

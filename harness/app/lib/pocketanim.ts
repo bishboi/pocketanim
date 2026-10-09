@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpus, tmpdir } from "node:os";
 import path from "node:path";
 
 /**
@@ -264,10 +264,33 @@ async function speak(source: string, progress: string | null): Promise<{ error: 
   }
 }
 
+/** Builds running now: a lecture's chapters are built side by side (export_scene.py), and builds that run at
+ * once (the parts of a series) share the machine's cores instead of each taking all of them. */
+let buildsRunning = 0;
+
+function buildWorkers(): number {
+  const set = Number(process.env.PANIM_BUILD_WORKERS);
+  if (Number.isFinite(set) && set >= 1) return Math.floor(set);
+  return Math.max(1, Math.floor(cpus().length / Math.max(1, buildsRunning)));
+}
+
 export async function exportScene(
   source: string,
   sceneClass: string,
   progress: string | null = null,
+): Promise<{ result: ExportResult; buildDir: string }> {
+  buildsRunning += 1;
+  try {
+    return await exportSceneNow(source, sceneClass, progress);
+  } finally {
+    buildsRunning -= 1;
+  }
+}
+
+async function exportSceneNow(
+  source: string,
+  sceneClass: string,
+  progress: string | null,
 ): Promise<{ result: ExportResult; buildDir: string }> {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(sceneClass)) sceneClass = "GeneratedScene";
   const buildDir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
@@ -285,7 +308,8 @@ export async function exportScene(
       buildDir,
     ],
     // A long lecture is hundreds of beats: Manim takes a while (its voice is spoken beforehand, by prespeak).
-    { timeoutMs: 3 * 3600_000, env: progress ? { PANIM_PROGRESS_FILE: progress } : {} },
+    { timeoutMs: 3 * 3600_000, env: { PANIM_BUILD_WORKERS: String(buildWorkers()),
+      ...(progress ? { PANIM_PROGRESS_FILE: progress } : {}) } },
   );
 
   const text = stdout.toString().trim();

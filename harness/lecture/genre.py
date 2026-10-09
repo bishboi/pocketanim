@@ -70,18 +70,25 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "diagram", "figure", "gallery", "compare", "bars"],
-        "guidance": "Geography: the map carries the where (markers, rivers, states); the stage carries "
-                    "how it works: diagrams built from drawings (how rivers feed a delta, what a crop needs), the "
-                    "document's figures, comparisons. Photos only for people, communities and historic places.",
+        "kit": ["marker", "river", "state", "journey", "diagram", "figure", "gallery", "compare", "bars", "sim"],
+        "guidance": "Geography: the map carries the where (markers, rivers, states) and movement (a journey: the "
+                    "monsoon winds, a trade route, a river's course); the stage carries how it works: diagrams built "
+                    "from drawings (how rivers feed a delta, what a crop needs), the water cycle and the seasons as "
+                    "sims (water_cycle, seasons), the Earth's or the soil's layers peeled (sim layers), real figures "
+                    "as data stories (sim columns: rainfall by month; pyramid; trend), the document's figures, "
+                    "comparisons and differences (sim differences). Photos only for people, communities and historic "
+                    "places.",
     },
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
-        "kit": ["timeline", "gallery", "diagram", "figure", "marker", "arrow", "quote", "compare"],
-        "guidance": "History: open each era with a timeline on the stage; show the people, communities and places of a "
+        "kit": ["timeline", "gallery", "diagram", "figure", "marker", "journey", "arrow", "quote", "compare", "sim"],
+        "guidance": "History: open each era with a timeline on the stage, and zoom from the century into the decade "
+                    "the lecture is about (sim timeline_zoom); show the people, communities and places of a "
                     "paragraph together in a gallery (portraits, monuments, paintings); build causes and consequences "
-                    "as a diagram revealed step by step; quote primary sources; the map for where events happened, "
-                    "routes and empires.",
+                    "as a chain (diagram kind flow, edges saying why) revealed step by step; journeys on the map as "
+                    "they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); differences between two "
+                    "systems or periods as flip cards (sim differences); quote primary sources; the map for where "
+                    "events happened, routes and empires.",
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
@@ -140,10 +147,15 @@ PROFILES = {
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["graph", "sketch", "work", "problem", "equation", "define", "trace", "sweep"],
+        "kit": ["graph", "sketch", "work", "problem", "equation", "define", "trace", "sweep", "sim"],
         "guidance": "Mathematics: graph every function you discuss (curves, points, tangents, areas, roots marked); "
-                    "draw geometry with sketch (triangles and circles with their angles and lengths labelled); derive "
-                    "and solve with work, one step per beat, each step said and justified. "
+                    "draw geometry with sketch (triangles and circles with their angles and lengths labelled), and a "
+                    "construction step by step with ruler and compass (sim construction); derive and solve with work, "
+                    "one step per beat, each step said and justified; an equation solved on a balance (sim balance). "
+                    "Young classes: numbers as hops on a number line, fraction bars, place-value blocks (sims "
+                    "numberline, fractions, placevalue). Ideas that move: the unit circle and the sine wave "
+                    "(unit_circle), area under a curve (area_fill), chance (probability), moving a graph "
+                    "(transform_graph). "
                     "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
@@ -152,9 +164,12 @@ PROFILES = {
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
-        "kit": ["diagram", "bars", "plot", "compare", "define", "stat", "marker"],
-        "guidance": "Economics: show quantities as bars and trends as plot, mechanisms (supply and demand, how inflation "
-                    "spreads) as diagrams revealed step by step, kinds side by side with compare, and places on the map only when trade or regions are the point.",
+        "kit": ["diagram", "bars", "plot", "compare", "define", "stat", "marker", "sim"],
+        "guidance": "Economics: show quantities as bars and trends as plot, or as a data story with real figures (sims "
+                    "bar_race, trend, columns, pyramid), supply and demand moving (sim supply_demand), money growing "
+                    "(sim compound_interest), mechanisms (how inflation spreads) as a chain of causes revealed step by "
+                    "step, kinds side by side with compare or flip cards (sim differences), and places on the map only "
+                    "when trade or regions are the point.",
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
@@ -164,6 +179,20 @@ PROFILES = {
                     "for where.",
     },
 }
+
+# The sims each science has for what moves or builds up (live.py, sims_more.py), added to its guidance.
+_SIM_HINTS = {
+    "physics": "Sims for what moves: pendulum_period, projectile_angle, circuit_brightness (series against parallel), "
+               "magnetic_wire, lens_image (the object walks in, the image follows), sound (compressions), as well as "
+               "orbit, wave, collision, field and refraction.",
+    "chemistry": "Sims: balance_equation (atoms counted each side as it is balanced), ph_scale, electrolysis, states "
+                 "(solid to liquid to gas as it is heated), rusting, titration, gas, decay.",
+    "biology": "Sims: digestion (food down the gut), double_circulation, photosynthesis, punnett (Mendel's cross), "
+               "food_web (take a species away), mitosis, heart; a structure peeled from the outside in (draw with a "
+               "part per layer, or sim layers); differences as flip cards (sim differences).",
+}
+for _genre, _hint in _SIM_HINTS.items():
+    PROFILES[_genre]["guidance"] += " " + _hint
 # English terms as YouTube's Hindi captions spell them (फोर्स for force): a Hinglish lecture's captions have few
 # NCERT Hindi words, and without these its only clue was a date or two (Newton, 1642-1727) and it read as history.
 VOCAB_TRANSLIT = {

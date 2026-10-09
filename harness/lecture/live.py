@@ -693,6 +693,16 @@ BUILDERS = {"orbit": orbit, "wave": wave, "collision": collision, "field": field
             "titration": titration, "mitosis": mitosis, "heart": heart, "gas": gas, "decay": decay}
 
 
+# The rest of the sims (sims_more.py): their builders, what they take, and whether they loop.
+import sims_more as _more  # noqa: E402 -- after Live and the helpers it uses are defined
+
+for _kind, (_builder, _settings) in _more.MORE.items():
+    BUILDERS[_kind] = _builder
+    SIM_PARAMS[_kind] = _settings
+SIMS = tuple(BUILDERS)
+LOOPS = LOOPS | {k for k, (b, _) in _more.MORE.items() if k in _more.LOOPING}
+
+
 def sim_problem(op: dict) -> str | None:
     kind = str(op.get("kind") or "")
     if kind not in BUILDERS:

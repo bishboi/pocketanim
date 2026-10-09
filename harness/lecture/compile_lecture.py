@@ -62,7 +62,7 @@ sys.path.insert(0, str(HERE))
 STYLES = ("atlas", "vox", "cardboard", "whiteboard", "blueprint", "chalkboard", "parchment", "lab", "cosmos")
 PALETTE = {"SAND", "DUNE", "TERRA", "RUST", "TEAL", "RIVER", "GREEN", "OLIVE", "CREAM", "MUTED",
            "ROSE", "GOLD", "VIOLET", "HI", "MOUNT"}
-MAP_OPS = {"marker", "river", "path", "arrow", "state", "dim", "graticule"}
+MAP_OPS = {"marker", "river", "path", "arrow", "state", "dim", "graticule", "journey"}
 SIDES = {"left": "LEFT", "right": "RIGHT", "up": "UP", "down": "DOWN"}
 
 # The panel runs from y = 2.35 down to the caption's top, near -2.85. These
@@ -284,6 +284,18 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 for field in need.get(kind, []):
                     if not op.get(field):
                         errors.append(f"{at}: '{kind}' needs {field}")
+                if kind == "journey":
+                    stops = op.get("stops")
+                    if not isinstance(stops, list) or len(stops) < 2:
+                        errors.append(f"{at}: 'journey' needs stops: two or more places, in order "
+                                      "([\"Sabarmati\", \"Dandi\"]) or [lon, lat] pairs")
+                    else:
+                        bad = [x for x in stops if not (isinstance(x, str) or (isinstance(x, (list, tuple))
+                               and len(x) == 2 and all(isinstance(v, (int, float)) for v in x)))]
+                        if bad:
+                            errors.append(f"{at}: journey stop {bad[0]!r} is a place name or [lon, lat]")
+                        elif has_map:
+                            places.extend((at, str(x)) for x in stops if isinstance(x, str))
                 if kind == "marker" and not (op.get("place") or op.get("lonlat")):
                     errors.append(f"{at}: 'marker' needs place or lonlat")
                 elif kind == "marker" and op.get("place") and has_map:
@@ -1747,6 +1759,11 @@ def _op_call(op: dict) -> str:
         color = f", {_colour(op.get('color'))}" if op.get("color") else ""
         method = "path" if kind == "path" else "flow"
         return f"self.{method}([{pts}]{color})"
+    if kind == "journey":
+        stops = ", ".join(_q(x) if isinstance(x, str) else f"({float(x[0]):g}, {float(x[1]):g})" for x in op["stops"])
+        color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
+        labels = f", labels={[str(x) for x in op['labels']]!r}" if isinstance(op.get("labels"), list) else ""
+        return f"self.journey([{stops}]{color}{labels})"
     if kind == "state":
         color = _colour(op.get("color"), "P.SAND")
         return f"self.fill_state({_q(op['name'])}, {color}, {float(op.get('opacity', 0.6)):g})"

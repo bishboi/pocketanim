@@ -3114,6 +3114,47 @@ class MapLecture(BoardMixin, Lecture):
         m.set_z_index(8)
         return Create(m)
 
+    def journey(self, stops, color: str | None = None, labels=None, width: float = 5):
+        """A journey on the map, drawn as it happens: a traveller moves from stop to stop over the line, the route
+        drawn behind it, each stop marked and named as it is reached (the Dandi March, Vasco da Gama's voyage, the
+        Silk Road, the monsoon winds). `stops` are place names or (lon, lat); `labels` rename them."""
+        import sims_more
+
+        color = color or P.GOLD
+        stops = list(stops)
+        names = list(labels or [])
+        names += [s if isinstance(s, str) else "" for s in stops[len(names):]]
+        lonlats = [self.at(s) for s in stops]
+        full = self.frame.path(lonlats, smooth=False, stroke_color=color, stroke_width=width)
+        route = full.copy().set_z_index(8)
+        traveller = Dot(radius=0.12, color=color).set_z_index(Z_MARK + 1)
+        markers = [self.marker(s, label=n or None, color=color, size=14) for s, n in zip(stops, names)]
+        points = [self.frame.pt(*ll) for ll in lonlats]
+        legs = np.cumsum([0.0] + [float(np.linalg.norm(b - a)) for a, b in zip(points, points[1:])])
+        reach = [float(x / max(legs[-1], 1e-9)) for x in legs]
+        body = VGroup(route, *markers, traveller)
+
+        def where(f):
+            """The point a fraction f of the way along the route, by distance travelled."""
+            d = f * legs[-1]
+            k = max(0, min(len(points) - 2, int(np.searchsorted(legs, d, side="right")) - 1))
+            leg = max(legs[k + 1] - legs[k], 1e-9)
+            return points[k] + (points[k + 1] - points[k]) * (d - legs[k]) / leg, k, (d - legs[k]) / leg
+
+        def step(t: float, p: float) -> None:
+            f = min(1.0, max(0.0, (p - 0.05) / 0.85))
+            at, k, part = where(f)
+            # The route so far: the legs behind the traveller, and the one it is on as far as it has come.
+            corners = [*points[:k + 1], at] if f > 0 else [points[0], points[0] + np.array([1e-3, 0, 0])]
+            route.set_points_as_corners(corners)
+            traveller.move_to(at)
+            for marker, needed in zip(markers, reach):
+                sims_more._show(marker, f >= needed - 1e-6)
+
+        step(0.0, 0.0)
+        self._live_start(body, step, "process")
+        return FadeIn(body, run_time=0.3)
+
     def flow(self, lonlats, color: str | None = None, width: float = 7):
         """A curved arrow along lon/lat points: a smoothed path and a tip."""
         color = color or P.RIVER

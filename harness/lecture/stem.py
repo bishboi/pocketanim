@@ -644,6 +644,44 @@ def _fit_into(mobs, box, margin: float = 0.12) -> None:
         m.shift(shift)
 
 
+def _in_own_frame(body, step, box):
+    """A sim's step, run where its builder drew it. A step puts its moving parts at places worked out from the box
+    (a bar's foot on the axis, a ball on its path); once the body has been fitted into the stage, or the stage has
+    moved, those places are no longer where its still parts are, and the bars of a chart stood below their axis.
+    An unseen three-point anchor in the body says how it has been moved since: each step undoes that move, runs,
+    and does it again."""
+    import numpy as np
+    from manim import VMobject
+
+    cx, cy = box[0], box[1]
+    anchor = VMobject(stroke_opacity=0, fill_opacity=0, stroke_width=0)
+    anchor.set_points_as_corners([[cx, cy, 0], [cx + 0.01, cy, 0], [cx, cy + 0.01, 0]])
+    body.add(anchor)
+    ref = np.hstack([anchor.points[:, :2], np.ones((len(anchor.points), 1))])
+
+    def move(m, matrix):
+        for part in m.get_family():
+            if len(part.points):
+                part.points[:, :2] = part.points[:, :2] @ matrix[:2, :2].T + matrix[:2, 2]
+
+    def framed(t: float, p: float) -> None:
+        now = anchor.points[:, :2]
+        if now.shape[0] != ref.shape[0]:
+            step(t, p)
+            return
+        solved, *_ = np.linalg.lstsq(ref, now, rcond=None)
+        forward = np.eye(3)
+        forward[:2, :] = solved.T
+        if np.allclose(forward, np.eye(3), atol=1e-9) or abs(np.linalg.det(forward[:2, :2])) < 1e-12:
+            step(t, p)
+            return
+        move(body, np.linalg.inv(forward))
+        step(t, p)
+        move(body, forward)
+
+    return framed
+
+
 def _moving(builder):
     """A part's `.animate` move as an animation the exporter writes as a move of that part (an `xform` verb with
     its rate), not as a morph into a copy: in a group, Manim makes the builder a transform, which the program
@@ -1465,10 +1503,11 @@ class BoardMixin:
 
         head, box = self._titled(title, self.STAGE)
         made = lv.BUILDERS[kind](dict(params or {}), box)
+        step = _in_own_frame(made.body, made.step, box)
         _fit_into([made.body], box)
         self.diagrams[key] = {"nodes": {}, "edges": [], "shown": set(), "focus": None, "draw": False, "sim": kind}
         self._next_keys.add(key)
-        self._live_start(made.body, made.step, made.mode, keep and made.mode == "loop")
+        self._live_start(made.body, step, made.mode, keep and made.mode == "loop")
         return self._to_stage(Group(VGroup(*([head] if head else []), made.body)))
 
     def counter(self, key: str, spec: dict, title: str | None = None):

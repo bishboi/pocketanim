@@ -407,12 +407,27 @@ export default function SvgLab() {
       )}
 
       {Object.keys(cells).length > 0 && (
+        <Review
+          models={shownModels} diagrams={shownDiagrams} cells={cells} scores={scores} score={score}
+          picture={picture} now={now} runId={run.current}
+        />
+      )}
+    </main>
+  );
+}
+
+/** The small grid of every drawing: the overview. */
+function OverviewGrid(props: { models: string[]; diagrams: Diagram[]; cells: Record<string, Cell>; scores: Record<string, number>;
+  score: (m: string, d: string, n: number) => void; picture: (file: string) => string; now: number; label: (m: string) => string;
+  open: (m: string, d: string) => void }) {
+  const { models: shownModels, diagrams: shownDiagrams, cells, scores, score, picture, now, label, open } = props;
+  return (
         <div className="overflow-x-auto">
           <table className="border-separate border-spacing-2 text-xs" data-testid="lab-grid">
             <thead>
               <tr>
                 <th />
-                {shownModels.map((m) => <th key={m} className="min-w-[260px] text-left font-mono font-normal text-neutral-300">{m}</th>)}
+                {shownModels.map((m) => <th key={m} className="min-w-[260px] text-left font-mono font-normal text-neutral-300">{label(m)}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -432,11 +447,11 @@ export default function SvgLab() {
                           ) : (
                             <div className="flex flex-col gap-1">
                               {cell.file ? (
-                                <a href={picture(cell.file)} target="_blank" rel="noreferrer">
+                                <button type="button" onClick={() => open(m, d.id)} className="block w-full" title="Review it large">
                                   {/* An <img> keeps the drawing's own animation running and its scripts off. */}
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={picture(cell.file)} alt={`${d.id} by ${m}`} className="aspect-video w-full rounded bg-neutral-900 object-contain" />
-                                </a>
+                                  <img src={picture(cell.file)} alt={`${d.id} by ${label(m)}`} className="aspect-video w-full rounded bg-neutral-900 object-contain" />
+                                </button>
                               ) : (
                                 <p className="line-clamp-4 text-rose-300" title={cell.error}>Failed: {cell.error}</p>
                               )}
@@ -470,7 +485,277 @@ export default function SvgLab() {
             </tbody>
           </table>
         </div>
+  );
+}
+
+/** A deterministic shuffle (a run's own order), so blind labels do not follow the order the models were typed in. */
+function shuffled<T>(items: T[], seed: string): T[] {
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    const j = Math.abs(h) % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+type ReviewProps = {
+  models: string[];
+  diagrams: Diagram[];
+  cells: Record<string, Cell>;
+  scores: Record<string, number>;
+  score: (model: string, diagram: string, value: number) => void;
+  picture: (file: string) => string;
+  now: number;
+  runId: string;
+};
+
+/**
+ * Reviewing a run: one diagram at a time with every model's drawing large beside the others (Compare), any one of
+ * them full screen (keys 1-5 score it and go on to the next), or every drawing small (Overview). Blind hides which
+ * model drew what until you reveal it.
+ */
+function Review({ models, diagrams, cells, scores, score, picture, now, runId }: ReviewProps) {
+  const [view, setView] = useState<"compare" | "overview">("compare");
+  const [columns, setColumns] = useState(2);
+  const [blind, setBlind] = useState(false);
+  const [at, setAt] = useState(0);                       // the diagram on show
+  const [focus, setFocus] = useState(0);                 // the drawing the keys act on
+  const [full, setFull] = useState<{ model: string; diagram: string } | null>(null);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    try {
+      const kept = JSON.parse(localStorage.getItem("svg-lab-review") ?? "null") as { columns?: number; blind?: boolean; view?: "compare" | "overview" } | null;
+      if (kept?.columns) setColumns(kept.columns);
+      if (typeof kept?.blind === "boolean") setBlind(kept.blind);
+      if (kept?.view) setView(kept.view);
+    } catch {
+      // defaults
+    }
+  }, []);
+  useEffect(() => {
+    // Not on the first render: that still has the defaults, and would write them over what was kept.
+    if (!loaded.current) {
+      loaded.current = true;
+      return;
+    }
+    try {
+      localStorage.setItem("svg-lab-review", JSON.stringify({ columns, blind, view }));
+    } catch {
+      // not kept
+    }
+  }, [columns, blind, view]);
+
+  const order = useMemo(() => (blind ? shuffled(models, runId) : models), [blind, models, runId]);
+  const label = (model: string) => (blind ? `Model ${String.fromCharCode(65 + shuffled(models, runId).indexOf(model))}` : model);
+  const diagram = diagrams[Math.min(at, diagrams.length - 1)];
+  const scoredIn = (d: Diagram) => models.filter((m) => scores[key(m, d.id)] !== undefined).length;
+  const drawnIn = (d: Diagram) => models.filter((m) => cells[key(m, d.id)]?.ok).length;
+
+  /** The next drawing that passed and has no score yet, after the one in focus. */
+  const nextUnscored = () => {
+    const flat = diagrams.flatMap((d, di) => order.map((m, mi) => ({ d, di, m, mi })));
+    const here = flat.findIndex((x) => x.di === at && x.mi === focus);
+    for (let k = 1; k <= flat.length; k++) {
+      const x = flat[(here + k) % flat.length];
+      if (cells[key(x.m, x.d.id)]?.ok && scores[key(x.m, x.d.id)] === undefined) return x;
+    }
+    return null;
+  };
+  const goNextUnscored = () => {
+    const x = nextUnscored();
+    if (!x) return;
+    setAt(x.di);
+    setFocus(x.mi);
+    if (full) setFull({ model: x.m, diagram: x.d.id });
+  };
+
+  // Keys: arrows move, 1-5 score, Enter opens full screen, Escape closes it, N goes to the next unscored.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+      if (view !== "compare" && !full) return;
+      const fullAt = full ? order.indexOf(full.model) : focus;
+      const di = full ? diagrams.findIndex((d) => d.id === full.diagram) : at;
+      const move = (mi: number, dIndex: number) => {
+        const m = (mi + order.length) % order.length;
+        const d = (dIndex + diagrams.length) % diagrams.length;
+        setFocus(m);
+        setAt(d);
+        if (full) setFull({ model: order[m], diagram: diagrams[d].id });
+      };
+      if (e.key === "ArrowRight") move(fullAt + 1, di);
+      else if (e.key === "ArrowLeft") move(fullAt - 1, di);
+      else if (e.key === "ArrowDown") move(fullAt, di + 1);
+      else if (e.key === "ArrowUp") move(fullAt, di - 1);
+      else if (e.key === "Escape") setFull(null);
+      else if (e.key === "Enter" && !full) setFull({ model: order[focus], diagram: diagrams[at].id });
+      else if (e.key.toLowerCase() === "n") goNextUnscored();
+      else if (/^[1-5]$/.test(e.key)) {
+        const m = order[fullAt];
+        const d = diagrams[di];
+        if (!m || !d || !cells[key(m, d.id)]?.ok) return;
+        score(m, d.id, Number(e.key));
+        // Scored full screen: on to the next model's drawing of the same diagram.
+        if (full && fullAt + 1 < order.length) move(fullAt + 1, di);
+      } else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  if (!diagram) return null;
+  const stars = (m: string, d: string, big = false) => {
+    const given = scores[key(m, d)];
+    return (
+      <div className="flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} type="button" onClick={() => score(m, d, n)} aria-label={`Score ${n}`}
+            className={`${big ? "h-9 w-9 text-base" : "h-7 w-7 text-sm"} rounded font-medium ${given !== undefined && n <= given
+              ? "bg-amber-400 text-neutral-900" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}>
+            {n}
+          </button>
+        ))}
+      </div>
+    );
+  };
+  const stats = (cell: Cell) => (
+    <span className="flex flex-wrap gap-x-3 text-xs text-neutral-400">
+      <span className="font-mono text-neutral-100">{usd(cell.usd ?? 0)}</span>
+      <span>{duration(cell.seconds ?? 0)}</span>
+      <span>{cell.requests ?? 0} request{cell.requests === 1 ? "" : "s"}</span>
+      {cell.bytes ? <span>{Math.round(cell.bytes / 1000)} KB</span> : null}
+      {cell.warnings?.length ? <span className="text-amber-300/80" title={cell.warnings.join("\n")}>{cell.warnings.length} warning{cell.warnings.length > 1 ? "s" : ""}</span> : null}
+    </span>
+  );
+  const status = (cell?: Cell) => (
+    <div className="flex aspect-video w-full items-center justify-center rounded bg-neutral-900 p-4 text-center text-sm">
+      {!cell || cell.status === "queued" ? <span className="text-neutral-500">Waiting</span>
+        : cell.status === "drawing" ? <span className="text-amber-300">Drawing… {duration((now - (cell.started ?? now)) / 1000)}</span>
+        : cell.status === "interrupted" ? <span className="text-amber-300">Interrupted (the server restarted)</span>
+        : cell.status === "stopped" ? <span className="text-neutral-500">Stopped</span>
+        : <span className="line-clamp-6 text-rose-300">Failed: {cell.error}</span>}
+    </div>
+  );
+  const fullCell = full ? cells[key(full.model, full.diagram)] : undefined;
+  const fullDiagram = full ? diagrams.find((d) => d.id === full.diagram) : undefined;
+  const unscoredLeft = diagrams.reduce((t, d) => t + models.filter((m) => cells[key(m, d.id)]?.ok && scores[key(m, d.id)] === undefined).length, 0);
+
+  return (
+    <section className="mb-8" data-testid="lab-review">
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+        <h2 className="mr-2 text-base font-semibold text-neutral-100">Review</h2>
+        <div className="flex overflow-hidden rounded border border-neutral-700 text-xs">
+          {(["compare", "overview"] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              className={`px-3 py-1 capitalize ${view === v ? "bg-neutral-200 text-neutral-900" : "text-neutral-300 hover:bg-neutral-800"}`}>
+              {v}
+            </button>
+          ))}
+        </div>
+        {view === "compare" && (
+          <label className="flex items-center gap-2 text-xs text-neutral-400">
+            Per row
+            <select value={columns} onChange={(e) => setColumns(Number(e.target.value))}
+              className="rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5">
+              {[1, 2, 3].map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400" title="Hide which model drew what while you score">
+          <input type="checkbox" checked={blind} onChange={(e) => setBlind(e.target.checked)} data-testid="lab-blind" />
+          Blind
+        </label>
+        <button type="button" onClick={goNextUnscored} disabled={!unscoredLeft}
+          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-40">
+          Next unscored ({unscoredLeft})
+        </button>
+        <span className="text-xs text-neutral-500">Keys: ← → drawing · ↑ ↓ diagram · 1–5 score · Enter full screen · N next unscored</span>
+      </div>
+
+      {view === "overview" ? (
+        <OverviewGrid models={order} diagrams={diagrams} cells={cells} scores={scores} score={score} picture={picture} now={now}
+          label={label} open={(m, d) => setFull({ model: m, diagram: d })} />
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-2" data-testid="lab-diagram-tabs">
+            {diagrams.map((d, i) => (
+              <button key={d.id} type="button" onClick={() => { setAt(i); setFocus(0); }}
+                className={`rounded border px-3 py-1 text-xs ${i === at ? "border-amber-400 bg-amber-400/10 text-amber-200"
+                  : "border-neutral-800 text-neutral-300 hover:border-neutral-600"}`}>
+                {d.id} <span className="text-neutral-500">{scoredIn(d)}/{drawnIn(d)} scored</span>
+              </button>
+            ))}
+          </div>
+          <div className="mb-3 rounded border border-neutral-800 bg-neutral-950 p-3 text-sm">
+            <p className="text-neutral-200">{diagram.what}</p>
+            <p className="mt-1 text-xs text-neutral-500">Parts: {diagram.parts}{diagram.moves ? ` · moves: ${diagram.moves}` : ""}</p>
+          </div>
+          <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }} data-testid="lab-compare">
+            {order.map((m, mi) => {
+              const cell = cells[key(m, diagram.id)];
+              return (
+                <div key={m} onClick={() => setFocus(mi)}
+                  className={`flex flex-col gap-2 rounded-lg border bg-neutral-950 p-3 ${mi === focus ? "border-amber-400/70" : "border-neutral-800"}`}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-mono text-sm text-neutral-100">{label(m)}</span>
+                    {cell?.file && (
+                      <button type="button" onClick={() => setFull({ model: m, diagram: diagram.id })}
+                        className="shrink-0 text-xs text-sky-300 hover:underline">Full screen</button>
+                    )}
+                  </div>
+                  {cell?.file ? (
+                    <button type="button" onClick={() => setFull({ model: m, diagram: diagram.id })} className="block w-full" title="Full screen">
+                      {/* An <img> keeps the drawing's own animation running and its scripts off. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={picture(cell.file)} alt={`${diagram.id} by ${label(m)}`}
+                        className="aspect-video w-full rounded bg-neutral-900 object-contain" />
+                    </button>
+                  ) : status(cell)}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {cell && (cell.status === "done" || cell.status === "failed") ? stats(cell) : <span />}
+                    {cell?.ok && stars(m, diagram.id)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
-    </main>
+
+      {full && fullDiagram && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950 p-4" role="dialog" aria-modal="true" data-testid="lab-full"
+          onClick={(e) => { if (e.target === e.currentTarget) setFull(null); }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="min-w-0">
+              <p className="font-mono text-neutral-100">{label(full.model)} · <span className="text-neutral-400">{fullDiagram.id}</span></p>
+              <p className="truncate text-xs text-neutral-500">{fullDiagram.what}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {fullCell && stats(fullCell)}
+              <button type="button" onClick={() => setFull(null)} className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-200">
+                Close (Esc)
+              </button>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            {fullCell?.file ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={picture(fullCell.file)} alt={`${fullDiagram.id} by ${label(full.model)}`}
+                className="h-full w-full rounded object-contain" />
+            ) : <div className="w-full max-w-3xl">{status(fullCell)}</div>}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-400">
+            <span>← → other models · ↑ ↓ other diagrams · 1–5 score and go to the next model · N next unscored</span>
+            {fullCell?.ok && stars(full.model, full.diagram, true)}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

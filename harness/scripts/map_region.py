@@ -12,9 +12,11 @@ from __future__ import annotations
 import json
 import sys
 
+# Countries with their borders as India draws them (Natural Earth's India point of view, at 10m: there is none at
+# 50m), states at 50m.
 DATASETS = (
-    ("admin_1_states_provinces", "name", "admin"),
-    ("admin_0_countries", "NAME", "CONTINENT"),
+    ("admin_1_states_provinces", "name", "admin", "50m"),
+    ("admin_0_countries_ind", "NAME", "CONTINENT", "10m"),
 )
 
 
@@ -27,8 +29,8 @@ def search(place: str) -> dict:
 
     query = norm(place)
     hits = []
-    for dataset, name_field, parent_field in DATASETS:
-        fn = shpreader.natural_earth(resolution="50m", category="cultural", name=dataset)
+    for dataset, name_field, parent_field, resolution in DATASETS:
+        fn = shpreader.natural_earth(resolution=resolution, category="cultural", name=dataset)
         for record in shpreader.Reader(fn).records():
             attrs = record.attributes
             name = str(attrs.get(name_field) or "")
@@ -71,13 +73,15 @@ def search(place: str) -> dict:
 
 def scene_source(dataset: str, name: str, parent: str) -> str:
     name_field = "name" if dataset == "admin_1_states_provinces" else "NAME"
-    title = name if not parent or dataset == "admin_0_countries" else f"{name}, {parent}"
+    title = name if not parent or dataset.startswith("admin_0_countries") else f"{name}, {parent}"
+    resolution = "50m" if dataset == "admin_1_states_provinces" else "10m"
     return f'''from manim import *
 import cartopy.io.shapereader as shpreader
 
 NAME = {json.dumps(name)}
 DATASET = {json.dumps(dataset)}
 NAME_FIELD = {json.dumps(name_field)}
+RESOLUTION = {json.dumps(resolution)}
 
 
 def parts(geom):
@@ -97,7 +101,7 @@ def ring_coords(geom):
 
 
 def build_region():
-    fn = shpreader.natural_earth(resolution="50m", category="cultural", name=DATASET)
+    fn = shpreader.natural_earth(resolution=RESOLUTION, category="cultural", name=DATASET)
     raw = []
     xs, ys = [], []
     for record in shpreader.Reader(fn).records():

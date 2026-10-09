@@ -908,9 +908,20 @@ def _valid(geom):
     return make_valid(geom).buffer(0)
 
 
+# Every map draws borders as India does (Natural Earth's India point of view): the whole of Jammu and Kashmir and
+# Ladakh -- Gilgit-Baltistan, PoK and Aksai Chin -- inside India. PANIM_MAP_VIEW=default (or a region's
+# "view": "default") draws Natural Earth's own borders instead.
+MAP_VIEW = os.environ.get("PANIM_MAP_VIEW", "ind").strip().lower() or "ind"
+
+
+def countries_dataset(view: str | None = None) -> str:
+    """The country borders a map draws: India's view unless asked otherwise."""
+    return "admin_0_countries_ind" if (view or MAP_VIEW) == "ind" else "admin_0_countries"
+
+
 def country(name: str, view: str | None = None):
-    """A country's outline. view="ind" draws borders as India claims them."""
-    dataset = "admin_0_countries_ind" if view == "ind" else "admin_0_countries"
+    """A country's outline, its borders as India draws them (countries_dataset)."""
+    dataset = countries_dataset(view)
     wanted = _norm(name)
     for attrs, geom in _records(dataset):
         names = {_norm(attrs.get(k)) for k in ("ADMIN", "NAME", "NAME_LONG", "SOVEREIGNT", "ISO_A3")}
@@ -945,7 +956,7 @@ def area_members(name: str) -> tuple:
     "Western Europe"), a World Bank region ("South Asia", "Middle East and North Africa") or a group ("Middle
     East", "Indian subcontinent") -- or () when the name is none of these."""
     key = _area_key(name)
-    rows = [(str(a.get("ADMIN")), a) for a, _ in _records("admin_0_countries")]
+    rows = [(str(a.get("ADMIN")), a) for a, _ in _records(countries_dataset())]
     if key in WORLD_NAMES:
         return tuple(n for n, a in rows if a.get("CONTINENT") not in ("Antarctica", "Seven seas (open ocean)"))
     if key in ("americas", "the americas"):
@@ -969,7 +980,7 @@ def area(name: str):
     members = {_norm(m) for m in area_members(name)}
     if not members:
         raise KeyError(f"no country, continent or world area named {name!r}")
-    parts = [_valid(g).simplify(0.02) for a, g in _records("admin_0_countries") if _norm(a.get("ADMIN")) in members]
+    parts = [_valid(g).simplify(0.02) for a, g in _records(countries_dataset()) if _norm(a.get("ADMIN")) in members]
     return _valid(unary_union(parts))
 
 
@@ -993,32 +1004,102 @@ def region_kind(region: dict) -> str:
     raise KeyError(f"no country, state, continent or world area named {name!r}")
 
 
-def state(name: str, country_name: str | None = None):
-    """A first-level division (state, province) by name."""
+# India's union territories as India draws them: Jammu and Kashmir with PoK (Pakistan's "Azad Kashmir"), Ladakh with
+# Gilgit-Baltistan (Pakistan's "Northern Areas") and Aksai Chin.
+INDIA_CLAIMS = {"jammu and kashmir": ["Azad Kashmir"], "ladakh": ["Northern Areas"]}
+
+
+def _raw_state(name: str, country_name: str | None = None):
+    """(its country, its shape) as Natural Earth has it."""
     wanted = _norm(name)
     scope = _norm(country_name) if country_name else None
     for attrs, geom in _records("admin_1_states_provinces"):
         if scope and scope not in (_norm(attrs.get("admin")), _norm(attrs.get("adm0_a3"))):
             continue
         if wanted in (_norm(attrs.get("name")), _norm(attrs.get("name_en"))):
-            return _valid(geom)
+            return str(attrs.get("admin")), _valid(geom)
     raise KeyError(f"no state named {name!r}" + (f" in {country_name}" if country_name else ""))
+
+
+@lru_cache(None)
+def _india_states() -> dict:
+    """India's states and union territories with their borders as India draws them (MAP_VIEW "ind")."""
+    from shapely.ops import unary_union
+
+    rows = {str(a.get("name")): _valid(g) for a, g in _records("admin_1_states_provinces")
+            if _norm(a.get("admin")) == "india"}
+    india = country("India")
+    claimed = {}
+    for own, others in INDIA_CLAIMS.items():
+        key = next((k for k in rows if _norm(k) == own), None)
+        if key is None:
+            continue
+        claimed[key] = [rows[key]] + [_raw_state(o, "Pakistan")[1] for o in others]
+    # What India's outline holds that no state does (Aksai Chin, the Shaksgam valley) is Ladakh's.
+    covered = unary_union(list(rows.values()) + [g for parts in claimed.values() for g in parts[1:]])
+    rest = _valid(india.difference(covered))
+    # Only real land in the north (Aksai Chin, Shaksgam): elsewhere the difference is slivers where the two
+    # datasets' lines do not quite meet.
+    pieces = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type == "Polygon" and g.area > 0.05
+              and g.centroid.y > 32.0 and 72.0 < g.centroid.x < 81.0]
+    ladakh = next((k for k in claimed if _norm(k) == "ladakh"), None)
+    if ladakh and pieces:
+        claimed[ladakh] += pieces
+    for key, parts in claimed.items():
+        rows[key] = _valid(unary_union(parts).intersection(india))
+    return rows
+
+
+def _india_view() -> bool:
+    return MAP_VIEW == "ind"
+
+
+def state(name: str, country_name: str | None = None):
+    """A first-level division (state, province) by name, its borders as the map draws them: in India's view a
+    state of India keeps all India claims (Jammu and Kashmir with PoK, Ladakh with Gilgit-Baltistan and Aksai
+    Chin), and another country's is cut to its border as India draws it."""
+    home, geom = _raw_state(name, country_name)
+    if not _india_view():
+        return geom
+    if _norm(home) == "india":
+        rows = _india_states()
+        key = next((k for k in rows if _norm(k) == _norm(name)), None)
+        if key is not None:
+            return rows[key]
+    clipped = _valid(geom.intersection(country(home)))
+    return geom if clipped.is_empty else clipped
 
 
 def states_of(country_name: str) -> list[tuple[str, object]]:
     scope = _norm(country_name)
-    return [
+    if _india_view() and scope in ("india", "ind"):
+        return list(_india_states().items())
+    rows = [
         (str(attrs.get("name")), geom)
         for attrs, geom in _records("admin_1_states_provinces")
         if scope in (_norm(attrs.get("admin")), _norm(attrs.get("adm0_a3")))
     ]
+    if not _india_view() or not rows:
+        return rows
+    try:
+        outline = country(country_name)
+    except KeyError:
+        return rows
+    out = []
+    for name, geom in rows:
+        geom = _valid(geom)
+        clipped = _valid(geom.intersection(outline))
+        # A state India counts as its own (PoK, Gilgit-Baltistan) leaves only slivers inside the border: dropped.
+        if not clipped.is_empty and clipped.area > 0.05 * max(geom.area, 1e-9):
+            out.append((name, clipped))
+    return out
 
 
 def countries_in(bounds, view: str | None = None, exclude=()) -> list[tuple[str, object]]:
     from shapely.geometry import box
 
     frame = box(*bounds)
-    dataset = "admin_0_countries_ind" if view == "ind" else "admin_0_countries"
+    dataset = countries_dataset(view)
     skip = {_norm(x) for x in exclude}
     out = []
     for attrs, geom in _records(dataset):
@@ -3561,9 +3642,8 @@ from stem import BoardMixin  # noqa: E402 -- the board layout and the STEM drawi
 class MapLecture(BoardMixin, Lecture):
     """A lecture over one region's map, with neighbours, state lines and markers.
 
-    REGION names the focus: dict(country="India"), dict(country="India",
-    view="ind") for India's own view of its borders, or dict(state="Rajasthan",
-    country="India").
+    REGION names the focus: dict(country="India"), dict(state="Rajasthan", country="India"), or an area
+    (dict(area="World"), dict(area="South Asia")). Borders are drawn as India draws them (countries_dataset).
     """
 
     REGION: dict = dict(country="India")

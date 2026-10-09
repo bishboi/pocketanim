@@ -82,3 +82,22 @@ def test_a_map_of_europe_does_not_reach_infinity():
     scene = Probe.__new__(Probe)
     nb, inner, outline = scene.base()
     assert len(outline) and len(inner) and isinstance(nb, VGroup)
+
+
+def test_maps_draw_india_as_india_does():
+    """Every map draws India's borders as India does: the whole of Jammu and Kashmir and Ladakh, with PoK,
+    Gilgit-Baltistan and Aksai Chin; Pakistan and China without them."""
+    from shapely.geometry import Point
+
+    muzaffarabad, gilgit, aksai_chin = Point(73.47, 34.37), Point(74.31, 35.92), Point(79.5, 35.2)
+    india = pl.country("India")
+    assert all(india.contains(p) for p in (muzaffarabad, gilgit, aksai_chin))
+    assert not pl.country("Pakistan").contains(gilgit) and not pl.country("China").contains(aksai_chin)
+    assert pl.state("Jammu and Kashmir", "India").contains(muzaffarabad)
+    ladakh = pl.state("Ladakh", "India")
+    assert ladakh.contains(gilgit) and ladakh.contains(aksai_chin)
+    assert ladakh.bounds[1] > 30                                   # no slivers from the rest of India
+    assert {"Azad Kashmir", "Northern Areas"}.isdisjoint(dict(pl.states_of("Pakistan")))
+    # On a map of the world or of South Asia, India's outline is the same.
+    assert pl.area("South Asia").contains(gilgit) and pl.area("World").contains(aksai_chin)
+    assert pl.countries_dataset() == "admin_0_countries_ind" and pl.countries_dataset("default") == "admin_0_countries"

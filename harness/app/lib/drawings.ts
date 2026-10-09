@@ -54,6 +54,9 @@ export type DrawOptions = {
   onCost?: (usd: number) => void;
   /** A picture newly drawn as SVG (one from the cache is not counted). */
   onDrawn?: () => void;
+  /** Each picture the script uses, drawn now or earlier (`kept`), with what it cost when it was drawn. Called again
+   * at each compile: a caller lists them by file. */
+  onPicture?: (picture: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) => void;
 };
 
 /** Where a picture's drawing is kept: named by what it shows. */
@@ -89,7 +92,16 @@ function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[
 async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOptions):
   Promise<{ svg?: string; error?: string }> {
   const { svg: file, meta } = cachePaths(options.repo, op);
-  if (existsSync(file) && existsSync(meta)) return { svg: file };
+  if (existsSync(file) && existsSync(meta)) {
+    let usd = 0;
+    try {
+      usd = Number(JSON.parse(await readFile(meta, "utf8")).usd ?? 0);
+    } catch {
+      // drawn before costs were kept
+    }
+    options.onPicture?.({ file, what: op.what, parts: op.parts, usd, kept: true });
+    return { svg: file };
+  }
   await mkdir(path.dirname(file), { recursive: true });
   const ask0 = [
     `THE PICTURE: ${op.what.trim()}`,
@@ -100,11 +112,16 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
   ].join("\n");
   const messages: Message[] = [{ role: "system", content: DRAW_PROMPT }, { role: "user", content: ask0 }];
   // Drawn, checked, repaired, then looked at as the board shows it and fixed (figures.ts settle).
-  const made = await settle(messages, file, op.parts, options);
+  let usd = 0;
+  const made = await settle(messages, file, op.parts, { ...options, onCost: (cost) => {
+    usd += cost;
+    options.onCost?.(cost);
+  } });
   if (!made.svg || !made.check) return { error: made.error ?? "the SVG did not pass the board's checks" };
   await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: made.check.parts,
-    animated: !!made.check.animated }), "utf8");
+    animated: !!made.check.animated, usd }), "utf8");
   options.onDrawn?.();
+  options.onPicture?.({ file, what: op.what, parts: made.check.parts, usd, kept: false });
   return { svg: file };
 }
 

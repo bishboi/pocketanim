@@ -61,6 +61,7 @@ assert.match(drawnLine(figures[2], drawn.figG), /build it on the board/);
 assert.ok(drawn.figC.svg && existsSync(drawn.figC.svg), "figC drawn");
 assert.deepEqual(drawn.figC.parts, ["battery", "wire", "current"]);
 assert.equal(drawn.figC.animated, true);
+assert.equal(Math.round(drawn.figC.usd * 1000), 3);      // its own bill: drawn, fixed, looked at (3 x $0.001)
 assert.equal(requests.length, 5);                       // figC: broken, fixed, reviewed; figP: PHOTO; figG: MANIM
 assert.match(JSON.stringify(requests.find((r) => r.messages.length > 2).messages.at(-1)), /viewBox/);   // the reason went back
 assert.ok(requests.every((r) => r.messages[1].content.some((p) => p.type === "image_url")));   // it saw the figure

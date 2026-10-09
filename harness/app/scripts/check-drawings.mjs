@@ -53,7 +53,8 @@ const script = { chapters: [{ title: "Forces", beats: [
 const before = JSON.stringify(script);
 const options = { key: "test", model: "test/model", repo, python: path.join(repo, ".venv", "bin", "python"),
   onStatus: (t) => console.log("  ", t) };
-const drawn = await drawScript(script, options);
+const pictures = [];
+const drawn = await drawScript(script, { ...options, onPicture: (p) => pictures.push(p) });
 assert.equal(JSON.stringify(script), before);                         // the model's script is not touched
 const beats = drawn.chapters[0].beats;
 const ramp = beats[0].do[0], circuit = beats[1].do[0], figure = beats[2].do[0].figure, odd = beats[3].do[0];
@@ -63,6 +64,10 @@ assert.ok(/<g id="mg">/.test(readFileSync(ramp.svg, "utf8")));        // the for
 assert.ok(/animateTransform/.test(readFileSync(circuit.svg, "utf8")));
 assert.ok(!odd.svg && odd._draw_error, "a picture that never draws says why");
 assert.equal(drawn.drawn, true);
+// Each picture is reported with what it cost (its own requests, $0.002 each), and that is kept with the drawing.
+const fresh = pictures.filter((p) => !p.kept);
+assert.ok(fresh.some((p) => p.file === ramp.svg && p.usd > 0));
+assert.ok(JSON.parse(readFileSync(ramp.svg.replace(/\.svg$/, ".json"), "utf8")).usd > 0);
 // Each picture that passed was shown to the model as the board renders it (a PNG), once.
 const reviews = requests.filter((r) => Array.isArray(r.messages.at(-1).content));
 assert.equal(reviews.length, 2);

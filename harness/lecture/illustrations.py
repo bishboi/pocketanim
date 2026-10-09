@@ -221,7 +221,7 @@ def storyweaver(query: str, limit: int = 6) -> list[dict]:
 
 
 # ---------------- an AI illustration, last ----------------
-AI_MADE = {"count": 0, "usd": 0.0}
+AI_MADE = {"count": 0, "usd": 0.0, "items": []}
 
 
 def ai_enabled() -> bool:
@@ -241,7 +241,12 @@ def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
            "width": 1600, "height": 1000, "license": "AI-generated", "artist": model,
            "credit": f"illustration generated with {model}", "source": "ai", "path": str(target)}
     if target.exists():
-        return [row]
+        # Drawn by an earlier run: free now; what it cost then is kept beside it.
+        try:
+            paid = float(json.loads(target.with_suffix(".json").read_text()).get("usd") or 0.0)
+        except (OSError, ValueError):
+            paid = None
+        return [{**row, "paid": paid}]
     look = {"parchment": "in the style of an old engraved textbook plate, sepia ink on parchment",
             "lab": "as a clean modern science-textbook diagram on white",
             "cosmos": "as a clear diagram on a dark blue background"}.get(style or "", "as a clean, colourful textbook illustration")
@@ -267,8 +272,10 @@ def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
     # What it cost (OpenRouter's usage), for the lecture's bill: on the row for the caller, and added up here
     # for a build (export_scene.py reports it).
     usd = float((reply.get("usage") or {}).get("cost") or 0.0)
+    target.with_suffix(".json").write_text(json.dumps({"query": query, "model": model, "style": style, "usd": usd}))
     AI_MADE["count"] += 1
     AI_MADE["usd"] += usd
+    AI_MADE["items"].append({"path": str(target), "query": query, "usd": usd, "model": model})
     return [{**row, "usd": usd, "made": True}]
 
 
@@ -316,6 +323,7 @@ def reset() -> None:
     _collections.cache_clear()
     AI_MADE["count"] = 0
     AI_MADE["usd"] = 0.0
+    AI_MADE["items"] = []
 
 
 if __name__ == "__main__":

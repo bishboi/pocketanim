@@ -11,7 +11,8 @@ import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
 import { CostBreakdown, versionTotal } from "@/components/cost-breakdown";
-import type { Costs } from "@/lib/costs";
+import type { AiPicture, Costs } from "@/lib/costs";
+import { AiPictures } from "@/components/ai-pictures";
 import type { SceneIR } from "@/lib/pocketanim";
 
 type ExportState = {
@@ -34,7 +35,7 @@ type ExportState = {
   voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
   narrationUrl?: string | null;
   /** Illustrations an image model drew during the build, and what they cost. */
-  ai_images?: { count: number; usd: number };
+  ai_images?: { count: number; usd: number; items?: { path: string; query: string; usd: number; model: string }[] };
   /** How long speaking the lines and building the program took (seconds). */
   timing?: { voiceSeconds: number; buildSeconds: number };
 };
@@ -50,6 +51,8 @@ type TraceEvent = {
   costUsd?: number;
   /** The cost so far, task by task (lib/costs.ts). */
   costs?: Costs;
+  /** A picture the AI made for the lecture, with what it cost. */
+  picture?: AiPicture;
   source?: string;
   model?: string;
   streaming?: boolean;
@@ -95,6 +98,8 @@ type Version = {
   voiceLecture?: { usd: number; lines: number; unknown: number; engine?: string };
   /** What writing it cost, task by task (lib/costs.ts): transcript, script, fixes, SVGs, illustrations. */
   costs?: Costs;
+  /** The pictures the AI made for it (SVGs, illustrations), each with what it cost. */
+  pictures?: AiPicture[];
   /** Its builds: how long the latest took, and the illustrations an image model drew while building. */
   build?: { seconds: number; voiceSeconds: number; count: number; aiImages: number; aiUsd: number };
   exported?: ExportState;
@@ -200,6 +205,12 @@ function TraceLine({ event }: { event: TraceEvent }) {
 function applyTrace(trace: TraceEvent[], event: TraceEvent): TraceEvent[] {
   // An early part's scene is built, not shown in the trace (the status line before it says so).
   if (event.type === "part") return trace;
+  // A picture the AI made: one line in the log; the picture itself is in the panel above it.
+  if (event.type === "picture" && event.picture) {
+    const p = event.picture;
+    return [...trace, { type: "message", role: "status", text: `${p.kind === "illustration" ? "Illustration" : "SVG"} ` +
+      `${p.reused ? "reused" : "made"}: ${p.title.slice(0, 90)}${p.reused ? "" : ` ($${p.usd.toFixed(4)})`}` }];
+  }
   if (event.type === "delta") {
     const last = trace[trace.length - 1];
     if (last?.type === "message" && last.role === event.role && last.streaming) {
@@ -607,6 +618,11 @@ export default function Home() {
           aiImages: (v.build?.aiImages ?? 0) + (done.ai_images?.count ?? 0),
           aiUsd: (v.build?.aiUsd ?? 0) + (done.ai_images?.usd ?? 0),
         },
+        // Illustrations an image model drew while building: shown with the rest of the AI's pictures.
+        pictures: [...(v.pictures ?? []), ...(done.ai_images?.items ?? [])
+          .filter((i) => !(v.pictures ?? []).some((p) => p.file === i.path))
+          .map((i) => ({ kind: "illustration" as const, file: i.path, title: i.query, usd: i.usd, reused: false,
+            paid: i.usd, detail: i.model }))],
       } : v));
     };
     try {
@@ -739,6 +755,9 @@ export default function Home() {
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
                     costs: event.costs ?? item.costs,
+                    pictures: event.type === "picture" && event.picture
+                      && !(item.pictures ?? []).some((p) => p.file === event.picture!.file)
+                      ? [...(item.pictures ?? []), event.picture] : item.pictures,
                   }
                 : item,
             ),
@@ -1307,6 +1326,14 @@ export default function Home() {
                     ? versions.filter((v) => v.n === version.n && v.part).sort((a, b) => (a.part?.index ?? 0) - (b.part?.index ?? 0))
                     : [];
                   return <CostBreakdown version={series[0] ?? version} series={series} />;
+                })()}
+                {(() => {
+                  // A series' pictures were made with its first part (its writing); each part's build adds its own.
+                  const holders = version.part ? versions.filter((v) => v.n === version.n && v.part) : [version];
+                  const pictures = holders.flatMap((v) => v.pictures ?? [])
+                    .filter((p, i, all) => all.findIndex((q) => q.file === p.file) === i);
+                  return <AiPictures pictures={pictures}
+                    style={TEMPLATES.find((t) => t.id === version.templateId)?.style} />;
                 })()}
                 {(version.trace.length > 0 || busy) && (
                   <div

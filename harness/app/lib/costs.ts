@@ -83,3 +83,24 @@ export function usd(value: number): string {
   if (!value) return "$0";
   return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(value < 1 ? 3 : 2)}`;
 }
+
+/** A picture the AI made for a lecture: an SVG drawn for a book figure or for the script, or an illustration an
+ * image model drew. `usd` is what it cost this lecture; one `reused` from an earlier run cost nothing now, and
+ * `paid` says what it cost when it was made. */
+export type AiPicture = {
+  kind: "figure" | "drawing" | "illustration";
+  /** Where it is on the server (/api/picture serves it). */
+  file: string;
+  title: string;
+  usd: number;
+  reused: boolean;
+  paid?: number | null;
+  /** Its parts (an SVG), or the model that drew it (an illustration). */
+  detail?: string;
+};
+
+export const PICTURE_KINDS: Record<AiPicture["kind"], string> = {
+  figure: "Book figure, drawn as SVG",
+  drawing: "Picture drawn as SVG",
+  illustration: "AI illustration",
+};

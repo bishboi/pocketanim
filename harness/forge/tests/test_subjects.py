@@ -301,8 +301,9 @@ def test_an_ai_illustration_says_what_it_cost(monkeypatch, tmp_path):
     rows = illustrations.ai("a leaf in cross section")
     assert rows and rows[0]["usd"] == 0.039 and rows[0]["made"]
     assert asked[0]["usage"] == {"include": True}
-    assert illustrations.AI_MADE == {"count": 1, "usd": 0.039}
+    assert illustrations.AI_MADE["count"] == 1 and illustrations.AI_MADE["usd"] == 0.039
+    assert illustrations.AI_MADE["items"][0]["query"] == "a leaf in cross section"
     again = illustrations.ai("a leaf in cross section")        # drawn already: from the cache, free
-    assert again and "usd" not in again[0] and illustrations.AI_MADE["count"] == 1
+    assert again and "usd" not in again[0] and again[0]["paid"] == 0.039 and illustrations.AI_MADE["count"] == 1
     illustrations.reset()
-    assert illustrations.AI_MADE == {"count": 0, "usd": 0.0}
+    assert illustrations.AI_MADE == {"count": 0, "usd": 0.0, "items": []}

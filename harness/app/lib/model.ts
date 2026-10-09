@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
-import { CostLedger } from "./costs";
+import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { unbuiltFigures } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
@@ -756,9 +756,24 @@ async function viaOpenRouter(
   const sendCosts = (text: string) =>
     emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot() });
   const figureTally = { svg: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
-  const billImages = (usd: number, made: number) => {
-    costUsd = ledger.bill("images", usd, { items: made });
-    sendCosts(`${made} illustration${made > 1 ? "s" : ""} generated: $${usd.toFixed(4)}`);
+  // Each picture the AI made for the lecture goes to the page as it is made (once), with what it cost.
+  const shownPictures = new Set<string>();
+  const showPicture = (picture: AiPicture) => {
+    if (shownPictures.has(picture.file)) return;
+    shownPictures.add(picture.file);
+    emit({ type: "picture", picture });
+  };
+  const billImages = (images: { path: string; title: string; usd: number; made: boolean; paid: number | null }[]) => {
+    const made = images.filter((i) => i.made);
+    if (made.length) {
+      const usd = made.reduce((t, i) => t + i.usd, 0);
+      costUsd = ledger.bill("images", usd, { items: made.length });
+      sendCosts(`${made.length} illustration${made.length > 1 ? "s" : ""} generated: $${usd.toFixed(4)}`);
+    }
+    for (const i of images) {
+      showPicture({ kind: "illustration", file: i.path, title: i.title, usd: i.usd, reused: !i.made, paid: i.paid,
+        detail: process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image" });
+    }
   };
   // Figures settled so far: stage 2 waits for them only so long (PANIM_FIGURE_WAIT_SECONDS), then goes on with
   // these; a figure drawn later is kept on disk for the next run, and this one rebuilds it in Manim.
@@ -778,6 +793,11 @@ async function viaOpenRouter(
       },
       onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
+        if (made.svg) {
+          const caption = teachingFigures(doc).find((f) => f.id === id)?.caption ?? "";
+          showPicture({ kind: "figure", file: made.svg, title: `${id}: ${caption}`.trim(), usd: kept ? 0 : made.usd ?? 0,
+            reused: kept, paid: made.usd ?? null, detail: (made.parts ?? []).join(", ") });
+        }
         if (made.svg) figureTally[kept ? "kept" : "svg"] += 1;
         else if (made.manim) figureTally.manim += 1;
         else if (made.photo) figureTally.photo += 1;
@@ -1149,6 +1169,9 @@ async function viaOpenRouter(
       sendCosts(`picture drawn: $${usd.toFixed(4)}`);
     },
     onDrawn: () => ledger.count("drawings", 1),
+    onPicture: (p: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) =>
+      showPicture({ kind: "drawing", file: p.file, title: p.what, usd: p.kept ? 0 : p.usd, reused: p.kept, paid: p.usd,
+        detail: p.parts.join(", ") }),
   } : undefined;
   const lectureOptions = () => ({
     draw: drawOptions,

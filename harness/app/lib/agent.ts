@@ -5,13 +5,14 @@
  * never given a rendered frame, so it cannot revise from the picture.
  */
 
-import type { Costs } from "./costs";
+import type { AiPicture, Costs } from "./costs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
 
 export type AgentEvent = {
-  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part";
+  type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part"
+    | "picture";
   role?: string;
   name?: string;
   text?: string;
@@ -21,6 +22,8 @@ export type AgentEvent = {
   costUsd?: number;
   /** The cost so far, task by task (lib/costs.ts), with each usage event. */
   costs?: Costs;
+  /** A picture the AI made for the lecture (type "picture"), with what it cost. */
+  picture?: AiPicture;
   source?: string;
   model?: string;
   /** A lecture made as more than one video (lib/parts.ts): each part's title, length and scene. */

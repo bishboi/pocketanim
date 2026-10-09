@@ -41,6 +41,8 @@ export type Drawn = {
   animated?: boolean;
   /** Why it could not be drawn (it is then built in Manim, as before). */
   failed?: string;
+  /** What deciding and drawing it cost (US dollars), kept with the drawing so a later run can say so. */
+  usd?: number;
 };
 
 export const SVG_RULES = [
@@ -361,11 +363,17 @@ export async function drawFigures(
     if (image) ask0.push({ type: "image_url", image_url: { url: image } });
     const messages: Message[] = [{ role: "system", content: SVG_PROMPT }, { role: "user", content: ask0 }];
     const { svg: file } = drawnPaths(figure);
-    const made = await settle(messages, file, undefined, options, true);
-    if (made.photo) return { photo: true };
-    if (made.manim) return { manim: true };
-    if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks" };
-    return { svg: made.svg, parts: made.check.parts, labels: made.check.labels ?? {}, animated: !!made.check.animated };
+    // Its own bill as well as the lecture's: each picture says what it cost.
+    let usd = 0;
+    const made = await settle(messages, file, undefined, { ...options, onCost: (cost) => {
+      usd += cost;
+      options.onCost?.(cost);
+    } }, true);
+    if (made.photo) return { photo: true, usd };
+    if (made.manim) return { manim: true, usd };
+    if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks", usd };
+    return { svg: made.svg, parts: made.check.parts, labels: made.check.labels ?? {}, animated: !!made.check.animated,
+      usd };
   };
 
   const queue = [...todo];

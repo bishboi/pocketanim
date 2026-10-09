@@ -364,7 +364,8 @@ export function scriptJson<T = unknown>(stdout: string): T | null {
 
 /** find_illustration: a few educational illustrations or diagrams per topic, as lines the model can choose from. */
 export async function findIllustration(queries: unknown, genre?: string,
-  onCost?: (usd: number, made: number) => void): Promise<string> {
+  onImages?: (images: { path: string; title: string; usd: number; made: boolean; paid: number | null }[]) => void,
+): Promise<string> {
   const words = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q).slice(0, 80)).filter(Boolean).slice(0, 6);
   if (!words.length) return "Give queries: a list of topics.";
   const args = [path.join(REPO, "harness", "lecture", "images.py"), "--illustrations", ...words];
@@ -372,11 +373,14 @@ export async function findIllustration(queries: unknown, genre?: string,
   if (genre) args.push("--genre", genre);
   const { stdout, stderr } = await runPython(args);
   const found = scriptJson<Record<string, { id: string; title: string; description: string; license: string; source?: string;
-    usd?: number; made?: boolean }[]>>(stdout);
+    usd?: number; made?: boolean; paid?: number | null; path?: string }[]>>(stdout);
   if (!found) return `The illustration search failed: ${stderr.trim().split("\n").slice(-3).join(" ") || "no output"}`;
-  // Illustrations an image model drew just now (illustrations.ai): what they cost, for the lecture's bill.
-  const made = Object.values(found).flat().filter((r) => r.made);
-  if (made.length) onCost?.(made.reduce((sum, r) => sum + (r.usd ?? 0), 0), made.length);
+  // Illustrations an image model drew (illustrations.ai), just now or for an earlier lecture: what they cost.
+  const drawn = Object.values(found).flat().filter((r) => r.source === "ai" && r.path);
+  if (drawn.length) {
+    onImages?.(drawn.map((r) => ({ path: r.path!, title: r.title, usd: r.made ? r.usd ?? 0 : 0, made: !!r.made,
+      paid: r.made ? r.usd ?? 0 : r.paid ?? null })));
+  }
   return Object.entries(found)
     .map(([q, rows]) =>
       `${q}:\n` +

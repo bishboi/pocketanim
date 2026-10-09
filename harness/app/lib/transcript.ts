@@ -14,6 +14,7 @@ import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
 import { SOLVING_STEPS } from "./solving";
 import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
+import { asidesOf, ideasOf, uncovered } from "./coverage";
 
 /** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
 export const WORDS_PER_MINUTE = 100;
@@ -237,7 +238,8 @@ export function transcriptPrompt(options: {
             "TEACH THE BOOK (its text for each section is given below). A book only states things; the teacher makes",
             "them understood. So you WRITE what a good teacher adds, the way the best YouTube teachers do:",
             "  - Cover every idea of the section's text, in its order: every definition, law, fact, figure, table,",
-            "    solved example and in-text question. Leave nothing out, and add nothing off the syllabus.",
+            "    solved example, in-text question and box (an aside, said as one). Leave nothing out, and add nothing",
+            "    off the syllabus. Each request lists the part's thread and its asides: all of them are checked.",
             "  - Explain each idea slowly in easy words: what it means, each term in it, why it is so, and the idea",
             "    again in other words. Never read the book's sentences out word for word: say them your own way.",
             "  - EXAMPLES the book does not give: for each important statement, two or three everyday examples",
@@ -261,6 +263,26 @@ export function transcriptPrompt(options: {
           ].join("\n")
         : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +
           "in detail with everyday examples, questions for the class and worked problems.",
+    "",
+    "TELL IT AS ONE STORY. The whole lecture is one seamless flow, not a list of topics:",
+    "  - Open with a hook: a question, a puzzle or an everyday situation that makes the student want the answer",
+    "    (why does a bus jerk you forward when it brakes? why did the Mughal empire fall so fast?).",
+    "  - Each idea answers the question the one before it raises. For every idea: WHY we need it (the problem or",
+    "    question it answers), WHAT it is (in plain words, then the proper term), HOW it works or happens (step by",
+    "    step, with an example), and SO WHAT (what it explains, where it shows up in life, what it leads to).",
+    "  - Join ideas with bridges, never jumps: \"but this raises a question...\", \"so what happens if...?\", \"now",
+    "    that we know X, we can understand Y\" (in the lecture's own language). Never \"next topic",
+    "    is...\". A student should feel each new idea is the natural next step.",
+    "  - Keep one thread through a section (a running example, a character, a question you come back to) and close",
+    "    the loop: answer the opening question with what was learnt.",
+    "  - ASIDES: a book often has boxes or lines beside the main thread (\"Do you know?\", interesting facts, an",
+    "    activity, a historical note) that do not carry the story on. Teach every one, but SAY that it is an aside, in",
+    "    the lecture's language (\"a quick side note, not part of our main story, but worth knowing...\";",
+    "    \"एक रोचक बात, जो हमारे topic के flow का हिस्सा नहीं है, पर जानना ज़रूरी है...\"), explain it, then return",
+    "    to the story out loud (\"back to our question...\", \"चलो, वापस अपनी बात पर आते हैं...\").",
+    "  - COVER EVERYTHING in the source: every heading, every idea and term, every aside, every figure and question.",
+    "    Keep the source's order; the story adds the why, the bridges and the thread, and never leaves anything out",
+    "    (the checks refuse a section that skips part of its text).",
     "",
     "TEACH EXACTLY LIKE A REAL TEACHER TALKING TO A CLASS, NOT LIKE A BOOK OR AN ARTICLE. Write it the way it",
     "would be spoken in front of students, in easy everyday language:",
@@ -358,6 +380,19 @@ export function sectionProblem(text: string, section: Section, language: Languag
         "question of the section: say its number first (\"प्रश्न 4.1\"), read it, what it asks, then every option in " +
         "turn (\"Option A, ...\") and why it is right or wrong, then the answer and why.";
     }
+    if (section.book && !section.questionsOnly) {
+      // The whole of its part of the book: every heading, every aside, and the terms it sets in bold (one may be
+      // missed: a bold word in a caption, say).
+      const missing = uncovered(text, section.source, language);
+      const heavy = missing.filter((idea) => idea.kind !== "term");
+      const terms = missing.filter((idea) => idea.kind === "term");
+      if (heavy.length || terms.length > 1) {
+        const named = [...heavy, ...terms].slice(0, 8).map((idea) => `${idea.kind === "aside" ? "the aside " : ""}"${idea.text}"`);
+        return `Section ${section.n} leaves out parts of its book text: ${named.join(", ")}${missing.length > 8 ? ", ..." : ""}. ` +
+          "Teach each of them in the story of the lesson, where it fits (bridged from the idea before: why it comes " +
+          "next, what it is, how it works); an aside is said plainly as an aside, then back to the thread.";
+      }
+    }
     // A section that is mostly the book's exercises explains questions; it need not bring examples of its own.
     const askedWords = questions.reduce((n, q) => n + questionWords(q), 0);
     if (!EXAMPLE_CUES.test(text) && askedWords < section.words * 0.5) {
@@ -404,7 +439,7 @@ export function cleanSection(text: string): string {
  * wrong language, needs the section written again.
  */
 export function repairable(problem: string): boolean {
-  return /has \d+ words; it needs|asks the class \d+ question|gives no example|does not explain the book's/.test(problem);
+  return /has \d+ words; it needs|asks the class \d+ question|gives no example|does not explain the book's|leaves out parts of its book/.test(problem);
 }
 
 /** The request that mends a refused section by adding to it (repairable): only the new paragraphs, at its end. */
@@ -454,8 +489,17 @@ export function sectionSource(section: Section): string {
       section.source.slice(0, 12000);
   }
   if (section.questionsOnly) return `THE BOOK'S TEXT THESE QUESTIONS COME FROM:\n${section.source.slice(0, 6000)}${questions}`;
-  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}${questions}`;
+  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}${coverList(section.source)}${questions}`;
   return "";
+}
+
+/** What a part of the book must have said about it: its main thread, and its asides to be said as asides. */
+function coverList(source: string): string {
+  const thread = ideasOf(source).filter((idea) => idea.kind !== "aside").map((idea) => idea.text);
+  const asides = asidesOf(source);
+  return (thread.length ? `\nTHE THREAD OF THIS PART (teach every one, as one story, in this order): ${thread.join("; ")}` : "") +
+    (asides.length ? `\nASIDES IN THIS PART (each explained, said plainly as a side note, then back to the story):\n` +
+      asides.map((a) => `  - ${a.title}: ${a.text.slice(0, 200)}`).join("\n") : "");
 }
 
 export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,

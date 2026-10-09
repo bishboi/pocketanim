@@ -21,17 +21,18 @@ import path from "node:path";
 import { SVG_RULES, settle, type Message } from "./figures";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAW_VERSION = 3;
+export const DRAW_VERSION = 4;
 const AT_ONCE = Number(process.env.PANIM_DRAWERS ?? 4);
 
 export const DRAW_PROMPT = [
   "You draw ONE picture for a teacher's board in a video lecture, as an SVG, from the teacher's description of it.",
   "Reply with the SVG alone in a ```svg block.",
   "",
-  "WHAT TO DRAW: exactly what the description says: every thing, label, arrow, angle and number in it, laid out",
-  "clearly, as a good teacher draws on a board: flat shapes, clean lines, no shading or tiny details. Correct for",
-  "the subject (forces from the body they act on, rays obeying the laws of reflection, a cell's organelles inside",
-  "it, a circuit closed). Big enough to read from the back of a class.",
+  "WHAT TO DRAW: exactly what the description says: every thing, label, arrow, angle and number in it, as a richly",
+  "detailed textbook illustration (see DETAIL below): real shapes with depth, shading, texture and the small",
+  "features that make a thing recognisable, laid out so the main idea still reads at a glance. Correct for the",
+  "subject (forces from the body they act on, rays obeying the laws of reflection, a cell's organelles inside it, a",
+  "circuit closed). Big enough to read from the back of a class.",
   "",
   "PARTS: you are given the part ids. Each is one <g id=\"...\"> with EXACTLY that id, holding that thing and its",
   "label; every visible thing belongs to one of them. The lecture reveals and points at these ids, often one at a",

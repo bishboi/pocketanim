@@ -485,7 +485,10 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
 STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
-DIAGRAM_KINDS = {"flow", "cycle", "tree", "hub", "categories", "steps"}
+DIAGRAM_KINDS = {"flow", "flowchart", "cycle", "tree", "hub", "categories", "steps"}
+# A flowchart's step shapes (pocket_lecture._flow_node) and the edge styles it draws.
+FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
+EDGE_STYLES = ("solid", "dashed", "bold")
 # A beat drawn by a block of Manim the model wrote (free_check.py): the only op on its beat.
 FREE_OPS = {"manim"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS
@@ -547,8 +550,16 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
             return "'diagram' needs an id (reveal and focus refer to it)"
         if op.get("kind", "flow") not in DIAGRAM_KINDS:
             return f"diagram kind must be one of {', '.join(sorted(DIAGRAM_KINDS))}"
-        if not 2 <= len(nodes) <= 9 or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
-            return "'diagram' needs 2-9 nodes, each {id, label, entity?, items?}"
+        _edges_as_lists(op)
+        most = 16 if op.get("kind", "flow") in ("flow", "flowchart") else 9
+        if not 2 <= len(nodes) <= most or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
+            return (f"'diagram' needs 2-{most} nodes, each {{id, label, entity?, items?"
+                    + (", shape?, lane?" if most == 16 else "") + "}")
+        if most == 9 and len(nodes) > 9:
+            return "'diagram' of this kind needs 2-9 nodes; a flowchart takes up to 16"
+        bad_shape = [n["id"] for n in nodes if n.get("shape") and str(n["shape"]) not in FLOW_SHAPES]
+        if bad_shape:
+            return f"diagram node {bad_shape[0]!r}: shape is one of {', '.join(FLOW_SHAPES)}"
         bad_items = [n["id"] for n in nodes if n.get("items") is not None
                      and (not isinstance(n["items"], list) or len(n["items"]) > 5)]
         if bad_items:
@@ -559,7 +570,10 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         bad = [e for e in op.get("edges") or [] if not isinstance(e, list) or len(e) < 2
                or str(e[0]) not in ids or str(e[1]) not in ids]
         if bad:
-            return f"diagram edge {bad[0]!r} must join two node ids: [from, to, label?]"
+            return f"diagram edge {bad[0]!r} must join two node ids: [from, to, label?, style?]"
+        styled = [e for e in op.get("edges") or [] if len(e) > 3 and e[3] and str(e[3]) not in EDGE_STYLES]
+        if styled:
+            return f"diagram edge {styled[0]!r}: style is one of {', '.join(EDGE_STYLES)}"
         unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
         if unknown:
             return f"diagram show: no node {unknown[0]!r}"
@@ -859,7 +873,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art"}
+             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -1846,11 +1860,15 @@ def _op_call(op: dict) -> str:
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         return f"self.gallery([{items}]{title})"
     if kind == "diagram":
+        _edges_as_lists(op)
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
                   **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {}),
-                  **({"anim": str(n["anim"])} if n.get("anim") else {})}
+                  **({"anim": str(n["anim"])} if n.get("anim") else {}),
+                  **({k: str(n[k]) for k in ("shape", "lane", "tone") if n.get(k)})}
                  for n in op["nodes"]]
-        edges = [[str(e[0]), str(e[1])] + ([str(e[2])] if len(e) > 2 and e[2] else []) for e in op.get("edges") or []]
+        edges = [[str(e[0]), str(e[1])] + ([str(e[2]) if len(e) > 2 and e[2] else ""] if len(e) > 2 else [])
+                 + ([str(e[3])] if len(e) > 3 and e[3] and str(e[3]) != "solid" else []) for e in op.get("edges") or []]
+        edges = [e[:2] if len(e) == 3 and not e[2] else e for e in edges]
         show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         return (f"self.diagram({_q(str(op['id']))}, {_q(op.get('kind', 'flow'))}, {nodes!r}, {edges!r}"
@@ -1920,6 +1938,21 @@ def _clean(value):
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _edges_as_lists(op: dict) -> None:
+    """A diagram's edges as [from, to, label?, style?]: an edge written as {from, to, label, style} is put that way."""
+    edges = op.get("edges")
+    if not isinstance(edges, list):
+        return
+    out = []
+    for e in edges:
+        if isinstance(e, dict) and (e.get("from") is not None or e.get("to") is not None):
+            e = [e.get("from"), e.get("to"), e.get("label") or "", e.get("style") or ""]
+            while len(e) > 2 and not e[-1]:
+                e.pop()
+        out.append(e)
+    op["edges"] = out
 
 
 def _diagram_motion(op: dict) -> str:

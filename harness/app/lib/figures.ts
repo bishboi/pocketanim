@@ -19,7 +19,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAWING_VERSION = 3;
+export const DRAWING_VERSION = 4;
 /** Figures drawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 /** Rounds of "here is what is wrong, fix it". */
@@ -52,9 +52,10 @@ export const SVG_RULES = [
   "  animateTransform. NOT image, style, filter, mask, clipPath, pattern, gradients, foreignObject or script.",
   "- Colours by NAME, not hex, so the drawing suits a dark or a light board: INK (lines and words), MUTED (faint",
   "  guides, axes, dashed construction lines), ROSE (forces), GREEN (velocities, normals), GOLD (angles, highlights),",
-  "  RIVER (water, blue things), TERRA, TEAL, VIOLET, SAND, DUNE (fills: use fill-opacity 0.3-0.6 for large areas),",
-  "  BOARD (the board itself: to blank out a wire behind a symbol drawn over it).",
-  '  fill="none" for open outlines. Lines 3-6 wide.',
+  "  RIVER (water, blue things), TERRA, TEAL, VIOLET, SAND, DUNE, RUST, OLIVE, MOUNT (fills: fill-opacity 0.3-0.8),",
+  "  SHINE (highlights) and SHADE (shadows), both at fill-opacity 0.15-0.35, BOARD (the board itself: to blank out",
+  "  a wire behind a symbol drawn over it).",
+  '  fill="none" for open outlines. Main lines 3-5 wide, detail lines 1-2.',
   "- Labels: <text> at font-size 24-34 with text-anchor, plain Unicode for symbols (θ, μ, ₁, ², →, Ω, °), never",
   "  LaTeX; beside what they name, never on top of a line. No title or caption text: the lecture shows the caption.",
   '- PARTS: wrap each thing the teacher will point at in <g id="...">: a short id in letters, digits and _ (block,',
@@ -68,7 +69,7 @@ export const SVG_RULES = [
   '  attributeName="opacity" .../>, or a dashed path (stroke-dasharray) with <animate attributeName="stroke-dashoffset"',
   '  values="0; -40" .../> for something flowing along a line. dur 0.5s, 1s, 2s or 4s; repeatCount="indefinite".',
   "  Animate transforms and opacity only (not d, width or points).",
-  "- Under 30 KB, no comments.",
+  "- Under 70 KB, no comments.",
   "",
   "QUALITY (it is shown full screen to a class, on a phone, and judged against a good textbook figure):",
   "- Plan the layout before writing: where each thing goes on a grid, its size, where each label sits. Then write",
@@ -84,7 +85,22 @@ export const SVG_RULES = [
   "  same kind; never upside down or rotated.",
   "- Consistent style: the same line width for the same kind of thing, a few colours with a meaning each (forces",
   "  one colour, motion another), fills light (fill-opacity 0.3-0.6) so lines and labels stay readable on top.",
-  "- Simple, smooth shapes: real curves (arcs, cubic Béziers) for round things, not jagged polylines; few points.",
+  "- Smooth shapes: real curves (arcs, cubic Béziers) for round things, not jagged polylines.",
+  "",
+  "DETAIL (it is judged against a fine textbook illustration, not a sketch; aim for 60-200 shapes):",
+  "- Depth without gradients: build each solid thing in layers: its base fill (fill-opacity 0.5-0.8), a shadow",
+  "  shape along its lower or far side in the next darker colour of its family (SAND→DUNE→TERRA→RUST,",
+  "  GREEN→OLIVE, RIVER→TEAL, or SHADE at fill-opacity 0.15-0.3), and a highlight shape on its lit side (SHINE at",
+  "  fill-opacity 0.2-0.35). Light comes from the top left for every part.",
+  "- Texture and structure: the real surface of a thing in fine lines (1-2 wide, MUTED or a darker shade): a leaf's",
+  "  veins, muscle fibres, bark, brick courses, rock strata, a membrane's double line, cell walls, a wire's",
+  "  insulation, screw threads, water ripples, fur, scales. A cross-section shows its layers, each a distinct fill.",
+  "- The small features that make it recognisable and true: organelles inside a cell (ribosomes as dots, cristae",
+  "  inside mitochondria), stomata on a leaf, valves in the heart, terminals and a filament in a bulb, rivets,",
+  "  teeth on a gear, the meniscus in a tube, graduations on a scale. Several of each where the real thing has many.",
+  "- Outlines: a firm outline (3-5 wide) round each main thing, thinner lines (1-2) for detail inside it.",
+  "- Still clear: detail sits inside and on things, never across labels or arrows; the thing being taught stays",
+  "  the strongest shape in the picture, and every label still has room.",
   "",
   "EDUCATIONAL (it teaches; it is not decoration):",
   "- Label every part the lesson names with the exact term students must learn (the textbook's word), and the key",
@@ -94,7 +110,8 @@ export const SVG_RULES = [
   "- Show cause, direction and flow with arrows (what pushes what, which way blood, current, light, energy goes).",
   "- True to a good textbook: correct relative sizes and positions (the nucleus inside the cell, the left ventricle's",
   "  wall thicker than the right's), nothing scientifically wrong even if simplified.",
-  "- One clear idea per picture: nothing decorative, no background scenery, no faces, no parts the lesson never uses.",
+  "- One clear idea per picture: detail that makes the subject real and true, but no unrelated background scenery,",
+  "  no faces, no parts the lesson never uses.",
 ].join("\n");
 
 /** Rounds of looking at the drawing as the board shows it and fixing it (PANIM_SVG_REVIEWS; 0 turns it off). */
@@ -110,12 +127,14 @@ export const REVIEW_PROMPT = [
   "- Is any label on top of a line, an arrow, a shape or another label, cut off, or hard to read?",
   "- Is the layout clear and balanced: the subject large, nothing cramped, nothing stranded, arrows meeting what",
   "  they point at, shapes joined where they should be?",
+  "- Is it as rich as a fine textbook illustration: solid things shaded (a shadow side, a highlight), real texture",
+  "  and the small features that make each thing recognisable? A flat, bare outline is not finished: add the detail.",
   "If it is right and clear, reply with exactly LOOKS GOOD. Otherwise reply with the whole corrected SVG in a ```svg",
   "block (same part ids, same rules).",
 ].join("\n");
 
 export const SVG_PROMPT = [
-  "You redraw ONE figure from a textbook as a clean SVG diagram for a teacher's board in a video lecture.",
+  "You redraw ONE figure from a textbook as a detailed, clean SVG illustration for a teacher's board in a video lecture.",
   "Reply with the SVG alone in a ```svg block. If the figure is a PHOTOGRAPH (real people, a place, a specimen, an",
   "object as photographed) that no drawing can replace, reply with the single word PHOTO instead.",
   "If the board builds it well from its own shapes -- a graph or plot, a block on an incline, a pulley, a spring,",
@@ -166,7 +185,7 @@ export async function ask(key: string, model: string, messages: Message[], signa
         method: "POST",
         signal,
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages, max_tokens: 12000, usage: { include: true } }),
+        body: JSON.stringify({ model, messages, max_tokens: 24000, usage: { include: true } }),
       });
       if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 300)}`);
       const body = (await response.json()) as {

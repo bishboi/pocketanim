@@ -17,7 +17,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-MAX_BYTES = 60_000
+MAX_BYTES = 100_000
 # What the engine cannot draw (or draws wrong): pictures inside, HTML, scripts, CSS, effects.
 FORBIDDEN = {"image": "an embedded picture (draw it with shapes)", "foreignObject": "HTML inside the SVG",
              "script": "a script", "style": "a <style> sheet (put colours on the elements themselves)",
@@ -36,7 +36,7 @@ def check(svg_path: str, expected: list[str] | None = None) -> dict:
     text = path.read_text(encoding="utf-8", errors="replace")
     if len(text.encode()) > MAX_BYTES:
         out["errors"].append(f"the SVG is {len(text.encode()) // 1000} KB; keep it under {MAX_BYTES // 1000} KB "
-                             "(fewer, simpler shapes: a teaching diagram, not a picture)")
+                             "(whole-number coordinates, short path data, repeated detail such as veins or threads in one path each)")
     try:
         root = ET.fromstring(text)
     except ET.ParseError as error:

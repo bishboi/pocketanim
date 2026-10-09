@@ -35,6 +35,13 @@ ART_STYLES: dict[str, dict] = {
     "watercolour": dict(label="Watercolour", summary="Layered translucent washes with soft edges and thin ink lines."),
 }
 
+# The font each style writes its pictures' words in (labels, a node's name, a sim's readout); titles, the panel
+# and the captions keep the template's. None: the template's own. A font not on this machine falls back to it too.
+ART_FONTS = {
+    "clean": None, "detailed": "Source Sans 3", "blueprint": "IBM Plex Mono", "chalk": "Cabin Sketch",
+    "sketch": "Architects Daughter", "neon": "Quicksand", "watercolour": "Caveat",
+}
+
 # The art a template draws with when none is chosen.
 TEMPLATE_ART = {
     "atlas": "detailed", "vox": "clean", "cardboard": "watercolour", "whiteboard": "sketch",
@@ -672,3 +679,85 @@ def from_env(template: str | None) -> str:
         return use(os.environ.get(ENV), template)
     except KeyError:
         return use("auto", template)
+
+
+# ----------------------------------------------------------------------------------------------- picture words
+
+
+_DRAWING = [0]
+_INSTALLED: set = set()
+_FETCHED: list = []
+
+
+def _installed() -> set:
+    if not _INSTALLED:
+        import subprocess
+
+        try:
+            out = subprocess.run(["fc-list", ":", "family"], capture_output=True, text=True, timeout=20).stdout
+        except Exception:  # noqa: BLE001 -- no fontconfig: every style writes in the template's fonts
+            out = ""
+        for line in out.splitlines():
+            for name in line.split(","):
+                _INSTALLED.add(name.strip().lower())
+        _INSTALLED.add("")
+    return _INSTALLED
+
+
+def font() -> str | None:
+    """The art style's font for words in a picture, when one is being drawn and the font is here; else None."""
+    if not _DRAWING[0]:
+        return None
+    name = ART_FONTS.get(ART)
+    if not name:
+        return None
+    if name.lower() not in _installed() and not _FETCHED:
+        # Not on this machine yet: the styles' fonts are fetched once (offline, the template's font is used).
+        _FETCHED.append(True)
+        try:
+            import pocket_lecture
+
+            pocket_lecture.setup_fonts()
+        except Exception:  # noqa: BLE001
+            pass
+        _INSTALLED.clear()
+    return name if name.lower() in _installed() else None
+
+
+class drawing:
+    """While a picture is being built (or a live one stepped), its words are written in the art style's font.
+    Usable as `with drawing():` or as a decorator on a method that builds a picture."""
+
+    def __init__(self, fn=None):
+        self.fn = fn
+        if fn is not None:
+            import functools
+
+            functools.update_wrapper(self, fn)
+
+    def __enter__(self):
+        _DRAWING[0] += 1
+        return self
+
+    def __exit__(self, *exc):
+        _DRAWING[0] -= 1
+        return False
+
+    def __get__(self, obj, owner=None):
+        if obj is None:
+            return self
+        import functools
+
+        return functools.partial(self.__call__, obj)
+
+    def __call__(self, *args, **kwargs):
+        with drawing():
+            return self.fn(*args, **kwargs)
+
+
+def drawn_by(cls, names) -> None:
+    """Make these methods of cls build their pictures' words in the art style's font."""
+    for name in names:
+        fn = cls.__dict__.get(name)
+        if fn is not None and not isinstance(fn, drawing):
+            setattr(cls, name, drawing(fn))

@@ -1446,7 +1446,8 @@ class BoardMixin:
         drawn = step
 
         def step(t, p):  # noqa: F811 -- the step, then the art style's colours on what it changed
-            drawn(t, p)
+            with artstyle.drawing():          # a readout it writes is in the art style's font
+                drawn(t, p)
             artstyle.live_paint(mob)
 
         def updater(_mob, dt):
@@ -2169,3 +2170,8 @@ class BoardMixin:
                 show = self._show_movable(str(figure.get("id") or f"{key}_figure"), show)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
+
+# The pictures these build write their words in the art style's font (artstyle.drawing).
+import artstyle as _artstyle  # noqa: E402
+
+_artstyle.drawn_by(BoardMixin, ("sketch", "preset", "free", "sim", "counter", "trace", "graph", "board_bars"))

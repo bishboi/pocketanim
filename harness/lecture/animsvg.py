@@ -159,7 +159,8 @@ def weather_svg(icon: str) -> str:
 # Colours a written figure may name instead of a hex value, so one SVG suits every board style (light or dark):
 # INK is the board's writing colour, MUTED its faint lines, BOARD the board itself (to blank out a line behind a
 # symbol), the rest the style's palette.
-TOKENS = ("INK", "MUTED", "BOARD", "ROSE", "GREEN", "GOLD", "RIVER", "TERRA", "TEAL", "VIOLET", "SAND", "DUNE", "RUST", "OLIVE")
+TOKENS = ("INK", "MUTED", "BOARD", "ROSE", "GREEN", "GOLD", "RIVER", "TERRA", "TEAL", "VIOLET", "SAND", "DUNE", "RUST", "OLIVE",
+          "MOUNT", "SHINE", "SHADE")
 
 
 def paint(text: str, palette: dict) -> str:

@@ -60,7 +60,7 @@ from manim import (
     BOLD, DOWN, LEFT, NORMAL, ORIGIN, PI, RIGHT, UL, UP, AnimationGroup, Circle, Create,
     DashedVMobject, Dot, FadeIn, FadeOut, GrowFromCenter, GrowFromEdge, Indicate, LaggedStart,
     Line, Rectangle, RoundedRectangle, Scene, Square, SurroundingRectangle, Text, Triangle,
-    VGroup, VMobject, Write, config,
+    VGroup, VMobject, Write, config, Ellipse, Polygon,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -183,6 +183,13 @@ FONTS = {
     "LibreFranklin[wght].ttf": "ofl/librefranklin/LibreFranklin%5Bwght%5D.ttf",
     "IBMPlexMono-Regular.ttf": "ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
     "IBMPlexMono-Bold.ttf": "ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
+    # The art styles' picture fonts (artstyle.ART_FONTS).
+    "SourceSans3[wght].ttf": "ofl/sourcesans3/SourceSans3%5Bwght%5D.ttf",
+    "CabinSketch-Regular.ttf": "ofl/cabinsketch/CabinSketch-Regular.ttf",
+    "CabinSketch-Bold.ttf": "ofl/cabinsketch/CabinSketch-Bold.ttf",
+    "ArchitectsDaughter-Regular.ttf": "ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf",
+    "Quicksand[wght].ttf": "ofl/quicksand/Quicksand%5Bwght%5D.ttf",
+    "Caveat[wght].ttf": "ofl/caveat/Caveat%5Bwght%5D.ttf",
     # Hindi in typeset equations (XeLaTeX, nolatex.SCRIPT_FONTS).
     "Hind-Regular.ttf": "ofl/hind/Hind-Regular.ttf",
     "Hind-Bold.ttf": "ofl/hind/Hind-Bold.ttf",
@@ -306,7 +313,12 @@ def _complex(text: str) -> bool:
 
 def T(text: str, size: float = 24, color: str | None = None, font: str | None = None,
       weight=NORMAL, **kw) -> Text:
-    """Text in the style's body font. Characters a font lacks are swapped."""
+    """Text in the style's body font (in a picture being drawn, the art style's: artstyle.font). Characters a font
+    lacks are swapped."""
+    if font is None:
+        import artstyle
+
+        font = artstyle.font()
     font = font or TH["sans"]
     if font == "Permanent Marker":
         text = text.replace("≈", "~")
@@ -486,7 +498,8 @@ def board_svg(path, width: float, height: float):
     import animsvg
     import icons
 
-    palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG}
+    # SHINE and SHADE are a detailed drawing's light and shadow: white and black at low opacity on any board.
+    palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG, "SHINE": "#FFFFFF", "SHADE": "#000000"}
     # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
     raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
     text = animsvg.paint(raw, palette)
@@ -2275,9 +2288,16 @@ class Lecture(Scene):
         the diagram is up (rain falls, a gear spins, a heart beats; a node's "anim" names a motion, or "none"),
         and with `flow` (a flow or cycle by default) dots run along the arrows, the way the process goes."""
         cx, cy, w, h = self.STAGE
-        nodes = [dict(n) for n in list(nodes)[:9]]
+        nodes = [dict(n) for n in list(nodes)[:16]]
         ids = [str(n["id"]) for n in nodes]
         edges = [list(e) for e in edges or []]
+        if kind == "flowchart" or (kind == "flow" and edges and self._branching(ids, edges)):
+            # Branches, joins, decisions and loops: laid out as a flowchart (flowchart.py), not a row of boxes.
+            if not edges:
+                edges = [[a, b] for a, b in zip(ids, ids[1:])]
+            return self._flowchart(key, nodes, edges, title, show, animate, True if flow is None else bool(flow))
+        nodes = nodes[:9]
+        ids = ids[:9]
         if not edges and kind in ("flow", "cycle", "steps"):
             edges = [[a, b] for a, b in zip(ids, ids[1:])] + ([[ids[-1], ids[0]]] if kind == "cycle" and len(ids) > 2 else [])
         if not edges and kind == "categories":
@@ -2354,8 +2374,286 @@ class Lecture(Scene):
                 edge.flow = self._flow_dots(arrow)
                 edge.add(edge.flow)
             arrows.append((a, b, edge))
-        whole = VGroup(*mobs.values(), *[m for _, _, m in arrows])
-        if any(len(e) > 2 and e[2] for e in edges):
+        return self._diagram_finish(key, ids, mobs, arrows, edges, title, show)
+
+    # ------------------------------------------------------------------ flowcharts
+
+    FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
+    FLOW_TONES = {"start": "GREEN", "end": "ROSE", "decision": "GOLD", "process": "RIVER", "io": "VIOLET",
+                  "store": "TEAL", "note": "MUTED"}
+
+    def _flow_node(self, label: str, shape: str, tone: str, size: float, width: float | None = None,
+                   entity: str | None = None, motion: str | None = None):
+        """A flowchart's step, in the shape a flowchart gives it: a rounded box for a process, a diamond for a
+        decision, a pill for start and end, a slanted box for what goes in or comes out, a drum for a store, a
+        folded note. Its name is written inside; a step with an entity has its drawing beside the name."""
+        text = marker(wrap(str(label), 12 if shape == "decision" else 14), size)
+        inner = text
+        drawing = self._entity(entity, 0.75, motion) if entity else None
+        if drawing is not None:
+            inner = VGroup(drawing, text).arrange(RIGHT, buff=0.15)
+        fill = _tint_on_bg(tone, 0.4)
+        line = dict(stroke_color=tone, stroke_width=OUTLINE * 0.75, fill_color=fill, fill_opacity=1)
+        w = max(inner.width + 0.55, width or 0)
+        hgt = inner.height + 0.42
+        if shape == "decision":
+            dw, dh = max(inner.width * 1.5 + 0.7, 2.0), max(inner.height * 1.7 + 0.6, 1.25)
+            frame = Polygon([0, dh / 2, 0], [dw / 2, 0, 0], [0, -dh / 2, 0], [-dw / 2, 0, 0], **line)
+        elif shape in ("start", "end"):
+            frame = RoundedRectangle(corner_radius=hgt / 2, width=w + 0.25, height=hgt, **line)
+        elif shape == "io":
+            slant = 0.28
+            frame = Polygon([-w / 2 + slant, hgt / 2, 0], [w / 2 + slant, hgt / 2, 0], [w / 2 - slant, -hgt / 2, 0],
+                            [-w / 2 - slant, -hgt / 2, 0], **line)
+        elif shape == "store":
+            hgt += 0.25
+            k = np.linspace(0, np.pi, 17)
+            rx, ry = w / 2, 0.16
+            front = [[-rx * np.cos(t), -hgt / 2 + 0.1 - ry * np.sin(t), 0] for t in k]   # bottom, the near half
+            outline = [[-rx, hgt / 2 - 0.1, 0], *front, [rx, hgt / 2 - 0.1, 0]]
+            outline += [[rx * np.cos(t), hgt / 2 - 0.1 + ry * np.sin(t), 0] for t in k]   # top, the far half
+            body = Polygon(*outline, **line)
+            lid = Ellipse(width=2 * rx, height=2 * ry, **{**line, "fill_color": _tint_on_bg(tone, 0.6)})
+            lid.move_to([0, hgt / 2 - 0.1, 0])
+            frame = VGroup(body, lid)
+            inner.shift(DOWN * 0.08)
+        elif shape == "note":
+            fold = 0.25
+            frame = Polygon([-w / 2, hgt / 2, 0], [w / 2 - fold, hgt / 2, 0], [w / 2, hgt / 2 - fold, 0],
+                            [w / 2, -hgt / 2, 0], [-w / 2, -hgt / 2, 0], **{**line, "stroke_width": OUTLINE * 0.5})
+            ear = Polygon([w / 2 - fold, hgt / 2, 0], [w / 2 - fold, hgt / 2 - fold, 0], [w / 2, hgt / 2 - fold, 0],
+                          **{**line, "fill_color": tone, "fill_opacity": 0.5, "stroke_width": OUTLINE * 0.4})
+            frame = VGroup(frame, ear)
+        else:
+            frame = RoundedRectangle(corner_radius=0.16, width=w, height=hgt, **line)
+        node = VGroup(frame, inner.move_to(frame.get_center()))
+        node.flow_shape = shape
+        return node
+
+    @staticmethod
+    def _branching(ids, edges) -> bool:
+        """A flow that is more than a chain: a step with two ways out or in, or an arrow back to an earlier one."""
+        outs, ins = {}, {}
+        for e in edges:
+            a, b = str(e[0]), str(e[1])
+            outs[a] = outs.get(a, 0) + 1
+            ins[b] = ins.get(b, 0) + 1
+            if a in ids and b in ids and ids.index(b) < ids.index(a):
+                return True
+        return any(v > 1 for v in outs.values()) or any(v > 1 for v in ins.values())
+
+    def _flowchart(self, key, nodes, edges, title, show, animate, flow):
+        """A flowchart (flowchart.py lays it out): steps in ranks that follow the flow, decisions with their
+        labelled branches, loops drawn round the outside, lanes for who does what, curved connectors that leave
+        and enter each box at their own places, and dots running the way the process goes."""
+        import flowchart as fc
+
+        ids = [str(n["id"]) for n in nodes]
+        many = len(ids) > 9
+        size = 16 if many else 19
+        shapes = {}
+        for k, n in enumerate(nodes):
+            shape = str(n.get("shape") or "").lower()
+            if shape not in self.FLOW_SHAPES:
+                outs = sum(1 for e in edges if str(e[0]) == ids[k])
+                asks = str(n.get("label", "")).strip().endswith("?")
+                shape = ("decision" if asks and outs > 1
+                         else "start" if k == 0 and not any(str(e[1]) == ids[k] for e in edges) and len(ids) > 3
+                         else "end" if outs == 0 and len(ids) > 3 else "process")
+            shapes[ids[k]] = shape
+        tone_of = {i: getattr(P, self.FLOW_TONES[shapes[i]]) for i in ids}
+        for n in nodes:
+            if n.get("tone"):
+                try:
+                    tone_of[str(n["id"])] = role(str(n["tone"]))
+                except KeyError:
+                    pass
+        # Boxes of a kind share a width: a chart of equal boxes reads as one thing.
+        probe = {i: marker(wrap(str(n.get("label", i)), 14), size).width for i, n in zip(ids, nodes)}
+        common = min(max([probe[i] for i in ids if shapes[i] in ("process", "io")] or [1.2]) + 0.55, 3.6)
+        mobs = {}
+        for i, n in zip(ids, nodes):
+            mobs[i] = self._flow_node(n.get("label", i), shapes[i], tone_of[i], size,
+                                      width=common if shapes[i] in ("process", "io", "store", "note") else None,
+                                      entity=n.get("entity"), motion=(n.get("anim") or "auto") if animate else "none")
+        lanes = {str(n["id"]): str(n["lane"]) for n in nodes if n.get("lane")}
+        lay = fc.layout(ids, [(str(e[0]), str(e[1])) for e in edges],
+                        {i: (m.width, m.height) for i, m in mobs.items()}, lanes=lanes or None,
+                        board=(self.STAGE[2], self.STAGE[3] - (0.8 if title else 0.2)), gap_rank=0.95, gap_step=0.45)
+        for i, (x, y) in lay.centres.items():
+            mobs[i].move_to([x, y, 0])
+        right = lay.direction == "right"
+        ahead = np.array([1.0, 0, 0]) if right else np.array([0, -1.0, 0])
+        across = np.array([0, -1.0, 0]) if right else np.array([1.0, 0, 0])
+
+        def side(m, direction, offset=0.0):
+            """The point on m's edge facing `direction`, `offset` along that edge."""
+            c = m.get_center()
+            if abs(direction[0]) > 0.5:
+                return c + direction * m[0].width / 2 + np.array([0, offset, 0])
+            return c + direction * m[0].height / 2 + np.array([offset, 0, 0])
+
+        # Ports: arrows that leave or enter one side of a box are spread along it, in the order of the boxes
+        # they go to or come from, so they never start on top of each other.
+        style = {}
+        labels = {}
+        for e in edges:
+            a, b = str(e[0]), str(e[1])
+            if len(e) > 2 and e[2]:
+                labels[(a, b)] = str(e[2])
+            if len(e) > 3 and e[3]:
+                style[(a, b)] = str(e[3])
+        forward = [(a, b, way) for a, b, way, back in lay.routes if not back]
+        backs = [(a, b) for a, b, way, back in lay.routes if back]
+        across_of = (lambda pt: -pt[1]) if right else (lambda pt: pt[0])
+        leaving, entering = {}, {}
+        for a, b, way in forward:
+            first = way[0] if way else lay.centres[b]
+            last = way[-1] if way else lay.centres[a]
+            leaving.setdefault(a, []).append((across_of(first), b))
+            entering.setdefault(b, []).append((across_of(last), a))
+
+        def spread(m, items, key):
+            items.sort()
+            n = len(items)
+            length = (m[0].height if right else m[0].width) * (0.6 if getattr(m, "flow_shape", "") != "decision" else 0.0)
+            out = {}
+            for k, (_, other) in enumerate(items):
+                t = (k + 0.5) / n - 0.5 if n > 1 else 0.0
+                out[(other, key)] = t * length * (-1 if right else 1)
+            return out
+
+        port_out, port_in = {}, {}
+        for a, items in leaving.items():
+            port_out.update({(a, b): v for (b, _), v in spread(mobs[a], items, "o").items()})
+        for b, items in entering.items():
+            port_in.update({(a, b): v for (a, _), v in spread(mobs[b], items, "i").items()})
+
+        def bezier_path(points, tangents):
+            path = VMobject()
+            path.set_points([points[0]])
+            pts = []
+            for (p, tp), (q, tq) in zip(zip(points, tangents), zip(points[1:], tangents[1:])):
+                d = max(np.linalg.norm(q - p), 0.2) * 0.45
+                pts += [p, p + tp * d, q - tq * d, q]
+            path.points = np.array(pts, dtype=float)
+            return path
+
+        def tip_at(end, direction, colour):
+            u = direction / (np.linalg.norm(direction) or 1)
+            n = np.array([-u[1], u[0], 0])
+            L, W = 0.24, 0.13
+            return Polygon(end, end - u * L + n * W, end - u * L - n * W, stroke_width=0, fill_color=colour,
+                           fill_opacity=1)
+
+        arrows = []
+        for a, b, way in forward:
+            ma, mb = mobs[a], mobs[b]
+            start_dir = ahead
+            if getattr(ma, "flow_shape", "") == "decision" and len(leaving.get(a, [])) > 1:
+                # A decision's branches leave from its corners: straight on, and up or down (left or right).
+                rank = sorted(leaving[a])
+                idx = [o for _, o in rank].index(b)
+                mid = (len(rank) - 1) / 2
+                if idx < mid:
+                    start_dir = -across
+                elif idx > mid:
+                    start_dir = across
+                if len(rank) == 2:
+                    start_dir = ahead if idx == 0 else across
+                start = side(ma, start_dir)
+            else:
+                start = side(ma, ahead, port_out.get((a, b), 0.0))
+            end = side(mb, -ahead, port_in.get((a, b), 0.0))
+            pts = [start] + [np.array([x, y, 0.0]) for x, y in way] + [end]
+            tangents = [start_dir] + [ahead] * len(way) + [ahead]
+            arrows.append((a, b, pts, tangents, False))
+        lo = min(m.get_bottom()[1] for m in mobs.values()) if right else min(m.get_left()[0] for m in mobs.values())
+        hi = max(m.get_top()[1] for m in mobs.values()) if right else max(m.get_right()[0] for m in mobs.values())
+        for k, (a, b) in enumerate(backs):
+            ma, mb = mobs[a], mobs[b]
+            # A loop goes round the outside, on the side of the chart its two steps are nearer.
+            middle = (lo + hi) / 2
+            if right:
+                low_side = (ma.get_center()[1] + mb.get_center()[1]) / 2 < middle
+                out = np.array([0, -1.0, 0]) if low_side else np.array([0, 1.0, 0])
+            else:
+                low_side = (ma.get_center()[0] + mb.get_center()[0]) / 2 < middle
+                out = np.array([-1.0, 0, 0]) if low_side else np.array([1.0, 0, 0])
+            reach = 0.55 + 0.3 * k
+            start = side(ma, out, 0.0)
+            end = side(mb, out, 0.0)
+            edge_line = (lo - reach) if low_side else (hi + reach)
+            if right:
+                far = np.array([0, edge_line, 0])
+                p1, p2 = np.array([start[0], far[1], 0]), np.array([end[0], far[1], 0])
+            else:
+                far = np.array([edge_line, 0, 0])
+                p1, p2 = np.array([far[0], start[1], 0]), np.array([far[0], end[1], 0])
+            pts = [start, p1, p2, end]
+            tangents = [out, (p2 - p1) / (np.linalg.norm(p2 - p1) or 1), (p2 - p1) / (np.linalg.norm(p2 - p1) or 1), -out]
+            arrows.append((a, b, pts, tangents, True))
+
+        built = []
+        for a, b, pts, tangents, back in arrows:
+            kind = style.get((a, b), "")
+            colour = P.SAND if back else (P.HI if kind == "bold" else P.CREAM)
+            width = OUTLINE * (1.1 if kind == "bold" else 0.75)
+            path = bezier_path(pts, tangents)
+            path.set_stroke(colour, width=width).set_fill(opacity=0)
+            seen = DashedVMobject(path, num_dashes=max(6, int(path.get_arc_length() / 0.18)), dashed_ratio=0.6) \
+                if kind == "dashed" or back else path
+            tip = tip_at(pts[-1], pts[-1] - path.points[-2], colour)
+            parts = [seen, tip]
+            label = None
+            if (a, b) in labels:
+                label = marker(labels[(a, b)], 14, P.GOLD if getattr(mobs[a], "flow_shape", "") == "decision" else None)
+                spot = path.point_from_proportion(0.3 if getattr(mobs[a], "flow_shape", "") == "decision" else 0.5)
+                label.move_to(spot + (np.array([0, 0.2, 0]) if abs((pts[-1] - pts[0])[0]) > abs((pts[-1] - pts[0])[1])
+                                      else np.array([label.width / 2 + 0.12, 0, 0])))
+                label.is_label = True
+                parts.append(label)
+            edge = VGroup(*parts)
+            edge.path = path
+            if flow and path.get_arc_length() > 0.7 and not back:
+                edge.flow = self._flow_dots(path)
+                edge.add(edge.flow)
+            built.append((a, b, edge))
+
+        backdrop = None
+        if lay.lanes:
+            all_nodes = VGroup(*mobs.values())
+            bands = VGroup()
+            for k, (name, b_lo, b_hi) in enumerate(lay.lanes):
+                if right:
+                    width = all_nodes.width + 1.6
+                    band = RoundedRectangle(corner_radius=0.12, width=width, height=b_hi - b_lo,
+                                            fill_color=P.MUTED, fill_opacity=0.06 if k % 2 else 0.12,
+                                            stroke_color=P.MUTED, stroke_width=1.2, stroke_opacity=0.5)
+                    band.move_to([all_nodes.get_center()[0] - 0.35, (b_lo + b_hi) / 2, 0])
+                    tag = T(name.upper(), 14, P.MUTED, weight=BOLD).rotate(PI / 2)
+                    tag.move_to([band.get_left()[0] + 0.25, band.get_center()[1], 0])
+                else:
+                    height = all_nodes.height + 1.2
+                    band = RoundedRectangle(corner_radius=0.12, width=b_hi - b_lo, height=height,
+                                            fill_color=P.MUTED, fill_opacity=0.06 if k % 2 else 0.12,
+                                            stroke_color=P.MUTED, stroke_width=1.2, stroke_opacity=0.5)
+                    band.move_to([(b_lo + b_hi) / 2, all_nodes.get_center()[1] + 0.25, 0])
+                    tag = T(name.upper(), 14, P.MUTED, weight=BOLD)
+                    tag.move_to([band.get_center()[0], band.get_top()[1] - 0.22, 0])
+                bands.add(VGroup(band, tag))
+            # A backdrop, not a thing: the art style colours it but gives it no sheen, hatching or glow.
+            for part in bands.get_family():
+                part._art_decorated = True
+            backdrop = bands
+        return self._diagram_finish(key, ids, mobs, built, edges, title, show, backdrop=backdrop)
+
+    def _diagram_finish(self, key, ids, mobs, arrows, edges, title, show, backdrop=None, settle: bool = True):
+        """A diagram's last steps, for every kind: its arrows' words settled clear of the rest, its title, the
+        whole fitted to the stage, and what shows now and what waits for a reveal."""
+        cx, cy, w, h = self.STAGE
+        whole = VGroup(*([backdrop] if backdrop is not None else []), *mobs.values(), *[m for _, _, m in arrows])
+        if settle and any(len(e) > 2 and e[2] for e in edges):
             import stem
 
             # An arrow's words beside it, clear of the other arrows and the nodes they join (before the fit).
@@ -2382,9 +2680,10 @@ class Lecture(Scene):
         first = [mobs[i] for i in ids if i in shown] + [m for a, b, m in arrows if a in shown and b in shown]
         self._next_pending.extend([mobs[i] for i in ids if i not in shown]
                                   + [m for a, b, m in arrows if not (a in shown and b in shown)])
-        body = VGroup(*([head] if head else []), *first)
+        lead = ([head] if head else []) + ([backdrop] if backdrop is not None else [])
+        body = VGroup(*lead, *first)
         # Written in node by node, each arrow after the nodes it joins, as a teacher draws it on a board.
-        order = ([head] if head else []) + [mobs[i] for i in ids if i in shown]
+        order = lead + [mobs[i] for i in ids if i in shown]
         for a, b, m in arrows:
             if a in shown and b in shown:
                 order.insert(max(order.index(mobs[a]), order.index(mobs[b])) + 1, m)
@@ -3437,5 +3736,12 @@ def _box(bounds):
 
     return box(*bounds)
 
+
+# The pictures these build write their words in the art style's font (artstyle.drawing); titles keep the template's.
+import artstyle as _artstyle  # noqa: E402
+
+_artstyle.drawn_by(Lecture, ("diagram", "svg_figure", "plot", "process", "molecule", "big_timeline", "network",
+                             "timeline", "compare", "_svg_drawing"))
+_artstyle.drawn_by(MapLecture, ("journey", "marker", "mark", "route", "unit", "icon", "flow", "graticule", "clock"))
 
 __all__ = [name for name in globals() if not name.startswith("_") or name == "_box"]

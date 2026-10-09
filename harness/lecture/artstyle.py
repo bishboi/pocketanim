@@ -163,13 +163,45 @@ def _shapes(mob):
     return out
 
 
+_STOCK: dict = {}
+
+
+def _stock_getters(cls) -> bool:
+    """Whether a class reads its style with VMobject's own getters (so its raw arrays say the same, faster)."""
+    hit = _STOCK.get(cls)
+    if hit is None:
+        from manim import VMobject
+
+        names = ("get_fill_color", "get_fill_opacity", "get_stroke_color", "get_stroke_opacity", "get_stroke_width",
+                 "get_fill_colors", "get_stroke_colors")
+        hit = issubclass(cls, VMobject) and all(getattr(cls, n, None) is getattr(VMobject, n) for n in names)
+        _STOCK[cls] = hit
+    return hit
+
+
+def _hex8(rgb) -> str:
+    """As ManimColor.to_hex writes it (truncating, as it does), so a shape reads the same either way."""
+    return "#%02X%02X%02X" % tuple(int(float(c) * 255) for c in rgb[:3])
+
+
 def _style_of(m):
+    """(fill, fill opacity, stroke, stroke opacity, width) as the shape is now. Read from the raw arrays the getters
+    read (a live sim is painted every frame, and building colour objects for it cost seconds a build); a class with
+    getters of its own is read through them."""
+    fill = getattr(m, "fill_rgbas", None)
+    stroke = getattr(m, "stroke_rgbas", None)
+    if (isinstance(fill, np.ndarray) and isinstance(stroke, np.ndarray) and fill.ndim == 2 and stroke.ndim == 2
+            and len(fill) and len(stroke) and _stock_getters(type(m))):
+        width = getattr(m, "stroke_width", 0)
+        width = float(width.flat[0] if isinstance(width, np.ndarray) else width or 0)
+        return (_hex8(fill[0]), round(float(fill[0][3]), 4), _hex8(stroke[0]), round(float(stroke[0][3]), 4),
+                round(max(0.0, width), 3))
     try:
-        fill = m.get_fill_color().to_hex()
-        stroke = m.get_stroke_color().to_hex()
+        fill_hex = m.get_fill_color().to_hex()
+        stroke_hex = m.get_stroke_color().to_hex()
     except Exception:  # noqa: BLE001 -- an odd mobject keeps its look
         return None
-    return (fill.upper(), round(float(m.get_fill_opacity()), 4), stroke.upper(),
+    return (fill_hex.upper(), round(float(m.get_fill_opacity()), 4), stroke_hex.upper(),
             round(float(m.get_stroke_opacity()), 4), round(float(m.get_stroke_width()), 3))
 
 

@@ -137,7 +137,58 @@ def _call(mob, name, fallback):
     return fallback
 
 
+_STOCK: dict = {}
+
+
+def _stock_getters(cls) -> bool:
+    """Whether a class reads its style with VMobject's own getters, so its raw arrays say the same thing faster.
+    A class that overrides one (a shading helper, a 3D mobject) is read through its getters, as before."""
+    hit = _STOCK.get(cls)
+    if hit is None:
+        try:
+            from manim import VMobject
+
+            names = ("get_fill_color", "get_fill_opacity", "get_stroke_color", "get_stroke_opacity",
+                     "get_stroke_width", "get_fill_colors", "get_stroke_colors")
+            hit = issubclass(cls, VMobject) and all(getattr(cls, n, None) is getattr(VMobject, n) for n in names)
+        except Exception:  # noqa: BLE001
+            hit = False
+        _STOCK[cls] = hit
+    return hit
+
+
+def _fast_style(mob):
+    """read_style from the raw rgba arrays: the same numbers, without building Manim colour objects (a build
+    spent a third of its time on them). None when the arrays are not the plain ones the getters read."""
+    fill = getattr(mob, "fill_rgbas", None)
+    stroke = getattr(mob, "stroke_rgbas", None)
+    if not (isinstance(fill, np.ndarray) and isinstance(stroke, np.ndarray) and fill.ndim == 2 and stroke.ndim == 2
+            and fill.shape[0] and stroke.shape[0] and fill.shape[1] == 4 and stroke.shape[1] == 4):
+        return None
+    width = getattr(mob, "stroke_width", 0)
+    try:
+        width = max(0.0, float(width if not isinstance(width, np.ndarray) else width.flat[0]))
+    except (TypeError, ValueError, IndexError):
+        return None
+    f, k = fill[0], stroke[0]
+    return (
+        (int(min(max(f[0], 0.0), 1.0) * 255), int(min(max(f[1], 0.0), 1.0) * 255),
+         int(min(max(f[2], 0.0), 1.0) * 255), int(min(max(float(f[3]), 0.0), 1.0) * 255)),
+        (int(min(max(k[0], 0.0), 1.0) * 255), int(min(max(k[1], 0.0), 1.0) * 255),
+         int(min(max(k[2], 0.0), 1.0) * 255), int(min(max(float(k[3]), 0.0), 1.0) * 255)),
+        width,
+    )
+
+
 def read_style(mob):
+    if _stock_getters(type(mob)):
+        fast = _fast_style(mob)
+        if fast is not None:
+            return fast
+    return _slow_style(mob)
+
+
+def _slow_style(mob):
     return (
         rgba(
             _call(mob, "get_fill_color", getattr(mob, "fill_color", None)),

@@ -987,12 +987,23 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
 
         import numpy as np
 
+        from exporter.export_scene import _stock_getters
+
         h = 0
         for sub in mob.get_family():
             points = getattr(sub, "points", None)
             if points is None or len(points) == 0:
                 continue
             h = zlib.crc32(np.ascontiguousarray(points, dtype=np.float64).tobytes(), h)
+            # The style as the raw arrays the getters read (a third of a build went on building colour objects
+            # here); a class with getters of its own is read through them.
+            fill = getattr(sub, "fill_rgbas", None)
+            stroke = getattr(sub, "stroke_rgbas", None)
+            if isinstance(fill, np.ndarray) and isinstance(stroke, np.ndarray) and _stock_getters(type(sub)):
+                h = zlib.crc32(np.ascontiguousarray(fill, dtype=np.float64).tobytes(), h)
+                h = zlib.crc32(np.ascontiguousarray(stroke, dtype=np.float64).tobytes(), h)
+                h = zlib.crc32(repr(getattr(sub, "stroke_width", 0)).encode(), h)
+                continue
             try:
                 style = (sub.get_fill_color(), sub.get_fill_opacity(), sub.get_stroke_color(),
                          sub.get_stroke_opacity(), sub.get_stroke_width())
@@ -1014,11 +1025,28 @@ def record_scene(scene_file: str, scene_class: str) -> Recorder:
         frames: list[list] = []
         timing = {}
 
+        # What this play animates; a still layer the engine marked (_panim_static: the map, the panel, the
+        # backdrop: only animations change them, no updater does) and that is not among it cannot change, so its
+        # thousands of points are not hashed every frame.
+        animated: set = set()
+        todo = list(animations)
+        while todo:
+            anim = todo.pop()
+            todo.extend(getattr(anim, "animations", None) or [])
+            for attr in ("mobject", "starting_mobject", "target_mobject"):
+                target = getattr(anim, attr, None)
+                if target is not None:
+                    animated.update(id(m) for m in target.get_family())
+        frozen = {key for key, (mob, _, _) in pre.items()
+                  if getattr(mob, "_panim_static", False) and not any(id(m) in animated for m in mob.get_family())}
+
         def capture():
             row = []
             for mob in stage_entries(scene):
                 known = pre.get(id(mob))
-                if known is not None and known[1] == signature(mob):
+                if known is not None and id(mob) in frozen:
+                    row.append((mob, None))
+                elif known is not None and known[1] == signature(mob):
                     row.append((mob, None))
                 else:
                     row.append((mob, snapshot_family(mob)))

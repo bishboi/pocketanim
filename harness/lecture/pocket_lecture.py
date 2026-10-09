@@ -1402,6 +1402,7 @@ class Lecture(Scene):
         back = backdrop()
         if len(back):
             back.is_backdrop = True     # layout checks skip it: everything sits on it by design
+            back._panim_static = True   # nothing but an animation changes it: a bake need not look at it
             self.add(back)
         self.section(self.SECTION)
 
@@ -1572,6 +1573,7 @@ class Lecture(Scene):
             parts = [DashedVMobject(r.copy().set_fill(opacity=0).set_stroke(P.MUTED, 1.5), num_dashes=90)]
         group = VGroup(*parts)
         group.set_z_index(Z_PANEL)
+        group._panim_static = True
         return group
 
     def reveal(self, group, text_part=None):
@@ -3409,6 +3411,10 @@ class MapLecture(BoardMixin, Lecture):
         import artstyle
 
         artstyle.dress_map(nb, inner, outline)
+        # The base map changes only by an animation (a fade, a dim), never by an updater: a bake that is not
+        # animating it need not hash its thousands of points every frame (export_dsl.bake).
+        for layer in (nb, inner, outline):
+            layer._panim_static = True
         inner.set_z_index(Z_LINES)
         outline.set_z_index(Z_OUTLINE)
         self.layers = SimpleNamespace(neighbours=nb, lines=inner, outline=outline)

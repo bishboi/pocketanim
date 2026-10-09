@@ -1001,7 +1001,10 @@ async function viaOpenRouter(
         }
         // Headings, bullet marks and [stage directions] are taken out, not refused.
         text = cleanSection(text);
-        const problem = text ? sectionProblem(text, section, language) : `Section ${section.n} came back empty.`;
+        // Checked against the sections written so far too: one that teaches again what an earlier one taught is
+        // refused like one that repeats itself.
+        const earlier = [...done.values()].filter((w) => w.n < section.n).map((w) => w.text);
+        const problem = text ? sectionProblem(text, section, language, earlier) : `Section ${section.n} came back empty.`;
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
         if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text };

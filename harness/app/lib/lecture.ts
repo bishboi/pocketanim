@@ -45,7 +45,9 @@ export const DEFAULT_LECTURE_MINUTES = 10;
 /** Words of source content a minute of detailed teaching covers: a chapter is taught, not read out. */
 const SOURCE_WORDS_PER_MINUTE = 120;
 /** Words of a book taught in a minute of lecture (explained, with examples and questions). */
-const BOOK_WORDS_PER_MINUTE = 60;
+// A book taught at about its own length: explained once, with an example and a question where they help, a page of
+// text is a page of teaching (60 made every lecture twice the book, most of it saying things again).
+const BOOK_WORDS_PER_MINUTE = 100;
 
 /**
  * The length a request asks for: "a 12 minute lecture", "15-min", "१० मिनट". Without one, a long source (a
@@ -91,7 +93,8 @@ export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
     ? Math.min(15, Math.max(2, Math.round(sourceWords / 350)))
     : Math.min(12, Math.max(2, Math.round(minutes / 3)));
   const perTopic = minutes / topics;
-  const examples = perTopic < 1.5 ? 1 : perTopic < 3 ? 2 : perTopic < 5 ? 3 : 4;
+  // One example makes an idea clear; a second only where there is time for a hard one. More was repetition.
+  const examples = perTopic < 4 ? 1 : 2;
   const questionsPerTopic = perTopic < 2 ? 0.5 : perTopic < 4 ? 1 : perTopic < 7 ? 2 : 3;
   return {
     minutes,
@@ -677,9 +680,9 @@ export function lecturePrompt(
     "     a define card on the stage;",
     `  3. give ${examples.toUpperCase()} from a student's daily life for it, each in a beat of its own (\"For example, when you`,
     "     push a cycle...\", \"Imagine...\", \"जैसे...\"), and a comparison when it helps (a forest is like a big shared house);",
-    "  4. say WHY it is so, or what would happen if it were not;",
-    "  5. say the key idea again in other words (\"So, in short: ...\"). Repeating the most important sentence once",
-    "     is good teaching, not padding.",
+    "  4. say WHY it is so, or what would happen if it were not.",
+    "Say each idea ONCE: never restate it in other words or teach again what an earlier chapter taught (point back to",
+    "it in a few words). Repeating is padding.",
     "Talk naturally, as a person does: \"Now, here is something interesting.\", \"Let us think about this.\", \"Have",
     "you ever noticed...?\". Never copy a sentence of the source; the compiler rejects a script that reads the book",
     "word for word. Skip what is not content: QR codes, page furniture, exercise instructions.",
@@ -1045,8 +1048,9 @@ export function lecturePrompt(
     "     picture: what is there, shown above the label (PICTURES BESIDE WORDS); labels never cover one another",
     '  {"op":"river","name":"Ganges","color"?}   a Natural Earth river by its English name',
     '  {"op":"state","name":"Kerala","color"?,"opacity"?}   fill one state or province',
-    '  {"op":"arrow","points":[[lon,lat],...],"color"?}     a curved arrow: winds, migrations, routes',
-    '  {"op":"path","points":[[lon,lat],...],"color"?}      a hand-drawn line: a ridge, a canal',
+    '  {"op":"arrow","points":["Delhi","Agra",...],"color"?}  a curved arrow: winds, migrations, routes',
+    '  {"op":"path","points":["Haridwar","Prayagraj"],"color"?}  a hand-drawn line: a ridge, a canal',
+    "     points are place names (looked up) or [lon, lat] for a spot with no name (the open sea, a desert).",
     '  {"op":"journey","stops":["Ahmedabad","Surat",[72.8,20.89]],"labels"?:["Sabarmati","Surat","Dandi"],"color"?,',
     '   "pictures"?:[null,null,{"draw":"Gandhi picking up salt"}]}   (a stop\'s picture: draw, entity or figure)',
     "     a journey drawn as it happens over the line: a traveller moves stop to stop, the route behind it, each stop",
@@ -1058,9 +1062,10 @@ export function lecturePrompt(
     "Where something is grown, mined, made or lives: a marker at each place with a label (\"Sugarcane\"), then an",
     "illustration or photo of the thing itself on the stage.",
     "",
-    "A panel holds a title and about five facts; start a new panel before it fills. Use real place names; the",
-    "compiler looks them up. A marker's place is a town or city in English (\"Prayagraj\", not \"प्रयागराज\");",
-    "put the name in the script's own language in label. For a district, park or village the gazetteer may not",
-    "know, give lonlat instead. Keep lon/lat for arrows and paths to places you are sure of.",
+    "A panel holds a title and about five facts; start a new panel before it fills. ALWAYS NAME PLACES; never guess",
+    "coordinates: the compiler looks names up in real gazetteers (towns, historic sites such as Lothal, Plassey,",
+    "Dandi), and a guessed [lon, lat] is usually tens of kilometres off. A marker's place is its name in English",
+    "(\"Prayagraj\", not \"प्रयागराज\"); put the name in the script's own language in label. A site the gazetteer",
+    "does not know goes by the modern town it is in. Give lonlat only for a spot with no name (a point at sea).",
   ].join("\n");
 }

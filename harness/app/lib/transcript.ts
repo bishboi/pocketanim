@@ -265,10 +265,10 @@ export function transcriptPrompt(options: {
             "  - Cover every idea of the section's text, in its order: every definition, law, fact, figure, table,",
             "    solved example, in-text question and box (an aside, said as one). Leave nothing out, and add nothing",
             "    off the syllabus. Each request lists the part's thread and its asides: all of them are checked.",
-            "  - Explain each idea slowly in easy words: what it means, each term in it, why it is so, and the idea",
-            "    again in other words. Never read the book's sentences out word for word: say them your own way.",
-            "  - EXAMPLES the book does not give: for each important statement, two or three everyday examples",
-            "    (\"मान लो...\", \"जैसे...\": a bus braking, a ball on a table, the ceiling fan, cricket, the kitchen).",
+            "  - Explain each idea ONCE, clearly, in easy words: what it means, each new term in it, and why it is so.",
+            "    Never read the book's sentences out word for word: say them your own way.",
+            "  - EXAMPLES the book does not give: ONE everyday example for each important idea (a second only for a",
+            "    hard one) (\"मान लो...\", \"जैसे...\": a bus braking, a ball on a table, the ceiling fan, cricket).",
             "  - QUESTIONS for the class, several in every section: ask, give time (\"सोचो...\"), then the answer and",
             "    why, and why a common wrong answer is wrong.",
             "  - THE BOOK'S OWN QUESTIONS (listed under each section: its in-text questions, exercises, MCQs): explain",
@@ -284,7 +284,7 @@ export function transcriptPrompt(options: {
             "    book's solved examples, and make up one or two more with easy numbers where the book has none.",
             "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
             "    देखो...\"): the video draws it there, built in Manim from the figure. Build every diagram out loud, piece by piece.",
-            "  - Tie each new idea to the one before, and end each section with a short recap.",
+            "  - Tie each new idea to the one before. No recap at the end of a section, except where a lecture ends.",
           ].join("\n")
         : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +
           "in detail with everyday examples, questions for the class and worked problems.",
@@ -313,9 +313,10 @@ export function transcriptPrompt(options: {
     "would be spoken in front of students, in easy everyday language:",
     "  - Talk to the students all the time: \"बच्चों\", \"देखो\", \"ध्यान से सुनो\", \"मेरी बात समझो\", \"अब यहां देखो\".",
     "  - Check in after every idea: \"ठीक है?\", \"समझ में आया?\", \"क्लियर है?\", \"अच्छा ठीक है, आगे बढ़ते हैं\".",
-    "  - REPEAT. Say every important rule two or three times, in slightly different words, and once more when it is",
-    "    used: \"Tension हमेशा point से दूर जाती है। Away from the point. फिर से बोलता हूं, tension हमेशा away from",
-    "    the point बनाओ।\" Repeating is how a class remembers; it is never padding here.",
+    "  - SAY EACH THING ONCE. Never restate an idea in other words, never say the same sentence twice, never explain",
+    "    again what an earlier section taught: point back to it in a few words (\"जैसे हमने inertia में देखा...\",",
+    "    \"as we saw with inertia\"). Each section teaches only its own part of the source. Repeating is padding, and",
+    "    the checks refuse a section that repeats itself or an earlier one.",
     "  - Go in small steps, one small idea per sentence. Short sentences. Never two new things in one sentence.",
     "  - Give memory tricks and everyday pictures: \"जहां tension बनानी है, वहां बैठ जाओ और हाथ खोल दो; जिधर हाथ",
     "    खुलेगा, उधर tension\"; \"मान लो यहां एक 5 kg का block रखा है...\"; a bus braking, a ball on a table.",
@@ -327,7 +328,7 @@ export function transcriptPrompt(options: {
     "    आया? अब एक और question देखते हैं\".",
     "  - Say every formula and symbol in words (\"F equals m a\", \"m g sin theta\"), since it is heard, not read.",
     ...SOLVING_STEPS.map((line) => `  ${line}`),
-    "  - Close each section with a short recap (\"तो आज हमने क्या देखा...\"), and open the next by linking back.",
+    "  - Open each section by linking back in one sentence. No recap except where a lecture ends.",
     "",
     "EXAMPLE of the voice (the style only; not the content to use):",
     "  \"अच्छा बच्चों, अब बात करते हैं normal reaction की। Normal का मतलब होता है perpendicular, यानी surface के",
@@ -374,13 +375,51 @@ function readsQuestion(line: string, questions: BookQuestion[]): boolean {
   });
 }
 
-export function sectionProblem(text: string, section: Section, language: Language): string | null {
+/** The least share of its word target a section may come in at: shorter is fine when it says everything once. */
+const MIN_SHARE = 0.75;
+
+/** Word 4-grams of a sentence, for spotting one that says again what was said. */
+function grams(sentence: string): Set<string> {
+  const w = sentence.toLowerCase().normalize("NFKC").split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
+  const out = new Set<string>();
+  for (let i = 0; i + 4 <= w.length; i++) out.add(w.slice(i, i + 4).join(" "));
+  return out;
+}
+
+/**
+ * The sentences of `text` that say again what was already said, in it or in `before` (sections written earlier):
+ * most of their word 4-grams were heard already. Reading out the book's questions and options is not repeating.
+ */
+export function repeatedSentences(text: string, before: string[] = [], questions: BookQuestion[] = []): string[] {
+  const heard = new Set<string>();
+  for (const earlier of before) for (const line of linesOf(earlier)) for (const g of grams(line)) heard.add(g);
+  const out: string[] = [];
+  for (const line of linesOf(text)) {
+    const g = grams(line);
+    if (g.size >= 4 && !readsQuestion(line, questions)) {
+      let hit = 0;
+      for (const x of g) if (heard.has(x)) hit++;
+      if (hit / g.size >= 0.6) out.push(line);
+    }
+    for (const x of g) heard.add(x);
+  }
+  return out;
+}
+
+export function sectionProblem(text: string, section: Section, language: Language, before: string[] = []): string | null {
   const words = text.split(/\s+/).filter(Boolean).length;
   const questions = section.questions ?? [];
-  if (words < section.words * 0.9) {
-    return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * 0.9)}). ` +
-      "Write it again at full length: explain each statement more (the meaning of each term, an example or two, " +
-      "why it is so, the idea again in other words), ask the class a question, and work every step of each problem.";
+  if (words < section.words * MIN_SHARE) {
+    return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * MIN_SHARE)}). ` +
+      "Teach more of this part's own content: a step left out, a worked problem, an example, a question for the " +
+      "class. Never restate what is already said.";
+  }
+  const repeated = repeatedSentences(text, before, questions);
+  const sentences = linesOf(text).length;
+  if (repeated.length > Math.max(2, sentences * 0.06)) {
+    return `Section ${section.n} repeats itself: ${repeated.length} sentences say again what was already said ` +
+      `(e.g. "${repeated[0].slice(0, 100)}"). Write it again saying each point once; a later mention of an idea is ` +
+      "a few words pointing back, not the explanation again.";
   }
   if (!section.parts.length) {
     // Taught, not read out: a section of a book (or of typed notes) must ask the class and give examples.
@@ -565,16 +604,15 @@ function topicDuties(section: Section, topic?: Topic): string[] {
   if (first) {
     out.push("", `This section OPENS ${topicLabel(topic)}, a video of its own. Begin it as a lecture begins: say ` +
       `it is lecture ${topic.index} of ${topic.of}${topic.title ? ` and what it is about` : ""}; ` +
-      (topic.index > 1 ? "recall in two or three sentences what the lecture before taught that this one builds on; "
+      (topic.index > 1 ? "recall in one sentence what the lecture before taught that this one builds on; "
         : "") +
-      "say why this topic matters, with an everyday example; then the three to five things the student will be able " +
-      "to do by its end, one short sentence each (\"इस lecture के बाद आप ... कर पाएंगे\"). Then teach. This opening " +
-      "comes before the section's own teaching and does not replace any of it.");
+      "say in one or two sentences why this topic matters; then what the student will be able to do by its end, in " +
+      "one sentence. Then teach. This opening is short, and comes before the section's own teaching.");
   }
   if (last) {
-    out.push("", `This section CLOSES ${topicLabel(topic)}. After its teaching, end the lecture: the key points of ` +
-      "the whole lecture in four to six short sentences; then three quick questions for the student to check " +
-      "themselves, each followed by a moment to think and its answer with the reason; " +
+    out.push("", `This section CLOSES ${topicLabel(topic)}. After its teaching, end the lecture: its key points in ` +
+      "three or four short sentences (the only recap of the lecture); then two quick questions for the student to " +
+      "check themselves, each followed by a moment to think and its answer; " +
       (topic.index < topic.of ? "then one sentence on what the next lecture covers." : "then a closing line: this is " +
         "the last lecture of the series."));
   }

@@ -98,3 +98,31 @@ def test_the_prompt_asks_for_one_story_and_each_section_lists_its_thread(lib):
     assert "COVER EVERYTHING" in prompt
     assert "THE THREAD OF THIS PART" in request and "Newton's First Law of Motion" in request
     assert "ASIDES IN THIS PART" in request and "Do you know?" in request
+
+
+def test_a_section_that_repeats_itself_or_an_earlier_one_is_refused(lib):
+    section = {"n": 3, "parts": [], "minutes": 1, "words": 120, "source": "plain notes"}
+    once = ("A force is a push or a pull on a body. For example, you push a door to open it. Why does a ball "
+            "stop rolling on grass? The grass rubs against the ball and slows it down. That rubbing is friction, "
+            "and it always acts against the motion. Can you think of a place with very little friction? On ice a "
+            "puck slides a long way because almost nothing rubs it. A heavier body needs a bigger force to start "
+            "moving, which we call inertia. So the same kick moves a football far and a stone hardly at all.")
+    again = once + (" Remember, a force is a push or a pull on a body. The grass rubs against the ball and slows it "
+                    "down. That rubbing is friction, and it always acts against the motion. On ice a puck slides a long "
+                    "way because almost nothing rubs it.")
+    got = _node(lib, f"""const s = {json.dumps(section)};
+      console.log(JSON.stringify({{ once: t.sectionProblem({json.dumps(once)}, s, 'english'),
+        again: t.sectionProblem({json.dumps(again)}, s, 'english'),
+        earlier: t.sectionProblem({json.dumps(once)}, s, 'english', [{json.dumps(once)}]),
+        short: t.sectionProblem({json.dumps(once)}, {{ ...s, words: 110 }}, 'english') }}))""")
+    assert got["once"] is None and got["short"] is None, got        # said once, and 75% of the target is enough
+    assert "repeats itself" in got["again"]
+    assert "repeats itself" in got["earlier"]                      # teaching again what an earlier section taught
+
+
+def test_the_prompts_ask_for_each_thing_once(lib):
+    section = {"n": 1, "parts": [], "minutes": 1, "words": 60, "source": BOOK, "book": True}
+    prompt = _node(lib, f"""console.log(JSON.stringify(t.transcriptPrompt({{sections: [{json.dumps(section)}],
+      minutes: 5, language: 'english', languageRules: '', hasReference: false, content: ''}})))""")
+    assert "SAY EACH THING ONCE" in prompt and "ONE everyday example" in prompt
+    assert "REPEAT." not in prompt and "again in other words" not in prompt and "two or three everyday" not in prompt

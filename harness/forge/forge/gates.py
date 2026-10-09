@@ -145,6 +145,17 @@ def schema_errors(script: dict, chapter: dict, job) -> list[dict]:
                 problem = _kit_problem(op)
                 if problem:
                     errors.append(_err("schema", chapter["id"], bid, problem, True))
+            if name in ("photo", "illustration", "gallery", "draw", "manim", "problem"):
+                import sys as _sys
+
+                from forge.util import LECTURE
+                if str(LECTURE) not in _sys.path:
+                    _sys.path.insert(0, str(LECTURE))
+                from compile_lecture import map_drawn_by
+
+                drawn_map = map_drawn_by(op)
+                if drawn_map:
+                    errors.append(_err("schema", chapter["id"], bid, drawn_map, True))
             if name == "photo" and not (op.get("image") or op.get("query") or op.get("subject")):
                 errors.append(_err("schema", chapter["id"], bid, "photo needs image, subject or query", True))
             if name == "illustration" and not (op.get("query") or op.get("image") or op.get("icon")):

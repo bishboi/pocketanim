@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SVG_RULES, settle, type Message } from "./figures";
+import { MAP_ADVICE, isMap } from "./mapguard";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
 export const DRAW_VERSION = 4;
@@ -38,6 +39,8 @@ export const DRAW_PROMPT = [
   "label; every visible thing belongs to one of them. The lecture reveals and points at these ids, often one at a",
   "time, so each part must make sense drawn alone on top of the parts before it.",
   "MOTION: animate ONLY what MOVES says, and only that part. With no MOVES, nothing moves: no animation at all.",
+  "NEVER A MAP: no country, coastline, border, continent or route across the world. Maps are drawn elsewhere from",
+  "real geographic data; a drawn one is wrong. If the description asks for one, draw only the non-map parts.",
   "",
   SVG_RULES,
 ].join("\n");
@@ -94,6 +97,8 @@ function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[
 /** Draw one picture (or find it drawn): the SVG's path, or why it could not be drawn. */
 async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOptions):
   Promise<{ svg?: string; error?: string }> {
+  // Never a map: the compiler refuses one anyway (mapguard.py), so it is not paid for.
+  if (isMap(op.what)) return { error: MAP_ADVICE };
   const { svg: file, meta } = cachePaths(options.repo, op);
   if (existsSync(file) && existsSync(meta)) {
     let usd = 0;

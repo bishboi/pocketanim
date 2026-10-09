@@ -161,7 +161,7 @@ def search(query: str, limit: int = 6) -> list[dict]:
                        "gsrlimit": str(max(limit * 3, 10))})
     except Exception:  # noqa: BLE001 -- offline or blocked: the lecture falls back to icons
         return []
-    return rows[:limit]
+    return [r for r in rows if not is_map_row(r)][:limit]
 
 
 def lookup(title: str) -> dict | None:
@@ -184,6 +184,28 @@ NOT_EDUCATIONAL = re.compile(r"\b(logo|flag|coat of arms|emblem|seal|icon|signat
                              r"button|symbol|pictogram|clip ?art|cartoon|meme|screenshot)\b", re.I)
 TEACHING = re.compile(r"\b(diagram|illustration|labell?ed|cycle|structure|process|cross[- ]section|anatomy|"
                       r"schematic|infographic|model|chart|web|layers?|parts|stages?)\b", re.I)
+
+
+# Map files (a Commons "Map of the Mughal Empire", a Wikipedia locator map of a state): never shown as pictures. A
+# lecture's maps are drawn from Natural Earth through Cartopy, on the map (mapguard).
+LOCATOR = re.compile(r"\b(?:locator|location map|orthographic projection|disputed|hatched|relief map|topographic)\b",
+                     re.I)
+# "Rajasthan in India.svg": a locator map's name (a photo, "Taj Mahal in Agra.jpg", is not one).
+LOCATOR_SVG = re.compile(r"^(?:File:)?[A-Z][\w ]+ in [A-Z][\w ]+(?: \(.*\))?\.svg$")
+
+
+def is_map_row(row: dict | None) -> bool:
+    """Whether a picture found by a search is a map."""
+    import mapguard
+
+    if not row:
+        return False
+    text = " ".join(str(row.get(k) or "") for k in ("title", "description"))
+    text = re.sub(r"^File:|\.(?:svg|png|jpe?g|gif|tiff?|webp)$", "", text.replace("_", " "), flags=re.I)
+    title = re.sub(r"^File:|\.(?:svg|png|jpe?g|gif|tiff?|webp)$", "", str(row.get("title") or "").replace("_", " "),
+                   flags=re.I)
+    return (mapguard.is_map(text) or bool(LOCATOR.search(title))
+            or bool(LOCATOR_SVG.match(str(row.get("title") or "").replace("_", " "))))
 
 
 def openverse_api() -> str:
@@ -287,7 +309,7 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
     meta_path = CACHE / f"{key}.json"
     if meta_path.exists():
         row = json.loads(meta_path.read_text(encoding="utf-8"))
-        if row and Path(row.get("file", "")).exists() and row.get("id") not in (avoid or set()):
+        if row and Path(row.get("file", "")).exists() and row.get("id") not in (avoid or set()) and not is_map_row(row):
             return row
     if (subject or illustration) and not image and _missed(key):
         return None
@@ -297,9 +319,12 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
         # `avoid`: pictures the lecture already showed, so one diagram does not stand in for every topic.
         row = next((r for r in illustrations(illustration, genre=genre, style=style) if r["id"] not in (avoid or set())), None)
     elif subject:
-        row = portrait(subject) or (search(subject, 1) or [None])[0]
+        row = portrait(subject)
+        row = row if row and not is_map_row(row) else (search(subject, 1) or [None])[0]
     else:
         row = (search(query, 1) or [None])[0] if query else None
+    if is_map_row(row):
+        row = None
     if not row:
         if (subject or illustration) and enabled():
             _missed(key, add=True)

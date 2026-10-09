@@ -231,9 +231,13 @@ def ai_enabled() -> bool:
 def ai(query: str, limit: int = 1, style: str | None = None) -> list[dict]:
     """An illustration drawn for the topic by an image model (OpenRouter). Clean, textbook-like, no text in the
     image (labels in a generated picture come out garbled). At most PANIM_AI_MAX (6) a process, so a lecture's
-    cost stays small. Never a real person's face: people and places come from Wikipedia and museums."""
+    cost stays small. Never a real person's face: people and places come from Wikipedia and museums. Never a map."""
     if not ai_enabled() or AI_MADE["count"] >= int(os.environ.get("PANIM_AI_MAX", "6")):
         return []
+    import mapguard
+
+    if mapguard.is_map(query):
+        return []                   # an image model's map is a guess at the world; maps are drawn on the map
     model = os.environ.get("PANIM_IMAGE_MODEL", "google/gemini-2.5-flash-image")
     key = hashlib.md5(f"{model}|{style}|{query}".encode()).hexdigest()[:16]
     target = CACHE / f"ai-{key}.png"
@@ -307,7 +311,7 @@ def find(query: str, genre: str | None = None, limit: int = 6, style: str | None
         except Exception:  # noqa: BLE001 -- a source that is down or blocked is skipped
             continue
         for row in found:
-            if row["id"] in seen or images.NOT_EDUCATIONAL.search(row.get("title", "")):
+            if row["id"] in seen or images.NOT_EDUCATIONAL.search(row.get("title", "")) or images.is_map_row(row):
                 continue
             if source in ("nasa", "met", "smithsonian", "storyweaver") and not _overlap(query, f"{row['title']} {row['description']}"):
                 continue            # a museum's search is broad: keep what is actually about the topic

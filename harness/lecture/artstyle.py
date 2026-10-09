@@ -462,7 +462,29 @@ def _recipes(m, live: bool) -> list:
 
         if filled and size > 0.5 and isinstance(m, Circle) and not live:
             add(("cross",))
+    if getattr(m, "_art_exact", False):
+        out = _exact_only(m, out)
     return out
+
+
+def _exact_only(m, recipes: list) -> list:
+    """The extras of a shape whose points are a map's (Natural Earth's coast, border or river, as projected): only
+    those drawn on its own line -- a glow, a highlight, hatching inside it -- never a copy moved, shrunk or wobbled
+    off it, which would draw a second coastline where there is none."""
+    kept = []
+    for recipe in recipes:
+        if callable(recipe):
+            try:
+                points = np.asarray(recipe(m)[0], float)
+            except Exception:  # noqa: BLE001
+                continue
+            if points.shape == m.points.shape and np.allclose(points, m.points, atol=1e-9):
+                kept.append(recipe)
+        elif recipe[0] == "hatch":
+            kept.append(recipe[:-1] + (0.0,))
+        else:
+            kept.append(recipe)
+    return kept
 
 
 def _still_extra(m, recipe):
@@ -516,7 +538,8 @@ def _apply(child, made, parent=None) -> None:
 def _decorate_shape(m, live: bool) -> None:
     from manim import VMobject
 
-    if not live and ART in ("chalk", "sketch") and not getattr(m, "_art_wobbled", False):
+    exact = getattr(m, "_art_exact", False)
+    if not live and not exact and ART in ("chalk", "sketch") and not getattr(m, "_art_wobbled", False):
         size = _size(m)
         m.points = _noise(m.points, min(0.012 if ART == "chalk" else 0.008, 0.02 * size + 0.003))
         m._art_wobbled = True
@@ -602,13 +625,10 @@ def live_paint(mob) -> None:
 # ----------------------------------------------------------------------------------------------- maps
 
 
-def map_jitter(default: float) -> float:
-    return {"chalk": 0.012, "sketch": 0.007, "watercolour": 0.004}.get(ART, default)
-
-
 def dress_map(neighbours, lines, outline, focus_poly=None) -> None:
-    """The base map in the art style: line-only for a blueprint, glowing coasts for neon, a relief-like double
-    coastline when detailed, hatched neighbours in a sketch, a wash of land in watercolour."""
+    """The base map in the art style: line-only for a blueprint, glowing coasts for neon, a haloed, double-ruled
+    coastline when detailed, hatched neighbours in a sketch, a wash of land in watercolour. Every extra lies on
+    Natural Earth's own line: none is moved, shrunk or wobbled off it."""
     from manim import VMobject
 
     if ART == "clean":
@@ -635,8 +655,8 @@ def dress_map(neighbours, lines, outline, focus_poly=None) -> None:
                                                      width=8, opacity=0.18)
                 _deco(m, halo)
                 inner = _outline_copy(m)
-                inner.set_fill(opacity=0).set_stroke(m.get_stroke_color().to_hex(), width=0.8, opacity=0.5)
-                inner.scale(0.985)
+                inner.set_fill(opacity=0).set_stroke(mix(m.get_stroke_color().to_hex(), "#FFFFFF", 0.5), width=0.7,
+                                                      opacity=0.6)
                 _deco(m, inner)
         return
     if ART == "neon":
@@ -670,17 +690,17 @@ def dress_map(neighbours, lines, outline, focus_poly=None) -> None:
     if ART == "chalk":
         for m in outline.get_family():
             if len(m.points) and not getattr(m, "_art_deco", False):
-                dust = _outline_copy(m).shift([0.015, -0.01, 0])
-                dust.set_fill(opacity=0).set_stroke(m.get_stroke_color().to_hex(), width=1.0, opacity=0.35)
+                dust = _outline_copy(m)
+                dust.set_fill(opacity=0).set_stroke(m.get_stroke_color().to_hex(), width=6.0, opacity=0.12)
                 _deco(m, dust)
         return
     if ART == "watercolour":
         for m in list(outline.get_family()):
             if len(m.points) and not getattr(m, "_art_deco", False):
-                for scale, alpha in ((1.0, 0.16), (0.97, 0.12)):
-                    wash = _outline_copy(m).scale(scale)
-                    wash.points = _noise(wash.points, 0.03, seed=scale * 7)
-                    wash.set_fill(m.get_stroke_color().to_hex(), opacity=alpha).set_stroke(width=0)
+                for width, alpha in ((0.0, 0.16), (2.5, 0.12)):
+                    wash = _outline_copy(m)
+                    wash.set_fill(m.get_stroke_color().to_hex(), opacity=alpha)
+                    wash.set_stroke(m.get_stroke_color().to_hex(), width=width, opacity=alpha if width else 0)
                     _deco(m, wash)
         return
 

@@ -111,7 +111,7 @@ THEMES: dict[str, dict] = {
         bg="#F7F7F3", texture="board", sans="Kalam", serif="Kalam", upper=False, title_col="#1565C0",
         panel="#F7F7F3", panel_style="marker", cap_bg="#FFFFFF", cap_fg="#1B1B1B", cap_op=0.9,
         nb_fill="#ECECE6", nb_stroke="#C9C9C0", nb_hi="#F6D5D5", st_stroke="#BDBDB5", st_hi="#8F8F87",
-        track="#E0E0DA", anim="write", map_stroke="#1B1B1B", jitter=0.012, voice="am_adam",
+        track="#E0E0DA", anim="write", map_stroke="#1B1B1B", voice="am_adam",
     ),
     "blueprint": dict(
         label="Blueprint",
@@ -130,7 +130,7 @@ THEMES: dict[str, dict] = {
         bg="#1B3A2F", texture="chalk", sans="Kalam", serif="Kalam", upper=False, title_col="#F2E27A",
         panel="#1B3A2F", panel_style="marker", cap_bg="#12291F", cap_fg="#F4F0E4", cap_op=0.85,
         nb_fill="#224536", nb_stroke="#3E6B58", nb_hi="#2E5A47", st_stroke="#4F7D69", st_hi="#9FC7B5",
-        track="#2E5243", anim="write", map_stroke="#F4F0E4", jitter=0.01, voice="am_michael",
+        track="#2E5243", anim="write", map_stroke="#F4F0E4", voice="am_michael",
     ),
     # History: an old page. Brown ink, a serif for reading, capitals for titles.
     "parchment": dict(
@@ -1164,19 +1164,15 @@ class MapFrame:
         if self.clip:
             g = _valid(g).intersection(box(*self.clip))
         polys = [g] if g.geom_type == "Polygon" else [p for p in getattr(g, "geoms", []) if p.geom_type == "Polygon"]
-        import artstyle
-
-        jitter = artstyle.map_jitter(TH.get("jitter", 0))
         group = VGroup()
         for p in polys:
             if p.area < min_area:
                 continue
             pts = np.array(p.exterior.coords)
-            if jitter:
-                k = np.arange(len(pts))
-                pts = pts + jitter * np.c_[np.sin(k * 0.9) + np.sin(k * 0.23), np.cos(k * 0.7) + np.sin(k * 0.31)]
             m = VMobject(**style)
             m.set_points_as_corners(np.c_[pts, np.zeros(len(pts))])
+            # Natural Earth's line, as projected: an art style colours it but never moves a point (artstyle.exact).
+            m._art_exact = True
             group.add(m)
         return group
 
@@ -1194,6 +1190,7 @@ class MapFrame:
             pts = np.c_[np.array(part.coords), np.zeros(len(part.coords))]
             m = VMobject(**style)
             m.set_points_smoothly(pts) if len(pts) > 3 else m.set_points_as_corners(pts)
+            m._art_exact = True
             group.add(m)
         return group
 

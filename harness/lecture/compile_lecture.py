@@ -265,6 +265,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                                 "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS:
                     errors.append(f"{at}: unknown op {kind!r}")
                     continue
+                drawn_map = map_drawn_by(op)
+                if drawn_map:
+                    errors.append(f"{at}: {drawn_map}")
+                    continue
                 if kind == "manim":
                     if not isinstance(op.get("code"), str) or not op["code"].strip():
                         errors.append(f"{at}: a manim op needs its code: the Python that draws this beat")
@@ -507,6 +511,26 @@ def beat_order(ops: list[dict]) -> list[dict]:
             return 2
         return 1
     return sorted(ops, key=rank)
+
+
+def map_drawn_by(op: dict) -> str | None:
+    """A map asked of anything but the map (mapguard): an SVG drawing, a block of Manim, an illustration or photo
+    of a map. Returns why it is refused."""
+    import mapguard
+
+    kind = op.get("op")
+    if kind == "manim" and mapguard.code_draws_map(op.get("code")):
+        return f"this manim block draws a map of its own; {mapguard.MAP_ADVICE}"
+    drawn = op if kind == "draw" else op.get("figure") if kind == "problem" and isinstance(op.get("figure"), dict) else None
+    if drawn is not None and drawn.get("op") == "draw" and mapguard.is_map(f"{drawn.get('what') or ''} "
+                                                                           f"{drawn.get('title') or ''}"):
+        return f"the picture {drawn.get('id') or op.get('id')!r} is a map; {mapguard.MAP_ADVICE}"
+    asked = [op] if kind in ("illustration", "photo") else _gallery_items(op) if kind == "gallery" else []
+    for item in asked:
+        text = " ".join(str(item.get(k) or "") for k in ("query", "image", "illustration"))
+        if mapguard.is_map(text):
+            return f"{text.strip()!r} is a map; {mapguard.MAP_ADVICE}"
+    return None
 
 
 def _gallery_items(op: dict) -> list[dict]:

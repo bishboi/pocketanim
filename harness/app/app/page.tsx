@@ -1008,6 +1008,9 @@ export default function Home() {
           <Link href="/forge" className="text-sm text-sky-300 underline-offset-2 hover:underline">
             Lecture Forge →
           </Link>
+          <Link href="/svg-lab" className="text-sm text-sky-300 underline-offset-2 hover:underline">
+            SVG lab →
+          </Link>
           {status?.manim ? (
             <Badge tone="good">Manim {status.manim}</Badge>
           ) : (

@@ -70,7 +70,7 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "journey", "diagram", "figure", "gallery", "compare", "bars", "sim"],
+        "kit": ["marker", "river", "state", "journey", "diagram", "figure", "picture", "compare", "bars", "sim"],
         "guidance": "Geography: the map carries the where (markers, rivers, states) and movement (a journey: the "
                     "monsoon winds, a trade route, a river's course); the stage carries how it works: diagrams built "
                     "from drawings (how rivers feed a delta, what a crop needs), the water cycle and the seasons as "
@@ -81,10 +81,10 @@ PROFILES = {
     },
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
-        "kit": ["timeline", "gallery", "diagram", "figure", "marker", "journey", "arrow", "quote", "compare", "sim"],
+        "kit": ["timeline", "picture", "diagram", "figure", "marker", "journey", "arrow", "quote", "compare", "sim"],
         "guidance": "History: open each era with a timeline on the stage (a still one: its dates, events and "
                     "pictures of the people and places); show the people, communities and places of a "
-                    "paragraph together in a gallery (portraits, monuments, paintings); build causes and consequences "
+                    "paragraph together (one picture op with items, each generated: portraits, monuments, scenes); build causes and consequences "
                     "as a chain (diagram kind flow, edges saying why) revealed step by step; journeys on the map as "
                     "they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); differences between two "
                     "systems or periods as flip cards (sim differences); quote primary sources; the map for where "
@@ -92,10 +92,10 @@ PROFILES = {
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["figure", "illustration", "diagram", "sketch", "compare", "define", "manim", "graph", "equation", "sim",
+        "kit": ["figure", "picture", "diagram", "sketch", "compare", "define", "manim", "graph", "equation", "sim",
                 "draw"],
         "guidance": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
-                    "heart, a neuron, a nephron): the book's figure or a textbook illustration (find_illustration), "
+                    "heart, a neuron, a nephron): the book's figure, a drawing (draw) or a generated picture, "
                     "and when its parts are named one by one, a labelled sketch (or manim) built part by part with "
                     "each label revealed as it is said. A PROCESS (digestion, photosynthesis, blood flow, a reflex, "
                     "protein synthesis): a flow diagram (\"steps\": true to number it) with a drawing in each node, a stage at a time; a "
@@ -127,7 +127,7 @@ PROFILES = {
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
                     "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no photos except of a scientist the lecture names.",
+                    "well); no generated pictures except of a scientist the lecture names.",
     },
     "physics": {
         "label": "Physics", "style": "blueprint", "map": "never",
@@ -143,7 +143,7 @@ PROFILES = {
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
                     "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no photos except of a scientist the lecture names.",
+                    "well); no generated pictures except of a scientist the lecture names.",
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
@@ -160,7 +160,7 @@ PROFILES = {
                     "long problems on it (problem op: the full question, its figure, given and find), each "
                     "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
                     "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no photos except of a scientist the lecture names.",
+                    "well); no generated pictures except of a scientist the lecture names.",
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
@@ -173,7 +173,7 @@ PROFILES = {
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
-        "kit": ["diagram", "figure", "gallery", "define", "compare", "timeline", "bars"],
+        "kit": ["diagram", "figure", "picture", "define", "compare", "timeline", "bars"],
         "guidance": "Give each paragraph one visual that explains it: a diagram built from drawings, the "
                     "document's figures, a comparison, a timeline; pictures only of people and places; the map only "
                     "for where.",

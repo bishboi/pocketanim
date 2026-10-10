@@ -193,8 +193,8 @@ export async function figureFile(id: string, figure: string): Promise<string> {
 export function scriptFigures(doc: DocumentManifest, drawn: Record<string, Drawn> = {}):
   Record<string, { file: string; caption: string; svg?: string; parts?: string[]; credit?: string; web?: boolean }> {
   return Object.fromEntries(doc.figures.map((f) => {
-    // A photograph is shown as the real photo found most like it (figures.lookalike), credited; else the scan.
-    const web = drawn[f.id]?.photo ? drawn[f.id].web : undefined;
+    // A photograph is shown as the image model made it again (figures.remakePhoto), credited; else the scan.
+    const web = drawn[f.id]?.photo ? drawn[f.id].generated : undefined;
     return [f.id, {
       file: web && existsSync(web.file) ? web.file : f.file,
       caption: f.caption,

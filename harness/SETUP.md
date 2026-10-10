@@ -42,11 +42,6 @@ To fetch the libraries again, or only some of them:
 | Library | What it gives a lecture | Where it goes | Size |
 |---|---|---|---|
 | Gazetteer | GeoNames, about 150,000 towns, so markers find small places (Lakhimpur Kheri, Prayagraj). | `harness/lecture/data/geonames/` | 10 MB |
-| Diagram drawings | Emoji-style SVG drawings, used only when illustrations cannot be made (section 4). They are never a lecture's picture. | `harness/lecture/data/icons/` | 75 MB |
-| Illustrations | CocoMaterial's 3,000+ hand-drawn illustrations and Arcadia's organism drawings, for diagram nodes and definitions (section 4). | `harness/lecture/data/drawlib/` | 40 MB |
-| OpenClipart | Public-domain drawings of almost anything, Indian things included (section 4). 22 GB read once; `--skip openclipart` leaves it. | `harness/lecture/data/drawlib/openclipart.db` | 300 MB |
-| Bioicons | About 2,500 science drawings (cells, organs, lab apparatus) for diagram nodes and definitions (section 4). | `harness/lecture/data/bioicons/` | 30 MB |
-| Textbook figures | An index of the figures in OpenStax's CC BY textbooks (add `--non-commercial` to `fetch_openstax.py` for the CC BY-NC-SA ones, and set `PANIM_ALLOW_NC=1` to use them). | `harness/lecture/data/illustrations/` | <1 MB |
 | Maps | Natural Earth borders, states, rivers and towns. | Cartopy's data folder (`~/.local/share/cartopy`) | 40 MB |
 | Fonts | The styles' Google Fonts: Playfair, Poppins, EB Garamond, Cinzel and others, and Hind for Hindi in equations. | `~/.fonts` (Linux), `~/Library/Fonts` (macOS) | 10 MB |
 | LaTeX | TinyTeX (a small TeX Live) with the packages Manim uses, for typeset equations; XeLaTeX in it typesets formulas with Hindi words. Skipped when LaTeX is already installed (MacTeX, TeX Live); then only missing packages are added. | `~/Library/TinyTeX` (macOS), `~/.TinyTeX` (Linux) | 250 MB |
@@ -65,9 +60,10 @@ with Unicode (μ, θ, ², →) is turned into TeX first; a formula with Hindi in
 XeLaTeX with a Devanagari font (Noto Sans Devanagari, Hind, Poppins, or macOS's Kohinoor); a formula that
 will not compile is drawn as text rather than stopping the lecture (`harness/lecture/nolatex.py`).
 
-Other pictures are fetched per lecture, as needed, and cached:
-- **Illustrations and diagrams** come from the sources that suit the subject. These are OpenStax textbook figures, NASA, The Met, the Smithsonian, Wikimedia Commons and Openverse, and, last, an AI illustration. See `harness/lecture/README.md`. To add NIH BioArt or Servier Medical Art, download their images into a folder under `harness/lecture/data/illustrations/`.
-- **Photos** come from Wikimedia Commons, reusable licences only. For a named person, movement, event, monument or place, the picture its Wikipedia article leads with is used. They are cached in `harness/lecture/.cache/images`.
+Pictures are not downloaded from anywhere. Each one is made in one of three ways, chosen by the lecture writer:
+built in Manim, drawn as an SVG, or made by an image model (`OPENROUTER_API_KEY`; `PANIM_IMAGE_MODEL`, default
+`google/gemini-2.5-flash-image`) as a borderless cutout traced into vector shapes. See
+`harness/lecture/README.md`. Made pictures are cached in `harness/lecture/.cache/images`.
 - **Molecules** not in the built-in table are looked up on PubChem. They are cached in `harness/lecture/.cache/molecules.json`.
 - **PDF figures** come from your uploaded PDF.
 
@@ -112,40 +108,14 @@ Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project an
 YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`), or an API key
 (`GOOGLE_TTS_API_KEY`) where the project allows keys. `.venv/bin/python harness/lecture/chirp.py --check` checks it.
 
-## 4. The drawings: illustrations, not emoji
+## 4. Pictures: Manim, SVG drawings, or the image model
 
-Diagram nodes, definitions and comparisons draw the thing they name (a cow, a volcano, a neuron), outlined in ink
-and written onto the board. Every drawing comes from an open library, downloaded once, free to use, at no cost per
-lecture. In order:
-
-1. **Bioicons** (bioicons.com): about 2,500 science drawings (cells, organs, lab apparatus, molecules, organisms)
-   by scientists and illustrators, under CC0, CC BY, CC BY-SA or MIT. The lecture writer picks one when the
-   drawing must be right as well as clear; the credits name the authors.
-2. **CocoMaterial** (cocomaterial.com, by Kaleidos, CC0): 3,000+ hand-drawn illustrations in 17 categories
-   (animals, plants, buildings, people, food, school, science, tech), dark outlines with flat colour, the
-   whiteboard look. A plain word (`"entity": "cow"`) is drawn from here when it has the thing.
-3. **Drawing Open** (Arcadia Science, CC0): professional drawings of organisms, plants, animals and microbes.
-4. **OpenClipart** (openclipart.org, public domain): 178,000 drawings by thousands of artists, of almost
-   anything, Indian things included (a bullock cart, a diya, a rangoli, a tabla, a sari). Read once from its
-   Hugging Face copy (`nyuuzyou/openclipart`): 22 GB streamed, nothing of it stored except the coloured
-   drawings small enough for a board with no lettering in them, about 300 MB in
-   `harness/lecture/data/drawlib/openclipart.db`. It takes a while; stopped halfway, it carries on where it was.
-5. **The emoji library** (section 2) only when none of these has the thing.
-
-`fetch_all.py` downloads them all (add `--skip openclipart` to leave the big one for later), or one at a time:
-
-```sh
-.venv/bin/python harness/lecture/drawlib.py --fetch        # CocoMaterial and Drawing Open, into data/drawlib
-.venv/bin/python harness/lecture/drawlib.py --openclipart  # OpenClipart (resumes; --openclipart 3 reads 3 shards)
-.venv/bin/python harness/lecture/bioicons.py --fetch       # Bioicons, into data/bioicons
-.venv/bin/python harness/lecture/drawlib.py cow rangoli    # what a word finds
-```
-
-**Pictures of Indian life.** A paragraph's picture (not a diagram's drawings) can also come from Pratham Books'
-**StoryWeaver**: thousands of children's-book illustrations by Indian illustrators (a village well, a farmer
-with oxen, a Diwali market, a classroom), CC BY 4.0, credited to the illustrator. It is searched online, for
-social science, geography, history, economics and general lectures, before Wikimedia Commons; nothing to
-download.
+There are no picture libraries, icons or emoji to download, and nothing is searched for on the web. A lecture's
+pictures are built in Manim (diagrams, graphs, sketches, the map), drawn as SVGs by the SVG model
+(`OPENROUTER_SVG_MODEL`), or made by the image model (`PANIM_IMAGE_MODEL`) as cutouts: the subject alone, no
+border or background, traced into vector shapes so the phone plays them at tier 1. A book's photograph is made
+again the same way. `.venv/bin/python harness/lecture/genimage.py "a steam locomotive, side view"` makes one and
+prints where it went. `PANIM_IMAGES=0` turns the image model off.
 
 ## 5. The web app
 
@@ -206,7 +176,7 @@ The bar at the top of every page shows the version and the commit, for example `
 lists anything still missing, each with a **download** button:
 
 - **Voice: Gemini 3.8 Flash-Lite TTS** means narration is ready. Without `GEMINI_API_KEY` (section 3) it says so, and lectures do not build.
-- **Illustrations** says whether internet pictures are on (Wikimedia Commons and Openverse).
+- **Pictures** says whether the image model can make pictures (`OPENROUTER_API_KEY`, and `PANIM_IMAGES` not 0).
 - **Towns** means small places may not be found.
 - **LaTeX** says whether equations are typeset; **download** installs TinyTeX (a few minutes). What is ready shows
   as a green tick (hover **LaTeX ✓** to see where it was found). When LaTeX is found but a part is missing (usually
@@ -218,7 +188,7 @@ The app also downloads the voice by itself before the first lecture that needs i
 
 | You see | Cause | Fix |
 |---|---|---|
-| Text boxes where illustrations should be | No internet access to Wikimedia Commons or Openverse, or `PANIM_IMAGES=0` | allow the hosts below; check `images.py --illustrations "water cycle"` |
+| Words where a picture should be | No `OPENROUTER_API_KEY`, `PANIM_IMAGES=0`, or the image model refused | check `.venv/bin/python harness/lecture/genimage.py "water cycle"` |
 | `Narration is spoken by Gemini 3.8 Flash-Lite TTS, and no Gemini API key is set` | No key | section 3, then restart the app |
 | `403: ... requires a quota project, which is not set by default` | Your login has no quota project (a new login drops it) | `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`, or `GOOGLE_CLOUD_QUOTA_PROJECT=YOUR_PROJECT_ID` in `.env.local`; `chirp.py --check` shows what is used |
 | `401: API keys are not supported by this API` | The project refuses API keys for Text-to-Speech | sign in with `gcloud auth application-default login` and `set-quota-project` (section 3); the key can stay, a login is used first |

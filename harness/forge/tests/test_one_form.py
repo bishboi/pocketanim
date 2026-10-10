@@ -91,3 +91,24 @@ def test_with_teaching_rules_off_only_drawing_is_checked():
     assert cl.lint(ruled, min_minutes=30, min_questions=5)[0]          # the old checks still run for Forge
     script["chapters"][0]["beats"][0]["do"] = [{"op": "diagram", "id": "d", "nodes": [{"id": "a"}]}]
     assert cl.lint(script)[0]                                          # what cannot be drawn is still an error
+
+
+def test_only_three_ways_to_a_picture():
+    """A picture is made by the image model, drawn as an SVG, or built in Manim: a node's library drawing (entity)
+    becomes a picture the image model makes; a define card's or a comparison's library drawing is gone; the
+    picture op's "generate" asks the image model."""
+    script = _script([{"op": "diagram", "id": "d", "nodes": [{"id": "a", "label": "Deer", "entity": "deer"},
+                                                             {"id": "b", "label": "Grass"}]}],
+                     [{"op": "define", "term": "Biome", "meaning": "a big living region", "entity": "tree"},
+                      {"op": "compare", "columns": [{"title": "A", "entity": "x", "points": ["p"]},
+                                                   {"title": "B", "points": ["q"]}]}],
+                     [{"op": "picture", "generate": "a red deer in a meadow, side view", "caption": "Deer"}],
+                     [{"op": "timeline", "events": [["1526", "Panipat", {"entity": "sword"}], ["1556", "Akbar"]]}])
+    cl.canonical_ops(script)
+    beats = script["chapters"][0]["beats"]
+    node = beats[0]["do"][0]["nodes"][0]
+    assert "entity" not in node and node["picture"] == {"generate": "deer"}
+    assert "entity" not in beats[1]["do"][0] and "entity" not in beats[1]["do"][1]["columns"][0]
+    assert beats[2]["do"][0] == {"op": "illustration", "query": "a red deer in a meadow, side view", "caption": "Deer"}
+    assert beats[3]["do"][0]["events"][0][2] == {"generate": "sword"}
+    assert cl._picture_fetch({"generate": "deer"}) == {"op": "illustration", "query": "deer", "optional": True}

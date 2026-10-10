@@ -57,7 +57,7 @@ has to show a human.
 
 ## Running it
 
-**Full local setup, including every downloadable library (icons, place names, voice, maps, fonts) and
+**Full local setup, including every downloadable library (place names, voice, maps, fonts) and
 troubleshooting: [SETUP.md](SETUP.md).**
 
 ```sh

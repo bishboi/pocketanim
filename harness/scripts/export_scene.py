@@ -46,6 +46,12 @@ FIXED_LAYOUT = re.compile(
 )
 
 
+
+def _made_pictures() -> dict:
+    """What the image model made in this process (genimage.MADE), as {count, usd, items}."""
+    made = [m for m in (getattr(sys.modules.get("genimage"), "MADE", None) or []) if m.get("made")]
+    return {"count": len(made), "usd": round(sum(float(m.get("usd") or 0) for m in made), 6), "items": made}
+
 def _install_layout(scene_file: Path) -> None:
     """Run the label pass before this scene is imported for export.
 
@@ -434,8 +440,8 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
                 "scene": scene_class,
                 # Pictures left out because they could not be drawn (pocket_lecture.Lecture.safe), with their beats.
                 "skipped": list(getattr(lecture, "SKIPPED", []) or []),
-                # Illustrations an image model drew during this build (illustrations.ai), and what they cost.
-                "ai_images": dict(getattr(sys.modules.get("illustrations"), "AI_MADE", None) or {"count": 0, "usd": 0.0}),
+                # Pictures the image model made during this build (genimage.py), and what they cost.
+                "ai_images": _made_pictures(),
                 "tier": 3 if blockers else 1,
                 "blockers": blockers,
                 "program": program,

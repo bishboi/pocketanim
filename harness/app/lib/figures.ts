@@ -28,14 +28,14 @@ const REPAIRS = 2;
 export type FigureInfo = { id: string; file: string; caption: string; page?: number | null };
 
 export type Drawn = {
-  /** The figure is a photograph: not drawn, but shown as a real photo like it from the web, else as it is. */
+  /** The figure is a photograph: not drawn, but made again by the image model (a cutout), else shown as it is. */
   photo?: boolean;
-  /** What the photograph shows, in search words, and the named thing in it (a person, a monument), if any. */
+  /** What the photograph shows, in words, and the named thing in it (a person, a monument), if any. */
   query?: string;
   subject?: string;
-  /** The web's photograph most like the book's (lookalike), shown instead of the scan, with its credit. */
-  web?: { file: string; title?: string; credit?: string; license?: string };
-  /** The web was searched for one (whether or not one was found), so a later run does not search again. */
+  /** The picture the image model made of it (genimage.py), shown instead of the scan. */
+  generated?: { file: string; title?: string; credit?: string; license?: string };
+  /** The image model was asked for one (whether or not it made one), so a later run does not ask again. */
   looked?: boolean;
   /** The board's own shapes build it well (a graph, a preset, a sketch, a diagram): it is rebuilt in Manim. */
   manim?: boolean;
@@ -144,10 +144,10 @@ export const SVG_PROMPT = [
   "You redraw ONE figure from a textbook as a detailed, clean SVG illustration for a teacher's board in a video lecture.",
   "Reply with the SVG alone in a ```svg block, unless the figure is one of these two:",
   "- A PHOTOGRAPH (a real person, place, building, specimen, animal, plant or object, as photographed): reply",
-  "  PHOTO: <English search words for a real photo of the same thing seen the same way, most telling first:",
+  "  PHOTO: <in English, what it shows and how it is seen, most telling first, for an image model to make it again:",
   '  "Taj Mahal Agra front view white marble", "honey bee on flower close-up", "basalt rock sample">',
   "  and, when it shows one named thing (a person, a monument, a place, a species), a second line",
-  "  SUBJECT: <its name as Wikipedia titles it>. A real photo like it is found on the web and shown instead.",
+  "  SUBJECT: <its name>. The image model makes a picture of it, cut out without a border, shown instead.",
   "- SIMPLE ENOUGH FOR THE BOARD'S OWN SHAPES: made of triangles, circles, rectangles, lines, arrows and a few",
   "  labels -- a graph or plot, a block on an incline, a pulley, a spring, a pendulum, a projectile's path, a simple",
   "  circuit, a lever, a lens or mirror with its rays, a geometric figure, a flowchart, a cycle or tree of labelled",
@@ -353,14 +353,6 @@ async function picture(file: string): Promise<string | null> {
   }
 }
 
-export const LOOKALIKE_PROMPT = [
-  "The first image is a photograph printed in a textbook. The others, numbered, are real photographs found on the",
-  "web. Which one shows the SAME thing (the same kind of subject: the same monument, person, species, rock or",
-  "object) seen most like the book's photo (similar view, framing and content), so a class could see it instead and",
-  "learn the same thing? It must be a real photograph, not a drawing, map, chart or collage, and nothing else may",
-  "dominate it. Reply with its number alone, or NONE if no photo is close enough.",
-].join("\n");
-
 function runPython(python: string, repo: string, args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(python, args, { cwd: repo, signal });
@@ -374,47 +366,23 @@ function runPython(python: string, repo: string, args: string[], signal?: AbortS
 }
 
 /**
- * The web's real photograph most like a book's photo (a reverse image search: lookalike.py finds photos for what
- * the model said the book's shows, and the model compares each with the book's and picks the closest), or none.
- * PANIM_PHOTO_LOOKALIKE=0 keeps the book's own photos.
+ * A book's photograph made again by the image model, as a cutout without a border (genimage.py), from what the
+ * figure model said it shows. PANIM_PHOTO_REMAKE=0 keeps the book's own photos. Nothing is searched for on the web.
  */
-export async function lookalike(figure: FigureInfo, image: string | null, query: string | undefined,
-  subject: string | undefined, options: SettleOptions): Promise<Drawn["web"] | undefined> {
-  if (process.env.PANIM_PHOTO_LOOKALIKE === "0" || !image || !(query || subject)) return undefined;
-  const script = path.join(options.repo, "harness", "lecture", "lookalike.py");
-  const out = path.join(path.dirname(figure.file), ".lookalike", figure.id);
-  let found: { id: string; title?: string; thumb: string }[] = [];
+export async function remakePhoto(figure: FigureInfo, query: string | undefined, subject: string | undefined,
+  options: SettleOptions): Promise<Drawn["generated"] | undefined> {
+  const what = [subject, query || figure.caption].filter(Boolean).join(": ");
+  if (process.env.PANIM_PHOTO_REMAKE === "0" || !what.trim()) return undefined;
+  const script = path.join(options.repo, "harness", "lecture", "genimage.py");
   try {
-    found = JSON.parse((await runPython(options.python, options.repo, [script, "candidates", query || subject || "",
-      ...(subject ? ["--subject", subject] : []), "--out", out], options.signal)).trim().split("\n").pop() || "[]");
-  } catch {
-    return undefined;                       // offline, or the search failed: the book's photo is shown
-  }
-  if (!found.length) return undefined;
-  const parts: Part[] = [{ type: "text", text: `${LOOKALIKE_PROMPT}\n\nThe book's photo (${figure.caption || figure.id}):` },
-    { type: "image_url", image_url: { url: image } }];
-  for (const [k, c] of found.entries()) {
-    const thumb = await picture(c.thumb);
-    if (!thumb) continue;
-    parts.push({ type: "text", text: `${k + 1}. ${c.title ?? ""}` }, { type: "image_url", image_url: { url: thumb } });
-  }
-  let pick: number | null = null;
-  try {
-    const reply = await ask(options.key, options.model, [{ role: "user", content: parts }], options.signal);
-    options.onCost?.(reply.cost);
-    const n = /\b(\d{1,2})\b/.exec(reply.text.replace(/NONE[\s\S]*/i, ""))?.[1];
-    pick = n ? Number(n) - 1 : null;
+    const row = JSON.parse((await runPython(options.python, options.repo, [script, "--realistic", what], options.signal))
+      .trim().split("\n").pop() || "null") as { file?: string; title?: string; credit?: string; license?: string;
+      usd?: number } | null;
+    if (row?.usd) options.onCost?.(row.usd);
+    return row?.file ? { file: row.file, title: row.title, credit: row.credit, license: row.license } : undefined;
   } catch (error) {
     if (options.signal?.aborted) throw error;
-    return undefined;
-  }
-  if (pick === null || !found[pick]) return undefined;
-  try {
-    const row = JSON.parse((await runPython(options.python, options.repo, [script, "fetch", found[pick].id], options.signal))
-      .trim().split("\n").pop() || "null");
-    return row?.file ? { file: row.file, title: row.title, credit: row.credit, license: row.license } : undefined;
-  } catch {
-    return undefined;
+    return undefined;                       // no key, refused, offline: the book's photo is shown
   }
 }
 
@@ -446,8 +414,8 @@ export async function drawFigures(
     const { meta } = drawnPaths(figure);
     try {
       const kept = JSON.parse(await readFile(meta, "utf8"));
-      // A photograph decided before the web was searched for one like it is looked at again.
-      const photoDone = kept.photo && kept.looked && (!kept.web || existsSync(kept.web.file));
+      // A photograph decided before the image model was asked for one like it is looked at again.
+      const photoDone = kept.photo && kept.looked && (!kept.generated || existsSync(kept.generated.file));
       if (kept.version === DRAWING_VERSION && (photoDone || kept.manim || (kept.svg && existsSync(kept.svg)))) {
         out[figure.id] = kept;
         options.onDrawn?.(figure.id, kept, true);
@@ -481,11 +449,11 @@ export async function drawFigures(
       options.onCost?.(cost);
     } }, true);
     if (made.photo) {
-      const found = await lookalike(figure, image, made.query, made.subject, { ...options, onCost: (cost) => {
+      const found = await remakePhoto(figure, made.query, made.subject, { ...options, onCost: (cost) => {
         usd += cost;
         options.onCost?.(cost);
       } });
-      return { photo: true, query: made.query, subject: made.subject, looked: true, ...(found ? { web: found } : {}), usd };
+      return { photo: true, query: made.query, subject: made.subject, looked: true, ...(found ? { generated: found } : {}), usd };
     }
     if (made.manim) return { manim: true, usd };
     if (!made.svg || !made.check) return { failed: made.error ?? "the SVG did not pass the board's checks", usd };
@@ -511,8 +479,8 @@ export async function drawFigures(
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
       done++;
-      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? (drawn.web ? `is a photograph; shown as a real photo like it (${
-        drawn.web.title ?? "from the web"})` : "is a photograph (shown as it is: no real photo like it was found)")
+      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? (drawn.generated ? `is a photograph; made again by the image ` +
+        `model as a cutout ("${drawn.generated.title ?? figure.caption}")` : "is a photograph (shown as it is: the image model made none)")
         : drawn.manim ? "is built in Manim" : drawn.svg
         ? `drawn as SVG${drawn.animated ? ", moving" : ""} (${(drawn.parts ?? []).length} parts)`
         : `not drawn (${drawn.failed}); built on the board instead`} — ${done} of ${todo.length}.`);

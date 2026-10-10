@@ -13,8 +13,8 @@ import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { unbuiltFigures, type Compiled } from "./lecture";
-import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
+import { unbuiltFigures, type Compiled, type GeneratedPicture } from "./lecture";
+import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
@@ -24,7 +24,6 @@ import { MediaLog, type MediaItem } from "./media";
 import { SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
-import { ensureSymbols, symbolsReady } from "./version";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
 export type Generated = {
@@ -476,7 +475,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof DRAWING_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL | typeof TRANSITION_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof SECTION_TOOL | typeof TRANSITION_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -771,16 +770,16 @@ async function viaOpenRouter(
     shownPictures.add(picture.file);
     emit({ type: "picture", picture });
   };
-  const billImages = (images: { path: string; title: string; usd: number; made: boolean; paid: number | null }[]) => {
-    const made = images.filter((i) => i.made);
-    if (made.length) {
-      const usd = made.reduce((t, i) => t + i.usd, 0);
-      costUsd = ledger.bill("images", usd, { items: made.length });
-      sendCosts(`${made.length} illustration${made.length > 1 ? "s" : ""} generated: $${usd.toFixed(4)}`);
-    }
-    for (const i of images) {
-      showPicture({ kind: "illustration", file: i.path, title: i.title, usd: i.usd, reused: !i.made, paid: i.paid,
-        detail: process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image" });
+  // Pictures the image model made while a script compiled (genimage.py): billed, and shown once each.
+  const billGenerated = (made: GeneratedPicture[] | undefined) => {
+    const fresh = (made ?? []).filter((m) => m.made && !shownPictures.has(m.path));
+    if (!fresh.length) return;
+    const usd = fresh.reduce((t, m) => t + (m.usd ?? 0), 0);
+    costUsd = ledger.bill("images", usd, { items: fresh.length });
+    sendCosts(`${fresh.length} picture${fresh.length > 1 ? "s" : ""} made by the image model: $${usd.toFixed(4)}`);
+    for (const m of fresh) {
+      showPicture({ kind: "illustration", file: m.path, title: m.what, usd: m.usd ?? 0, reused: false, paid: m.usd ?? null,
+        detail: m.model });
     }
   };
   // Figures settled so far: stage 2 waits for them only so long (PANIM_FIGURE_WAIT_SECONDS), then goes on with
@@ -803,17 +802,17 @@ async function viaOpenRouter(
       onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
         // Every book figure is listed with what it cost, whatever became of it: drawn as SVG, a photo (shown as the
-        // web's photo most like it, or as it is), or built in Manim.
+        // image model's remake of it, or as it is), or built in Manim.
         const figure = teachingFigures(doc).find((f) => f.id === id);
         const title = `${id}: ${figure?.caption ?? ""}`.trim();
         const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
         if (made.svg) {
           showPicture({ kind: "figure", file: made.svg, title, ...paid, detail: (made.parts ?? []).join(", "),
             status: made.animated ? "drawn as SVG, moving" : "drawn as SVG" });
-        } else if (made.photo && (made.web?.file || figure?.file)) {
-          showPicture({ kind: "photo", file: made.web?.file ?? figure!.file, title, ...paid,
-            detail: made.web?.credit ?? made.query,
-            status: made.web ? "shown as a real photo like it" : "shown as it is (no photo like it found)" });
+        } else if (made.photo && (made.generated?.file || figure?.file)) {
+          showPicture({ kind: "photo", file: made.generated?.file ?? figure!.file, title, ...paid,
+            detail: made.generated?.credit ?? made.query,
+            status: made.generated ? "made again by the image model, like it" : "shown as it is (the image model made none)" });
         } else if (figure?.file) {
           showPicture({ kind: "rebuilt", file: figure.file, title, ...paid,
             status: made.manim ? "simple shapes: built in Manim" : `not drawn (${made.failed ?? "no SVG"}): built in Manim` });
@@ -828,7 +827,7 @@ async function viaOpenRouter(
           figureTally.photo ? `${figureTally.photo} photograph${figureTally.photo > 1 ? "s" : ""}` : "",
           figureTally.failed ? `${figureTally.failed} not drawn` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? (made.web ? "a photograph, shown as a real photo like it" : "a photograph") : "not drawn"}`);
+        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? (made.generated ? "a photograph, made again by the image model" : "a photograph") : "not drawn"}`);
       },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +
@@ -843,7 +842,7 @@ async function viaOpenRouter(
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
   const EDIT_TOOL = TOOLS.find((tool) => tool.function.name === "edit_scene")!;
   const tools: ToolSpec[] = lecture
-    ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL, EDIT_TOOL]
+    ? [LECTURE_TOOL, ...(minutes > PARTS_OVER_MINUTES ? [ADD_CHAPTERS_TOOL] : []), EDIT_TOOL]
     : TOOLS;
   // STAGE 1: the whole lecture as a teacher speaks it, section by section, at full length, before any picture.
   const written: WrittenSection[] = [];
@@ -1287,6 +1286,7 @@ async function viaOpenRouter(
   } : undefined;
   const lectureOptions = () => ({
     draw: drawOptions,
+    onGenerated: billGenerated,
     style,
     art: request.art,
     genre: subject?.genre,
@@ -1455,7 +1455,7 @@ async function viaOpenRouter(
     const done = new Map<number, Record<string, unknown>>();
     const missing: number[] = [];
     const live = new Map<number, { started: number; chars: number; attempt: number; thinking: boolean }>();
-    const sectionTools: ToolSpec[] = [LECTURE_TOOL, ILLUSTRATION_TOOL, DRAWING_TOOL, IMAGE_TOOL];
+    const sectionTools: ToolSpec[] = [LECTURE_TOOL];
     emit({ type: "message", role: "status", text: notes.size
       ? `Video: writing again the chapters of section${notes.size > 1 ? "s" : ""} ${[...notes.keys()].join(", ")}, ` +
         "with what the whole lecture's check found."
@@ -1585,16 +1585,9 @@ async function viaOpenRouter(
                   ...checked.errors].join("\n");
               }
             }
-          } else if (call.function.name === "find_image") {
-            output = await findImage(args.queries);
-          } else if (call.function.name === "find_drawing") {
-            output = await findDrawings(args.queries);
-          } else if (call.function.name === "find_illustration") {
-            const looked = Date.now();
-            output = await findIllustration(args.queries, subject?.genre, billImages);
-            ledger.time("images", looked, Date.now());
           } else {
-            output = "Only write_lecture and the find tools are available here.";
+            output = "Only write_lecture is available here: pictures are asked for in the script (generate, draw) " +
+              "or built in Manim.";
           }
           emit({ type: "tool_result", name: call.function.name, text: `Section ${section.n}: ${output}` });
           talk.push({ role: "tool", tool_call_id: call.id, content: output });
@@ -2219,14 +2212,6 @@ async function viaOpenRouter(
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
         }
-      } else if (call.function.name === "find_image") {
-        output = await findImage((args as { queries?: unknown }).queries);
-      } else if (call.function.name === "find_drawing") {
-        output = await findDrawings((args as { queries?: unknown }).queries);
-      } else if (call.function.name === "find_illustration") {
-        const looked = Date.now();
-        output = await findIllustration((args as { queries?: unknown }).queries, subject?.genre, billImages);
-        ledger.time("images", looked, Date.now());
       } else {
         const edited = applySceneTool(scene, call.function.name, args);
         output = edited ? edited.message : await runTool(call.function.name, args);
@@ -2552,9 +2537,9 @@ function mediaItem(p: AiPicture): MediaItem {
     return { ...base, kind: "figure", role: "book figure redrawn as SVG", metadata: { parts: p.detail, status: p.status } };
   }
   if (p.kind === "photo") {
-    const web = /like it/.test(p.status ?? "") && !/no photo/.test(p.status ?? "");
-    return { ...base, kind: web ? "photo" : "book-photo",
-      role: web ? "the web's photo most like a book photograph" : "book photograph shown as it is",
+    const remade = /image model, like it/.test(p.status ?? "");
+    return { ...base, kind: remade ? "photo" : "book-photo",
+      role: remade ? "a book photograph made again by the image model" : "book photograph shown as it is",
       metadata: { found_by: p.detail, status: p.status } };
   }
   if (p.kind === "rebuilt") {
@@ -2689,11 +2674,6 @@ async function documentOf(request: GenerateRequest): Promise<DocumentManifest | 
 
 /** The content's subject, announced in the trace so the choice is visible. */
 async function subjectOf(request: GenerateRequest, emit: (event: AgentEvent) => void): Promise<Subject> {
-  // Diagrams draw their nodes from the SVG drawing library: fetch it before the lecture is written.
-  if (!symbolsReady()) {
-    emit({ type: "message", role: "status", text: "Downloading the SVG drawings diagrams are built from (once)…" });
-    await ensureSymbols();
-  }
   const subject = await classifySubject(`${request.content}\n${request.instruction ?? ""}`, request.subject);
   emit({
     type: "message",

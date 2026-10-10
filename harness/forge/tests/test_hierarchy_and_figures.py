@@ -1,6 +1,6 @@
 """Hierarchies drawn as a textbook draws them (hierarchy.py, pocket_lecture._hierarchy): the main thing on top, its
 subcategories below it, theirs below them. And a book's figures, each shown the way that suits it
-(app/lib/figures.ts): a photograph as the real photo the web has most like it (lookalike.py), a simple diagram
+(app/lib/figures.ts): a photograph made again by the image model as a cutout (genimage.py), a simple diagram
 built on the board, the rest redrawn as SVG; with fewer new web pictures the more figures the book has."""
 
 from __future__ import annotations
@@ -24,8 +24,6 @@ import hierarchy as hi  # noqa: E402
 
 from test_sims_more import REPO  # noqa: E402
 
-sys.path.insert(0, str(LECTURE / "tests"))
-import mock_commons  # noqa: E402
 
 APP = REPO / "harness" / "app"
 
@@ -149,18 +147,16 @@ def test_a_book_with_many_figures_keeps_every_web_picture(monkeypatch):
     assert not any("from the web" in w for w in warnings)
 
 
-def test_automatic_pictures_have_no_cap(monkeypatch):
+def test_no_picture_is_added_without_the_writer(monkeypatch):
+    """Whether a paragraph gets a picture, and which kind (generated, an SVG, Manim), is the writer's judgement:
+    the compiler adds none of its own (it used to look the people a paragraph names up on Wikipedia)."""
     import images
 
-    fetched = []
-    monkeypatch.setattr(images, "enabled", lambda: True)
-    monkeypatch.setattr(images, "fetch", lambda **kw: fetched.append(kw) or {"id": f"p{len(fetched)}", "file": "x.jpg",
-                                                                               "credit": "c", "title": "t"})
-    monkeypatch.setattr(cl, "named_subjects", lambda beat, limit=3: [beat["say"].split()[0]])
+    monkeypatch.setattr(images, "fetch", lambda **kw: pytest.fail(f"a picture was fetched: {kw}"))
     chapter = {"title": "People", "beats": [{"say": f"{name} changed the world.", "paragraph": True}
                                             for name in ("Gandhi", "Nehru", "Patel", "Bose")]}
     cl.USED_PICTURES.clear()
-    assert len([p for p in cl.auto_visuals(chapter, genre="history") if p]) == 4
+    assert not [p for p in cl.auto_visuals(chapter, genre="history") if p]
 
 
 def test_a_photo_figure_shows_the_web_photo_with_its_credit():
@@ -175,10 +171,9 @@ def test_a_photo_figure_shows_the_web_photo_with_its_credit():
 
 
 class _Model(BaseHTTPRequestHandler):
-    """OpenRouter as the figure drawer meets it: the book's figure is a photo of the Ganges, and of the web's
-    photos the first is most like it (or, with PICK = NONE, none is)."""
+    """OpenRouter as the figure drawer meets it: the book's figure is a photo of the Ganges; asked for a picture
+    (modalities: image), the image model returns one on a plain white background."""
     CALLS: list = []
-    PICK = "1"
 
     def log_message(self, *a):
         pass
@@ -188,13 +183,20 @@ class _Model(BaseHTTPRequestHandler):
         messages = body["messages"]
         flat = json.dumps(messages)
         images = flat.count('"image_url"')
-        if "printed in a textbook" in flat:
-            text = self.PICK
-            _Model.CALLS.append(("compare", images))
+        if "image" in (body.get("modalities") or []):
+            from PIL import Image, ImageDraw
+
+            picture = Image.new("RGB", (300, 200), (255, 255, 255))
+            ImageDraw.Draw(picture).rectangle((80, 50, 220, 150), fill=(40, 90, 160))
+            out = io.BytesIO()
+            picture.save(out, "PNG")
+            _Model.CALLS.append(("generate", flat))
+            message = {"content": "", "images": [{"image_url": {
+                "url": "data:image/png;base64," + __import__("base64").b64encode(out.getvalue()).decode()}}]}
         else:
-            text = "PHOTO: Ganges river at Varanasi ghats\nSUBJECT: -"
+            message = {"content": "PHOTO: Ganges river at Varanasi ghats\nSUBJECT: -"}
             _Model.CALLS.append(("decide", images))
-        data = json.dumps({"choices": [{"message": {"content": text}}], "usage": {"cost": 0.001}}).encode()
+        data = json.dumps({"choices": [{"message": message}], "usage": {"cost": 0.001}}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -216,14 +218,10 @@ def figures_js(tmp_path_factory):
 
 @pytest.fixture
 def servers(tmp_path):
-    commons = HTTPServer(("127.0.0.1", 0), mock_commons.Handler)
-    mock_commons.PORT["value"] = commons.server_port
     model = HTTPServer(("127.0.0.1", 0), _Model)
-    for s in (commons, model):
-        threading.Thread(target=s.serve_forever, daemon=True).start()
+    threading.Thread(target=model.serve_forever, daemon=True).start()
     _Model.CALLS = []
-    yield {"commons": commons.server_port, "model": model.server_port}
-    commons.shutdown()
+    yield {"model": model.server_port}
     model.shutdown()
 
 
@@ -236,42 +234,44 @@ def _book_photo(path: Path):
     path.write_bytes(out.getvalue())
 
 
-def _draw(figures_js: Path, servers: dict, tmp_path: Path, figure: Path):
+def _draw(figures_js: Path, servers: dict, tmp_path: Path, figure: Path, **extra):
     script = (f"const f = require({json.dumps(str(figures_js))});"
               f"f.drawFigures([{{id: 'fig1', file: {json.dumps(str(figure))}, caption: 'The Ganges at Varanasi'}}], "
               f"{{key: 'k', model: 'm', markdown: '', repo: {json.dumps(str(REPO))}, python: {json.dumps(sys.executable)}}})"
               ".then((r) => console.log(JSON.stringify(r)));")
-    env = {"PATH": os.environ["PATH"], "NODE_PATH": str(APP / "node_modules"),
+    env = {"PATH": os.environ["PATH"], "NODE_PATH": str(APP / "node_modules"), "OPENROUTER_API_KEY": "k",
            "OPENROUTER_URL": f"http://127.0.0.1:{servers['model']}/v1/chat/completions",
-           "COMMONS_API": f"http://127.0.0.1:{servers['commons']}/w/api.php",
-           "WIKIPEDIA_API": f"http://127.0.0.1:{servers['commons']}/wiki/{{lang}}/w/api.php",
-           "OPENVERSE_API": f"http://127.0.0.1:{servers['commons']}/openverse/",
-           "PANIM_IMAGE_CACHE": str(tmp_path / "images"), "PANIM_SVG_REVIEWS": "0"}
+           "PANIM_IMAGE_CACHE": str(tmp_path / "images"), "PANIM_SVG_REVIEWS": "0", **extra}
     done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=120, env=env)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])["fig1"]
 
 
-def test_a_book_photo_is_shown_as_the_web_photo_most_like_it(figures_js, servers, tmp_path):
+def test_a_book_photo_is_made_again_by_the_image_model_as_a_cutout(figures_js, servers, tmp_path):
+    """No web search: the figure model says what the photograph shows, and the image model makes it again, cut out
+    on transparent with no border."""
+    from PIL import Image
+
     figure = tmp_path / "fig1.jpg"
     _book_photo(figure)
-    _Model.PICK = "1"
     drawn = _draw(figures_js, servers, tmp_path, figure)
     assert drawn["photo"] and drawn["looked"] and drawn["query"] == "Ganges river at Varanasi ghats"
-    assert Path(drawn["web"]["file"]).exists()
-    assert drawn["web"]["credit"] == "C. Boatman, Public domain, via Wikimedia Commons"
+    assert drawn["generated"]["file"].endswith(".svg")                       # traced into vector shapes
+    made = Image.open(drawn["generated"]["file"][:-4] + ".png")
+    assert made.mode == "RGBA" and made.getpixel((0, 0))[3] == 0          # the white around it is gone
+    assert made.size[0] < 300 and made.size[1] < 200                        # trimmed to the subject
     kinds = [k for k, _ in _Model.CALLS]
-    assert kinds == ["decide", "compare"]
-    assert _Model.CALLS[1][1] >= 2                     # the book's photo and at least one from the web, compared
+    assert kinds == ["decide", "generate"]
+    asked = _Model.CALLS[1][1]
+    assert "Ganges river at Varanasi ghats" in asked and "CUTOUT" in asked and "no border" in asked
     # Kept beside the figure: a second lecture from the book asks nothing again.
     _Model.CALLS = []
     again = _draw(figures_js, servers, tmp_path, figure)
-    assert again["web"]["file"] == drawn["web"]["file"] and _Model.CALLS == []
+    assert again["generated"]["file"] == drawn["generated"]["file"] and _Model.CALLS == []
 
 
-def test_when_no_web_photo_is_close_the_book_photo_stays(figures_js, servers, tmp_path):
+def test_without_an_image_model_the_book_photo_stays(figures_js, servers, tmp_path):
     figure = tmp_path / "fig1.jpg"
     _book_photo(figure)
-    _Model.PICK = "NONE"
-    drawn = _draw(figures_js, servers, tmp_path, figure)
-    assert drawn["photo"] and drawn["looked"] and "web" not in drawn
+    drawn = _draw(figures_js, servers, tmp_path, figure, PANIM_IMAGES="0")
+    assert drawn["photo"] and drawn["looked"] and "generated" not in drawn

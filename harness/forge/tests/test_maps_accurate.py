@@ -12,7 +12,7 @@ from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 import artstyle  # noqa: E402
 import compile_lecture as cl  # noqa: E402
 import images  # noqa: E402
-import illustrations  # noqa: E402
+import genimage  # noqa: E402
 import mapguard  # noqa: E402
 
 
@@ -83,10 +83,10 @@ def test_picture_searches_drop_map_files():
         assert not images.is_map_row({"title": title}), title
 
 
-def test_the_ai_never_draws_a_map(monkeypatch):
+def test_the_image_model_never_draws_a_map(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(illustrations, "CACHE", None)          # would fail if it got as far as drawing
-    assert illustrations.ai("a map of the Mughal Empire") == []
+    monkeypatch.setattr(genimage, "CACHE", None)              # would fail if it got as far as drawing
+    assert genimage.generate("a map of the Mughal Empire") is None
 
 
 @pytest.fixture

@@ -3,12 +3,12 @@
  * it was started from, so a screenshot says exactly what produced a video.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import pkg from "../package.json";
-import { REPO, python } from "./pocketanim";
+import { REPO } from "./pocketanim";
 
 export type VersionInfo = { version: string; commit: string | null; branch: string | null; dirty: boolean; date: string | null };
 
@@ -79,35 +79,6 @@ export function voiceProblem(): string | null {
       "PANIM_VOICE=silent builds without narration.";
 }
 
-const fetching = new Map<string, Promise<boolean>>();
-
-/** Run a download script once (concurrent callers share it); true when `ready` holds afterwards. */
-function fetchOnce(script: string, ready: () => boolean, args: string[] = []): Promise<boolean> {
-  if (ready()) return Promise.resolve(true);
-  let running = fetching.get(script);
-  if (!running) {
-    running = new Promise<boolean>((resolve) => {
-      const child = spawn(python(), [path.join(REPO, "harness", "scripts", script), ...args], { cwd: REPO });
-      child.on("close", () => resolve(ready()));
-      child.on("error", () => resolve(false));
-    }).finally(() => fetching.delete(script));
-    fetching.set(script, running);
-  }
-  return running;
-}
-
-// The SVG drawings a diagram's nodes use (a tree, a deer, a factory): colour emoji sets and silhouettes.
-const SYMBOL_SETS = ["fluent-emoji-flat", "twemoji", "noto", "openmoji", "game-icons"];
-
-export function symbolsReady(): boolean {
-  return SYMBOL_SETS.every((set) => existsSync(path.join(REPO, "harness", "lecture", "data", "icons", `${set}.json`)));
-}
-
-/** The diagram drawings, downloaded once when missing; without them diagram nodes show their labels only. */
-export function ensureSymbols(): Promise<boolean> {
-  return fetchOnce("fetch_icons.py", symbolsReady, ["--missing"]);
-}
-
 /**
  * The folders LaTeX's programs may be in: PATH, then where TinyTeX, MacTeX and TeX Live install
  * (harness/lecture/nolatex.py TEX_HOMES finds the same ones when a render runs).
@@ -145,7 +116,6 @@ export function resources(): Resource[] {
   const data = path.join(REPO, "harness", "lecture", "data");
   const gazetteer = existsSync(path.join(data, "geonames", "cities.txt"));
   const voice = voiceEngine();
-  const openstax = existsSync(path.join(REPO, "harness", "lecture", "data", "illustrations", "openstax-physics", "index.json"));
   const tex = latexStatus();
   return [
     { id: "voice", label: "Voice", ready: voice === "gemini" || voice === "chirp",
@@ -159,21 +129,14 @@ export function resources(): Resource[] {
           ? `found ${tex.where} but ${tex.missing.join(" and ")} missing: equations are drawn as plain text. Download adds it`
           : "NOT INSTALLED: equations are drawn as plain text. Download installs TinyTeX (about 250 MB, a few minutes)",
       install: tex.latex && tex.xelatex ? undefined : "latex" },
-    { id: "illustrations", label: "Illustrations", ready: process.env.PANIM_IMAGES !== "0",
-      detail: process.env.PANIM_IMAGES === "0" ? "internet pictures are off (PANIM_IMAGES=0): no illustrations"
-        : `NASA, The Met, Smithsonian, Wikimedia Commons, Openverse${process.env.OPENROUTER_API_KEY && process.env.PANIM_AI_ILLUSTRATIONS !== "0" ? ", AI when nothing fits" : ""}` },
-    { id: "symbols", label: "Diagram drawings", ready: symbolsReady(),
-      detail: symbolsReady() ? "SVG drawings for diagram nodes" : "diagram nodes show labels only until downloaded (about 75 MB; fetched on the next lecture)",
-      install: symbolsReady() ? undefined : "icons" },
-    { id: "openstax", label: "Textbook figures", ready: openstax,
-      detail: openstax ? `OpenStax figures indexed${process.env.PANIM_ALLOW_NC === "1" ? " (non-commercial books allowed)" : ""}`
-        : "OpenStax textbook figures not indexed yet (a few MB)", install: openstax ? undefined : "openstax" },
+    { id: "pictures", label: "Pictures", ready: Boolean(process.env.OPENROUTER_API_KEY) && process.env.PANIM_IMAGES !== "0",
+      detail: process.env.PANIM_IMAGES === "0" ? "the image model is off (PANIM_IMAGES=0): pictures are SVG drawings and Manim only"
+        : process.env.OPENROUTER_API_KEY ? `built in Manim, drawn as SVGs, or made by ${process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image"} as cutouts`
+        : "set OPENROUTER_API_KEY for pictures made by the image model (Manim and SVG drawings need it too)" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",
       install: gazetteer ? undefined : "gazetteer" },
     { id: "datalab", label: "Datalab", ready: Boolean(process.env.DATALAB_API_KEY),
       detail: process.env.DATALAB_API_KEY ? "PDFs converted by Datalab" : "set DATALAB_API_KEY for clean PDF figures (pypdf is used without it)" },
-    { id: "photos", label: "Photos", ready: process.env.PANIM_IMAGES !== "0",
-      detail: process.env.PANIM_IMAGES === "0" ? "internet photos are off (PANIM_IMAGES=0)" : "Wikimedia Commons, reusable licences only" },
   ];
 }

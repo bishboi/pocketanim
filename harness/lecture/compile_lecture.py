@@ -233,6 +233,9 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
     if rest.get("figure"):
         figure = rest.pop("figure")
         return {**rest, "op": "figure", "id": figure}
+    if rest.get("generate"):
+        query = rest.pop("generate")
+        return {**rest, "op": "illustration", "query": query}
     if rest.get("illustration"):
         query = rest.pop("illustration")
         return {**rest, "op": "illustration", "query": query}
@@ -242,6 +245,11 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
 
 
 def _canonical_diagram(op: dict) -> None:
+    # A node's drawing is a picture the image model makes (a library drawing or an emoji is not used any more).
+    for node in op.get("nodes") or []:
+        if isinstance(node, dict) and node.get("entity"):
+            entity = node.pop("entity")
+            node.setdefault("picture", {"generate": str(entity)})
     kind = str(op.get("kind") or "flow")
     if kind == "steps":
         op["steps"] = True
@@ -268,6 +276,16 @@ def canonical_ops(script: dict) -> None:
                     op["figure"] = _picture_op(op["figure"], f"{op.get('id') or 'problem'}_figure")
                 if op.get("op") == "diagram":
                     _canonical_diagram(op)
+                if op.get("op") in ("define", "compare"):
+                    # Their library drawing is gone: a define card and a comparison are words (a picture beside
+                    # them is a picture op of its own).
+                    op.pop("entity", None)
+                    for column in op.get("columns") or []:
+                        if isinstance(column, dict):
+                            column.pop("entity", None)
+                for _, spec in pictures_of(op):
+                    if isinstance(spec, dict) and spec.get("entity") and not spec.get("generate"):
+                        spec["generate"] = str(spec.pop("entity"))
 
 
 def _drop(op: dict, at: str, why: str, notes: list[str]) -> None:
@@ -713,7 +731,7 @@ def _photo_key(op: dict) -> str:
 #   {"figure": "fig3"}                one of the book's figures (its SVG drawing when it has one)
 #   {"draw": "A steam engine, side view"}   drawn for the lecture as an SVG (drawings.ts)
 #   {"entity": "cow"}                 a drawing from the library
-PICTURE_KEYS = ("subject", "query", "illustration", "figure", "draw", "entity")
+PICTURE_KEYS = ("generate", "subject", "query", "illustration", "figure", "draw", "entity")
 
 
 def _timeline_events(op: dict) -> list[tuple]:
@@ -746,9 +764,8 @@ def pictures_of(op: dict) -> list[tuple[str, dict]]:
 
 def _picture_problem(spec, figures: dict) -> str | None:
     if not isinstance(spec, dict) or len([k for k in PICTURE_KEYS if spec.get(k)]) != 1:
-        return ("a picture is one of {\"subject\": \"<a person, place or thing>\"}, {\"query\": \"<photo search>\"}, "
-                "{\"illustration\": \"<what it shows>\"}, {\"figure\": \"<book figure id>\"}, "
-                "{\"draw\": \"<what to draw>\"} or {\"entity\": \"<library drawing>\"}")
+        return ("a picture is one of {\"generate\": \"<what the image model makes>\"}, "
+                "{\"draw\": \"<what to draw as an SVG>\"} or {\"figure\": \"<book figure id>\"}")
     if spec.get("figure") and str(spec["figure"]) not in figures:
         return f"no book figure {spec['figure']!r} for a picture"
     return None
@@ -761,8 +778,8 @@ def _picture_fetch(spec: dict) -> dict | None:
         return {"op": "photo", "subject": str(spec["subject"]), "optional": True}
     if spec.get("query"):
         return {"op": "photo", "query": str(spec["query"]), "optional": True}
-    if spec.get("illustration"):
-        return {"op": "illustration", "query": str(spec["illustration"]), "optional": True}
+    if spec.get("illustration") or spec.get("generate"):
+        return {"op": "illustration", "query": str(spec.get("generate") or spec["illustration"]), "optional": True}
     return None
 
 
@@ -838,12 +855,12 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         elif op.get("optional"):
             continue
         elif not images.enabled():
-            out.append(f"{at}: internet photos are off here; use a document figure, a diagram you draw (process, "
-                       "timeline, equation, plot) or drop the photo")
+            out.append(f"{at}: pictures cannot be made here (no image model: OPENROUTER_API_KEY, or PANIM_IMAGES=0); "
+                       "draw it as an SVG (draw) or build it in Manim instead")
         else:
-            what = op.get("image") or (f"subject {op['subject']!r}" if op.get("subject") else f"query {op.get('query')!r}")
-            out.append(f"{at}: no reusable photo for {what}; use find_image and pick a title it returns, "
-                       "or show an illustration (find_illustration) instead")
+            what = op.get("subject") or op.get("query") or op.get("image")
+            out.append(f"{at}: the image model made no picture of {what!r} (refused, or offline); describe it "
+                       "another way, draw it as an SVG (draw), or build it in Manim")
     return out
 
 
@@ -918,10 +935,12 @@ def _gallery_items(op: dict) -> list[dict]:
         if not isinstance(item, dict):
             continue
         caption = item.get("caption") or item.get("subject") or ""
+        if item.get("draw") and not item.get("generate"):
+            item = {**item, "generate": item["draw"]}           # a drawing in a gallery: made as a picture
         if item.get("figure"):
             out.append({"op": "figure", "id": str(item["figure"]), "caption": caption})
-        elif item.get("illustration"):
-            out.append({"op": "illustration", "query": item["illustration"], "caption": caption})
+        elif item.get("generate") or item.get("illustration"):
+            out.append({"op": "illustration", "query": item.get("generate") or item["illustration"], "caption": caption})
         elif item.get("subject") or item.get("image") or item.get("query"):
             out.append({"op": "photo", **{k: item[k] for k in ("subject", "image", "query") if item.get(k)},
                         "caption": caption})
@@ -939,8 +958,8 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
     if kind == "gallery":
         items = _gallery_items(op)
         if not items:
-            return ("'gallery' needs items: 2-4 of {subject|image|query|figure|illustration, caption} "
-                    "(people, communities, places)")
+            return ("a picture's items are 2-4 of {generate (what the image model makes) or figure (a book figure "
+                    "id), caption}")
         missing = [i["id"] for i in items if i["op"] == "figure" and i["id"] not in figures]
         if missing:
             return f"gallery: no figure {missing[0]!r}"
@@ -1873,7 +1892,6 @@ India Indian Indians Hindi English Earth Sun Moon North South East West January 
 July August September October November December Monday Tuesday Wednesday Thursday Friday Saturday Sunday
 """.split())
 _NAME = re.compile(r"[A-Z][a-zA-Z'’.-]+(?:\s+(?:of|the|de|ud|al|and|-)?\s*[A-Z][a-zA-Z'’.-]+)*")
-SUBJECT_LOOKUPS = 6          # Wikipedia lookups per chapter, at most: a compile stays quick
 
 
 def named_subjects(beat: dict, limit: int = 2) -> list[str]:
@@ -1990,7 +2008,6 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
     import images
 
     beats = chapter.get("beats") or []
-    lookups = SUBJECT_LOOKUPS * 2
     out: list[dict | None] = [None] * len(beats)
     is_map_op = is_map_op or _points_at_map
     shown_molecules = {str(op.get("name")).lower() for b in beats for op in b.get("do") or []
@@ -2025,41 +2042,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             events = _timeline_of(chapter)
             if events:
                 pick = {"op": "timeline", "events": events}
-        if not pick and images.enabled():
-            # People, communities and places the paragraph names: their pictures, together.
-            found = []
-            names = []
-            for i in group:
-                # Mathematics and the sciences build their pictures: a photo only of someone the writer names.
-                if genre in BOARD_GENRES and not beats[i].get("about"):
-                    continue
-                names += [n for n in named_subjects(beats[i], limit=3) if n not in names]
-            for subject in names[:4]:
-                if lookups <= 0 or len(found) >= 3:
-                    break
-                lookups -= 1
-                row = images.fetch(subject=subject)
-                if row and row["id"] not in USED_PICTURES:
-                    item = {"op": "photo", "subject": subject, "caption": subject}
-                    script_photos[_photo_key(item)] = row
-                    USED_PICTURES.add(row["id"])
-                    found.append(item)
-            if len(found) == 1:
-                pick = found[0]
-            elif found:
-                pick = {"op": "gallery", "items": [{"subject": f["subject"], "caption": f["caption"]} for f in found]}
-        # Biology is taught with pictures of what it is about (a cell, a leaf, a heart): a paragraph left without one
-        # gets a textbook illustration of its topic, as an explicit "auto_illustrations" gives any lecture.
-        if not pick and (STYLE_NOW.get("auto_illustrations") or genre == "biology") and images.enabled() \
-                and lookups > 0:
-            for query in picture_queries(first, chapter, genre, group[0]):
-                lookups -= 1
-                row = images.fetch(illustration=query, avoid=USED_PICTURES, genre=genre, style=STYLE_NOW["style"])
-                if row:
-                    pick = {"op": "illustration", "query": query, "caption": ""}
-                    script_photos[_photo_key(pick)] = row
-                    USED_PICTURES.add(row["id"])
-                    break
+        # (No picture is added here: whether a paragraph gets a picture, and of what kind -- one the image model
+        # makes, an SVG drawing, or Manim -- is the writer's judgement.)
         if pick:
             out[group[0]] = pick
         # Nothing new for this paragraph: the last picture stays up. Taking it down left the board empty while
@@ -2359,7 +2343,7 @@ def _op_call(op: dict) -> str:
         where = op.get("where", "stage")
         caption = op.get("caption") or ""
         if where == "stage":
-            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(row['credit'])})"
+            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(_shown_credit(row))})"
         return f"self.figure({_q(row['file'])}, {_q(caption)}, where={_q(where)})"
     if kind == "molecule":
         label = f", {_q(op['label'])}" if op.get("label") else ""
@@ -2387,7 +2371,7 @@ def _op_call(op: dict) -> str:
         row = script_photos.get(_photo_key(op))
         if not row:
             return None            # nothing reusable was found: the beat plays without it
-        return f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(row['credit'])})"
+        return f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))})"
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
@@ -2702,6 +2686,11 @@ def _complete_reveals(script: dict, notes: list[str] | None = None, figures: dic
     return added
 
 
+def _shown_credit(row: dict) -> str:
+    """The credit line under a picture: none for one the image model made (the closing credits name the model)."""
+    return "" if row.get("source") == "generated" else str(row.get("credit") or "")
+
+
 def _picture_row(op: dict) -> dict | None:
     """The fetched file behind a photo or illustration op (script_photos), or None."""
     row = script_photos.get(_photo_key(op))
@@ -2770,9 +2759,6 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     AUTO_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")
     STYLE_NOW["auto_illustrations"] = bool(script.get("auto_illustrations"))
-    import illustrations
-
-    illustrations.reset()        # a new lecture: re-read the collections on disk, a fresh AI budget
     _resolve_options(script)
     _still_timelines(script)
     _unneeded_motions(script, drop=True)
@@ -2941,7 +2927,9 @@ def main() -> int:
         source = None if errors else compile_script(script, args.scene_class)
         print(json.dumps({"source": source, "errors": errors, "warnings": warnings,
                           "minutes": round(estimate_minutes(script), 2),
-                          "pictures": pictures_used(script) if source else []}))
+                          "pictures": pictures_used(script) if source else [],
+                          # Pictures the image model made during this compile, and what each cost (genimage.py).
+                          "generated": __import__("genimage").MADE}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

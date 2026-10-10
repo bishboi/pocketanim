@@ -528,6 +528,24 @@ def write_in(mob):
     return FadeIn(mob) if has_image(mob) else Write(mob)
 
 
+def is_cutout(path) -> bool:
+    """A picture the image model made (genimage.py): a cutout, shown without a frame."""
+    return Path(str(path)).name.startswith("gen-")
+
+
+def cutout_mob(path, width: float, height: float):
+    """A picture the image model made, as the board shows it: traced into vector shapes (genimage.vectorize), in its
+    own colours, no frame, at most width x height. (A cutout the tracer could not read is shown as its PNG.)"""
+    if str(path).lower().endswith(".svg"):
+        mob = SVGMobject(str(path), stroke_width=0)
+    else:
+        mob = ImageMobject(str(path))
+    mob.scale_to_fit_height(height)
+    if mob.width > width:
+        mob.scale_to_fit_width(width)
+    return mob
+
+
 def board_svg(path, width: float, height: float):
     """An SVG drawing (a book figure redrawn, or a draw op's picture) as the board shows it, at most width x height:
     colour names in it (INK, MUTED, BOARD, ROSE, GOLD...) in this style's colours, black lines in the ink, its labels
@@ -2192,16 +2210,21 @@ class Lecture(Scene):
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
         cx, cy, w, h = self.STAGE
-        image = ImageMobject(path)
         line = None
         if caption:
             line = T(wrap(_short_caption(caption), 70), 16, P.CREAM, line_spacing=0.85)
         room = h - (line.height + 0.3 if line is not None else 0) - (0.3 if credit else 0)
-        image.scale_to_fit_width(w)
-        if image.height > room:
-            image.scale_to_fit_height(room)
-        frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
-        parts = [image, frame]
+        if is_cutout(path):
+            # A picture the image model made: a cutout, in vector shapes, no frame around it.
+            image = cutout_mob(path, w, room)
+            parts = [image]
+        else:
+            image = ImageMobject(path)
+            image.scale_to_fit_width(w)
+            if image.height > room:
+                image.scale_to_fit_height(room)
+            frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
+            parts = [image, frame]
         if line is not None:
             parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
         if credit:
@@ -2484,12 +2507,16 @@ class Lecture(Scene):
         cell_h = (h - head - 0.35 * (rows - 1)) / rows - 0.45       # room for the caption
         cells = []
         for path, caption in items:
-            image = ImageMobject(path)
-            image.scale_to_fit_width(cell_w)
-            if image.height > cell_h:
-                image.scale_to_fit_height(cell_h)
-            frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
-            parts = [image, frame]
+            if is_cutout(path):
+                image = cutout_mob(path, cell_w, cell_h)          # the image model's picture: no frame
+                parts = [image]
+            else:
+                image = ImageMobject(path)
+                image.scale_to_fit_width(cell_w)
+                if image.height > cell_h:
+                    image.scale_to_fit_height(cell_h)
+                frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
+                parts = [image, frame]
             if caption:
                 parts.append(fit(T(wrap(caption, 26), 14, P.CREAM, line_spacing=0.85), cell_w).next_to(image, DOWN, buff=0.1))
             cells.append(Group(*parts))
@@ -2528,6 +2555,8 @@ class Lecture(Scene):
                 return self._entity(str(value), height, motion)
             if kind == "svg":
                 return board_svg(str(value), width + 0.3, height)
+            if kind == "cutout" or (kind == "image" and is_cutout(value)):
+                return cutout_mob(str(value), width, height)
             if kind == "image":
                 image = ImageMobject(str(value))
                 image.scale_to_fit_height(height)

@@ -78,19 +78,15 @@ def test_a_molecule_the_model_draws_stays_only_where_its_structure_is_explained(
     assert kept == [[], ["glucose"], [], ["water"]], (kept, notes)
 
 
-def test_a_biology_paragraph_without_a_picture_gets_an_illustration_of_its_topic(monkeypatch):
+def test_a_biology_paragraph_without_a_picture_gets_none_added(monkeypatch):
+    """Whether it gets a picture, and which way it is made, is the writer's judgement; nothing is fetched for it."""
     import images
 
-    asked = []
-    monkeypatch.setattr(cl, "script_photos", {})            # the compiler's picture table: this test's own
     monkeypatch.setattr(cl, "USED_PICTURES", set())
-    monkeypatch.setattr(images, "enabled", lambda: True)
-    monkeypatch.setattr(images, "fetch", lambda **kw: asked.append(kw) or (
-        {"id": "x1", "title": kw.get("illustration"), "credit": "test"} if kw.get("illustration") else None))
+    monkeypatch.setattr(images, "fetch", lambda **kw: pytest.fail(f"a picture was fetched: {kw}"))
     fills = cl.auto_visuals({"title": "The leaf", "beats": [
         {"say": "The leaf makes food for the plant in its green cells."}]}, genre="biology")
-    assert fills[0] and fills[0]["op"] == "illustration"
-    assert any(kw.get("illustration") for kw in asked)
+    assert fills == [None]
 
 
 def test_kit_ops_lint():
@@ -269,26 +265,22 @@ def test_forge_leaves_out_figures_removed_on_the_upload_page(monkeypatch, tmp_pa
     assert "[FIGURE s1_fig1: One]" in text and "fig2" not in text
 
 
-def test_an_ai_illustration_says_what_it_cost(monkeypatch, tmp_path):
-    """The image model's bill (OpenRouter's usage) comes back on the row and is added up for the build."""
+def test_a_generated_picture_says_what_it_cost(monkeypatch, tmp_path):
+    """The image model's bill (OpenRouter's usage) comes back on the row and is added up (genimage.MADE)."""
     import base64
+    import importlib
     import io
     import json as _json
     import urllib.request
 
-    import illustrations
+    import genimage
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
-    monkeypatch.setattr(illustrations, "CACHE", tmp_path)
-    illustrations.reset()
+    monkeypatch.delenv("PANIM_IMAGE_FAKE", raising=False)
+    importlib.reload(genimage)
+    monkeypatch.setattr(genimage, "CACHE", tmp_path)
     asked = []
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 32).decode()
-
-    def fake(request, timeout=0):
-        asked.append(_json.loads(request.data))
-        reply = {"choices": [{"message": {"images": [{"image_url": {"url": f"data:image/png;base64,{png}"}}]}}],
-                 "usage": {"cost": 0.039}}
-        return io.BytesIO(_json.dumps(reply).encode())
 
     class Opened(io.BytesIO):
         def __enter__(self):
@@ -297,13 +289,17 @@ def test_an_ai_illustration_says_what_it_cost(monkeypatch, tmp_path):
         def __exit__(self, *exc):
             return False
 
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: Opened(fake(request).read()))
-    rows = illustrations.ai("a leaf in cross section")
-    assert rows and rows[0]["usd"] == 0.039 and rows[0]["made"]
-    assert asked[0]["usage"] == {"include": True}
-    assert illustrations.AI_MADE["count"] == 1 and illustrations.AI_MADE["usd"] == 0.039
-    assert illustrations.AI_MADE["items"][0]["query"] == "a leaf in cross section"
-    again = illustrations.ai("a leaf in cross section")        # drawn already: from the cache, free
-    assert again and "usd" not in again[0] and again[0]["paid"] == 0.039 and illustrations.AI_MADE["count"] == 1
-    illustrations.reset()
-    assert illustrations.AI_MADE == {"count": 0, "usd": 0.0, "items": []}
+    def fake(request, timeout=0):
+        asked.append(_json.loads(request.data))
+        reply = {"choices": [{"message": {"images": [{"image_url": {"url": f"data:image/png;base64,{png}"}}]}}],
+                 "usage": {"cost": 0.039}}
+        return Opened(_json.dumps(reply).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    row = genimage.generate("a leaf in cross section")
+    assert row and row["usd"] == 0.039 and row["made"]
+    assert asked[0]["usage"] == {"include": True} and asked[0]["modalities"] == ["image", "text"]
+    assert "a leaf in cross section" in asked[0]["messages"][0]["content"]
+    assert [m["usd"] for m in genimage.MADE] == [0.039]
+    again = genimage.generate("a leaf in cross section")        # made already: from the cache, free
+    assert again and "usd" not in again and again["paid"] == 0.039 and len(genimage.MADE) == 1

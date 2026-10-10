@@ -1,50 +1,71 @@
-"""The stage: photos (Wikimedia Commons, reusable licences only), illustrations, and the map only when needed."""
+"""The stage: pictures made by the image model as cutouts (never searched for on the web), and the map only when
+needed."""
 
 from __future__ import annotations
 
-import importlib
 import json
 import subprocess
 import sys
-import threading
-from http.server import HTTPServer
 
 import pytest
 
 from forge.util import LECTURE
 
-sys.path.insert(0, str(LECTURE / "tests"))
-import mock_commons  # noqa: E402
-
 
 @pytest.fixture
-def commons(monkeypatch, tmp_path):
-    server = HTTPServer(("127.0.0.1", 0), mock_commons.Handler)
-    mock_commons.PORT["value"] = server.server_port
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    monkeypatch.setenv("COMMONS_API", f"http://127.0.0.1:{server.server_port}/w/api.php")
-    monkeypatch.setenv("OPENVERSE_API", f"http://127.0.0.1:{server.server_port}/openverse/")
-    # No collections on disk and no other sources: the tests see only the mock, whatever this machine downloaded.
-    (tmp_path / "no-collections").mkdir()
-    monkeypatch.setenv("PANIM_ILLUSTRATIONS_DIR", str(tmp_path / "no-collections"))
-    for name, path in (("NASA_IMAGES_API", "nasa"), ("MET_API", "met"), ("SMITHSONIAN_API", "si"), ("STORYWEAVER_API", "sw")):
-        monkeypatch.setenv(name, f"http://127.0.0.1:{server.server_port}/{path}")
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+def generated(monkeypatch, tmp_path):
+    """Pictures made offline: the image model's stand-in (genimage PANIM_IMAGE_FAKE), in a cache of the test's own."""
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    monkeypatch.delenv("PANIM_IMAGES", raising=False)
     monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "images"))
+    sys.path.insert(0, str(LECTURE))
+    import importlib
+
+    import genimage
     import images
 
+    importlib.reload(genimage)
     importlib.reload(images)
-    yield images
-    server.shutdown()
+    genimage.MADE.clear()
+    return images
 
 
-def test_only_reusable_photos_and_their_credits(commons):
-    rows = commons.search("sugarcane")
-    assert [r["id"] for r in rows] == ["File:Sugarcane field in Uttar Pradesh.jpg"]     # "All rights reserved" skipped
-    assert rows[0]["credit"] == "A. Farmer, CC BY-SA 4.0, via Wikimedia Commons"
-    got = commons.fetch(query="wheat")
-    assert got and got["license"] == "CC0" and __import__("pathlib").Path(got["file"]).stat().st_size > 1000
-    assert "Wheat harvest India (B. Grower, CC0" in commons.credit([got])
+def test_pictures_are_made_never_searched(generated, monkeypatch):
+    """A photo, an illustration or a picture beside a label is made by the image model, as a cutout: transparent
+    around the subject, trimmed, no border. Nothing is fetched from the web."""
+    import urllib.request
+
+    from PIL import Image
+
+    import genimage
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("the web was searched"))
+    row = generated.fetch(subject="Mahatma Gandhi")
+    assert row and row["source"] == "generated" and row["title"] == "Mahatma Gandhi"
+    picture = Image.open(row["png"])
+    assert picture.mode == "RGBA" and picture.getpixel((0, 0))[3] == 0 and picture.size[0] < 320
+    # Shown as vector shapes, so the phone draws it (a raster would play only as sampled frames).
+    assert row["file"].endswith(".svg") and "<path" in open(row["file"]).read()
+    assert "CUTOUT" in row["prompt"] and "no border" in row["prompt"] and "No words" in row["prompt"]
+    assert len(genimage.MADE) == 1
+    again = generated.fetch(subject="Mahatma Gandhi")          # made once: from the cache, nothing paid again
+    assert again["file"] == row["file"] and "paid" in again and len(genimage.MADE) == 1
+    assert generated.fetch(illustration="a map of the Mughal Empire") is None       # maps are drawn on the map
+    assert generated.credit([row]) == f"Pictures made with {genimage.model()}"
+
+
+def test_no_pictures_without_an_image_model(monkeypatch, tmp_path):
+    sys.path.insert(0, str(LECTURE))
+    import importlib
+
+    import genimage
+    import images
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("PANIM_IMAGE_FAKE", raising=False)
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "images"))
+    importlib.reload(genimage)
+    assert not images.enabled() and images.fetch(subject="Mahatma Gandhi") is None
 
 
 def _compile(script, env):
@@ -53,7 +74,7 @@ def _compile(script, env):
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
-def test_map_only_when_a_beat_points_at_it(commons):
+def test_map_only_when_a_beat_points_at_it(generated):
     import os
 
     beat = lambda say, *ops: {"say": say, "do": list(ops)}  # noqa: E731
@@ -77,26 +98,7 @@ def test_map_only_when_a_beat_points_at_it(commons):
     assert second.index("clear_stage") < second.index("self.mark(")    # the photo leaves when the map is needed
     tractor = second.split("self.beat(")[-1]
     assert "stage_image" not in tractor                                 # the map carries its paragraph
-    assert "Photos: " in source.split("self.credits(")[1]
-
-    # A new paragraph, with fetched illustrations switched on: a diagram of its topic.
-    script["auto_illustrations"] = True
-    script["chapters"][0]["beats"][1]["paragraph"] = True
-    source = _compile(script, dict(os.environ))["source"]
-    first = source.split("# 02")[0]
-    assert "G. Botanist" in first.split("self.beat(")[2]                # the wheat paragraph: the wheat diagram
-    assert "Company logo" not in source
-
-
-def test_illustrations_are_educational_and_reusable(commons):
-    rows = commons.illustrations("water cycle")
-    assert rows and rows[0]["id"] == "File:Water cycle diagram.svg" and rows[0]["license"] == "CC BY 4.0"
-    assert all("logo" not in r["title"].lower() for r in commons.illustrations("wheat tractor water"))
-    got = commons.fetch(illustration="water cycle")
-    assert got and got["file"].endswith(".png")
-    # Already shown: not offered again, even from the cache.
-    again = commons.fetch(illustration="water cycle", avoid={"File:Water cycle diagram.svg"})
-    assert again is None or again["id"] != "File:Water cycle diagram.svg"
+    assert "Pictures made with" in source.split("self.credits(")[1]
 
 
 def test_icon_ops_become_markers_facts_and_illustrations():
@@ -111,50 +113,6 @@ def test_icon_ops_become_markers_facts_and_illustrations():
                    {"op": "marker", "lonlat": [77.5, 29.9], "label": ""},
                    {"op": "fact", "text": "Rabi: wheat"},
                    {"op": "illustration", "query": "tractor", "caption": "Machines"}]
-
-
-@pytest.fixture
-def wikipedia(commons, monkeypatch):
-    import mock_commons as mock
-
-    monkeypatch.setenv("WIKIPEDIA_API", f"http://127.0.0.1:{mock.PORT['value']}/wiki/{{lang}}/w/api.php")
-    return commons
-
-
-def test_wikipedia_picture_of_a_named_subject(wikipedia):
-    images = wikipedia
-    row = images.portrait("Chipko Movement")                    # a redirect: any capitalisation
-    assert row and row["id"] == "File:Chipko movement women hugging trees.jpg" and row["source"] == "wikipedia"
-    assert images.portrait("चिपको आन्दोलन")["subject"] == "Chipko movement"   # Hindi article -> English picture
-    assert images.portrait("Some Film") is None                  # a non-free local image is not used
-    assert images.portrait("Nobody Anywhere") is None
-    found = images.find("Sunderlal Bahuguna")
-    assert found[0]["source"] == "wikipedia" and found[0]["license"] == "CC BY 2.0"
-
-
-def test_named_people_and_movements_get_their_picture(wikipedia):
-    import os
-
-    import mock_commons as mock
-
-    beat = lambda say, *ops, **kw: {"say": say, "do": list(ops), **kw}  # noqa: E731
-    script = {"title": "Forests", "style": "parchment", "chapters": [
-        {"title": "People", "narration": "One.", "beats": [
-            beat("In the Himalayas, Sunderlal Bahuguna walked from village to village."),
-            beat("गाँव की महिलाओं ने पेड़ों को गले लगाया।", about="Chipko movement"),
-            beat("Nobody Anywhere is not a real person."),
-            beat("Here the book's own figure shows the forest.", {"op": "figure", "id": "fig1"})]}],
-        "figures": {"fig1": {"file": str(LECTURE / "tests" / "mock_commons.py"), "caption": "A forest"}}}
-    env = {**os.environ, "WIKIPEDIA_API": f"http://127.0.0.1:{mock.PORT['value']}/wiki/{{lang}}/w/api.php"}
-    result = _compile(script, env)
-    assert result["errors"] == [], result["errors"]
-    source = result["source"].split("# 01")[1]
-    beats = source.split("self.beat(")[1:]
-    # One paragraph naming two: their pictures together, as a gallery on its first beat.
-    assert "self.gallery(" in beats[0]
-    assert "Sunderlal Bahuguna" in beats[0].split("self.gallery(")[1] and "Chipko movement" in beats[0]
-    assert "stage_image" not in beats[1] and "gallery" not in beats[1] and "gallery" not in beats[2]
-    assert "Sunderlal Bahuguna portrait" in result["source"].split("self.credits(")[1]
 
 
 def test_preview_carries_images_and_keeps_time(tmp_path):
@@ -198,114 +156,6 @@ class PhotoScene(Scene):
 
     frames = timeline_frames(parse(program)["timeline"], 30)
     assert abs(frames / 30 - 6.0) < 0.2                              # every play kept its time, the image-only fade too
-
-
-@pytest.fixture
-def sources(commons, monkeypatch, tmp_path):
-    """Every illustration source pointed at the mock, and a local collections folder of our own."""
-    import importlib
-
-    import mock_commons as mock
-
-    base = f"http://127.0.0.1:{mock.PORT['value']}"
-    monkeypatch.setenv("NASA_IMAGES_API", f"{base}/nasa")
-    monkeypatch.setenv("MET_API", f"{base}/met")
-    monkeypatch.setenv("SMITHSONIAN_API", f"{base}/si")
-    monkeypatch.setenv("STORYWEAVER_API", f"{base}/sw")
-    monkeypatch.setenv("OPENROUTER_URL", f"{base}/openrouter")
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("PANIM_ALLOW_NC", raising=False)
-    local = tmp_path / "collections"
-    from PIL import Image
-
-    (local / "bioart").mkdir(parents=True)
-    Image.new("RGB", (800, 600), "white").save(local / "bioart" / "plant-cell-structure.png")
-    (local / "bioart" / "collection.json").write_text(json.dumps(
-        {"name": "NIH BioArt", "license": "Public domain", "credit": "NIH BioArt Source"}))
-    (local / "nc-book").mkdir()
-    (local / "nc-book" / "collection.json").write_text(json.dumps(
-        {"name": "Some NC book", "license": "CC BY-NC-SA 4.0", "non_commercial": True, "credit": "NC"}))
-    (local / "nc-book" / "index.json").write_text(json.dumps(
-        [{"title": "Mitochondria diagram", "caption": "The parts of a mitochondrion", "alt": "",
-          "url": f"{base}/img/Mitochondria.jpg"}]))
-    monkeypatch.setenv("PANIM_ILLUSTRATIONS_DIR", str(local))
-    import illustrations
-
-    importlib.reload(illustrations)
-    yield illustrations, mock
-
-
-def test_local_collections_and_the_non_commercial_switch(sources, monkeypatch):
-    illustrations, _ = sources
-    rows = illustrations.find("plant cell structure", genre="biology")
-    assert rows[0]["source"] == "local" and rows[0]["credit"] == "NIH BioArt Source" and rows[0]["path"].endswith(".png")
-    assert illustrations.find("mitochondria diagram", genre="biology") == [] or \
-        all(r["license"] != "CC BY-NC-SA 4.0" for r in illustrations.find("mitochondria diagram", genre="biology"))
-    monkeypatch.setenv("PANIM_ALLOW_NC", "1")
-    assert illustrations.find("mitochondria diagram", genre="biology")[0]["license"] == "CC BY-NC-SA 4.0"
-
-
-def test_the_subject_picks_the_sources(sources):
-    illustrations, _ = sources
-    history = illustrations.find("Akbar", genre="history")
-    assert history[0]["source"] == "met" and history[0]["license"] == "CC0" and "Basawan" in history[0]["credit"]
-    assert all(r["id"] != "met:12" for r in history)                    # not public domain: skipped
-    sword = illustrations.find("Mughal sword", genre="history")
-    assert [r["id"] for r in sword if r["source"] == "smithsonian"] == ["si:si1"]   # only CC0 media
-    earth = illustrations.find("earth clouds", genre="geography")
-    assert earth[0]["source"] == "nasa" and earth[0]["id"] == "nasa:earth01"        # the copyrighted one is skipped
-
-
-def test_storyweaver_gives_indian_illustrations_with_their_illustrators(sources):
-    illustrations, _ = sources
-    rows = [r for r in illustrations.find("farmer ploughing", genre="economics") if r["source"] == "storyweaver"]
-    assert [r["id"] for r in rows] == ["sw:501"]                       # the kite is not about the topic
-    assert rows[0]["url"].endswith("/img/farmer%20large.jpg") or rows[0]["url"].endswith("/img/farmer large.jpg")
-    assert rows[0]["credit"] == "Priya Kuriyan, Pratham Books, StoryWeaver (CC BY 4.0)"
-    assert rows[0]["url"].startswith("http://127.0.0.1:")              # a path on StoryWeaver's site made whole
-
-
-def test_an_ai_illustration_only_when_nothing_else_fits(sources, monkeypatch):
-    illustrations, mock = sources
-    assert illustrations.find("quantum tunnelling of a unicorn", genre="physics") == []    # no key: no AI
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
-    illustrations.reset()
-    rows = illustrations.find("quantum tunnelling of a unicorn", genre="physics", style="lab")
-    assert rows and rows[0]["source"] == "ai" and __import__("pathlib").Path(rows[0]["path"]).stat().st_size > 100
-    body = mock.PORT["prompts"][-1]
-    assert body["modalities"] == ["image", "text"] and "No words" in body["messages"][0]["content"]
-    assert "science-textbook" in body["messages"][0]["content"]
-    assert illustrations.find("earth clouds", genre="geography")[0]["source"] == "nasa"     # found: no AI
-
-
-def test_openstax_index_keeps_own_figures_and_skips_non_commercial(monkeypatch, tmp_path):
-    import importlib
-
-    from forge.util import REPO
-
-    sys.path.insert(0, str(REPO / "harness" / "scripts"))
-    import fetch_openstax as ox
-
-    importlib.reload(ox)
-    pages = {
-        "collections/phys.collection.xml": '<md:title>Physics</md:title><md:license url="http://creativecommons.org/'
-                                           'licenses/by/4.0/">CC</md:license><col:module document="m1"/>',
-        "collections/bio.collection.xml": '<md:title>Biology</md:title><md:license url="http://creativecommons.org/'
-                                          'licenses/by-nc-sa/4.0/">CC</md:license><col:module document="m1"/>',
-        "modules/m1/index.cnxml": '<title>Waves</title><figure id="f1"><media alt="A wave diagram">'
-                                  '<image mime-type="image/png" src="../../media/wave.png"/></media>'
-                                  '<caption>The parts of a wave: crest and trough.</caption></figure>'
-                                  '<figure id="f2"><media alt="A surfer"><image src="../../media/surf.jpg"/></media>'
-                                  '<caption>A surfer rides a wave. (credit: Someone/Flickr)</caption></figure>',
-    }
-    monkeypatch.setattr(ox, "_get", lambda url: pages[url.split("/main/", 1)[1]])
-    monkeypatch.setattr(ox, "TARGET", tmp_path)
-    row = ox.index_book("osbooks-x", "collections/phys.collection.xml", "phys", False)
-    assert row["license"] == "CC BY 4.0" and row["figures"] == 1       # the credited photo is someone else's
-    index = json.loads((tmp_path / "openstax-phys" / "index.json").read_text())
-    assert index[0]["caption"].startswith("The parts of a wave") and index[0]["url"].endswith("/media/wave.png")
-    assert ox.index_book("osbooks-x", "collections/bio.collection.xml", "bio", False)["skipped"]
-    assert not (tmp_path / "openstax-bio").exists()
 
 
 def test_preview_fades_an_image_when_the_video_does(tmp_path):
@@ -359,3 +209,29 @@ def test_boxes_are_solid_and_a_full_figure_clears_the_stage(tmp_path):
     anim = scene.figure(str(tmp_path / "f.png"), "caption", where="full")
     assert len(scene.stage_items) == 0 and scene.stage_extra == []      # the stage leaves under the figure
     assert len(anim.animations) == 3                                     # the figure in, the two stage parts out
+
+
+def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path):
+    """Generated pictures are traced into vector shapes, so a lecture of them is tier 1 (no raster blocker) and
+    no frame is drawn around a cutout."""
+    import os
+
+    from forge.util import REPO
+
+    script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "chapters": [
+        {"title": "Animals", "map": False, "narration": "x", "beats": [
+            {"say": "A deer in the forest.", "do": [{"op": "picture", "generate": "a red deer, side view"}]},
+            {"say": "Two more.", "do": [{"op": "picture", "items": [{"generate": "a fox", "caption": "Fox"},
+                                                                    {"generate": "a rabbit", "caption": "Rabbit"}]}]},
+            {"say": "Who eats whom.", "do": [{"op": "diagram", "id": "d", "edges": [["g", "r"]], "nodes": [
+                {"id": "g", "label": "Grass", "entity": "grass"}, {"id": "r", "label": "Deer"}]}]}]}]}
+    result = _compile(script, dict(os.environ))
+    assert result["errors"] == [], result["errors"]
+    assert len(result["generated"]) == 4                     # deer, fox, rabbit, grass: each made once
+    scene = tmp_path / "scene.py"
+    scene.write_text(result["source"])
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(tmp_path / "build")], capture_output=True, text=True, timeout=1500,
+                         env={**os.environ, "PANIM_VOICE": "silent"})
+    exported = json.loads(out.stdout.strip().splitlines()[-1])
+    assert exported["tier"] == 1 and exported["blockers"] == [], exported

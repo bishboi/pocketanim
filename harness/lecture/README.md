@@ -118,32 +118,37 @@ A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Dev
 The left half of the frame is the stage, and the fact panel is on the right.
 
 A chapter draws the map only if one of its beats points at it: a marker, a river, a state or an arrow.
-Otherwise the stage shows pictures. Lectures use **no icons**:
+Otherwise the stage shows pictures.
+
+### Pictures: three ways, the writer's choice
+
+Every picture a lecture shows is made one of three ways. Which way is the writer's judgement, picture by picture:
+
+1. **Built in Manim**: diagrams, graphs, sketches, the physics presets, equations, molecules, timelines, the map.
+2. **Drawn as an SVG**: `{"op":"picture","draw":"<the picture in words>"}` (app/lib/drawings.ts), a labelled
+   textbook drawing with parts to point at.
+3. **Made by an image model**: `{"op":"picture","generate":"<what it shows, in English>","caption"?}`
+   (`genimage.py`), a picture of a real thing the class should see: a person, a place, an animal, an object.
+
+Nothing is searched for on the web, and there are no icons, emoji or picture libraries.
+
+An image-model picture is a **cutout**. The model (OpenRouter, `PANIM_IMAGE_MODEL`, default
+`google/gemini-2.5-flash-image`) is asked for the subject alone on plain white, with no border, frame,
+background or text. The white around it is made transparent, and the picture is trimmed and then traced into
+vector shapes (`vtracer`). It sits on the board without a frame, and the phone draws it like everything else,
+at tier 1. Each picture is made once and cached by its words, style and model (`.cache/images/gen-*.png` and
+`.svg`), with its cost beside it. A compile reports what it made and what that cost (`generated` in `--json`),
+and the app bills it. `PANIM_IMAGE_MAX` (40) caps the new pictures one compile may make. `PANIM_IMAGES=0`
+turns them off, and `PANIM_IMAGE_FAKE=1` draws an offline stand-in for tests.
 
 | Operation | What it shows |
 |---|---|
-| `{"op":"photo","image":"File:….jpg" \| "subject":"Chipko movement" \| "query":"…","caption"?,"where"?:"stage"\|"full"\|"panel"}` | A photo. `subject` is Wikipedia's picture of a person, movement, event, monument or place; `query` searches Commons. Only public-domain, CC0, CC BY and CC BY-SA files are used, and they are credited at the end. |
-| `{"op":"illustration","image":"File:….svg" \| "query":"water cycle diagram","caption"?}` | An educational illustration or diagram that explains the idea: labelled drawings and diagrams from Wikimedia Commons (SVGs, rendered at 1600 px), then openly licensed illustrations from Openverse. Reusable licences only, and credited. Logos, flags and clip art are skipped. |
-| `{"op":"figure","id":"fig2","where":"stage"}` | A diagram from the uploaded PDF. |
+| `{"op":"picture","generate":"…","caption"?}` | A picture the image model makes (older names still compile: `photo` with `subject`/`query`, `illustration` with `query`; their words become what is made). |
+| `{"op":"picture","items":[{"generate"\|"figure","caption"}],"title"?}` | 2 to 4 pictures together. |
+| `{"op":"figure","id":"fig2","where":"stage"}` | A figure from the uploaded PDF. A photograph in the book is made again by the image model as a cutout (app/lib/figures.ts remakePhoto). |
 
-On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it.
-
-**People, movements and places get their picture.** A beat about a particular person, movement, event, monument
-or place gets Wikipedia's picture of it, when the book has no figure of it:
-- in English, from the proper names in its narration ("Sunderlal Bahuguna", "Battle of Plassey");
-- in any language, from the beat's `"about": "Chipko movement"`.
-
-A Hindi name is looked up on Hindi Wikipedia and followed to the English article's picture. The picture is used
-only when it is on Commons under a reusable licence; non-free posters and logos are never used. Book figures are
-placed first. At most six names are looked up per chapter, and misses are remembered.
-
-A beat left without a picture gets an automatic illustration or diagram, searched in this order:
-- its `"picture": "soil layers diagram"`, in English, which the model is asked to give each beat;
-- else the key terms of its English narration, ranked by how often the chapter uses them;
-- else, on a chapter's first beat, the chapter's title.
-
-An automatic picture stays up for two beats, and the same diagram is never used twice in a lecture. Set
-`"auto_visuals": false` in the script to turn this off.
+On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it. No
+picture is ever added without the writer asking for it.
 
 Photos are downloaded when the script compiles, into `.cache/images`. To search from the shell:
 
@@ -183,56 +188,10 @@ reported in the log. The kit operations draw on the stage:
 Automatic pictures follow the subject too. A science beat that names a molecule or writes an equation
 gets a molecule or an equation, and a history chapter opens on a timeline of the years it mentions.
 
-## Illustrations and diagrams (no icons)
+## No icons
 
-Icons were too simple to teach with, so lectures no longer use them. An older script's icon operations still
-compile:
-- an icon illustration becomes an illustration search for the same thing;
-- an icon at a place becomes a labelled marker;
-- a panel icon becomes a fact line.
-
-To search from the shell:
-
-```
-.venv/bin/python harness/lecture/images.py --illustrations "water cycle" "leaf cross section"
-```
-
-### Where the pictures come from
-
-`illustrations.py` asks the sources that suit the lecture's subject, in order, and uses only reusable
-pictures, crediting each:
-
-| Subject | Sources, in order |
-|---|---|
-| biology, chemistry, maths, economics | local collections (OpenStax figures, your packs) → Wikimedia Commons → Openverse → AI |
-| physics, geography | local → NASA → Commons → Openverse → AI |
-| history | The Met → Smithsonian → local → Commons → Openverse → AI |
-| anything else | local → Commons → Openverse → The Met → AI |
-
-- **OpenStax textbook figures.** `fetch_openstax.py` indexes the figures in OpenStax's free textbooks (from
-  their GitHub sources): captions and image links only, and each image is downloaded when a lecture first
-  shows it. Figures credited to someone else are skipped. Most OpenStax books are **CC BY-NC-SA 4.0
-  (non-commercial)**; only the high-school *Physics* book is CC BY 4.0. By default only the CC BY books are
-  indexed. `--non-commercial` indexes the rest, and a lecture uses them only with `PANIM_ALLOW_NC=1`.
-- **NASA** (not copyrighted; anything credited to someone else is skipped), **The Met** (public-domain
-  objects, CC0) and the **Smithsonian** (media marked CC0; `SMITHSONIAN_API_KEY`, a free api.data.gov key, or
-  the rate-limited `DEMO_KEY`).
-- **Your own packs.** Put a folder in `harness/lecture/data/illustrations/<name>/` with the images and a
-  `collection.json` such as `{"name": "NIH BioArt", "license": "Public domain", "credit": "NIH BioArt Source"}`.
-  Images are found by their file names, or by an `index.json` of `[{"file", "title", "caption"}]`. This is
-  how to add [NIH BioArt](https://bioart.niaid.nih.gov/) (public domain) or
-  [Servier Medical Art](https://smart.servier.com/) (CC BY 4.0) downloads; neither offers a search API.
-- **AI illustrations**, last and only when nothing else fits. They are drawn by an image model through
-  OpenRouter (`OPENROUTER_API_KEY`; `PANIM_IMAGE_MODEL`, default `google/gemini-2.5-flash-image`), in the
-  lecture's style, with no text and no real people. There are at most `PANIM_AI_MAX` (6) per lecture.
-  `PANIM_AI_ILLUSTRATIONS=0` turns them off.
-
-The endpoints can be overridden with `NASA_IMAGES_API`, `MET_API`, `SMITHSONIAN_API`, `COMMONS_API`,
-`OPENVERSE_API` and `OPENROUTER_URL`. `PANIM_IMAGES=0` turns internet pictures off.
-
-```
-.venv/bin/python harness/lecture/illustrations.py "electric circuit" --genre physics
-```
+An older script's icon operations still compile: an icon at a place becomes a labelled marker, and a panel icon
+becomes a fact line. A diagram node's `entity` becomes a picture the image model makes.
 
 ## Paragraph flow: one visual a paragraph, built as the narration goes
 
@@ -243,23 +202,17 @@ visual, or after 5 beats. Its visual is one of these:
 - a diagram built on the stage and revealed across the paragraph's beats, for how things work;
 - a definition or a comparison;
 - the document's figures;
-- a gallery of the people, communities and places it names.
+- pictures of the people, places and things it names, made by the image model.
 
 Some paragraphs need no picture at all.
 
 | Operation | What it builds |
 |---|---|
-| `{"op":"diagram","id":"chain","kind":"flow\|cycle\|tree\|hub","nodes":[{"id","label","entity"?}],"edges"?:[[from,to,label?]],"show"?:[ids],"title"?}` | A diagram of the things themselves. Each node is an SVG drawing of its `entity` (an English word: tree, deer, factory) with its label, and arrows join the nodes. `flow` runs in order, `cycle` goes round, `tree` runs down from the first node, and `hub` puts the first node in the middle. `show` draws some nodes first. |
+| `{"op":"diagram","id":"chain","kind":"flow\|cycle\|hub","nodes":[{"id","label","picture"?}],"edges"?:[[from,to,label?]],"show"?:[ids],"title"?}` | A diagram of the things themselves. A node may carry a picture (`{"generate"}`, `{"draw"}` or `{"figure"}`) beside its label, and arrows join the nodes. `flow` takes its layout from its edges (a chain, a hierarchy or a flowchart), `cycle` goes round, and `hub` puts the first node in the middle. `show` draws some nodes first. |
 | `{"op":"reveal","diagram":"chain","nodes":["deer"]}` | The next nodes of that diagram, with the arrows that now connect them. |
 | `{"op":"focus","diagram":"chain","node":"plants"}` | A ring around one node while the narration talks about it. |
-| `{"op":"define","term","meaning","entity"?}` | A hard word, big, with its meaning in plain words. |
-| `{"op":"compare","columns":[{"title","entity"?,"points":[…]}],"title"?}` | Two or three kinds side by side. |
-| `{"op":"gallery","items":[{"subject"\|"image"\|"figure"\|"illustration","caption"}],"title"?}` | 2 to 4 pictures together. |
-
-Real pictures are only for people, communities, movements and historic places. Everything else is built: a
-diagram, a map, a definition, a comparison, or the document's figures. The diagram drawings come from the SVG
-library (`fetch_icons.py`, which the app fetches when needed). They appear only inside diagrams, definitions and
-comparisons, never as a lecture's picture. Diagrams are vector, so they stay sharp and export at tier 1.
+| `{"op":"define","term","meaning"}` | A hard word, big, with its meaning in plain words. |
+| `{"op":"compare","columns":[{"title","points":[…]}],"title"?}` | Two or three kinds side by side. |
 
 Where the script chose nothing, `auto_visuals` fills a paragraph's first beat, and only that beat:
 - with an equation or molecule, or, in history, a timeline;

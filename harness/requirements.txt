@@ -11,5 +11,6 @@ pypdf
 rdkit   # molecule layouts for chemistry and biology lectures
 google-auth   # Chirp 3 HD with OAuth credentials (a gcloud login or a service account)
 requests
-zstandard   # OpenClipart's drawings arrive zstd-compressed (lecture/drawlib.py)
 youtube-transcript-api>=1.2
+scipy       # cutting a generated picture out of its background (lecture/genimage.py)
+vtracer     # tracing a generated picture into vector shapes, so the phone draws it (lecture/genimage.py)

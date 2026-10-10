@@ -72,7 +72,7 @@ def test_the_thread_and_the_asides_are_found(lib):
 
 
 def test_a_section_that_skips_part_of_its_book_is_refused_and_mended(lib):
-    section = {"n": 2, "parts": [], "minutes": 1, "words": 60, "source": BOOK, "book": True}
+    section = {"n": 2, "parts": [], "minutes": 1, "words": 85, "source": BOOK, "book": True}
     body = (f"const s = {json.dumps(section)};"
             f"const good = {json.dumps(GOOD)};"
             "const skipped = good.replace(/A quick side note.*?Back to our question\\. /, '')"

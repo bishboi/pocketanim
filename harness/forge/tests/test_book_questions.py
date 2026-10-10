@@ -98,8 +98,9 @@ let md = '# Motion\\n\\n' + 'Motion is change of place. '.repeat(200) + '\\n\\n#
 for (let i = 1; i <= 20; i++) md += i + '. Which unit is number ' + i + ' here?\\n(a) metre\\n(b) second\\n(c) newton\\n(d) watt\\n\\n';
 const s = t.bookSections(md, 10);
 const last = s[s.length - 1];
-const said = last.questions.map((x) => 'बच्चों, ' + x.text + ' Option A, metre, यह length है। Option B, second, यह time है। ' +
-  'Option C, newton, यही सही है? Option D, watt, power है।').join(' ') + ' ' + 'और ध्यान से समझो। '.repeat(400);
+let said = last.questions.map((x) => 'बच्चों, ' + x.text + ' Option A, metre, यह length है। Option B, second, यह time है। ' +
+  'Option C, newton, यही सही है? Option D, watt, power है।').join(' ');
+while (said.split(/\s+/).length < last.words) said += ' और ध्यान से समझो।';
 console.log(JSON.stringify({{
   sections: s.map((x) => [x.words, (x.questions || []).length, !!x.questionsOnly]),
   problem: t.sectionProblem(said, last, 'hinglish'),

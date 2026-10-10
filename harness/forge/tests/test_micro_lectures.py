@@ -147,3 +147,25 @@ console.log(JSON.stringify({{
     assert out["joined"] == 15
     assert out["firstPiece"] == [["diagram"], ["reveal"]]
     assert out["continued"] >= 4
+
+
+@pytest.mark.parametrize("mcqs", [0, 100, 200])
+def test_a_book_full_of_exercises_still_makes_videos_of_20_to_30_minutes(lib, mcqs):
+    """The book's questions are taught inside the series' length, not on top of it: a book with 100 multiple-choice
+    questions came out as fifteen videos of an hour."""
+    got = _node(lib, f"""
+const para = () => Array.from({{length: 120}}, (_, i) => 'idea' + (i % 50)).join(' ') + '.';
+let md = '';
+for (let c = 1; c <= 10; c++) {{
+  md += `# Chapter ${{c}}\\n\\n` + Array.from({{length: 33}}, para).join('\\n\\n') + '\\n\\n## Exercises\\n\\n';
+  for (let q = 1; q <= {mcqs} / 10; q++)
+    md += `${{q}}. In chapter ${{c}}, which statement ${{q}} is true?\\n(a) one (b) two (c) three (d) four\\n\\n`;
+}}
+const cap = topics.maxSeriesMinutes();
+const sections = transcript.bookSections(md, cap);
+const plan = topics.planTopics(sections);
+console.log(JSON.stringify({{cap, total: sections.reduce((n, s) => n + s.minutes, 0), count: plan.length,
+  longest: Math.max(...plan.map((t) => t.minutes)) + topics.OPEN_CLOSE_MINUTES}}));
+""")
+    assert got["total"] <= got["cap"] * 1.02, got
+    assert got["count"] <= 15 and got["longest"] <= 33, got

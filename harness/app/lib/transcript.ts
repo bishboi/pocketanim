@@ -185,8 +185,22 @@ export function bookSections(markdown: string, minutes: number): Section[] {
       });
     });
   });
+  // The book's questions are taught inside the lecture's length, not on top of it: over its words, every section
+  // gives up the same share (the questions came on top and made fifteen videos of an hour instead of 20-30 min).
+  const budget = Math.max(1, minutes) * WORDS_PER_MINUTE;
+  const planned = out.reduce((n, s) => n + s.words, 0);
+  if (planned > budget) {
+    const share = budget / planned;
+    for (const s of out) {
+      s.words = Math.max(SECTION_FLOOR_WORDS, Math.round(s.words * share));
+      s.minutes = Math.round((s.words / WORDS_PER_MINUTE) * 10) / 10;
+    }
+  }
   return out;
 }
+
+/** The fewest words a section is asked for, however the book's length is shared out. */
+const SECTION_FLOOR_WORDS = 150;
 
 export const SECTION_TOOL = {
   type: "function" as const,
@@ -377,6 +391,8 @@ function readsQuestion(line: string, questions: BookQuestion[]): boolean {
 
 /** The least share of its word target a section may come in at: shorter is fine when it says everything once. */
 const MIN_SHARE = 0.75;
+/** The most: a section written at twice its length made a 25-minute video run for an hour. */
+const MAX_SHARE = 1.3;
 
 /** Word 4-grams of a sentence, for spotting one that says again what was said. */
 function grams(sentence: string): Set<string> {
@@ -413,6 +429,13 @@ export function sectionProblem(text: string, section: Section, language: Languag
     return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * MIN_SHARE)}). ` +
       "Teach more of this part's own content: a step left out, a worked problem, an example, a question for the " +
       "class. Never restate what is already said.";
+  }
+  // (A section of the book's questions may take about 90 words a question, however its share was cut.)
+  const most = Math.round(Math.max(section.words, questions.length * 90) * MAX_SHARE);
+  if (words > most) {
+    return `Section ${section.n} has ${words} words; it should have about ${section.words} (at most ` +
+      `${most}): its video would run too long. Say the same things in fewer words: one ` +
+      "example where it is enough, no recap of what was just said, shorter sentences. Leave nothing of its content out.";
   }
   const repeated = repeatedSentences(text, before, questions);
   const sentences = linesOf(text).length;
@@ -545,7 +568,8 @@ function headingIn(source: string): string {
 /** What one section is to say: its slice of the reference or the book, and the book's questions in it. */
 export function sectionSource(section: Section): string {
   const questions = section.questions?.length
-    ? `\nQUESTIONS IN THIS SECTION (explain all ${section.questions.length}, every option):\n` +
+    ? `\nQUESTIONS IN THIS SECTION (explain all ${section.questions.length}: the right answer and why, then each other ` +
+      "option in a line on why not):\n" +
       section.questions.map(questionLine).join("\n")
     : "";
   if (section.parts.length) {

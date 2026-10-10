@@ -59,7 +59,8 @@ function startsAtHeading(section: Section): boolean {
 /**
  * The sections grouped into micro-lectures, in order, as even as the sections allow and each within the range
  * where it can be. One topic when the whole lecture fits in one video. A section of only the book's questions stays
- * with the teaching before it; a cut prefers a section that starts at a book heading.
+ * with the teaching before it (a long run of them may be cut between themselves); a cut prefers a section that
+ * starts at a book heading.
  */
 export function planTopics(sections: Section[], range = microMinutes()): Topic[] {
   const total = sections.reduce((n, s) => n + s.minutes, 0);
@@ -95,7 +96,8 @@ export function planTopics(sections: Section[], range = microMinutes()): Topic[]
     let bestCost = Infinity;
     // Leave at least one section for every lecture still to come.
     for (let i = from; i <= sections.length - (count - k); i++) {
-      if (sections[i].questionsOnly) continue;
+      // A part's questions stay with its teaching; a long run of them may be cut between its own sections.
+      if (sections[i].questionsOnly && !sections[i - 1]?.questionsOnly) continue;
       const cost = Math.abs(before[i] - want) - (startsAtHeading(sections[i]) ? range.target * 0.12 : 0);
       if (cost < bestCost) {
         bestCost = cost;

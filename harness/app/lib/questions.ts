@@ -134,9 +134,11 @@ export function bookQuestions(markdown: string, start = 0): BookQuestion[] {
   return found.map((q, i) => ({ ...q, id: `q${start + i + 1}` }));
 }
 
-/** Words of narration a question needs: read it, the idea behind it, every choice weighed, the answer and why. */
+/** Words of narration a question needs: read it, the right answer and why, each wrong choice in a line on why not.
+ * (80 + 45 a choice planned four minutes for every multiple-choice question, on top of the lecture's length: a book
+ * of exercises came out as fifteen videos of an hour.) */
 export function questionWords(question: BookQuestion): number {
-  return question.choices.length ? 80 + 45 * question.choices.length : 160;
+  return question.choices.length ? 60 + 25 * question.choices.length : 110;
 }
 
 /** A question as the prompts list it: its id, the book's number, the question and its choices. */

@@ -101,20 +101,21 @@ console.log(JSON.stringify({ cut: cut.map((p) => ({ title: p.title, chapters: p.
     assert out["none"] == 0                                     # no plan of two: not cut by topic
 
 
-def test_a_whole_book_is_ten_to_fifteen_micro_lectures(lib):
+@pytest.mark.parametrize("minutes", [150, 375, 900])
+def test_a_whole_book_is_as_many_micro_lectures_as_it_needs(lib, minutes):
     """A book read without paragraph breaks (pypdf) came as one block, one section and one video of hours: it is cut
-    into small sections, planned as micro-lectures of 20-30 min, never more than 15."""
+    into small sections, planned as micro-lectures of 20-30 min, as many as its length makes (no set number)."""
     out = _node(lib, """
 const sentence = 'The force on a body changes its motion, and this is what Newton saw. ';
 const book = '# Laws of motion\\n' + Array.from({ length: 2400 }, () => sentence).join('');   // 31,000 words, no blank line
-const sections = transcript.bookSections(book, 375);
+const sections = transcript.bookSections(book, MINUTES);
 const plan = topics.planTopics(sections);
 console.log(JSON.stringify({ sections: sections.length, longest: Math.max(...sections.map((s) => s.minutes)),
-  plan: plan.map((t) => t.minutes), most: topics.maxVideos(), cap: topics.maxSeriesMinutes() }));
-""")
-    assert out["most"] == 15 and out["cap"] == 375
-    assert out["sections"] >= 40 and out["longest"] <= 12
-    assert 12 <= len(out["plan"]) <= 15 and max(out["plan"]) <= 30
+  plan: plan.map((t) => t.minutes) }));
+""".replace("MINUTES", str(minutes)))
+    assert out["longest"] <= 12
+    assert max(out["plan"]) + 3 <= 30                     # with its opening and close, never past 30 min
+    assert minutes / 30 <= len(out["plan"]) <= minutes / 20 + 1
 
 
 def _chapter(k, beats, diagram=False):
@@ -125,7 +126,7 @@ def _chapter(k, beats, diagram=False):
         for b in range(beats)]}
 
 
-def test_a_long_video_is_cut_again_and_never_more_than_fifteen(lib):
+def test_a_long_video_is_cut_again_into_as_many_as_it_needs(lib):
     script = {"title": "Book", "chapters": [_chapter(1, 40, diagram=True), _chapter(2, 40)]}   # two chapters of ~120 min
     out = _node(lib, f"""
 const script = {json.dumps(script)};
@@ -136,7 +137,7 @@ const many = Array.from({{ length: 20 }}, (_, k) => ({{ index: k + 1, of: 20, sc
 const pieces = parts.expandChapters(script.chapters, 3000);
 console.log(JSON.stringify({{
   bounded: bounded.map((p) => [p.minutes, p.index, p.of]),
-  joined: parts.boundParts(many).length,
+  kept: parts.boundParts(many).length,
   // the reveal of d1 stays in the piece that draws d1
   firstPiece: pieces[0].beats.slice(0, 2).map((b) => b.do.map((o) => o.op)),
   continued: pieces.filter((c) => /continued/.test(c.title)).length,
@@ -144,15 +145,15 @@ console.log(JSON.stringify({{
 """)
     assert len(out["bounded"]) >= 8 and max(m for m, _, _ in out["bounded"]) <= 33
     assert [i for _, i, _ in out["bounded"]] == list(range(1, len(out["bounded"]) + 1))
-    assert out["joined"] == 15
+    assert out["kept"] == 20                      # short parts are never joined to reach a set number
     assert out["firstPiece"] == [["diagram"], ["reveal"]]
     assert out["continued"] >= 4
 
 
 @pytest.mark.parametrize("mcqs", [0, 100, 200])
 def test_a_book_full_of_exercises_still_makes_videos_of_20_to_30_minutes(lib, mcqs):
-    """The book's questions are taught inside the series' length, not on top of it: a book with 100 multiple-choice
-    questions came out as fifteen videos of an hour."""
+    """A book with 100 multiple-choice questions came out as fifteen videos of an hour: its questions take their
+    time as more videos, never as longer ones."""
     got = _node(lib, f"""
 const para = () => Array.from({{length: 120}}, (_, i) => 'idea' + (i % 50)).join(' ') + '.';
 let md = '';
@@ -161,11 +162,11 @@ for (let c = 1; c <= 10; c++) {{
   for (let q = 1; q <= {mcqs} / 10; q++)
     md += `${{q}}. In chapter ${{c}}, which statement ${{q}} is true?\\n(a) one (b) two (c) three (d) four\\n\\n`;
 }}
-const cap = topics.maxSeriesMinutes();
-const sections = transcript.bookSections(md, cap);
+const words = md.split(/\s+/).filter(Boolean).length;
+const sections = transcript.bookSections(md, Math.round(words / 100));
 const plan = topics.planTopics(sections);
-console.log(JSON.stringify({{cap, total: sections.reduce((n, s) => n + s.minutes, 0), count: plan.length,
+console.log(JSON.stringify({{total: sections.reduce((n, s) => n + s.minutes, 0), count: plan.length,
   longest: Math.max(...plan.map((t) => t.minutes)) + topics.OPEN_CLOSE_MINUTES}}));
 """)
-    assert got["total"] <= got["cap"] * 1.02, got
-    assert got["count"] <= 15 and got["longest"] <= 33, got
+    assert got["longest"] <= 30, got
+    assert got["count"] >= got["total"] / 30, got

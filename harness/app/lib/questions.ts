@@ -135,8 +135,7 @@ export function bookQuestions(markdown: string, start = 0): BookQuestion[] {
 }
 
 /** Words of narration a question needs: read it, the right answer and why, each wrong choice in a line on why not.
- * (80 + 45 a choice planned four minutes for every multiple-choice question, on top of the lecture's length: a book
- * of exercises came out as fifteen videos of an hour.) */
+ * (80 + 45 a choice made every multiple-choice question a long speech.) */
 export function questionWords(question: BookQuestion): number {
   return question.choices.length ? 60 + 25 * question.choices.length : 110;
 }

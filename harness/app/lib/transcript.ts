@@ -185,22 +185,8 @@ export function bookSections(markdown: string, minutes: number): Section[] {
       });
     });
   });
-  // The book's questions are taught inside the lecture's length, not on top of it: over its words, every section
-  // gives up the same share (the questions came on top and made fifteen videos of an hour instead of 20-30 min).
-  const budget = Math.max(1, minutes) * WORDS_PER_MINUTE;
-  const planned = out.reduce((n, s) => n + s.words, 0);
-  if (planned > budget) {
-    const share = budget / planned;
-    for (const s of out) {
-      s.words = Math.max(SECTION_FLOOR_WORDS, Math.round(s.words * share));
-      s.minutes = Math.round((s.words / WORDS_PER_MINUTE) * 10) / 10;
-    }
-  }
   return out;
 }
-
-/** The fewest words a section is asked for, however the book's length is shared out. */
-const SECTION_FLOOR_WORDS = 150;
 
 export const SECTION_TOOL = {
   type: "function" as const,

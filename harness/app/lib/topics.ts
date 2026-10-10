@@ -30,17 +30,6 @@ export function microMinutes(): { target: number; min: number; max: number } {
   return { target, min: Math.max(3, target - 5), max: target + 5 };
 }
 
-/** The most videos one lecture is made as (PANIM_MAX_VIDEOS, 15): a whole book in micro-lectures of 20-30 min. */
-export function maxVideos(): number {
-  const set = Number(process.env.PANIM_MAX_VIDEOS);
-  return Number.isFinite(set) && set >= 1 ? Math.round(set) : 15;
-}
-
-/** The longest lecture, in minutes, that maxVideos micro-lectures hold at their target length. */
-export function maxSeriesMinutes(): number {
-  return maxVideos() * microMinutes().target;
-}
-
 /** What opening and closing a micro-lecture adds to its sections' teaching (model.ts gives each 150 words more). */
 export const OPEN_CLOSE_MINUTES = 3;
 
@@ -59,8 +48,8 @@ function startsAtHeading(section: Section): boolean {
 /**
  * The sections grouped into micro-lectures, in order, as even as the sections allow and each within the range
  * where it can be. One topic when the whole lecture fits in one video. A section of only the book's questions stays
- * with the teaching before it (a long run of them may be cut between themselves); a cut prefers a section that
- * starts at a book heading.
+ * with the teaching before it where they fit; a cut prefers a section that starts at a book heading. No lecture
+ * runs past the range's top when the sections allow it.
  */
 export function planTopics(sections: Section[], range = microMinutes()): Topic[] {
   const total = sections.reduce((n, s) => n + s.minutes, 0);
@@ -68,11 +57,12 @@ export function planTopics(sections: Section[], range = microMinutes()): Topic[]
   if (total <= range.max || sections.length < 2) {
     return [{ index: 1, of: 1, sections: sections.map((s) => s.n), minutes: total, title: headingOf(sections[0]) }];
   }
-  // As many lectures as keep each, with its own opening and close (OPEN_CLOSE_MINUTES), inside the range and
-  // nearest the target; when none fits, the fewest that stay under its top.
+  // As many lectures as the content needs: no set number, only the length of each. The count that keeps each,
+  // with its own opening and close (OPEN_CLOSE_MINUTES), inside the range and nearest the target; when none fits,
+  // the fewest that stay under its top.
   const length = (count: number) => total / count + OPEN_CLOSE_MINUTES;
   let count = 0;
-  const most = Math.min(sections.length, maxVideos());
+  const most = sections.length;
   for (let k = 2; k <= most; k++) {
     const fits = length(k) <= range.max && length(k) >= range.min;
     if (fits && (!count || Math.abs(length(k) - range.target) < Math.abs(length(count) - range.target))) count = k;
@@ -88,28 +78,39 @@ export function planTopics(sections: Section[], range = microMinutes()): Topic[]
     before.push(run);
     run += s.minutes;
   }
-  const cuts: number[] = [];
-  let from = 1;
-  for (let k = 1; k < count; k++) {
-    const want = (total * k) / count;
-    let best = -1;
-    let bestCost = Infinity;
-    // Leave at least one section for every lecture still to come.
-    for (let i = from; i <= sections.length - (count - k); i++) {
-      // A part's questions stay with its teaching; a long run of them may be cut between its own sections.
-      if (sections[i].questionsOnly && !sections[i - 1]?.questionsOnly) continue;
-      const cost = Math.abs(before[i] - want) - (startsAtHeading(sections[i]) ? range.target * 0.12 : 0);
-      if (cost < bestCost) {
-        bestCost = cost;
-        best = i;
+  const cutInto = (parts: number): Section[][] => {
+    const cuts: number[] = [];
+    let from = 1;
+    for (let k = 1; k < parts; k++) {
+      const want = (total * k) / parts;
+      let best = -1;
+      let bestCost = Infinity;
+      // Leave at least one section for every lecture still to come.
+      for (let i = from; i <= sections.length - (parts - k); i++) {
+        // A part's questions go with its teaching where they fit (they carry their part of the book, so they can
+        // start the next lecture when they do not); a cut prefers a book heading.
+        const cost = Math.abs(before[i] - want) - (startsAtHeading(sections[i]) ? range.target * 0.12 : 0) +
+          (sections[i].questionsOnly && !sections[i - 1]?.questionsOnly ? range.target * 0.2 : 0);
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = i;
+        }
       }
+      if (best < 0) break;
+      cuts.push(best);
+      from = best + 1;
     }
-    if (best < 0) break;
-    cuts.push(best);
-    from = best + 1;
+    const bounds = [0, ...cuts, sections.length];
+    return bounds.slice(0, -1).map((start, k) => sections.slice(start, bounds[k + 1]));
+  };
+  // The cap is hard: while a cut leaves one lecture past it (the sections are uneven), one lecture more.
+  const minutesOf = (group: Section[]) => group.reduce((n, s) => n + s.minutes, 0) + OPEN_CLOSE_MINUTES;
+  const longest = (gs: Section[][]) => Math.max(...gs.map(minutesOf));
+  let groups = cutInto(count);
+  for (let k = count + 1; k <= most && longest(groups) > range.max; k++) {
+    const more = cutInto(k);
+    if (longest(more) < longest(groups)) groups = more;
   }
-  const bounds = [0, ...cuts, sections.length];
-  const groups = bounds.slice(0, -1).map((start, k) => sections.slice(start, bounds[k + 1]));
   return groups.map((group, k) => ({
     index: k + 1,
     of: groups.length,

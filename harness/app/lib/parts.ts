@@ -5,7 +5,7 @@
  * it, as even as the chapters allow (splitLecture). Each part is a lecture script of its own.
  */
 
-import { maxVideos, microMinutes } from "./topics";
+import { microMinutes } from "./topics";
 
 type Script = Record<string, unknown> & { title?: unknown; chapters?: unknown; recap?: unknown; intro?: unknown };
 
@@ -149,23 +149,16 @@ export function expandChapters(chapters: unknown[], most: number): unknown[] {
 
 /**
  * Parts kept to the length of a video: one longer than `limit` (a topic that came out long) is cut again, between
- * chapters or inside a long one; then, past maxVideos, the two shortest neighbours are joined until it fits. The
- * parts are numbered again, in order.
+ * chapters or inside a long one. As many parts as that makes (there is no set number of videos); numbered again,
+ * in order.
  */
 export function boundParts(parts: LecturePart[], limit = maxVideoMinutes()): LecturePart[] {
-  let out: LecturePart[] = parts.flatMap((part) => {
+  const out: LecturePart[] = parts.flatMap((part) => {
     const smaller = part.minutes > limit * 1.1 ? splitLecture(part.script, part.minutes, limit) : [];
     if (smaller.length < 2) return [part];
     return smaller.map((s, k) => ({ ...s, title: `${part.title} (${k + 1} of ${smaller.length})`,
       script: { ...s.script, title: String(part.script.title ?? part.title) } }));
   });
-  while (out.length > maxVideos()) {
-    let best = 0;
-    for (let i = 1; i < out.length - 1; i++) {
-      if (out[i].minutes + out[i + 1].minutes < out[best].minutes + out[best + 1].minutes) best = i;
-    }
-    out = [...out.slice(0, best), joinParts(out[best], out[best + 1]), ...out.slice(best + 2)];
-  }
   return out.map((p, k) => ({ ...p, index: k + 1, of: out.length }));
 }
 
@@ -190,7 +183,7 @@ function words(chapter: unknown): number {
  */
 export function splitLecture(script: Script, minutes: number, limit = maxVideoMinutes()): LecturePart[] {
   if (!(minutes > limit)) return [];
-  const wanted = Math.min(maxVideos(), Math.ceil(minutes / limit));
+  const wanted = Math.ceil(minutes / limit);
   // Fewer chapters than videos, or a chapter longer than a video: long chapters are cut between beats first.
   const whole = Array.isArray(script.chapters) ? script.chapters : [];
   const sizesWhole = whole.map(words);

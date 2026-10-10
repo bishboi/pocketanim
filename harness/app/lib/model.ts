@@ -19,7 +19,7 @@ import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigu
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { boundParts, joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
-import { OPEN_CLOSE_MINUTES, maxSeriesMinutes, planTopics, topicOf, topicLabel, type Topic } from "./topics";
+import { OPEN_CLOSE_MINUTES, planTopics, topicOf, topicLabel, type Topic } from "./topics";
 import { SECTION_TOOL, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
@@ -738,9 +738,9 @@ async function viaOpenRouter(
   const referenceText = reference?.parts?.map((p) => p.text).join("\n") ?? "";
   // Without a chosen length, a remake runs as long as the video it follows.
   const referenceMinutes = reference?.video?.duration ? Math.min(90, Math.max(3, Math.round(reference.video.duration / 60))) : 0;
-  // At most what maxVideos micro-lectures hold (15 of about 25 min): a longer lecture is more videos than a series.
-  const minutes = Math.min(maxSeriesMinutes(), request.minutes ?? (referenceMinutes ||
-    targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? "")));
+  // As long as the content needs; a long one is as many micro-lectures of 20-30 min as that makes (topics.ts).
+  const minutes = request.minutes ?? (referenceMinutes ||
+    targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
   const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`.split(/\s+/).filter(Boolean).length);
   const subject = lecture
     ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}\n${(doc?.markdown ?? "").slice(0, 15000)}` }, emit)
@@ -2446,8 +2446,8 @@ export async function generate(
   if (isLecture(template) && kept.script && kept.options && kept.source === result.source && kept.minutes) {
     const script = kept.script as Record<string, unknown>;
     const byTopic = splitByTopics(script, kept.minutes);
-    // Each video kept to a micro-lecture's length: a topic that came out long is cut again, and never more than
-    // maxVideos of them.
+    // Each video kept to a micro-lecture's length: a topic that came out long is cut again (as many videos as
+    // that makes).
     let parts: LecturePart[] = boundParts(byTopic.length ? byTopic : splitLecture(script, kept.minutes));
     if (parts.length) {
       emit({ type: "message", role: "status", text: `The lecture runs about ${Math.round(kept.minutes)} min: making it ` +

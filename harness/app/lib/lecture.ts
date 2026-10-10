@@ -8,7 +8,6 @@
  * linter catches the layout mistakes before anything renders.
  */
 
-import { maxSeriesMinutes } from "./topics";
 import { MIN_FIGURE_STEPS, MIN_WORK_LINES, SOLVING_STEPS } from "./solving";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -57,13 +56,13 @@ const BOOK_WORDS_PER_MINUTE = 100;
 export function targetMinutes(text: string, source = ""): number {
   const digits = text.replace(/[०-९]/g, (d) => String("०१२३४५६७८९".indexOf(d)));
   const found = digits.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:min\b|mins\b|minutes?\b|मिनट)/i);
-  if (found) return Math.min(maxSeriesMinutes(), Math.max(1, parseFloat(found[1])));
+  if (found) return Math.max(1, parseFloat(found[1]));
   const words = `${text}\n${source}`.split(/\s+/).filter(Boolean).length;
   if (source.trim()) {
     // A book is taught, not read: explained, with examples and questions it does not have, it runs about twice
     // as long as reading it out.
-    // As long as the book needs, up to a whole series of micro-lectures (topics.ts: 15 videos of 20-30 min).
-    return Math.min(maxSeriesMinutes(), Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / BOOK_WORDS_PER_MINUTE)));
+    // As long as the book needs: as many micro-lectures of 20-30 min as that makes (topics.ts).
+    return Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / BOOK_WORDS_PER_MINUTE));
   }
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }

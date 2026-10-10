@@ -9,10 +9,9 @@
  */
 
 import { linesOf, numberedSection } from "./lines";
-import { topicLabel, type Topic } from "./topics";
+import { microMinutes, type Topic } from "./topics";
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
-import { SOLVING_STEPS } from "./solving";
 import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
 import { asidesOf, ideasOf, uncovered } from "./coverage";
 
@@ -216,277 +215,85 @@ export function transcriptPrompt(options: {
   subject?: string;
   hasReference: boolean;
   content: string;
-  /** The lecture as a series of micro-lectures (topics.ts); one topic, or none, is one lecture as before. */
+  /** The lecture as a series of videos (topics.ts); one topic, or none, is one video. */
   topics?: Topic[];
 }): string {
-  const { sections, minutes, hasReference } = options;
-  const total = sections.reduce((n, s) => n + s.words, 0);
+  const { sections, hasReference } = options;
   const series = (options.topics?.length ?? 0) > 1 ? options.topics! : [];
+  const range = microMinutes();
   return [
-    "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. It is",
-    "written first, in full, before any picture: a later step turns it into the video, sentence for sentence. So",
-    "everything the student needs must be in these words.",
+    "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. A later",
+    "step turns it into the video sentence for sentence and adds the pictures, so everything the student hears is",
+    "in these words.",
     "",
-    `The lecture runs about ${minutes} minutes: about ${total} words in ${sections.length} sections. Each request asks`,
-    "for ONE section, and gives the end of the section before it: write that one section, in one write_section",
-    "call, picking up where the last one stopped. Each section must reach its length (the tool refuses a short",
-    "one): reach it by explaining more, never by padding.",
-    "",
+    "THREE THINGS MATTER, and nothing else is asked of you:",
+    "  1. THE QUALITY OF THE LEARNING comes first. How to teach is yours to decide: the order of explanation, the",
+    "     examples, analogies and stories, questions for the class, worked problems, how deep each idea goes, how a",
+    "     video opens and closes. Do whatever makes the student truly understand and remember. Nothing about your",
+    "     style or length is counted or checked.",
+    `  2. VIDEOS OF ${range.min}-${range.max} MINUTES. The lecture is watched as ${series.length > 1 ? `a series of ${series.length}` : "one"}` +
+      ` video${series.length > 1 ? "s" : ""}, each about ${range.min}-${range.max} minutes (a minute is about ${WORDS_PER_MINUTE} spoken words).`,
     ...(series.length ? [
-      `A SERIES OF ${series.length} MICRO-LECTURES. The lecture is made as ${series.length} separate videos of 20-30 minutes, ` +
-        "one per topic, each watched on its own, perhaps on another day:",
-      ...series.map((t) => `  Lecture ${t.index}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}` +
-        `${t.title ? ` ("${t.title}")` : ""}, about ${Math.round(t.minutes)} min.`),
-      "Each micro-lecture is complete and STRUCTURED: it OPENS (in its first section) with what it covers, a short",
-      "recall of what the lecture before taught, why this topic matters, and what the student will be able to do by",
-      "its end; then it TEACHES, as deeply and slowly as always (every idea, examples, questions for the class, worked",
-      "problems from the very basics); and it CLOSES (in its last section) with the key points, a few quick",
-      "questions for the student to check themselves (each answered after a pause), and one sentence on what the",
-      "next lecture covers. Within a lecture, sections flow on from each other as one class.",
-      "",
+      "     Each video is watched on its own, perhaps on another day; the plan of which sections make each one:",
+      ...series.map((t) => `       Video ${t.index}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}` +
+        `${t.title ? ` ("${t.title}")` : ""}.`),
+      "     A video that runs past the top is cut into two, so spend the time where learning needs it.",
     ] : []),
-    hasReference
-      ? [
-          "MIMIC THE REFERENCE LECTURE (a YouTube video; its words for each section are given below). Keep its order,",
-          "its flow and its way of teaching: the same topics, the same examples and analogies, the same solved",
-          "problems with the same numbers, and the SAME QUESTIONS it asks the students (ask them the same way,",
-          "then give the time to think, then the answer and why). Where it goes fast, you go slowly: say everything",
-          "it says, and explain each step it skips. Keep its teacher's way of talking, its tricks and its repeated",
-          "rules; say them clearly and completely, in more detail.",
-          "Its words are YouTube's automatic captions of a live class: many are misheard (\"पुलिस\" is pulley,",
-          "\"Bigg Boss\" or \"एक्सेस\" may be forces or axes, numbers come out garbled). Work out what the teacher meant",
-          "from the physics and use the right words and numbers. Leave out channel talk (subscribe, like, the next",
-          "video) and anything about the recording.",
-        ].join("\n")
-      : sections.some((s) => s.book)
-        ? [
-            "TEACH THE BOOK (its text for each section is given below). A book only states things; the teacher makes",
-            "them understood. So you WRITE what a good teacher adds, the way the best YouTube teachers do:",
-            "  - Cover every idea of the section's text, in its order: every definition, law, fact, figure, table,",
-            "    solved example, in-text question and box (an aside, said as one). Leave nothing out, and add nothing",
-            "    off the syllabus. Each request lists the part's thread and its asides: all of them are checked.",
-            "  - Explain each idea ONCE, clearly, in easy words: what it means, each new term in it, and why it is so.",
-            "    Never read the book's sentences out word for word: say them your own way.",
-            "  - EXAMPLES the book does not give: ONE everyday example for each important idea (a second only for a",
-            "    hard one) (\"मान लो...\", \"जैसे...\": a bus braking, a ball on a table, the ceiling fan, cricket).",
-            "  - QUESTIONS for the class, several in every section: ask, give time (\"सोचो...\"), then the answer and",
-            "    why, and why a common wrong answer is wrong.",
-            "  - THE BOOK'S OWN QUESTIONS (listed under each section: its in-text questions, exercises, MCQs): explain",
-            "    EVERY ONE, in the book's order, none skipped, none merged. For each: first say its number (\"प्रश्न",
-            "    4.1\", \"Question 4.1\"), then read the question out as the book has it; say what it is really asking and which idea of the chapter it tests; then, for a",
-            "    multiple-choice question, take EVERY option in turn, A, B, C, D (\"Option A, ... यह गलत है क्योंकि",
-            "    ...\"; \"Option B, ... यही सही है, क्योंकि ...\"): what the option says and exactly why it is right or",
-            "    wrong (the trap in it, the mistake that leads a student to pick it); then say the answer again with",
-            "    its reason. For a question to answer: think it through out loud and give the full answer the way",
-            "    an exam wants it; a numerical is solved from the very basics (below). Then a one-line tip to",
-            "    remember it.",
-            "  - PROBLEMS: in a maths or science chapter, solve numericals from the very basics (below). Use the",
-            "    book's solved examples, and make up one or two more with easy numbers where the book has none.",
-            "  - Where the text shows [FIGURE figN: caption], talk the class through that figure (\"इस figure में",
-            "    देखो...\"): the video draws it there, built in Manim from the figure. Build every diagram out loud, piece by piece.",
-            "  - Tie each new idea to the one before. No recap at the end of a section, except where a lecture ends.",
-          ].join("\n")
-        : "TEACH THE CONTENT in order, section by section, from its first idea to its last, explaining each idea " +
-          "in detail with everyday examples, questions for the class and worked problems.",
+    "  3. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
+    "     and question in it. This is the one thing checked: a section that leaves part of its text out, or one of",
+    "     the source's own questions, is sent back.",
     "",
-    "TELL IT AS ONE STORY. The whole lecture is one seamless flow, not a list of topics:",
-    "  - Open with a hook: a question, a puzzle or an everyday situation that makes the student want the answer",
-    "    (why does a bus jerk you forward when it brakes? why did the Mughal empire fall so fast?).",
-    "  - Each idea answers the question the one before it raises. For every idea: WHY we need it (the problem or",
-    "    question it answers), WHAT it is (in plain words, then the proper term), HOW it works or happens (step by",
-    "    step, with an example), and SO WHAT (what it explains, where it shows up in life, what it leads to).",
-    "  - Join ideas with bridges, never jumps: \"but this raises a question...\", \"so what happens if...?\", \"now",
-    "    that we know X, we can understand Y\" (in the lecture's own language). Never \"next topic",
-    "    is...\". A student should feel each new idea is the natural next step.",
-    "  - Keep one thread through a section (a running example, a character, a question you come back to) and close",
-    "    the loop: answer the opening question with what was learnt.",
-    "  - ASIDES: a book often has boxes or lines beside the main thread (\"Do you know?\", interesting facts, an",
-    "    activity, a historical note) that do not carry the story on. Teach every one, but SAY that it is an aside, in",
-    "    the lecture's language (\"a quick side note, not part of our main story, but worth knowing...\";",
-    "    \"एक रोचक बात, जो हमारे topic के flow का हिस्सा नहीं है, पर जानना ज़रूरी है...\"), explain it, then return",
-    "    to the story out loud (\"back to our question...\", \"चलो, वापस अपनी बात पर आते हैं...\").",
-    "  - COVER EVERYTHING in the source: every heading, every idea and term, every aside, every figure and question.",
-    "    Keep the source's order; the story adds the why, the bridges and the thread, and never leaves anything out",
-    "    (the checks refuse a section that skips part of its text).",
-    "",
-    "TEACH EXACTLY LIKE A REAL TEACHER TALKING TO A CLASS, NOT LIKE A BOOK OR AN ARTICLE. Write it the way it",
-    "would be spoken in front of students, in easy everyday language:",
-    "  - Talk to the students all the time: \"बच्चों\", \"देखो\", \"ध्यान से सुनो\", \"मेरी बात समझो\", \"अब यहां देखो\".",
-    "  - Check in after every idea: \"ठीक है?\", \"समझ में आया?\", \"क्लियर है?\", \"अच्छा ठीक है, आगे बढ़ते हैं\".",
-    "  - SAY EACH THING ONCE. Never restate an idea in other words, never say the same sentence twice, never explain",
-    "    again what an earlier section taught: point back to it in a few words (\"जैसे हमने inertia में देखा...\",",
-    "    \"as we saw with inertia\"). Each section teaches only its own part of the source. Repeating is padding, and",
-    "    the checks refuse a section that repeats itself or an earlier one.",
-    "  - Go in small steps, one small idea per sentence. Short sentences. Never two new things in one sentence.",
-    "  - Give memory tricks and everyday pictures: \"जहां tension बनानी है, वहां बैठ जाओ और हाथ खोल दो; जिधर हाथ",
-    "    खुलेगा, उधर tension\"; \"मान लो यहां एक 5 kg का block रखा है...\"; a bus braking, a ball on a table.",
-    "  - Build every diagram out loud, piece by piece, as if drawing on the board: \"यहां एक block है। इस पर नीचे की",
-    "    तरफ क्या लगेगा? Weight, m g। अब surface इसे ऊपर push करेगा, normal reaction, N। और कोई force? नहीं।\"",
-    "  - Ask the class often and wait: \"बताओ, इस पर कौन-कौन सी forces लगेंगी? सोचो।\" Then answer, and say why",
-    "    (and why a common wrong answer is wrong: \"यह मत कहना कि ऊपर वाला block इसे mg से दबा रहा है...\").",
-    "  - Solve numericals slowly and completely, the way SOLVING below says, every step out loud. Then \"समझ में",
-    "    आया? अब एक और question देखते हैं\".",
-    "  - Say every formula and symbol in words (\"F equals m a\", \"m g sin theta\"), since it is heard, not read.",
-    ...SOLVING_STEPS.map((line) => `  ${line}`),
-    "  - Open each section by linking back in one sentence. No recap except where a lecture ends.",
-    "",
-    "EXAMPLE of the voice (the style only; not the content to use):",
-    "  \"अच्छा बच्चों, अब बात करते हैं normal reaction की। Normal का मतलब होता है perpendicular, यानी surface के",
-    "  बिल्कुल सीधा, ninety degree पर। ठीक है? मान लो table पर एक book रखी है। Book table को नीचे दबा रही है।",
-    "  तो table क्या करेगी? Table book को ऊपर की तरफ push करेगी। यही push normal reaction है। फिर से सुनो, normal",
-    "  reaction हमेशा surface के perpendicular होता है। Surface सीधी है तो ऊपर, surface झुकी हुई है तो उसके",
-    "  perpendicular, तिरछा। समझ में आया? चलो, अब एक inclined plane पर देखते हैं।\"",
+    "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
+    "  - A voice speaks it, so write only the words said: no headings, bullet lists, [brackets] or stage directions,",
+    "    and say formulas and symbols the way they are spoken.",
+    ...(sections.some((s) => s.book) ? [
+      "  - Where the source marks [FIGURE figN: caption], the video shows that figure as it is spoken of there.",
+    ] : []),
+    ...(hasReference ? [
+      "  - The source is a reference video's automatic captions (given for each section): many words are misheard",
+      "    and numbers garbled; work out what the teacher meant. Its channel talk (subscribe, the next video) is not",
+      "    content.",
+    ] : []),
+    "  - Each request asks for one section, with the end of the one before when it is written: write that one",
+    "    section, carrying on from there.",
+    ...(options.subject ? [`  - The subject is ${options.subject}.`] : []),
     "",
     options.languageRules.trim(),
     "",
-    "Only speech: no [brackets], no stage directions (\"(draws a diagram)\"), no headings, no bullet lists, no",
-    "markdown. When a picture helps, just say what to look at (\"इस diagram में देखो...\"); the pictures are added later.",
-    "",
-    // An outline only: each section's own text and questions come with the request for it (sectionSource), so
-    // these instructions are the same for every section -- one prefix the provider can cache -- and a request does
-    // not carry the whole book.
-    "THE SECTIONS, in order (each request gives that section's own text):",
-    ...sections.map((s) => `  SECTION ${s.n}: about ${s.words} words (${s.minutes} min)` +
-      (s.parts.length ? `, remaking part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference`
-        : s.questionsOnly ? ", more of the book's questions from the section before"
-        : s.book ? `, teaching ${headingIn(s.source) || "its part of the book"}` : "") +
-      (s.questions?.length ? ` (${s.questions.length} of the book's questions)` : "")),
+    "THE SECTIONS, in order (each request gives that section's own source):",
+    ...sections.map((s) => `  SECTION ${s.n}` +
+      (s.parts.length ? `: part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference`
+        : s.questionsOnly ? ": more of the source's questions from the section before"
+        : s.book ? `: ${headingIn(s.source) || "its part of the book"}` : "") +
+      (s.questions?.length ? ` (${s.questions.length} of the source's questions)` : "")),
     "",
     ...(options.content.trim() ? ["THE CONTENT (notes, a chapter) to teach from:", options.content.slice(0, 60000)] : []),
   ].join("\n");
 }
 
-const DEVANAGARI = /[ऀ-ॿ]/;
-const EXAMPLE_CUES = /मान लो|मान लीजिए|जैसे|उदाहरण|example|suppose|imagine|let us say|say you|think of/i;
-const ROMAN_HINDI = /\b(hai|hain|hota|hoti|matlab|yaani|kya|nahi|aur|toh|lekin|isliye|dekho|samjho|chalo)\b/gi;
-
-/** Why a written section is refused, or null when it is accepted. */
-/**
- * A sentence that reads out one of the book's questions or one of its options ("Option B, newton."): said as the
- * book prints it, on purpose, so the checks for copying and for too much English leave it alone.
- */
-function readsQuestion(line: string, questions: BookQuestion[]): boolean {
-  const said = norm(line);
-  if (!said || !questions.length) return false;
-  return questions.some((q) => {
-    const asked = norm(q.text);
-    return (asked.length > 10 && (asked.includes(said) || said.includes(asked.slice(0, 60)))) ||
-      q.choices.some((c) => norm(c).length >= 3 && said.includes(norm(c)));
-  });
-}
-
-/** The least share of its word target a section may come in at: shorter is fine when it says everything once. */
-const MIN_SHARE = 0.75;
-/** The most: a section written at twice its length made a 25-minute video run for an hour. */
-const MAX_SHARE = 1.3;
-
-/** Word 4-grams of a sentence, for spotting one that says again what was said. */
-function grams(sentence: string): Set<string> {
-  const w = sentence.toLowerCase().normalize("NFKC").split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
-  const out = new Set<string>();
-  for (let i = 0; i + 4 <= w.length; i++) out.add(w.slice(i, i + 4).join(" "));
-  return out;
-}
 
 /**
- * The sentences of `text` that say again what was already said, in it or in `before` (sections written earlier):
- * most of their word 4-grams were heard already. Reading out the book's questions and options is not repeating.
+ * Why a written section is sent back, or null when it is accepted. Coverage is the only check: every idea, aside
+ * and figure of its part of the book, and each of the source's own questions taken up. How it teaches, and how
+ * long it takes, are the writer's.
  */
-export function repeatedSentences(text: string, before: string[] = [], questions: BookQuestion[] = []): string[] {
-  const heard = new Set<string>();
-  for (const earlier of before) for (const line of linesOf(earlier)) for (const g of grams(line)) heard.add(g);
-  const out: string[] = [];
-  for (const line of linesOf(text)) {
-    const g = grams(line);
-    if (g.size >= 4 && !readsQuestion(line, questions)) {
-      let hit = 0;
-      for (const x of g) if (heard.has(x)) hit++;
-      if (hit / g.size >= 0.6) out.push(line);
-    }
-    for (const x of g) heard.add(x);
+export function sectionProblem(text: string, section: Section, language: Language): string | null {
+  if (!text.trim()) return `Section ${section.n} came back empty.`;
+  const skipped = unexplainedQuestions(text, section.questions ?? []);
+  if (skipped.length) {
+    return `Section ${section.n} leaves out the source's ${skipped.map((s) => s.what).join("; ")}. Take up every ` +
+      "question of the section (say which one it is, by its number).";
   }
-  return out;
-}
-
-export function sectionProblem(text: string, section: Section, language: Language, before: string[] = []): string | null {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  const questions = section.questions ?? [];
-  if (words < section.words * MIN_SHARE) {
-    return `Section ${section.n} has ${words} words; it needs about ${section.words} (at least ${Math.round(section.words * MIN_SHARE)}). ` +
-      "Teach more of this part's own content: a step left out, a worked problem, an example, a question for the " +
-      "class. Never restate what is already said.";
-  }
-  // (A section of the book's questions may take about 90 words a question, however its share was cut.)
-  const most = Math.round(Math.max(section.words, questions.length * 90) * MAX_SHARE);
-  if (words > most) {
-    return `Section ${section.n} has ${words} words; it should have about ${section.words} (at most ` +
-      `${most}): its video would run too long. Say the same things in fewer words: one ` +
-      "example where it is enough, no recap of what was just said, shorter sentences. Leave nothing of its content out.";
-  }
-  const repeated = repeatedSentences(text, before, questions);
-  const sentences = linesOf(text).length;
-  if (repeated.length > Math.max(2, sentences * 0.06)) {
-    return `Section ${section.n} repeats itself: ${repeated.length} sentences say again what was already said ` +
-      `(e.g. "${repeated[0].slice(0, 100)}"). Write it again saying each point once; a later mention of an idea is ` +
-      "a few words pointing back, not the explanation again.";
-  }
-  if (!section.parts.length) {
-    // Taught, not read out: a section of a book (or of typed notes) must ask the class and give examples.
-    const asked = (text.match(/[?？]/g) ?? []).length;
-    if (asked < 2) {
-      return `Section ${section.n} asks the class ${asked} question${asked === 1 ? "" : "s"}: ask at least two (\"बताओ...?\", ` +
-        "\"सोचो, ...?\"), give a moment to think, then answer and say why.";
-    }
-    if (section.book) {
-      // The video stage refuses narration that reads the book word for word: caught here, while it is cheap.
-      const book = norm(section.source);
-      const copied = sentencesOf(text).filter((line) => norm(line).length > 40 && book.includes(norm(line)) &&
-        !readsQuestion(line, questions));
-      if (copied.length > 1) {
-        return `Section ${section.n} reads ${copied.length} sentences of the book word for word (e.g. "${copied[0].slice(0, 90)}"): ` +
-          "say each idea in your own words, the way you would explain it to the class.";
-      }
-    }
-    const skipped = unexplainedQuestions(text, section.questions ?? []);
-    if (skipped.length) {
-      return `Section ${section.n} does not explain the book's ${skipped.map((s) => s.what).join("; ")}. Explain every ` +
-        "question of the section: say its number first (\"प्रश्न 4.1\"), read it, what it asks, then every option in " +
-        "turn (\"Option A, ...\") and why it is right or wrong, then the answer and why.";
-    }
-    if (section.book && !section.questionsOnly) {
-      // The whole of its part of the book: every heading, every aside, and the terms it sets in bold (one may be
-      // missed: a bold word in a caption, say).
-      const missing = uncovered(text, section.source, language);
-      const heavy = missing.filter((idea) => idea.kind !== "term");
-      const terms = missing.filter((idea) => idea.kind === "term");
-      if (heavy.length || terms.length > 1) {
-        const named = [...heavy, ...terms].slice(0, 8).map((idea) => `${idea.kind === "aside" ? "the aside " : ""}"${idea.text}"`);
-        return `Section ${section.n} leaves out parts of its book text: ${named.join(", ")}${missing.length > 8 ? ", ..." : ""}. ` +
-          "Teach each of them in the story of the lesson, where it fits (bridged from the idea before: why it comes " +
-          "next, what it is, how it works); an aside is said plainly as an aside, then back to the thread.";
-      }
-    }
-    // A section that is mostly the book's exercises explains questions; it need not bring examples of its own.
-    const askedWords = questions.reduce((n, q) => n + questionWords(q), 0);
-    if (!EXAMPLE_CUES.test(text) && askedWords < section.words * 0.5) {
-      return `Section ${section.n} gives no example: explain its ideas with everyday examples (\"मान लो...\", ` +
-        "\"जैसे...\", \"for example...\").";
-    }
-  }
-  if (/\[[^\]]*\]|^#|^\s*[-*•]\s/m.test(text)) {
-    return `Section ${section.n} has brackets, headings or bullet points: write only what the teacher says, in paragraphs.`;
-  }
-  if (language === "hinglish") {
-    const sentences = text.split(/(?<=[.?!।])\s+/).filter((s) => s.trim());
-    const english = sentences.filter((s) => !DEVANAGARI.test(s) && !readsQuestion(s, questions)).length;
-    if (english > sentences.length * 0.25) {
-      return `Section ${section.n} is mostly English (${english} of ${sentences.length} sentences). It is Hinglish: ` +
-        "simple Hindi in Devanagari with the subject's terms in English.";
-    }
-    const roman = text.match(ROMAN_HINDI) ?? [];
-    if (roman.length >= 3) {
-      return `Section ${section.n} writes Hindi in Latin letters (${[...new Set(roman.map((r) => r.toLowerCase()))].slice(0, 5).join(", ")}): ` +
-        "write the Hindi words in Devanagari; the voice reads Latin letters as English.";
+  if (section.book && !section.questionsOnly) {
+    // The whole of its part of the book: every heading, every aside, and the terms it sets in bold (one may be
+    // missed: a bold word in a caption, say).
+    const missing = uncovered(text, section.source, language);
+    const heavy = missing.filter((idea) => idea.kind !== "term");
+    const terms = missing.filter((idea) => idea.kind === "term");
+    if (heavy.length || terms.length > 1) {
+      const named = [...heavy, ...terms].slice(0, 8).map((idea) => `${idea.kind === "aside" ? "the aside " : ""}"${idea.text}"`);
+      return `Section ${section.n} leaves out parts of its source: ${named.join(", ")}${missing.length > 8 ? ", ..." : ""}. ` +
+        "Teach each of them, where it fits.";
     }
   }
   return null;
@@ -506,29 +313,22 @@ export function cleanSection(text: string): string {
     .trim();
 }
 
-/**
- * Whether a refusal can be mended by adding to the end of the section rather than writing it again: too short, too
- * few questions for the class, no example, or some of the book's questions not explained. Copying the book, or the
- * wrong language, needs the section written again.
- */
+/** Whether a refusal can be mended by adding to the end of the section rather than writing it again: all of them
+ * can (something of the source is missing). */
 export function repairable(problem: string): boolean {
-  return /has \d+ words; it needs|asks the class \d+ question|gives no example|does not explain the book's|leaves out parts of its book/.test(problem);
+  return /leaves out/.test(problem);
 }
 
 /** The request that mends a refused section by adding to it (repairable): only the new paragraphs, at its end. */
 export function repairRequest(section: Section, count: number, text: string, problem: string): string {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  const more = Math.max(0, Math.round(section.words * 0.95) - words);
   return [
     `SECTION ${section.n} of ${count} is written, and it ends like this:`,
     `  ...${text.slice(-1500)}`,
     "",
-    `It was refused: ${problem}`,
+    `It was sent back: ${problem}`,
     "",
-    "Do NOT write the section again. Write ONLY the new paragraphs that mend this, to be added at its end, " +
-      "carrying on naturally from where it stops, in the same voice and language, without repeating anything it " +
-      "already says" + (more > 0 ? `: about ${more} more words (it has ${words}, it needs about ${section.words}),` : ",") +
-      " teaching more of the section's ideas in depth: more examples, a question for the class, a worked step.",
+    "Do NOT write the section again. Write ONLY the new paragraphs that teach what is missing, to be added at its " +
+      "end, carrying on naturally from where it stops, in the same voice and language.",
     ...(sectionSource(section) ? ["", sectionSource(section)] : []),
     "",
     `Call write_section with section: ${section.n} and, as its text, only the new paragraphs.`,
@@ -554,8 +354,7 @@ function headingIn(source: string): string {
 /** What one section is to say: its slice of the reference or the book, and the book's questions in it. */
 export function sectionSource(section: Section): string {
   const questions = section.questions?.length
-    ? `\nQUESTIONS IN THIS SECTION (explain all ${section.questions.length}: the right answer and why, then each other ` +
-      "option in a line on why not):\n" +
+    ? `\nTHE SOURCE'S QUESTIONS IN THIS SECTION (${section.questions.length}; every one taken up):\n` +
       section.questions.map(questionLine).join("\n")
     : "";
   if (section.parts.length) {
@@ -567,12 +366,12 @@ export function sectionSource(section: Section): string {
   return "";
 }
 
-/** What a part of the book must have said about it: its main thread, and its asides to be said as asides. */
+/** What a part of the book covers: its ideas and its asides, all of which the section teaches. */
 function coverList(source: string): string {
   const thread = ideasOf(source).filter((idea) => idea.kind !== "aside").map((idea) => idea.text);
   const asides = asidesOf(source);
-  return (thread.length ? `\nTHE THREAD OF THIS PART (teach every one, as one story, in this order): ${thread.join("; ")}` : "") +
-    (asides.length ? `\nASIDES IN THIS PART (each explained, said plainly as a side note, then back to the story):\n` +
+  return (thread.length ? `\nWHAT THIS PART COVERS (every one is taught): ${thread.join("; ")}` : "") +
+    (asides.length ? `\nASIDES IN THIS PART (boxes beside the main text; each is taught too):\n` +
       asides.map((a) => `  - ${a.title}: ${a.text.slice(0, 200)}`).join("\n") : "");
 }
 
@@ -585,63 +384,39 @@ export function sectionRequest(section: Section, count: number, written: Written
   return [
     written.length
       ? `Written so far: ${written.map((w) => `section ${w.n} "${w.title}"`).join(", ")}.`
-      : opening ? "Nothing is written yet: this is the opening of the lecture." : "",
+      : opening ? "Nothing is written yet: this is the start of the lecture." : "",
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
-      : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one. Open with one short ` +
-        "sentence that links back to the topic before (named in the outline of sections), without " +
-        "repeating it, and without a greeting or an introduction to the lecture.", ""]),
-    `Now write SECTION ${section.n} of ${count} (about ${section.words} words, at least ` +
-      `${Math.round(section.words * 0.9)}${section.parts.length ? `; it remakes part${section.parts.length > 1 ? "s" : ""} ` +
-      `${section.parts.join(", ")} of the reference` : section.questionsOnly ? `; it explains the next ` +
-      `${section.questions?.length ?? 0} of the book's questions, listed below, ` +
-      "each in full, every option in turn, carrying on from the questions before" : section.book ? "; it teaches its part of the book, given below, with your own examples, questions for the class " +
-      "and worked problems" +
-      (section.questions?.length ? `, and every one of the book's ${section.questions.length} question` +
-        `${section.questions.length > 1 ? "s" : ""} listed below explained in full, each option in turn` : "") : ""}).` + (last ? ` Carry on from where section ${last.n} stopped: do not ` +
-      "repeat what it said." : "") + ` Call write_section once, with section: ${section.n} and the full text.`,
-    ...topicDuties(section, topic),
+      : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one (its topic is in the ` +
+        "outline of sections).", ""]),
+    `Now write SECTION ${section.n} of ${count}` +
+      (section.parts.length ? `, which remakes part${section.parts.length > 1 ? "s" : ""} ${section.parts.join(", ")} of the reference`
+        : section.questionsOnly ? ", which takes up more of the source's questions, listed below"
+        : section.book ? ", which teaches its part of the book, given below" : "") +
+      `. Call write_section once, with section: ${section.n} and the full text.`,
+    ...videoPlace(section, topic),
     ...(sectionSource(section) ? ["", sectionSource(section)] : []),
-    ...(note ? ["", `Your last try at section ${section.n} was refused: ${note}`] : []),
+    ...(note ? ["", `Your last try at section ${section.n} was sent back: ${note}`] : []),
   ].join("\n");
 }
 
-/** What a section adds when it opens or closes one micro-lecture of a series (topics.ts). */
-function topicDuties(section: Section, topic?: Topic): string[] {
+/** Where a section stands in its video, when the lecture is a series (topics.ts): what it opens or closes. */
+function videoPlace(section: Section, topic?: Topic): string[] {
   if (!topic || topic.of < 2) return [];
   const first = topic.sections[0] === section.n;
   const last = topic.sections[topic.sections.length - 1] === section.n;
-  const out: string[] = [];
-  if (first) {
-    out.push("", `This section OPENS ${topicLabel(topic)}, a video of its own. Begin it as a lecture begins: say ` +
-      `it is lecture ${topic.index} of ${topic.of}${topic.title ? ` and what it is about` : ""}; ` +
-      (topic.index > 1 ? "recall in one sentence what the lecture before taught that this one builds on; "
-        : "") +
-      "say in one or two sentences why this topic matters; then what the student will be able to do by its end, in " +
-      "one sentence. Then teach. This opening is short, and comes before the section's own teaching.");
-  }
-  if (last) {
-    out.push("", `This section CLOSES ${topicLabel(topic)}. After its teaching, end the lecture: its key points in ` +
-      "three or four short sentences (the only recap of the lecture); then two quick questions for the student to " +
-      "check themselves, each followed by a moment to think and its answer; " +
-      (topic.index < topic.of ? "then one sentence on what the next lecture covers." : "then a closing line: this is " +
-        "the last lecture of the series."));
-  }
-  return out;
+  if (!first && !last) return ["", `It is part of video ${topic.index} of ${topic.of}.`];
+  return ["", `It ${first && last ? "is the whole of" : first ? "OPENS" : "CLOSES"} video ${topic.index} of ${topic.of}` +
+    `${topic.title ? ` ("${topic.title}")` : ""}, a video watched on its own` +
+    (last && topic.index === topic.of ? ", and the last of the series." : ".")];
 }
 
-/** The book's questions, as the video's writer is told to put them on the stage. */
+/** The source's own questions in the transcript, for the video's writer (shown on the stage as it judges best). */
 function questionRules(questions: BookQuestion[]): string[] {
   if (!questions.length) return [];
   return [
     "",
-    `THE BOOK'S QUESTIONS (${questions.length}). The transcript explains each; put each one on the stage where it is`,
-    "read out, marked with its id, with ALL its choices in the book's order (in English on the screen):",
-    '  {"op":"question","from_book":"q3","text":"...","choices":["...","...","...","..."],"answer":"B"}',
-    "then, on the beats that explain the options, ONE BEAT PER OPTION, in order, each marking the option it talks",
-    'about: {"op":"option","choice":"A"} (a wrong one is crossed out, the right one ringed), and the answer\'s beat',
-    '{"op":"answer"}. A question to answer (no choices) is a question op with "from_book" and its answer in words;',
-    "a numerical one is worked with problem and work ops. The compiler checks every id is asked and every option",
-    "marked.",
+    `THE SOURCE'S QUESTIONS (${questions.length}), as the book prints them, for when you put one on the stage (a`,
+    'question op; "from_book" with its id):',
     ...questions.map(questionLine),
   ];
 }
@@ -655,8 +430,7 @@ export const LINES_RULES = [
   "speaks (a section may take several chapters). Your work is the picture: for each beat the operations that show",
   "what is being said (a sketch or preset built and revealed step by step, a graph, a define card, a question on",
   "the stage when the transcript asks the class one, then the answer; work lines for each step of a problem as it",
-  "is said; the problem op when a problem is read out). The length, the examples and the questions are already in",
-  "the transcript; the checks on them follow from it.",
+  "is said; the problem op when a problem is read out), as you judge best for the learning.",
 ];
 
 /** The beat script's rules when a transcript has been written: its narration is the transcript, by line number. */

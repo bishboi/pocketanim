@@ -73,15 +73,14 @@ def test_the_books_questions_are_found_with_their_choices():
     assert found[5]["choices"] == ["जूल", "न्यूटन", "वाट", "पास्कल"]
 
 
-def test_a_section_that_skips_an_option_is_refused():
+def test_a_question_left_out_is_found_and_how_it_is_explained_is_the_writers():
     out = _run("import { unexplainedQuestions } from './lib/questions.ts';"
                "const q = { id: 'q4', number: '2', text: 'The SI unit of force is', choices: ['joule', 'newton', 'watt', 'pascal'] };"
                "const told = 'The SI unit of force is asked here. Option A, joule, is energy. Option B, newton, is right. ';"
                "console.log(JSON.stringify([unexplainedQuestions(told, [q]),"
                " unexplainedQuestions(told + 'Watt is power, and pascal is pressure.', [q]),"
                " unexplainedQuestions('Nothing about it.', [q])]));")
-    assert out[0] == [{"id": "q4", "what": "question 2: options C, D"}]
-    assert out[1] == []
+    assert out[0] == [] and out[1] == []           # taken up: going through every option is the writer's choice
     assert out[2][0]["what"].startswith("question 2 (")
 
 

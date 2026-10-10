@@ -14,12 +14,12 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { unbuiltFigures, type Compiled } from "./lecture";
-import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { boundParts, joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
-import { OPEN_CLOSE_MINUTES, planTopics, topicOf, topicLabel, type Topic } from "./topics";
+import { planTopics, topicOf, topicLabel, type Topic } from "./topics";
 import { SECTION_TOOL, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
@@ -92,8 +92,6 @@ const FIRST_REPLY_MINUTES = Math.max(1, Number(process.env.PANIM_MODEL_WAIT_MINU
 const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 180) * 1000;
 /** m:ss, for the progress lines. */
 const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
-/** Subjects taught with theory, then long worked problems (compile_lecture.BOARD_GENRES). */
-const STEM_GENRES = ["mathematics", "physics", "chemistry"];
 
 /**
  * How hard the model thinks before it writes: PANIM_REASONING_EFFORT = low (the default), minimal, medium or
@@ -738,10 +736,9 @@ async function viaOpenRouter(
   const referenceText = reference?.parts?.map((p) => p.text).join("\n") ?? "";
   // Without a chosen length, a remake runs as long as the video it follows.
   const referenceMinutes = reference?.video?.duration ? Math.min(90, Math.max(3, Math.round(reference.video.duration / 60))) : 0;
-  // As long as the content needs; a long one is as many micro-lectures of 20-30 min as that makes (topics.ts).
+  // As long as the content needs; a long one is as many micro-lectures of 25-30 min as that makes (topics.ts).
   const minutes = request.minutes ?? (referenceMinutes ||
     targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
-  const plan = teachingPlan(minutes, `${request.content}\n${doc?.markdown ?? ""}\n${referenceText}`.split(/\s+/).filter(Boolean).length);
   const subject = lecture
     ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}\n${(doc?.markdown ?? "").slice(0, 15000)}` }, emit)
     : null;
@@ -835,7 +832,7 @@ async function viaOpenRouter(
     })
     : Promise.resolve(undefined);
   const systemBase = lecture
-    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined, plan)
+    ? lecturePrompt({ ...template, style }, minutes, subject ?? undefined)
     : systemPrompt(template);
   const systemTail = lecture ? languagePrompt(language) + (reference ? referencePrompt(reference) : "") : "";
   const user = lecture ? lectureUserPrompt(request) : userPrompt(request);
@@ -863,18 +860,8 @@ async function viaOpenRouter(
     const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
     topics = planTopics(sections);
     if (topics.length > 1) {
-      // Opening and closing a lecture take words of their own, on top of the section's teaching.
-      for (const topic of topics) {
-        for (const n of [topic.sections[0], topic.sections[topic.sections.length - 1]]) {
-          const section = sections.find((x) => x.n === n);
-          if (section) {
-            section.words += (OPEN_CLOSE_MINUTES * 100) / 2;
-            section.minutes = Math.round((section.words / 100) * 10) / 10;
-          }
-        }
-      }
       emit({ type: "message", role: "status", text: `About ${Math.round(sections.reduce((n, x) => n + x.minutes, 0))} min: ` +
-        `made as ${topics.length} micro-lectures of 20-30 min, one per topic, each opening and closing on its own (` +
+        `made as ${topics.length} videos of 25-30 min (` +
         topics.map((t) => `${t.index}${t.title ? ` "${t.title}"` : ""}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}, ` +
           `${Math.round(t.minutes)} min`).join("; ") + ")." });
     }
@@ -884,9 +871,9 @@ async function viaOpenRouter(
       const total = Math.round(sections.reduce((n, s) => n + s.minutes, 0));
       const mcqs = bookQs.filter((q) => q.choices.length).length;
       emit({ type: "message", role: "status", text: `Book: ${doc?.pages ?? "?"} pages, about ${doc?.words ?? "?"} words, ` +
-        `taught in ${sections.length} sections with examples, questions and worked problems (about ${Math.max(minutes, total)} min)` +
+        `taught in ${sections.length} sections (about ${Math.max(minutes, total)} min, as the writer judges)` +
         (bookQs.length ? `; its ${bookQs.length} question${bookQs.length > 1 ? "s" : ""}${mcqs ? ` (${mcqs} multiple-choice)` : ""} ` +
-          "explained one by one, every option." : ".") });
+          "covered too." : ".") });
     }
     const prompt = transcriptPrompt({
       sections, minutes, language, languageRules: languagePrompt(language), subject: subject?.label,
@@ -918,9 +905,8 @@ async function viaOpenRouter(
     }, 10_000);
 
     /**
-     * One section, tried up to TRIES times; null when no try gave anything usable. A refusal that more words can
-     * mend (too short, a question or an example missing, a book question not explained) asks only for what to add
-     * at its end, not for the section again (repairRequest): the section is kept and grows.
+     * One section, tried up to TRIES times; null when no try gave anything usable. A section that leaves part of
+     * its source out is asked only for what to add at its end (repairRequest): the section is kept and grows.
      */
     const writeOne = async (section: (typeof sections)[number]): Promise<WrittenSection | null> => {
       let note: string | undefined;
@@ -934,8 +920,8 @@ async function viaOpenRouter(
         const state = { started: Date.now(), words: 0, attempt, thinking: false, mending };
         live.set(section.n, state);
         emit({ type: "message", role: "status",
-          text: `Transcript: ${mending ? "mending" : "writing"} section ${section.n} of ${sections.length} (about ${section.words} words, ` +
-            `${section.minutes} min)${attempt > 1 && !mending ? `, try ${attempt} of ${TRIES}` : ""}` });
+          text: `Transcript: ${mending ? "adding what is missing to" : "writing"} section ${section.n} of ${sections.length}` +
+            `${attempt > 1 && !mending ? `, try ${attempt} of ${TRIES}` : ""}` });
         const prior = [...done.values()].filter((w) => w.n < section.n).sort((x, y) => x.n - y.n);
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: OutMessage[] = [
@@ -1001,10 +987,8 @@ async function viaOpenRouter(
         }
         // Headings, bullet marks and [stage directions] are taken out, not refused.
         text = cleanSection(text);
-        // Checked against the sections written so far too: one that teaches again what an earlier one taught is
-        // refused like one that repeats itself.
-        const earlier = [...done.values()].filter((w) => w.n < section.n).map((w) => w.text);
-        const problem = text ? sectionProblem(text, section, language, earlier) : `Section ${section.n} came back empty.`;
+        // Only coverage is checked: how it teaches, and at what length, are the writer's.
+        const problem = sectionProblem(text, section, language);
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
         if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text };
@@ -1012,8 +996,7 @@ async function viaOpenRouter(
         if (text) current = { title, text, problem };
         if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
       }
-      const fallbackWords = fallback ? fallback.text.split(/\s+/).filter(Boolean).length : 0;
-      if (fallback && fallbackWords >= section.words * 0.6) {
+      if (fallback) {
         emit({ type: "message", role: "status",
           text: `Transcript: section ${section.n} kept after ${TRIES} tries, though not every check passed: ${fallback.problem}` });
         return { n: section.n, title: fallback.title || `Section ${section.n}`, text: fallback.text };
@@ -1129,7 +1112,8 @@ async function viaOpenRouter(
     emit({
       type: "message",
       role: "status",
-      text: `Length ${minutes} min${request.minutes ? "" : " (automatic)"}: about ${plan.topics} topics, ${plan.examples} example${plan.examples > 1 ? "s" : ""} for each statement, at least ${plan.minQuestions} question${plan.minQuestions > 1 ? "s" : ""} for the class${STEM_GENRES.includes(subject?.genre ?? "") ? `, at least ${plan.minProblems} long worked problem${plan.minProblems > 1 ? "s" : ""} (up to ${plan.problemsPerTopic} a topic)` : ""}`,
+      text: `About ${minutes} min${request.minutes ? "" : " (estimated from the source)"}: the writer decides how to teach it; ` +
+        "everything in the source is covered, in videos of 25-30 min.",
     });
   }
   let scene = request.previousSource ?? "";
@@ -1200,14 +1184,9 @@ async function viaOpenRouter(
     style,
     art: request.art,
     genre: subject?.genre,
-    minMinutes: minutes,
-    plan,
-    stem: STEM_GENRES.includes(subject?.genre ?? ""),
+    // Every book figure is shown (coverage); how the lecture teaches is the writer's, so no teaching checks.
     figures: doc ? scriptFigures(doc, drawn) : undefined,
-    // The transcript mimics the reference on purpose: only the content is checked for lines read out word for word.
-    sourceText: `${request.content}\n${doc?.markdown ?? ""}${planned.length ? "" : `\n${referenceText}`}`,
     language: language === "auto" ? undefined : language,
-    bookQuestions: bookQs,
   });
   // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
   // What the compiler mended by itself (a marker on no place, pictures past the web budget, reveals filled in) goes
@@ -1250,7 +1229,7 @@ async function viaOpenRouter(
   };
   // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
   // length or counts.
-  const partOptions = () => ({ ...lectureOptions(), minMinutes: undefined, plan: undefined, stem: false });
+  const partOptions = lectureOptions;
   kept.options = partOptions;
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
   const chapterCount = (script: Record<string, unknown>) => (Array.isArray(script.chapters) ? script.chapters.length : 0);
@@ -1336,7 +1315,6 @@ async function viaOpenRouter(
     const own: Record<string, unknown> = { ...script, title: script.title || `Section ${n}`, chapters };
     const section = ready.get(n) ?? written.find((w) => w.n === n);
     const filled = section ? fillLines(own, [section], { complete: [n], minBeats: partBeats }) : { problems: [], added: 0, merged: 0 };
-    const thin = thinChapters(own.chapters);
     let compiled = await compileLecture(own, partOptions());
     let dropped = 0;
     if (!compiled.source && dropFailing) {
@@ -1345,7 +1323,6 @@ async function viaOpenRouter(
     }
     const errors = [
       ...filled.problems,
-      ...(thin ? [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} chapter(s) here have fewer.`] : []),
       ...[section ? transcriptProblem(own, [section], [n]) : null].filter((e): e is string => !!e),
       ...(compiled.source ? [] : compiled.errors),
     ];
@@ -1401,9 +1378,9 @@ async function viaOpenRouter(
           "sections are being written at the same time by others: do not write them.",
         "Its narration is that section's transcript, above: every numbered line of it, in order, one or two lines a " +
           "beat, named by number ({\"lines\": [n], \"do\": [...]}). Split it into chapters where its topics change, " +
-          `8-12 beats each, each chapter with "section": ${section.n}, a title and a one-line "narration" for its title card.`,
-        "Put on the stage the book's questions this section reads out (with their from_book ids) and build the book's " +
-          "figures it explains; work every problem it solves with problem and work ops.",
+          `each chapter with "section": ${section.n}, a title and a one-line "narration" for its title card.`,
+        "Show the book's figures it speaks of (each is shown somewhere in the lecture); the rest of the pictures are " +
+          "yours to choose, for the learning.",
         first ? "This is the first section: the script also has the lecture's title, sub and intro."
           : "Give the script a title (only the first section's is used) and no intro.",
         ...seriesDuties(section.n, last),
@@ -1628,8 +1605,7 @@ async function viaOpenRouter(
   /** One micro-lecture's errors, each with the section it belongs to (or 0: the lecture's own). */
   const topicErrors = async (part: Record<string, unknown>, sections: number[]) => {
     const chapters = (Array.isArray(part.chapters) ? part.chapters : []) as { section?: unknown; beats?: { do?: Record<string, unknown>[] }[] }[];
-    const questions = sections.flatMap((n) => sectionOf(n)?.questions ?? []);
-    const compiled = logFixed(await compileLecture(part, { ...partOptions(), bookQuestions: questions }));
+    const compiled = logFixed(await compileLecture(part, partOptions()));
     const errors = new Map<number, string[]>();
     const add = (n: number, error: string) => errors.set(n, [...(errors.get(n) ?? []), error]);
     for (const error of compiled.source ? [] : compiled.errors) {
@@ -1646,15 +1622,7 @@ async function viaOpenRouter(
       const ws = ready.get(n);
       const gap = ws && chapters.some((c) => Number(c?.section) === n) ? transcriptProblem(part, [ws], [n]) : null;
       if (gap) add(n, gap);
-      // Each of the book's questions in this section, asked; each of its figures, built.
-      const asked = new Set(chapters.flatMap((c) => (c.beats ?? []).flatMap((b) => (b.do ?? [])
-        .filter((op) => op?.op === "question" && op.from_book != null).map((op) => String(op.from_book)))));
-      const unasked = (sectionOf(n)?.questions ?? []).filter((q) => !asked.has(q.id));
-      if (unasked.length) {
-        add(n, `The book's question${unasked.length > 1 ? "s" : ""} ${unasked.map((q) => q.id).join(", ")} ` +
-          `${unasked.length > 1 ? "are" : "is"} never asked. Put each on the stage where the transcript reads it out, ` +
-          '{"op":"question","from_book":"<id>","text":...,"choices":[...]}, every option explained, then the answer.');
-      }
+      // Each of the book's figures in this section, shown (the transcript already covers its questions).
       if (doc) {
         const marked = new Set([...(sectionOf(n)?.source ?? "").matchAll(/\[FIGURE (\w+):/g)].map((m) => m[1]));
         const figures = Object.fromEntries(Object.entries(scriptFigures(doc, drawn)).filter(([id]) => marked.has(id)));
@@ -2143,7 +2111,7 @@ async function viaOpenRouter(
           output = [
             `Compiled the lecture (${compiled.source.split("\n").length} lines of Manim, about ${compiled.minutes ?? "?"} min).`,
             ...compiled.warnings.map((w) => `warning: ${w}`),
-            compiled.warnings.length ? "Fix the warnings with another write_lecture (lines copied from the book and long sentences always matter); otherwise stop." : "Stop calling tools and reply in one sentence.",
+            "Stop calling tools and reply in one sentence.",
           ].join("\n");
         } else {
           output = ["The script did not compile. Fix these and call write_lecture again:", ...compiled.errors].join("\n");
@@ -2441,7 +2409,7 @@ export async function generate(
   const kept: Kept = {};
   const startedAt = Date.now();
   const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
-  // A long lecture as micro-lectures of 20-30 min: cut where its topics meet when it was written as a series
+  // A long lecture as micro-lectures of 25-30 min: cut where its topics meet when it was written as a series
   // (topics.ts), else between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).
   if (isLecture(template) && kept.script && kept.options && kept.source === result.source && kept.minutes) {
     const script = kept.script as Record<string, unknown>;

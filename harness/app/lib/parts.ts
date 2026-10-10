@@ -1,6 +1,6 @@
 /**
  * A long lecture as more than one video. A lecture written as a series of micro-lectures (topics.ts) is cut where
- * its topics meet (splitByTopics): each part a 20-30 minute lecture of its own. One without a plan (no transcript)
+ * its topics meet (splitByTopics): each part a 25-30 minute lecture of its own. One without a plan (no transcript)
  * that runs past PANIM_MAX_VIDEO_MINUTES (30) is cut, between chapters, into the fewest parts that each stay under
  * it, as even as the chapters allow (splitLecture). Each part is a lecture script of its own.
  */
@@ -154,7 +154,7 @@ export function expandChapters(chapters: unknown[], most: number): unknown[] {
  */
 export function boundParts(parts: LecturePart[], limit = maxVideoMinutes()): LecturePart[] {
   const out: LecturePart[] = parts.flatMap((part) => {
-    const smaller = part.minutes > limit * 1.1 ? splitLecture(part.script, part.minutes, limit) : [];
+    const smaller = part.minutes > limit ? splitLecture(part.script, part.minutes, limit) : [];
     if (smaller.length < 2) return [part];
     return smaller.map((s, k) => ({ ...s, title: `${part.title} (${k + 1} of ${smaller.length})`,
       script: { ...s.script, title: String(part.script.title ?? part.title) } }));

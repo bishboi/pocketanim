@@ -151,7 +151,7 @@ function fold(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-/** The book questions a section's text leaves out, or whose options it does not all go through. */
+/** The book questions a section's text does not take up (how it explains them is the writer's). */
 export function unexplainedQuestions(text: string, questions: BookQuestion[]): { id: string; what: string }[] {
   const said = fold(text);
   const out: { id: string; what: string }[] = [];
@@ -173,14 +173,6 @@ export function unexplainedQuestions(text: string, questions: BookQuestion[]): {
       out.push({ id: q.id, what: `question ${q.number} ("${q.text.slice(0, 60)}")` });
       continue;
     }
-    const missing = q.choices
-      .map((choice, i) => ({ choice, letter: "ABCDE"[i] }))
-      .filter(({ choice, letter }) => {
-        const named = new RegExp(`(option|choice|ऑप्शन|विकल्प)\\s*\\(?${letter}\\b|\\(${letter}\\)`, "i").test(text);
-        return !named && !(fold(choice).length >= 2 && said.includes(fold(choice)));
-      })
-      .map(({ letter }) => letter);
-    if (missing.length) out.push({ id: q.id, what: `question ${q.number}: option${missing.length > 1 ? "s" : ""} ${missing.join(", ")}` });
   }
   return out;
 }

@@ -645,6 +645,14 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
                  if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
+    if script.get("teaching_rules") is False:
+        # How to teach is the writer's (the app's lectures, from a transcript): only what the video needs to be
+        # drawn is checked, and the free Manim blocks run.
+        if not any(e.startswith(("chapter", "a lecture")) and "manim" in e for e in errors):
+            import free_check
+
+            errors += free_check.verify(script)
+        return errors, warnings
     e, w = _bare_stretches(script)
     errors += e
     warnings += w
@@ -1407,7 +1415,7 @@ EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|example|e\.g\.|imagine|
 
 
 def teaching_plan(minutes: float, source_words: int = 0) -> dict:
-    """How deep a lecture of this length goes (the app's lib/lecture.ts teachingPlan, the same formula).
+    """How deep a lecture of this length goes.
 
     The content decides the topics (about one every 350 words of a source; a bare topic is split by the time
     there is). The minutes a topic gets decide how many examples each statement has and how many questions
@@ -1460,11 +1468,11 @@ def _panel_text(script: dict) -> tuple[list[str], list[str]]:
     return errors, []
 
 
-# The fewest lines of working a problem's solution shows (app/lib/solving.ts MIN_WORK_LINES): a problem solved in two
+# The fewest lines of working a problem's solution shows: a problem solved in two
 # or three lines skipped the steps a beginner needs.
 MIN_WORK_LINES = 6
-# The fewest times a problem's figure is pointed at (reveal or focus) while it is read and solved
-# (app/lib/solving.ts MIN_FIGURE_STEPS): its diagram explained, not only shown.
+# The fewest times a problem's figure is pointed at (reveal or focus) while it is read and solved:
+# its diagram explained, not only shown.
 MIN_FIGURE_STEPS = 3
 
 

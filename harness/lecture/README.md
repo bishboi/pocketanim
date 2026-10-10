@@ -340,7 +340,10 @@ time).
 **Length and depth.** On the editor page and on the Forge page, **Video length** can be set to 5, 10, 15, 20,
 30 or 40 minutes, or left automatic. The content decides the topics: about one every 350 words of a source, and
 for a bare topic, one every 3 minutes. The length decides how deep each topic goes, through the teaching plan
-(`teaching_plan` in `compile_lecture.py`, and `teachingPlan` in the app with the same formula).
+(`teaching_plan` in `compile_lecture.py`). This applies to Forge and the command line only: the app's lectures
+have no teaching plan. Their transcript writer decides how to teach, with three aims (the quality of the learning,
+videos of 25-30 minutes, everything in the source covered), and the app compiles them with `"teaching_rules": false`,
+so only what a video needs to be drawn is checked.
 
 | Minutes per topic | Examples per statement | Questions |
 |---|---|---|

@@ -73,11 +73,12 @@ console.log(JSON.stringify({ plan: plan.map((t) => t.sections), first: ask(5), m
     content: '', topics: plan }) }));
 """)
     assert out["plan"] == [[1, 2, 3, 4], [5, 6, 7, 8]]
-    assert "OPENS micro-lecture 2 of 2" in out["first"] and "lecture before taught" in out["first"]
-    assert "OPENS" not in out["middle"] and "CLOSES" not in out["middle"]
-    assert "CLOSES micro-lecture 1 of 2" in out["last"] and "next lecture covers" in out["last"]
-    assert "last lecture of the series" in out["end"]
-    assert "A SERIES OF 2 MICRO-LECTURES" in out["prompt"] and "Lecture 2: sections 5-8" in out["prompt"]
+    # Where it stands in its video; how a video opens and closes is the writer's.
+    assert "OPENS video 2 of 2" in out["first"]
+    assert "OPENS" not in out["middle"] and "CLOSES" not in out["middle"] and "video 2 of 2" in out["middle"]
+    assert "CLOSES video 1 of 2" in out["last"]
+    assert "the last of the series" in out["end"]
+    assert "a series of 2 videos" in out["prompt"] and "Video 2: sections 5-8" in out["prompt"]
 
 
 def test_the_finished_lecture_is_cut_where_its_topics_meet(lib):

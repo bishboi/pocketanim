@@ -78,3 +78,16 @@ def test_a_marker_on_no_place_is_left_out_and_the_rest_stays():
     assert beats[1]["do"][0]["stops"] == ["Agra", "Delhi"] and beats[1]["do"][0]["labels"] == ["Agra", "Delhi"]
     assert sum("Qwertyuiopville" in w and w.startswith("fixed:") for w in warnings) == 2
     json.dumps(script)
+
+
+def test_with_teaching_rules_off_only_drawing_is_checked():
+    """The app's lectures: how to teach is the writer's, so no length, question, example or copying checks."""
+    script = _script([{"op": "panel", "title": "A"}], [], [], teaching_rules=False,
+                     source_text="A force is a push or a pull on a body that changes its motion in some way.")
+    script["chapters"][0]["beats"][1]["say"] = "A force is a push or a pull on a body that changes its motion in some way."
+    errors, _ = cl.lint(script, min_minutes=30, min_questions=5, min_examples=5, min_problems=2)
+    assert errors == [], errors
+    ruled = {k: v for k, v in script.items() if k != "teaching_rules"}
+    assert cl.lint(ruled, min_minutes=30, min_questions=5)[0]          # the old checks still run for Forge
+    script["chapters"][0]["beats"][0]["do"] = [{"op": "diagram", "id": "d", "nodes": [{"id": "a"}]}]
+    assert cl.lint(script)[0]                                          # what cannot be drawn is still an error

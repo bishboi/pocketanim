@@ -328,9 +328,9 @@ export function layoutContract(): string {
   ].join(" ");
 }
 
-/** The lecture lengths the page offers, in minutes. The length decides how deep a lecture goes into its topics:
- * how many examples each statement gets and how many questions the class is asked (lib/lecture.ts teachingPlan). */
-// Past 30 minutes a lecture is a series of micro-lectures of 20-30 min (topics.ts), as many as it needs.
+/** The lecture lengths the page offers, in minutes, when a length is chosen rather than left to the source
+ * (a long one is made as several videos of 25-30 min). */
+// Past 30 minutes a lecture is a series of micro-lectures of 25-30 min (topics.ts), as many as it needs.
 export const LENGTH_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 375];
 
 /** The subjects a lecture can be taught as (the page's Subject menu); "auto" lets the content decide. Mathematics,

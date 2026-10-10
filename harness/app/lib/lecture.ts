@@ -8,7 +8,6 @@
  * linter catches the layout mistakes before anything renders.
  */
 
-import { MIN_FIGURE_STEPS, MIN_WORK_LINES, SOLVING_STEPS } from "./solving";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
@@ -61,56 +60,10 @@ export function targetMinutes(text: string, source = ""): number {
   if (source.trim()) {
     // A book is taught, not read: explained, with examples and questions it does not have, it runs about twice
     // as long as reading it out.
-    // As long as the book needs: as many micro-lectures of 20-30 min as that makes (topics.ts).
+    // As long as the book needs: as many micro-lectures of 25-30 min as that makes (topics.ts).
     return Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / BOOK_WORDS_PER_MINUTE));
   }
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
-}
-
-/**
- * How a lecture of this length teaches its content. The content decides the topics; the length decides the
- * depth: how many examples each statement gets and how many questions the class is asked. The same formula is
- * compile_lecture.teaching_plan (Forge uses that one).
- */
-export type TeachingPlan = {
-  minutes: number;
-  topics: number;
-  /** Examples for each important statement. */
-  examples: number;
-  /** Questions for the class per topic (0.5 = one every two topics). */
-  questionsPerTopic: number;
-  /** At least this many questions in the lecture, and beats giving an example. */
-  minQuestions: number;
-  minExamples: number;
-  /** Long worked problems per topic (mathematics and the sciences), and at least this many in the lecture. */
-  problemsPerTopic: number;
-  minProblems: number;
-};
-
-export function teachingPlan(minutes: number, sourceWords = 0): TeachingPlan {
-  // A source's topics are its own (about one every 350 words); a bare topic is split by the time there is.
-  const topics = sourceWords > 400
-    ? Math.min(15, Math.max(2, Math.round(sourceWords / 350)))
-    : Math.min(12, Math.max(2, Math.round(minutes / 3)));
-  const perTopic = minutes / topics;
-  // One example makes an idea clear; a second only where there is time for a hard one. More was repetition.
-  const examples = perTopic < 4 ? 1 : 2;
-  const questionsPerTopic = perTopic < 2 ? 0.5 : perTopic < 4 ? 1 : perTopic < 7 ? 2 : 3;
-  return {
-    minutes,
-    topics,
-    examples,
-    questionsPerTopic,
-    // A short video of a long chapter cannot ask a question every topic: at most one every 2 minutes.
-    minQuestions: Math.min(Math.max(1, Math.round(topics * questionsPerTopic)), Math.max(1, Math.floor(minutes / 2))),
-    // About two key statements a topic, each with its examples; half of them counted, as the check reads
-    // only the words an example starts with ("for example", "imagine", "जैसे"). At most one every 50 seconds.
-    minExamples: Math.min(Math.max(2, Math.round(topics * 2 * examples * 0.5)), Math.max(2, Math.round(minutes * 1.2))),
-    // A problem solved from the very basics (lib/solving.ts) takes about 4 minutes, and the theory before it about
-    // as long: at most one problem per 7 minutes of the lecture.
-    problemsPerTopic: perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3,
-    minProblems: Math.min(topics * (perTopic < 2 ? 1 : perTopic < 4 ? 2 : 3), Math.max(1, Math.floor(minutes / 7))),
-  };
 }
 
 function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -138,19 +91,9 @@ export async function compileLecture(
   script: unknown,
   options: {
     style?: string;
-    minMinutes?: number;
     figures?: Record<string, { file: string; caption: string; svg?: string; parts?: string[] }>;
     genre?: string;
-    /** The content the lecture is written from: the compiler flags lines read out of it word for word. */
-    sourceText?: string;
-    /** The teaching plan for the chosen length: fewer questions or examples than it asks for is an error. */
-    plan?: TeachingPlan;
-    /** Mathematics or a science: the plan's long problems are required too. */
-    stem?: boolean;
-    /** "hinglish": the compiler checks the narration's mix and that the screen stays English. */
     language?: string;
-    /** The uploaded book's own questions: each must be asked (from_book) and every option explained. */
-    bookQuestions?: { id: string; text: string; choices: string[] }[];
     /** How to draw the script's pictures (draw ops) as SVG before compiling (drawings.ts); left out, they are not. */
     draw?: DrawOptions;
     /** The art style the pictures are drawn in (lib/artstyles.ts); left out or "auto", the template's own. */
@@ -165,24 +108,18 @@ export async function compileLecture(
     script && typeof script === "object"
       ? {
           ...script,
+          // How to teach is the writer's: the compiler checks only what the video needs to be drawn.
+          teaching_rules: false,
           ...(options.style ? { style: options.style } : {}),
           ...(options.art && options.art !== "auto" ? { art: options.art } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
           // The book's diagrams are drawn as SVG (figures.ts) or rebuilt in Manim, never shown as the scanned picture.
           ...(options.figures && Object.keys(options.figures).length ? { rebuild_figures: true } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
-          ...(options.sourceText ? { source_text: options.sourceText } : {}),
           ...(options.language ? { language: options.language } : {}),
-          ...(options.bookQuestions?.length ? { book_questions: options.bookQuestions.map((q) =>
-            ({ n: q.id, text: q.text, choices: q.choices })) } : {}),
         }
       : script;
   const args = [compiler, "-", "--json"];
-  if (options.minMinutes) args.push("--min-minutes", String(options.minMinutes));
-  if (options.plan) {
-    args.push("--min-questions", String(options.plan.minQuestions), "--min-examples", String(options.plan.minExamples));
-    if (options.stem) args.push("--min-problems", String(options.plan.minProblems));
-  }
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
     const compiled = scriptJson<Compiled>(stdout);
@@ -576,14 +513,12 @@ export function languagePrompt(language: Language | undefined): string {
     "      \"Force मतलब एक push या pull है।\"  \"जब net force zero होता है, तो acceleration भी zero होता है।\"",
     "      \"Example लो: bus अचानक brake लगाती है, तो आप आगे की तरफ गिरते हो। क्यों? Inertia की वजह से।\"",
     "  - NEVER write Hindi in Latin letters (not \"matlab\", \"hota hai\", \"dekho\"): the voice reads Devanagari as Hindi",
-    "    and Latin letters as English, so Romanised Hindi sounds wrong. The compiler rejects it.",
+    "    and Latin letters as English, so Romanised Hindi sounds wrong.",
     "  - Keep the technical terms in English (force, mass, velocity, acceleration, friction, momentum, equilibrium,",
     "    numerator, photosynthesis) as teachers say them; do not replace them with pure Hindi words (बल, वेग,",
     "    संवेग). You may say the book's Hindi word once: \"Force, जिसे Hindi में बल कहते हैं...\".",
     "  - Say numbers and units the way they are spoken in class, units in words: \"10 newton\", \"5 meter per second",
     "    square\", \"m g sin theta\".",
-    "  - Easy, friendly language: short sentences, direct address (\"आप\", \"देखो\", \"समझो\"), a question to the class",
-    "    now and then (\"सोचो, ऐसा क्यों होता है?\").",
     "  - EVERYTHING ON SCREEN IS IN ENGLISH: the title, chapter titles, panel headings, key points, define cards",
     "    (term and meaning), labels in sketches, diagrams and graphs, questions and their choices, problem text,",
     "    given and find, working, and the recap. Only the narration (the captions) is Hinglish.",
@@ -644,19 +579,7 @@ export function lecturePrompt(
   template: Template,
   minutes = DEFAULT_LECTURE_MINUTES,
   subject?: Subject,
-  plan: TeachingPlan = teachingPlan(minutes),
 ): string {
-  // At the teaching pace (a slightly slow voice, pauses after lines and paragraphs, time to think) a minute
-  // holds about 110 words.
-  const words = Math.round(minutes * 110);
-  const beats = Math.round((minutes * 60) / 13);
-  const examples = plan.examples === 1 ? "one clear example" : `${plan.examples} different examples`;
-  const asking =
-    plan.questionsPerTopic < 1
-      ? "after every second topic"
-      : plan.questionsPerTopic === 1
-        ? "after each topic"
-        : `${plan.questionsPerTopic} questions after each topic`;
   return [
     "You write narrated lectures that explain a topic simply, for a phone renderer, as a beat script that a compiler turns into Manim.",
     `The style is ${template.name} (engine style "${template.style}"). Do not choose colours outside it.`,
@@ -664,8 +587,8 @@ export function lecturePrompt(
       ? "WRITE IT IN PARTS of about 5 minutes (2-3 chapters each), so no single reply is huge: first write_lecture with " +
         '{"script": {title, sub, region, intro, chapters: [the first chapters]}, "more": true}; then add_chapters ' +
         '{"chapters": [the next chapters], "done": false} for each next part; the last add_chapters has "done": true and ' +
-        "the recap. Each part is checked when it arrives (fix and resend a part that returns errors); the length, " +
-        "questions, examples and problems are checked over the whole lecture at the end. Then reply with one short sentence."
+        "the recap. Each part is checked when it arrives (fix and resend a part that returns errors). Then reply with " +
+        "one short sentence."
       : "Call write_lecture once with the whole script. If it returns errors, fix them and call again. Then reply with one short sentence.",
     "",
     ...(subject
@@ -675,86 +598,26 @@ export function lecturePrompt(
           "",
         ]
       : []),
-    "TEACH IN DEPTH, LIKE A PATIENT TEACHER IN A CLASSROOM. You are teaching the topic to a 12-year-old, slowly and",
-    "warmly, not reading the book aloud and not summarising it. The content (a chapter, notes) is where you start,",
-    "not the limit: explain each topic and each important statement of it fully, and add what a student needs to",
-    "understand it that the book leaves out (the why, the background, how it connects to what they know). For each",
-    "statement from the content, take several beats:",
-    "  1. say it simply, in everyday spoken words and short sentences (under about 20 words each);",
-    "  2. explain every hard word in it first (biodiversity, inertia, ecosystem): what it means in plain words, with",
-    "     a define card on the stage;",
-    `  3. give ${examples.toUpperCase()} from a student's daily life for it, each in a beat of its own (\"For example, when you`,
-    "     push a cycle...\", \"Imagine...\", \"जैसे...\"), and a comparison when it helps (a forest is like a big shared house);",
-    "  4. say WHY it is so, or what would happen if it were not.",
-    "Say each idea ONCE: never restate it in other words or teach again what an earlier chapter taught (point back to",
-    "it in a few words). Repeating is padding.",
-    "Talk naturally, as a person does: \"Now, here is something interesting.\", \"Let us think about this.\", \"Have",
-    "you ever noticed...?\". Never copy a sentence of the source; the compiler rejects a script that reads the book",
-    "word for word. Skip what is not content: QR codes, page furniture, exercise instructions.",
+    "WHAT MATTERS: the quality of the learning, and everything in the source covered. How to teach and how to show",
+    "it are yours to decide; nothing about your style, the number of questions or examples, or the length is",
+    "counted. When the lecture comes with a transcript (below), it is the teaching, said line for line: your work is",
+    "the pictures that make each line understood, chosen and paced as you judge best.",
     "",
-    `QUESTIONS FOR THE CLASS. Ask ${asking} (at least ${plan.minQuestions} in the lecture): stop and ask the class a`,
-    "question on the stage, then answer it on the next beat and explain why:",
-    '  {"say":"Let us check. Which of these is a force?","do":[{"op":"question","text":"Which of these is a force?",',
+    "A QUESTION FOR THE CLASS, when you put one on the stage (then its answer on a later beat):",
+    '  {"say":"Which of these is a force?","do":[{"op":"question","text":"Which of these is a force?",',
     '    "choices":["Kicking a ball","Sleeping","Thinking"],"answer":"A","think"?:5}]},',
-    '  {"say":"The answer is A. Kicking a ball is a push, and a push is a force.","do":[{"op":"answer"}]}',
-    "  choices: 2-5 short answers, answer: the right one's letter. Or an open question with no choices (\"Why does a",
-    "  rolling ball stop?\"), its answer in words: \"answer\":\"Friction slows it down.\". The video leaves think",
-    "  seconds (7 by default) of silence with a timer before the answer. Ask about understanding, not memory.",
-    "  To go through the choices (always, for a question from the book), give each its own beat after the thinking",
-    '  time, in order, marking it while you explain it: {"say":"Option B, sleeping. ...is not a force, because...",',
-    '  "do":[{"op":"option","choice":"B"}]}: a wrong choice is crossed out in red, the right one ringed in green.',
-    "  A question about a drawing (\"इस diagram में सोचो, कौन सा force लग रहा है?\") goes on the beat right after the",
-    "  drawing, with NO new picture in that beat: the question then sits beside the drawing, which stays on the board",
-    "  through the thinking time and the answer (reveal the answer's part of it on the answer beat).",
+    '  {"say":"The answer is A. ...","do":[{"op":"answer"}]}',
+    "  choices: 2-5 short answers, answer: the right one's letter; or an open question with no choices and its answer in",
+    '  words. The video leaves think seconds (7 by default) of silence with a timer before the answer. {"op":"option",',
+    '  "choice":"B"} marks one choice while it is talked about: a wrong one crossed out, the right one ringed.',
     "",
-    `DEPTH FOR THIS LENGTH. The chosen length is ${minutes} minutes for about ${plan.topics} topics, about`,
-    `${(minutes / plan.topics).toFixed(1)} minutes a topic. The topics come from the content and stay the same whatever the`,
-    "length; the length decides how deep each goes: how many examples, how much explanation of the why and the",
-    "background, how many questions. A longer lecture goes deeper into the same topics; it does not add unrelated ones.",
-    "Whatever the length, EXPLAIN EVERYTHING IN DETAIL: never state a term, a fact, a name or a number without saying",
-    "what it means and why it matters, as if the student has never heard of it. Prefer three short sentences that",
-    "explain to one long one that assumes.",
-    "",
-    ...(subject && ["mathematics", "physics", "chemistry"].includes(subject.genre)
-      ? [
-          `THEORY, THEN PROBLEMS (${subject.label}). Teach each concept in two parts:`,
-          "  1. THEORY: build it on the board a piece at a time. Draw the situation (a preset or a sketch) and reveal its",
-          "     parts as you name them; graph how the quantities vary; derive the law with work, one step a beat, saying",
-          "     why each step follows; define every symbol; give everyday examples.",
-          `  2. PROBLEMS: then up to ${plan.problemsPerTopic === 1 ? "one long problem" : `${plan.problemsPerTopic} long problems`} on each main concept (at least ${plan.minProblems} in the`,
-          "     lecture; a small topic may have none), each harder than the last, of the kind an exam asks and that",
-          "     needs a long explanation. For each: the problem op (the full statement, given, find, its labelled",
-          "     figure, think: 5), then every step of SOLVING below on the board as it is said: reveal the figure's",
-          "     parts one by one; the given values and their conversions, the law and its formula, then the working,",
-          `     ONE SMALL STEP PER work LINE, one or two lines a beat (at least ${MIN_WORK_LINES} lines; most problems take`,
-          "     10-20); box the answer; then the common mistakes. A problem takes 12-25 beats.",
-          "     Animate the figure (the motion op) only where seeing it move teaches something the still picture",
-          "     cannot: the beat that says what happens (\"the block slides down\", \"the bob swings\"). Not on beats",
-          "     about formulas, forces in balance or arithmetic.",
-          "     With a figure: walk the class through it before solving, and come back to it during the steps that use",
-          `     it, each time pointing at the part meant: reveal or focus on the figure (at least ${MIN_FIGURE_STEPS} times;`,
-          '     {"op":"focus","diagram":"p1_figure","node":"theta"}, {"op":"reveal","diagram":"p1_figure","nodes":["N"]}).',
-          ...SOLVING_STEPS.map((line) => `  ${line}`),
-          "  Use numbers that work out cleanly. Say every symbol in words in the narration (\"m g sine theta\").",
-          "  No photos: every picture is drawn in Manim (a scientist the lecture names may have a photo).",
-          "",
-        ]
-      : []),
     "PAUSES. The video pauses after every line and longer at the end of each paragraph by itself. After a line that",
     "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",
-    "In a Hindi lecture use simple spoken Hindi (बोलचाल की हिंदी), not heavy Sanskritised words: say 'जंगल' and",
-    "'जीव-जंतु' rather than 'वनस्पतिजात' and 'प्राणिजात'; when the book's term matters, say it once and explain it,",
-    "and you may add the familiar English word in brackets.",
     "",
     "PICTURES WITH A PURPOSE, NOT BOXES OF WORDS. A built diagram, a map, the document's figures, or real pictures of",
     "people and places; never icons, never a random image. process and quote are boxes of words: use them rarely.",
     "find_illustration and find_image take English descriptions even for a Hindi lecture; captions in the lecture's",
     "language.",
-    "",
-    `LENGTH. The lecture must run about ${minutes} minutes: about ${words} words of narration in about ${beats} beats,`,
-    `in ${Math.max(3, Math.min(12, Math.round(minutes / 2.5)))} or so chapters of 10-20 beats. The compiler measures the running time`,
-    "and returns an error when the script is well short; then teach in more depth: more examples, more explanation of",
-    "each statement, background beyond the content, another question. Never fill with empty words.",
     "",
     "A beat is one narration line (say) and the operations that go with it (do). One idea per beat, at most two caption lines",
     "(under about 180 characters, 15-30 words), at most four operations. Every number you state must be in the content you",

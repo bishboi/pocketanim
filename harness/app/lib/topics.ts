@@ -1,5 +1,5 @@
 /**
- * A long lecture as a series of micro-lectures, one per topic: videos of 20-30 minutes (PANIM_MICRO_MINUTES, 25 by
+ * A long lecture as a series of micro-lectures, one per topic: videos of 25-30 minutes (PANIM_MICRO_MINUTES, 27 by
  * default), each watched on its own. An hour-long video cut where the minutes ran out ended one part mid-topic and
  * began the next with no opening and no recap; a topic is the unit a student sits down to learn.
  *
@@ -23,11 +23,11 @@ export type Topic = {
   title: string;
 };
 
-/** The length a micro-lecture aims for, and the range it may take (PANIM_MICRO_MINUTES; 25 gives 20-30). */
+/** The length a video aims for, and the range it may take (PANIM_MICRO_MINUTES; 27 gives 25-30). */
 export function microMinutes(): { target: number; min: number; max: number } {
   const set = Number(process.env.PANIM_MICRO_MINUTES);
-  const target = Number.isFinite(set) && set >= 5 ? set : 25;
-  return { target, min: Math.max(3, target - 5), max: target + 5 };
+  const target = Number.isFinite(set) && set >= 5 ? set : 27;
+  return { target, min: Math.max(3, target - 2), max: target + 3 };
 }
 
 /** What opening and closing a micro-lecture adds to its sections' teaching (model.ts gives each 150 words more). */

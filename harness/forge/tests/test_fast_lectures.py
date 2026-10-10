@@ -84,16 +84,16 @@ def test_a_refused_section_is_mended_not_rewritten(lib):
 const sec = { n: 2, parts: [], minutes: 5, words: 500, source: '## Motion\\nSpeed is distance over time.', book: true };
 const text = 'Speed tells how fast. '.repeat(40);
 console.log(JSON.stringify({
-  short: transcript.repairable('Section 2 has 160 words; it needs about 500 (at least 450). Write it again.'),
-  copied: transcript.repairable('Section 2 reads out the source word for word.'),
-  ask: transcript.repairRequest(sec, 6, text, 'Section 2 has 160 words; it needs about 500.'),
+  missing: transcript.repairable('Section 2 leaves out parts of its source: "speed".'),
+  empty: transcript.repairable('Section 2 came back empty.'),
+  ask: transcript.repairRequest(sec, 6, text, 'Section 2 leaves out parts of its source: "speed".'),
   rewrote: transcript.rewroteWhole(text + ' More.', text),
   added: transcript.rewroteWhole('And here is a new example about a car.', text),
   clean: transcript.cleanSection('## Heading\\n- Speed is fast. [pause]\\n\\n\\n\\n2. Then slow.'),
 }));
 """)
-    assert out["short"] and not out["copied"]
-    assert "Do NOT write the section again" in out["ask"] and "about 315 more words" in out["ask"]
+    assert out["missing"] and not out["empty"]
+    assert "Do NOT write the section again" in out["ask"] and "teach what is missing" in out["ask"]
     assert "Speed is distance over time." in out["ask"]       # the section's own source comes with it
     assert out["rewrote"] and not out["added"]
     assert out["clean"] == "Speed is fast.\n\nThen slow."

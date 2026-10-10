@@ -432,3 +432,61 @@ def test_a_ring_of_big_drawings_leaves_room_for_every_arrow():
     scene.diagram("w", "cycle", nodes)
     lengths = [edge[0].get_length() for _, _, edge in scene.diagrams["w"]["edges"]]
     assert len(lengths) == 4 and min(lengths) > 0.5, lengths     # rain -> rivers was 0.05 long: never seen
+
+
+def _box_hit(mob, arrow) -> bool:
+    """Whether the arrow's line runs through the box of `mob`."""
+    lo, hi = mob.get_corner([-1, -1, 0]), mob.get_corner([1, 1, 0])
+    for k in range(41):
+        p = arrow.point_from_proportion(k / 40)
+        if lo[0] + 0.02 < p[0] < hi[0] - 0.02 and lo[1] + 0.02 < p[1] < hi[1] - 0.02:
+            return True
+    return False
+
+
+@pytest.mark.parametrize("kind", ["flow", "hub"])
+def test_an_arrow_goes_round_the_cards_it_would_cross(kind):
+    """An arrow from the first card to the third of a row (or across a hub) bows round the card between them."""
+    scene = _board_scene()
+    nodes = [{"id": i, "label": label} for i, label in
+             [("pope", "Pope"), ("east", "Eastern Church head"), ("emp", "Byzantine emperor"), ("king", "King"),
+              ("bishop", "Bishop")]]
+    edges = [["pope", "east"], ["east", "emp"], ["pope", "emp", "crowns"], ["king", "east"]] if kind == "flow" else \
+        [["pope", "east"], ["pope", "emp"], ["east", "king"], ["emp", "king"]]
+    scene.diagram("d", kind, nodes, edges)
+    d = scene.diagrams["d"]
+    for a, b, edge in d["edges"]:
+        for other, mob in d["nodes"].items():
+            if other not in (a, b):
+                assert not _box_hit(mob, edge[0]), (a, b, other)
+
+
+def test_a_ring_is_not_drawn_on_a_picture_that_has_left():
+    scene = _board_scene()
+    scene.diagram("d", "flow", [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}])
+    scene._stage_leaving()
+    assert scene.spotlight("d", "a") is None
+
+
+def test_a_second_picture_moves_the_firsts_revealed_parts_with_it():
+    """The beat's first picture shrinks to the left half beside the second; what it revealed and its ring go
+    with it, instead of staying over the second picture."""
+    scene = _board_scene()
+    scene._beat_new = []
+    scene.diagram("d", "flow", [{"id": "a", "label": "Manor"}, {"id": "b", "label": "Church"}], show=["a"])
+    scene.reveal_nodes("d", ["b"])
+    scene.spotlight("d", "b")
+    ring = scene.diagrams["d"]["focus"]
+    church = scene.diagrams["d"]["nodes"]["b"]
+    from manim import Square
+
+    scene._to_stage(pl_group(Square(1.0), Square(0.5)))
+    left, right = scene._halves()
+    edge = left[0] + left[2] / 2 + 0.05
+    assert church.get_right()[0] <= edge and ring.get_right()[0] <= edge + 0.2
+
+
+def pl_group(*mobs):
+    from manim import Group
+
+    return Group(*mobs)

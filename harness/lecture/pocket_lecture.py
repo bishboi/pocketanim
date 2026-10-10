@@ -2159,11 +2159,18 @@ class Lecture(Scene):
         else:
             picture, card = first, group
             picture_parts, card_parts = self.stage_pending, self._next_pending
+        # What the beat already added to the first picture (its revealed parts, a spotlight's ring) moves with it:
+        # left behind, the parts sat over the second picture and the ring pointed at nothing.
+        added = list(self.stage_extra)
+        if picture is first:
+            picture_parts = [*picture_parts, *added]
+        else:
+            card_parts = [*card_parts, *added]
         self._fit_box([picture, *picture_parts], left)
         self._fit_box([card, *card_parts], right, grow=1.3)
         card.is_aside = True
         card.aside_box = right
-        self.stage_pending = [*picture_parts, *card_parts]
+        self.stage_pending = [m for m in [*picture_parts, *card_parts] if all(m is not a for a in added)]
         self._next_pending = []
         self._stage_keys |= self._next_keys
         self._next_keys = set()
@@ -2473,6 +2480,48 @@ class Lecture(Scene):
                 mob.shift((mob.get_center() - centre) * 0.15)
 
     @staticmethod
+    def _inside_box(mob, point, pad: float = 0.0) -> bool:
+        lo, hi = mob.get_corner(DL), mob.get_corner(UR)
+        return lo[0] - pad <= point[0] <= hi[0] + pad and lo[1] - pad <= point[1] <= hi[1] + pad
+
+    def _clear_arrow(self, a, b, others):
+        """An arrow from box a to box b that crosses no other box: straight when the way is clear, else bowed to
+        one side, as little as clears them (a straight arrow from the first card to the third ran through the
+        second)."""
+        style = dict(color=P.CREAM, stroke_width=OUTLINE * 1.2)
+        start, end = self._edge_points(a, b)
+
+        def crossings(points) -> int:
+            return sum(1 for m in others if any(self._inside_box(m, p, 0.1) for p in points))
+
+        straight = [start + (end - start) * t for t in np.linspace(0, 1, 41)]
+        if not others or not crossings(straight):
+            return Arrow(start, end, buff=0.08, max_tip_length_to_length_ratio=0.22,
+                         max_stroke_width_to_length_ratio=12, **style)
+        from manim import ArcBetweenPoints, CurvedArrow
+
+        best = None
+        for angle in (0.45, -0.45, 0.8, -0.8, 1.2, -1.2, 1.7, -1.7):
+            arc = ArcBetweenPoints(a.get_center(), b.get_center(), angle=angle)
+            points = [arc.point_from_proportion(t) for t in np.linspace(0, 1, 81)]
+            # The part of the curve between the two boxes, a little clear of each.
+            first = next((k for k, p in enumerate(points) if not self._inside_box(a, p, 0.08)), None)
+            last = next((k for k in range(len(points) - 1, -1, -1) if not self._inside_box(b, points[k], 0.08)), None)
+            if first is None or last is None or last - first < 4:
+                continue
+            score = crossings(points[first:last + 1])
+            if best is None or score < best[0]:
+                best = (score, points[first], points[last], angle * (last - first) / (len(points) - 1))
+            if score == 0:
+                break
+        if best is None:
+            return Arrow(start, end, buff=0.08, max_tip_length_to_length_ratio=0.22,
+                         max_stroke_width_to_length_ratio=12, **style)
+        _, p0, p1, angle = best
+        length = float(np.linalg.norm(p1 - p0))
+        return CurvedArrow(p0, p1, angle=angle, tip_length=min(0.25, 0.22 * max(length, 0.3)), **style)
+
+    @staticmethod
     def _edge_points(a, b):
         """Where an arrow between two boxes leaves one and meets the other."""
         start, end = a.get_center(), b.get_center()
@@ -2760,15 +2809,14 @@ class Lecture(Scene):
             if a not in mobs or b not in mobs:
                 continue
             start, end = self._edge_points(mobs[a], mobs[b])
-            arrow = Arrow(start, end, buff=0.08, color=P.CREAM, stroke_width=OUTLINE * 1.2,
-                          max_tip_length_to_length_ratio=0.22, max_stroke_width_to_length_ratio=12)
+            arrow = self._clear_arrow(mobs[a], mobs[b], [m for k, m in mobs.items() if k not in (a, b)])
             label = None
             if len(e) > 2 and e[2]:
                 label = marker(str(e[2]), 14)
                 along = end - start
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
-                label.move_to(arrow.get_center() + side)
+                label.move_to(arrow.point_from_proportion(0.5) + side)
                 label.is_label = True         # stem._settle_labels moves it off another arrow or a node
             edge = VGroup(arrow, *([label] if label else []))
             if flow and arrow.get_length() > 0.55:          # (before the fit to the stage, about x1.5)
@@ -3249,9 +3297,12 @@ class Lecture(Scene):
     def spotlight(self, key: str, node: str):
         """Draw the eye to one node of a diagram: a ring around it (the last ring goes)."""
         d = self.diagrams.get(key)
-        if not d or str(node) not in d["nodes"] or str(node) not in d["shown"]:
+        if not d or d.get("gone") or str(node) not in d["nodes"] or str(node) not in d["shown"]:
+            # Its picture has left the stage: a ring now would circle an empty patch of whatever replaced it.
             return None
         target = d["nodes"][str(node)]
+        if not len(target.get_family()) or target.width < 1e-3 and target.height < 1e-3:
+            return None
         ring = SurroundingRectangle(target, buff=0.1, corner_radius=0.2, color=P.GOLD, stroke_width=6)
         anims = []
         if d["focus"] is not None:

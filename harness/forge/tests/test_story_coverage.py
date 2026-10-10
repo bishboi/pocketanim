@@ -98,12 +98,25 @@ def test_the_prompt_has_three_aims_and_no_rules_of_teaching(lib):
     prompt, request = got["prompt"], got["request"]
     assert "THE QUALITY OF THE LEARNING" in prompt and "How to teach is yours to decide" in prompt
     assert "VIDEOS OF 25-30 MINUTES" in prompt and "COVER EVERYTHING IN THE SOURCE" in prompt
-    for rule in ("TELL IT AS ONE STORY", "SAY EACH THING ONCE", "everyday example", "बच्चों", "Short sentences",
+    for rule in ("TELL IT AS ONE STORY", "SAY EACH THING ONCE", "everyday example", "Short sentences",
                  "at least", "words in", "EXAMPLE of the voice"):
         assert rule not in prompt, rule
     assert "about" not in request.split("\n")[0] or "words" not in request          # no word target per section
     assert "WHAT THIS PART COVERS" in request and "Newton's First Law of Motion" in request
     assert "ASIDES IN THIS PART" in request and "Do you know?" in request
+
+
+@pytest.mark.parametrize("language", ["hinglish", "hindi", "english", "auto"])
+def test_the_teacher_talks_to_the_class_as_friends(lib, language):
+    """The class is addressed as friends ("दोस्तों", "समझे दोस्तों?"), never as children, with check-ins after an
+    idea; in Devanagari for Hindi and Hinglish, so the voice reads it as Hindi."""
+    got = _node(lib, f"""console.log(JSON.stringify(t.transcriptPrompt({{sections: [], minutes: 5,
+        language: '{language}', languageRules: '', hasReference: false, content: ''}})))""")
+    voice = got.split("THE VOICE", 1)[1].split("HOW THE TRANSCRIPT IS USED", 1)[0]
+    if language != "english":
+        assert "समझे दोस्तों?" in voice and "never \"बच्चों\"" in voice
+    if language in ("english", "auto"):
+        assert "got it, friends?" in voice
 
 
 def test_length_style_and_repetition_are_the_writers(lib):

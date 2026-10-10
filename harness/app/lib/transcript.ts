@@ -207,6 +207,29 @@ export const SECTION_TOOL = {
   },
 };
 
+/**
+ * How the teacher sounds: talking to the class as friends ("दोस्तों", "समझे दोस्तों?") and checking in after an
+ * idea, in the lecture's language. Hindi words in Devanagari, so the voice reads them as Hindi.
+ */
+export function classVoice(language: Language): string[] {
+  const hindi = [
+    "    \"दोस्तों\" (never \"बच्चों\"), \"देखो दोस्तों\", \"ध्यान से सुनो\", \"अब यहां देखो\", and after an idea \"समझे दोस्तों?\",",
+    "    \"ठीक है?\", \"समझ में आया?\", \"क्लियर है?\", \"चलो, आगे बढ़ते हैं\". Like: \"अच्छा दोस्तों, अब बात करते हैं",
+    "    normal reaction की... समझे दोस्तों? चलो, अब एक inclined plane पर देखते हैं।\"",
+  ];
+  const english = [
+    "    \"friends\", \"look here, friends\", \"listen carefully\", and after an idea \"got it, friends?\", \"okay?\",",
+    "    \"clear?\", \"let's move on\".",
+  ];
+  return [
+    "THE VOICE: talk to the students the way a friendly teacher does in class, as friends, all through the lecture:",
+    ...(language === "english" ? english : language === "hindi" || language === "hinglish" ? hindi
+      : ["  In Hindi or Hinglish:", ...hindi, "  In English:", ...english]),
+    "  Use them naturally, where a teacher would pause to bring the class along, not in every sentence.",
+    "",
+  ];
+}
+
 export function transcriptPrompt(options: {
   sections: Section[];
   minutes: number;
@@ -223,7 +246,7 @@ export function transcriptPrompt(options: {
     "step turns it into the video sentence for sentence and adds the pictures, so everything the student hears is",
     "in these words.",
     "",
-    "THREE THINGS MATTER, and nothing else is asked of you:",
+    "THREE THINGS MATTER above all:",
     "  1. THE QUALITY OF THE LEARNING comes first. How to teach is yours to decide: the order of explanation, the",
     "     examples, analogies and stories, questions for the class, worked problems, how deep each idea goes, how a",
     "     video opens and closes. Do whatever makes the student truly understand and remember. Nothing about your",
@@ -236,6 +259,7 @@ export function transcriptPrompt(options: {
     "     and question in it. This is the one thing checked: a section that leaves part of its text out, or one of",
     "     the source's own questions, is sent back.",
     "",
+    ...classVoice(options.language),
     "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
     "  - A voice speaks it, so write only the words said: no headings, bullet lists, [brackets] or stage directions,",
     "    and say formulas and symbols the way they are spoken.",

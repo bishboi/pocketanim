@@ -126,3 +126,25 @@ def test_an_art_style_never_moves_the_map(art, _india):
             same = extra.points.shape == points.shape and np.allclose(extra.points, points)
             inside = (extra.points[:, :2] >= lo).all() and (extra.points[:, :2] <= hi).all()
             assert same or inside, f"{art}: an extra off the map's line"
+
+
+def test_a_map_of_western_europe_ends_at_the_atlantic():
+    """France's overseas parts (French Guiana, Reunion) are not part of a map of France or of Western Europe: the
+    map is not stretched across the Atlantic, and no place is looked up in the Americas."""
+    import pocket_lecture as pl
+
+    for region in ({"area": "Western Europe"}, {"country": "France"}, {"area": "Europe"}):
+        lon0, lat0, lon1, lat1 = pl.map_bounds(region)
+        assert lon0 > -40 and lat0 > 20, region
+    france = pl.country_home("France")
+    assert france.bounds[0] > -10 and france.bounds[1] > 40          # Corsica stays, Guiana goes
+    assert france.contains(pl._box((9.0, 42.0, 9.01, 42.01)).centroid)
+
+
+def test_historic_regions_and_countries_are_places_on_the_map():
+    import pocket_lecture as pl
+
+    bounds = pl.map_bounds({"area": "Western Europe"})
+    for name in ("Normandy", "Flanders", "France"):
+        assert pl._inside(pl.place(name, None, bounds), bounds), name
+    assert pl._inside(pl.place("Scotland", None, pl.map_bounds({"area": "Europe"})), pl.map_bounds({"area": "Europe"}))

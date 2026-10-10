@@ -948,6 +948,29 @@ def country(name: str, view: str | None = None):
     raise KeyError(f"no country named {name!r} in Natural Earth")
 
 
+def _home_parts(geom):
+    """A country's land at home, without its overseas parts: the largest piece, and every piece that is big beside
+    it (Alaska) or lies near it (Corsica, the Andamans). French Guiana, Reunion, the Canaries and Hawaii go, so a
+    map of France or Western Europe is not stretched across an ocean."""
+    from shapely.geometry import MultiPolygon
+    from shapely.ops import unary_union
+
+    if geom is None or geom.geom_type != "MultiPolygon":
+        return geom
+    parts = sorted(geom.geoms, key=lambda p: p.area, reverse=True)
+    big = parts[0]
+    lon0, lat0, lon1, lat1 = big.bounds
+    reach = max(3.0, 0.35 * max(lon1 - lon0, lat1 - lat0))
+    kept = [big] + [p for p in parts[1:] if p.area >= 0.15 * big.area or p.distance(big) <= reach]
+    return kept[0] if len(kept) == 1 else MultiPolygon(kept) if all(
+        k.geom_type == "Polygon" for k in kept) else unary_union(kept)
+
+
+def country_home(name: str, view: str | None = None):
+    """A country's outline without its overseas parts (_home_parts): what a map of it is fitted to and draws."""
+    return _home_parts(country(name, view))
+
+
 # ---------------- areas: the world, a continent, a world region ----------------
 WORLD_NAMES = {"world", "the world", "whole world", "earth", "the earth", "globe", "world map", "planet earth"}
 # Groups Natural Earth does not tag, by their member countries (its ADMIN names).
@@ -998,7 +1021,11 @@ def area(name: str):
     members = {_norm(m) for m in area_members(name)}
     if not members:
         raise KeyError(f"no country, continent or world area named {name!r}")
-    parts = [_valid(g).simplify(0.02) for a, g in _records(countries_dataset()) if _norm(a.get("ADMIN")) in members]
+    # Each country without its overseas parts (France without French Guiana): Western Europe ends at the Atlantic.
+    # The world keeps every island.
+    whole = _area_key(name) in WORLD_NAMES
+    parts = [_valid(g if whole else _home_parts(_valid(g))).simplify(0.02)
+             for a, g in _records(countries_dataset()) if _norm(a.get("ADMIN")) in members]
     return _valid(unary_union(parts))
 
 
@@ -1337,28 +1364,48 @@ def place(name: str, country_name: str | None = None, bounds=None) -> tuple[floa
                 return point
             if point and off_map is None:
                 off_map = point
+    # A country named as a place (Flanders' revolt "in France"): the middle of its land at home.
+    try:
+        home = country_home(name)
+        point = home.representative_point()
+        point = (round(point.x, 4), round(point.y, 4))
+        if _inside(point, bounds) or not off_map:
+            return point
+    except KeyError:
+        pass
     if off_map:
         return off_map
     hint = "" if GEONAMES.exists() else " (run harness/scripts/fetch_gazetteer.py to add 150,000 more towns)"
     raise KeyError(f"no place named {name!r}" + (f" in {country_name}" if country_name else "") + hint)
 
 
+# How far past the map's land a place may lie and still be looked up on it: a country's or a state's map shows its
+# neighbours round it (Harappa on a map of India); an area's map is the area, a little past its edge.
+PLACE_MARGIN = {"area": 0.12, "country": 0.45, "state": 0.45}
+
+
+def _padded(bounds, share: float) -> tuple:
+    lon0, lat0, lon1, lat1 = bounds
+    pad = max(lon1 - lon0, lat1 - lat0) * share
+    return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
+
+
 def map_bounds(region: dict) -> tuple | None:
-    """The lon/lat window a region's map shows (MapLecture.lonlat_bounds), for looking places up on it."""
+    """The lon/lat window places are looked up in on a region's map (MapLecture.place_bounds): the land the map is
+    fitted to (a country without its overseas parts, an area's frame), a little past it."""
     try:
-        if region_kind(region) == "state":
+        kind = region_kind(region)
+        if kind == "state":
             focus = state(region["state"], region.get("country"))
-        elif region_kind(region) == "area":
+        elif kind == "area":
             name = region.get("area") or region.get("continent") or region.get("country")
             frame = AREA_FRAMES.get(_area_key(name))
             focus = _box(frame) if frame else area(name)
         else:
-            focus = country(region["country"], region.get("view"))
+            focus = country_home(region["country"], region.get("view"))
     except KeyError:
         return None
-    lon0, lat0, lon1, lat1 = focus.bounds
-    pad = max(lon1 - lon0, lat1 - lat0) * 0.45
-    return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
+    return _padded(focus.bounds, PLACE_MARGIN[kind])
 
 
 class MapFrame:
@@ -3755,7 +3802,7 @@ class MapLecture(BoardMixin, Lecture):
             elif self.area_name:
                 self._focus = area(self.area_name)
             else:
-                self._focus = country(region["country"], region.get("view"))
+                self._focus = country_home(region["country"], region.get("view"))
         return self._focus
 
     @property
@@ -3791,9 +3838,17 @@ class MapLecture(BoardMixin, Lecture):
             lon0, lat0, lon1, lat1 = self.FRAME_BBOX
             pad = max(lon1 - lon0, lat1 - lat0) * (0.6 if margin is None else margin)
             return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
-        lon0, lat0, lon1, lat1 = self.focus.bounds
+        # The land the map is fitted to (an area's frame, not all Russia on a map of Europe).
+        lon0, lat0, lon1, lat1 = self.mainland.bounds if self.area_name else self.focus.bounds
         pad = margin if margin is not None else max(lon1 - lon0, lat1 - lat0) * 0.45
         return (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
+
+    def place_bounds(self):
+        """Where a place named on this map is looked up (map_bounds, which the compiler checks markers against):
+        a battlefield's box when the map is fitted to one."""
+        if self.FRAME_BBOX:
+            return self.lonlat_bounds()
+        return map_bounds(self.REGION) or self.lonlat_bounds()
 
     def at(self, where) -> tuple[float, float]:
         """An anchor, a place name, or a (lon, lat) pair, as (lon, lat)."""
@@ -3801,7 +3856,7 @@ class MapLecture(BoardMixin, Lecture):
             lon, lat = self.ANCHORS[where]
             return float(lon), float(lat)
         if isinstance(where, str):
-            return place(where, self.home_country, self.lonlat_bounds())
+            return place(where, self.home_country, self.place_bounds())
         lon, lat = where
         return float(lon), float(lat)
 

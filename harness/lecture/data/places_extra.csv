@@ -92,3 +92,41 @@ Jallianwala Bagh,India,74.88,31.62,
 Kanyakumari,India,77.54,8.08,Cape Comorin
 Rameswaram,India,79.31,9.29,
 Sriharikota,India,80.23,13.72,
+# Historic and cultural regions (a lecture names them like places): the marker goes at the region's middle, so
+# "Normandy" or "Flanders" is never taken for a town of the same name on another continent.
+Normandy,France,0.3,49.1,Normandie
+Brittany,France,-2.9,48.2,Bretagne
+Burgundy,France,4.6,47.1,Bourgogne
+Aquitaine,France,0.0,44.5,Guyenne|Guienne
+Gascony,France,0.2,43.7,Gascogne
+Provence,France,6.0,43.8,
+Champagne,France,4.2,49.0,
+Picardy,France,2.3,49.9,Picardie
+Anjou,France,-0.5,47.5,
+Gaul,France,2.5,46.6,Gallia
+Flanders,Belgium,3.7,51.0,Vlaanderen|Flemish Region
+Wallonia,Belgium,4.8,50.4,
+England,United Kingdom,-1.5,52.6,
+Scotland,United Kingdom,-4.2,56.8,
+Wales,United Kingdom,-3.7,52.3,
+Northern Ireland,United Kingdom,-6.6,54.6,
+Lombardy,Italy,9.7,45.6,Lombardia
+Tuscany,Italy,11.1,43.4,Toscana
+Sicily,Italy,14.1,37.5,Sicilia
+Bavaria,Germany,11.4,48.9,Bayern
+Saxony,Germany,13.3,51.0,Sachsen
+Bohemia,Czechia,14.5,49.9,
+Castile,Spain,-4.0,40.5,Castilla
+Aragon,Spain,-0.9,41.5,Aragón
+Catalonia,Spain,1.7,41.8,Catalunya
+Andalusia,Spain,-4.6,37.4,Andalucía|Al-Andalus
+Navarre,Spain,-1.6,42.7,Navarra
+Anatolia,Turkey,32.9,39.0,Asia Minor
+Byzantium,Turkey,28.98,41.01,Constantinople
+Mesopotamia,Iraq,44.4,33.3,
+Persia,Iran,53.7,32.4,
+Deccan,India,77.5,17.5,Deccan Plateau
+Kalinga,India,85.1,20.3,
+Magadha,India,85.4,25.0,
+Gandhara,Pakistan,72.0,34.0,
+Awadh,India,81.0,26.8,Oudh|Avadh

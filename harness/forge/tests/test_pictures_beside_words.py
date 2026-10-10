@@ -82,16 +82,6 @@ def test_pictures_are_checked_and_resolved(photos):
     assert cl._picture_value({"entity": "cow"}) == ("entity", "cow")
 
 
-def test_web_pictures_count_towards_the_budget(monkeypatch, photos):
-    monkeypatch.delenv("PANIM_WEB_PICTURES", raising=False)
-    op = {"op": "diagram", "id": "d", "kind": "flow", "nodes": [
-        {"id": "a", "label": "A", "picture": {"subject": "Marie Curie"}},
-        {"id": "b", "label": "B", "picture": {"query": "radium"}}, {"id": "c", "label": "C", "picture": {"figure": "fort"}}]}
-    script = {"title": "T", "style": "chalkboard", "figures": photos,
-              "chapters": [{"title": "A", "beats": [{"say": "Here they are.", "do": [op]}]}]}
-    assert len(cl.web_pictures(script)) == 2                       # the book's own figure is not from the web
-
-
 def _dummy_map():
     taken = []
     return SimpleNamespace(_taken=lambda: taken), taken

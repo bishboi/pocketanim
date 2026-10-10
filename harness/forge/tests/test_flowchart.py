@@ -116,7 +116,7 @@ def test_the_compiler_refuses_what_it_cannot_draw():
 
 def test_the_script_writer_is_told():
     prompt = (REPO / "harness/app/lib/lecture.ts").read_text()
-    assert '"flowchart"' in prompt and '"decision"' in prompt and '"lane"' in prompt
+    assert 'FLOWCHARTS' in prompt and '"kind":"flow"|"cycle"|"hub"' in prompt and '"decision"' in prompt and '"lane"' in prompt
 
 
 @pytest.mark.parametrize("art", list(artstyle.ART_STYLES))

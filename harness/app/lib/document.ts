@@ -213,21 +213,6 @@ export function teachingFigures(doc: DocumentManifest): Figure[] {
   return doc.figures.filter((f) => !NOT_A_FIGURE.test(f.caption));
 }
 
-/** New pictures from the web a lecture from this book may add: fewer the more figures the book has of its own
- * (compile_lecture.web_budget, which enforces it; PANIM_WEB_PICTURES overrides both). */
-export function webBudget(figures: number): number | null {
-  const set = (process.env.PANIM_WEB_PICTURES ?? "").trim();
-  if (/^\d+$/.test(set)) return Number(set);
-  return figures ? Math.max(1, 10 - 2 * figures) : null;
-}
-
-function webLine(figures: number): string {
-  const budget = webBudget(figures);
-  return budget === null ? "" : `The book's own figures come first: add at most ${budget} new picture${budget === 1 ? "" : "s"} ` +
-    "from the web in the whole lecture (photo, illustration and gallery items together; the compiler counts). Show " +
-    "the book's figures and build diagrams instead.";
-}
-
 export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn>): string {
   const figures = teachingFigures(doc);
   if (!figures.length) return "";
@@ -245,7 +230,6 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
       "cannot show it well.",
       "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
       'A photograph listed "a photograph" is shown as a real photo found on the web most like it (or the book\'s own).',
-      webLine(figures.length),
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");
   }
@@ -260,7 +244,6 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
     "this way (the compiler checks). Only a PHOTOGRAPH (a real person, place, object or specimen, which no drawing can",
     'replace) may be shown as it is: {"op":"figure","id":"fig4","photo":true,"caption"?}. The text marks where each',
     "figure sits as [FIGURE figN: caption].",
-    webLine(figures.length),
     ...figures.map((f) => `  ${f.id}: ${f.caption}${f.page ? ` (page ${f.page})` : ""}`),
   ].join("\n");
 }

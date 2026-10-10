@@ -810,7 +810,7 @@ export function lecturePrompt(
     '  {"figure":"fig3"} (one of the book\'s figures), {"draw":"A steam engine, side view"} (drawn for you as a clean',
     '  SVG) or {"entity":"cow"} (a library drawing). A node with a picture needs no entity. Use them where seeing the',
     "  thing teaches it (each kind of rock, the leaders on a timeline, the crop grown at each place), not on every",
-    "  box. They are laid out so no picture or word covers another; web photos count towards the lecture's limit.",
+    "  box. They are laid out so no picture or word covers another.",
     "  HIERARCHIES (a whole, its kinds, their kinds: kinds of rock, the classification of living things, branches of",
     "  government, types of UML diagram): a flow with edges [parent, child], as deep as",
     "  the subject goes. It is drawn as a textbook draws one: the main thing at the top, its subcategories in a row",

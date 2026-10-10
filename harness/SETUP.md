@@ -199,3 +199,15 @@ The app also downloads the voice by itself before the first lecture that needs i
 | Pictures, labels or text on top of each other in a lecture | a layout bug | `.venv/bin/python harness/scripts/lecture_audit.py <build>/scene.py GeneratedScene audit/ --frames` lists every overlap, beat by beat, with a picture of each beat's end (`audit/sheet00.png`...) |
 | `FileNotFoundError: [Errno 2] No such file or directory: 'latex'` | A scene uses `MathTex`, `Tex` or axis numbers, LaTeX is not installed, and the scene was run without the harness's fallback (plain `manim render`, or an older checkout) | update to this version: the app and Forge draw these as plain text without LaTeX; for your own runs use `.venv/bin/python harness/scripts/manim_render.py render ...` instead of `manim render ...`. Or install LaTeX (above) for real typesetting |
 | A download fails with 403 or a timeout | A firewall or proxy blocks the host | allow `download.geonames.org` (towns), `github.com` (voice, fonts), `naturalearth.s3.amazonaws.com` (maps), `commons.wikimedia.org`, `upload.wikimedia.org`, `en.wikipedia.org`, `hi.wikipedia.org` and `api.openverse.org`, `images-api.nasa.gov`, `images-assets.nasa.gov`, `collectionapi.metmuseum.org`, `images.metmuseum.org`, `api.si.edu`, `ids.si.edu`, `raw.githubusercontent.com` (photos and illustrations), `generativelanguage.googleapis.com` (the Gemini voice; `texttospeech.googleapis.com` for Chirp), `yihui.org`, `tlnet.yihui.org` and `mirror.ctan.org` (TinyTeX and its packages) |
+
+## Starting from scratch
+
+`harness/scripts/clear_all.sh` clears every cache and all history on this machine: generated pictures,
+drawings, Manim renders, Forge jobs, finished builds, narration and the Next.js build cache. It keeps downloads
+(venv, node_modules, voice weights, gazetteer, TinyTeX) and `.env` files. It asks before removing anything.
+
+- `--supabase` also clears the generation history kept in Supabase.
+- `--saved` also clears the saved lectures the phone lists. This cannot be undone.
+- `--dry-run` shows what would go. `--yes` skips the question.
+
+Open `http://localhost:3000/reset` to clear the lecture page's history in your browser.

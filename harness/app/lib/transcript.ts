@@ -9,7 +9,7 @@
  */
 
 import { linesOf, numberedSection } from "./lines";
-import { microMinutes, type Topic } from "./topics";
+import { microMinutes } from "./topics";
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
 import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
@@ -215,11 +215,8 @@ export function transcriptPrompt(options: {
   subject?: string;
   hasReference: boolean;
   content: string;
-  /** The lecture as a series of videos (topics.ts); one topic, or none, is one video. */
-  topics?: Topic[];
 }): string {
   const { sections, hasReference } = options;
-  const series = (options.topics?.length ?? 0) > 1 ? options.topics! : [];
   const range = microMinutes();
   return [
     "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. A later",
@@ -231,14 +228,10 @@ export function transcriptPrompt(options: {
     "     examples, analogies and stories, questions for the class, worked problems, how deep each idea goes, how a",
     "     video opens and closes. Do whatever makes the student truly understand and remember. Nothing about your",
     "     style or length is counted or checked.",
-    `  2. VIDEOS OF ${range.min}-${range.max} MINUTES. The lecture is watched as ${series.length > 1 ? `a series of ${series.length}` : "one"}` +
-      ` video${series.length > 1 ? "s" : ""}, each about ${range.min}-${range.max} minutes (a minute is about ${WORDS_PER_MINUTE} spoken words).`,
-    ...(series.length ? [
-      "     Each video is watched on its own, perhaps on another day; the plan of which sections make each one:",
-      ...series.map((t) => `       Video ${t.index}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}` +
-        `${t.title ? ` ("${t.title}")` : ""}.`),
-      "     A video that runs past the top is cut into two, so spend the time where learning needs it.",
-    ] : []),
+    `  2. VIDEOS OF ${range.min}-${range.max} MINUTES. A long lecture is watched as several videos of about ${range.min}-${range.max}`,
+    `     minutes (a minute is about ${WORDS_PER_MINUTE} spoken words). Where each starts and ends is decided from your`,
+    "     written transcript, always between sections, and you are then asked for the words that close one video and",
+    "     open the next. So write the sections as one continuous lecture, and spend the time where learning needs it.",
     "  3. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
     "     and question in it. This is the one thing checked: a section that leaves part of its text out, or one of",
     "     the source's own questions, is sent back.",
@@ -375,8 +368,7 @@ function coverList(source: string): string {
       asides.map((a) => `  - ${a.title}: ${a.text.slice(0, 200)}`).join("\n") : "");
 }
 
-export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,
-  topic?: Topic): string {
+export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string): string {
   // Sections are written a few at a time: the one just before this may still be on its way.
   const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
@@ -388,26 +380,55 @@ export function sectionRequest(section: Section, count: number, written: Written
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
       : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one (its topic is in the ` +
         "outline of sections).", ""]),
-    `Now write SECTION ${section.n} of ${count}` +
+    `Now write SECTION ${section.n} of ${count}` + (section.n === count ? " (the last: the lecture ends with it)" : "") +
       (section.parts.length ? `, which remakes part${section.parts.length > 1 ? "s" : ""} ${section.parts.join(", ")} of the reference`
         : section.questionsOnly ? ", which takes up more of the source's questions, listed below"
         : section.book ? ", which teaches its part of the book, given below" : "") +
       `. Call write_section once, with section: ${section.n} and the full text.`,
-    ...videoPlace(section, topic),
     ...(sectionSource(section) ? ["", sectionSource(section)] : []),
     ...(note ? ["", `Your last try at section ${section.n} was sent back: ${note}`] : []),
   ].join("\n");
 }
 
-/** Where a section stands in its video, when the lecture is a series (topics.ts): what it opens or closes. */
-function videoPlace(section: Section, topic?: Topic): string[] {
-  if (!topic || topic.of < 2) return [];
-  const first = topic.sections[0] === section.n;
-  const last = topic.sections[topic.sections.length - 1] === section.n;
-  if (!first && !last) return ["", `It is part of video ${topic.index} of ${topic.of}.`];
-  return ["", `It ${first && last ? "is the whole of" : first ? "OPENS" : "CLOSES"} video ${topic.index} of ${topic.of}` +
-    `${topic.title ? ` ("${topic.title}")` : ""}, a video watched on its own` +
-    (last && topic.index === topic.of ? ", and the last of the series." : ".")];
+/** The tool for the words between two videos (transitionRequest). */
+export const TRANSITION_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "write_transition",
+    description: "Save the words that close one video of the lecture and the words that open the next.",
+    parameters: {
+      type: "object",
+      properties: {
+        closing: { type: "string", description: "Said at the end of the video that ends here, after its last line." },
+        opening: { type: "string", description: "Said at the start of the next video, before its first line." },
+      },
+      required: ["closing", "opening"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/**
+ * The request for the words between two videos, once the written transcript has decided where one ends
+ * (topics.nextVideos): the close of the one and the opening of the next, each watched on its own.
+ */
+export function transitionRequest(ending: { index: number; minutes: number; titles: string[]; tail: string },
+  next: { title: string; head: string }): string {
+  return [
+    `The lecture is watched as separate videos, each on its own, perhaps on another day. Video ${ending.index} ` +
+      `(about ${Math.round(ending.minutes)} minutes; ${ending.titles.join(", ")}) ends here, and video ${ending.index + 1} ` +
+      `starts with "${next.title}".`,
+    "",
+    `Video ${ending.index} ends like this:`,
+    `  ...${ending.tail.slice(-1500)}`,
+    "",
+    `Video ${ending.index + 1} starts like this:`,
+    `  ${next.head.slice(0, 1500)}...`,
+    "",
+    `Write the words that CLOSE video ${ending.index} (said after its last line) and the words that OPEN video ` +
+      `${ending.index + 1} (said before its first line), as you judge best for the learning. Do not teach again ` +
+      "what the videos teach, and do not say how many videos there are. Call write_transition once.",
+  ].join("\n");
 }
 
 /** The source's own questions in the transcript, for the video's writer (shown on the stage as it judges best). */

@@ -116,7 +116,7 @@ console.log(JSON.stringify({ same: final.map((p, k) => canon(p.script) === canon
   titles: final.map((p) => p.title), sub: final[1].script.sub }));
 """)
     assert out["same"] == [True, True]
-    assert out["titles"] == ["Lecture 1: Push", "Lecture 2: Pull"] and out["sub"] == "Forces · Lecture 2 of 2"
+    assert out["titles"] == ["Lecture 1: Push", "Lecture 2: Pull"] and out["sub"] == "Forces · Lecture 2"
 
 
 def test_a_section_request_carries_its_own_source_and_the_prompt_only_an_outline(lib):

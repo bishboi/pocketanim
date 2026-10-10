@@ -70,7 +70,9 @@ export function topicPart(script: Script, topic: PlannedTopic, k: number, count:
   fallbackRecap: unknown): { script: Script; title: string } {
   const number = k + 1;
   const name = String(topic.title ?? "").trim() || `Part ${number}`;
-  const part: Script = { ...script, title: name, sub: `${series} · Lecture ${number} of ${count}` };
+  // The number of videos in all is known only once the whole transcript is (its videos are decided as it is
+  // written), so a video's card names only its own place.
+  const part: Script = { ...script, title: name, sub: `${series} · Lecture ${number}` };
   delete part.topics;
   // The first lecture keeps the series' own opening line; each later one is introduced by its title (its first
   // section's transcript does the rest).
@@ -145,21 +147,6 @@ export function expandChapters(chapters: unknown[], most: number): unknown[] {
     });
   }
   return out;
-}
-
-/**
- * Parts kept to the length of a video: one longer than `limit` (a topic that came out long) is cut again, between
- * chapters or inside a long one. As many parts as that makes (there is no set number of videos); numbered again,
- * in order.
- */
-export function boundParts(parts: LecturePart[], limit = maxVideoMinutes()): LecturePart[] {
-  const out: LecturePart[] = parts.flatMap((part) => {
-    const smaller = part.minutes > limit ? splitLecture(part.script, part.minutes, limit) : [];
-    if (smaller.length < 2) return [part];
-    return smaller.map((s, k) => ({ ...s, title: `${part.title} (${k + 1} of ${smaller.length})`,
-      script: { ...s.script, title: String(part.script.title ?? part.title) } }));
-  });
-  return out.map((p, k) => ({ ...p, index: k + 1, of: out.length }));
 }
 
 /** Two neighbouring parts as one: the first's opening, both's chapters, the second's recap. */

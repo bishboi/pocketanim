@@ -18,9 +18,9 @@ import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
-import { boundParts, joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
-import { planTopics, topicOf, topicLabel, type Topic } from "./topics";
-import { SECTION_TOOL, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
+import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
+import { nextVideos, planTopics, type Topic } from "./topics";
+import { SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { ensureSymbols, symbolsReady } from "./version";
@@ -473,7 +473,7 @@ function batchDeltas(onDelta: (kind: "thinking" | "assistant", text: string) => 
   };
 }
 
-type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof DRAWING_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL;
+type ToolSpec = (typeof TOOLS)[number] | typeof LECTURE_TOOL | typeof ADD_CHAPTERS_TOOL | typeof ILLUSTRATION_TOOL | typeof DRAWING_TOOL | typeof IMAGE_TOOL | typeof SECTION_TOOL | typeof TRANSITION_TOOL;
 
 async function streamCompletion(
   key: string,
@@ -851,19 +851,21 @@ async function viaOpenRouter(
   let planned: Section[] = [];
   // The book's own questions (exercises, MCQs): every one explained, each option marked (questions.ts).
   let bookQs: BookQuestion[] = [];
-  // A long lecture as a series of micro-lectures, one per topic (topics.ts): planned from the sections before a
-  // word is written, so each is written as a lecture of its own and cut there.
-  let topics: Topic[] = [];
+  // A long lecture as a series of videos of 25-30 min (topics.ts). Where each starts and ends is decided from the
+  // written transcript as its sections come in (their real length), always between sections, and the writer then
+  // writes the words that close one video and open the next: no video is ever cut after it is made.
+  const topics: Topic[] = [];
+  // Whether the lecture is made as a series: when its estimated length is more than one video holds.
+  let series = false;
   if (lecture && !(request.instruction && request.previousSource)) {
     // A book (a PDF) is taught section by section, each with its own slice of the text; a reference video is
     // remade part by part.
     const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
-    topics = planTopics(sections);
-    if (topics.length > 1) {
-      emit({ type: "message", role: "status", text: `About ${Math.round(sections.reduce((n, x) => n + x.minutes, 0))} min: ` +
-        `made as ${topics.length} videos of 25-30 min (` +
-        topics.map((t) => `${t.index}${t.title ? ` "${t.title}"` : ""}: sections ${t.sections[0]}-${t.sections[t.sections.length - 1]}, ` +
-          `${Math.round(t.minutes)} min`).join("; ") + ")." });
+    series = planTopics(sections).length > 1;
+    if (series) {
+      emit({ type: "message", role: "status", text: `About ${Math.round(sections.reduce((n, x) => n + x.minutes, 0))} min ` +
+        "estimated: made as videos of 25-30 min, each ending where the written transcript reaches that length, between " +
+        "sections." });
     }
     const fromBook = sections.some((s) => s.book);
     bookQs = sections.flatMap((s) => s.questions ?? []);
@@ -880,7 +882,6 @@ async function viaOpenRouter(
       hasReference: !!reference?.parts?.length,
       // The book's text is already in its sections; only what was typed goes in beside it.
       content: fromBook ? request.content : `${request.content}\n${doc?.markdown ?? ""}`,
-      topics,
     });
     emit({ type: "input", role: "system", text: prompt });
     const writer = transcriptModel(request.transcriptModel);
@@ -928,7 +929,7 @@ async function viaOpenRouter(
           cachedSystem(prompt, writer),
           { role: "user", content: mending
             ? repairRequest(section, sections.length, current!.text, current!.problem)
-            : sectionRequest(section, sections.length, prior, note, topicOf(topics, section.n)) },
+            : sectionRequest(section, sections.length, prior, note) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -1004,6 +1005,106 @@ async function viaOpenRouter(
       return null;
     };
 
+    // A series' videos, decided from the transcript as its sections come in (topics.nextVideos): the real length
+    // of what is written, the cut only between sections, the words between two videos written by the writer.
+    let cursor = 0;                                    // the first section not yet in a video
+    let planning: Promise<void> = Promise.resolve();
+    const spokenMinutes = (text: string) => text.split(/\s+/).filter(Boolean).length / WORDS_PER_MINUTE;
+    const release = (group: Section[]) => {
+      const titled = group.map((x) => done.get(x.n)).find((w): w is WrittenSection => !!w);
+      const topic: Topic = { index: topics.length + 1, of: 0, sections: group.map((x) => x.n),
+        minutes: Math.round(group.reduce((n, x) => n + x.minutes, 0) * 10) / 10,
+        title: (/^#{1,6}\s+(.+)$/m.exec(group[0].source ?? "")?.[1] ?? "").replace(/[*_`]/g, "").trim().slice(0, 80) ||
+          titled?.title || "" };
+      topics.push(topic);
+      // Its chapters are written now, while the rest of the transcript is (stage 2).
+      for (const x of group) {
+        const w = done.get(x.n);
+        if (!w) continue;
+        ready.set(w.n, w);
+        writtenQueue.push(w);
+      }
+      emit({ type: "message", role: "status", text: `Video ${topic.index}${topic.title ? ` ("${topic.title}")` : ""}: ` +
+        `sections ${group[0].n}-${group[group.length - 1].n}, about ${Math.round(topic.minutes)} min of transcript; its ` +
+        "scenes are being made" + (cursor + group.length < sections.length ? " while the rest is written." : ".") });
+    };
+    /** The words that close one video and open the next: for the end of its last section and the start of the
+     * next one (added by the caller, one after another, so two never write over each other). */
+    const transition = async (index: number, group: Section[], next: Section) => {
+      const last = [...group].reverse().map((x) => done.get(x.n)).find((w): w is WrittenSection => !!w);
+      const first = done.get(next.n);
+      if (!last || !first) return null;
+      try {
+        const result = await completionWithRetry(key, writer, [cachedSystem(prompt, writer), { role: "user", content:
+          transitionRequest({ index, minutes: group.reduce((n, x) => n + x.minutes, 0),
+            titles: group.map((x) => done.get(x.n)?.title).filter((t): t is string => !!t), tail: last.text },
+          { title: first.title, head: first.text }) }], emit, () => {}, [TRANSITION_TOOL], undefined, "required");
+        const addedCost = Number(result.usage?.cost ?? 0);
+        inputTokens += result.usage?.prompt_tokens ?? 0;
+        outputTokens += result.usage?.completion_tokens ?? 0;
+        costUsd = ledger.bill("transcript", addedCost, { inputTokens: result.usage?.prompt_tokens ?? 0,
+          outputTokens: result.usage?.completion_tokens ?? 0, span: result.span });
+        let words = { closing: "", opening: "" };
+        for (const call of result.message.tool_calls ?? []) {
+          try {
+            const args = JSON.parse(call.function.arguments || "{}") as { closing?: string; opening?: string };
+            words = { closing: cleanSection(String(args.closing ?? "")), opening: cleanSection(String(args.opening ?? "")) };
+          } catch {}
+        }
+        return { last: last.n, closing: words.closing, first: first.n, opening: words.opening };
+      } catch (error) {
+        if (stopped()) return null;
+        emit({ type: "message", role: "status", text: `The words between videos ${index} and ${index + 1} could not be ` +
+          `written (${error instanceof Error ? error.message.slice(0, 120) : String(error)}); they meet as the sections do.` });
+        return null;
+      }
+    };
+    const addWords = (n: number, words: string, where: "start" | "end") => {
+      const w = done.get(n);
+      if (w && words) done.set(n, { ...w, text: where === "end" ? `${w.text}\n\n${words}` : `${words}\n\n${w.text}` });
+    };
+    /** Every video the sections written so far decide, in order (one call at a time). */
+    const planVideos = () => (planning = planning.then(async () => {
+      try {
+        await decideVideos();
+      } catch (error) {
+        halted = halted ?? error;
+      }
+    }));
+    const decideVideos = async () => {
+      while (series && cursor < sections.length && !halted && !stopped()) {
+        const known: Section[] = [];
+        for (let i = cursor; i < sections.length; i++) {
+          const w = done.get(sections[i].n);
+          if (!w && !failed.includes(sections[i].n)) break;
+          known.push({ ...sections[i], minutes: w ? spokenMinutes(w.text) : 0 });
+        }
+        const sizes = nextVideos(known, cursor + known.length < sections.length);
+        if (!sizes.length) return;
+        const groups: Section[][] = [];
+        let at = 0;
+        for (const k of sizes) {
+          groups.push(known.slice(at, at + k));
+          at += k;
+        }
+        let end = 0;
+        const between = await Promise.all(groups.map((group, i) => {
+          end += group.length;
+          const next = known[end];
+          return next ? transition(topics.length + i + 1, group, next) : null;
+        }));
+        for (const words of between) {
+          if (!words) continue;
+          addWords(words.last, words.closing, "end");
+          addWords(words.first, words.opening, "start");
+        }
+        for (const group of groups) {
+          release(group);
+          cursor += group.length;
+        }
+      }
+    };
+
     let next = 0;
     const worker = async () => {
       while (next < sections.length && !halted && !stopped()) {
@@ -1012,20 +1113,16 @@ async function viaOpenRouter(
           const wrote = await writeOne(section);
           if (wrote) {
             done.set(section.n, wrote);
-            // A topic the book gave no heading is called by its first section's title.
-            const topic = topics.find((t) => t.sections[0] === wrote.n);
-            if (topic && !topic.title) topic.title = wrote.title;
-            // Its chapters are written now, while the rest of the transcript is (stage 2).
-            ready.set(wrote.n, wrote);
-            writtenQueue.push(wrote);
-            const whole = topics.find((t) => t.sections.includes(wrote.n) && t.sections.every((n) => done.has(n)));
-            if (whole && topics.length > 1) {
-              emit({ type: "message", role: "status", text: `Transcript of Lecture ${whole.index} of ${topics.length} ` +
-                `("${whole.title}") written: its scenes are being made${whole.index < topics.length ? " while the next is written" : ""}.` });
+            if (!series) {
+              // One video: its chapters are written now, while the rest of the transcript is (stage 2).
+              ready.set(wrote.n, wrote);
+              writtenQueue.push(wrote);
             }
           } else {
             failed.push(section.n);
           }
+          // (Not waited for: the other sections go on being written while a video's end is decided.)
+          if (series) void planVideos();
         } catch (error) {
           halted = error;
         } finally {
@@ -1043,6 +1140,9 @@ async function viaOpenRouter(
       }
       if (halted) throw halted;
       if (stopped()) throw new Error("The page closed while the transcript was being written.");
+      // The last videos, planned from the whole of what is left.
+      await planVideos();
+      if (halted) throw halted;
       written.push(...[...done.values()].sort((x, y) => x.n - y.n));
       if (failed.length) {
         failed.sort((x, y) => x - y);
@@ -1275,27 +1375,22 @@ async function viaOpenRouter(
 
   /** A section's chapters as a script of their own, checked as a part is: null when they pass, else what is wrong. */
   /**
-   * What a section's chapters add when it opens or closes one micro-lecture of a series (topics.ts): the
-   * lecture's opening on the board, and its own recap and self-check questions at its end. Without a series, the
-   * last section has the lecture's recap.
+   * Where a section's chapters stand in their video, in a series (its videos decided from the transcript,
+   * topics.ts): the video's recap goes with its last section. Without a series, the last section has the recap.
    */
   const seriesDuties = (n: number, lastOfAll: boolean): string[] => {
-    const topic = topicOf(topics, n);
+    const topic = series ? topics.find((t) => t.sections.includes(n)) : undefined;
     if (!topic) return [lastOfAll ? "This is the last section: end the script with the recap." : "No recap: the last section has it."];
     const out: string[] = [];
     if (topic.sections[0] === n) {
-      out.push(`This section OPENS ${topicLabel(topic)}, a video of its own. Its first chapter is that lecture's ` +
-        `opening (title: "Lecture ${topic.index}: ${topic.title || "..."}"): as the transcript says them, put on the board ` +
-        "what the lecture covers and the things the student will be able to do (a steps diagram of them revealed " +
-        "one by one, or one fact each), and a picture of why the topic matters. Then its teaching, as always.");
+      out.push(`This section OPENS video ${topic.index}${topic.title ? ` ("${topic.title}")` : ""}, watched on its own: ` +
+        "its transcript begins with that video's opening words.");
     }
     if (topic.sections[topic.sections.length - 1] === n) {
-      out.push(`This section CLOSES ${topicLabel(topic)}. Its last chapter is that lecture's close: its key ` +
-        "points on the board as they are said, each self-check question on the stage with a question op " +
-        "(then the answer op when it is answered), and the next lecture named. End the script with \"recap\": " +
-        "[[head, body], ...], the key points of THIS lecture only.");
+      out.push(`This section CLOSES video ${topic.index}: its transcript ends with the video's closing words. End the ` +
+        "script with \"recap\": [[head, body], ...], the key points of THIS video only.");
     } else {
-      out.push("No recap: the last section of this lecture has it.");
+      out.push("No recap: the last section of this video has it.");
     }
     return out;
   };
@@ -1640,7 +1735,7 @@ async function viaOpenRouter(
 
   const finishTopic = async (k: number, bySection: Map<number, Record<string, unknown>>, missing: number[]) => {
     const topic = topics[k];
-    const label = `Lecture ${k + 1} of ${topics.length}`;
+    const label = `Lecture ${k + 1}`;
     const own = new Map(topic.sections.filter((n) => bySection.has(n)).map((n) => [n, bySection.get(n)!]));
     const build = (series: Record<string, unknown>) => {
       const chapters = topic.sections.flatMap((n) => {
@@ -1699,7 +1794,7 @@ async function viaOpenRouter(
     });
   };
 
-  if (lecture && topics.length > 1 && !scene) {
+  if (lecture && series && !scene) {
     let first;
     try {
       first = await chaptersInParallel(writtenQueue, planned.length, new Map(), (done, missing) => startTopics(done, missing));
@@ -1716,7 +1811,7 @@ async function viaOpenRouter(
     if (!parts.length) throw new Error("None of the micro-lectures could be made; see the messages above.");
     // Numbered as they stand: a micro-lecture that could not be made is left out of the series.
     const series = parts.map((p, i) => ({ title: p.title.replace(/^Lecture \d+:/, `Lecture ${i + 1}:`), minutes: p.minutes,
-      source: parts.length === topics.length ? p.source : p.source.replace(/Lecture \d+ of \d+/, `Lecture ${i + 1} of ${parts.length}`) }));
+      source: parts.length === topics.length ? p.source : p.source.replace(/· Lecture \d+/, `· Lecture ${i + 1}`) }));
     emit({ type: "message", role: "status", text: `The series is written: ${series.length} micro-lectures ` +
       `(${series.map((p) => `${p.title}, ${Math.round(p.minutes)} min`).join("; ")}).` });
     return { source: series[0].source, parts: series, sceneClass: SCENE_CLASS, model, inputTokens, outputTokens, costUsd };
@@ -2409,14 +2504,14 @@ export async function generate(
   const kept: Kept = {};
   const startedAt = Date.now();
   const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
-  // A long lecture as micro-lectures of 25-30 min: cut where its topics meet when it was written as a series
-  // (topics.ts), else between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).
+  // A long lecture as videos of 25-30 min: cut where its videos meet when it was written as a series (their ends
+  // decided from the transcript, topics.ts). A lecture written from a transcript is never cut otherwise; one
+  // without (an edit by hand) is cut between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).
   if (isLecture(template) && kept.script && kept.options && kept.source === result.source && kept.minutes) {
     const script = kept.script as Record<string, unknown>;
     const byTopic = splitByTopics(script, kept.minutes);
-    // Each video kept to a micro-lecture's length: a topic that came out long is cut again (as many videos as
-    // that makes).
-    let parts: LecturePart[] = boundParts(byTopic.length ? byTopic : splitLecture(script, kept.minutes));
+    const fromTranscript = sectionsOf(script).length > 0;
+    let parts: LecturePart[] = byTopic.length ? byTopic : fromTranscript ? [] : splitLecture(script, kept.minutes);
     if (parts.length) {
       emit({ type: "message", role: "status", text: `The lecture runs about ${Math.round(kept.minutes)} min: making it ` +
         (byTopic.length ? `${parts.length} micro-lectures, one per topic` : `${parts.length} videos of up to ${maxVideoMinutes()} min`) +

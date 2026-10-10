@@ -129,3 +129,24 @@ export function topicOf(topics: Topic[], n: number): Topic | undefined {
 export function topicLabel(topic: Topic): string {
   return `micro-lecture ${topic.index} of ${topic.of}${topic.title ? `, "${topic.title}"` : ""}`;
 }
+
+/**
+ * Where the next video ends, from sections already written (their real length in `minutes`), in order from the
+ * first not yet in a video: how many of them it takes, or 0 when the sections written so far cannot tell yet.
+ * The cut is only ever between sections, never inside one: a video ends where adding the next section would take
+ * it past the top of the range, or, once it has reached the range, where the book starts a new heading. `more`:
+ * sections not written yet follow these. With none to follow, the rest is planned as evenly as it goes
+ * (planTopics), so the last video is not left short.
+ */
+export function nextVideos(written: Section[], more: boolean, range = microMinutes()): number[] {
+  if (!written.length) return [];
+  if (!more) return planTopics(written, range).map((t) => t.sections.length);
+  let run = OPEN_CLOSE_MINUTES;
+  for (let i = 0; i < written.length - 1; i++) {
+    run += written[i].minutes;
+    const next = written[i + 1];
+    if (run + next.minutes > range.max) return [i + 1];
+    if (run >= range.min && startsAtHeading(next) && !next.questionsOnly) return [i + 1];
+  }
+  return [];
+}

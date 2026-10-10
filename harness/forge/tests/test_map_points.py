@@ -56,6 +56,9 @@ def test_guessed_coordinates_give_way_to_the_place():
     assert "self.flow([(" in cl.compile_script(script)
 
 
-def test_a_point_off_the_map_is_refused():
-    errors = cl.lint(_script([{"op": "marker", "lonlat": [-74.0, 40.7], "label": "Somewhere"}]))[0]
-    assert any("is off this map" in e for e in errors), errors
+def test_a_point_off_the_map_is_left_out():
+    script = _script([{"op": "marker", "lonlat": [-74.0, 40.7], "label": "Somewhere"},
+                      {"op": "marker", "place": "Agra"}])
+    errors, warnings = cl.lint(script)
+    assert not errors and any(w.startswith("fixed:") and "is off this map; left out" in w for w in warnings)
+    assert script["chapters"][0]["beats"][0]["do"] == [{"op": "marker", "place": "Agra"}]

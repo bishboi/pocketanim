@@ -103,7 +103,8 @@ def test_the_compiler_takes_a_twenty_box_hierarchy():
     nodes = [{"id": i, "label": i.title()} for i in UML]
     op = {"op": "diagram", "id": "uml", "kind": "hierarchy", "nodes": nodes, "edges": [list(e) for e in UML_EDGES]}
     assert not cl.lint(_script(op))[0]
-    many = {**op, "nodes": nodes + [{"id": f"x{k}", "label": "X"} for k in range(3)]}
+    many = {**op, "nodes": nodes + [{"id": f"x{k}", "label": "X"} for k in range(3)],
+            "edges": [list(e) for e in UML_EDGES] + [[UML[0], f"x{k}"] for k in range(3)]}
     assert any("2-20 nodes" in e for e in cl.lint(_script(many))[0])
 
 
@@ -150,12 +151,16 @@ def test_the_more_figures_a_book_has_the_fewer_web_pictures(monkeypatch):
     assert cl.web_budget({"figures": FIGS}) == 3
 
 
-def test_a_script_over_its_web_budget_is_sent_back(monkeypatch):
+def test_a_script_over_its_web_budget_is_trimmed(monkeypatch):
     monkeypatch.delenv("PANIM_WEB_PICTURES", raising=False)
+    monkeypatch.setattr(cl, "_unfetched_photos", lambda *a, **k: [])
     gallery = {"op": "gallery", "items": [{"subject": "Marie Curie"}, {"subject": "Pierre Curie"}]}
-    errors = cl.lint(_script(gallery, FIGS))[0]
-    assert any("the book has 5 figures of its own" in e and "at most 1 new picture" in e for e in errors), errors
-    assert not any("figures of its own" in e for e in cl.lint(_script(gallery))[0])   # no book: no limit
+    script = _script(json.loads(json.dumps(gallery)), FIGS)
+    warnings = cl.lint(script)[1]
+    assert any(w.startswith("fixed:") and "the book has 5 figures of its own" in w and "at most 1 picture" in w
+               for w in warnings), warnings
+    assert script["chapters"][0]["beats"][0]["do"][0]["items"] == [{"subject": "Marie Curie"}]   # the first kept
+    assert not any("figures of its own" in w for w in cl.lint(_script(gallery))[1])   # no book: no limit
 
 
 def test_automatic_pictures_stop_at_the_budget(monkeypatch):

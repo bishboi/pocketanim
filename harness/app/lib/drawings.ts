@@ -91,14 +91,27 @@ function picturesOf(op: Record<string, unknown> | undefined): Record<string, unk
   return [];
 }
 
+/** A picture op that asks for a drawing ({"op":"picture","draw":...}) as the draw op it is, in place, with the id
+ * compile_lecture.canonical_ops gives it. */
+function asDrawOp(op: Record<string, unknown> | undefined, id: string): void {
+  if (op?.op !== "picture" || typeof op.draw !== "string" || !op.draw.trim() || op.items) return;
+  op.op = "draw";
+  op.what = op.draw;
+  op.parts = Array.isArray(op.parts) && op.parts.length ? op.parts : ["picture"];
+  op.id = op.id || id;
+  delete op.draw;
+}
+
 /** Each draw op in a script (a problem's figure too), with the line it is said on and its chapter. */
 function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[] {
   const out: { op: DrawOp; say: string; chapter: string }[] = [];
   const chapters = (script as { chapters?: { title?: string; beats?: { say?: string; do?: Record<string, unknown>[] }[] }[] })
     ?.chapters ?? [];
-  for (const chapter of chapters) {
-    for (const beat of chapter.beats ?? []) {
-      for (const op of beat.do ?? []) {
+  for (const [c, chapter] of chapters.entries()) {
+    for (const [b, beat] of (chapter.beats ?? []).entries()) {
+      for (const [k, op] of (beat.do ?? []).entries()) {
+        asDrawOp(op, `picture${c + 1}_${b + 1}_${k + 1}`);
+        if (op?.op === "problem") asDrawOp(op.figure as Record<string, unknown> | undefined, `${op.id || "problem"}_figure`);
         const figure = op?.op === "problem" ? (op.figure as Record<string, unknown> | undefined) : undefined;
         for (const candidate of [op, figure]) {
           if (candidate?.op === "draw" && typeof candidate.what === "string" && Array.isArray(candidate.parts)) {

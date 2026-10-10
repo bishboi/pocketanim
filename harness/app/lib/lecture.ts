@@ -38,7 +38,8 @@ export type LectureScript = {
   credits?: string;
 };
 
-export type Compiled = { source: string | null; errors: string[]; warnings: string[]; minutes?: number };
+/** warnings: what the writer should fix; fixed: what the compiler mended by itself ("fixed: ...", for the log only). */
+export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number };
 
 /** A lecture runs this long unless the request names a length, or its content is long. */
 export const DEFAULT_LECTURE_MINUTES = 10;
@@ -187,7 +188,9 @@ export async function compileLecture(
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");
-    return compiled;
+    const warnings = compiled.warnings ?? [];
+    return { ...compiled, warnings: warnings.filter((w) => !w.startsWith("fixed: ")),
+      fixed: warnings.filter((w) => w.startsWith("fixed: ")) };
   } catch {
     return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
   }
@@ -536,9 +539,12 @@ export function unbuiltFigures(script: unknown, figures: Record<string, { captio
     for (const beat of chapter.beats ?? []) {
       for (const op of beat.do ?? []) {
         if (op?.from_figure) done.add(String(op.from_figure));
-        if (op?.op === "figure" && op.photo) done.add(String(op.id));
+        // A picture op of a book figure ({"op":"picture","figure":"fig4"}) is a figure op.
+        const id = String(op?.op === "picture" && op.figure ? op.figure : op?.id);
+        const shown = op?.op === "figure" || (op?.op === "picture" && !!op.figure);
+        if (shown && op.photo) done.add(id);
         // A figure redrawn as SVG (figures.ts) is shown as itself.
-        if (op?.op === "figure" && figures[String(op.id)]?.svg) done.add(String(op.id));
+        if (shown && figures[id]?.svg) done.add(id);
       }
     }
   }
@@ -790,12 +796,14 @@ export function lecturePrompt(
     "  drawn as an illustration; or an id chosen with find_drawing: a Bioicons science drawing, or a hand-drawn",
     "  library illustration, coco:..., arcadia:... or clip:...),",
     "  shown a node or two at a time across the paragraph's beats:",
-    '  {"op":"diagram","id":"chain","kind":"flow"|"flowchart"|"cycle"|"tree"|"hierarchy"|"hub"|"categories"|"steps","title"?,',
+    '  {"op":"diagram","id":"chain","kind":"flow"|"cycle"|"hub","steps"?:true,"title"?,',
     '   "nodes":[{"id":"sun","label":"Sun","entity":"sun"},{"id":"plants","label":"पौधे","entity":"deciduous tree"}],',
-    '   "edges"?:[["sun","plants","light"]],"show"?:["sun","plants"]}   flow = in order; cycle = round; tree = from the',
-    "                                          first node down; hub = the first node in the middle. Labels in the lecture's",
-    "                                          language, entities in English. 2-9 nodes (a flowchart: up to 16; a",
-    "                                          tree, hierarchy or categories: up to 20).",
+    '   "edges"?:[["sun","plants","light"]],"show"?:["sun","plants"]}   THREE KINDS. flow takes its layout from its',
+    "                                          edges: none or a chain = in order; edges that only branch downwards = a",
+    "                                          hierarchy; branches, joins, loops, shapes or lanes = a flowchart. cycle =",
+    "                                          round; hub = the first node in the middle. \"steps\": true numbers a",
+    "                                          chain's cards. Labels in the lecture's language, entities in English.",
+    "                                          2-9 nodes (a flow: up to 16; a hierarchy: up to 20).",
     "  PICTURES BESIDE WORDS: a diagram's node, a timeline's event and a map marker's label may carry a picture,",
     '  "picture": one of {"subject":"Mahatma Gandhi"} (Wikipedia\'s picture of a person, place or thing),',
     '  {"query":"steam locomotive"} (a photo), {"illustration":"water cycle"} (a textbook illustration),',
@@ -804,13 +812,13 @@ export function lecturePrompt(
     "  thing teaches it (each kind of rock, the leaders on a timeline, the crop grown at each place), not on every",
     "  box. They are laid out so no picture or word covers another; web photos count towards the lecture's limit.",
     "  HIERARCHIES (a whole, its kinds, their kinds: kinds of rock, the classification of living things, branches of",
-    "  government, types of UML diagram): kind \"hierarchy\" (or tree or categories), edges [parent, child], as deep as",
+    "  government, types of UML diagram): a flow with edges [parent, child], as deep as",
     "  the subject goes. It is drawn as a textbook draws one: the main thing at the top, its subcategories in a row",
     "  under it, each centred over its own subcategories, and so on down, joined by right-angled connectors with an",
-    "  open triangle at the parent (\"is a kind of\"); long lists of leaves are stacked in columns so it stays big. A",
-    "  flow whose edges only branch downwards (one parent each) is drawn the same way. Reveal it a level at a time.",
-    '  FLOWCHARTS: a process that branches, decides, joins or loops back is a "flowchart" (a "flow" whose edges',
-    "  branch becomes one too). It is laid out in ranks that follow the flow, crossings kept few, loops drawn round",
+    "  open triangle at the parent (\"is a kind of\"); long lists of leaves are stacked in columns so it stays big.",
+    "  Reveal it a level at a time.",
+    '  FLOWCHARTS: a process that branches, decides, joins or loops back is a "flow" whose edges say so; it is',
+    "  drawn as a flowchart, laid out in ranks that follow the flow, crossings kept few, loops drawn round",
     "  the outside, each arrow curving from its own place on a box. Each node may have:",
     '   "shape": "start" | "end" (pills), "process" (box, the default), "decision" (diamond: a yes/no question,',
     '   label ending "?", its edges labelled "Yes"/"No" or the cases), "io" (what goes in or comes out: data, a',
@@ -831,11 +839,11 @@ export function lecturePrompt(
     '  the process goes ("flow": false turns them off; "flow": true adds them to a tree or hub). Use entities that move',
     "  for a process (the water cycle, a power station, circulation, a food chain): the class sees it happening.",
     "  CATEGORIES, KINDS, TYPES OR STEPS, which need only words -> a diagram of words:",
-    '  {"op":"diagram","id":"forces","kind":"categories","title":"Types of forces","nodes":[',
+    '  {"op":"diagram","id":"forces","kind":"flow","title":"Types of forces","nodes":[',
     '   {"id":"all","label":"Forces"},{"id":"contact","label":"Contact forces","items":["Friction","Normal","Tension"]},',
-    '   {"id":"field","label":"Non-contact forces","items":["Gravity","Magnetic","Electric"]}]}',
-    "   categories = the first node (the whole) above its kinds, each a coloured card listing up to 5 items;",
-    '   steps = numbered cards in order: {"op":"diagram","id":"fbd","kind":"steps","nodes":[{"id":"s1","label":"Pick',
+    '   {"id":"field","label":"Non-contact forces","items":["Gravity","Magnetic","Electric"]}],',
+    '   "edges":[["all","contact"],["all","field"]]}   the whole above its kinds, each a card listing up to 5 items;',
+    '   numbered steps in order: {"op":"diagram","id":"fbd","kind":"flow","steps":true,"nodes":[{"id":"s1","label":"Pick',
     '   the body"},{"id":"s2","label":"Draw every force on it"},{"id":"s3","label":"Choose axes"}]}. Reveal kinds or',
     "   steps a beat at a time with show and reveal, as you talk about each.",
     '  {"op":"reveal","diagram":"chain","nodes":["deer"]}   the next nodes of that diagram, with their arrows',
@@ -844,18 +852,21 @@ export function lecturePrompt(
     "  TWO OR THREE KINDS OF SOMETHING -> {\"op\":\"compare\",\"title\"?,\"columns\":[{\"title\":\"Reserved\",\"entity\"?:\"tree\",",
     '   "points":["up to 4 short lines"]},...]}',
     "  A QUESTION FOR THE CLASS -> question, then answer on the next beat (see QUESTIONS FOR THE CLASS).",
+    "  ONE OP FOR ANY PICTURE ON THE STAGE: {\"op\":\"picture\", one of \"subject\" | \"query\" | \"illustration\" | \"figure\" |",
+    "  \"draw\" | \"items\" (several), \"caption\"?}: the same keys as PICTURES BESIDE WORDS. (photo, illustration, figure,",
+    "  gallery and draw are the same op under older names and still work.)",
     "  PEOPLE, COMMUNITIES, MOVEMENTS AND HISTORIC PLACES (and only these) -> real pictures. Several at once for a",
-    "  paragraph about several: {\"op\":\"gallery\",\"title\"?,\"items\":[{\"subject\":\"Sunderlal Bahuguna\",\"caption\":\"सुंदरलाल बहुगुणा\"},",
+    "  paragraph about several: {\"op\":\"picture\",\"title\"?,\"items\":[{\"subject\":\"Sunderlal Bahuguna\",\"caption\":\"सुंदरलाल बहुगुणा\"},",
     '   {"subject":"Chipko movement","caption":"..."},{"figure":"fig3","caption":"..."}]}   2-4 items: subject = Wikipedia\'s',
     "   picture (English name), figure = one of the document's figures, image = a title from find_image.",
-    '   One of them alone: {"op":"photo","subject":"Chipko movement","caption":"चिपको आंदोलन"}.',
+    '   One of them alone: {"op":"picture","subject":"Chipko movement","caption":"चिपको आंदोलन"}.',
     "  THE DOCUMENT'S OWN FIGURES come first whenever one shows what the paragraph explains:",
-    '  {"op":"figure","id":"fig2","where":"stage"} (or put several in a gallery).',
+    '  {"op":"picture","figure":"fig2"} (or put several in items).',
     "  SCIENCE -> molecule, equation, graph, sketch and the physics presets (DRAWN IN MANIM, below); HISTORY ->",
     "  timeline (see below). Build a picture in Manim whenever it can be built; fetch an image only when it cannot.",
     "  A TEXTBOOK DIAGRAM you cannot build (the parts of a cell, a cross-section) -> draw it as an SVG (DRAWN AS",
     "  SVG, below), or find_illustration, then",
-    '  {"op":"illustration","image":"<title it returned>" | "query":"leaf cross section","caption"?}.',
+    '  {"op":"picture","illustration":"leaf cross section","image"?:"<title find_illustration returned>","caption"?}.',
     "Other stage operations:",
     '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula, atoms in CPK colours.',
     "   ONLY where the narration explains that structure (its bonds, shape, groups, isomers), and once a chapter: a",

@@ -32,10 +32,11 @@ def test_lint_checks_parts_and_reveals():
                    {"say": "Write it down.", "do": [{"op": "work", "id": "w", "lines": ["F = ma"]}]}])
     assert cl.lint(ok)[0] == []
     bad = _lecture([{"say": "A block.", "do": [{"op": "incline", "id": "r", "show": ["wedgie"]}]}])
-    assert any("no part 'wedgie'" in e for e in cl.lint(bad)[0])
+    assert any("fixed:" in w and "no part 'wedgie'" in w for w in cl.lint(bad)[1])
     wrong = _lecture([{"say": "A block.", "do": [{"op": "incline", "id": "r"}]},
                       {"say": "Its weight.", "do": [{"op": "reveal", "diagram": "r", "nodes": ["weight"]}]}])
-    assert any("reveal" in e for e in cl.lint(wrong)[0])
+    errors, warnings = cl.lint(wrong)                   # a reveal of nothing it has is left out
+    assert not errors and any("left out 'reveal'" in w for w in warnings) and wrong["chapters"][0]["beats"][1]["do"] == []
     graph = _lecture([{"say": "A graph.", "do": [{"op": "graph", "id": "g", "items": [{"kind": "curve", "expr": "y+"}]}]}])
     assert cl.lint(graph)[0]
     problem = _lecture([{"say": "A problem.", "do": [{"op": "problem", "id": "p", "text": "Find a.",

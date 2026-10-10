@@ -99,8 +99,9 @@ def test_figure_and_icon_ops_compile(tmp_path):
                   {"say": "one two three four five six seven eight", "do": [{"op": "figure", "id": "fig9"}]}]}]}
     out = subprocess.run([sys.executable, str(LECTURE / "compile_lecture.py"), "-", "--json"],
                          input=json.dumps(script), capture_output=True, text=True)
-    errors = json.loads(out.stdout.strip().splitlines()[-1])["errors"]
-    assert errors == ["chapter 1 beat 2: no figure 'fig9'; the figures are: fig1"]
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["errors"] == [] and result["source"]                 # the figure that is not there is left out
+    assert "fixed: chapter 1 beat 2: left out 'figure': no book figure 'fig9'" in result["warnings"]
     del script["chapters"][0]["beats"][1]
     out = subprocess.run([sys.executable, str(LECTURE / "compile_lecture.py"), "-", "--json"],
                          input=json.dumps(script), capture_output=True, text=True)

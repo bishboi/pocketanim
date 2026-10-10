@@ -72,11 +72,12 @@ def test_a_drawn_figure_is_shown_and_its_parts_revealed():
     source = cl.compile_script(json.loads(json.dumps(script)))
     assert source.count("self.svg_figure(") == 2 and "show=['ground', 'wedge', 'block']" in source
     wrong = _lecture()
-    wrong["chapters"][0]["beats"][1]["do"][0]["nodes"] = ["weight"]
-    assert any("reveal: nodes must be ids of diagram 'fig1'" in e for e in cl.lint(wrong)[0])
+    wrong["chapters"][0]["beats"][1]["do"][0]["nodes"] = ["weight", "mg"]
+    assert not cl.lint(wrong)[0] and wrong["chapters"][0]["beats"][1]["do"][0]["nodes"][0] == "mg"
     unknown = _lecture()
-    unknown["chapters"][0]["beats"][0]["do"][0]["show"] = ["slope"]
-    assert any("no part 'slope'" in e for e in cl.lint(unknown)[0])
+    unknown["chapters"][0]["beats"][0]["do"][0]["show"] = ["slope", "wedge"]
+    assert any("fixed:" in w and "no part 'slope'" in w for w in cl.lint(unknown)[1])
+    assert unknown["chapters"][0]["beats"][0]["do"][0]["show"] == ["wedge"]
     # Without its SVG, the book's picture may not be shown as it is: it is built, or it is a photograph.
     undrawn = _lecture()
     undrawn["figures"]["fig1"].pop("svg")

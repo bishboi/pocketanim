@@ -54,12 +54,13 @@ def test_geonames(gazetteer):
         pl.place("Nowhere At All", "Nepal")
 
 
-def test_unknown_place_is_a_lint_error(monkeypatch):
+def test_an_unknown_place_is_left_out(monkeypatch):
     monkeypatch.setenv("PANIM_GEOCODE", "0")
     script = {"title": "T", "style": "vox", "region": {"country": "India"},
               "chapters": [{"title": "A", "narration": "x", "beats": [
                   {"say": "one two three four five six seven eight", "do": [{"op": "marker", "place": "Nowhere Town"}]}]}]}
     out = subprocess.run([sys.executable, str(LECTURE / "compile_lecture.py"), "-", "--check"],
                          input=json.dumps(script), capture_output=True, text=True, env={**__import__("os").environ})
-    errors = json.loads(out.stdout.strip().splitlines()[-1])["errors"]
-    assert any("Nowhere Town" in e and "town" in e for e in errors)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert not result["errors"]
+    assert any(w.startswith("fixed:") and "no place named 'Nowhere Town'" in w for w in result["warnings"])

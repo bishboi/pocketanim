@@ -68,10 +68,12 @@ def test_pictures_are_checked_and_resolved(photos):
     assert not cl.lint(script)[0]
     bad = _lecture(photos)
     bad["chapters"][0]["beats"][0]["do"][0]["nodes"][3]["picture"] = {"figure": "nope"}
-    assert any("no book figure 'nope'" in e for e in cl.lint(bad)[0])
+    errors, warnings = cl.lint(bad)                     # the picture goes; the node's words stay
+    assert not errors and any(w.startswith("fixed:") and "no book figure 'nope'" in w for w in warnings)
+    assert "picture" not in bad["chapters"][0]["beats"][0]["do"][0]["nodes"][3]
     two = _lecture(photos)
     two["chapters"][2]["beats"][0]["do"][0]["picture"] = {"figure": "fort", "entity": "fort"}
-    assert any("a picture is one of" in e for e in cl.lint(two)[0])
+    assert any("a picture is one of" in w for w in cl.lint(two)[1])
     mapped = _lecture(photos)
     mapped["chapters"][1]["beats"][0]["do"][0]["events"][1].append({"illustration": "map of the Mughal Empire"})
     assert any("is never drawn as a picture" in e for e in cl.lint(mapped)[0])

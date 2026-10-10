@@ -98,10 +98,12 @@ def test_the_compiler_takes_a_flowchart():
 def test_the_compiler_refuses_what_it_cannot_draw():
     bad_shape = _flowchart()
     bad_shape["nodes"][0]["shape"] = "hexagon"
-    assert any("shape is one of" in e for e in cl.lint(_script(bad_shape))[0])
+    errors, warnings = cl.lint(_script(bad_shape))          # mended, not sent back: a plain box
+    assert not errors and any("fixed:" in w and "no shape 'hexagon'" in w for w in warnings)
+    assert "shape" not in bad_shape["nodes"][0]
     bad_style = _flowchart()
     bad_style["edges"][1] = ["q", "a", "Yes", "wiggly"]
-    assert any("style is one of" in e for e in cl.lint(_script(bad_style))[0])
+    assert not cl.lint(_script(bad_style))[0] and bad_style["edges"][1][3] == "solid"
     many = _flowchart()
     many["nodes"] = [{"id": f"n{k}", "label": f"Step {k}"} for k in range(17)]
     many["edges"] = []

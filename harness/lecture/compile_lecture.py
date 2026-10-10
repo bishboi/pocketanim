@@ -212,6 +212,336 @@ def _point_problems(op: dict) -> list[str]:
     return out
 
 
+# ---------------- one form for each thing; mechanical fixes, made without the writer ----------------
+# One op for any picture: {"op": "picture", "subject" | "query" | "image" | "illustration" | "figure" | "draw" |
+# "items", caption?}. The older ops (photo, illustration, figure, draw, gallery) are the same thing and still read.
+# Diagrams are a flow (a chain, a hierarchy or a flowchart, by its connections), a cycle or a hub; "steps": true
+# numbers a chain. The older kinds still read: flowchart, tree, hierarchy, categories, steps.
+DIAGRAM_ALIASES = {"flowchart": "flow", "tree": "flow", "hierarchy": "flow", "categories": "flow", "steps": "flow"}
+FIXED = "fixed: "            # a warning that says what the compiler mended by itself; the writer is not asked
+
+
+def _picture_op(op: dict, fallback_id: str) -> dict:
+    """The picture op as the op it amounts to (photo, illustration, figure, draw or gallery)."""
+    rest = {k: v for k, v in op.items() if k != "op"}
+    if rest.get("items"):
+        return {**rest, "op": "gallery"}
+    if rest.get("draw"):
+        what = rest.pop("draw")
+        return {**rest, "op": "draw", "id": rest.get("id") or fallback_id, "what": what,
+                "parts": rest.get("parts") or ["picture"]}
+    if rest.get("figure"):
+        figure = rest.pop("figure")
+        return {**rest, "op": "figure", "id": figure}
+    if rest.get("illustration"):
+        query = rest.pop("illustration")
+        return {**rest, "op": "illustration", "query": query}
+    if rest.get("subject") or rest.get("query") or rest.get("image"):
+        return {**rest, "op": "photo"}
+    return op
+
+
+def _canonical_diagram(op: dict) -> None:
+    kind = str(op.get("kind") or "flow")
+    if kind == "steps":
+        op["steps"] = True
+    if kind in ("tree", "hierarchy", "categories") and not op.get("edges"):
+        ids = [str(n.get("id")) for n in op.get("nodes") or [] if isinstance(n, dict) and n.get("id")]
+        if len(ids) > 1:
+            op["edges"] = [[ids[0], i] for i in ids[1:]]       # the whole over its kinds
+    op["kind"] = DIAGRAM_ALIASES.get(kind, kind)
+
+
+def canonical_ops(script: dict) -> None:
+    """Each picture op as the op it amounts to and each diagram kind as one of flow, cycle, hub (in place)."""
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            ops = beat.get("do")
+            if not isinstance(ops, list):
+                continue
+            for k, op in enumerate(ops):
+                if not isinstance(op, dict):
+                    continue
+                if op.get("op") == "picture":
+                    ops[k] = op = _picture_op(op, f"picture{c + 1}_{b + 1}_{k + 1}")
+                if op.get("op") == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") == "picture":
+                    op["figure"] = _picture_op(op["figure"], f"{op.get('id') or 'problem'}_figure")
+                if op.get("op") == "diagram":
+                    _canonical_diagram(op)
+
+
+def _drop(op: dict, at: str, why: str, notes: list[str]) -> None:
+    op["_drop"] = True
+    notes.append(f"{FIXED}{at}: left out {op.get('op')!r}: {why}")
+
+
+def _purge(script: dict) -> None:
+    """Take out the ops marked to drop."""
+    for chapter in script.get("chapters") or []:
+        for beat in chapter.get("beats") or []:
+            if isinstance(beat.get("do"), list):
+                beat["do"] = [op for op in beat["do"] if not (isinstance(op, dict) and op.get("_drop"))]
+
+
+def _fix_unusable(script: dict, has_map: bool) -> list[str]:
+    """Ops that cannot be drawn as written and need no new words to mend: an unknown op, a map op with no map,
+    one missing what it draws, a picture whose kind is not one of the picture keys. Each is left out (a broken
+    picture beside a label is dropped and the label stays), with a note."""
+    notes: list[str] = []
+    figures = script.get("figures") or {}
+    known = {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo", "illustration"} \
+        | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS
+    need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
+            "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"]}
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            at = f"chapter {c + 1} beat {b + 1}"
+            ops = beat.get("do") if isinstance(beat.get("do"), list) else []
+            beat["do"] = ops = [op for op in ops if isinstance(op, dict)]
+            for op in ops:
+                kind = op.get("op")
+                if kind not in known:
+                    _drop(op, at, "no such op", notes)
+                    continue
+                if kind in MAP_OPS and not has_map:
+                    _drop(op, at, "it needs a map and the script has no region", notes)
+                    continue
+                if kind in MAP_OPS and chapter.get("map") is False:
+                    _drop(op, at, "its chapter has no map (map: false)", notes)
+                    continue
+                missing = [f for f in need.get(kind, []) if not op.get(f)]
+                if kind == "marker" and not (op.get("place") or op.get("lonlat")):
+                    missing.append("place")
+                if kind == "photo" and not (op.get("image") or op.get("query") or op.get("subject")):
+                    missing.append("subject")
+                if kind == "illustration" and not (op.get("query") or op.get("image")):
+                    missing.append("query")
+                if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
+                    missing.append("lat or lon")
+                if kind == "journey":
+                    stops = op.get("stops") if isinstance(op.get("stops"), list) else []
+                    op["stops"] = [x for x in stops if isinstance(x, str) or (
+                        isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(v, (int, float)) for v in x))]
+                    if len(op["stops"]) < 2:
+                        missing.append("two stops")
+                if kind == "figure" and str(op.get("id")) not in figures:
+                    _drop(op, at, f"no book figure {op.get('id')!r}", notes)
+                    continue
+                if missing:
+                    _drop(op, at, f"it has no {missing[0]}", notes)
+                    continue
+                if kind == "figure" and op.get("show") and (figures[str(op["id"])] or {}).get("parts"):
+                    parts = [str(p) for p in figures[str(op["id"])]["parts"]]
+                    _keep_known(op, "show", parts, at, notes)
+                if kind == "gallery":
+                    items = op.get("items") if isinstance(op.get("items"), list) else []
+                    kept = [i for i in items if not (isinstance(i, dict) and i.get("figure")
+                                                     and str(i["figure"]) not in figures)]
+                    if len(kept) < len(items):
+                        notes.append(f"{FIXED}{at}: gallery item(s) of book figures that do not exist left out")
+                        op["items"] = kept
+                for where, spec in pictures_of(op):
+                    problem = _picture_problem(spec, figures)
+                    if problem:
+                        _forget_picture(op, spec)
+                        notes.append(f"{FIXED}{at}: {where}: picture left out ({problem}); its words stand alone")
+    _purge(script)
+    return notes
+
+
+def _forget_picture(op: dict, spec) -> None:
+    """Take one picture off the node, event, label or stop that carries it."""
+    for n in op.get("nodes") or []:
+        if isinstance(n, dict) and n.get("picture") is spec:
+            n.pop("picture")
+    events = op.get("events") or []
+    for k, e in enumerate(events):
+        if isinstance(e, dict) and e.get("picture") is spec:
+            e.pop("picture")
+        elif isinstance(e, list) and len(e) > 2 and e[2] is spec:
+            events[k] = e[:2]
+    if op.get("picture") is spec:
+        op.pop("picture")
+    if isinstance(op.get("pictures"), list):
+        op["pictures"] = [None if p is spec else p for p in op["pictures"]]
+
+
+def _keep_known(op: dict, field: str, ids: list[str], at: str, notes: list[str]) -> None:
+    """Names in op[field] that are none of `ids`, left out."""
+    given = [str(x) for x in op.get(field) or []]
+    kept = [x for x in given if x in ids]
+    if len(kept) < len(given):
+        notes.append(f"{FIXED}{at}: {op.get('op')} {op.get('id') or op.get('diagram') or ''} {field}: no part "
+                     f"{', '.join(repr(x) for x in given if x not in ids)} (left out)")
+        if kept:
+            op[field] = kept
+        else:
+            op.pop(field)
+
+
+def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
+    """A diagram's mechanical faults: an unknown kind, a shape, style or motion it does not have, an edge to no
+    node, a show of no node, too many items in a node."""
+    import animsvg
+
+    if op.get("kind", "flow") not in DIAGRAM_KINDS:
+        notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: no kind {op.get('kind')!r}; drawn as a flow")
+        op["kind"] = "flow"
+    nodes = [n for n in op.get("nodes") or [] if isinstance(n, dict)]
+    ids = [str(n.get("id")) for n in nodes if n.get("id")]
+    motions = set(animsvg.MOTIONS) | {"none", "auto"}
+    for n in nodes:
+        if n.get("shape") and str(n["shape"]) not in FLOW_SHAPES:
+            notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: no shape {n['shape']!r} (a plain box)")
+            n.pop("shape")
+        if n.get("anim") is not None and str(n["anim"]) not in motions:
+            notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: no motion {n['anim']!r} (moves as its thing does)")
+            n.pop("anim")
+        if isinstance(n.get("items"), list) and len(n["items"]) > 5:
+            notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: items cut to the first 5")
+            n["items"] = n["items"][:5]
+    _edges_as_lists(op)
+    edges = op.get("edges") or []
+    if isinstance(edges, list):
+        kept = [e for e in edges if isinstance(e, list) and len(e) >= 2 and str(e[0]) in ids and str(e[1]) in ids]
+        if len(kept) < len(edges):
+            notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: {len(edges) - len(kept)} edge(s) to no node left out")
+        for e in kept:
+            if len(e) > 3 and e[3] and str(e[3]) not in EDGE_STYLES:
+                e[3] = "solid"
+        op["edges"] = kept
+    _keep_known(op, "show", ids, at, notes)
+
+
+STEP_DIAGRAM_OPS = {"reveal", "focus", "zoom", "trace", "sweep", "motion"}
+# The ops that put up a picture a later step can name by its id.
+PICTURE_HOLDERS = {"diagram", "draw", "figure", "graph", "sketch", "sim", "counter", "problem"}
+
+
+def _fix_steps(script: dict) -> list[str]:
+    """Steps that point at what is not there, mended: a reveal, focus, zoom, trace, sweep or motion of no picture
+    drawn earlier in its chapter is left out; a reveal's unknown parts are left out (and the reveal, if none is
+    left); a focus on no part is left out; a zoom on no part zooms on the whole; an answer or option with no
+    question before it is left out; a picture's "show" of no part leaves that name out."""
+    notes: list[str] = []
+    figures = script.get("figures") or {}
+    for c, chapter in enumerate(script.get("chapters") or []):
+        known: dict[str, list[str] | None] = {}
+        choices: list | None = None
+        for b, beat in enumerate(chapter.get("beats") or []):
+            at = f"chapter {c + 1} beat {b + 1}"
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                kind = op.get("op")
+                if kind == "diagram":
+                    _fix_diagram(op, at, notes)
+                if kind in STEP_DIAGRAM_OPS:
+                    key = str(op.get("diagram") or "")
+                    if key not in known:
+                        _drop(op, at, f"no picture {key!r} is drawn earlier in this chapter", notes)
+                        continue
+                    parts = known[key]
+                    if parts is not None and kind == "reveal":
+                        _keep_known(op, "nodes", parts, at, notes)
+                        if not op.get("nodes"):
+                            _drop(op, at, f"none of its nodes is a part of {key!r}", notes)
+                    elif parts is not None and kind == "focus" and str(op.get("node") or "") not in parts:
+                        _drop(op, at, f"{key!r} has no part {op.get('node')!r}", notes)
+                    elif parts is not None and kind == "zoom" and op.get("node") is not None \
+                            and str(op["node"]) not in parts:
+                        notes.append(f"{FIXED}{at}: zoom: {key!r} has no part {op['node']!r}; zooms on the whole")
+                        op.pop("node")
+                    continue
+                if kind == "answer" and choices is None:
+                    _drop(op, at, "no question is asked before it in this chapter", notes)
+                    continue
+                if kind == "option" and (not choices or _choice_index(choices, op.get("choice")) is None):
+                    _drop(op, at, f"no question with a choice {op.get('choice')!r} before it", notes)
+                    continue
+                if kind == "question":
+                    choices = op.get("choices") if isinstance(op.get("choices"), list) else []
+                    continue
+                if (kind in ("draw", "graph", "sketch") or kind in PRESETS) and op.get("show"):
+                    parts = _diagram_parts(op, figures)
+                    if parts is not None:
+                        _keep_known(op, "show", parts, at, notes)
+                if op.get("id") and kind in PICTURE_HOLDERS | set(PRESETS):
+                    key = str(op["id"])
+                    if kind in ("sim", "counter"):
+                        known[key] = None                 # its parts are the sim's own
+                    elif kind == "problem":
+                        known[key] = []
+                        if isinstance(op.get("figure"), dict):
+                            known[f"{key}_figure"] = _diagram_parts(op["figure"], figures)
+                    else:
+                        known[key] = _diagram_parts(op, figures)
+    _purge(script)
+    return notes
+
+
+def _trim_web_pictures(script: dict) -> list[str]:
+    """Pictures from the web past the budget (web_budget), left out from the last back: photos and
+    illustrations, gallery items (a gallery with none left goes too), pictures beside labels."""
+    budget = web_budget(script)
+    if budget is None:
+        return []
+    left = budget
+    cut: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            at = f"chapter {c + 1} beat {b + 1}"
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                kind = op.get("op")
+                if kind in ("photo", "illustration"):
+                    if left > 0:
+                        left -= 1
+                    else:
+                        op["_drop"] = True
+                        cut.append(at)
+                elif kind == "gallery":
+                    items = op.get("items") if isinstance(op.get("items"), list) else []
+                    kept = []
+                    for item in items[:4]:
+                        web = isinstance(item, dict) and not item.get("figure")
+                        if web and left <= 0:
+                            cut.append(at)
+                            continue
+                        left -= 1 if web else 0
+                        kept.append(item)
+                    op["items"] = kept
+                    if not kept:
+                        op["_drop"] = True
+                for _, spec in pictures_of(op):
+                    if isinstance(spec, dict) and _picture_fetch(spec):
+                        if left > 0:
+                            left -= 1
+                        else:
+                            _forget_picture(op, spec)
+                            cut.append(at)
+    _purge(script)
+    if not cut:
+        return []
+    return [f"{FIXED}{cut[0]}: the book has {book_figure_count(script)} figures of its own, so the lecture adds at "
+            f"most {budget} picture{'s' if budget != 1 else ''} from the web; {len(cut)} more were left out "
+            f"(at {', '.join(dict.fromkeys(cut))})"]
+
+
+def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
+    """Everything the compiler mends by itself, in place, before the checks: what it did, as warnings that start
+    with "fixed: " (shown in the log, never sent back to the writer)."""
+    canonical_ops(script)
+    notes = _fix_unusable(script, has_map)
+    notes += _fix_steps(script)
+    notes += _trim_web_pictures(script)
+    reveals: list[str] = []
+    _complete_reveals(script, reveals, script.get("figures") or {})
+    return notes + reveals
+
+
+
 def lint(script: dict, min_minutes: float | None = None, min_questions: int | None = None,
          min_examples: int | None = None, min_problems: int | None = None) -> tuple[list[str], list[str]]:
     """(errors, warnings). Errors stop compilation; warnings are layout advice.
@@ -232,6 +562,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         errors.append('region must be an object, e.g. {"country": "India", "view": "ind"}, or left out for no map')
         script = {**script, "region": None}
     has_map = bool(script.get("region"))
+    # What needs no new words is mended here (and said in the warnings, "fixed: ..."); the rest are errors.
+    warnings += mechanical_fixes(script, has_map)
     if has_map:
         e, w = _resolve_map_points(script)
         errors += e
@@ -265,10 +597,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
                 kind = op.get("op")
-                if kind not in {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo",
-                                "illustration"} | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS:
-                    errors.append(f"{at}: unknown op {kind!r}")
-                    continue
                 drawn_map = map_drawn_by(op)
                 if drawn_map:
                     errors.append(f"{at}: {drawn_map}")
@@ -298,57 +626,26 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         errors.append(f"{at}: {problem}")
                     if kind == "gallery" and not problem:
                         photos.extend((at, item) for item in _gallery_fetches(op))
-                if kind in MAP_OPS and not has_map:
-                    errors.append(f"{at}: '{kind}' needs a map; give the script a region")
-                if kind in MAP_OPS and chapter.get("map") is False:
-                    errors.append(f"{at}: '{kind}' in a chapter with map=false")
-                need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
-                        "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"]}
-                for field in need.get(kind, []):
-                    if not op.get(field):
-                        errors.append(f"{at}: '{kind}' needs {field}")
-                if kind == "journey":
-                    stops = op.get("stops")
-                    if not isinstance(stops, list) or len(stops) < 2:
-                        errors.append(f"{at}: 'journey' needs stops: two or more places, in order "
-                                      "([\"Sabarmati\", \"Dandi\"]) or [lon, lat] pairs")
-                    else:
-                        bad = [x for x in stops if not (isinstance(x, str) or (isinstance(x, (list, tuple))
-                               and len(x) == 2 and all(isinstance(v, (int, float)) for v in x)))]
-                        if bad:
-                            errors.append(f"{at}: journey stop {bad[0]!r} is a place name or [lon, lat]")
-                        elif has_map:
-                            places.extend((at, str(x)) for x in stops if isinstance(x, str))
-                if kind == "marker" and not (op.get("place") or op.get("lonlat")):
-                    errors.append(f"{at}: 'marker' needs place or lonlat")
-                elif kind == "marker" and op.get("place") and has_map:
+                # (An unknown op, a map op with no map and one missing what it draws were left out above.)
+                if kind == "journey" and has_map:
+                    places.extend((at, str(x)) for x in op["stops"] if isinstance(x, str))
+                if kind == "marker" and op.get("place") and has_map:
                     places.append((at, str(op["place"])))
                 if kind == "icon":
-                    if not op.get("name"):
-                        errors.append(f"{at}: 'icon' needs name")
-                    else:
-                        icon_names.append((at, str(op["name"])))
+                    icon_names.append((at, str(op["name"])))
                     spots = _icon_spots(op)
                     if spots and not has_map:
                         errors.append(f"{at}: an icon at a place needs a map; give the script a region, or drop place")
                     elif spots:
                         places.extend((at, str(p)) for p in spots if isinstance(p, str))
                 if kind == "photo":
-                    if not (op.get("image") or op.get("query") or op.get("subject")):
-                        errors.append(f"{at}: 'photo' needs image (a Commons title from find_image), subject "
-                                      "(a person, movement, monument or place, by its English name) or query")
-                    else:
-                        photos.append((at, op))
+                    photos.append((at, op))
                 if kind in KIT_OPS:
                     problem = _kit_problem(op)
                     if problem:
                         errors.append(f"{at}: {problem}")
                 if kind == "illustration":
-                    if not (op.get("query") or op.get("image")):
-                        errors.append(f"{at}: 'illustration' needs query (what it should show, in English: "
-                                      "\"water cycle diagram\") or image (a title from find_illustration)")
-                    else:
-                        photos.append((at, op))
+                    photos.append((at, op))
                 drawn_op = op if kind == "draw" else (op.get("figure") if kind == "problem" and isinstance(
                     op.get("figure"), dict) and op["figure"].get("op") == "draw" else None)
                 if drawn_op is not None and script.get("drawn") and not drawn_op.get("svg"):
@@ -357,11 +654,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                                   f"{': ' + str(drawn_op['_draw_error']) if drawn_op.get('_draw_error') else ''}. "
                                   "Describe it again more simply (fewer things, each named), or show it another way.")
                 if kind == "figure":
-                    figure = (script.get("figures") or {}).get(str(op.get("id")))
-                    if not figure:
-                        known = ", ".join(sorted(script.get("figures") or {})) or "none (no document was uploaded)"
-                        errors.append(f"{at}: no figure {op.get('id')!r}; the figures are: {known}")
-                    elif figure.get("svg") and not op.get("photo"):
+                    figure = (script.get("figures") or {}).get(str(op.get("id"))) or {}
+                    if figure.get("svg") and not op.get("photo"):
                         # Drawn as an SVG (the model redrew the book's diagram): shown with its parts to reveal.
                         if not Path(str(figure["svg"])).is_file():
                             errors.append(f"{at}: figure {op.get('id')!r} has no SVG file")
@@ -379,8 +673,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                                       "cannot show well), with "
                                       f"\"from_figure\":\"{op.get('id')}\" on that op. Only a photograph may be shown as "
                                       "it is, with \"photo\": true.")
-                if kind == "graticule" and op.get("lat") is None and op.get("lon") is None:
-                    errors.append(f"{at}: 'graticule' needs lat or lon")
                 for field in ("color",):
                     if op.get(field) is not None:
                         try:
@@ -421,7 +713,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     e, w = _book_questions(script, whole=bool(min_minutes))
     errors += e
     warnings += w
-    errors += _web_pictures_problem(script)
     if not any(e.startswith(("chapter", "a lecture")) and "manim" in e for e in errors):
         import free_check
 
@@ -616,7 +907,7 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
 STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
-DIAGRAM_KINDS = {"flow", "flowchart", "cycle", "tree", "hub", "categories", "steps", "hierarchy"}
+DIAGRAM_KINDS = {"flow", "cycle", "hub"}          # (the older kinds are read as these: DIAGRAM_ALIASES)
 # A flowchart's step shapes (pocket_lecture._flow_node) and the edge styles it draws.
 FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
 EDGE_STYLES = ("solid", "dashed", "bold")
@@ -703,12 +994,15 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         if op.get("kind", "flow") not in DIAGRAM_KINDS:
             return f"diagram kind must be one of {', '.join(sorted(DIAGRAM_KINDS))}"
         _edges_as_lists(op)
-        # A hierarchy (tree, categories) goes as deep and wide as a classification needs; a flowchart up to 16.
-        tree_kind = op.get("kind", "flow") in ("tree", "categories", "hierarchy")
-        most = 20 if tree_kind else 16 if op.get("kind", "flow") in ("flow", "flowchart") else 9
+        # A flow that is a hierarchy goes as deep and wide as a classification needs; a flowchart up to 16.
+        import hierarchy
+
+        flow = op.get("kind", "flow") == "flow"
+        ids = [str(n.get("id")) for n in nodes if isinstance(n, dict)]
+        most = (20 if hierarchy.is_tree(ids, op.get("edges") or []) else 16) if flow else 9
         if not 2 <= len(nodes) <= most or not all(isinstance(n, dict) and n.get("id") and n.get("label") for n in nodes):
             return (f"'diagram' needs 2-{most} nodes, each {{id, label, entity?, items?"
-                    + (", shape?, lane?" if most == 16 else "") + "}")
+                    + (", shape?, lane?" if flow else "") + "}")
         bad_shape = [n["id"] for n in nodes if n.get("shape") and str(n["shape"]) not in FLOW_SHAPES]
         if bad_shape:
             return f"diagram node {bad_shape[0]!r}: shape is one of {', '.join(FLOW_SHAPES)}"
@@ -1034,18 +1328,6 @@ def web_pictures(script: dict) -> list[str]:
                 out += [f"chapter {c + 1} beat {b + 1}" for _, spec in pictures_of(op)
                         if isinstance(spec, dict) and _picture_fetch(spec)]
     return out
-
-
-def _web_pictures_problem(script: dict) -> list[str]:
-    budget = web_budget(script)
-    if budget is None:
-        return []
-    asked = web_pictures(script)
-    if len(asked) <= budget:
-        return []
-    return [f"{asked[budget]}: the book has {book_figure_count(script)} figures of its own, so the lecture adds at "
-            f"most {budget} new picture{'s' if budget != 1 else ''} from the web (photo, illustration, gallery item); "
-            f"this script asks for {len(asked)}. Show the book's figures (figure ops) and build diagrams instead"]
 
 
 def _word_list(text: str) -> list[str]:
@@ -1959,8 +2241,9 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
 
     A marker that names its place is drawn at the place (its lonlat dropped); one given only lonlat and a label the
     gazetteer knows is moved there when the two are more than GUESS_KM apart; a journey's [lon, lat] stops are
-    checked against their labels the same way; an arrow's or path's points may be place names, looked up. A
-    point that is off the map is refused. Returns (errors, warnings)."""
+    checked against their labels the same way; an arrow's or path's points may be place names, looked up. What
+    cannot be found, or is off the map, is left out (a marker, a journey's stop, an arrow's point; a journey or
+    arrow left with fewer than two goes too), each with a warning. Returns (errors, warnings)."""
     try:
         import pocket_lecture as pl
     except Exception:  # noqa: BLE001 -- no engine here (a lint-only install): the render will say
@@ -1970,7 +2253,6 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
     if problem:
         return [], []
     bounds = pl.map_bounds(region)
-    errors: list[str] = []
     warnings: list[str] = []
 
     def known(name):
@@ -1979,19 +2261,32 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
         except KeyError:
             return None
 
-    def checked(at, point, label):
-        """The point, or where its label really is; an error when it is off the map."""
+    def where(at, point, label):
+        """The point (or where its label really is), or None when it cannot be found or is off the map."""
+        if isinstance(point, str):
+            found = known(point)
+            if found is None:
+                warnings.append(f"{FIXED}{at}: no place named {point!r}" + (f" in {home}" if home else "")
+                                + "; left out")
+                return None
+            if bounds and not pl._inside(found, bounds):
+                warnings.append(f"{FIXED}{at}: {point!r} is off this map; left out")
+                return None
+            return point
         point = [float(point[0]), float(point[1])]
         if label:
             found = known(label)
             if found and pl._inside(found, bounds) and _km(point, found) > GUESS_KM:
-                warnings.append(f"{at}: {label!r} was given at {point}, {_km(point, found):.0f} km from where it is; "
-                                f"drawn at {list(found)}")
+                warnings.append(f"{FIXED}{at}: {label!r} was given at {point}, {_km(point, found):.0f} km from where "
+                                f"it is; drawn at {[round(found[0], 4), round(found[1], 4)]}")
                 point = [round(found[0], 4), round(found[1], 4)]
         if bounds and not pl._inside(point, bounds):
-            errors.append(f"{at}: {label or point!r} at {point} is off this map; check it, or name the place instead "
-                          "of giving lon/lat")
+            warnings.append(f"{FIXED}{at}: {label or point!r} at {point} is off this map; left out")
+            return None
         return point
+
+    def is_point(p):
+        return isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(v, (int, float)) for v in p)
 
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
@@ -2001,29 +2296,48 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
                     continue
                 kind = op.get("op")
                 if kind == "marker":
-                    if op.get("place") and op.get("lonlat"):
-                        op.pop("lonlat")                       # the name is where it is
-                    elif isinstance(op.get("lonlat"), (list, tuple)) and len(op["lonlat"]) == 2:
-                        op["lonlat"] = checked(at, op["lonlat"], op.get("label"))
+                    if op.get("place"):
+                        op.pop("lonlat", None)                 # the name is where it is
+                        if where(at, str(op["place"]), None) is None:
+                            op["_drop"] = True
+                    elif is_point(op.get("lonlat")):
+                        op["lonlat"] = where(at, op["lonlat"], op.get("label"))
+                        if op["lonlat"] is None:
+                            op["_drop"] = True
                 elif kind == "journey" and isinstance(op.get("stops"), list):
-                    labels = op.get("labels") if isinstance(op.get("labels"), list) else []
-                    op["stops"] = [checked(at, s, labels[k] if k < len(labels) else None)
-                                   if isinstance(s, (list, tuple)) and len(s) == 2 and
-                                   all(isinstance(v, (int, float)) for v in s) else s
-                                   for k, s in enumerate(op["stops"])]
+                    labels = op.get("labels") if isinstance(op.get("labels"), list) else None
+                    pictures = op.get("pictures") if isinstance(op.get("pictures"), list) else None
+                    keep = []
+                    for k, s in enumerate(op["stops"]):
+                        label = labels[k] if labels and k < len(labels) else None
+                        point = where(at, s, label) if isinstance(s, str) or is_point(s) else s
+                        if point is not None:
+                            keep.append(k)
+                            op["stops"][k] = point
+                    if len(keep) < len(op["stops"]):
+                        op["stops"] = [op["stops"][k] for k in keep]
+                        if labels:
+                            op["labels"] = [labels[k] for k in keep if k < len(labels)]
+                        if pictures:
+                            op["pictures"] = [pictures[k] for k in keep if k < len(pictures)]
+                    if len(op["stops"]) < 2:
+                        warnings.append(f"{FIXED}{at}: journey left out: fewer than two of its stops are on the map")
+                        op["_drop"] = True
                 elif kind in ("arrow", "path") and isinstance(op.get("points"), list):
                     points = []
                     for p in op["points"]:
                         if isinstance(p, str):
-                            found = known(p)
-                            if found is None:
-                                errors.append(f"{at}: no place named {p!r} for the {kind}; use a nearby town's name")
-                                continue
-                            points.append([round(found[0], 4), round(found[1], 4)])
+                            if where(at, p, None) is not None:
+                                found = known(p)
+                                points.append([round(found[0], 4), round(found[1], 4)])
                         else:
                             points.append(p)
                     op["points"] = points
-    return errors, warnings
+                    if len(points) < 2:
+                        warnings.append(f"{FIXED}{at}: {kind} left out: fewer than two of its points are on the map")
+                        op["_drop"] = True
+    _purge(script)
+    return [], warnings
 
 
 def _region_problem(region) -> tuple[str | None, str | None]:
@@ -2197,8 +2511,9 @@ def _op_call(op: dict) -> str:
         edges = [e[:2] if len(e) == 3 and not e[2] else e for e in edges]
         show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
         title = f", title={_q(op['title'])}" if op.get("title") else ""
+        numbered = ", numbered=True" if op.get("steps") else ""
         return (f"self.diagram({_q(str(op['id']))}, {_q(op.get('kind', 'flow'))}, {nodes!r}, {edges!r}"
-                f"{title}{show}{_diagram_motion(op)})")
+                f"{title}{show}{_diagram_motion(op)}{numbered})")
     if kind == "reveal":
         return f"self.reveal_nodes({_q(str(op['diagram']))}, {[str(x) for x in op['nodes']]!r})"
     if kind == "focus":
@@ -2398,7 +2713,7 @@ def _resolve_options(script: dict) -> None:
                     op["_index"] = _choice_index(choices, op.get("choice"))
 
 
-def _diagram_parts(op: dict) -> list[str] | None:
+def _diagram_parts(op: dict, figures: dict | None = None) -> list[str] | None:
     """The part ids of a picture an op puts up that "show" and reveal can name, or None when it has none."""
     import stem
 
@@ -2409,7 +2724,8 @@ def _diagram_parts(op: dict) -> list[str] | None:
         if kind == "draw":
             return [str(p) for p in op.get("parts") or []]
         if kind == "figure":
-            return [str(p) for p in (script_figures.get(str(op.get("id"))) or {}).get("parts") or []]
+            return [str(p) for p in ((script_figures if figures is None else figures).get(str(op.get("id")))
+                                     or {}).get("parts") or []]
         if kind == "graph":
             return [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
         if kind == "sketch" or kind in stem.PRESETS:
@@ -2419,13 +2735,13 @@ def _diagram_parts(op: dict) -> list[str] | None:
     return None
 
 
-def _complete_reveals(script: dict) -> int:
+def _complete_reveals(script: dict, notes: list[str] | None = None, figures: dict | None = None) -> int:
     """Parts of a picture its script never shows: a "show" that starts with some parts and reveals that never
     name the others left them off the board for good (a force never drawn, a diagram's last node missing).
     Each such part joins the picture's last reveal in its chapter, or, when nothing of it is ever revealed, the
-    whole picture is drawn at once. Returns how many parts were brought back."""
+    whole picture is drawn at once. Returns how many parts were brought back; says so in `notes`."""
     added = 0
-    for chapter in script.get("chapters") or []:
+    for c, chapter in enumerate(script.get("chapters") or []):
         pictures: dict[str, tuple[dict, list[str]]] = {}
         revealed: dict[str, set] = {}
         last_reveal: dict[str, dict] = {}
@@ -2445,7 +2761,7 @@ def _complete_reveals(script: dict) -> int:
                 for holder, key in holders:
                     if not key or holder.get("show") is None:
                         continue
-                    parts = _diagram_parts(holder)
+                    parts = _diagram_parts(holder, figures)
                     if parts:
                         pictures[str(key)] = (holder, parts)
                         revealed.pop(str(key), None)
@@ -2457,9 +2773,13 @@ def _complete_reveals(script: dict) -> int:
                 continue
             if key in last_reveal:
                 last_reveal[key]["nodes"] = [*(last_reveal[key].get("nodes") or []), *missing]
+                how = "join its last reveal"
             else:
                 holder.pop("show", None)            # nothing of it is ever revealed: all of it, at once
+                how = "are drawn with it from the start"
             added += len(missing)
+            if notes is not None:
+                notes.append(f"{FIXED}chapter {c + 1}: {key!r}: parts never revealed ({', '.join(missing)}) {how}")
     return added
 
 

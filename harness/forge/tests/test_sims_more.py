@@ -78,7 +78,9 @@ def test_a_journey_is_checked_and_drawn():
     assert "self.journey([" in source and "(72.8, 20.89)" in source and "labels=['Sabarmati', 'Dandi']" in source
     short = json.loads(json.dumps(script))
     short["chapters"][0]["beats"][0]["do"][0]["stops"] = ["Ahmedabad"]
-    assert any("'journey' needs stops" in e for e in cl.lint(short)[0])
+    warnings = cl.lint(short)[1]
+    assert any("left out 'journey': it has no two stops" in w for w in warnings)
+    assert short["chapters"][0]["beats"][0]["do"] == []
 
 
 def test_the_script_writer_is_told_about_every_new_sim():

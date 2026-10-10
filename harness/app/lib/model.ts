@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { unbuiltFigures } from "./lecture";
+import { unbuiltFigures, type Compiled } from "./lecture";
 import { ADD_CHAPTERS_TOOL, DRAWING_TOOL, ILLUSTRATION_TOOL, findDrawings, IMAGE_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, findIllustration, findImage, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, teachingPlan, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
@@ -1210,8 +1210,17 @@ async function viaOpenRouter(
     bookQuestions: bookQs,
   });
   // The whole lecture: the compiler's checks, and, for a remake, every part of the reference video taught.
+  // What the compiler mended by itself (a marker on no place, pictures past the web budget, reveals filled in) goes
+  // to the log, never back to the model: its repairs are for content.
+  const logFixed = (compiled: Compiled) => {
+    if (compiled.fixed?.length) {
+      emit({ type: "message", role: "status", text: `The compiler mended ${compiled.fixed.length} thing(s) by itself:\n` +
+        compiled.fixed.map((f) => f.replace(/^fixed: /, "• ")).join("\n") });
+    }
+    return compiled;
+  };
   const compileWhole = async (script: unknown) => {
-    const compiled = await compileWholeChecked(script);
+    const compiled = logFixed(await compileWholeChecked(script));
     if (compiled.source) Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes });
     mark(`whole lecture compiled${compiled.source ? "" : " (with faults)"}`);
     return compiled;
@@ -1620,7 +1629,7 @@ async function viaOpenRouter(
   const topicErrors = async (part: Record<string, unknown>, sections: number[]) => {
     const chapters = (Array.isArray(part.chapters) ? part.chapters : []) as { section?: unknown; beats?: { do?: Record<string, unknown>[] }[] }[];
     const questions = sections.flatMap((n) => sectionOf(n)?.questions ?? []);
-    const compiled = await compileLecture(part, { ...partOptions(), bookQuestions: questions });
+    const compiled = logFixed(await compileLecture(part, { ...partOptions(), bookQuestions: questions }));
     const errors = new Map<number, string[]>();
     const add = (n: number, error: string) => errors.set(n, [...(errors.get(n) ?? []), error]);
     for (const error of compiled.source ? [] : compiled.errors) {
@@ -2100,7 +2109,7 @@ async function viaOpenRouter(
             : thin
             ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
                 "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
-            : args.done ? await compileWhole(next) : await compileLecture(next, partOptions());
+            : args.done ? await compileWhole(next) : logFixed(await compileLecture(next, partOptions()));
           if (compiled.source && args.done) {
             draft = next;
             scene = compiled.source;

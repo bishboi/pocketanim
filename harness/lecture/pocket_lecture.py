@@ -2599,13 +2599,15 @@ class Lecture(Scene):
         return group_of(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
-                animate: bool = True, flow: bool | None = None):
+                animate: bool = True, flow: bool | None = None, numbered: bool = False):
         """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
 
-        kind: flow (in order, left to right, wrapping), cycle (round), tree, hierarchy or categories (the whole on
-        top, its kinds below, theirs below them: _hierarchy; a category's card lists its items; a flow whose edges
-        only branch downwards is drawn so too), hub (the first node in the middle, the rest around it), steps (a
-        flow of numbered cards).
+        kind: flow, cycle (round) or hub (the first node in the middle, the rest around it). A flow takes its
+        layout from its connections: a chain (in order, left to right, wrapping), a hierarchy (edges that only
+        branch downwards from one top: the whole on top, its kinds below, theirs below them: _hierarchy; a
+        category's card lists its items) or a flowchart (branches, joins, loops, shapes or lanes: _flowchart).
+        `numbered` numbers a chain's cards (steps). The older kinds still work: tree, hierarchy and categories
+        (a hierarchy, the first node over the rest when there are no edges), flowchart, steps (numbered).
         nodes: [{id, label, entity?, items?}]: entity is a thing to draw (a tree, a factory); items are short lines
         listed in the node (a category's members). edges: [[from, to, label?]] (a flow, cycle or steps without
         edges joins its nodes in order; categories join the first node to the rest). `show` is the node ids to
@@ -2616,11 +2618,13 @@ class Lecture(Scene):
         the diagram is up (rain falls, a gear spins, a heart beats; a node's "anim" names a motion, or "none"),
         and with `flow` (a flow or cycle by default) dots run along the arrows, the way the process goes."""
         cx, cy, w, h = self.STAGE
-        nodes = [dict(n) for n in list(nodes)[:16]]
+        nodes = [dict(n) for n in list(nodes)[:20]]
         ids = [str(n["id"]) for n in nodes]
         edges = [list(e) for e in edges or []]
         import hierarchy as _hier
 
+        if kind == "steps":
+            kind, numbered = "flow", True
         plain = not any(len(e) > 2 and e[2] for e in edges) and not any(n.get("shape") or n.get("lane") for n in nodes)
         if kind in ("tree", "categories", "hierarchy") or (kind == "flow" and plain and _hier.is_tree(ids, edges)):
             # A whole above its kinds, each above its own kinds (hierarchy.py): the main thing on top.
@@ -2628,25 +2632,26 @@ class Lecture(Scene):
             if not edges:
                 edges = [[ids[0], i] for i in ids[1:]]
             return self._hierarchy(key, nodes, edges, title, show, animate, bool(flow))
-        if kind == "flowchart" or (kind == "flow" and edges and self._branching(ids, edges)):
-            # Branches, joins, decisions and loops: laid out as a flowchart (flowchart.py), not a row of boxes.
+        nodes, ids = nodes[:16], ids[:16]
+        if kind == "flowchart" or (kind == "flow" and (not plain or len(ids) > 9
+                                                       or (edges and self._branching(ids, edges)))):
+            # Branches, joins, decisions and loops (or more steps than a row of boxes holds): laid out as a
+            # flowchart (flowchart.py).
             if not edges:
                 edges = [[a, b] for a, b in zip(ids, ids[1:])]
             return self._flowchart(key, nodes, edges, title, show, animate, True if flow is None else bool(flow))
         nodes = nodes[:9]
         ids = ids[:9]
-        if not edges and kind in ("flow", "cycle", "steps"):
+        if not edges and kind in ("flow", "cycle"):
             edges = [[a, b] for a, b in zip(ids, ids[1:])] + ([[ids[-1], ids[0]]] if kind == "cycle" and len(ids) > 2 else [])
         tones = [P.SAND, P.RIVER, P.GREEN, P.ROSE, P.GOLD, P.TEAL, P.VIOLET, P.DUNE]
         small = len(nodes) > 5
-        flow = kind in ("flow", "cycle", "steps") if flow is None else bool(flow)
+        flow = kind in ("flow", "cycle") if flow is None else bool(flow)
         mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small, items=n.get("items"),
                               picture=n.get("picture"),
-                              number=k + 1 if kind == "steps" else None,
+                              number=k + 1 if numbered else None,
                               motion=(n.get("anim") or "auto") if animate else "none")
                 for k, (i, n) in enumerate(zip(ids, nodes))}
-        if kind == "steps":
-            kind = "flow"
         # Layout.
         if kind == "cycle":
             radius = 1.7 + 0.12 * len(ids)

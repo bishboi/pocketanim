@@ -114,7 +114,9 @@ def test_lint_checks_a_nodes_motion():
     assert cl.lint(ok)[0] == []
     assert "flow=True" in cl.compile_script(ok)
     ok["chapters"][0]["beats"][0]["do"][0]["nodes"][2]["anim"] = "twirl"
-    assert any("anim is one of" in e for e in cl.lint(ok)[0])
+    errors, warnings = cl.lint(ok)
+    assert not errors and any(w.startswith("fixed:") and "no motion 'twirl'" in w for w in warnings)
+    assert "anim" not in ok["chapters"][0]["beats"][0]["do"][0]["nodes"][2]       # it moves as its thing does
 
 
 def test_a_moving_diagram_loops_one_period_shared_by_its_lines(tmp_path):

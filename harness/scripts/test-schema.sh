@@ -42,9 +42,9 @@ DATABASE_URL="$base_url" "$here/scripts/apply-schema.sh" > /dev/null
 echo "checking the invariants"
 output=$(psql "$base_url" -f "$here/supabase/tests/invariants.sql" 2>&1 || true)
 rejected=$(printf '%s\n' "$output" | grep -c 'ERROR:' || true)
-expected=8
+expected=12
 
-printf '%s\n' "$output" | grep -E '^---|^[0-9]\.|ERROR:' | sed 's/^psql.*ERROR:  /   -> rejected: /'
+printf '%s\n' "$output" | grep -E '^---|^[0-9]+\.|ERROR:' | sed 's/^psql.*ERROR:  /   -> rejected: /'
 
 echo
 if [ "$rejected" -ne "$expected" ]; then

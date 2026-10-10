@@ -172,6 +172,29 @@ The app needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in
 lectures belong to the user `PANIM_OWNER_EMAIL` (default
 `harness@pocketanim.local`, created on first save) or to `PANIM_OWNER_ID`.
 
+### Everything a generation makes, kept by default
+
+With Supabase set up, every lecture generation is recorded as it runs, without
+pressing Save (`lib/media.ts`, migration `0003_generated_media.sql`; set
+`PANIM_STORE_MEDIA=0` to turn it off). In the private bucket `media`:
+
+* each picture once, at `media/<sha256>.<ext>`: SVG drawings, book figures
+  redrawn as SVG, AI illustrations, book photos and the web photos found like
+  them, and the web and library pictures the compiler fetched. The `media` table
+  holds its kind, **what it shows** (the drawing's description, the figure's
+  caption, the subject) and **where it came from** (parts, model, source,
+  credit, licence, url, the query it was found by);
+* each `.panim` program built (every build, saved or not), at
+  `programs/<sha256>.panim`, listed in `programs` with its frames and size.
+
+And in the tables: `generations` (what was asked, the models, the length, the
+cost, how it ended); `generation_media`, one row per use of a picture with its
+**context** (the video, chapter and section, the line said over it, the diagram
+node or map label it sits beside, what it cost, whether a cache had it);
+`generation_scenes`, each video's Manim source. A program finds its generation
+through its scene source's digest, so the pictures, sources and programs of two
+runs can be compared side by side. Apply the migration once (`setup.sql` has it).
+
 On the phone, **Saved** lists `phone_lectures` and downloads the one picked
 (once; it then plays offline). The app asks once for the project's URL and anon
 key (Supabase: Project Settings -> API; long-press Saved to change them), or

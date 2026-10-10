@@ -33,7 +33,7 @@ function client(): SupabaseClient | null {
   return cached;
 }
 
-function describeError(error: unknown): string {
+export function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
     const record = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
@@ -58,6 +58,11 @@ export function storeProblem(): string | null {
       "service role may)";
   }
   return null;
+}
+
+/** The server's Supabase client (service role), or null when it is not set up: for lib/media.ts. */
+export function storeClient(): SupabaseClient | null {
+  return storeProblem() ? null : client();
 }
 
 export function storeConfigured(): boolean {

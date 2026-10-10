@@ -42,7 +42,8 @@ export async function POST(request: NextRequest) {
   void (async () => {
     try {
       pushEvent(running, { type: "message", role: "system", text: usingFixture() ? "Fixture agent" : "Model agent" });
-      await generate(job, (event: AgentEvent) => pushEvent(running, event as JobEvent), () => running.stopped);
+      await generate({ ...job, generationId: running.id }, (event: AgentEvent) => pushEvent(running, event as JobEvent),
+        () => running.stopped);
     } catch (error) {
       pushEvent(running, { type: "error", text: error instanceof Error ? error.message : String(error) });
     } finally {

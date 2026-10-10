@@ -2070,6 +2070,8 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
 # Pictures a lecture has shown, so one diagram does not stand for several topics (reset per compile), and the
 # lecture's style, which an AI illustration is drawn in.
 USED_PICTURES: set = set()
+# The pictures the compiler chose itself for paragraphs without one: (chapter, beat, op), 1-based (pictures_used).
+AUTO_PICTURES: list = []
 STYLE_NOW: dict = {"style": None, "auto_illustrations": False}
 
 PLAIN = set("""
@@ -2700,6 +2702,63 @@ def _complete_reveals(script: dict, notes: list[str] | None = None, figures: dic
     return added
 
 
+def _picture_row(op: dict) -> dict | None:
+    """The fetched file behind a photo or illustration op (script_photos), or None."""
+    row = script_photos.get(_photo_key(op))
+    return row if row and row.get("file") and Path(str(row["file"])).is_file() else None
+
+
+def pictures_used(script: dict) -> list[dict]:
+    """Every web or library picture a compiled script shows, with its context, for the record of what a lecture
+    used (app/lib/media.ts): its file; what it shows (the subject, the query, the title it was found by); where it
+    came from (source, credit, licence, url); and where it is (the chapter, the beat, the line said over it, what it
+    sits beside). Call after compile_script."""
+    out: list[dict] = []
+    chapters = script.get("chapters") or []
+
+    def add(op: dict, ci: int, bi: int, role: str, beside: str | None = None):
+        row = _picture_row(op)
+        if not row:
+            return
+        chapter = chapters[ci - 1] if 0 < ci <= len(chapters) else {}
+        beat = (chapter.get("beats") or [{}])[bi - 1] if 0 < bi <= len(chapter.get("beats") or []) else {}
+        what = op.get("subject") or op.get("query") or op.get("image") or row.get("title") or ""
+        out.append({
+            "file": str(row["file"]),
+            "kind": "illustration" if op.get("op") == "illustration" else "photo",
+            "description": str(row.get("title") or what) if not op.get("subject") else str(op["subject"]),
+            "found_by": {k: op[k] for k in ("subject", "query", "image") if op.get(k)},
+            "source": {k: row[k] for k in ("source", "credit", "license", "artist", "url", "page", "id") if row.get(k)},
+            "role": role,
+            "context": {k: v for k, v in {
+                "chapter": ci, "chapter_title": chapter.get("title"), "section": chapter.get("section"), "beat": bi,
+                "line": beat.get("say"), "caption": op.get("caption"), "beside": beside}.items() if v not in (None, "")},
+        })
+
+    for ci, chapter in enumerate(chapters, 1):
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                kind = op.get("op")
+                if kind in ("photo", "illustration"):
+                    add(op, ci, bi, "shown on the stage")
+                elif kind == "gallery":
+                    for item in _gallery_items(op):
+                        if item["op"] != "figure":
+                            add(item, ci, bi, "in a gallery")
+                for where, spec in pictures_of(op):
+                    fetch = _picture_fetch(spec) if isinstance(spec, dict) else None
+                    if fetch:
+                        add(fetch, ci, bi, f"beside a {kind} label", where)
+    for ci, bi, op in AUTO_PICTURES:
+        items = _gallery_items(op) if op.get("op") == "gallery" else [op]
+        for item in items:
+            if item.get("op") in ("photo", "illustration"):
+                add(item, ci, bi, "chosen for the paragraph by the compiler")
+    return out
+
+
 def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_path: str | None = None) -> str:
     """The Manim source for a script. Raises ValueError with the lint errors."""
     errors, _ = lint(script)
@@ -2708,6 +2767,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     script_figures.clear()
     script_figures.update(script.get("figures") or {})
     USED_PICTURES.clear()
+    AUTO_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")
     STYLE_NOW["auto_illustrations"] = bool(script.get("auto_illustrations"))
     import illustrations
@@ -2777,6 +2837,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
             if spots:
                 out.append(f"        self.reserve_places([{', '.join(spots)}])")
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
+        AUTO_PICTURES.extend((index, bi + 1, fill) for bi, fill in enumerate(fills) if fill)
         staged = False
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
         closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
@@ -2879,7 +2940,8 @@ def main() -> int:
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
         print(json.dumps({"source": source, "errors": errors, "warnings": warnings,
-                          "minutes": round(estimate_minutes(script), 2)}))
+                          "minutes": round(estimate_minutes(script), 2),
+                          "pictures": pictures_used(script) if source else []}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

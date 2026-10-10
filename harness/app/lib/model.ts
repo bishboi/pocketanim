@@ -20,6 +20,7 @@ import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
+import { MediaLog, type MediaItem } from "./media";
 import { SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
@@ -58,6 +59,8 @@ export type GenerateRequest = {
   svgModel?: string;
   /** How the pictures are drawn (lib/artstyles.ts): "auto" or left out, the template's own art. */
   art?: string;
+  /** The generate job's id (app/api/generate): the generation's record in Supabase is kept under it (lib/media.ts). */
+  generationId?: string;
 };
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
@@ -710,6 +713,8 @@ type Kept = {
   options?: () => Parameters<typeof compileLecture>[1];
   /** The generation's cost ledger, for the repair after it and the done event. */
   ledger?: CostLedger;
+  /** The generation's record in Supabase (lib/media.ts): its pictures, scenes and programs. */
+  media?: MediaLog;
 };
 
 async function viaOpenRouter(
@@ -1275,9 +1280,10 @@ async function viaOpenRouter(
     },
     onDrawn: () => ledger.count("drawings", 1),
     onTime: (start: number, end: number) => ledger.time("drawings", start, end),
-    onPicture: (p: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) =>
+    onPicture: (p: { file: string; what: string; parts: string[]; usd: number; kept: boolean; say?: string;
+      chapter?: string; moves?: string }) =>
       showPicture({ kind: "drawing", file: p.file, title: p.what, usd: p.kept ? 0 : p.usd, reused: p.kept, paid: p.usd,
-        detail: p.parts.join(", ") }),
+        detail: p.parts.join(", "), context: { chapter: p.chapter, line: p.say, moves: p.moves } }),
   } : undefined;
   const lectureOptions = () => ({
     draw: drawOptions,
@@ -1301,6 +1307,7 @@ async function viaOpenRouter(
   const compileWhole = async (script: unknown) => {
     const compiled = logFixed(await compileWholeChecked(script));
     if (compiled.source) Object.assign(kept, { script, source: compiled.source, minutes: compiled.minutes });
+    if (compiled.source) kept.media?.compiled(compiled.pictures);
     mark(`whole lecture compiled${compiled.source ? "" : " (with faults)"}`);
     return compiled;
   };
@@ -1772,6 +1779,7 @@ async function viaOpenRouter(
     const left = [...checked.errors.values()].flat();
     const done = { index: k + 1, of: topics.length, title: part.title, minutes: compiled.minutes ?? 0, source: sanitizeScene(compiled.source) };
     finished.set(k, done);
+    kept.media?.compiled(compiled.pictures, { index: k + 1, title: part.title });
     emit({ type: "part", part: done });
     emit({ type: "message", role: "status", text: `${part.title} is ready (about ${Math.round(done.minutes)} min): ` +
       `building it now${finished.size < topics.length ? ", while the others are written" : ""}.` +
@@ -2495,13 +2503,74 @@ export function usingFixture(): boolean {
   return !process.env.OPENROUTER_API_KEY;
 }
 
+/**
+ * Generate a scene or a lecture. Each run is kept in Supabase by default (lib/media.ts): what it was asked, every
+ * picture it made or used with its context, each video's source, and how it ended.
+ */
 export async function generate(
   request: GenerateRequest,
   emit: (event: AgentEvent) => void = () => {},
   stopped: () => boolean = () => false,
 ): Promise<Generated> {
+  const media = new MediaLog(request.generationId ?? `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    (text) => emit({ type: "message", role: "status", text }));
+  media.describe({
+    title: request.content.trim().split("\n")[0]?.slice(0, 200) || undefined,
+    template: request.templateId, model: videoModel(), transcript_model: transcriptModel(request.transcriptModel),
+    svg_model: svgModel(request.svgModel), subject: request.subject, language: request.language, art: request.art,
+    minutes: request.minutes,
+    request: { content: request.content.slice(0, 20_000), documentId: request.documentId, referenceId: request.referenceId,
+      instruction: request.instruction, edit: !!request.previousSource },
+  });
+  const watched = (event: AgentEvent) => {
+    if (event.type === "picture" && event.picture) media.picture(mediaItem(event.picture));
+    if (event.type === "part" && event.part) {
+      media.scenes([{ part: event.part.index, title: event.part.title, minutes: event.part.minutes, source: event.part.source }]);
+    }
+    emit(event);
+  };
+  try {
+    const result = await generateOnce(request, watched, stopped, media);
+    const videos = result.parts?.length ? result.parts : [{ title: "", minutes: undefined, source: result.source }];
+    media.scenes(videos.map((v, k) => ({ part: k + 1, title: v.title || undefined, minutes: v.minutes, source: v.source })));
+    media.finish({ state: "finished", videos: videos.length, cost_usd: result.costUsd,
+      minutes: result.parts?.reduce((n, p) => n + (p.minutes ?? 0), 0) || undefined });
+    return result;
+  } catch (error) {
+    media.finish({ state: stopped() ? "stopped" : "failed", error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+}
+
+/** A picture the page is shown (AiPicture) as what is kept of it: what it is, what it shows, how it was used. */
+function mediaItem(p: AiPicture): MediaItem {
+  const base = { file: p.file, description: p.title, usd: p.usd, reused: p.reused, context: p.context };
+  if (p.kind === "drawing") {
+    return { ...base, kind: "drawing", role: "drawn as SVG for the lecture", metadata: { parts: p.detail } };
+  }
+  if (p.kind === "figure") {
+    return { ...base, kind: "figure", role: "book figure redrawn as SVG", metadata: { parts: p.detail, status: p.status } };
+  }
+  if (p.kind === "photo") {
+    const web = /like it/.test(p.status ?? "") && !/no photo/.test(p.status ?? "");
+    return { ...base, kind: web ? "photo" : "book-photo",
+      role: web ? "the web's photo most like a book photograph" : "book photograph shown as it is",
+      metadata: { found_by: p.detail, status: p.status } };
+  }
+  if (p.kind === "rebuilt") {
+    return { ...base, kind: "book-figure", role: "book figure, built in Manim instead", metadata: { status: p.status } };
+  }
+  return { ...base, kind: "illustration", role: "drawn by an image model", metadata: { model: p.detail } };
+}
+
+async function generateOnce(
+  request: GenerateRequest,
+  emit: (event: AgentEvent) => void,
+  stopped: () => boolean,
+  media: MediaLog,
+): Promise<Generated> {
   const template = templateById(request.templateId);
-  const kept: Kept = {};
+  const kept: Kept = { media };
   const startedAt = Date.now();
   const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
   // A long lecture as videos of 25-30 min: cut where its videos meet when it was written as a series (their ends
@@ -2592,6 +2661,8 @@ export async function generate(
       if (still) throw new Error(still);
     }
   }
+  const named = (kept.script as { title?: unknown } | undefined)?.title;
+  if (named) media.describe({ title: String(named).slice(0, 300) });
   emit({ type: "message", role: "status", text: `[time] script ready: ${Math.round((Date.now() - startedAt) / 1000)} s` });
   emit({
     type: "done",

@@ -37,7 +37,11 @@ export type LectureScript = {
 };
 
 /** warnings: what the writer should fix; fixed: what the compiler mended by itself ("fixed: ...", for the log only). */
-export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number };
+/** A web or library picture a compiled lecture shows, with its context (compile_lecture.pictures_used). */
+export type CompiledPicture = { file: string; kind: "photo" | "illustration"; description: string; role: string;
+  found_by?: Record<string, unknown>; source?: Record<string, unknown>; context?: Record<string, unknown> };
+export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number;
+  pictures?: CompiledPicture[] };
 
 /** A lecture runs this long unless the request names a length, or its content is long. */
 export const DEFAULT_LECTURE_MINUTES = 10;

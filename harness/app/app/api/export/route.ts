@@ -6,6 +6,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
 import { once, resultOf, validJobId } from "@/lib/jobs";
+import { keepProgram } from "@/lib/media";
 
 export const runtime = "nodejs";
 // An export speaks the lecture and runs Manim: a long lecture takes a while.
@@ -79,7 +80,15 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       result.tier === 1 ? await frameCount(buildDir, result.scene) : (result.frames ?? 0);
     const timing = { voiceSeconds: Math.round(voiceSeconds), buildSeconds: Math.round((Date.now() - building) / 1000) };
 
-    // Nothing is stored here: a lecture is saved when the user presses Save (/api/save, lib/store.ts).
+    // The program is kept by default (lib/media.ts keepProgram), linked to the generation that wrote its scene, so
+    // builds can be compared; in the background, never holding the reply. The phone library is saved only when
+    // the user presses Save (/api/save, lib/store.ts).
+    const program = path.join(buildDir, "dsl", "generated", `${result.scene || sceneClass}.panim`);
+    if (result.tier === 1) {
+      void keepProgram(program, { source: String(body?.source ?? ""), sceneClass, tier: result.tier ?? undefined, frames,
+        narrated: !!result.narration?.file, buildSeconds: timing.buildSeconds })
+        .catch((error) => console.warn(`Keeping the program in Supabase failed: ${error instanceof Error ? error.message : error}`));
+    }
 
     // A scene that narrates itself (a lecture's beats call add_sound) comes
     // back with one mixed track beside the program. It is served like the

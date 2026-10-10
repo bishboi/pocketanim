@@ -62,7 +62,8 @@ export type DrawOptions = {
   onTime?: (start: number, end: number) => void;
   /** Each picture the script uses, drawn now or earlier (`kept`), with what it cost when it was drawn. Called again
    * at each compile: a caller lists them by file. */
-  onPicture?: (picture: { file: string; what: string; parts: string[]; usd: number; kept: boolean }) => void;
+  onPicture?: (picture: { file: string; what: string; parts: string[]; usd: number; kept: boolean;
+    say?: string; chapter?: string; moves?: string }) => void;
 };
 
 /** Where a picture's drawing is kept: named by what it shows. */
@@ -146,7 +147,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
     } catch {
       // drawn before costs were kept
     }
-    options.onPicture?.({ file, what: op.what, parts: op.parts, usd, kept: true });
+    options.onPicture?.({ file, what: op.what, parts: op.parts, usd, kept: true, say, chapter, moves: op.moves });
     return { svg: file };
   }
   await mkdir(path.dirname(file), { recursive: true });
@@ -170,7 +171,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
   await writeFile(meta, JSON.stringify({ version: DRAW_VERSION, what: op.what, parts: made.check.parts,
     animated: !!made.check.animated, usd }), "utf8");
   options.onDrawn?.();
-  options.onPicture?.({ file, what: op.what, parts: made.check.parts, usd, kept: false });
+  options.onPicture?.({ file, what: op.what, parts: made.check.parts, usd, kept: false, say, chapter, moves: op.moves });
   return { svg: file };
 }
 

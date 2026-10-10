@@ -153,6 +153,8 @@ export type AiPicture = {
   detail?: string;
   /** What became of a book figure, in a few words ("shown as a real photo like it", "built in Manim"). */
   status?: string;
+  /** Where the lecture uses it (lib/media.ts keeps it with the picture): the chapter, the line said over it. */
+  context?: Record<string, unknown>;
 };
 
 export const PICTURE_KINDS: Record<AiPicture["kind"], string> = {

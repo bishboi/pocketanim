@@ -32,6 +32,18 @@ insert into scene_versions (id, scene_id, version, source)
 insert into builds (id, scene_version_id, state, tier, program_path, library_path, library_bytes, published)
   values ('99999999-9999-9999-9999-999999999999','88888888-8888-8888-8888-888888888888',
           'succeeded','tier1','builds/9999/scenes/GeneratedScene.panim','builds/9999',150000,true);
+-- A generation's record (0003): one run, a picture it drew used twice, its scene, and a program built from it.
+insert into generations (id, title, model, minutes) values ('job1', 'Forces', 'some/model', 25);
+insert into media (digest, kind, content_type, byte_size, storage_path, description, metadata)
+  values (repeat('a', 64), 'drawing', 'image/svg+xml', 2048, 'media/aaa.svg',
+          'A block on a smooth slope, its weight drawn straight down', '{"parts": "block, slope, mg"}');
+insert into generation_media (generation_id, digest, role, context, usd)
+  values ('job1', repeat('a', 64), 'drawn as SVG for the lecture', '{"chapter": "Slopes", "line": "The block slides."}', 0.01),
+         ('job1', repeat('a', 64), 'drawn as SVG for the lecture', '{"chapter": "Friction", "line": "Again, the block."}', 0);
+insert into generation_scenes (generation_id, part, title, source_digest, source)
+  values ('job1', 1, 'Forces', repeat('b', 64), 'from manim import *');
+insert into programs (digest, storage_path, byte_size, scene_class, source_digest, generation_id, tier, frames)
+  values (repeat('c', 64), 'programs/ccc.panim', 4096, 'GeneratedScene', repeat('b', 64), 'job1', 1, 900);
 \echo '--- happy path inserted'
 select series, lecture, lectures, title, library_path from phone_lectures;
 
@@ -53,3 +65,13 @@ delete from assets where digest = 'd43c418bf3';
 \echo '8. publishing a build for the phone with no library to download'
 insert into builds (scene_version_id, state, tier, program_path, published)
   values ('44444444-4444-4444-4444-444444444444','succeeded','tier1','programs/x.panim',true);
+\echo '9. a picture whose digest is not a SHA-256'
+insert into media (digest, kind, content_type, byte_size, storage_path, description)
+  values ('abc', 'drawing', 'image/svg+xml', 1, 'media/x.svg', 'x');
+\echo '10. a picture of no known kind'
+insert into media (digest, kind, content_type, byte_size, storage_path, description)
+  values (repeat('d', 64), 'video', 'video/mp4', 1, 'media/v.mp4', 'a video');
+\echo '11. a picture used by a generation that does not exist'
+insert into generation_media (generation_id, digest, role) values ('nope', repeat('a', 64), 'x');
+\echo '12. a generation in no known state'
+insert into generations (id, state) values ('job2', 'lost');

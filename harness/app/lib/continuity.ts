@@ -69,6 +69,10 @@ function shownBy(op: Op): string | null {
   if (kind === "picture" || kind === "illustration" || kind === "photo") {
     const what = op.generate ?? op.illustration ?? op.subject ?? op.query ?? op.draw;
     if (!what) return null;
+    if (!op.draw && (op.generate || op.illustration)) {
+      return `a picture made of "${clip(what, 120)}"` +
+        (Array.isArray(op.labels) && op.labels.length ? ` (labelled ${op.labels.slice(0, 6).join(", ")})` : "");
+    }
     return `${op.draw ? "a drawing" : "a picture"} of ${clip(what, 80)}` +
       (Array.isArray(op.labels) && op.labels.length ? ` (labelled ${op.labels.slice(0, 6).join(", ")})` : "");
   }
@@ -131,7 +135,8 @@ export function shownSoFar(done: Map<number, unknown>, except: number, most = 18
     "ALREADY ON SCREEN in the other sections' videos (written so far). Do not draw these again: a picture or diagram " +
       "the class has seen is pointed back to in words, or shown again only to explain something new in it (then " +
       "reveal only the parts this section explains). A book figure already shown elsewhere is shown here only if " +
-      "this section's text is about it. Choose new pictures for what is new here.",
+      "this section's text is about it. Choose new pictures for what is new here. To show a person, place or thing " +
+      "already pictured, give the very same \"generate\" words as before: the picture already made is used again.",
     ...rows.map(([n, shown]) => `  Section ${n}: ${shown.join("; ")}`),
   ];
 }

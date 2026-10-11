@@ -173,7 +173,8 @@ def test_a_video_section_is_told_what_the_others_put_on_screen(lib):
     text = "\n".join(got["forTwo"])
     assert "ALREADY ON SCREEN" in text and "Do not draw these again" in text
     assert "the book's figure fig4 (\"A manorial estate\"), parts church, fields" in text
-    assert "a picture of a medieval knight on horseback (labelled lance)" in text
-    assert "Section 3: a picture of a monk copying a book" in text
+    assert 'a picture made of "a medieval knight on horseback" (labelled lance)' in text
+    assert 'Section 3: a picture made of "a monk copying a book"' in text
+    assert 'the very same "generate" words' in text
     assert "Section 2" not in text and "words only" not in text          # its own section, and words, are left out
     assert got["none"] == []

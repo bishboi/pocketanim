@@ -422,6 +422,82 @@ def _failed(what: str, error: str) -> None:
     FAILED.append({"what": what, "model": model(), "error": error})
 
 
+# ---------------- reuse: one picture per thing ----------------
+# Words that say how a picture is drawn, not what it shows: two requests that differ only in these are the same
+# picture.
+_HOW = re.compile(r"\b(?:an?|the|of|in|on|with|and|to|for|at|by|its|his|her|their|from|as|is|are|"
+                  r"illustrat\w*|cut-?outs?|pictures?|images?|drawings?|drawn|style|styled|simple|clean|detailed|"
+                  r"historically|grounded|accurate|realistic|colou?rful|educational|no|without|background|words|"
+                  r"text|labels?|border|centred|centered|full|figure|whole|shown|showing|view|portrait)\b", re.I)
+
+
+def _words(what: str) -> set[str]:
+    """What a request shows, as its content words (lower case, no drawing words)."""
+    plain = _HOW.sub(" ", re.sub(r"[^\w\s-]", " ", what.lower()))
+    return {w.strip("-") for w in plain.split() if len(w.strip("-")) > 2}
+
+
+def _names(what: str) -> set[str]:
+    """The proper names in a request (a person, a place): its capitalised words, but for an opening article."""
+    tokens = re.findall(r"[A-Za-z][\w'-]*", what)
+    return {t.lower() for k, t in enumerate(tokens)
+            if t[0].isupper() and not (k == 0 and t.lower() in ("a", "an", "the", "one", "two", "three"))}
+
+
+def _same_thing(asked: str, made: str) -> float:
+    """How surely a picture made for `made` shows what `asked` wants (0: not at all): the same words; all the
+    asked words in the made picture's; the same named person (or place) with nothing more asked of the picture
+    (two or more names shared: one other word allowed); or nearly all words shared."""
+    a, m = _words(asked), _words(made)
+    if not a or not m:
+        return 0.0
+    if a == m:
+        return 1.0
+    if len(a) >= 2 and a <= m:
+        return 0.9
+    shared = _names(asked) & _names(made)
+    if shared and (_names(asked) <= _names(made) or _names(made) <= _names(asked)):
+        extra = a - m
+        if not extra or (len(shared) >= 2 and len(extra) <= 1):
+            return 0.85
+    overlap = len(a & m) / len(a | m)
+    return overlap if overlap >= 0.7 else 0.0
+
+
+def _made_pictures() -> list[dict]:
+    """Every picture made before, with what it shows: the notes kept beside each (gen-<key>.json)."""
+    out = []
+    for meta in CACHE.glob("gen-*.json"):
+        if ".labels-" in meta.name:
+            continue
+        try:
+            row = json.loads(meta.read_text())
+        except (OSError, ValueError):
+            continue
+        png = meta.with_suffix(".png")
+        if png.exists() and row.get("what"):
+            out.append({**row, "png": png})
+    return out
+
+
+def _reusable(what: str, style: str | None, realistic: bool, parts) -> Path | None:
+    """A picture already made of the same thing, in the same style by the same model, showing every part this one
+    must label: the best match, or None. So a person, a building or an animal is one picture all through a lecture
+    (and the lectures after it), however the script words it each time."""
+    wanted = {str(p).strip().lower() for p in parts or [] if str(p).strip()}
+    best = None
+    for row in _made_pictures():
+        if row.get("model") != model() or (row.get("style") or None) != (style or None) \
+                or bool(row.get("realistic")) != bool(realistic):
+            continue
+        if not wanted <= {str(p).strip().lower() for p in row.get("parts") or []}:
+            continue
+        score = _same_thing(what, str(row["what"]))
+        if score and (best is None or score > best[0]):
+            best = (score, row["png"])
+    return best[1] if best else None
+
+
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
              context: str | None = None) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
@@ -435,8 +511,17 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
     prompt = prompt_for(what, style, realistic, parts, context)
-    key = hashlib.sha256(f"{model()}|{prompt}".encode()).hexdigest()[:20]
+    # Kept by what it shows (not by the lines said over it, which the prompt also carries): the same thing asked
+    # for again, in the same words or others, is the picture already made.
+    named = sorted({str(p).strip().lower() for p in parts or [] if str(p).strip()})
+    key = hashlib.sha256(f"{model()}|{style or ''}|{bool(realistic)}|{' '.join(sorted(_words(what)))}|"
+                         f"{','.join(named)}".encode()).hexdigest()[:20]
     target = CACHE / f"gen-{key}.png"
+    if not target.exists():
+        same = _reusable(what, style, realistic, parts)
+        if same is not None:
+            target = same
+            key = same.stem[len("gen-"):]
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",
            "license": "generated", "artist": model(), "credit": f"made with {model()}", "prompt": prompt,
            "model": model(), "png": str(target)}
@@ -474,7 +559,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     CACHE.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": model(), "style": style,
-                                                       "realistic": realistic, "usd": usd}))
+                                                       "realistic": realistic, "parts": named, "usd": usd}))
     shown = _vector(target)
     MADE.append({"path": str(shown), "png": str(target), "what": what, "prompt": prompt, "model": model(), "usd": usd,
                  "made": True})

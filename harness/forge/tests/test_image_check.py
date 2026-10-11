@@ -296,3 +296,21 @@ def test_an_image_only_model_is_asked_for_an_image_alone(gen, monkeypatch):
     assert got["ok"], got.get("error")
     assert row and row["usd"] == 0.01
     assert asked == [["image", "text"], ["image"], ["image"]]      # the second picture is asked the right way at once
+
+
+def test_one_picture_per_thing(gen, monkeypatch):
+    """The same person or thing is one picture all through a lecture: asked again in other words, or over other
+    lines (the context), the picture already made is used; a different thing is a new picture."""
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    first = gen.generate("Charlemagne, an illustrated portrait", context="It is for a lesson on the Franks.")
+    again = gen.generate("Charlemagne", context="It is on screen while the teacher says: the Pope crowned him.")
+    same_words = gen.generate("Charlemagne, an illustrated portrait", context="Another chapter altogether.")
+    hildegard = gen.generate("Abbess Hildegard of Bingen, a medieval German abbess, dignified illustrated portrait")
+    hildegard_again = gen.generate("Hildegard of Bingen, illustrated portrait")
+    coronation = gen.generate("Charlemagne crowned by the Pope")
+    king, queen = gen.generate("a medieval European king"), gen.generate("a medieval European queen")
+    labelled = gen.generate("Charlemagne, an illustrated portrait", parts=["crown"])
+    assert first["png"] == again["png"] == same_words["png"]
+    assert hildegard["png"] == hildegard_again["png"]
+    assert len({first["png"], coronation["png"], king["png"], queen["png"], labelled["png"]}) == 5
+    assert sum(1 for m in gen.MADE if m.get("made")) == 6      # Charlemagne, Hildegard, coronation, king, queen, labelled

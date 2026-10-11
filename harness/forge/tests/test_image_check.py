@@ -182,3 +182,39 @@ def test_a_refusing_model_is_asked_once_a_compile(gen, monkeypatch):
     server.shutdown()
     assert calls == ["meta/muse-image"]
     assert len(gen.report()["failed"]) == 2
+
+
+def test_the_test_proxy_carries_the_image_calls_alone(gen, monkeypatch):
+    """PANIM_IMAGE_PROXY: the image model's calls go through it (shown without its password); unset, they go
+    direct. Nothing else reads it."""
+    import base64
+
+    seen = []
+    png = gen._stand_in("x")
+
+    class Proxy(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            seen.append(self.path)               # a proxy is sent the whole URL
+            url = "data:image/png;base64," + base64.b64encode(png).decode()
+            data = json.dumps({"choices": [{"message": {"images": [{"image_url": {"url": url}}]}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", "http://image-model.invalid/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_PROXY", f"http://user:secret@127.0.0.1:{server.server_port}")
+    got = gen.check()
+    server.shutdown()
+    assert got["ok"] and seen == ["http://image-model.invalid/api/v1/chat/completions"]
+    assert got["proxy"] == f"http://127.0.0.1:{server.server_port}" and "secret" not in json.dumps(got)
+    assert gen.report()["proxy"] == got["proxy"]
+    monkeypatch.delenv("PANIM_IMAGE_PROXY")
+    assert gen.proxy() is None and gen.proxy_shown() is None

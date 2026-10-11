@@ -45,7 +45,7 @@ export type GeneratedPicture = { path: string; what: string; prompt: string; mod
 export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number;
   pictures?: CompiledPicture[]; generated?: GeneratedPicture[]; images?: ImageReport };
 /** What a compile asked of the image model (genimage.py report): pictures asked for, made now, found made, failed. */
-export type ImageReport = { model: string; asked: number; cached: number; made: number;
+export type ImageReport = { model: string; proxy?: string | null; asked: number; cached: number; made: number;
   failed: { what: string; model: string; error: string }[] };
 
 /** A lecture runs this long unless the request names a length, or its content is long. */

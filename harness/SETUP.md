@@ -117,6 +117,10 @@ border or background, traced into vector shapes so the phone plays them at tier 
 again the same way. `.venv/bin/python harness/lecture/genimage.py "a steam locomotive, side view"` makes one and
 prints where it went. `PANIM_IMAGES=0` turns the image model off.
 
+`PANIM_IMAGE_PROXY` (testing only) sends the image model's calls, and nothing else, through a proxy, e.g.
+`http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is
+served in. The status bar, the **test** button and the lecture log say when it is on.
+
 ## 5. The web app
 
 ```sh

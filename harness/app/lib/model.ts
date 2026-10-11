@@ -1293,7 +1293,8 @@ async function viaOpenRouter(
       notes.push(`Pictures: the script asked the image model (${report.model}) for none here; its pictures are SVG ` +
         "drawings or built in Manim.");
     } else {
-      notes.push(`Pictures: ${report.asked} asked of the image model (${report.model}): ${report.made} made now, ` +
+      notes.push(`Pictures: ${report.asked} asked of the image model (${report.model}` +
+        `${report.proxy ? `, through the test proxy ${report.proxy}` : ""}): ${report.made} made now, ` +
         `${report.cached} made before${report.failed.length ? `, ${report.failed.length} FAILED` : ""}.`);
     }
     for (const error of new Set(report.failed.map((f) => f.error))) {

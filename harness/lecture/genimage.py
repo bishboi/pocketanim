@@ -178,6 +178,36 @@ def _vector(target: Path) -> Path:
 _IMAGE_API: set[str] = set()
 
 
+def proxy() -> str | None:
+    """The proxy the image model's calls go through (PANIM_IMAGE_PROXY, e.g. http://user:pass@host:8080), for
+    testing only: nothing else the harness calls uses it. Unset in production, where the server itself is where the
+    model is served, and the calls go out directly (or through the machine's usual HTTPS_PROXY)."""
+    return (os.environ.get("PANIM_IMAGE_PROXY") or "").strip() or None
+
+
+def proxy_shown() -> str | None:
+    """The proxy without its password, for the log and the test button."""
+    from urllib.parse import urlsplit
+
+    address = proxy()
+    if not address:
+        return None
+    parts = urlsplit(address if "://" in address else f"http://{address}")
+    return f"{parts.scheme}://{parts.hostname}" + (f":{parts.port}" if parts.port else "")
+
+
+def _open(request, timeout: float):
+    """urlopen through PANIM_IMAGE_PROXY when it is set (for http and https alike), else as usual."""
+    import urllib.request
+
+    address = proxy()
+    if not address:
+        return urllib.request.urlopen(request, timeout=timeout)
+    address = address if "://" in address else f"http://{address}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": address, "https": address}))
+    return opener.open(request, timeout=timeout)
+
+
 def _post(url: str, body: dict) -> dict:
     """POST JSON to OpenRouter; an HTTP error is raised with the provider's own message."""
     import urllib.error
@@ -186,7 +216,7 @@ def _post(url: str, body: dict) -> dict:
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
         "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with _open(request, 180) as response:
             reply = json.loads(response.read())
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:400]
@@ -218,9 +248,7 @@ def _image_bytes(ref: str) -> bytes:
     if ref.startswith("data:image"):
         return base64.b64decode(ref.split(",", 1)[1])
     if ref.startswith("http"):
-        import urllib.request
-
-        with urllib.request.urlopen(ref, timeout=120) as response:
+        with _open(ref, 120) as response:
             return response.read()
     return base64.b64decode(ref)
 
@@ -336,7 +364,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
 def report() -> dict:
     """What this process asked of the image model: how many pictures, how many made now, found made, failed (and
     why), and which model, for the lecture's log (compile_lecture --json "images")."""
-    out = {"model": model(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
+    out = {"model": model(), "proxy": proxy_shown(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
            "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED}
     return out
 
@@ -347,7 +375,7 @@ def check(what: str = "a red apple with one green leaf") -> dict:
     button on the Pictures row runs it, so a lecture with no pictures can be told apart from a model that fails."""
     import time
 
-    out = {"model": model(), "key": bool(os.environ.get("OPENROUTER_API_KEY")), "fake": _fake(),
+    out = {"model": model(), "proxy": proxy_shown(), "key": bool(os.environ.get("OPENROUTER_API_KEY")), "fake": _fake(),
            "off": os.environ.get("PANIM_IMAGES") == "0", "ok": False}
     if not out["key"] and not out["fake"]:
         return {**out, "error": "OPENROUTER_API_KEY is not set where the compiler runs (harness/app/.env.local)"}

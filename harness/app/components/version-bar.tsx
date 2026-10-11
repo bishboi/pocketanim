@@ -8,7 +8,7 @@ type Status = {
 };
 
 /** What /api/image-check found: a real call to the image model. */
-type ImageCheck = { ok: boolean; model: string; error?: string; seconds?: number; usd?: number; png?: string;
+type ImageCheck = { ok: boolean; model: string; proxy?: string | null; error?: string; seconds?: number; usd?: number; png?: string;
   svg?: string | null; paths?: number; note?: string | null };
 
 /** The harness version on every page, and what is not installed yet (with a button to get it). */
@@ -96,7 +96,8 @@ export function VersionBar() {
           {check.ok ? (
             <>
               <span className="text-emerald-400">
-                Image model works: {check.model} made a picture in {check.seconds}s
+                Image model works: {check.model}{check.proxy ? ` (through the test proxy ${check.proxy})` : ""} made a
+                picture in {check.seconds}s
                 {check.usd ? ` for $${check.usd.toFixed(4)}` : ""}.
                 {check.svg ? ` The phone draws it traced into ${check.paths} vector shape${check.paths === 1 ? "" : "s"} (right).` : ` ${check.note ?? ""}`}
                 {" "}If a lecture still shows only SVG drawings, its log says how many pictures the script asked for.
@@ -118,7 +119,9 @@ export function VersionBar() {
               )}
             </>
           ) : (
-            <span className="font-semibold text-red-400">Image model FAILED ({check.model}): {check.error}</span>
+            <span className="font-semibold text-red-400">
+              Image model FAILED ({check.model}{check.proxy ? `, through the test proxy ${check.proxy}` : ""}): {check.error}
+            </span>
           )}
           <button type="button" onClick={() => setCheck(null)} className="ml-auto text-neutral-500 hover:text-neutral-300">close</button>
         </div>

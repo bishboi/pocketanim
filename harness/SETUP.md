@@ -177,6 +177,7 @@ Put your keys in `.env.local`. All of them are optional.
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
 | `OPENROUTER_MODEL` | Which model writes the video: the beat script, its diagrams and the Manim scene. |
 | `OPENROUTER_TRANSCRIPT_MODEL` | Which model writes a lecture's spoken transcript first (what the teacher says, section by section). Defaults to `OPENROUTER_MODEL`. The page's **Transcript model** field overrides it for your browser. |
+| `PANIM_VIDEO_WAIT_MINUTES` | How long a video-step request (a section's chapters) may send nothing at all before it is asked again (default 6); the next try of that section is asked at low reasoning effort, since medium effort's silent thinking is what hangs. |
 | `PANIM_MODEL_WAIT_MINUTES` | How long a model may send nothing at all before the request is stopped (default 15). Reasoning models think silently first; a "pro" model can take many minutes, so pick a non-pro model for lectures. |
 | `PANIM_REASONING_EFFORT` | How hard the model thinks before writing: `low` (the default: quicker and cheaper), `minimal`, `medium` or `high`; `off` leaves it to the model. Used by the editor and by Forge. |
 | `DATALAB_API_KEY` | Clean PDF conversion, with figures cut out properly. Without it, pypdf is used. |

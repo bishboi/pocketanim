@@ -118,6 +118,13 @@ export function videoEffort(): string {
   return (process.env.PANIM_VIDEO_REASONING_EFFORT || "medium").trim().toLowerCase();
 }
 
+/**
+ * How long a video-step request may send nothing at all before it is asked again (PANIM_VIDEO_WAIT_MINUTES, 6).
+ * At medium effort some models think in silence for minutes; one that has not begun after this long has usually
+ * hung, and holding its slot for FIRST_REPLY_MINUTES (15) held its whole lecture back.
+ */
+const VIDEO_WAIT_MS = Math.max(2, Number(process.env.PANIM_VIDEO_WAIT_MINUTES) || 6) * 60_000;
+
 function systemPrompt(template: Template): string {
   return [
     "You are an agent that writes one Manim Community scene for a phone renderer.",
@@ -1558,6 +1565,8 @@ async function viaOpenRouter(
         figures.length ? { role: "user", content: [{ type: "text", text: own }, ...figures] } : { role: "user", content: own },
       ];
       let refused = 0;
+      // Tries that sent nothing at all: the next is asked at low effort, the silent thinking being what hangs.
+      let silent = 0;
       // Refused once for ops that would not compile: the next try's failing ops are left out instead.
       let opsRefused = false;
       // The longest try that compiles, kept when every try is refused, so one stubborn section does not lose the
@@ -1572,7 +1581,7 @@ async function viaOpenRouter(
         let lastDelta = 0;
         const watch = setInterval(() => {
           const now = Date.now();
-          if (!lastDelta && now - state.started > FIRST_REPLY_MINUTES * 60_000) why = "silent";
+          if (!lastDelta && now - state.started > VIDEO_WAIT_MS) why = "silent";
           else if (lastDelta && now - lastDelta > STALL_MS) why = "stalled";
           if (why) abort.abort();
         }, 5000);
@@ -1582,11 +1591,13 @@ async function viaOpenRouter(
             lastDelta = Date.now();
             if (kind === "thinking") state.thinking = true;
             else state.chars += text.length;
-          }, sectionTools, abort.signal, "required", videoEffort());
+          }, sectionTools, abort.signal, "required", silent ? "low" : videoEffort());
         } catch (error) {
           if (stopped()) return null;
           refused += 1;
-          const note = why === "silent" ? `sent nothing for ${FIRST_REPLY_MINUTES} minutes`
+          if (why === "silent") silent += 1;
+          const note = why === "silent" ? `sent nothing for ${Math.round(VIDEO_WAIT_MS / 60_000)} minutes` +
+              ` (asked again at low effort)`
             : why === "stalled" ? `stopped streaming partway (nothing for ${Math.round(STALL_MS / 1000)} s)`
               : `failed (${error instanceof Error ? error.message.slice(0, 160) : String(error)})`;
           emit({ type: "message", role: "status",

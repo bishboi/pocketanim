@@ -97,8 +97,14 @@ def most() -> int:
         return 40
 
 
+SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a wide 16:9 landscape composition (the "
+               "place, its ground and sky, the people in it doing what the lesson tells of), a clear main subject near "
+               "the centre, few small details at the edges. No border or frame. No words, letters, numbers or labels "
+               "anywhere in the image. For a school lesson.")
+
+
 def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None,
-               context: str | None = None) -> str:
+               context: str | None = None, scene: bool = False, like: str | None = None) -> str:
     """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
     the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
     shown clearly where it can be pointed at."""
@@ -112,7 +118,14 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
     purpose = (f" WHAT IT IS FOR: {context.strip()} Draw what the student needs to see at this moment of the lesson, "
                "accurate to the time, place and subject described (clothing, buildings, tools, landscape of that "
                "period and region)." if context and context.strip() else "")
-    return (f"{what.strip()}, {look}.{purpose} Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
+    # The same person or thing as a picture made before in this lecture (the reference image sent with this one).
+    same = (f" THE REFERENCE IMAGE shows {like.strip()} as already drawn in this lesson: draw the SAME one (the same "
+            "face, hair, beard, build, clothing and colours, in the same art style), only as this picture asks."
+            if like else "")
+    if scene:
+        return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a painted plate in a good "
+                f"textbook.{show} {SCENE_FRAME}")
+    return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
             "materials, textures and small features a student should notice, with clean outlines and clear areas of "
             f"colour.{show} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
             "pure white background: no border, no frame, no rounded card, no drop shadow box, no background scene, "
@@ -309,11 +322,16 @@ def _ask_images(prompt: str) -> tuple[bytes, float]:
     return _image_bytes(ref), usd
 
 
-def _ask_chat(prompt: str, outputs=("image", "text")) -> tuple[bytes, float]:
+def _ask_chat(prompt: str, outputs=("image", "text"), reference: bytes | None = None) -> tuple[bytes, float]:
     """Chat completions with image output: ("image", "text") for models that also write (Gemini's image models),
-    ("image",) for image-only models."""
+    ("image",) for image-only models. `reference`: a picture made before, sent with the words, for the model to
+    draw the same person or thing again."""
+    content: object = prompt
+    if reference:
+        url = "data:image/png;base64," + base64.b64encode(reference).decode()
+        content = [{"type": "image_url", "image_url": {"url": url}}, {"type": "text", "text": prompt}]
     reply = _post(_chat_url(), {"model": model(), "modalities": list(outputs), "usage": {"include": True},
-                                "messages": [{"role": "user", "content": prompt}]})
+                                "messages": [{"role": "user", "content": content}]})
     message = ((reply.get("choices") or [{}])[0]).get("message") or {}
     data_url = next((((i.get("image_url") or {}).get("url")) for i in message.get("images") or []
                      if ((i.get("image_url") or {}).get("url") or "")), None)
@@ -325,26 +343,26 @@ def _ask_chat(prompt: str, outputs=("image", "text")) -> tuple[bytes, float]:
     return _image_bytes(data_url), usd
 
 
-def _ask_route(route: str, prompt: str) -> tuple[bytes, float]:
+def _ask_route(route: str, prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
     if route == "images":
-        return _ask_images(prompt)
-    return _ask_chat(prompt, ("image",) if route == "chat-image" else ("image", "text"))
+        return _ask_images(prompt)            # the Image API takes words only: the reference is told in them
+    return _ask_chat(prompt, ("image",) if route == "chat-image" else ("image", "text"), reference)
 
 
-def _ask(prompt: str) -> tuple[bytes, float]:
+def _ask(prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
     """The image the model makes for a prompt, and what it cost. The model is asked the way it answered before in
     this run; else each way in turn (ROUTES) while OpenRouter says it is not served that way ("No endpoints found
     that support the requested output modalities", "use the /api/v1/images endpoint"), and the way that works is
     remembered. PANIM_IMAGE_API = chat, chat-image or images asks one way only."""
     forced = os.environ.get("PANIM_IMAGE_API", "").strip().lower()
     if forced in ROUTES:
-        return _ask_route(forced, prompt)
+        return _ask_route(forced, prompt, reference)
     known = _ROUTE.get(model())
     order = [known] + [r for r in ROUTES if r != known] if known else list(ROUTES)
     last: RuntimeError | None = None
     for route in order:
         try:
-            got = _ask_route(route, prompt)
+            got = _ask_route(route, prompt, reference)
         except RuntimeError as error:
             if not WRONG_ROUTE.search(str(error)):
                 raise
@@ -480,7 +498,7 @@ def _made_pictures() -> list[dict]:
     return out
 
 
-def _reusable(what: str, style: str | None, realistic: bool, parts) -> Path | None:
+def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool = False) -> Path | None:
     """A picture already made of the same thing, in the same style by the same model, showing every part this one
     must label: the best match, or None. So a person, a building or an animal is one picture all through a lecture
     (and the lectures after it), however the script words it each time."""
@@ -488,7 +506,7 @@ def _reusable(what: str, style: str | None, realistic: bool, parts) -> Path | No
     best = None
     for row in _made_pictures():
         if row.get("model") != model() or (row.get("style") or None) != (style or None) \
-                or bool(row.get("realistic")) != bool(realistic):
+                or bool(row.get("realistic")) != bool(realistic) or bool(row.get("scene")) != bool(scene):
             continue
         if not wanted <= {str(p).strip().lower() for p in row.get("parts") or []}:
             continue
@@ -498,8 +516,24 @@ def _reusable(what: str, style: str | None, realistic: bool, parts) -> Path | No
     return best[1] if best else None
 
 
+def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
+    """A picture made before of the same named person (or place, or thing) as `what`, in the same style by the same
+    model: the one a new picture of them is drawn to match (Akbar's portrait, then Akbar on horseback), so a person
+    looks the same in every picture of a lecture. A cutout first (it shows them whole), the earliest made."""
+    names = _names(what)
+    if not names or os.environ.get("PANIM_IMAGE_REFERENCE") == "0":
+        return None
+    found = [row for row in _made_pictures()
+             if row.get("model") == model() and (row.get("style") or None) == (style or None)
+             and bool(row.get("realistic")) == bool(realistic) and names & _names(str(row["what"]))]
+    if not found:
+        return None
+    found.sort(key=lambda row: (bool(row.get("scene")), row["png"].stat().st_mtime))
+    return found[0]
+
+
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
-             context: str | None = None) -> dict | None:
+             context: str | None = None, scene: bool = False) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -510,15 +544,15 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
 
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
-    prompt = prompt_for(what, style, realistic, parts, context)
+    prompt = prompt_for(what, style, realistic, parts, context, scene)
     # Kept by what it shows (not by the lines said over it, which the prompt also carries): the same thing asked
     # for again, in the same words or others, is the picture already made.
     named = sorted({str(p).strip().lower() for p in parts or [] if str(p).strip()})
     key = hashlib.sha256(f"{model()}|{style or ''}|{bool(realistic)}|{' '.join(sorted(_words(what)))}|"
-                         f"{','.join(named)}".encode()).hexdigest()[:20]
+                         f"{','.join(named)}{'|scene' if scene else ''}".encode()).hexdigest()[:20]
     target = CACHE / f"gen-{key}.png"
     if not target.exists():
-        same = _reusable(what, style, realistic, parts)
+        same = _reusable(what, style, realistic, parts, scene)
         if same is not None:
             target = same
             key = same.stem[len("gen-"):]
@@ -544,8 +578,18 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     if model() in REFUSED:
         _failed(what, REFUSED[model()])          # refused already this run: not asked again
         return None
+    like = reference_for(what, style, realistic) if not target.exists() else None
+    reference = None
+    if like is not None:
+        try:
+            reference = like["png"].read_bytes()
+            prompt = prompt_for(what, style, realistic, parts, context, scene, like=str(like["what"]))
+            row["prompt"] = prompt
+            row["like"] = str(like["what"])
+        except OSError:
+            reference = None
     try:
-        data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt)
+        data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference)
     except Exception as error:  # noqa: BLE001 -- offline, refused, no key: the picture is left out, and said why
         why = str(error) or type(error).__name__
         if _refusal(why):
@@ -553,13 +597,15 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
         _failed(what, why)
         return None
     try:
-        data = cutout(data)
+        # A scene keeps its setting; anything else is cut out of its plain background.
+        data = data if scene else cutout(data)
     except Exception:  # noqa: BLE001 -- an image the cutout cannot read is kept as the model made it
         pass
     CACHE.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": model(), "style": style,
-                                                       "realistic": realistic, "parts": named, "usd": usd}))
+                                                       "realistic": realistic, "parts": named, "usd": usd,
+                                                       "scene": bool(scene), "like": row.get("like")}))
     shown = _vector(target)
     MADE.append({"path": str(shown), "png": str(target), "what": what, "prompt": prompt, "model": model(), "usd": usd,
                  "made": True})

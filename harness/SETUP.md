@@ -123,6 +123,12 @@ the details). A picture may name parts to label (`"labels": ["helmet", "lance"]`
 picture with a line to it. `PANIM_TRACE_MAX_PATHS` (2200) caps how many shapes a traced picture may have on the
 phone; a more complex picture is traced more coarsely.
 
+A picture may be a whole scene (`"scene": true`: a setting drawn edge to edge, not cut out) and may move once
+drawn (`"move"`: bob, sway, breathe or drift, played on the phone as a looping clip). A person named again in a
+new picture (Akbar's portrait, then Akbar on horseback) is drawn to match the first picture of them: that picture is
+sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a model asked through the Image API
+gets the words only).
+
 `PANIM_IMAGE_PROXY` (testing only) sends the image model's calls, and nothing else, through a proxy, e.g.
 `http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is
 served in. The status bar, the **test** button and the lecture log say when it is on.

@@ -2568,7 +2568,49 @@ class Lecture(Scene):
         going = self._stage_leaving()
         return AnimationGroup(*going) if going else None
 
-    def stage_image(self, path: str, caption: str = "", credit: str = "", labels=()):
+    # How a picture on the stage moves once it is drawn: (kind) -> what it does over time. It starts when the
+    # drawing-in is over (PICTURE_SETTLE seconds) and goes on while the picture is up.
+    PICTURE_MOVES = ("bob", "sway", "breathe", "drift")
+    PICTURE_SETTLE = 3.3
+
+    def _move_picture(self, image, extras, kind: str) -> None:
+        """Set a drawn picture (and its labels) moving: bob (up and down, a boat), sway (rocking about its foot, a
+        flag, a tree), breathe (swelling a little, a heart, a lung), drift (on across the stage, a ship, a
+        caravan). Each a small, steady motion that repeats exactly, so the phone plays it as a looping clip."""
+        if kind not in self.PICTURE_MOVES or not hasattr(self, "_live_start"):
+            return
+        state = {"shift": 0.0, "angle": 0.0, "scale": 1.0}
+        parts = [image, *extras]
+        foot = image.get_bottom()
+        settle = self.PICTURE_SETTLE
+
+        def step(t: float, _p: float) -> None:
+            ramp = min(1.0, max(0.0, (t - settle) / 1.0))
+            ease = ramp * ramp * (3 - 2 * ramp)
+            k = t - settle
+            if kind == "bob":
+                want = 0.09 * ease * math.sin(2 * PI * k / 3.0)
+                for m in parts:
+                    m.shift(UP * (want - state["shift"]))
+                state["shift"] = want
+            elif kind == "drift":
+                # On by half a unit, back past where it began, and home again every twelve seconds: slow enough to read.
+                want = 0.5 * ease * math.sin(2 * PI * k / 12.0)
+                for m in parts:
+                    m.shift(RIGHT * (want - state["shift"]))
+                state["shift"] = want
+            elif kind == "sway":
+                want = 0.045 * ease * math.sin(2 * PI * k / 4.0)
+                image.rotate(want - state["angle"], about_point=foot)
+                state["angle"] = want
+            elif kind == "breathe":
+                want = 1.0 + 0.035 * ease * math.sin(2 * PI * k / 3.5)
+                image.scale(want / state["scale"])
+                state["scale"] = want
+
+        self._live_start(image, step, "loop", keep=True)
+
+    def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
         the problem, its figure and its working off the board mid-solution.
 
@@ -2597,7 +2639,10 @@ class Lecture(Scene):
             shift = np.array([cx, cy, 0]) - group.get_center()
             group.shift(shift)
             draw = [*cutout_strokes(image), *tags, *parts[1 + len(tags):]]
-            return self._to_stage(group, draw=draw)
+            shown = self._to_stage(group, draw=draw)
+            if move:
+                self._move_picture(image, tags, move)
+            return shown
         else:
             image = ImageMobject(path)
             image.scale_to_fit_width(w)

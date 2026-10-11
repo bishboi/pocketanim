@@ -370,6 +370,11 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(v, (int, float)) for v in x))]
                     if len(op["stops"]) < 2:
                         missing.append("two stops")
+                if kind in ("illustration", "photo") and op.get("move") is not None \
+                        and op.get("move") not in PICTURE_MOVES:
+                    notes.append(f"{FIXED}{at}: a picture's move is one of {', '.join(PICTURE_MOVES)}; "
+                                 f"{op.get('move')!r} left out (it holds still)")
+                    op.pop("move")
                 if kind == "empire":
                     year = _year_of(op.get("year"))
                     if year is None:
@@ -874,7 +879,8 @@ def _photo_key(op: dict) -> str:
     named = "|".join(_labels_of(op))
     labelled = f"|labels:{named}" if named else ""
     if op.get("op") == "illustration":
-        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}"
+        scene = "|scene" if op.get("scene") else ""
+        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}{scene}"
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}{labelled}"
 
 
@@ -903,6 +909,9 @@ def _with_labels(row: dict | None, op: dict) -> dict | None:
 #   {"figure": "fig3"}                one of the book's figures (its SVG drawing when it has one)
 #   {"draw": "A steam engine, side view"}   drawn for the lecture as an SVG (drawings.ts)
 #   {"entity": "cow"}                 a drawing from the library
+# How a picture on the stage may move once drawn (pocket_lecture PICTURE_MOVES): a boat bobs, a flag or a tree
+# sways, a heart or a lung breathes, a ship or a caravan drifts on across the stage.
+PICTURE_MOVES = ("bob", "sway", "breathe", "drift")
 PICTURE_KEYS = ("generate", "subject", "query", "illustration", "figure", "draw", "entity")
 
 
@@ -1149,7 +1158,8 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         context = picture_context((contexts or {}).get(at), op)
         if op.get("op") == "illustration":
             row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
-                               parts=_labels_of(op), context=context) if images.enabled() else None
+                               parts=_labels_of(op), context=context, scene=bool(op.get("scene"))) \
+                if images.enabled() else None
             if row:
                 script_photos[key] = _with_labels(row, op)
             # else: dropped at compile, and said as a warning (see lint): a missing diagram is no reason to stop
@@ -2750,8 +2760,9 @@ def _op_call(op: dict) -> str:
         row = script_photos.get(_photo_key(op))
         if not row:
             return None            # nothing reusable was found: the beat plays without it
+        move = f", move={_q(op['move'])}" if op.get("move") in PICTURE_MOVES else ""
         return (f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))}"
-                f"{_labels_arg(row)})")
+                f"{_labels_arg(row)}{move})")
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""

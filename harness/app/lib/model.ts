@@ -815,6 +815,7 @@ async function viaOpenRouter(
       repo: REPO,
       python: python(),
       onStatus: (text) => emit({ type: "message", role: "status", text }),
+      style,
       onTime: (start, end) => ledger.time("figures", start, end),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);
@@ -830,6 +831,11 @@ async function viaOpenRouter(
         if (made.svg) {
           showPicture({ kind: "figure", file: made.svg, title, ...paid, detail: (made.parts ?? []).join(", "),
             status: made.animated ? "drawn as SVG, moving" : "drawn as SVG" });
+        } else if (made.diagram && (made.generated?.file || figure?.file)) {
+          showPicture({ kind: "figure", file: made.generated?.file ?? figure!.file, title, ...paid,
+            detail: made.generated?.credit ?? made.diagramError,
+            status: made.generated ? "redrawn by the diagram model, labels checked"
+              : `shown as the book's (not redrawn: ${made.diagramError ?? "labels not kept"})` });
         } else if (made.photo && (made.generated?.file || figure?.file)) {
           showPicture({ kind: "photo", file: made.generated?.file ?? figure!.file, title, ...paid,
             detail: made.generated?.credit ?? made.query,

@@ -151,7 +151,9 @@ def _shapes(mob):
     out = []
 
     def walk(m, in_text):
-        if getattr(m, "_art_deco", False):
+        # An extra the style added, or a picture already drawn in the style (a book's diagram redrawn for it):
+        # neither is painted or decorated again.
+        if getattr(m, "_art_deco", False) or getattr(m, "_art_none", False):
             return
         in_text = in_text or isinstance(m, texts) or getattr(m, "_art_text", False)
         if isinstance(m, VMobject) and len(m.points):

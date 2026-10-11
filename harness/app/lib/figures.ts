@@ -19,7 +19,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Bumped when the prompt or the rules change: older drawings are made again. */
-export const DRAWING_VERSION = 4;
+export const DRAWING_VERSION = 5;
 /** Figures drawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 /** Rounds of "here is what is wrong, fix it". */
@@ -35,6 +35,11 @@ export type Drawn = {
   subject?: string;
   /** The picture the image model made of it (genimage.py), shown instead of the scan. */
   generated?: { file: string; title?: string; credit?: string; license?: string };
+  /** A diagram, redrawn by the diagram model in the lecture's style from the figure itself (genimage.redraw), its
+   * labels checked against the book's; with no `generated`, no redraw was true to it and the scan is shown. */
+  diagram?: boolean;
+  /** Why the diagram could not be redrawn (the scan is shown, and it is tried again on the next run). */
+  diagramError?: string;
   /** The image model was asked for one (whether or not it made one), so a later run does not ask again. */
   looked?: boolean;
   /** The board's own shapes build it well (a graph, a preset, a sketch, a diagram): it is rebuilt in Manim. */
@@ -159,6 +164,28 @@ export const SVG_PROMPT = [
   "Flat shapes and clear lines, as a good teacher draws on a board: no shading, textures or tiny details.",
   "",
   SVG_RULES,
+].join("\n");
+
+/**
+ * Whether a book's figures are redrawn by the diagram model as pictures in the lecture's style (the default) or
+ * redrawn by the SVG model (PANIM_DIAGRAM_REDRAW=0, the older way).
+ */
+export function redrawsDiagrams(): boolean {
+  return process.env.PANIM_DIAGRAM_REDRAW !== "0";
+}
+
+export const CLASSIFY_PROMPT = [
+  "You look at ONE figure from a textbook and say how a video lecture should show it. Reply with exactly one of:",
+  "- PHOTO: <in English, what it shows and how it is seen, most telling first, for an image model to make it again>",
+  "  and, when it shows one named thing (a person, a monument, a place, a species), a second line SUBJECT: <its name>.",
+  "  For a PHOTOGRAPH or a painting of a real person, place, building, specimen, animal, plant or object.",
+  "- MANIM: for a figure simple enough for the board's own shapes: a graph or plot, a block on an incline, a pulley,",
+  "  a spring, a pendulum, a projectile's path, a simple circuit, a lever, a lens or mirror with its rays, a",
+  "  geometric figure, a flowchart, a cycle or tree of labelled boxes, a table, a bar chart.",
+  "- DIAGRAM: for every other drawing: a labelled diagram, a cell or an organ, a cross-section, an organism, an",
+  "  apparatus or machine, a detailed structure, a historical map, a timeline chart, an annotated illustration. It",
+  "  is redrawn from the figure itself in the lecture's style, every label kept.",
+  "Reply with the one word (and for PHOTO its lines), nothing else.",
 ].join("\n");
 
 function drawnPaths(figure: FigureInfo): { svg: string; meta: string } {
@@ -387,6 +414,30 @@ export async function remakePhoto(figure: FigureInfo, query: string | undefined,
 }
 
 /**
+ * A book's diagram redrawn by the diagram model (genimage.py --redraw): from the figure itself, in the lecture's
+ * style, every label kept, checked against the book's and redrawn with what was wrong. Undefined generated (and
+ * the reason) when no redraw was true to the book: the scan is shown.
+ */
+export async function redrawDiagram(figure: FigureInfo, context: string, options: SettleOptions & { style?: string }):
+  Promise<{ generated?: Drawn["generated"]; error?: string; usd: number }> {
+  const script = path.join(options.repo, "harness", "lecture", "genimage.py");
+  const args = [script, "--redraw", figure.file, "--caption", figure.caption || "", "--context", context.slice(0, 600),
+    ...(options.style ? ["--style", options.style] : [])];
+  try {
+    const row = JSON.parse((await runPython(options.python, options.repo, args, options.signal))
+      .trim().split("\n").pop() || "null") as { file?: string; title?: string; credit?: string; usd?: number;
+      error?: string } | null;
+    const usd = Number(row?.usd ?? 0);
+    if (usd) options.onCost?.(usd);
+    if (row?.file) return { generated: { file: row.file, title: row.title || figure.caption, credit: row.credit }, usd };
+    return { error: row?.error || "the diagram model made nothing", usd };
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    return { error: String(error instanceof Error ? error.message : error).slice(0, 200), usd: 0 };
+  }
+}
+
+/**
  * Draw each figure as an SVG (or find it drawn already). Returns what became of each, by id. Figures that cannot
  * be drawn come back with `failed` and the lecture builds them in Manim as before.
  */
@@ -406,6 +457,8 @@ export async function drawFigures(
     onDrawn?: (id: string, drawn: Drawn, kept: boolean) => void;
     /** How long a figure drawn now took (ms since the epoch), whatever came of it. */
     onTime?: (start: number, end: number) => void;
+    /** The lecture's style: a diagram is redrawn in it (redrawsDiagrams). */
+    style?: string;
   },
 ): Promise<Record<string, Drawn>> {
   const out: Record<string, Drawn> = {};
@@ -428,12 +481,37 @@ export async function drawFigures(
   }
   if (!todo.length) return out;
   options.onStatus?.(`Looking at the book's ${todo.length} figure${todo.length > 1 ? "s" : ""}: built in Manim where ` +
-    "the board's shapes can, drawn as SVG where they cannot.");
+    (redrawsDiagrams() ? "the board's shapes can; diagrams redrawn by the diagram model in the lecture's style, " +
+      "their labels checked against the book's." : "the board's shapes can, drawn as SVG where they cannot."));
   let done = 0;
 
   const drawOne = async (figure: FigureInfo): Promise<Drawn> => {
     const image = await picture(figure.file);
     const context = figureContext(options.markdown, figure.id);
+    if (redrawsDiagrams()) {
+      // Photo, simple shapes, or a diagram: a diagram is redrawn as a picture (never as an SVG), every label kept.
+      let usd = 0;
+      const bill = (cost: number) => {
+        usd += cost;
+        options.onCost?.(cost);
+      };
+      const content: Part[] = [{ type: "text", text: `Figure ${figure.id}: ${figure.caption || "(no caption)"}` +
+        (context ? `\n\nThe book around it:\n${context}` : "") }];
+      if (image) content.push({ type: "image_url", image_url: { url: image } });
+      const said = await ask(options.key, options.model,
+        [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content }], options.signal);
+      bill(said.cost);
+      const verdict = said.text.trim();
+      if (/^PHOTO\b/i.test(verdict)) {
+        const { query, subject } = photoWords(verdict);
+        const found = await remakePhoto(figure, query, subject, { ...options, onCost: bill });
+        return { photo: true, query, subject, looked: true, ...(found ? { generated: found } : {}), usd };
+      }
+      if (/^MANIM\b/i.test(verdict)) return { manim: true, usd };
+      const redrawn = await redrawDiagram(figure, context, { ...options, onCost: bill });
+      return { photo: true, diagram: true, looked: true, ...(redrawn.generated ? { generated: redrawn.generated }
+        : { diagramError: redrawn.error }), usd };
+    }
     const ask0: Part[] = [{
       type: "text",
       text: `Figure ${figure.id}${figure.page ? ` (page ${figure.page})` : ""}: ${figure.caption || "(no caption)"}` +
@@ -475,11 +553,13 @@ export async function drawFigures(
       options.onTime?.(began, Date.now());
       out[figure.id] = drawn;
       options.onDrawn?.(figure.id, drawn, false);
-      if (!drawn.failed) {
+      if (!drawn.failed && !drawn.diagramError) {
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
       done++;
-      options.onStatus?.(`Figure ${figure.id} ${drawn.photo ? (drawn.generated ? `is a photograph; made again by the image ` +
+      options.onStatus?.(`Figure ${figure.id} ${drawn.diagram ? (drawn.generated ? "is a diagram; redrawn by the diagram " +
+          "model in the lecture's style, its labels checked against the book's" : `is a diagram; shown as the book's ` +
+          `(not redrawn: ${drawn.diagramError ?? "no redraw kept its labels"})`) : drawn.photo ? (drawn.generated ? `is a photograph; made again by the image ` +
         `model as a cutout ("${drawn.generated.title ?? figure.caption}")` : "is a photograph (shown as it is: the image model made none)")
         : drawn.manim ? "is built in Manim" : drawn.svg
         ? `drawn as SVG${drawn.animated ? ", moving" : ""} (${(drawn.parts ?? []).length} parts)`
@@ -493,6 +573,8 @@ export async function drawFigures(
 /** A figure's line in the script writer's prompt: how to show it, and its parts to reveal. */
 export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
   const head = `  ${figure.id}: ${figure.caption}${figure.page ? ` (page ${figure.page})` : ""}`;
+  if (drawn?.diagram) return `${head} — a diagram, shown whole as a picture with its labels: ` +
+    `{"op":"figure","id":"${figure.id}","photo":true,"where":"stage"} (no parts to reveal)`;
   if (drawn?.photo) return `${head} — a photograph: {"op":"figure","id":"${figure.id}","photo":true}`;
   if (drawn?.svg) {
     const parts = (drawn.parts ?? []).map((p) => (drawn.labels?.[p] ? `${p} (${drawn.labels[p]})` : p)).join(", ");

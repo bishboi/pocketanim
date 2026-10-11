@@ -659,6 +659,10 @@ def cutout_mob(path, width: float, height: float):
     mob.scale_to_fit_height(height)
     if mob.width > width:
         mob.scale_to_fit_width(width)
+    if Path(str(path)).name.startswith("gen-diagram-"):
+        # A book's diagram the diagram model redrew in this style, its words traced as shapes: the art style
+        # leaves it as drawn (a wobble or a second stroke would blur its labels).
+        mob._art_none = True
     return mob
 
 
@@ -4218,7 +4222,9 @@ class Lecture(Scene):
             # The board already spans the frame: a "full" figure there covered the title strip, and anything
             # else the beat put on the stage stayed hidden under it.
             where = "stage"
-        if where == "stage":
+        if where == "stage" or is_cutout(path):
+            # A picture the image model made (a book's diagram redrawn, a photo made again) is vector shapes,
+            # drawn in on the stage, large: a detailed diagram needs the room, and the panel takes only images.
             return self.stage_image(path, caption, credit=credit)
         image = ImageMobject(path)
         if where == "full":

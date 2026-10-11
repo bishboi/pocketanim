@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -55,14 +56,36 @@ IMAGE_INPUT_REFUSED = re.compile(r"support(?:s|ed)? (?:the requested )?(?:image 
 
 
 def configured() -> str:
-    """The image model the settings name (PANIM_IMAGE_MODEL), whether or not it works."""
+    """The illustration model the settings name (PANIM_IMAGE_MODEL), whether or not it works: people, places,
+    objects and scenes, made quickly and cheaply."""
     return os.environ.get("PANIM_IMAGE_MODEL") or MODEL_DEFAULT
 
 
+def diagram_model() -> str:
+    """The model for detailed diagrams (PANIM_DIAGRAM_MODEL, else the illustration model): the book's figures redrawn
+    in the lecture's style with every label kept, and labelled pictures whose parts must be right. A slower,
+    more careful model that writes words well and follows a reference picture."""
+    return os.environ.get("PANIM_DIAGRAM_MODEL") or configured()
+
+
+# Which of the two models the calls below are for ("illustration" or "diagram"): set by using().
+_KIND = ["illustration"]
+
+
+@contextmanager
+def using(kind: str):
+    """The calls inside go to the diagram model (kind "diagram") or the illustration model."""
+    _KIND.append("diagram" if kind == "diagram" else "illustration")
+    try:
+        yield
+    finally:
+        _KIND.pop()
+
+
 def model() -> str:
-    """The image model asked: the one the settings name (PANIM_IMAGE_MODEL). There is no fallback: a model that
-    refuses is reported, never swapped for another."""
-    return configured()
+    """The image model asked now: the illustration model, or the diagram model inside using("diagram"). There is
+    no fallback: a model that refuses is reported, never swapped for another."""
+    return diagram_model() if _KIND[-1] == "diagram" else configured()
 
 
 def _refusal(error: str) -> bool:
@@ -184,7 +207,18 @@ def trace_most() -> int:
         return 2200
 
 
-def vectorize(png: bytes, most: int | None = None) -> str | None:
+# A diagram is traced finer and may have more shapes: its labels are words, and words traced coarsely are not read.
+DIAGRAM_TRACE_LEVELS = [(1400, 2, 7, 10), (1200, 3, 6, 12), (1024, 4, 6, 16), (900, 5, 6, 16)]
+
+
+def diagram_trace_most() -> int:
+    try:
+        return int(os.environ.get("PANIM_DIAGRAM_MAX_PATHS", "7000"))
+    except ValueError:
+        return 7000
+
+
+def vectorize(png: bytes, most: int | None = None, levels=None, budget: int | None = None) -> str | None:
     """A cutout traced into vector shapes (vtracer: colour regions as filled paths, stacked from the largest to the
     finest; the transparent background is left out), so the phone draws it as it draws everything else, not as a
     raster frame, and the board can draw it in shape by shape. As detailed as stays under PANIM_TRACE_MAX_PATHS
@@ -194,7 +228,8 @@ def vectorize(png: bytes, most: int | None = None) -> str | None:
         from PIL import Image
     except ImportError:
         return None
-    levels = [(most, 8, 5, 24)] if most else TRACE_LEVELS
+    levels = [(most, 8, 5, 24)] if most else (levels or TRACE_LEVELS)
+    budget = budget or trace_most()
     svg = None
     for size, speck, colours, layers in levels:
         try:
@@ -209,7 +244,7 @@ def vectorize(png: bytes, most: int | None = None) -> str | None:
                                                    splice_threshold=45, path_precision=2)
         except Exception:  # noqa: BLE001 -- an image the tracer cannot read stays a PNG
             return None
-        if svg.count("<path") <= trace_most():
+        if svg.count("<path") <= budget:
             break
     return svg if svg and "<path" in svg else None
 
@@ -538,7 +573,16 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
 
 
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
-             context: str | None = None, scene: bool = False, match: bool = True) -> dict | None:
+             context: str | None = None, scene: bool = False, match: bool = True, kind: str | None = None) -> dict | None:
+    """A picture of `what` (see _generate), by the illustration model, or by the diagram model when it names parts
+    to label (or kind="diagram"): a labelled picture's parts must be there and right."""
+    kind = kind or ("diagram" if any(str(p).strip() for p in parts or []) else "illustration")
+    with using(kind):
+        return _generate(what, style, realistic, parts, context, scene, match)
+
+
+def _generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
+              context: str | None = None, scene: bool = False, match: bool = True) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -629,10 +673,180 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     return {**row, "file": str(shown), "path": str(shown), "usd": usd, "made": True}
 
 
+# ---------------- the book's diagrams, redrawn by the diagram model ----------------
+DIAGRAM_VERSION = 1
+
+
+def _board_colours(style: str | None) -> tuple[str, str]:
+    """(background, ink) of a lecture style's board, for a diagram drawn to sit on it."""
+    try:
+        import pocket_lecture as pl
+
+        theme = pl.THEMES.get(style or "") or pl.THEMES["atlas"]
+        return str(theme["bg"]), str(theme["pal"].get("CREAM", "#111111"))
+    except Exception:  # noqa: BLE001 -- no engine here: a white page and black ink
+        return "#FFFFFF", "#111111"
+
+
+def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None) -> str:
+    """What the diagram model is told when it redraws a book's figure from the figure itself."""
+    look = LOOKS.get(style or "", "in a clean, colourful educational illustration style")
+    bg, ink = _board_colours(style)
+    return (
+        f"REDRAW THE ATTACHED FIGURE from a school textbook as a clean, detailed teaching diagram, {look}. "
+        f"What it is: {caption.strip() or 'a textbook figure'}."
+        + (f" WHAT IT IS FOR: {context.strip()[:600]}" if context and context.strip() else "")
+        + " ACCURACY COMES FIRST: keep exactly what the figure shows: every part with its shape and place, every "
+        "arrow, line and connection, every number and unit, and EVERY LABEL with exactly the same words and spelling, "
+        "copied letter for letter (never translate, reword, add or drop a label; keep each one beside the part it "
+        "names). Labels in a large, plain, clear font that reads on a phone. Leave out the figure number, the "
+        "caption, any title, page number, book logo, watermark or QR code."
+        f" Draw it on a plain, flat background of colour {bg}, lines and words in {ink} and colours that read on "
+        "that background; fill the frame, no border or frame around it."
+        + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that." if fix and fix.strip() else "")
+    )
+
+
+def verify(source: bytes, made: bytes, caption: str) -> dict:
+    """Whether a redrawn diagram is true to the book's: a model that reads images is shown both and lists the
+    labels missing or changed, and whether the parts and arrows are the same. {"ok": True/False/None, "missing",
+    "wrong", "notes"}; ok None when nothing could check (offline, no key)."""
+    if _fake():
+        return {"ok": True, "missing": [], "wrong": [], "notes": "stand-in"}
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        return {"ok": None, "missing": [], "wrong": [], "notes": "not checked: no OPENROUTER_API_KEY"}
+
+    def url(data: bytes) -> str:
+        return "data:image/png;base64," + base64.b64encode(data).decode()
+
+    ask = ("Image A is a figure from a school textbook" + (f" ({caption.strip()[:160]})" if caption.strip() else "")
+           + ". Image B is a redrawing of it for a lesson. List every text label in A (leave out a figure number, "
+           "caption, title or page number). For each, is it in B with the same words and spelling, beside the same "
+           "part? Are A's parts, arrows and layout kept in B, with nothing wrong added? Reply with JSON only: "
+           '{"labels": [...every label in A...], "missing": [...labels of A not in B...], "wrong": [...labels of A '
+           'misspelled, changed or misplaced in B...], "structure_ok": true or false, "notes": "what else is wrong, '
+           'in one sentence"}')
+    try:
+        reply = _post(_chat_url(), {"model": label_model(), "temperature": 0, "messages": [{"role": "user", "content": [
+            {"type": "text", "text": "Image A:"}, {"type": "image_url", "image_url": {"url": url(source)}},
+            {"type": "text", "text": "Image B:"}, {"type": "image_url", "image_url": {"url": url(made)}},
+            {"type": "text", "text": ask}]}]}, proxied=False, who=f"the diagram checker {label_model()}")
+        text = str((((reply.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+        data = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+    except Exception as error:  # noqa: BLE001 -- unchecked, and said so
+        return {"ok": None, "missing": [], "wrong": [], "notes": f"not checked: {str(error)[:200]}"}
+    missing = [str(x) for x in data.get("missing") or []][:20]
+    wrong = [str(x) for x in data.get("wrong") or []][:20]
+    ok = not missing and not wrong and data.get("structure_ok") is not False
+    return {"ok": ok, "missing": missing, "wrong": wrong, "labels": [str(x) for x in data.get("labels") or []][:40],
+            "notes": str(data.get("notes") or "")[:300]}
+
+
+def _as_png(data: bytes) -> bytes:
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(data)).convert("RGB")
+    image.thumbnail((1600, 1600))
+    out = io.BytesIO()
+    image.save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+def diagram_tries() -> int:
+    try:
+        return max(1, int(os.environ.get("PANIM_DIAGRAM_TRIES", "3")))
+    except ValueError:
+        return 3
+
+
+def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None) -> dict:
+    """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
+    reference), every label kept, then checked against it (verify) and redrawn with what was wrong, up to
+    PANIM_DIAGRAM_TRIES times. Kept beside the other pictures, by the figure and the style. Returns a row with
+    `file` (traced SVG, else the PNG), `png`, `ok`, `check`, `usd`; or {"error": why} when no try was true to the
+    book's figure (the lecture then shows the book's own)."""
+    source = Path(str(source_path))
+    if not source.is_file():
+        return {"error": f"no figure file {source}"}
+    with using("diagram"):
+        raw = source.read_bytes()
+        try:
+            reference = _as_png(raw)
+        except Exception:  # noqa: BLE001
+            reference = raw
+        key = hashlib.sha256(f"{model()}|{style or ''}|{DIAGRAM_VERSION}|".encode() + hashlib.sha256(raw).digest()
+                             ).hexdigest()[:20]
+        target = CACHE / f"gen-diagram-{key}.png"
+        meta = target.with_suffix(".json")
+        if target.exists() and meta.exists():
+            row = json.loads(meta.read_text())
+            shown = _vector_diagram(target)
+            return {**row, "file": str(shown), "png": str(target), "usd": 0.0, "paid": row.get("usd")}
+        if not enabled():
+            return {"error": "the image model is off (no OPENROUTER_API_KEY, or PANIM_IMAGES=0)"}
+        if model() in REFUSED:
+            return {"error": REFUSED[model()]}
+        if model() in NO_REFERENCE:
+            return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes words only); "
+                             "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
+        usd, fix, last = 0.0, None, None
+        for attempt in range(1, diagram_tries() + 1):
+            prompt = redraw_prompt(caption, style, context, fix)
+            try:
+                data, cost = (_stand_in(caption or source.name), 0.0) if _fake() else _ask(prompt, reference)
+            except RuntimeError as error:
+                why = str(error)
+                if IMAGE_INPUT_REFUSED.search(why):
+                    NO_REFERENCE.add(model())
+                    return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes "
+                                     "words only); pick one that takes images (PANIM_DIAGRAM_MODEL)", "usd": usd}
+                if _refusal(why):
+                    REFUSED[model()] = why
+                return {"error": why[:300], "usd": usd}
+            usd += cost
+            if not _fake() and _ROUTE.get(model()) == "images":
+                return {"error": f"the diagram model {model()} is served only through the Image API, which takes no "
+                                 "picture: it cannot copy the book's figure (PANIM_DIAGRAM_MODEL)", "usd": usd}
+            png = _as_png(data)
+            check = verify(reference, png, caption)
+            last = (png, check)
+            if check.get("ok") is not False:
+                break
+            fix = "; ".join(x for x in [
+                f"labels missing: {', '.join(check['missing'])}" if check.get("missing") else "",
+                f"labels wrong or misplaced: {', '.join(check['wrong'])}" if check.get("wrong") else "",
+                check.get("notes") or ""] if x)
+        png, check = last
+        if check.get("ok") is False:
+            return {"error": "no redraw kept every label (" + "; ".join(
+                x for x in [", ".join(check.get("missing") or []), ", ".join(check.get("wrong") or []),
+                            check.get("notes") or ""] if x)[:300] + ")", "usd": usd, "check": check}
+        CACHE.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(png)
+        row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": model(), "style": style,
+               "source": str(source), "check": check, "ok": check.get("ok"), "usd": usd, "diagram": True,
+               "credit": f"redrawn with {model()} from the book's figure"}
+        meta.write_text(json.dumps(row, ensure_ascii=False))
+        shown = _vector_diagram(target)
+        MADE.append({"path": str(shown), "png": str(target), "what": row["what"], "prompt": prompt, "model": model(),
+                     "usd": usd, "made": True})
+        return {**row, "file": str(shown), "png": str(target)}
+
+
+def _vector_diagram(target: Path) -> Path:
+    """The finely traced SVG beside a redrawn diagram (DIAGRAM_TRACE_LEVELS), made when missing."""
+    svg = target.with_suffix(".svg")
+    if not svg.exists() and target.exists():
+        traced = vectorize(target.read_bytes(), levels=DIAGRAM_TRACE_LEVELS, budget=diagram_trace_most())
+        if traced:
+            svg.write_text(traced, encoding="utf-8")
+    return svg if svg.exists() else target
+
+
 def report() -> dict:
     """What this process asked of the image model: how many pictures, how many made now, found made, failed (and
     why), and which model, for the lecture's log (compile_lecture --json "images")."""
-    out = {"model": model(), "proxy": proxy_shown(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
+    out = {"model": configured(), "diagram_model": diagram_model(), "proxy": proxy_shown(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
            "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED}
     return out
 
@@ -668,6 +882,13 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if "--check" in args:
         print(json.dumps(check(" ".join(a for a in args if a != "--check") or "a red apple with one green leaf")))
+        sys.exit(0)
+    if "--redraw" in args:
+        # genimage.py --redraw FIGURE.png [--style S] [--caption C] [--context X]: the book's figure redrawn.
+        def value(flag):
+            return args[args.index(flag) + 1] if flag in args and args.index(flag) + 1 < len(args) else None
+        print(json.dumps(redraw(value("--redraw"), value("--caption") or "", value("--style"), value("--context")),
+                         ensure_ascii=False))
         sys.exit(0)
     realistic = "--realistic" in args
     args = [a for a in args if a != "--realistic"]

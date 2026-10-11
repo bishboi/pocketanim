@@ -252,3 +252,92 @@ def test_a_model_that_takes_words_only_is_asked_again_without_the_reference(monk
     kinds = [isinstance(a["messages"][0]["content"], list) for a in asked]
     assert kinds == [False, True, False, False, False]          # one refused try, then words alone from then on
     assert gen.report()["failed"] == []
+
+
+@pytest.fixture
+def two_models(monkeypatch, tmp_path):
+    """A stand-in OpenRouter with two image models and a checker that reads images: the checker finds a label
+    missing in the first redraw and none in the second."""
+    asked: list[dict] = []
+    picture = _png()
+    verdicts = [{"labels": ["nucleus", "cell wall"], "missing": ["cell wall"], "wrong": [], "structure_ok": True,
+                 "notes": "the cell wall label is gone"},
+                {"labels": ["nucleus", "cell wall"], "missing": [], "wrong": [], "structure_ok": True, "notes": ""}]
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            asked.append(body)
+            if body["model"] == "test/vision":
+                reply = {"choices": [{"message": {"content": json.dumps(verdicts.pop(0) if verdicts else {})}}]}
+            elif body["model"] == "test/words-only" and isinstance(body["messages"][0]["content"], list):
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": {"message": "No endpoints found that support image input"}}).encode())
+                return
+            else:
+                reply = {"choices": [{"message": {"images": [{"image_url": {"url": picture}}]}}]}
+            data = json.dumps(reply).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "test/illustrations")
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/diagrams")
+    monkeypatch.setenv("PANIM_LABEL_MODEL", "test/vision")
+    monkeypatch.setenv("PANIM_IMAGE_API", "chat")
+    for name in ("PANIM_IMAGE_FAKE", "PANIM_IMAGES", "PANIM_IMAGE_PROXY", "PANIM_IMAGE_REFERENCE"):
+        monkeypatch.delenv(name, raising=False)
+    import genimage
+
+    gen = importlib.reload(genimage)
+    figure = tmp_path / "fig3.png"
+    figure.write_bytes(base64.b64decode(picture.split(",", 1)[1]))
+    yield gen, asked, figure
+    server.shutdown()
+
+
+def test_illustrations_and_labelled_pictures_go_to_their_own_models(two_models):
+    gen, asked, _ = two_models
+    assert gen.generate("a village market")["model"] == "test/illustrations"
+    assert gen.generate("a medieval knight", parts=["helmet", "shield"])["model"] == "test/diagrams"
+    assert [a["model"] for a in asked] == ["test/illustrations", "test/diagrams"]
+    assert gen.report()["diagram_model"] == "test/diagrams"
+
+
+def test_a_book_diagram_is_redrawn_from_itself_and_its_labels_checked(two_models):
+    gen, asked, figure = two_models
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "parchment", "the lesson on cells")
+    assert row.get("file") and row["ok"] is True and row["model"] == "test/diagrams"
+    draws = [a for a in asked if a["model"] == "test/diagrams"]
+    checks = [a for a in asked if a["model"] == "test/vision"]
+    assert len(draws) == 2 and len(checks) == 2                       # redrawn once more with what was wrong
+    first, second = (_text_of(d) for d in draws)
+    assert draws[0]["messages"][0]["content"][0]["type"] == "image_url"    # the book's figure, sent with it
+    assert "EVERY LABEL" in first and "sepia" in first and "LAST TRY WAS WRONG" not in first
+    assert "LAST TRY WAS WRONG" in second and "cell wall" in second
+    again = gen.redraw(str(figure), "Fig. 3: a plant cell", "parchment")
+    assert again["file"] == row["file"] and len(asked) == 4              # kept: not drawn again
+
+
+def test_a_diagram_whose_labels_never_come_right_is_not_used(two_models, monkeypatch):
+    gen, asked, figure = two_models
+    monkeypatch.setenv("PANIM_DIAGRAM_TRIES", "1")
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "lab")
+    assert "error" in row and "cell wall" in row["error"]
+
+
+def test_a_words_only_diagram_model_is_told_to_be_changed(two_models, monkeypatch):
+    gen, asked, figure = two_models
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/words-only")
+    row = gen.redraw(str(figure), "Fig. 3", "lab")
+    assert "takes words only" in row["error"] and "PANIM_DIAGRAM_MODEL" in row["error"]

@@ -129,6 +129,17 @@ new picture (Akbar's portrait, then Akbar on horseback) is drawn to match the fi
 sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a model asked through the Image API
 gets the words only).
 
+Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, objects, scenes: quick and cheap),
+and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's diagrams are no longer redrawn
+as SVG: each figure is looked at once (a photograph, simple shapes for Manim, or a diagram), and a diagram is
+redrawn by the diagram model from the figure itself, in the lecture's style, every label copied letter for letter.
+A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
+what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (3) tries. A diagram whose
+labels never come out right is shown as the book's own figure, never wrong. The diagram model must take a picture in
+(a words-only model such as Recraft cannot copy a figure: the log says so). Diagrams are traced finer than
+illustrations so their words stay legible (`PANIM_DIAGRAM_MAX_PATHS`, 7000 shapes). `PANIM_DIAGRAM_REDRAW=0` goes
+back to SVG redraws. A picture with labelled parts is also made by the diagram model.
+
 `PANIM_IMAGE_PROXY` (testing only) sends the image model's calls, and nothing else, through a proxy, e.g.
 `http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is
 served in. The status bar, the **test** button and the lecture log say when it is on.

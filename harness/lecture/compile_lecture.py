@@ -311,6 +311,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
         | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
             "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"]}
+    pictured: set[str] = set()     # book figures shown as their picture: they have no parts to reveal
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
             at = f"chapter {c + 1} beat {b + 1}"
@@ -318,6 +319,9 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
             beat["do"] = ops = [op for op in ops if isinstance(op, dict)]
             for op in ops:
                 kind = op.get("op")
+                if kind in ("reveal", "focus") and str(op.get("diagram")) in pictured:
+                    _drop(op, at, f"figure {op.get('diagram')!r} is shown as the book's picture, with no parts", notes)
+                    continue
                 if kind not in known:
                     _drop(op, at, "no such op", notes)
                     continue
@@ -348,6 +352,30 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                 if missing:
                     _drop(op, at, f"it has no {missing[0]}", notes)
                     continue
+                if kind == "compare":
+                    columns = [c for c in (op.get("columns") if isinstance(op.get("columns"), list) else [])
+                               if isinstance(c, dict) and (c.get("title") or c.get("points"))]
+                    for j, column in enumerate(columns):
+                        if not column.get("title"):
+                            column["title"] = f"Side {j + 1}"
+                        if not isinstance(column.get("points"), list):
+                            column["points"] = [str(column["points"])] if column.get("points") else []
+                        column["points"] = [str(p) for p in column["points"]][:4]
+                    if len(columns) > 3:
+                        notes.append(f"{FIXED}{at}: compare cut to its first 3 columns")
+                        columns = columns[:3]
+                    op["columns"] = columns
+                    if len(columns) == 1:
+                        # One column compares nothing: its title and points, as a card.
+                        only = columns[0]
+                        text = only["title"] + (": " + "; ".join(only["points"]) if only["points"] else "")
+                        op.clear()
+                        op.update({"op": "fact", "text": text})
+                        notes.append(f"{FIXED}{at}: a compare of one column shown as a card ({text[:60]})")
+                        continue
+                    if not columns:
+                        _drop(op, at, "it has no columns", notes)
+                        continue
                 if kind == "timeline":
                     events = [e for e in (op.get("events") if isinstance(op.get("events"), list) else [])
                               if (isinstance(e, (list, tuple)) and len(e) >= 2) or (isinstance(e, dict) and e.get("label"))]
@@ -367,6 +395,13 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         # Cannot be drawn as written: left out, and the narration over it stands.
                         _drop(op, at, problem, notes)
                         continue
+                if kind == "figure" and script.get("rebuild_figures") and not op.get("photo") \
+                        and not (figures[str(op["id"])] or {}).get("svg"):
+                    # The book's diagram had no redrawing to show and the writer built none: shown as the book has
+                    # it, rather than the section sent back.
+                    op["photo"] = True
+                    pictured.add(str(op.get("id")))
+                    notes.append(f"{FIXED}{at}: figure {op.get('id')!r} shown as the book's picture (not rebuilt)")
                 if kind == "figure" and op.get("show") and (figures[str(op["id"])] or {}).get("parts"):
                     parts = [str(p) for p in figures[str(op["id"])]["parts"]]
                     _keep_known(op, "show", parts, at, notes)
@@ -548,6 +583,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     if script.get("region") and not isinstance(script["region"], dict):
         errors.append('region must be an object, e.g. {"country": "India", "view": "ind"}, or left out for no map')
         script = {**script, "region": None}
+    region_notes = _fix_region(script)
+    warnings += region_notes
     has_map = bool(script.get("region"))
     # What needs no new words is mended here (and said in the warnings, "fixed: ..."); the rest are errors.
     warnings += mechanical_fixes(script, has_map)
@@ -654,12 +691,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         diagrams[str(op.get("id"))] = parts
                     elif not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
-                    elif script.get("rebuild_figures") and not op.get("photo"):
-                        errors.append(f"{at}: figure {op.get('id')!r} is the book's picture shown as it is. Build it in "
-                                      "Manim instead (sketch, preset, graph, diagram, compare; draw only what those "
-                                      "cannot show well), with "
-                                      f"\"from_figure\":\"{op.get('id')}\" on that op. Only a photograph may be shown as "
-                                      "it is, with \"photo\": true.")
                 for field in ("color",):
                     if op.get(field) is not None:
                         try:
@@ -2260,6 +2291,48 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
                         op["_drop"] = True
     _purge(script)
     return [], warnings
+
+
+# Regions a script names that Natural Earth knows by another name (England is part of the United Kingdom there).
+REGION_ALIASES = {
+    "england": "United Kingdom", "scotland": "United Kingdom", "wales": "United Kingdom",
+    "northern ireland": "United Kingdom", "britain": "United Kingdom", "great britain": "United Kingdom",
+    "uk": "United Kingdom", "the uk": "United Kingdom", "holland": "Netherlands", "persia": "Iran",
+    "burma": "Myanmar", "siam": "Thailand", "ceylon": "Sri Lanka", "prussia": "Germany", "bohemia": "Czechia",
+    "czech republic": "Czechia", "usa": "United States of America", "united states": "United States of America",
+    "america": "United States of America", "the united states": "United States of America",
+    "russia": "Russia", "soviet union": "Russia", "ussr": "Russia", "gaul": "France", "frankish kingdom": "France",
+    "francia": "France", "holy roman empire": "Germany", "hindustan": "India", "bharat": "India",
+}
+
+
+def _fix_region(script: dict) -> list[str]:
+    """A region the map cannot draw as named, mended without new words: a name Natural Earth knows otherwise
+    (England -> the United Kingdom); a country named as an area or the other way round; and, failing those, no
+    map at all (its map ops are then left out, each with a note) instead of the whole section sent back."""
+    region = script.get("region")
+    if not isinstance(region, dict) or not region:
+        return []
+    problem, _ = _region_problem(region)
+    if not problem:
+        return []
+    name = str(region.get("area") or region.get("continent") or region.get("country") or region.get("state") or "")
+    alias = REGION_ALIASES.get(re.sub(r"\s+", " ", name.strip().lower()))
+    tries = []
+    if alias:
+        tries.append({"country": alias, **({"view": region["view"]} if region.get("view") else {})})
+    if region.get("state") and region.get("country"):
+        tries.append({"country": region["country"]})
+    if region.get("country") and not region.get("state"):
+        tries.append({"area": region["country"]})
+    if region.get("area"):
+        tries.append({"country": region["area"]})
+    for candidate in tries:
+        if not _region_problem(candidate)[0]:
+            script["region"] = candidate
+            return [f"{FIXED}region {name!r} drawn as {next(iter(candidate.values()))!r}"]
+    script["region"] = None
+    return [f"{FIXED}region {name!r} is no country, state or area the map knows: the lecture has no map"]
 
 
 def _region_problem(region) -> tuple[str | None, str | None]:

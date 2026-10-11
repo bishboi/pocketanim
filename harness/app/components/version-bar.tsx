@@ -9,7 +9,7 @@ type Status = {
 
 /** What /api/image-check found: a real call to the image model. */
 type ImageCheck = { ok: boolean; model: string; error?: string; seconds?: number; usd?: number; png?: string;
-  svg?: string | null; paths?: number; note?: string | null };
+  svg?: string | null; paths?: number; note?: string | null; configured?: string; configured_error?: string };
 
 /** The harness version on every page, and what is not installed yet (with a button to get it). */
 export function VersionBar() {
@@ -93,6 +93,11 @@ export function VersionBar() {
       {note && <span className="text-neutral-300">{note}</span>}
       {check && (
         <div className="mt-1 flex w-full flex-wrap items-start gap-3 border-t border-neutral-800 pt-1.5" data-testid="image-check-result">
+          {check.configured_error && (
+            <span className="w-full font-semibold text-amber-300">
+              {check.configured} FAILED: {check.configured_error}. Lectures use {check.model} instead (below).
+            </span>
+          )}
           {check.ok ? (
             <>
               <span className="text-emerald-400">

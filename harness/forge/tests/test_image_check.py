@@ -59,6 +59,7 @@ def test_a_model_that_is_not_an_image_model_is_named(gen, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "some/text-model")
+    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
     got = gen.check()
     server.shutdown()
     assert not got["ok"] and "some/text-model returned no image" in got["error"] and "I cannot draw" in got["error"]
@@ -69,6 +70,7 @@ def test_an_http_error_is_reported_and_a_lecture_records_it(gen, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "bad/model")
+    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
     got = gen.check()
     assert "HTTP 404" in got["error"] and "No endpoints found" in got["error"]
     assert gen.generate("a steam locomotive") is None
@@ -125,3 +127,75 @@ def test_an_image_only_model_is_asked_on_the_image_api(gen, monkeypatch):
     assert paths[0] == "/api/v1/chat/completions" and paths[1] == "/api/v1/images"
     assert paths[2] == "/api/v1/images"                      # remembered: asked on the Image API from then on
     assert calls[1][1] == {"model": "meta/muse-image", "prompt": calls[1][1]["prompt"]}
+
+
+def _refusing_server(refused: str, png: bytes):
+    """Chat completions that refuse `refused` (not in this region) and answer any other model with a picture."""
+    import base64
+
+    calls = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            calls.append(body["model"])
+            if body["model"] == refused:
+                status, reply = 403, {"error": {"message": "This model is not available in your region."}}
+            else:
+                url = "data:image/png;base64," + base64.b64encode(png).decode()
+                status, reply = 200, {"choices": [{"message": {"images": [{"image_url": {"url": url}}]}}],
+                                      "usage": {"cost": 0.02}}
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, calls
+
+
+def test_a_model_not_available_here_falls_back_once_for_the_whole_run(gen, monkeypatch):
+    server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
+    rows = [gen.generate(w) for w in ("a knight", "a manor", "a church")]
+    report = gen.report()
+    # The next compile (a process of its own) does not ask the refusing model again.
+    gen2 = importlib.reload(gen)
+    again = gen2.generate("a monk")
+    server.shutdown()
+    assert all(r and r["model"] == "google/gemini-2.5-flash-image" for r in rows)
+    assert calls == ["meta/muse-image", "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-image",
+                     "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-image"]
+    assert report["made"] == 3 and report["failed"] == [] and report["asked"] == 3
+    assert report["fallback"]["from"] == "meta/muse-image" and "region" in report["fallback"]["why"]
+    assert again and again["model"] == "google/gemini-2.5-flash-image"
+
+
+def test_the_check_names_the_refusing_model_and_tries_the_fallback(gen, monkeypatch):
+    server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
+    got = gen.check()
+    server.shutdown()
+    assert got["ok"] and got["model"] == "google/gemini-2.5-flash-image"
+    assert got["configured"] == "meta/muse-image" and "not available in your region" in got["configured_error"]
+
+
+def test_no_fallback_stops_asking_after_the_first_refusal(gen, monkeypatch):
+    server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
+    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
+    assert gen.generate("a knight") is None and gen.generate("a manor") is None
+    server.shutdown()
+    assert calls == ["meta/muse-image"]
+    assert len(gen.report()["failed"]) == 2

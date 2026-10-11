@@ -125,3 +125,27 @@ def test_a_timeline_of_one_event_is_a_card_and_of_none_is_left_out():
     assert any("timeline of one event shown as a card" in w for w in warnings)
     assert any("left out 'timeline'" in w for w in warnings)
     assert cl.compile_script(script, "GeneratedScene")
+
+
+def test_a_compare_of_one_column_is_a_card_and_too_many_are_cut():
+    script = _script([{"op": "compare", "columns": [{"title": "Monks", "points": ["pray", "copy books"]}]}],
+                     [{"op": "compare", "columns": [{"title": t, "points": ["x"]} for t in "ABCD"]}])
+    errors, warnings = cl.lint(script)
+    assert not errors, errors
+    first, second = (b["do"] for b in script["chapters"][0]["beats"])
+    assert first == [{"op": "fact", "text": "Monks: pray; copy books"}]
+    assert [c["title"] for c in second[0]["columns"]] == ["A", "B", "C"]
+
+
+def test_a_region_the_map_does_not_know_is_mended():
+    """England is part of the United Kingdom in Natural Earth; a region nothing knows leaves the lecture mapless
+    (its map ops left out) instead of sending the section back."""
+    script = _script([{"op": "marker", "place": "London"}], region={"country": "England"})
+    errors, warnings = cl.lint(script)
+    assert not errors, errors
+    assert script["region"] == {"country": "United Kingdom"}
+    assert any("region 'England' drawn as 'United Kingdom'" in w for w in warnings)
+    script = _script([{"op": "marker", "place": "Camelot"}], region={"country": "Lyonesse"})
+    errors, warnings = cl.lint(script)
+    assert not errors, errors
+    assert script["region"] is None and script["chapters"][0]["beats"][0]["do"] == []

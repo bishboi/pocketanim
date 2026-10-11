@@ -45,9 +45,11 @@ def test_the_compiler_checks_the_region():
                                                        "do": [{"op": "marker", "place": "London"},
                                                               {"op": "marker", "place": "New Delhi"}]}]}]}
     assert not cl.lint(script({"country": "World"}))[0]       # places anywhere, not looked up in a "World"
-    errors = cl.lint(script({"country": "Narnia"}))[0]
-    assert any("no country, state, continent or world area named 'Narnia'" in e and '"area": "World"' in e
-               for e in errors), errors
+    # A region nothing knows is mended, not refused: the lecture has no map, and its markers are left out.
+    narnia = script({"country": "Narnia"})
+    errors, warnings = cl.lint(narnia)
+    assert not errors and narnia["region"] is None
+    assert any("region 'Narnia' is no country" in w for w in warnings), warnings
 
 
 def test_a_world_map_lecture_builds(tmp_path):

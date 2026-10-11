@@ -1289,6 +1289,10 @@ async function viaOpenRouter(
   const imageNotes = new Set<string>();
   const noteImages = (report: ImageReport) => {
     const notes: string[] = [];
+    if (report.fallback) {
+      notes.push(`Image model ${report.fallback.from} refused (${report.fallback.why}); pictures are made by ` +
+        `${report.fallback.to} instead. Set PANIM_IMAGE_MODEL to a model available to you.`);
+    }
     if (!report.asked) {
       notes.push(`Pictures: the script asked the image model (${report.model}) for none here; its pictures are SVG ` +
         "drawings or built in Manim.");

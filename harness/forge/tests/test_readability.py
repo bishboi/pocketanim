@@ -194,3 +194,29 @@ def test_a_spotlight_quiets_the_rest_and_moves_in_on_a_big_diagram():
     assert len(scene.diagrams["e"]["veils"]) == 3 and not scene.diagrams["e"].get("pushed")
     scene.reveal_nodes("e", [])
     assert scene.diagrams["e"]["veils"] == []                       # the focus moved on: the veils lift
+
+
+def test_diagrams_carry_meaning():
+    """Nodes look like what they are (a person, a place, an event), arrows like what they mean (gives, owes, rules)
+    with a key under the diagram, and ranks stand as a pyramid."""
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    nodes = [{"id": "l", "label": "Lord", "kind": "person"}, {"id": "v", "label": "Vassal", "kind": "person"},
+             {"id": "o", "label": "Oath", "kind": "event"}, {"id": "m", "label": "Manor", "kind": "place"}]
+    edges = [["l", "v", "grants land", "gives"], ["v", "o", "swears", "owes"], ["o", "m", "binds", "rules"]]
+    scene.diagram("d", "flow", nodes, edges)
+    built = scene.diagrams["d"]
+    assert built["nodes"]["o"][1].__class__.__name__ == "Rectangle"          # the event's bar
+    assert pl.edge_look("owes") == "dashed" and pl.edge_look("rules") == "bold" and pl.edge_look("") == "solid"
+    legend = pl.edge_legend(["gives", "owes", "rules", "dashed"])
+    assert legend is not None and len(legend) == 3
+    scene.diagram("p", "pyramid", [{"id": k, "label": k.title(), "items": ["x"]} for k in ("king", "nobles", "peasants")])
+    bands = [scene.diagrams["p"]["nodes"][k][0] for k in ("king", "nobles", "peasants")]
+    assert bands[0].width < bands[1].width < bands[2].width                     # narrow at the top

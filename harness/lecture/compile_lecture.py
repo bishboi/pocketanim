@@ -1148,7 +1148,7 @@ BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
 STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
-DIAGRAM_KINDS = {"flow", "cycle", "hub"}          # (the older kinds are read as these: DIAGRAM_ALIASES)
+DIAGRAM_KINDS = {"flow", "cycle", "hub", "pyramid"}          # (the older kinds are read as these: DIAGRAM_ALIASES)
 # A flowchart's step shapes (pocket_lecture._flow_node) and the edge styles it draws.
 FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
 EDGE_STYLES = ("solid", "dashed", "bold")
@@ -2737,7 +2737,7 @@ def _op_call(op: dict) -> str:
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
                   **({"items": [str(i) for i in n["items"]][:5]} if n.get("items") else {}),
                   **({"anim": str(n["anim"])} if n.get("anim") else {}),
-                  **({k: str(n[k]) for k in ("shape", "lane", "tone") if n.get(k)}),
+                  **({k: str(n[k]) for k in ("shape", "lane", "tone", "kind") if n.get(k)}),
                   **({"picture": _picture_value(n["picture"])} if _picture_value(n.get("picture")) else {})}
                  for n in op["nodes"]]
         edges = [[str(e[0]), str(e[1])] + ([str(e[2]) if len(e) > 2 and e[2] else ""] if len(e) > 2 else [])

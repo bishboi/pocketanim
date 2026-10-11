@@ -278,6 +278,9 @@ def paint(mob) -> None:
         else:
             base = tuple(n if n != p else b for n, p, b in zip(now, painted, m._art_base))
         fill, fo, stroke, so, w = _styled(base, _closed(m), _size(m))
+        if getattr(m, "_art_keep_width", False):
+            # A line whose weight says something (a bold arrow: power over another) keeps it in every style.
+            w = max(w, base[4])
         m.set_fill(fill, opacity=fo, family=False)
         m.set_stroke(stroke, width=w, opacity=so, family=False)
         m._art_base = base

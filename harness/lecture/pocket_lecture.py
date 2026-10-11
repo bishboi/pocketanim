@@ -390,6 +390,45 @@ OUTLINE = 4.5
 # The smallest size (in the font's points, as drawn on the frame) an arrow's words in a diagram are shown at.
 READABLE_LABEL = 17
 
+# What an arrow means, as how it is drawn: what is given is a plain line, what is owed or promised is dashed, power
+# over another is bold. A script may name the look itself (dashed, bold) or the meaning; a meaning word not here is
+# dashed. Each meaning word a diagram uses goes in its legend.
+EDGE_LOOKS = {"solid": "solid", "gives": "solid", "give": "solid", "provides": "solid", "flow": "solid",
+              "dashed": "dashed", "owes": "dashed", "owe": "dashed", "promises": "dashed", "promise": "dashed",
+              "duty": "dashed", "loyalty": "dashed", "serves": "dashed", "obligation": "dashed",
+              "bold": "bold", "thick": "bold", "power": "bold", "rules": "bold", "controls": "bold",
+              "commands": "bold", "authority": "bold"}
+
+
+def edge_look(style) -> str:
+    word = str(style or "").strip().lower()
+    return EDGE_LOOKS.get(word, "dashed") if word else "solid"
+
+
+def edge_legend(styles) -> "VGroup | None":
+    """A small key under a diagram whose arrows carry meanings: a sample of each look and the word it stands for."""
+    words = [str(x).strip().lower() for x in styles if x and str(x).strip().lower() not in ("solid", "dashed", "bold",
+                                                                                            "thick")]
+    words = list(dict.fromkeys(words))
+    if not words:
+        return None
+    rows = []
+    for word in words:
+        look = edge_look(word)
+        line = Line(LEFT * 0.35, RIGHT * 0.35, color=P.HI if look == "bold" else P.CREAM,
+                    stroke_width=OUTLINE * (2.2 if look == "bold" else 0.8))
+        line._art_keep_width = look == "bold"
+        sample = DashedVMobject(line, num_dashes=5) if look == "dashed" else line
+        rows.append(VGroup(sample, marker(word, 16)).arrange(RIGHT, buff=0.15))
+    return VGroup(*rows).arrange(RIGHT, buff=0.5)
+
+
+def marker_card_style(role: str | None) -> dict:
+    """How a diagram's box looks for what it stands for: a person, a place, an event, an idea (or a thing)."""
+    role = str(role or "").strip().lower()
+    return {"person": dict(corner_radius=0.5), "place": dict(corner_radius=0.06), "event": dict(corner_radius=0.02),
+            "idea": dict(corner_radius=0.32)}.get(role, dict(corner_radius=0.18))
+
 
 def marker(text: str, size: float = 20, color: str | None = None):
     """A diagram's words: the style's own font, bold, in the board's ink."""
@@ -2929,18 +2968,33 @@ class Lecture(Scene):
             return None
 
     def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None,
-              motion: str | None = None, picture=None):
+              motion: str | None = None, picture=None, role: str | None = None):
         """A diagram's node, as drawn on a board: the thing's drawing above its name in an outlined box; or, for a
-        diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items."""
+        diagram of words (categories, steps), a card in a flat colour with its name, a number, and its items.
+
+        `role` says what it stands for, and so how it looks: a person (a portrait in a round frame, a rounded card),
+        a place (a pin before its name), an event (a square tag with a bar of colour), an idea (a soft card)."""
+        role = str(role or "").strip().lower() or None
         drawing = self._entity(entity, 1.0 if small else 1.35, motion)
         if drawing is None and picture:
-            # A photo, a book figure or a drawing of the thing (the compiler fetched or drew it).
-            drawing = self._picture(picture, 1.05 if small else 1.4, motion=motion)
+            # A photo, a book figure or a drawing of the thing (the compiler fetched or drew it): large enough to
+            # see what it is, not an icon.
+            drawing = self._picture(picture, 1.5 if small else 2.0, motion=motion)
+            if drawing is not None and role == "person":
+                frame = Circle(radius=max(drawing.width, drawing.height) / 2 + 0.1, color=tone, stroke_width=4)
+                frame.move_to(drawing)
+                drawing = group_of(frame, drawing)
         items = [str(i) for i in (items or [])][:5]
         words_only = drawing is None
         size = (19 if small else 23) + (2 if words_only and not items else 0)
         text = marker(wrap(str(label), 14 if words_only else 12), size)
-        if drawing is not None and not items and number is None:
+        if role == "place":
+            # A map pin before a place's name.
+            pin = VGroup(Triangle(fill_color=tone, fill_opacity=1, stroke_width=0).scale(0.13).rotate(PI),
+                         Circle(radius=0.11, fill_color=tone, fill_opacity=1, stroke_color=P.CREAM, stroke_width=1.5))
+            pin[1].next_to(pin[0], UP, buff=-0.06)
+            text = VGroup(pin, text).arrange(RIGHT, buff=0.12)
+        if drawing is not None and not items and number is None and role is None:
             # A thing as a teacher draws it: the drawing, its name in capitals under it, no box.
             node = group_of(drawing, text).arrange(DOWN, buff=0.18)
             node.is_drawing = True
@@ -2963,9 +3017,16 @@ class Lecture(Scene):
         if items:
             inner[-1].align_to(inner[-2], LEFT)
         # Words alone sit on a card of flat colour, like a marker-filled box; a drawing keeps a light one.
-        box = RoundedRectangle(corner_radius=0.18, width=max(inner.width + 0.45, 1.8), height=inner.height + 0.4,
+        look = marker_card_style(role)
+        box = RoundedRectangle(corner_radius=min(look["corner_radius"], (inner.height + 0.4) / 2 - 0.01),
+                               width=max(inner.width + 0.45, 1.8), height=inner.height + 0.4,
                                stroke_color=P.CREAM, stroke_width=OUTLINE * 0.8,
                                fill_color=_tint_on_bg(tone, 0.45), fill_opacity=1)
+        if role == "event":
+            # An event's tag: a bar of its colour down the left.
+            bar = Rectangle(width=0.16, height=box.height, fill_color=tone, fill_opacity=1, stroke_width=0)
+            bar.align_to(box, LEFT)
+            return group_of(box, bar, inner.move_to(box).shift(RIGHT * 0.08))
         return group_of(box, inner.move_to(box))
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
@@ -2995,6 +3056,8 @@ class Lecture(Scene):
 
         if kind == "steps":
             kind, numbered = "flow", True
+        if kind == "pyramid":
+            return self._pyramid(key, nodes[:7], title, show)
         plain = not any(len(e) > 2 and e[2] for e in edges) and not any(n.get("shape") or n.get("lane") for n in nodes)
         if kind in ("tree", "categories", "hierarchy") or (kind == "flow" and plain and _hier.is_tree(ids, edges)):
             # A whole above its kinds, each above its own kinds (hierarchy.py): the main thing on top.
@@ -3023,7 +3086,7 @@ class Lecture(Scene):
         mobs = {i: self._node(n.get("label", i), n.get("entity"), tones[k % 8], small, items=n.get("items"),
                               picture=n.get("picture"),
                               number=k + 1 if numbered else None,
-                              motion=(n.get("anim") or "auto") if animate else "none")
+                              motion=(n.get("anim") or "auto") if animate else "none", role=n.get("kind"))
                 for k, (i, n) in enumerate(zip(ids, nodes))}
         # Layout.
         if kind == "cycle":
@@ -3060,20 +3123,79 @@ class Lecture(Scene):
                 continue
             start, end = self._edge_points(mobs[a], mobs[b])
             arrow = self._clear_arrow(mobs[a], mobs[b], [m for k, m in mobs.items() if k not in (a, b)])
+            look = edge_look(e[3] if len(e) > 3 else "")
+            if look == "bold":
+                arrow.set_stroke(P.HI, width=OUTLINE * 2.2)
+                for tip in arrow.get_tips() if hasattr(arrow, "get_tips") else []:
+                    tip.set_fill(P.HI)
+                for part in arrow.get_family():
+                    part._art_keep_width = True
+            guide = arrow
+            if look == "dashed":
+                # Dashed along its line, its head kept whole; the solid line stays as the guide its words and its
+                # moving dots follow, unseen.
+                guide = arrow.copy()
+                tips = arrow.pop_tips() if hasattr(arrow, "pop_tips") else VGroup()
+                arrow = VGroup(DashedVMobject(arrow, num_dashes=max(6, int(arrow.get_arc_length() / 0.2)),
+                                              dashed_ratio=0.6), *tips)
             label = None
             if len(e) > 2 and e[2]:
                 label = marker(str(e[2]), 17)
                 along = end - start
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
-                label.move_to(arrow.point_from_proportion(0.5) + side)
+                label.move_to(guide.point_from_proportion(0.5) + side)
                 label.is_label = True         # stem._settle_labels moves it off another arrow or a node
             edge = VGroup(arrow, *([label] if label else []))
-            if flow and arrow.get_length() > 0.55:          # (before the fit to the stage, about x1.5)
-                edge.flow = self._flow_dots(arrow)
+            if flow and guide.get_arc_length() > 0.55:          # (before the fit to the stage, about x1.5)
+                edge.flow = self._flow_dots(guide)
                 edge.add(edge.flow)
             arrows.append((a, b, edge))
-        return self._diagram_finish(key, ids, mobs, arrows, edges, title, show)
+        legend = edge_legend([e[3] for e in edges if len(e) > 3])
+        if legend is not None:
+            # The key to what the arrows mean, under the diagram.
+            body = Group(*mobs.values(), *[m for _, _, m in arrows])
+            legend.next_to(body, DOWN, buff=0.45)
+        return self._diagram_finish(key, ids, mobs, arrows, edges, title, show, backdrop=legend)
+
+    # ------------------------------------------------------------------ pyramids
+
+    def _pyramid(self, key, nodes, title, show):
+        """Ranks as a pyramid, the first at the narrow top and each below it wider (the three orders, feudal ranks,
+        a food pyramid): each a band of its own colour with its name, its items beside it, and its picture at
+        its side when it has one. Bands are revealed like a diagram's nodes."""
+        cx, cy, w, h = self.STAGE
+        n = max(len(nodes), 1)
+        tones = [P.GOLD, P.ROSE, P.RIVER, P.GREEN, P.SAND, P.TEAL, P.VIOLET]
+        band_h = min(1.25, (h - (1.0 if title else 0.4)) / n - 0.08)
+        top_w, base_w = min(2.4, w * 0.25), min(w * 0.72, 8.6)
+        mobs, ids = {}, []
+        for k, node in enumerate(nodes):
+            i = str(node["id"])
+            ids.append(i)
+            upper = top_w + (base_w - top_w) * k / n
+            lower = top_w + (base_w - top_w) * (k + 1) / n
+            y = -k * (band_h + 0.08)
+            band = Polygon([-upper / 2, y + band_h / 2, 0], [upper / 2, y + band_h / 2, 0],
+                           [lower / 2, y - band_h / 2, 0], [-lower / 2, y - band_h / 2, 0],
+                           fill_color=_tint_on_bg(tones[k % len(tones)], 0.5), fill_opacity=1,
+                           stroke_color=P.CREAM, stroke_width=OUTLINE * 0.8)
+            name = fit(marker(str(node.get("label", i)), 24 if n <= 4 else 20), upper * 0.9 if k else upper * 0.95)
+            name.move_to(band.get_center())
+            parts = [band, name]
+            items = [str(x) for x in node.get("items") or []][:3]
+            if items:
+                side = T(" · ".join(items), 20, P.CREAM)
+                side = fit(side, max(1.6, (w - lower) / 2 - 0.3))
+                side.next_to(band, RIGHT, buff=0.25)
+                parts.append(side)
+            if node.get("picture"):
+                pic = self._picture(node["picture"], band_h * 0.95)
+                if pic is not None:
+                    pic.next_to(band, LEFT, buff=0.25)
+                    parts.append(pic)
+            mobs[i] = group_of(*parts)
+        return self._diagram_finish(key, ids, mobs, [], [], title, show)
 
     # ------------------------------------------------------------------ hierarchies
 
@@ -3103,7 +3225,7 @@ class Lecture(Scene):
             i = str(n["id"])
             mobs[i] = self._node(n.get("label", i), n.get("entity"), tones[branch.get(i, 0)], many, items=n.get("items"),
                                  picture=n.get("picture"),
-                                 motion=(n.get("anim") or "auto") if animate else "none")
+                                 motion=(n.get("anim") or "auto") if animate else "none", role=n.get("kind"))
         sizes = {i: (m.width, m.height) for i, m in mobs.items()}
         lay = hi.layout(ids, edges, sizes, board=(w - 0.3, h - (0.9 if title else 0.3)))
         for i, (x, y) in lay.centres.items():
@@ -3356,11 +3478,12 @@ class Lecture(Scene):
 
         built = []
         for a, b, pts, tangents, back in arrows:
-            kind = style.get((a, b), "")
+            kind = edge_look(style.get((a, b), "")) if style.get((a, b)) else ""
             colour = P.SAND if back else (P.HI if kind == "bold" else P.CREAM)
-            width = OUTLINE * (1.1 if kind == "bold" else 0.75)
+            width = OUTLINE * (2.2 if kind == "bold" else 0.75)
             path = bezier_path(pts, tangents)
             path.set_stroke(colour, width=width).set_fill(opacity=0)
+            path._art_keep_width = kind == "bold"
             seen = DashedVMobject(path, num_dashes=max(6, int(path.get_arc_length() / 0.18)), dashed_ratio=0.6) \
                 if kind == "dashed" or back else path
             tip = tip_at(pts[-1], pts[-1] - path.points[-2], colour)
@@ -3406,6 +3529,12 @@ class Lecture(Scene):
             for part in bands.get_family():
                 part._art_decorated = True
             backdrop = bands
+        legend = edge_legend(style.values())
+        if legend is not None:
+            # The key to what the arrows mean, under the chart.
+            chart = Group(*mobs.values(), *[m for _, _, m in built])
+            legend.next_to(chart, DOWN, buff=0.45)
+            backdrop = legend if backdrop is None else Group(backdrop, legend)
         return self._diagram_finish(key, ids, mobs, built, edges, title, show, backdrop=backdrop)
 
     def _diagram_finish(self, key, ids, mobs, arrows, edges, title, show, backdrop=None, settle: bool = True):

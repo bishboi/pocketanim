@@ -44,7 +44,7 @@ def test_three_diagram_kinds_and_the_old_ones_as_aliases():
     assert steps["kind"] == "flow" and steps["steps"] is True and chart["kind"] == "flow"
     source = cl.compile_script(script)
     assert 'self.diagram("s", "flow"' in source and "numbered=True" in source
-    assert cl.DIAGRAM_KINDS == {"flow", "cycle", "hub"}
+    assert cl.DIAGRAM_KINDS == {"flow", "cycle", "hub", "pyramid"}
 
 
 def test_steps_that_point_at_nothing_are_left_out_with_a_warning():

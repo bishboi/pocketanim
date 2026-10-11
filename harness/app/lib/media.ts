@@ -31,7 +31,7 @@ export type MediaItem = {
   description: string;
   /** Where the picture came from: parts, model, source, credit, licence, url, the query it was found by. */
   metadata?: Record<string, unknown>;
-  /** How this generation used it, in a few words ("drawn for a beat", "book figure redrawn as SVG"). */
+  /** How this generation used it, in a few words ("made for a beat", "book figure redrawn by the diagram model"). */
   role: string;
   /** Where: chapter, section, the line said over it, the diagram node or label it sits beside. */
   context?: Record<string, unknown>;

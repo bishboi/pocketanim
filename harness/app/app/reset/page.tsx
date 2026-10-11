@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 /**
  * Clears what this browser keeps for the app (harness/scripts/clear_all.sh says to open it): the lecture page's
- * versions and traces (IndexedDB "pocketanim"), and the settings and SVG lab state in localStorage.
+ * versions and traces (IndexedDB "pocketanim"), and the settings in localStorage (the old SVG lab's too).
  */
 export default function Reset() {
   const [state, setState] = useState("Clearing this browser's lecture history...");

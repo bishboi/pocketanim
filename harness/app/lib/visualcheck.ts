@@ -17,9 +17,9 @@ export function checkPaths(buildDir: string): { log: string; frames: string } {
   return { log: path.join(buildDir, "checks.jsonl"), frames: path.join(buildDir, "checks") };
 }
 
-/** The model shown flagged frames: one that reads images (PANIM_LABEL_MODEL, else the SVG drawings' model). */
+/** The model shown flagged frames: one that reads images (PANIM_LABEL_MODEL, else the figures' model). */
 export function reviewModel(): string {
-  return process.env.PANIM_CHECK_MODEL || process.env.PANIM_LABEL_MODEL || process.env.OPENROUTER_SVG_MODEL ||
+  return process.env.PANIM_CHECK_MODEL || process.env.PANIM_LABEL_MODEL || process.env.OPENROUTER_FIGURE_MODEL || process.env.OPENROUTER_SVG_MODEL ||
     process.env.OPENROUTER_MODEL || "google/gemini-2.5-flash";
 }
 

@@ -11,8 +11,8 @@ What it gets, and where it goes:
   latex      TinyTeX, for typeset equations (fetch_latex.py) ~/.TinyTeX, ~/Library/TinyTeX  ~250 MB
 
 The narration voice is Gemini TTS, an online service: nothing to download, a key to set (SETUP.md).
-There are no picture libraries: a lecture's pictures are made by an image model (genimage.py), drawn as SVGs, or
-built in Manim. Molecules (PubChem) and PDF conversion (Datalab) are fetched per lecture, as needed.
+There are no picture libraries: a lecture's pictures are made by an image model (genimage.py) or built in Manim;
+nothing is drawn as an SVG. Molecules (PubChem) and PDF conversion (Datalab) are fetched per lecture, as needed.
 Every step is safe to rerun: what is already here is skipped.
 """
 

@@ -1,10 +1,12 @@
-"""Pictures made by an image model, as cutouts: the only kind of picture a lecture takes that is not drawn as an SVG
-(lib/drawings.ts) or built in Manim. Nothing is searched for on the web.
+"""Pictures made by image models: every picture a lecture shows that is not built in Manim. Two models: the
+illustration model (PANIM_IMAGE_MODEL) for people, places, objects and scenes, and the diagram model
+(PANIM_DIAGRAM_MODEL) for detailed diagrams, labelled pictures and the book's diagrams redrawn. Nothing is searched
+for on the web, and nothing is drawn as an SVG.
 
 A picture is asked for in words ("a steam locomotive, side view", "Mahatma Gandhi"). The model is asked for the
 subject alone, isolated on plain white, with no border, frame, background scene or text; the white around it is
-then made transparent and the picture trimmed to the subject (cutout), so it sits on the board like a sticker;
-and it is traced into vector shapes (vectorize), so the phone draws it like the rest of the board.
+then made transparent and the picture trimmed to the subject (cutout), so it sits on the board like a sticker.
+The phone draws the PNG itself (the program's `image` lines), so it is shown as it was made.
 
 Each is made once: cached by its words, style and model (.cache/images/gen-<key>.png, its cost beside it). What
 this process made, and what it cost, is in MADE (compile_lecture --json reports it; the app bills it).
@@ -194,71 +196,6 @@ def cutout(data: bytes, tolerance: int = 28) -> bytes:
     return buffer.getvalue()
 
 
-# Tracing settings, most detailed first: (longest side in pixels, smallest speck kept, colour precision, layer
-# difference). The first whose tracing stays under PANIM_TRACE_MAX_PATHS shapes is kept, so a richly detailed
-# illustration keeps its detail and a photograph-like one is not thousands of shapes on the phone.
-TRACE_LEVELS = [(720, 4, 6, 16), (600, 6, 6, 20), (512, 8, 5, 24), (384, 12, 4, 32)]
-
-
-def trace_most() -> int:
-    try:
-        return int(os.environ.get("PANIM_TRACE_MAX_PATHS", "2200"))
-    except ValueError:
-        return 2200
-
-
-# A diagram is traced finer and may have more shapes: its labels are words, and words traced coarsely are not read.
-DIAGRAM_TRACE_LEVELS = [(1400, 2, 7, 10), (1200, 3, 6, 12), (1024, 4, 6, 16), (900, 5, 6, 16)]
-
-
-def diagram_trace_most() -> int:
-    try:
-        return int(os.environ.get("PANIM_DIAGRAM_MAX_PATHS", "7000"))
-    except ValueError:
-        return 7000
-
-
-def vectorize(png: bytes, most: int | None = None, levels=None, budget: int | None = None) -> str | None:
-    """A cutout traced into vector shapes (vtracer: colour regions as filled paths, stacked from the largest to the
-    finest; the transparent background is left out), so the phone draws it as it draws everything else, not as a
-    raster frame, and the board can draw it in shape by shape. As detailed as stays under PANIM_TRACE_MAX_PATHS
-    shapes (TRACE_LEVELS); `most` forces one size. None when the tracer is missing or fails."""
-    try:
-        import vtracer
-        from PIL import Image
-    except ImportError:
-        return None
-    levels = [(most, 8, 5, 24)] if most else (levels or TRACE_LEVELS)
-    budget = budget or trace_most()
-    svg = None
-    for size, speck, colours, layers in levels:
-        try:
-            image = Image.open(io.BytesIO(png)).convert("RGBA")
-            image.thumbnail((size, size))
-            buffer = io.BytesIO()
-            image.save(buffer, "PNG")
-            svg = vtracer.convert_raw_image_to_svg(buffer.getvalue(), img_format="png", colormode="color",
-                                                   hierarchical="stacked", mode="spline", filter_speckle=speck,
-                                                   color_precision=colours, layer_difference=layers,
-                                                   corner_threshold=60, length_threshold=4.0, max_iterations=10,
-                                                   splice_threshold=45, path_precision=2)
-        except Exception:  # noqa: BLE001 -- an image the tracer cannot read stays a PNG
-            return None
-        if svg.count("<path") <= budget:
-            break
-    return svg if svg and "<path" in svg else None
-
-
-def _vector(target: Path) -> Path:
-    """The traced SVG beside a cutout PNG, made when missing: the file a lecture shows (the PNG when tracing fails)."""
-    svg = target.with_suffix(".svg")
-    if not svg.exists() and target.exists():
-        traced = vectorize(target.read_bytes())
-        if traced:
-            svg.write_text(traced, encoding="utf-8")
-    return svg if svg.exists() else target
-
-
 # How each model was found to answer this run (a route below), so it is asked that way straight away next time.
 _ROUTE: dict[str, str] = {}
 # The ways OpenRouter's image models are asked, in the order they are tried:
@@ -415,8 +352,9 @@ def _ask(prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
 
 def label_model() -> str:
     """The model that finds where a picture's labelled parts are: one that reads images (PANIM_LABEL_MODEL, else
-    the SVG drawings' model, else the script's)."""
-    return (os.environ.get("PANIM_LABEL_MODEL") or os.environ.get("OPENROUTER_SVG_MODEL")
+    the figures' model, else the script's)."""
+    return (os.environ.get("PANIM_LABEL_MODEL") or os.environ.get("OPENROUTER_FIGURE_MODEL")
+            or os.environ.get("OPENROUTER_SVG_MODEL")
             or os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash")
 
 
@@ -428,7 +366,7 @@ def _spread(labels: list[str]) -> list[list]:
 
 def locate(png_path: str, labels) -> list[list] | None:
     """Where each labelled part is in a picture: [[label, x, y], ...], x and y from 0 to 1 across and down the
-    picture (the cutout as traced, so the board's shapes line up). A model that reads images is shown the picture
+    picture (the cutout as the board shows it). A model that reads images is shown the picture
     and asked; the answer is kept beside it. Parts it cannot see are left out; None when it cannot be asked."""
     labels = [str(x).strip()[:40] for x in labels or [] if str(x).strip()][:8]
     path = Path(str(png_path))
@@ -610,8 +548,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
            "model": model(), "png": str(target)}
     ASKED.append({"what": what, "cached": target.exists()})
     if target.exists():
-        shown = _vector(target)
-        row.update(file=str(shown), path=str(shown))
+        row.update(file=str(target), path=str(target))
         try:
             paid = float(json.loads(target.with_suffix(".json").read_text()).get("usd") or 0.0)
         except (OSError, ValueError):
@@ -667,10 +604,9 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": model(), "style": style,
                                                        "realistic": realistic, "parts": named, "usd": usd,
                                                        "scene": bool(scene), "like": row.get("like")}))
-    shown = _vector(target)
-    MADE.append({"path": str(shown), "png": str(target), "what": what, "prompt": prompt, "model": model(), "usd": usd,
+    MADE.append({"path": str(target), "png": str(target), "what": what, "prompt": prompt, "model": model(), "usd": usd,
                  "made": True})
-    return {**row, "file": str(shown), "path": str(shown), "usd": usd, "made": True}
+    return {**row, "file": str(target), "path": str(target), "usd": usd, "made": True}
 
 
 # ---------------- the book's diagrams, redrawn by the diagram model ----------------
@@ -763,7 +699,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
     """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
     reference), every label kept, then checked against it (verify) and redrawn with what was wrong, up to
     PANIM_DIAGRAM_TRIES times. Kept beside the other pictures, by the figure and the style. Returns a row with
-    `file` (traced SVG, else the PNG), `png`, `ok`, `check`, `usd`; or {"error": why} when no try was true to the
+    `file` (the PNG), `png`, `ok`, `check`, `usd`; or {"error": why} when no try was true to the
     book's figure (the lecture then shows the book's own)."""
     source = Path(str(source_path))
     if not source.is_file():
@@ -780,8 +716,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         meta = target.with_suffix(".json")
         if target.exists() and meta.exists():
             row = json.loads(meta.read_text())
-            shown = _vector_diagram(target)
-            return {**row, "file": str(shown), "png": str(target), "usd": 0.0, "paid": row.get("usd")}
+            return {**row, "file": str(target), "png": str(target), "usd": 0.0, "paid": row.get("usd")}
         if not enabled():
             return {"error": "the image model is off (no OPENROUTER_API_KEY, or PANIM_IMAGES=0)"}
         if model() in REFUSED:
@@ -827,20 +762,9 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
                "source": str(source), "check": check, "ok": check.get("ok"), "usd": usd, "diagram": True,
                "credit": f"redrawn with {model()} from the book's figure"}
         meta.write_text(json.dumps(row, ensure_ascii=False))
-        shown = _vector_diagram(target)
-        MADE.append({"path": str(shown), "png": str(target), "what": row["what"], "prompt": prompt, "model": model(),
+        MADE.append({"path": str(target), "png": str(target), "what": row["what"], "prompt": prompt, "model": model(),
                      "usd": usd, "made": True})
-        return {**row, "file": str(shown), "png": str(target)}
-
-
-def _vector_diagram(target: Path) -> Path:
-    """The finely traced SVG beside a redrawn diagram (DIAGRAM_TRACE_LEVELS), made when missing."""
-    svg = target.with_suffix(".svg")
-    if not svg.exists() and target.exists():
-        traced = vectorize(target.read_bytes(), levels=DIAGRAM_TRACE_LEVELS, budget=diagram_trace_most())
-        if traced:
-            svg.write_text(traced, encoding="utf-8")
-    return svg if svg.exists() else target
+        return {**row, "file": str(target), "png": str(target)}
 
 
 def report() -> dict:
@@ -853,7 +777,7 @@ def report() -> dict:
 
 def check(what: str = "a red apple with one green leaf") -> dict:
     """A real call to the image model, never from the cache: whether it works, which model, how long, what it
-    cost, and the picture as the model made it (PNG) and as the phone draws it (traced SVG). The app's "test"
+    cost, and the picture (PNG, as the board and the phone show it). The app's "test"
     button on the Pictures row runs it, so a lecture with no pictures can be told apart from a model that fails."""
     import time
 
@@ -871,10 +795,7 @@ def check(what: str = "a red apple with one green leaf") -> dict:
         png = cutout(data)
     except Exception as error:  # noqa: BLE001
         return {**out, "error": f"the model's picture could not be cut out: {error}"}
-    svg = vectorize(png)
-    out.update(ok=True, png="data:image/png;base64," + base64.b64encode(png).decode(),
-               svg=svg, paths=svg.count("<path") if svg else 0,
-               traced=bool(svg), note=None if svg else "vtracer is missing: the picture stays a PNG (tier 3)")
+    out.update(ok=True, png="data:image/png;base64," + base64.b64encode(png).decode())
     return out
 
 

@@ -256,7 +256,7 @@ def _windows(source: str, workers: int) -> list[tuple[int, int]]:
         weights.append(1 + source.count("self.beat(", mark.start(), end)
                        + 4 * source.count("self.sim(", mark.start(), end)
                        + 2 * sum(source.count(f"self.{op}(", mark.start(), end)
-                                 for op in ("diagram", "svg_figure", "journey", "trace", "counter")))
+                                 for op in ("diagram", "journey", "trace", "counter")))
     count = min(workers, len(numbers))
     total = sum(weights)
     windows, start, acc = [], 1, 0.0

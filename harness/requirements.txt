@@ -13,4 +13,3 @@ google-auth   # Chirp 3 HD with OAuth credentials (a gcloud login or a service a
 requests
 youtube-transcript-api>=1.2
 scipy       # cutting a generated picture out of its background (lecture/genimage.py)
-vtracer     # tracing a generated picture into vector shapes, so the phone draws it (lecture/genimage.py)

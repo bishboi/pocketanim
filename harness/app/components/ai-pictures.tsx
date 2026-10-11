@@ -3,9 +3,8 @@
 import { PICTURE_KINDS, usd, type AiPicture } from "@/lib/costs";
 
 /**
- * The pictures the AI made for a lecture, each as the board shows it, with what it cost: the book's figures and the
- * script's pictures drawn as SVG (painted in the lecture's colours, moving if they move), and illustrations an
- * image model drew. A picture reused from an earlier lecture cost nothing now; what it cost then is said.
+ * The pictures the AI made for a lecture, each as the board shows it, with what it cost: the book's figures (made
+ * again or redrawn by the diagram model), and the illustrations and diagrams the image models made. A picture reused from an earlier lecture cost nothing now; what it cost then is said.
  */
 export function AiPictures({ pictures, style }: { pictures: AiPicture[]; style?: string }) {
   if (!pictures.length) return null;

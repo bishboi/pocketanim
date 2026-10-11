@@ -445,20 +445,6 @@ def credit(icon_ids) -> str:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--drawings"]:
-        # icons.py --drawings cow "solar panel"      drawings a model may choose from, as JSON: science drawings
-        # (Bioicons), open-library illustrations (drawlib.py), and emoji-set drawings only when those have none.
-        import bioicons
-        import drawlib
-
-        out = {}
-        for q in sys.argv[2:]:
-            rows = [{"id": r["id"], "name": f"{r['name']} ({r['category']}, {r['licence']})", "set": "bioicons"}
-                    for r in bioicons.search(q, 6)]
-            rows += drawlib.search(q, 8)
-            out[q] = rows or drawings(q, 8)
-        print(json.dumps(out, ensure_ascii=False))
-        raise SystemExit(0)
     if not available():
         print(json.dumps({"error": "no icon sets; run harness/scripts/fetch_icons.py"}))
         raise SystemExit(1)

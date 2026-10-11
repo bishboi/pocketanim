@@ -1,7 +1,7 @@
 /**
  * Art styles: how a lecture's pictures are drawn (harness/lecture/artstyle.py), chosen beside the template.
  * The template is the whole film's frame (background, fonts, panel, captions); the art style is the hand that
- * draws the sims, diagrams, charts, SVG drawings and maps on it. "auto" draws with the template's own.
+ * draws the sims, diagrams, charts and maps on it. "auto" draws with the template's own.
  */
 
 export type ArtStyle = {

@@ -121,9 +121,9 @@ type Version = {
   voiceUsd?: number;
   /** The whole lecture's voice, at the latest build: what its lines cost when they were spoken. */
   voiceLecture?: { usd: number; lines: number; unknown: number; engine?: string };
-  /** What writing it cost, task by task (lib/costs.ts): transcript, script, fixes, SVGs, illustrations. */
+  /** What writing it cost, task by task (lib/costs.ts): transcript, script, fixes, figures, illustrations. */
   costs?: Costs;
-  /** The pictures the AI made for it (SVGs, illustrations), each with what it cost. */
+  /** The pictures the AI made for it (figures redrawn, illustrations, diagrams), each with what it cost. */
   pictures?: AiPicture[];
   /** Its builds: how long the latest took, and the illustrations an image model drew while building. */
   build?: { seconds: number; voiceSeconds: number; count: number; aiImages: number; aiUsd: number };
@@ -151,7 +151,7 @@ type Status = {
   model: string;
   /** The model that writes the lecture's transcript (OPENROUTER_TRANSCRIPT_MODEL, else the video's). */
   transcriptModel?: string;
-  /** The model that draws the pictures as SVG (OPENROUTER_SVG_MODEL, else the video's). */
+  /** The model that looks at the book's figures (OPENROUTER_FIGURE_MODEL, else the video's). */
   svgModel?: string;
   error?: string;
 };
@@ -239,7 +239,7 @@ function applyTrace(trace: TraceEvent[], event: TraceEvent): TraceEvent[] {
   // A picture the AI made: one line in the log; the picture itself is in the panel above it.
   if (event.type === "picture" && event.picture) {
     const p = event.picture;
-    return [...trace, { type: "message", role: "status", text: `${p.kind === "illustration" ? "Illustration" : "SVG"} ` +
+    return [...trace, { type: "message", role: "status", text: `${p.kind === "illustration" ? "Illustration" : p.kind === "drawing" ? "Diagram" : "Book figure"} ` +
       `${p.reused ? "reused" : "made"}: ${p.title.slice(0, 90)}${p.reused ? "" : ` ($${p.usd.toFixed(4)})`}` }];
   }
   if (event.type === "delta") {
@@ -299,7 +299,7 @@ export default function Home() {
       // no storage here: the server's setting
     }
   }, []);
-  /** The pictures' model (SVG drawings), typed on the page (kept in this browser); empty: the server's setting. */
+  /** The model that looks at the book's figures, typed on the page (kept in this browser); empty: the server's. */
   const [drawer, setDrawer] = useState("");
   useEffect(() => {
     try {
@@ -1184,9 +1184,6 @@ export default function Home() {
           <Link href="/forge" className="text-sm text-sky-300 underline-offset-2 hover:underline">
             Lecture Forge →
           </Link>
-          <Link href="/svg-lab" className="text-sm text-sky-300 underline-offset-2 hover:underline">
-            SVG lab →
-          </Link>
           <button
             type="button"
             className="text-sm text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
@@ -1510,9 +1507,9 @@ export default function Home() {
                     </span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span className="text-neutral-300">Drawing model</span>
+                    <span className="text-neutral-300">Figure model</span>
                     <input
-                      aria-label="Drawing model"
+                      aria-label="Figure model"
                       data-testid="svg-model"
                       className="w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-200"
                       placeholder={status?.svgModel ?? "OpenRouter model id"}
@@ -1521,8 +1518,8 @@ export default function Home() {
                       onChange={(e) => chooseDrawer(e.target.value)}
                     />
                     <span className="text-neutral-500">
-                      draws every picture and the book&apos;s figures as SVG, then looks at each and fixes it (pick a
-                      model that reads images)
+                      looks at each of the book&apos;s figures and says how it is shown: made again, redrawn by the
+                      diagram model, or built in Manim (pick a model that reads images)
                     </span>
                   </label>
                   <span>

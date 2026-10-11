@@ -130,11 +130,11 @@ export function resources(): Resource[] {
           : "NOT INSTALLED: equations are drawn as plain text. Download installs TinyTeX (about 250 MB, a few minutes)",
       install: tex.latex && tex.xelatex ? undefined : "latex" },
     { id: "pictures", label: "Pictures", ready: Boolean(process.env.OPENROUTER_API_KEY) && process.env.PANIM_IMAGES !== "0",
-      detail: process.env.PANIM_IMAGES === "0" ? "the image model is off (PANIM_IMAGES=0): pictures are SVG drawings and Manim only"
-        : process.env.OPENROUTER_API_KEY ? `built in Manim, drawn as SVGs, or made by ${process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image"} as cutouts; ` +
+      detail: process.env.PANIM_IMAGES === "0" ? "the image models are off (PANIM_IMAGES=0): pictures are built in Manim only"
+        : process.env.OPENROUTER_API_KEY ? `built in Manim, or made by ${process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image"} as cutouts; ` +
           `diagrams by ${process.env.PANIM_DIAGRAM_MODEL || process.env.PANIM_IMAGE_MODEL || "google/gemini-2.5-flash-image"}` +
           (process.env.PANIM_IMAGE_PROXY ? " (through the test proxy PANIM_IMAGE_PROXY: unset it in production)" : "")
-        : "set OPENROUTER_API_KEY for pictures made by the image model (Manim and SVG drawings need it too)" },
+        : "set OPENROUTER_API_KEY for pictures made by the image models (illustrations and detailed diagrams)" },
     { id: "gazetteer", label: "Towns", ready: gazetteer,
       detail: gazetteer ? "GeoNames, about 150,000 towns" : "only Natural Earth's 7,300 towns until downloaded (10 MB)",
       install: gazetteer ? undefined : "gazetteer" },

@@ -415,22 +415,10 @@ def tok(name: str, default: float) -> float:
     return float((TH.get("tokens") or {}).get(name, default))
 
 
-# Icons a scene drew, for the credits line (their sets' licences ask for it).
-USED_ICONS: set[str] = set()
-
-
-TINTS = ("accent", "highlight", "friendly", "ally", "enemy")
-
-
 def _tint_on_bg(colour: str, amount: float) -> ManimColor:
     """A light wash of a colour, mixed into the background: looks like a translucent fill, but is solid, so
     nothing left behind a box shows through it."""
     return interpolate_color(ManimColor(P.BG), ManimColor(colour), amount)
-
-
-def _tint(icon_id: str) -> str:
-    """A single-colour icon's colour: one of the style's lively roles, the same one every time for the same icon."""
-    return TINTS[int(hashlib.md5(icon_id.encode()).hexdigest(), 16) % len(TINTS)]
 
 
 # A drawing's outline weight at full size.
@@ -488,66 +476,32 @@ def marker(text: str, size: float = 20, color: str | None = None):
 _DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
 
 
-def _ink_svg(text: str, ink: str) -> str:
-    """Near-black paint as the board's ink: a whiteboard drawing's outlines in the colour the lecture writes in, so
-    they show on a dark board as on a light one."""
-    import icons
-
-    def swap(m):
-        rgb = (0, 0, 0) if m.group(2) == "black" else icons._hex(m.group(2))
-        dark = rgb is not None and (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) < 40
-        return f"{m.group(1)}{ink}" if dark else m.group(0)
-
-    return _DARK_PAINT.sub(swap, text)
-
-
-# Drawings a scene used that are not icon-set drawings: Bioicons and open-library ids, for the credits.
+# Credits a scene owes beyond its pictures' (historical borders: "historical:<year>").
 USED_DRAWINGS: set[str] = set()
 
+# An old script's library ids ("coco:123-cow", "bioicons:cell", "draw:cow"): only the words of the thing are kept.
+_LIBRARY_ID = re.compile(r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*):(?=\S)")
 
-_VAGUE_NOUNS = {"thing", "things", "part", "parts", "item", "items", "object", "objects", "stuff", "type", "types",
-                "kind", "kinds", "one", "ones", "way", "ways", "idea", "process", "system", "step", "stage", "example"}
+
+def thing_words(name) -> str:
+    """What a picture of a thing is asked for in: the name, without an old library id's prefix and number."""
+    text = _LIBRARY_ID.sub("", str(name or "").strip())
+    text = re.sub(r"^\d+[-_]", "", text)
+    return re.sub(r"[-_]+", " ", text).strip()
 
 
-def drawing_source(name: str):
-    """(SVG path, id) of the drawing for a name: a Bioicons science drawing ("bioicons:..."), an open-library
-    illustration ("coco:...", "arcadia:...", "clip:...", drawlib.py), or for a plain word the library illustration of it, and
-    an emoji-set drawing only when no library has one."""
-    import bioicons
-    import drawlib
-    import icons
+def thing_picture(name) -> str:
+    """The picture of a thing (a tree, a factory, a cow): a cutout PNG made by the illustration model (genimage.py)
+    the first time it is asked for, and the same file every time after. Nothing is drawn from an SVG library. A
+    KeyError when it cannot be made (no image model, refused, offline)."""
+    import images
 
-    text = str(name).strip().removeprefix("draw:").strip()
-    if text.startswith("bioicons:"):
-        USED_DRAWINGS.add(text)
-        return bioicons.file(text), text
-    if drawlib.is_id(text):
-        USED_DRAWINGS.add(text)
-        return drawlib.file(text), text
-    if ":" not in text:
-        found = drawlib.best(text)
-        if found:
-            USED_DRAWINGS.add(found)
-            return drawlib.file(found), found
-    icon_id = icons.sketch(text)
-    if icon_id is None and ":" not in text and " " in text.strip():
-        # "rice plant", "wheat field": the thing named last is what is drawn (a plant, a field), unless it is a word
-        # for anything at all ("thing", "part").
-        words = re.findall(r"[A-Za-z]{3,}", text)
-        head = words[-1].lower() if words else ""
-        if head and head not in _VAGUE_NOUNS:
-            found = drawlib.best(head)
-            if found:
-                USED_DRAWINGS.add(found)
-                return drawlib.file(found), found
-            hit = icons.sketch(head)
-            # Only a drawing OF it ("potted-plant" for plant), not one that merely starts with it ("field-hockey").
-            if hit and hit.split(":", 1)[-1].split("-")[-1] in {head, head.rstrip("s"), f"{head}s"}:
-                icon_id = hit
-    if icon_id is None:
-        raise KeyError(f"no drawing for {name!r}")
-    USED_ICONS.add(icon_id)
-    return icons.svg_file(icon_id, role(_tint(icon_id)) if icons.is_mono(icon_id) else None), icon_id
+    words = thing_words(name)
+    # Made already when the script was compiled (compile_lecture._thing_op asks for the same picture).
+    row = images.fetch(subject=words, style=os.environ.get("LECTURE_STYLE")) if words else None
+    if not row or not row.get("file"):
+        raise KeyError(f"no picture of {name!r}")
+    return str(row["file"])
 
 
 # Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
@@ -579,32 +533,9 @@ def _playable(anim):
 
 
 def sketch_mob(name: str, height: float = 0.9):
-    """A whiteboard drawing of a thing (icons.sketch): dark outlines in the board's ink and flat colour fills, the
-    way a teacher draws on a board. Written in (Write), it draws its outlines first and then fills them."""
-    import icons
-
-    source, icon_id = drawing_source(name)
-    ink = P.CREAM
-    path = source.with_name(f"{source.stem}-ink{ink.strip('#')}.svg")
-    if not path.exists():
-        # A library drawing (an Inkscape file from OpenClipart) may shade with gradients, which Manim draws black.
-        text = icons.flatten_gradients(source.read_text(encoding="utf-8", errors="replace"))
-        path.write_text(_ink_svg(text, ink), encoding="utf-8")
-    mob = SVGMobject(str(path), height=height)
-    _marker(mob, height)
-    return mob
-
-
-def _marker(mob, height: float):
-    """Thick ink outlines and flat colour, as a marker draws: the set's own outlines at a marker's weight, and an
-    outline on every coloured shape that has none (a drawing from a set without them)."""
-    ink = P.CREAM
-    weight = OUTLINE * min(1.0, max(0.55, height / 1.2))
-    for part in mob.family_members_with_points():
-        if part.get_stroke_width() > 0 and part.get_stroke_opacity() > 0:
-            part.set_stroke(width=weight)
-        elif part.get_fill_opacity() > 0:
-            part.set_stroke(color=ink, width=weight * 0.8, opacity=1)
+    """The picture of a thing, at most `height` tall (thing_picture): made by the illustration model, shown as the
+    model drew it. A KeyError when there is none."""
+    return cutout_mob(thing_picture(name), height * 1.8, height)
 
 
 def _bbox(mob, pad: float = 0.0):
@@ -650,132 +581,27 @@ def is_cutout(path) -> bool:
 
 
 def cutout_mob(path, width: float, height: float):
-    """A picture the image model made, as the board shows it: traced into vector shapes (genimage.vectorize), in its
-    own colours, no frame, at most width x height. (A cutout the tracer could not read is shown as its PNG.)"""
-    if str(path).lower().endswith(".svg"):
-        mob = SVGMobject(str(path), stroke_width=0)
-    else:
-        mob = ImageMobject(str(path))
+    """A picture an image model made, as the board shows it: the cutout PNG in its own colours, no frame, at most
+    width x height. The phone draws the same PNG (the program's `image` lines)."""
+    mob = ImageMobject(str(path))
     mob.scale_to_fit_height(height)
     if mob.width > width:
         mob.scale_to_fit_width(width)
     if Path(str(path)).name.startswith("gen-diagram-"):
-        # A book's diagram the diagram model redrew in this style, its words traced as shapes: the art style
-        # leaves it as drawn (a wobble or a second stroke would blur its labels).
+        # A book's diagram the diagram model redrew in this style: the art style leaves it as drawn.
         mob._art_none = True
     return mob
 
 
 def cutout_strokes(mob, batches: int = 10) -> list:
-    """A traced cutout as the pieces it is drawn in by, in the order a painter would: its shapes are stacked
-    largest first (vtracer), so the first pieces are its big areas of colour and the last its finest details.
-    Each piece is written onto the board (outlined, then filled), so the picture is drawn, not faded in. A PNG
-    cutout (the tracer was missing) is one piece, faded in."""
-    shapes = [m for m in mob.family_members_with_points()] if isinstance(mob, VMobject) else []
-    if len(shapes) < 2:
-        return [mob]
-    n = max(1, min(batches, len(shapes)))
-    # Fewer shapes in the first pieces (the big areas, drawn slowly), more in the last (the many small details).
-    bounds = [round(len(shapes) * (k / n) ** 1.6) for k in range(n + 1)]
-    pieces = [VGroup(*shapes[a:b]) for a, b in zip(bounds, bounds[1:]) if b > a]
-    return pieces or [mob]
-
-
-def board_svg(path, width: float, height: float):
-    """An SVG drawing (a book figure redrawn, or a draw op's picture) as the board shows it, at most width x height:
-    colour names in it (INK, MUTED, BOARD, ROSE, GOLD...) in this style's colours, black lines in the ink, its labels
-    in the lecture's font. Shared by the lecture (svg_figure) and svgcheck.py's preview, so both look the same."""
-    import animsvg
-    import icons
-
-    # SHINE and SHADE are a detailed drawing's light and shadow: white and black at low opacity on any board.
-    palette = {**TH["pal"], "INK": P.CREAM, "MUTED": P.MUTED, "BOARD": P.BG, "SHINE": "#FFFFFF", "SHADE": "#000000"}
-    # Black lines become the ink first; then the named colours (BOARD may well be near black itself).
-    raw = _ink_svg(icons.flatten_gradients(Path(path).read_text(encoding="utf-8")), P.CREAM)
-    text = animsvg.paint(raw, palette)
-
-    def label(words, colour, bold):
-        return T(words, 30, colour, weight=BOLD if bold else NORMAL)
-
-    drawing = animsvg.make(text, height=height, strokes=True, label=label)
-    settle_svg_labels(drawing)
-    if drawing.width > width - 0.3:
-        # Drawn again at the size it will be: its line widths are set for the size it is drawn at.
-        drawing = animsvg.make(text, height=height * (width - 0.3) / drawing.width, strokes=True, label=label)
-        settle_svg_labels(drawing)
-    return drawing
-
-
-def settle_svg_labels(drawing) -> list:
-    """An SVG's labels as the board sets them: in the lecture's font they come out a little wider than the drawing
-    planned, and may run onto a line or a shape. Each is moved to the nearest clear spot (stem._settle_labels), a
-    patch of the board put behind one that has none, and its new place kept for when its part moves. Returns the
-    labels still on a line, for svgcheck.py to send back."""
-    import stem
-
-    labels = getattr(drawing, "labels", None)
-    if not labels:
-        return []
-    for _, mob, *_ in labels:
-        mob.is_label = True
-    parts, rest = drawing.parts()
-    b = drawing.get_center(), drawing.width, drawing.height
-    crossing = stem._settle_labels([*parts.values(), *rest], (b[0][0], b[0][1], b[1] + 0.2, b[2] + 0.2), gap=0.1,
-                                   backing=P.BG)
-    drawing.keep_labels_where_they_are()
-    return crossing
-
-
-def animated_mob(name: str, height: float = 0.9, motion: str | None = None):
-    """A drawing of a thing that moves (animsvg.py), or None when it holds still: an animated weather drawing
-    (rain falling, a sun turning: its own SMIL), or a library drawing given the motion that suits it (a gear
-    spins, a heart beats, a tree sways) or the one asked for. `motion` "none" keeps it still."""
-    import animsvg
-    import icons
-
-    if motion == "none":
-        return None
-    weather = animsvg.weather_icon(name) if motion in (None, "auto") else None
-    if weather:
-        text = icons.flatten_gradients(animsvg.weather_svg(weather))
-        USED_ICONS.add(f"meteocons:{weather}")
-        return animsvg.make(text, height=height, strokes=True)
-    source, drawing_id = drawing_source(name)
-    text = _ink_svg(icons.flatten_gradients(source.read_text(encoding="utf-8", errors="replace")), P.CREAM)
-    if "<animate" not in text:
-        # The word asked for first ("boat"), then the drawing's own name ("motor-boat" would spin).
-        chosen = motion if motion in animsvg.MOTIONS else (animsvg.motion_for(name) or animsvg.motion_for(drawing_id))
-        if not chosen:
-            return None
-        still = animsvg.make(text, height=height)
-        (u0, u1) = still.box
-        text = animsvg.add_motion(text, chosen, (u0[0], u0[1], u1[0] - u0[0], u1[1] - u0[1]))
-    return animsvg.make(text, height=height, style=lambda mob: _marker(mob, height))
+    """The pieces a picture is brought onto the board in: a picture is one piece, faded in."""
+    return [mob]
 
 
 def icon_mob(name: str, color: str | None = None, height: float = 0.5):
-    """A picture of a thing, anywhere in a lecture (a map's marker, a panel's line, an illustration): a whiteboard
-    drawing (sketch_mob), never an emoji. `color` is kept for the call sites; a drawing has its own colours."""
+    """A picture of a thing, anywhere in a lecture (a map's marker, a panel's line, an illustration): made by the
+    illustration model (sketch_mob). `color` is kept for the call sites; a picture has its own colours."""
     return sketch_mob(name, height=height)
-
-
-def _emoji_mob(name: str, color: str | None = None, height: float = 0.5):
-    """An icon from the downloaded sets (icons.py) as a vector mobject.
-
-    Colour icons keep their own colours (gradients flattened, icons.svg_file).
-    A single-colour silhouette is filled with `color` (a role, palette name or
-    #hex), or else with one of the style's lively roles, picked per icon.
-    """
-    import icons
-
-    icon_id = icons.resolve(name)
-    if icon_id is None:
-        hint = "" if icons.available() else " (run harness/scripts/fetch_icons.py)"
-        raise KeyError(f"no icon for {name!r}{hint}")
-    fill = role(color or _tint(icon_id)) if icons.is_mono(icon_id) else None
-    mob = SVGMobject(str(icons.svg_file(icon_id, fill)), height=height, stroke_width=0)
-    USED_ICONS.add(icon_id)
-    return mob
 
 
 def wrap(text: str, width: int) -> str:
@@ -1849,7 +1675,7 @@ class Lecture(Scene):
 
     def setup(self):
         self.cap = None
-        self.panel_items = VGroup()
+        self.panel_items = Group()
         self.panel_images = Group()     # figures: images cannot join a VGroup
         self.stage_items = Group()      # the picture on the stage: a photo, a figure or an illustration
         self.stage_extra: list = []     # parts added to it later (a diagram's revealed nodes, a focus ring)
@@ -2288,7 +2114,7 @@ class Lecture(Scene):
             y = s.get_bottom()[1] - 0.25
         self.panel_y = y - 0.05
         items.set_z_index(Z_PANEL_TEXT)
-        self.panel_items = VGroup(items)
+        self.panel_items = Group(items)
         show = Write(items) if TH["anim"] == "write" else FadeIn(items, shift=RIGHT * 0.2)
         going = [FadeOut(old)] if len(old) else []
         if len(self.panel_images):
@@ -2330,8 +2156,12 @@ class Lecture(Scene):
         """An icon with a line beside it in the panel: "sugarcane -- the west's cash crop"."""
         if self.board_mode:
             return self.board_point(label or name.split(":")[-1].replace("-", " "), color)
-        mob = icon_mob(name, color, height=0.62)
-        row = VGroup(mob)
+        try:
+            mob = icon_mob(name, color, height=0.62)
+        except KeyError:
+            # No picture of it could be made: its line alone.
+            return self.fact(label, color) if label else None
+        row = Group(mob)
         if label:
             text = fit(T(wrap(label, 30), tok("fact_size", 20), P.CREAM, line_spacing=0.85), 4.1)
             text.next_to(mob, RIGHT, buff=0.22)
@@ -2377,7 +2207,7 @@ class Lecture(Scene):
         if self.board_mode:
             return self._strip(clear=True)
         old = [m for m in (self.panel_items, self.panel_images) if len(m)]
-        self.panel_items = VGroup()
+        self.panel_items = Group()
         self.panel_images = Group()
         self.panel_y = 2.35
         return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
@@ -2741,25 +2571,28 @@ class Lecture(Scene):
         return out
 
     def illustration(self, hero: str, items=(), title: str | None = None, color: str | None = None):
-        """An illustration built from icons: one large, up to four small ones labelled beneath."""
+        """An illustration built from pictures of things: one large, up to four small ones labelled beneath."""
         cx, cy, w, h = self.STAGE
         big = icon_mob(hero, color, height=2.5)
-        parts = VGroup(big)
+        parts = Group(big)
         if title:
             parts.add(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
         parts.arrange(DOWN, buff=0.3)
-        row = VGroup()
+        row = Group()
         for item in list(items)[:4]:
             name, label = (item, "") if isinstance(item, str) else (item[0], item[1] if len(item) > 1 else "")
-            small = icon_mob(name, color, height=0.85)
-            cell = VGroup(small)
+            try:
+                small = icon_mob(name, color, height=0.85)
+            except KeyError:
+                continue
+            cell = Group(small)
             if label:
                 cell.add(fit(T(label, 15, P.CREAM), 1.5).next_to(small, DOWN, buff=0.1))
             row.add(cell)
         if len(row):
             row.arrange(RIGHT, buff=0.45, aligned_edge=UP)
             fit(row, w - 0.4)
-            composition = VGroup(parts, row).arrange(DOWN, buff=0.55)
+            composition = Group(parts, row).arrange(DOWN, buff=0.55)
         else:
             composition = parts
         if composition.height > h - 0.2:
@@ -3138,8 +2971,8 @@ class Lecture(Scene):
 
     def _picture(self, spec, height: float, width: float | None = None, motion: str | None = None):
         """A picture beside words in a diagram's node, a timeline's event or a map's label, at most height x width:
-        spec is (kind, value) as the compiler resolved it -- ("image", a photo or figure file), ("svg", a drawing),
-        ("entity", a library drawing's name). None when it cannot be drawn (the words carry on alone)."""
+        spec is (kind, value) as the compiler resolved it -- ("image", a picture or figure file), ("entity", the name
+        of a thing, made by the illustration model). None when it cannot be drawn (the words carry on alone)."""
         if not spec:
             return None
         kind, value = str(spec[0]), spec[1]
@@ -3147,8 +2980,6 @@ class Lecture(Scene):
         try:
             if kind == "entity":
                 return self._entity(str(value), height, motion)
-            if kind == "svg":
-                return board_svg(str(value), width + 0.3, height)
             if kind == "cutout" or (kind == "image" and is_cutout(value)):
                 return cutout_mob(str(value), width, height)
             if kind == "image":
@@ -3162,24 +2993,23 @@ class Lecture(Scene):
             skipped(f"a picture {value!r} left out: {type(error).__name__}: {error}"[:300])
         return None
 
+    # A node's motion (its `anim`, or the diagram's `animate` choice) as a picture's move (PICTURE_MOVES).
+    NODE_MOVES = {"bob": "bob", "hop": "bob", "sway": "sway", "shake": "sway", "flicker": "sway", "spin": "sway",
+                  "pulse": "breathe", "breathe": "breathe", "drift": "drift"}
+
     def _entity(self, name: str | None, height: float, motion: str | None = None):
-        """A whiteboard drawing of what a diagram's node stands for (a tree, a factory, a cow), or None. One that
-        moves (animated_mob) when there is a motion for it and the diagram is animated."""
+        """The picture of what a diagram's node stands for (a tree, a factory, a cow), made by the illustration
+        model, or None. With a motion (NODE_MOVES) it moves while its diagram is up (_diagram_moves)."""
         if not name:
             return None
-        if motion != "none":
-            try:
-                moving = animated_mob(str(name), height=height, motion=motion)
-                if moving is not None:
-                    return moving
-            except KeyError:
-                pass                          # no drawing of it at all: the node's name carries it (below)
-            except Exception as error:  # noqa: BLE001 -- the still drawing will do
-                skipped(f"a drawing of {name!r} holds still: {type(error).__name__}: {error}"[:300])
         try:
-            return sketch_mob(str(name), height=height)
-        except Exception:  # noqa: BLE001 -- no drawing for it (or none downloaded): the label carries the node
+            mob = sketch_mob(str(name), height=height)
+        except Exception:  # noqa: BLE001 -- no picture of it (no image model, refused): the label carries the node
             return None
+        move = self.NODE_MOVES.get(str(motion or ""))
+        if move:
+            mob._panim_move = move
+        return mob
 
     def _node(self, label: str, entity: str | None, tone: str, small: bool = False, items=None, number=None,
               motion: str | None = None, picture=None, role: str | None = None):
@@ -3245,7 +3075,8 @@ class Lecture(Scene):
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
                 animate: bool = True, flow: bool | None = None, numbered: bool = False):
-        """A diagram built on the stage: nodes (an SVG drawing of each thing, and its name) joined by arrows.
+        """A diagram built on the stage: nodes (a picture of each thing, made by the illustration model, and its
+        name) joined by arrows.
 
         kind: flow, cycle (round) or hub (the first node in the middle, the rest around it). A flow takes its
         layout from its connections: a chain (in order, left to right, wrapping), a hierarchy (edges that only
@@ -3253,15 +3084,15 @@ class Lecture(Scene):
         category's card lists its items) or a flowchart (branches, joins, loops, shapes or lanes: _flowchart).
         `numbered` numbers a chain's cards (steps). The older kinds still work: tree, hierarchy and categories
         (a hierarchy, the first node over the rest when there are no edges), flowchart, steps (numbered).
-        nodes: [{id, label, entity?, items?}]: entity is a thing to draw (a tree, a factory); items are short lines
+        nodes: [{id, label, entity?, items?}]: entity is a thing to picture (a tree, a factory); items are short lines
         listed in the node (a category's members). edges: [[from, to, label?]] (a flow, cycle or steps without
         edges joins its nodes in order; categories join the first node to the rest). `show` is the node ids to
         draw now (default all); `reveal_nodes` brings in the rest, a beat at a time. Everything is written in as
         on a whiteboard: outlines first, then their colours.
 
-        Moving pictures (animsvg.py): with `animate`, a node's drawing moves the way its thing does for as long as
-        the diagram is up (rain falls, a gear spins, a heart beats; a node's "anim" names a motion, or "none"),
-        and with `flow` (a flow or cycle by default) dots run along the arrows, the way the process goes."""
+        Moving pictures: a node's "anim" (bob, sway, breathe, drift, and the older names NODE_MOVES reads) sets its
+        picture moving for as long as the diagram is up; with `flow` (a flow or cycle by default) dots run along
+        the arrows, the way the process goes."""
         cx, cy, w, h = self.STAGE
         nodes = [dict(n) for n in list(nodes)[:20]]
         ids = [str(n["id"]) for n in nodes]
@@ -3810,48 +3641,6 @@ class Lecture(Scene):
                 order.insert(max(order.index(mobs[a]), order.index(mobs[b])) + 1, m)
         return self._to_stage(Group(body), draw=order)
 
-    def svg_figure(self, key: str, path: str, caption: str | None = None, show=None):
-        """A picture drawn as an SVG on the stage: a book's diagram the model redrew (harness/app/lib/figures.ts),
-        or a `draw` op's picture the model drew from its description (drawings.ts). Its shapes and labels are
-        written onto the stage, its <g id> parts revealed and pointed at like a diagram's nodes (reveal_nodes,
-        spotlight), and its SMIL animation, if it has any, plays while it is up (animsvg.py)."""
-        shown, order = self._svg_drawing(key, path, self.STAGE, show, caption)
-        return self._to_stage(Group(shown), draw=order)
-
-    def _svg_drawing(self, key: str, path: str, box, show=None, caption: str | None = None):
-        """An SVG drawn to fit `box` (cx, cy, w, h) and recorded as diagram `key`: (what shows now, the pieces to
-        write in, in order). Parts not in `show` wait for reveal_nodes. Colour names in it (INK, MUTED, BOARD,
-        ROSE, GOLD...) become this style's colours; black lines become the ink."""
-        cx, cy, w, h = box
-        drawing = board_svg(path, w, h - (0.75 if caption else 0.25))
-        drawing.move_to([cx, cy + (0.25 if caption else 0.0), 0])
-        parts, rest = drawing.parts()
-        under = []
-        if caption:
-            under.append(fit(T(wrap(str(caption), 90), 18, P.MUTED), w - 0.4).next_to(drawing, DOWN, buff=0.15))
-        ids = list(parts)
-        shown = set(ids if show is None else [str(x) for x in show if str(x) in parts])
-        self.diagrams[key] = {"nodes": parts, "edges": [], "shown": shown, "focus": None, "write": True,
-                              "drawing": drawing}
-        self._next_keys.add(key)
-        self._next_pending.extend(parts[i] for i in ids if i not in shown)
-        # The anchor goes on the stage with the rest: it carries where the drawing is, for its moving frames.
-        body = VGroup(drawing.anchor, *rest, *[parts[i] for i in ids if i in shown], *under)
-        order = [m for m in [*rest, *[parts[i] for i in ids if i in shown], *under] if len(m.get_family()) > 0]
-        start = getattr(self, "_live_start", None)
-        if start is not None and drawing.period > 1 and order:
-            # On a piece that is written onto the stage (the stage writes its pieces, not the group they are in,
-            # so the anchor is never in the scene itself and Manim would never run an updater on it).
-            start(order[0], lambda t, _p: drawing.show(t), "loop", True)
-            import artstyle
-
-            # Its pieces move with its animation: all of them are painted each frame, none decorated.
-            moving = VGroup(*[m for m in [*rest, *parts.values()] if isinstance(m, VMobject)])
-            for piece in moving:
-                artstyle.mark_live(piece)
-            order[0]._art_scope = moving
-        return body, order
-
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
         d = self.diagrams.get(key)
@@ -3900,17 +3689,18 @@ class Lecture(Scene):
         return dots
 
     def _diagram_moves(self, key: str, parts) -> None:
-        """Set the moving pictures among a diagram's parts going (drawings that move, dots along arrows): from
-        the line they are drawn on, for as long as the diagram is on the stage (export_dsl bakes them)."""
-        import animsvg
-
+        """Set the moving pictures among a diagram's parts going (a node's picture that bobs or sways, dots along
+        arrows): from the line they are drawn on, for as long as the diagram is on the stage (export_dsl bakes
+        them)."""
         start = getattr(self, "_live_start", None)
         if start is None:
             return
         for part in parts:
             for mob in part.get_family():
-                if isinstance(mob, animsvg.AnimatedDrawing) and mob.period > 1:
-                    start(mob, lambda t, _p, mob=mob: mob.show(t), "loop", True)
+                move = getattr(mob, "_panim_move", None)
+                if move and isinstance(mob, ImageMobject) and not getattr(mob, "_panim_moving", False):
+                    mob._panim_moving = True
+                    self._move_picture(mob, [], move)
             dots = getattr(part, "flow", None)
             if dots is not None:
                 start(dots, lambda t, _p, dots=dots: dots.place(t), "loop", True)
@@ -4007,7 +3797,7 @@ class Lecture(Scene):
         rule = Line(LEFT, RIGHT, color=P.SAND, stroke_width=3).set_width(min(max(word.width, 1.6), body.width))
         text = VGroup(word, rule, body).arrange(DOWN, buff=0.26, aligned_edge=LEFT)
         card = self._card(text, P.SAND)
-        parts = VGroup(*([drawing] if drawing is not None else []), card).arrange(DOWN, buff=0.3)
+        parts = group_of(*([drawing] if drawing is not None else []), card).arrange(DOWN, buff=0.3)
         # On the board, beside the drawing being explained rather than in place of it.
         parts.is_text_card = True
         beside = self._aside(parts, grow=1.2) if not self._beat_new else None
@@ -4019,14 +3809,15 @@ class Lecture(Scene):
         return self._to_stage(card)
 
     def compare_cards(self, columns, title: str | None = None):
-        """Two or three things side by side: a drawing, a name and a few short points each."""
+        """Two or three things side by side: a name and a few short points each (a picture of each is a picture op
+        of its own)."""
         cx, cy, w, h = self.STAGE
         columns = list(columns)[:3]
         tones = [P.RIVER, P.ROSE, P.GREEN]
         col_w = (w - 0.3 * (len(columns) - 1)) / max(len(columns), 1)
         cards = VGroup()
         for k, col in enumerate(columns):
-            drawing = self._entity(col.get("entity"), 1.0)
+            drawing = None
             name = fit(T(str(col.get("title", "")), 32, tones[k], font=TH["serif"], weight=BOLD), col_w - 0.7)
             points = VGroup(*[fit(T("• " + wrap(str(p), 24), 26, P.CREAM, line_spacing=0.92), col_w - 0.8)
                               for p in list(col.get("points") or [])[:4]]).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
@@ -4468,19 +4259,6 @@ class Lecture(Scene):
                 seconds: float = 3.0, extra: str = "") -> None:
         """The closing credits. `extra` carries photo attributions, which their licences require."""
         self.clear_caption()
-        if USED_ICONS:
-            import icons
-
-            note = f"{note}  {icons.credit(USED_ICONS)}."
-        science = [d for d in USED_DRAWINGS if d.startswith("bioicons:")]
-        if science:
-            import bioicons
-
-            note = f"{note}  {bioicons.credit(science)}."
-        if any(d.split(":", 1)[0] in ("coco", "arcadia", "clip") for d in USED_DRAWINGS):
-            import drawlib
-
-            note = f"{note}  {drawlib.credit(USED_DRAWINGS)}."
         if any(d.startswith("historical:") for d in USED_DRAWINGS):
             import historical
 
@@ -4556,7 +4334,7 @@ class Lecture(Scene):
             self.remove(sheet)
         elif going:
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
-        self.panel_items = VGroup()
+        self.panel_items = Group()
         self.panel_images = Group()
         self.stage_items = Group()
         self.stage_extra = []
@@ -5357,9 +5135,13 @@ class MapLecture(BoardMixin, Lecture):
         Meerut, Muzaffarnagar and Saharanpur" is three icons that pop in turn.
         """
         spots = where if isinstance(where, (list, tuple)) and where and not isinstance(where[0], (int, float)) else [where]
-        group = VGroup()
+        group = Group()
         for spot in spots:
-            mob = icon_mob(name, color, height=size)
+            try:
+                mob = icon_mob(name, color, height=size)
+            except KeyError:
+                # No picture of it could be made: a dot marks the place.
+                mob = Dot(radius=0.09, color=role(color or "accent"))
             mob.move_to(self.frame.pt(*self.at(spot)))
             group.add(mob)
         if label:
@@ -5387,8 +5169,8 @@ def _box(bounds):
 # The pictures these build write their words in the art style's font (artstyle.drawing); titles keep the template's.
 import artstyle as _artstyle  # noqa: E402
 
-_artstyle.drawn_by(Lecture, ("diagram", "svg_figure", "plot", "process", "molecule", "big_timeline", "network",
-                             "timeline", "compare", "_svg_drawing"))
+_artstyle.drawn_by(Lecture, ("diagram", "plot", "process", "molecule", "big_timeline", "network", "timeline",
+                             "compare"))
 _artstyle.drawn_by(MapLecture, ("journey", "marker", "mark", "route", "unit", "icon", "flow", "graticule", "clock",
                                          "empire", "locator", "relief"))
 

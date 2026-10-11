@@ -29,7 +29,9 @@ def test_the_picture_op_is_each_of_the_old_ones():
     assert ops[0] == {"op": "photo", "subject": "Marie Curie", "caption": "Curie"}
     assert ops[1] == {"op": "illustration", "query": "water cycle"}
     assert ops[2] == {"op": "figure", "id": "fig1", "photo": True}
-    assert ops[3]["op"] == "draw" and ops[3]["parts"] == ["picture"] and ops[3]["id"] and "draw" not in ops[3]
+    # A drawing in words is a detailed diagram the diagram model makes: never drawn as an SVG.
+    assert ops[3] == {"op": "illustration", "query": "A block on a smooth slope, its weight drawn down",
+                      "diagram": True, "_drawn": ops[3]["_drawn"]} and ops[3]["_drawn"]
     assert ops[4]["op"] == "gallery"
 
 
@@ -149,3 +151,35 @@ def test_a_region_the_map_does_not_know_is_mended():
     errors, warnings = cl.lint(script)
     assert not errors, errors
     assert script["region"] is None and script["chapters"][0]["beats"][0]["do"] == []
+
+
+def test_a_detailed_drawing_is_made_by_the_diagram_model_never_as_an_svg(tmp_path, monkeypatch):
+    """A draw op (and a picture beside a label described as a drawing) is a picture the diagram model makes, its
+    labels written by the board; its parts are not revealed one by one, so reveals and focuses of it are dropped."""
+    import genimage
+
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    monkeypatch.setattr(genimage, "CACHE", tmp_path)
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/diagram-model")
+    asked = []
+    real = genimage._generate
+    monkeypatch.setattr(genimage, "_generate", lambda *a, **k: asked.append(genimage.model()) or real(*a, **k))
+    script = _script([{"op": "draw", "id": "leaf", "what": "A cross-section of a green leaf, its cells and a stoma",
+                       "parts": ["upper_epidermis", "palisade", "stoma"]}],
+                     [{"op": "focus", "diagram": "leaf", "node": "palisade"}],
+                     [{"op": "diagram", "id": "d", "nodes": [{"id": "a", "label": "Cow", "entity": "coco:7-cow"},
+                                                             {"id": "b", "label": "Barn",
+                                                              "picture": {"draw": "a red barn"}}]}])
+    errors, warnings = cl.lint(script)
+    assert not errors, errors
+    assert any("shown whole as a picture" in w for w in warnings)
+    beats = script["chapters"][0]["beats"]
+    assert beats[1]["do"] == []                                               # the focus went
+    leaf = beats[0]["do"][0]
+    assert leaf["op"] == "illustration" and leaf["diagram"] is True
+    assert leaf["labels"] == ["upper epidermis", "palisade", "stoma"]
+    nodes = beats[2]["do"][0]["nodes"]
+    assert nodes[0]["picture"] == {"generate": "cow"} and nodes[1]["picture"] == {"generate": "a red barn"}
+    assert asked[0] == "test/diagram-model"                                   # the drawing: the diagram model
+    source = cl.compile_script(script)
+    assert "svg" not in source.lower() and "self.stage_image(" in source and "labels=[('upper epidermis'" in source

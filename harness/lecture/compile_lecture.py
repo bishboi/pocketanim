@@ -228,8 +228,7 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
         return {**rest, "op": "gallery"}
     if rest.get("draw"):
         what = rest.pop("draw")
-        return {**rest, "op": "draw", "id": rest.get("id") or fallback_id, "what": what,
-                "parts": rest.get("parts") or ["picture"]}
+        return _drawn_picture({**rest, "op": "draw", "id": rest.get("id") or fallback_id, "what": what})
     if rest.get("figure"):
         figure = rest.pop("figure")
         return {**rest, "op": "figure", "id": figure}
@@ -244,12 +243,35 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
     return op
 
 
+def _part_words(parts) -> list[str]:
+    """A draw op's part ids as the words labelled on its picture ("cell_wall" -> "cell wall"), at most 6."""
+    words = [re.sub(r"[_-]+", " ", str(p)).strip() for p in parts or [] if str(p).strip()]
+    return [w for w in words if w and w.lower() not in ("picture", "whole", "all")][:6]
+
+
+def _drawn_picture(op: dict) -> dict:
+    """A `draw` op (a detailed picture described in words, its parts named) as the picture it is now: made by the
+    diagram model, every part it names labelled by the board (genimage.locate), shown whole on the stage. Nothing
+    is drawn as an SVG; a picture's parts are not revealed one by one (its reveals and focuses are left out)."""
+    labels = _part_words(op.get("labels") or op.get("parts"))
+    out = {"op": "illustration", "query": str(op.get("what") or op.get("query") or ""), "diagram": True,
+           "_drawn": str(op.get("id") or "")}
+    if labels:
+        out["labels"] = labels
+    caption = op.get("caption") or op.get("title")
+    if caption:
+        out["caption"] = str(caption)
+    if op.get("move") in PICTURE_MOVES:
+        out["move"] = op["move"]
+    return out
+
+
 def _canonical_diagram(op: dict) -> None:
     # A node's drawing is a picture the image model makes (a library drawing or an emoji is not used any more).
     for node in op.get("nodes") or []:
         if isinstance(node, dict) and node.get("entity"):
             entity = node.pop("entity")
-            node.setdefault("picture", {"generate": str(entity)})
+            node.setdefault("picture", {"generate": _thing_op(entity)["query"]})
     kind = str(op.get("kind") or "flow")
     if kind == "steps":
         op["steps"] = True
@@ -272,6 +294,10 @@ def canonical_ops(script: dict) -> None:
                     continue
                 if op.get("op") == "picture":
                     ops[k] = op = _picture_op(op, f"picture{c + 1}_{b + 1}_{k + 1}")
+                if op.get("op") == "draw":
+                    ops[k] = op = _drawn_picture(op)
+                if op.get("_drawn"):
+                    script.setdefault("_pictured", []).append(op["_drawn"])
                 if op.get("op") == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") == "picture":
                     op["figure"] = _picture_op(op["figure"], f"{op.get('id') or 'problem'}_figure")
                 if op.get("op") == "diagram":
@@ -285,7 +311,9 @@ def canonical_ops(script: dict) -> None:
                             column.pop("entity", None)
                 for _, spec in pictures_of(op):
                     if isinstance(spec, dict) and spec.get("entity") and not spec.get("generate"):
-                        spec["generate"] = str(spec.pop("entity"))
+                        spec["generate"] = _thing_op(spec.pop("entity"))["query"]
+                    if isinstance(spec, dict) and spec.get("draw") and not spec.get("generate"):
+                        spec["generate"] = str(spec.pop("draw"))       # made as a picture, never drawn as an SVG
 
 
 def _drop(op: dict, at: str, why: str, notes: list[str]) -> None:
@@ -349,7 +377,8 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
             "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"],
             "empire": ["name"]}
-    pictured: set[str] = set()     # book figures shown as their picture: they have no parts to reveal
+    # Pictures shown whole (a book figure shown as its picture, a draw op made as a picture): no parts to reveal.
+    pictured: set[str] = {str(x) for x in script.get("_pictured") or []}
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
             at = f"chapter {c + 1} beat {b + 1}"
@@ -357,8 +386,8 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
             beat["do"] = ops = [op for op in ops if isinstance(op, dict)]
             for op in ops:
                 kind = op.get("op")
-                if kind in ("reveal", "focus") and str(op.get("diagram")) in pictured:
-                    _drop(op, at, f"figure {op.get('diagram')!r} is shown as the book's picture, with no parts", notes)
+                if kind in ("reveal", "focus", "zoom") and str(op.get("diagram")) in pictured:
+                    _drop(op, at, f"{op.get('diagram')!r} is shown whole as a picture, with no parts", notes)
                     continue
                 if kind not in known:
                     _drop(op, at, "no such op", notes)
@@ -448,8 +477,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         # Cannot be drawn as written: left out, and the narration over it stands.
                         _drop(op, at, problem, notes)
                         continue
-                if kind == "figure" and script.get("rebuild_figures") and not op.get("photo") \
-                        and not (figures[str(op["id"])] or {}).get("svg"):
+                if kind == "figure" and script.get("rebuild_figures") and not op.get("photo"):
                     # The book's diagram had no redrawing to show and the writer built none: shown as the book has
                     # it, rather than the section sent back.
                     op["photo"] = True
@@ -507,14 +535,12 @@ def _keep_known(op: dict, field: str, ids: list[str], at: str, notes: list[str])
 def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
     """A diagram's mechanical faults: an unknown kind, a shape, style or motion it does not have, an edge to no
     node, a show of no node, too many items in a node."""
-    import animsvg
-
     if op.get("kind", "flow") not in DIAGRAM_KINDS:
         notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: no kind {op.get('kind')!r}; drawn as a flow")
         op["kind"] = "flow"
     nodes = [n for n in op.get("nodes") or [] if isinstance(n, dict)]
     ids = [str(n.get("id")) for n in nodes if n.get("id")]
-    motions = set(animsvg.MOTIONS) | {"none", "auto"}
+    motions = set(NODE_ANIMS) | {"none", "auto"}
     for n in nodes:
         if n.get("shape") and str(n["shape"]) not in FLOW_SHAPES:
             notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: no shape {n['shape']!r} (a plain box)")
@@ -753,10 +779,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         fetch = _picture_fetch(spec)
                         fetch["_beside"] = _beside_words(op, spec)
                         photos.append((at, fetch))
-                    elif spec.get("draw") and script.get("drawn") and not spec.get("svg"):
-                        warnings.append(f"{at}: {where}: the picture {spec['draw']!r} could not be drawn"
-                                        f"{': ' + str(spec['_draw_error']) if spec.get('_draw_error') else ''}; "
-                                        "its words are shown alone")
                 if kind == "manim":
                     if not isinstance(op.get("code"), str) or not op["code"].strip():
                         errors.append(f"{at}: a manim op needs its code: the Python that draws this beat")
@@ -792,26 +814,12 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         errors.append(f"{at}: {problem}")
                 if kind == "illustration":
                     photos.append((at, op))
-                drawn_op = op if kind == "draw" else (op.get("figure") if kind == "problem" and isinstance(
-                    op.get("figure"), dict) and op["figure"].get("op") == "draw" else None)
-                if drawn_op is not None and script.get("drawn") and not drawn_op.get("svg"):
-                    # The drawing step ran (harness/app/lib/drawings.ts) and could not make this one.
-                    errors.append(f"{at}: the picture {drawn_op.get('id') or op.get('id')!r} could not be drawn"
-                                  f"{': ' + str(drawn_op['_draw_error']) if drawn_op.get('_draw_error') else ''}. "
-                                  "Describe it again more simply (fewer things, each named), or show it another way.")
+                if kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") == "draw":
+                    # A problem's figure described in words: made by the diagram model like any detailed picture.
+                    photos.append((at, {**_drawn_picture(op["figure"]), "optional": True}))
                 if kind == "figure":
                     figure = (script.get("figures") or {}).get(str(op.get("id"))) or {}
-                    if figure.get("svg") and not op.get("photo"):
-                        # Drawn as an SVG (the model redrew the book's diagram): shown with its parts to reveal.
-                        if not Path(str(figure["svg"])).is_file():
-                            errors.append(f"{at}: figure {op.get('id')!r} has no SVG file")
-                        parts = [str(x) for x in figure.get("parts") or []]
-                        unknown = [str(x) for x in op.get("show") or [] if str(x) not in parts]
-                        if unknown:
-                            errors.append(f"{at}: figure {op.get('id')!r} has no part {unknown[0]!r} "
-                                          f"(its parts: {', '.join(parts) or 'none'})")
-                        diagrams[str(op.get("id"))] = parts
-                    elif not Path(str(figure.get("file", ""))).is_file():
+                    if not Path(str(figure.get("file", ""))).is_file():
                         errors.append(f"{at}: figure {op.get('id')!r} has no image file")
                 for field in ("color",):
                     if op.get(field) is not None:
@@ -830,7 +838,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         errors.append(region_problem)
     else:
         errors += _unknown_places(places, home, script.get("region"))
-    errors += _unknown_icons(icon_names)
+    # An icon is a picture of the thing it names, made by the illustration model now (the engine finds it made).
+    photos.extend((at, _thing_op(name)) for at, name in icon_names)
     if isinstance(script.get("emblem"), str) and script["emblem"].strip():
         # The lecture's emblem: one small picture, made like any other (optional: no emblem if it cannot be made).
         photos.append(("the lecture's emblem", _emblem_op(script)))
@@ -897,7 +906,8 @@ def _photo_key(op: dict) -> str:
     labelled = f"|labels:{named}" if named else ""
     if op.get("op") == "illustration":
         scene = "|scene" if op.get("scene") else ""
-        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}{scene}"
+        diagram = "|diagram" if op.get("diagram") else ""
+        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}{scene}{diagram}"
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}{labelled}"
 
 
@@ -923,12 +933,14 @@ def _with_labels(row: dict | None, op: dict) -> dict | None:
 #   {"subject": "Mahatma Gandhi"}     Wikipedia's picture of a person, place or thing (a photo from the web)
 #   {"query": "steam locomotive"}     a photo found by these words (from the web)
 #   {"illustration": "water cycle"}   an educational illustration (from the web)
-#   {"figure": "fig3"}                one of the book's figures (its SVG drawing when it has one)
-#   {"draw": "A steam engine, side view"}   drawn for the lecture as an SVG (drawings.ts)
+#   {"figure": "fig3"}                one of the book's figures (its redrawn picture when it has one)
+#   {"draw": "A steam engine, side view"}   an older name for generate (nothing is drawn as an SVG)
 #   {"entity": "cow"}                 a drawing from the library
 # How a picture on the stage may move once drawn (pocket_lecture PICTURE_MOVES): a boat bobs, a flag or a tree
 # sways, a heart or a lung breathes, a ship or a caravan drifts on across the stage.
 PICTURE_MOVES = ("bob", "sway", "breathe", "drift")
+# A diagram node's `anim`: its picture moves this way while the diagram is up (pocket_lecture NODE_MOVES).
+NODE_ANIMS = ("bob", "hop", "sway", "shake", "flicker", "spin", "pulse", "breathe", "drift")
 PICTURE_KEYS = ("generate", "subject", "query", "illustration", "figure", "draw", "entity")
 
 
@@ -963,7 +975,7 @@ def pictures_of(op: dict) -> list[tuple[str, dict]]:
 def _picture_problem(spec, figures: dict) -> str | None:
     if not isinstance(spec, dict) or len([k for k in PICTURE_KEYS if spec.get(k)]) != 1:
         return ("a picture is one of {\"generate\": \"<what the image model makes>\"}, "
-                "{\"draw\": \"<what to draw as an SVG>\"} or {\"figure\": \"<book figure id>\"}")
+                "or {\"figure\": \"<book figure id>\"}")
     if spec.get("figure") and str(spec["figure"]) not in figures:
         return f"no book figure {spec['figure']!r} for a picture"
     return None
@@ -1092,8 +1104,8 @@ def _chapter_frame(chapter: dict, region: dict | None) -> tuple | None:
 
 
 def _picture_value(spec) -> tuple | None:
-    """A picture as the engine takes it: ("image", file), ("svg", file), ("entity", name), or None (not found or
-    not drawn: the words stand alone)."""
+    """A picture as the engine takes it: ("image", file), ("entity", name), or None (not found or not made: the
+    words stand alone)."""
     value = _picture_found(spec)
     return value if value is None or value[0] == "entity" or Path(value[1]).exists() else None
 
@@ -1103,12 +1115,8 @@ def _picture_found(spec) -> tuple | None:
         return None
     if spec.get("entity"):
         return ("entity", str(spec["entity"]))
-    if spec.get("draw"):
-        return ("svg", str(spec["svg"])) if spec.get("svg") else None
     if spec.get("figure"):
         figure = script_figures.get(str(spec["figure"])) or {}
-        if figure.get("svg"):
-            return ("svg", str(figure["svg"]))
         return ("image", str(figure["file"])) if figure.get("file") else None
     fetch = _picture_fetch(spec)
     row = script_photos.get(_photo_key(fetch)) if fetch else None
@@ -1176,7 +1184,7 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         if op.get("op") == "illustration":
             row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
                                parts=_labels_of(op), context=context, scene=bool(op.get("scene")),
-                               match=not op.get("_emblem")) \
+                               match=not op.get("_emblem"), kind="diagram" if op.get("diagram") else None) \
                 if images.enabled() else None
             if row:
                 script_photos[key] = _with_labels(row, op)
@@ -1190,16 +1198,16 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
             continue
         elif not images.enabled():
             out.append(f"{at}: pictures cannot be made here (no image model: OPENROUTER_API_KEY, or PANIM_IMAGES=0); "
-                       "draw it as an SVG (draw) or build it in Manim instead")
+                       "build it in Manim instead (a sketch, a preset, a graph, a diagram or a manim op)")
         else:
             what = op.get("subject") or op.get("query") or op.get("image")
             out.append(f"{at}: the image model made no picture of {what!r} (refused, or offline); describe it "
-                       "another way, draw it as an SVG (draw), or build it in Manim")
+                       "another way, or build it in Manim")
     return out
 
 
 KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
-# Built on the stage: several pictures at once, diagrams of SVG drawings, a word and its meaning, a comparison,
+# Built on the stage: several pictures at once, diagrams with pictures, a word and its meaning, a comparison,
 # a question for the class; and for mathematics and the sciences (stem.py): labelled sketches, the physics
 # presets (incline, pulley...), graphs and long problems.
 from stem import PRESETS  # noqa: E402
@@ -1241,7 +1249,7 @@ def beat_order(ops: list[dict]) -> list[dict]:
 
 
 def map_drawn_by(op: dict) -> str | None:
-    """A map asked of anything but the map (mapguard): an SVG drawing, a block of Manim, an illustration or photo
+    """A map asked of anything but the map (mapguard): a picture described in words, a block of Manim, an illustration or photo
     of a map. Returns why it is refused."""
     import mapguard
 
@@ -1334,13 +1342,11 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
         if unknown:
             return f"diagram show: no node {unknown[0]!r}"
-        import animsvg
-
-        motions = set(animsvg.MOTIONS) | {"none", "auto"}
+        motions = set(NODE_ANIMS) | {"none", "auto"}
         wrong = [n for n in nodes if n.get("anim") is not None and str(n["anim"]) not in motions]
         if wrong:
             return (f"diagram node {wrong[0]['id']!r}: anim is one of {', '.join(sorted(motions))} "
-                    "(leave it out and the drawing moves the way its thing does, if it does)")
+                    "(leave it out and its picture holds still)")
         diagrams[key] = ids
     if kind in STEM_OPS | WORK_OPS:
         return _stem_problem(op, diagrams)
@@ -1452,8 +1458,8 @@ PART_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,23}")
 
 
 def _draw_problem(op: dict) -> str | None:
-    """A picture to be drawn as an SVG from its description (harness/app/lib/drawings.ts): what it shows, its
-    parts (the ids its <g> groups get, for reveal and focus), what moves in it, if anything."""
+    """A problem's figure described in words (made by the diagram model, compile_lecture._drawn_picture): what it
+    shows, and the parts it names (labelled on it)."""
     what = str(op.get("what") or "").strip()
     if len(what) < 12:
         return ("'draw' needs what: the picture in words, every part, label, arrow and number on it "
@@ -2060,9 +2066,7 @@ def _fills_panel(chapter: dict, figures: dict | None = None) -> bool:
             if kind == "photo" and op.get("where") == "panel":
                 return True
             if kind == "figure":
-                drawn = (figures or {}).get(str(op.get("id"))) or {}
-                # A figure redrawn as SVG is shown on the stage; the book's own picture goes in the panel.
-                if not (drawn.get("svg") and not op.get("photo")) and op.get("where", "panel") == "panel":
+                if op.get("where", "panel") == "panel":
                     return True
     return False
 
@@ -2399,7 +2403,7 @@ def auto_visuals(chapter: dict, is_map_op=None, genre: str | None = None) -> lis
             if events:
                 pick = {"op": "timeline", "events": events}
         # (No picture is added here: whether a paragraph gets a picture, and of what kind -- one the image model
-        # makes, an SVG drawing, or Manim -- is the writer's judgement.)
+        # makes (an illustration or a detailed diagram), or Manim -- is the writer's judgement.)
         if pick:
             out[group[0]] = pick
         # Nothing new for this paragraph: the last picture stays up. Taking it down left the board empty while
@@ -2464,22 +2468,14 @@ def _icon_spots(op: dict) -> list:
     return []
 
 
-def _unknown_icons(names: list[tuple[str, str]]) -> list[str]:
-    if not names:
-        return []
-    import icons
+def _thing_op(name: str) -> dict:
+    """The picture op that makes the picture of a thing an icon names (pocket_lecture.thing_picture makes the same
+    one, so the scene finds it made): an old library id's words only ("coco:7-cow" -> "cow")."""
+    import re as _re
 
-    if not icons.available():
-        return [f"{names[0][0]}: icons are not installed; run harness/scripts/fetch_icons.py, or drop the icon ops"]
-    out = []
-    for at, name in names:
-        # A science drawing or an open-library illustration: not an icon-set name.
-        if str(name).startswith(("draw:", "bioicons:", "coco:", "arcadia:", "clip:")):
-            continue
-        if icons.resolve(name) is None:
-            out.append(f"{at}: no icon for {name!r}; search with find_icon and use a name it returns, "
-                       "or a simpler word (wheat, factory, cow, dam)")
-    return out
+    text = _re.sub(r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*):(?=\S)", "", str(name or "").strip())
+    text = _re.sub(r"[-_]+", " ", _re.sub(r"^\d+[-_]", "", text)).strip()
+    return {"op": "illustration", "query": text, "optional": True}
 
 
 def _km(a, b) -> float:
@@ -2786,9 +2782,6 @@ def _op_call(op: dict) -> str:
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
-        if figure.get("svg") and not op.get("photo"):
-            show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
-            return f"self.svg_figure({_q(str(op['id']))}, {_q(figure['svg'])}, {_q(str(caption)[:160])}{show})"
         credit = f", credit={_q(figure['credit'])}" if figure.get("credit") else ""
         return (f"self.figure({_q(figure['file'])}, {_q(caption)}, "
                 f"where={_q(op.get('where', 'panel'))}{credit})")
@@ -2933,9 +2926,7 @@ def _stem_call(op: dict) -> str:
         return f"self.work({_q(key)}, {_clean(op['lines'])!r}{title}{box})"
     movable = f", movable={op['_movable']!r}" if op.get("_movable") else ""
     if kind == "draw":
-        if op.get("svg"):
-            return f"self.svg_figure({_q(key)}, {_q(op['svg'])}, {_q(op['title']) if op.get('title') else 'None'}{show})"
-        # Not drawn (no drawing step ran, or it failed): its parts as labelled boxes, so reveals still land.
+        # (canonical_ops makes every draw op a picture; one met here had no picture: its parts as labelled boxes.)
         import stem
 
         return f"self.sketch({_q(key)}, {stem._parts_as_cards(op)!r}{show}{title})"
@@ -2951,7 +2942,13 @@ def _stem_call(op: dict) -> str:
         if op.get("find"):
             extra += f", find={_q(op['find'])}"
         if op.get("figure"):
-            figure = _clean({**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"})
+            figure = {**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"}
+            if figure.get("op") == "draw":
+                # Its picture, made by the diagram model (lint asked for it); without one, its parts as boxes.
+                row = script_photos.get(_photo_key(_drawn_picture(figure)))
+                if row and row.get("file"):
+                    figure["file"] = str(row["file"])
+            figure = _clean(figure)
             extra += f", figure={figure!r}"
         return f"self.problem({_q(key)}, {_q(op['text'])}{title}{extra})"
     params = _clean({k: v for k, v in op.items() if k not in ("op", "id", "show", "title", "_movable")})

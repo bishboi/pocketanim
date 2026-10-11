@@ -8,8 +8,8 @@ type Status = {
 };
 
 /** What /api/image-check found: a real call to the image model. */
-type ImageCheck = { ok: boolean; model: string; proxy?: string | null; error?: string; seconds?: number; usd?: number; png?: string;
-  svg?: string | null; paths?: number; note?: string | null };
+type ImageCheck = { ok: boolean; model: string; proxy?: string | null; error?: string; seconds?: number; usd?: number;
+  png?: string };
 
 /** The harness version on every page, and what is not installed yet (with a button to get it). */
 export function VersionBar() {
@@ -98,23 +98,14 @@ export function VersionBar() {
               <span className="text-emerald-400">
                 Image model works: {check.model}{check.proxy ? ` (through the test proxy ${check.proxy})` : ""} made a
                 picture in {check.seconds}s
-                {check.usd ? ` for $${check.usd.toFixed(4)}` : ""}.
-                {check.svg ? ` The phone draws it traced into ${check.paths} vector shape${check.paths === 1 ? "" : "s"} (right).` : ` ${check.note ?? ""}`}
-                {" "}If a lecture still shows only SVG drawings, its log says how many pictures the script asked for.
+                {check.usd ? ` for $${check.usd.toFixed(4)}` : ""}. The board and the phone show it as it was made.
+                {" "}If a lecture shows fewer pictures than expected, its log says how many the script asked for.
               </span>
               {check.png && (
                 <figure className="text-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={check.png} alt="as the model made it" className="h-28 rounded bg-neutral-200 object-contain p-1" />
                   <figcaption>as the model made it</figcaption>
-                </figure>
-              )}
-              {check.svg && (
-                <figure className="text-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(check.svg)}`} alt="as the phone draws it"
-                    className="h-28 rounded bg-neutral-200 object-contain p-1" />
-                  <figcaption>as the phone draws it</figcaption>
                 </figure>
               )}
             </>

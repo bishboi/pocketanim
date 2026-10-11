@@ -41,11 +41,11 @@ def gen(monkeypatch, tmp_path):
     return importlib.reload(genimage)
 
 
-def test_the_check_makes_a_picture_and_traces_it(gen, monkeypatch):
+def test_the_check_makes_a_picture(gen, monkeypatch):
     monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
     got = gen.check()
     assert got["ok"] and got["png"].startswith("data:image/png;base64,")
-    assert got["svg"] is None or got["paths"] > 0
+    assert "svg" not in got                                                 # shown as made: nothing traced
 
 
 def test_the_check_says_the_key_is_missing(gen, monkeypatch):

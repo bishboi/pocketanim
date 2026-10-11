@@ -55,7 +55,7 @@ export type GenerateRequest = {
   language?: string;
   /** The model that writes the lecture's transcript (stage 1); without it, OPENROUTER_TRANSCRIPT_MODEL. */
   transcriptModel?: string;
-  /** The model that draws the lecture's pictures as SVG (figures.ts, drawings.ts); without it, OPENROUTER_SVG_MODEL. */
+  /** The model that looks at the book's figures (figures.ts: it reads images); without it, OPENROUTER_FIGURE_MODEL. */
   svgModel?: string;
   /** How the pictures are drawn (lib/artstyles.ts): "auto" or left out, the template's own art. */
   art?: string;
@@ -83,12 +83,12 @@ export function transcriptModel(chosen?: string): string {
 }
 
 /**
- * The model that draws the lecture's pictures as SVG (the book's figures and every draw op): the page's choice, else
- * OPENROUTER_SVG_MODEL, else the video's model. Drawing well is its own skill (and a model that reads images can
- * check its own drawing), so it can have the model that does it best.
+ * The model that looks at the book's figures and says how each is shown (a photograph, built in Manim, or a diagram
+ * the diagram model redraws): the page's choice, else OPENROUTER_FIGURE_MODEL (OPENROUTER_SVG_MODEL, its older
+ * name), else the video's model. It must read images.
  */
 export function svgModel(chosen?: string): string {
-  return chosen?.trim() || process.env.OPENROUTER_SVG_MODEL || videoModel();
+  return chosen?.trim() || process.env.OPENROUTER_FIGURE_MODEL || process.env.OPENROUTER_SVG_MODEL || videoModel();
 }
 
 const SCENE_CLASS = "GeneratedScene";
@@ -772,8 +772,9 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
       `${reference.parts.length} parts; the lecture follows them in order (about ${minutes} min).` });
   }
-  // The book's figures, redrawn as SVG by the model (figures.ts) while the transcript is written; the script
-  // writer is told about them once they are done (stage 2). PANIM_SVG_FIGURES=0 builds them in Manim as before.
+  // The book's figures, looked at (figures.ts) while the transcript is written: photographs made again, diagrams
+  // redrawn by the diagram model, the rest built in Manim; the script writer is told about them once they are done
+  // (stage 2). PANIM_SVG_FIGURES=0 builds them all in Manim.
   // What the lecture cost, task by task (lib/costs.ts); costUsd is its total. Both stages and the figures run at
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
@@ -783,7 +784,7 @@ async function viaOpenRouter(
   let costUsd = 0;
   const sendCosts = (text: string) =>
     emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot(), seconds: ledger.elapsed });
-  const figureTally = { svg: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
+  const figureTally = { diagram: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
   // Each picture the AI made for the lecture goes to the page as it is made (once), with what it cost.
   const shownPictures = new Set<string>();
   const showPicture = (picture: AiPicture) => {
@@ -819,19 +820,16 @@ async function viaOpenRouter(
       onTime: (start, end) => ledger.time("figures", start, end),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);
-        sendCosts(`book figure drawn: $${usd.toFixed(4)}`);
+        sendCosts(`book figure looked at: $${usd.toFixed(4)}`);
       },
       onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
-        // Every book figure is listed with what it cost, whatever became of it: drawn as SVG, a photo (shown as the
-        // image model's remake of it, or as it is), or built in Manim.
+        // Every book figure is listed with what it cost, whatever became of it: a diagram redrawn by the diagram
+        // model, a photo (shown as the image model's remake of it, or as it is), or built in Manim.
         const figure = teachingFigures(doc).find((f) => f.id === id);
         const title = `${id}: ${figure?.caption ?? ""}`.trim();
         const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
-        if (made.svg) {
-          showPicture({ kind: "figure", file: made.svg, title, ...paid, detail: (made.parts ?? []).join(", "),
-            status: made.animated ? "drawn as SVG, moving" : "drawn as SVG" });
-        } else if (made.diagram && (made.generated?.file || figure?.file)) {
+        if (made.diagram && (made.generated?.file || figure?.file)) {
           showPicture({ kind: "figure", file: made.generated?.file ?? figure!.file, title, ...paid,
             detail: made.generated?.credit ?? made.diagramError,
             status: made.generated ? "redrawn by the diagram model, labels checked"
@@ -842,22 +840,24 @@ async function viaOpenRouter(
             status: made.generated ? "made again by the image model, like it" : "shown as it is (the image model made none)" });
         } else if (figure?.file) {
           showPicture({ kind: "rebuilt", file: figure.file, title, ...paid,
-            status: made.manim ? "simple shapes: built in Manim" : `not drawn (${made.failed ?? "no SVG"}): built in Manim` });
+            status: made.manim ? "built in Manim" : `not looked at (${made.failed ?? "no reply"}): built in Manim` });
         }
-        if (made.svg) figureTally[kept ? "kept" : "svg"] += 1;
+        if (kept) figureTally.kept += 1;
+        else if (made.diagram && made.generated) figureTally.diagram += 1;
         else if (made.manim) figureTally.manim += 1;
         else if (made.photo) figureTally.photo += 1;
         else figureTally.failed += 1;
-        ledger.count("figures", made.svg && !kept ? 1 : 0, [
-          figureTally.kept ? `${figureTally.kept} drawn by an earlier run (free)` : "",
+        ledger.count("figures", made.diagram && made.generated && !kept ? 1 : 0, [
+          figureTally.diagram ? `${figureTally.diagram} redrawn by the diagram model` : "",
+          figureTally.kept ? `${figureTally.kept} decided by an earlier run (free)` : "",
           figureTally.manim ? `${figureTally.manim} built in Manim` : "",
           figureTally.photo ? `${figureTally.photo} photograph${figureTally.photo > 1 ? "s" : ""}` : "",
-          figureTally.failed ? `${figureTally.failed} not drawn` : "",
+          figureTally.failed ? `${figureTally.failed} not looked at` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.svg ? (kept ? "drawn earlier" : "drawn as SVG") : made.manim ? "built in Manim" : made.photo ? (made.generated ? "a photograph, made again by the image model" : "a photograph") : "not drawn"}`);
+        sendCosts(`book figure ${id}: ${made.diagram ? (made.generated ? "redrawn by the diagram model" : "a diagram, shown as the book's") : made.manim ? "built in Manim" : made.photo ? (made.generated ? "a photograph, made again by the image model" : "a photograph") : "not looked at"}`);
       },
     }).catch((error) => {
-      emit({ type: "message", role: "status", text: `The figures were not drawn (${String(error).slice(0, 160)}); ` +
+      emit({ type: "message", role: "status", text: `The figures were not looked at (${String(error).slice(0, 160)}); ` +
         "they are built on the board instead." });
       return undefined;
     })
@@ -1217,9 +1217,9 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status", text }));
   mark("figures ready");
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
-  // Figures drawn as SVG are described by their parts; only the others go to the model as pictures.
+  // Figures shown as their picture need no look; only those to rebuild in Manim go to the model as pictures.
   const pictures = lecture && doc ? await figurePictures(doc, new Set(Object.keys(drawn ?? {}).filter(
-    (id) => drawn?.[id]?.svg || drawn?.[id]?.photo))) : [];
+    (id) => drawn?.[id]?.photo))) : [];
   // The whole transcript joins the system prompt once it is all written (settled, below); each section's chapters
   // are asked for with that section's lines only, as soon as it is written.
   const messages: OutMessage[] = [
@@ -1305,32 +1305,14 @@ async function viaOpenRouter(
   };
 
   // How every lecture script is compiled, whether it came by the tool or in the reply text.
-  // The few pictures the script asks to draw (draw ops) become SVGs before each compile (drawings.ts).
-  const drawOptions = process.env.OPENROUTER_API_KEY ? {
-    key: process.env.OPENROUTER_API_KEY,
-    model: svgModel(request.svgModel),
-    repo: REPO,
-    python: python(),
-    onStatus: (text: string) => emit({ type: "message", role: "status", text }),
-    onCost: (usd: number) => {
-      costUsd = ledger.bill("drawings", usd);
-      sendCosts(`picture drawn: $${usd.toFixed(4)}`);
-    },
-    onDrawn: () => ledger.count("drawings", 1),
-    onTime: (start: number, end: number) => ledger.time("drawings", start, end),
-    onPicture: (p: { file: string; what: string; parts: string[]; usd: number; kept: boolean; say?: string;
-      chapter?: string; moves?: string }) =>
-      showPicture({ kind: "drawing", file: p.file, title: p.what, usd: p.kept ? 0 : p.usd, reused: p.kept, paid: p.usd,
-        detail: p.parts.join(", "), context: { chapter: p.chapter, line: p.say, moves: p.moves } }),
-  } : undefined;
   // What each compile asked of the image model, in the log once: a failing model is told apart from a script that
-  // chose to draw its pictures as SVG or in Manim.
+  // chose to build its pictures in Manim.
   const imageNotes = new Set<string>();
   const noteImages = (report: ImageReport) => {
     const notes: string[] = [];
     if (!report.asked) {
-      notes.push(`Pictures: the script asked the image model (${report.model}) for none here; its pictures are SVG ` +
-        "drawings or built in Manim.");
+      notes.push(`Pictures: the script asked the image model (${report.model}) for none here; its pictures are ` +
+        "built in Manim.");
     } else {
       notes.push(`Pictures: ${report.asked} asked of the image model (${report.model}` +
         `${report.proxy ? `, through the test proxy ${report.proxy}` : ""}): ${report.made} made now, ` +
@@ -1347,7 +1329,6 @@ async function viaOpenRouter(
     }
   };
   const lectureOptions = () => ({
-    draw: drawOptions,
     onGenerated: billGenerated,
     onImages: noteImages,
     style,
@@ -2606,10 +2587,10 @@ export async function generate(
 function mediaItem(p: AiPicture): MediaItem {
   const base = { file: p.file, description: p.title, usd: p.usd, reused: p.reused, context: p.context };
   if (p.kind === "drawing") {
-    return { ...base, kind: "drawing", role: "drawn as SVG for the lecture", metadata: { parts: p.detail } };
+    return { ...base, kind: "drawing", role: "a detailed diagram made by the diagram model", metadata: { parts: p.detail } };
   }
   if (p.kind === "figure") {
-    return { ...base, kind: "figure", role: "book figure redrawn as SVG", metadata: { parts: p.detail, status: p.status } };
+    return { ...base, kind: "figure", role: "book figure redrawn by the diagram model", metadata: { status: p.status } };
   }
   if (p.kind === "photo") {
     const remade = /image model, like it/.test(p.status ?? "");

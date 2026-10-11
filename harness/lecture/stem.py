@@ -2132,9 +2132,10 @@ class BoardMixin:
             fkey = str(figure.get("id") or f"{key}_figure")
             if figure.get("op") == "graph":
                 drawing = self._build_graph(fkey, figure, fig_box)
-            elif figure.get("op") == "draw" and figure.get("svg"):
-                # The figure drawn as an SVG from its description (drawings.ts).
-                drawing, _ = self._svg_drawing(fkey, figure["svg"], fig_box, figure.get("show"))
+            elif figure.get("op") == "draw" and figure.get("file"):
+                # The figure made by the diagram model from its description (compile_lecture), shown whole.
+                fcx, fcy, fw, fh = fig_box
+                drawing = pl.cutout_mob(figure["file"], fw - 0.2, fh - 0.2).move_to([fcx, fcy, 0])
             elif figure.get("op") == "draw":
                 drawing = self._build_sketch(fkey, _parts_as_cards(figure), fig_box, figure.get("show"))
             else:

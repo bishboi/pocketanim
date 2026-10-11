@@ -1,5 +1,5 @@
 // The cost tracker (lib/costs.ts) and its breakdown on the page (components/cost-breakdown.tsx), without a model:
-// bills land on their tasks and add up; the breakdown shows each task, the SVGs and lines counted, the voice of
+// bills land on their tasks and add up; the breakdown shows each task, the pictures and lines counted, the voice of
 // every part of a series, the build as free, and a total that is the sum of its rows.
 //   npm run check:costs
 import assert from "node:assert/strict";
@@ -66,12 +66,12 @@ const second = { part: { index: 2, of: 2, title: "B", minutes: 20 },
   voiceLecture: { usd: 0.25, lines: 180, unknown: 0, engine: "gemini" },
   build: { seconds: 80, voiceSeconds: 30, count: 1, aiImages: 1, aiUsd: 0.04 } };
 const page = text(renderToStaticMarkup(createElement(CostBreakdown, { version: first, series: [first, second] })));
-for (const shown of ["Transcribing the lecture", "2 requests", "Writing the video script", "Book figures drawn as SVG",
-  "2 SVGs", "1 built in Manim, 1 photograph", "Pictures drawn as SVG", "1 SVG", "AI illustrations", "1 image",
+for (const shown of ["Transcribing the lecture", "2 requests", "Writing the video script", "Book figures",
+  "2 redrawn", "1 built in Manim, 1 photograph", "Detailed diagrams", "1 diagram", "AI illustrations", "1 image",
   "Audio generation (narration)", "380 lines", "Gemini TTS", "AI illustrations (while building)",
   "Building the video", "rendering and baking the phone program", "free", "for all 2 parts",
   // Times: each task's, the writing start to finish, the steps after it, and the whole.
-  "Transcribing the lecture", "50 s", "1 min 10 s", "Pictures drawn as SVG", "30 s",
+  "Transcribing the lecture", "50 s", "1 min 10 s", "Detailed diagrams", "30 s",
   "Planning and checks", "Writing, start to finish (its tasks run side by side) 2 min 30 s",
   "Building the video", "2 min 55 s", "Rendering the MP4", "1 min 00 s", "Saving to the library", "20 s"]) {
   assert.ok(page.includes(shown), `the breakdown shows "${shown}": ${page}`);

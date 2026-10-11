@@ -256,8 +256,8 @@ def test_a_book_photo_is_made_again_by_the_image_model_as_a_cutout(figures_js, s
     _book_photo(figure)
     drawn = _draw(figures_js, servers, tmp_path, figure)
     assert drawn["photo"] and drawn["looked"] and drawn["query"] == "Ganges river at Varanasi ghats"
-    assert drawn["generated"]["file"].endswith(".svg")                       # traced into vector shapes
-    made = Image.open(drawn["generated"]["file"][:-4] + ".png")
+    assert drawn["generated"]["file"].endswith(".png")                       # the PNG itself: nothing traced
+    made = Image.open(drawn["generated"]["file"])
     assert made.mode == "RGBA" and made.getpixel((0, 0))[3] == 0          # the white around it is gone
     assert made.size[0] < 300 and made.size[1] < 200                        # trimmed to the subject
     kinds = [k for k, _ in _Model.CALLS]

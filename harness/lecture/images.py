@@ -1,10 +1,11 @@
 """Pictures for lectures: made by an image model as cutouts (genimage.py), never searched for on the web.
 
-`fetch` is the one way a script's photo, illustration, gallery item or picture beside a label gets its file: the
-words it gives (a subject, a query, an illustration's description) are what the image model is asked to make.
-Every other picture a lecture shows is drawn as an SVG (app/lib/drawings.ts) or built in Manim.
+`fetch` is the one way a script's photo, illustration, detailed diagram, gallery item, picture beside a label or
+picture of a thing (a diagram's node, a map's icon) gets its file: the words it gives (a subject, a query, a
+description) are what the image model is asked to make. Every other picture a lecture shows is built in Manim;
+nothing is drawn as an SVG.
 
-PANIM_IMAGES=0 turns pictures off (a lecture then shows SVG drawings, Manim and the document's figures only).
+PANIM_IMAGES=0 turns pictures off (a lecture then shows Manim and the document's figures only).
 """
 
 from __future__ import annotations
@@ -48,19 +49,19 @@ def is_map_row(row: dict | None) -> bool:
 def fetch(image: str | None = None, query: str | None = None, subject: str | None = None,
           illustration: str | None = None, avoid: set | None = None, genre: str | None = None,
           style: str | None = None, realistic: bool = False, parts=None, context: str | None = None,
-          scene: bool = False, match: bool = True) -> dict | None:
+          scene: bool = False, match: bool = True, kind: str | None = None) -> dict | None:
     """The picture a script asks for, made by the image model as a cutout (genimage.py). What it shows is the
     subject, the illustration's words, the query, or an old script's Commons title's words. Returns its row with
     `file` set, or None when it cannot be made (no key, refused, a map). `avoid` and `genre` are an old caller's:
     a picture made for given words is the same picture each time. `parts`: what it will label, shown clearly.
-    `context`: what the picture is for (the lesson, the chapter, the lines said over it), told to the model."""
+    `context`: what the picture is for (the lesson, the chapter, the lines said over it), told to the model.
+    `kind` "diagram": made by the diagram model (a detailed, exact picture), as a picture with labels is."""
     import genimage
 
     title = re.sub(r"\.(jpe?g|png|svg|webp|gif|tiff?)$", "", re.sub(r"^File:", "", str(image or ""), flags=re.I), flags=re.I)
     what = subject or illustration or query or title.replace("_", " ")
     row = genimage.generate(str(what or ""), style=style or os.environ.get("LECTURE_STYLE"), realistic=realistic,
-                            parts=parts, context=context, scene=scene,
-                            match=match)
+                            parts=parts, context=context, scene=scene, match=match, kind=kind)
     if row and is_map_row(row):
         return None
     return row

@@ -108,20 +108,20 @@ Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project an
 YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`), or an API key
 (`GOOGLE_TTS_API_KEY`) where the project allows keys. `.venv/bin/python harness/lecture/chirp.py --check` checks it.
 
-## 4. Pictures: Manim, SVG drawings, or the image model
+## 4. Pictures: Manim, or the image models
 
-There are no picture libraries, icons or emoji to download, and nothing is searched for on the web. A lecture's
-pictures are built in Manim (diagrams, graphs, sketches, the map), drawn as SVGs by the SVG model
-(`OPENROUTER_SVG_MODEL`), or made by the image model (`PANIM_IMAGE_MODEL`) as cutouts: the subject alone, no
-border or background, traced into vector shapes so the phone plays them at tier 1. A book's photograph is made
-again the same way. `.venv/bin/python harness/lecture/genimage.py "a steam locomotive, side view"` makes one and
+There are no picture libraries, icons or emoji to download, nothing is searched for on the web, and nothing is
+drawn as an SVG. A lecture's pictures are built in Manim (diagrams, graphs, sketches, the presets, the map, free
+Manim), in full detail, or made by an image model: the illustration model (`PANIM_IMAGE_MODEL`) for people,
+places, objects, scenes and the picture of each thing a diagram's node, a map's icon or a panel's line shows; the
+diagram model (`PANIM_DIAGRAM_MODEL`) for detailed labelled diagrams (a script's `draw`, the book's diagrams). A
+picture is a cutout: the subject alone, no border or background. The phone plays it at tier 1 as the PNG itself
+(the program's `image` lines). A book's photograph is made again the same way. `.venv/bin/python harness/lecture/genimage.py "a steam locomotive, side view"` makes one and
 prints where it went. `PANIM_IMAGES=0` turns the image model off.
 
-Generated pictures are richly detailed and drawn onto the board shape by shape (big areas of colour first, then
-the details). A picture may name parts to label (`"labels": ["helmet", "lance"]`): a model that reads images
-(`PANIM_LABEL_MODEL`, else `OPENROUTER_SVG_MODEL`) finds each part, and the board writes the label beside the
-picture with a line to it. `PANIM_TRACE_MAX_PATHS` (2200) caps how many shapes a traced picture may have on the
-phone; a more complex picture is traced more coarsely.
+Generated pictures are richly detailed and brought onto the board whole. A picture may name parts to label
+(`"labels": ["helmet", "lance"]`): a model that reads images (`PANIM_LABEL_MODEL`, else
+`OPENROUTER_FIGURE_MODEL`) finds each part, and the board writes the label beside the picture with a line to it.
 
 A picture may be a whole scene (`"scene": true`: a setting drawn edge to edge, not cut out) and may move once
 drawn (`"move"`: bob, sway, breathe or drift, played on the phone as a looping clip). A person named again in a
@@ -130,15 +130,14 @@ sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a mo
 gets the words only).
 
 Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, objects, scenes: quick and cheap),
-and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's diagrams are no longer redrawn
-as SVG: each figure is looked at once (a photograph, simple shapes for Manim, or a diagram), and a diagram is
+and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. Each of the book's figures is looked at
+once by `OPENROUTER_FIGURE_MODEL` (a photograph, a figure Manim builds exactly, or a diagram), and a diagram is
 redrawn by the diagram model from the figure itself, in the lecture's style, every label copied letter for letter.
 A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
 what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (3) tries. A diagram whose
 labels never come out right is shown as the book's own figure, never wrong. The diagram model must take a picture in
-(a words-only model such as Recraft cannot copy a figure: the log says so). Diagrams are traced finer than
-illustrations so their words stay legible (`PANIM_DIAGRAM_MAX_PATHS`, 7000 shapes). `PANIM_DIAGRAM_REDRAW=0` goes
-back to SVG redraws. A picture with labelled parts is also made by the diagram model.
+(a words-only model such as Recraft cannot copy a figure: the log says so). A picture with labelled parts, and a
+script's detailed diagram (`draw`), is also made by the diagram model.
 
 `PANIM_IMAGE_PROXY` (testing only) sends the image model's calls, and nothing else, through a proxy, e.g.
 `http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is

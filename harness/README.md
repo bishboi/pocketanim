@@ -178,9 +178,9 @@ With Supabase set up, every lecture generation is recorded as it runs, without
 pressing Save (`lib/media.ts`, migration `0003_generated_media.sql`; set
 `PANIM_STORE_MEDIA=0` to turn it off). In the private bucket `media`:
 
-* each picture once, at `media/<sha256>.<ext>`: SVG drawings, book figures
-  redrawn as SVG, AI illustrations, book photos and the web photos found like
-  them, and the web and library pictures the compiler fetched. The `media` table
+* each picture once, at `media/<sha256>.<ext>`: book figures redrawn by the
+  diagram model, AI illustrations and diagrams, and book photos (made again by
+  the image model, or as they are). The `media` table
   holds its kind, **what it shows** (the drawing's description, the figure's
   caption, the subject) and **where it came from** (parts, model, source,
   credit, licence, url, the query it was found by);

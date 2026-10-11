@@ -189,17 +189,16 @@ export async function figureFile(id: string, figure: string): Promise<string> {
   return found.file;
 }
 
-/** The script's `figures` table: what the compiler resolves figure ops against, with each one's SVG drawing. */
+/** The script's `figures` table: what the compiler resolves figure ops against, each with the picture it shows. */
 export function scriptFigures(doc: DocumentManifest, drawn: Record<string, Drawn> = {}):
-  Record<string, { file: string; caption: string; svg?: string; parts?: string[]; credit?: string; web?: boolean }> {
+  Record<string, { file: string; caption: string; credit?: string; web?: boolean }> {
   return Object.fromEntries(doc.figures.map((f) => {
-    // A photograph is shown as the image model made it again (figures.remakePhoto), credited; else the scan.
+    // A photograph or a diagram is shown as the image model made it again (figures.ts), credited; else the scan.
     const web = drawn[f.id]?.photo ? drawn[f.id].generated : undefined;
     return [f.id, {
       file: web && existsSync(web.file) ? web.file : f.file,
       caption: f.caption,
       ...(web && existsSync(web.file) ? { credit: web.credit ?? "", web: true } : {}),
-      ...(drawn[f.id]?.svg ? { svg: drawn[f.id].svg, parts: drawn[f.id].parts ?? [] } : {}),
     }];
   }));
 }
@@ -217,19 +216,17 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
   const figures = teachingFigures(doc);
   if (!figures.length) return "";
   if (drawn) {
-    // The figures were redrawn as SVG (figures.ts): shown and pointed at, not rebuilt.
+    // The figures were looked at (figures.ts): diagrams redrawn by the diagram model, photographs made again,
+    // the rest to rebuild in Manim.
     return [
       "",
-      `FIGURES from the book (${figures.length}). The detailed ones were REDRAWN AS CLEAN SVGs for the board. Show each`,
-      'where the text explains it: {"op":"figure","id":"fig3","show"?:["wedge","block"]} (show: the parts drawn first;',
-      "leave it out to draw all), then bring in its other parts a beat at a time as you talk about them:",
-      '{"op":"reveal","diagram":"fig3","nodes":["mg"]}, and point at one: {"op":"focus","diagram":"fig3","node":"theta"}.',
-      "Walk the class through it part by part, naming what each is. A figure that moves by itself keeps moving while it",
-      'is up: say what is happening. A photograph is shown as it is ({"op":"figure","id":"fig4","photo":true}). A figure',
-      'listed "build it" is rebuilt in Manim (sketch, preset, graph, diagram) with "from_figure"; draw it only if they',
-      "cannot show it well.",
+      `FIGURES from the book (${figures.length}). Show each where the text explains it, as its line below says:`,
+      "a diagram was REDRAWN by the diagram model in this lecture's style, every label kept: shown whole on the stage,",
+      'walk the class through it, naming each labelled part ({"op":"figure","id":"fig3","photo":true,"where":"stage"}).',
+      'A photograph is shown as the image model made it again ({"op":"figure","id":"fig4","photo":true}). A figure',
+      'listed "build it" is rebuilt in Manim (sketch, preset, graph, diagram, or a manim op) with "from_figure", in',
+      "full detail: the same parts, labels, arrows, values and geometry as the book's, revealed a part at a time.",
       "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
-      'A photograph listed "a photograph" is shown as a real photo found on the web most like it (or the book\'s own).',
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");
   }

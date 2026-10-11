@@ -7,8 +7,10 @@
 #   harness/scripts/clear_all.sh --dry-run       # only show what would go
 #   harness/scripts/clear_all.sh --yes           # do not ask
 #
-# On this machine it removes: pictures made by the image model, SVG drawings, PDF and YouTube sources, geocoded
-# places, icons, the SVG lab's runs (harness/lecture/.cache); Manim's text and LaTeX renders (harness/.cache);
+# On this machine it removes: pictures made by the image models, the book figures' decisions and any SVG drawings
+# an older version made, PDF and YouTube sources, geocoded places, icons (harness/lecture/.cache); the SVG drawing
+# libraries older versions downloaded and no longer use (harness/lecture/data/drawlib, data/bioicons); Manim's text
+# and LaTeX renders (harness/.cache);
 # Forge jobs and its cache; the web app's finished builds (.jobs), narration (.voice) and Next.js build cache
 # (.next); rendered videos (media/, corpus/renders); Python bytecode and pytest caches.
 #
@@ -27,13 +29,15 @@ for arg in "$@"; do
     --saved) SUPABASE=1 SAVED=1 ;;
     --dry-run) DRY=1 ;;
     --yes|-y) YES=1 ;;
-    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
 
 TARGETS=(
   "harness/lecture/.cache"
+  "harness/lecture/data/drawlib"
+  "harness/lecture/data/bioicons"
   "harness/.cache"
   "harness/forge/jobs"
   "harness/forge/cache"

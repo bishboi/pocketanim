@@ -9,7 +9,7 @@ export const maxDuration = 300;
 /**
  * POST: a real call to the image model (genimage.py --check), never from the cache, made the way a lecture makes
  * its pictures (the same environment, key and model). Reports whether it works and why not, which model, how long
- * and what it cost, and the picture as the model made it and as the phone draws it (traced to SVG).
+ * and what it cost, and the picture as the model made it.
  */
 export async function POST() {
   const result = await new Promise<{ code: number; out: string; err: string }>((resolve) => {

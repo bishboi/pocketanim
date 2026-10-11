@@ -1,5 +1,5 @@
 /**
- * Work that outlives the page that started it. Writing a lecture, building it and drawing an SVG lab's pictures
+ * Work that outlives the page that started it. Writing a lecture and building it
  * take minutes; they ran inside the request that started them, so reloading the page stopped them (or, for a
  * build, threw its result away). Here each runs as a job in the server process: its events are kept, and a page
  * that comes back (reloaded, or another tab) follows it again from any point, replayed from the start.

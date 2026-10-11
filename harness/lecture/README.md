@@ -11,9 +11,7 @@ compile_lecture.py   beat script (JSON) -> Manim on the engine, with a linter
 resolve_region.py    the country or state a piece of content is about
 examples/india.json  the reference India lecture, condensed
 examples/motion.json  every moving picture: trace, sweep, live motion, the ten sims, counters, zoom
-examples/animated-diagrams.json  diagrams whose drawings move (animated SVGs) and whose arrows flow
-animsvg.py           animated SVG drawings: SMIL played on Manim's shapes, motions for still drawings, labels
-svgcheck.py          checks the SVG figures the model draws from a book (harness/app/lib/figures.ts)
+examples/animated-diagrams.json  diagrams whose pictures move and whose arrows flow
 ```
 
 ## What is the same as the guide
@@ -124,20 +122,22 @@ Otherwise the stage shows pictures.
 
 Every picture a lecture shows is made one of three ways. Which way is the writer's judgement, picture by picture:
 
-1. **Built in Manim**: diagrams, graphs, sketches, the physics presets, equations, molecules, timelines, the map.
-2. **Drawn as an SVG**: `{"op":"picture","draw":"<the picture in words>"}` (app/lib/drawings.ts), a labelled
-   textbook drawing with parts to point at.
-3. **Made by an image model**: `{"op":"picture","generate":"<what it shows, in English>","caption"?}`
-   (`genimage.py`), a picture of a real thing the class should see: a person, a place, an animal, an object.
+1. **Built in Manim**, in full detail: diagrams, graphs, sketches, the physics presets, equations, molecules,
+   timelines, the map, free Manim.
+2. **A detailed diagram by the diagram model**: `{"op":"picture","draw":"<the picture in words>","labels"?}` (or
+   `{"op":"draw","what","labels"?}`), a labelled textbook drawing (a cell, a cross-section, a machine) made by
+   `PANIM_DIAGRAM_MODEL` and shown whole, its labels written beside it by the board.
+3. **Made by the illustration model**: `{"op":"picture","generate":"<what it shows, in English>","caption"?}`
+   (`genimage.py`), a picture of a real thing the class should see: a person, a place, an animal, an object. The
+   picture of each thing a diagram's node, a map's icon or a panel's line shows is made the same way.
 
-Nothing is searched for on the web, and there are no icons, emoji or picture libraries.
+Nothing is searched for on the web, nothing is drawn as an SVG, and there are no icons, emoji or picture libraries.
 
 An image-model picture is a **cutout**. The model (OpenRouter, `PANIM_IMAGE_MODEL`, default
 `google/gemini-2.5-flash-image`) is asked for the subject alone on plain white, with no border, frame,
-background or text. The white around it is made transparent, and the picture is trimmed and then traced into
-vector shapes (`vtracer`). It sits on the board without a frame, and the phone draws it like everything else,
-at tier 1. Each picture is made once and cached by its words, style and model (`.cache/images/gen-*.png` and
-`.svg`), with its cost beside it. A compile reports what it made and what that cost (`generated` in `--json`),
+background or text. The white around it is made transparent and the picture trimmed. It sits on the board
+without a frame, and the phone draws the same PNG (the program's `image` lines), at tier 1. Each picture is made
+once and cached by its words, style and model (`.cache/images/gen-*.png`), with its cost beside it. A compile reports what it made and what that cost (`generated` in `--json`),
 and the app bills it. `PANIM_IMAGE_MAX` (40) caps the new pictures one compile may make. `PANIM_IMAGES=0`
 turns them off, and `PANIM_IMAGE_FAKE=1` draws an offline stand-in for tests.
 
@@ -340,9 +340,9 @@ explains it.
 | `{"op":"sim","id","kind",...settings,"title"?,"keep"?}` | A simulation for the line (live.py): `orbit`, `wave`, `collision`, `field`, `refraction`, `titration`, `mitosis`, `heart`, `gas`, `decay`. Each kind's settings are in `live.SIM_PARAMS`; `live.sim_problem` lints them. |
 | `{"op":"counter","id","from","to","label"?,"unit"?,"style"?:"bar\|dial\|number","max"?}` | A value counting from one number to the other over the line. |
 | `{"op":"zoom","diagram","node"?,"scale"?}` | Moves in on one part of the picture on the stage (scaled about it and brought to the middle); without `node`, back out. Played as a baked clip, so the phone moves the picture and does not draw a copy over it. |
-| diagram `"animate"`, `"flow"`, node `"anim"` | A diagram's drawings move while it is up, as animated SVGs (animsvg.py): weather drawings play their own SMIL (Meteocons: rain falling, a sun turning, lightning flashing, wind blowing), and library drawings get the motion that suits the thing (a gear spins, a heart beats, a tree sways, a boat bobs, a flame flickers, a bell shakes), or the one a node's `anim` names (`spin`, `pulse`, `breathe`, `bob`, `sway`, `shake`, `flicker`, `drift`, `hop`, `none`). `flow` runs dots along the arrows (on for flow and cycle). Every motion repeats within 4 s, so the exporter stores one period per line and the phone plays it round (`clip ... loop=`). |
-| `{"op":"figure","id","show"?}` on a figure drawn as SVG | A book's figure the model redrew as an SVG (harness/app/lib/figures.ts: it sees the figure and writes the same parts, labels and arrows as a clean SVG, each part in a `<g id>`, colours named INK, MUTED, BOARD, ROSE, GOLD... so they follow the style, SMIL only when the figure shows something moving; svgcheck.py checks it and sends faults back). The figures table carries its `svg` and `parts`; the op draws it on the stage (pocket_lecture.svg_figure, animsvg.make with its `<text>` labels in the lecture's font), `show` the parts to draw first, then `reveal`/`focus` with `"diagram": "<figure id>"` and part ids, as for a diagram. Figures that could not be drawn are built in Manim (`from_figure`) as before; photographs are shown as they are. |
-| `{"op":"draw","id","what","parts","show"?,"moves"?,"title"?}` | ONLY FOR WHAT THE MANIM OPS CANNOT SHOW WELL (a cell, an organ, a cross-section, real apparatus or a machine beyond the presets). Pictures are built in Manim by default: presets, `sketch`, `diagram`, `graph`, `sim`, `manim`. The script describes the picture (`what`, in words) and names the parts it will point at; harness/app/lib/drawings.ts has a drawing model (OPENROUTER_SVG_MODEL) draw it as an SVG before each compile (cached by description, several at once, checked by svgcheck.py against the promised part ids, small and overlapping labels, then looked at as a PNG of the board and fixed), and puts the file on a copy of the op (`svg`). It is drawn like a book figure (pocket_lecture.svg_figure; in a problem, its figure box), its parts revealed and focused by id, animated only when `moves` says what moves. Without the drawing pass it shows its parts as labelled boxes; a picture the pass could not draw comes back as a compiler error saying why. Book figures follow the same rule: the drawer replies MANIM for one the board's shapes build well, and it is rebuilt in Manim (`from_figure`). |
+| diagram `"flow"`, node `"anim"` | A node's `anim` (`bob`, `sway`, `breathe`, `drift`, and the older `spin`, `pulse`, `shake`, `flicker`, `hop`, read as the nearest of those) sets its picture moving while the diagram is up; `none` or nothing keeps it still. `flow` runs dots along the arrows (on for flow and cycle). Every motion repeats within 4 s, so the exporter stores one period per line and the phone plays it round (`clip ... loop=`); a moving picture is keyed on its `image` line. |
+| `{"op":"figure","id","photo":true,"where"?}` on a book figure | Each of the book's figures is looked at once (harness/app/lib/figures.ts): a photograph is made again by the illustration model; a diagram is redrawn by the diagram model from the figure itself, in the lecture's style, every label kept and checked (genimage.redraw), and shown whole on the stage; a figure the board's shapes build exactly is rebuilt in Manim (`from_figure`), in full detail. Nothing is drawn as an SVG. |
+| `{"op":"draw","id","what","labels"?,"caption"?}` | ONLY FOR WHAT THE MANIM OPS CANNOT BUILD EXACTLY (a cell, an organ, a cross-section, real apparatus or a machine beyond the presets). The compiler makes it a picture op for the diagram model (compile_lecture._drawn_picture): `what` is what it is asked to draw, `labels` (or the older `parts`, read as words) up to 6 parts the board labels beside it (genimage.locate). It is shown whole on the stage: reveals and focuses of its parts are left out. In a problem, its figure box shows it. |
 | `{"op":"manim","id","code"}` | Free-form Manim for a picture the menu cannot draw (`free_check.py`, `stem.BoardMixin.free`): `code` is the body of `construct()` for its beat, the only op on that beat. Beats with the same `id` share their variables, so a figure built on one beat is indicated, copied into a free-body diagram or transformed on the next. The beat's line is spoken while the block plays, then held. The block runs in a sandbox (no imports, dunders, files or exec; of the scene only `play`, `wait`, `add`, `remove`) with Manim's names, `np`, `INK`, `MUTED_INK`, `PALETTE` and the board's bounds; Manim's default white is drawn in the style's ink on a light board. Before a script is accepted each id's blocks run in a probe scene under the exporter: one that raises, draws off the board (x -6.9..6.9, y -3.05..2.85), runs far longer than its line, or uses an animation the phone cannot play is refused with the reason. Verdicts are cached in `.cache/free/` by the code. |
 | `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
 

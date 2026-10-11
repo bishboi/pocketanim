@@ -11,7 +11,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
-import { drawScript, type DrawOptions } from "./drawings";
 import type { Template } from "./templates";
 
 export type LectureRegion = { country?: string; state?: string; view?: string; area?: string };
@@ -100,11 +99,9 @@ export async function compileLecture(
   script: unknown,
   options: {
     style?: string;
-    figures?: Record<string, { file: string; caption: string; svg?: string; parts?: string[] }>;
+    figures?: Record<string, { file: string; caption: string }>;
     genre?: string;
     language?: string;
-    /** How to draw the script's pictures (draw ops) as SVG before compiling (drawings.ts); left out, they are not. */
-    draw?: DrawOptions;
     /** The art style the pictures are drawn in (lib/artstyles.ts); left out or "auto", the template's own. */
     art?: string;
     /** Told of the pictures the image model made during this compile (genimage.py), to bill and show them. */
@@ -114,8 +111,6 @@ export async function compileLecture(
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
-  // Every picture the script describes is drawn first (cached, so a script compiled again draws only what is new).
-  if (options.draw && process.env.PANIM_SVG_DRAW !== "0") script = await drawScript(script, options.draw);
   // The figures table comes from the uploaded document, never from the model.
   const body =
     script && typeof script === "object"
@@ -126,7 +121,7 @@ export async function compileLecture(
           ...(options.style ? { style: options.style } : {}),
           ...(options.art && options.art !== "auto" ? { art: options.art } : {}),
           ...(options.figures ? { figures: options.figures } : {}),
-          // The book's diagrams are drawn as SVG (figures.ts) or rebuilt in Manim, never shown as the scanned picture.
+          // The book's diagrams are redrawn by the diagram model (figures.ts) or rebuilt in Manim, never shown as the scan.
           ...(options.figures && Object.keys(options.figures).length ? { rebuild_figures: true } : {}),
           ...(options.genre ? { genre: options.genre } : {}),
           ...(options.language ? { language: options.language } : {}),
@@ -360,10 +355,10 @@ export const ADD_CHAPTERS_TOOL = {
 
 /** The system prompt for a lecture template. */
 /**
- * The book figures a finished script neither showed (a figure drawn as SVG, or a photograph with "photo": true) nor
- * rebuilt in Manim (an op with "from_figure").
+ * The book figures a finished script neither showed (as its picture, with "photo": true) nor rebuilt in Manim (an op
+ * with "from_figure").
  */
-export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string; svg?: string }>): string[] {
+export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string }>): string[] {
   const done = new Set<string>();
   const chapters = ((script as { chapters?: { beats?: { do?: Record<string, unknown>[] }[] }[] })?.chapters ?? []);
   for (const chapter of chapters) {
@@ -374,8 +369,6 @@ export function unbuiltFigures(script: unknown, figures: Record<string, { captio
         const id = String(op?.op === "picture" && op.figure ? op.figure : op?.id);
         const shown = op?.op === "figure" || (op?.op === "picture" && !!op.figure);
         if (shown && op.photo) done.add(id);
-        // A figure redrawn as SVG (figures.ts) is shown as itself.
-        if (shown && figures[id]?.svg) done.add(id);
       }
     }
   }
@@ -510,15 +503,17 @@ export function lecturePrompt(
     "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",
     "",
     "EVERY PICTURE IS MADE ONE OF THREE WAYS, and which way is your judgement, picture by picture, for the learning:",
-    "  1. BUILT IN MANIM: diagrams, graphs, sketches, the physics presets, equations, molecules, timelines, the map:",
-    "     whatever the board's own shapes show well -- exact, labelled, revealed a part at a time.",
-    '  2. DRAWN AS AN SVG ({"draw": "<the picture in words>"}): a labelled textbook drawing with parts to point at',
-    "     (a cell, a cross-section, an organ, a machine), drawn for the lecture (DRAWN AS SVG, below).",
-    '  3. MADE BY AN IMAGE MODEL ({"generate": "<what it shows, in English>"}): a picture of a real thing the class',
+    "  1. BUILT IN MANIM: diagrams, graphs, sketches, the physics presets, equations, molecules, timelines, the map,",
+    "     free-form manim: whatever the board's own shapes build exactly -- and built in full detail: every label,",
+    "     value, arrow and angle, the real geometry and proportions, revealed a part at a time.",
+    '  2. A DETAILED DIAGRAM MADE BY THE DIAGRAM MODEL ({"draw": "<the picture in words>", "labels": [...]}): a',
+    "     labelled textbook drawing the board's shapes cannot build exactly (a cell, a cross-section, an organ, a",
+    "     machine), made for the lecture by an image model that draws exact diagrams (DETAILED DIAGRAMS, below).",
+    '  3. MADE BY THE ILLUSTRATION MODEL ({"generate": "<what it shows, in English>"}): a picture of a real thing the class',
     "     should see -- a person, a place, an animal, a plant, an object, a scene -- made as a CUTOUT with no border",
     "     and no background, in the lecture's style, so it sits on the board like a sticker. Say what it is and how it",
     '     is seen ("a steam locomotive, side view", "a honey bee on a flower, close up"). It is made richly detailed',
-    "     and drawn onto the board shape by shape. It has no words in it; to name its parts, give \"labels\" (up to 6",
+    "     and brought onto the board whole. It has no words in it; to name its parts, give \"labels\" (up to 6",
     '     short names in the lecture\'s language, parts that are really in it): {"op":"picture","generate":"a medieval',
     '     knight in armour on horseback, side view","labels":["helmet","lance","shield","chain mail"]}: each is written',
     "     beside the picture with a line to its part.",
@@ -583,7 +578,7 @@ export function lecturePrompt(
     "  its parts, and a focus dims the rest while one part is talked about.",
     "  PICTURES BESIDE WORDS: a diagram's node, a timeline's event and a map marker's label may carry a picture,",
     '  "picture": one of {"generate":"Mahatma Gandhi, an illustrated portrait"} (made by the image model, a cutout),',
-    '  {"draw":"A steam engine, side view"} (drawn as a clean SVG) or {"figure":"fig3"} (one of the book\'s',
+    '  {"draw":"A steam engine, side view"} (a detailed diagram by the diagram model) or {"figure":"fig3"} (one of the book\'s',
     "  figures): the three ways above, your choice for each. Use them where seeing the",
     "  thing teaches it (each kind of rock, the leaders on a timeline, the crop grown at each place), not on every",
     "  box. They are laid out so no picture or word covers another.",
@@ -644,8 +639,8 @@ export function lecturePrompt(
     '  {"op":"picture","figure":"fig2"} (or put several in items).',
     "  SCIENCE -> molecule, equation, graph, sketch and the physics presets (DRAWN IN MANIM, below); HISTORY ->",
     "  timeline (see below). Build a picture in Manim whenever it can be built well.",
-    "  A TEXTBOOK DIAGRAM you cannot build (the parts of a cell, a cross-section) -> draw it as an SVG (DRAWN AS",
-    "  SVG, below).",
+    "  A TEXTBOOK DIAGRAM you cannot build exactly (the parts of a cell, a cross-section) -> a detailed diagram made",
+    "  by the diagram model (DETAILED DIAGRAMS, below).",
     "Other stage operations:",
     '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula, atoms in CPK colours.',
     "   ONLY where the narration explains that structure (its bonds, shape, groups, isomers), and once a chapter: a",
@@ -769,7 +764,7 @@ export function lecturePrompt(
     "   (rainfall by month).",
     "   STRUCTURES  layers: layers ([[name, note], ...], outside first), shape (circle | stack): a cut-away named layer by",
     "   layer (the Earth's layers, soil, the atmosphere); for a detailed structure (a leaf, the eye, a tooth, a flower),",
-    "   draw it (draw) with a part per layer and reveal them from the outside in, naming each.",
+    "   make it a detailed diagram (draw) with each layer labelled, and name them from the outside in.",
     "   DIFFERENCES  differences: left, right, rows ([[left point, right point], ...]): flip cards, row by row, for every",
     "   \"differences between\" (plant and animal cells, mitosis and meiosis, monarchy and democracy).",
     "CONCEPT MAPS AND CHAINS (diagram ops): a concept map that grows is a diagram kind hub, the big idea in the middle,",
@@ -816,22 +811,22 @@ export function lecturePrompt(
     "   Prefer the presets, sketch and graph when they fit (they can be pointed at with reveal and focus); use manim",
     "   when the picture needs its own geometry or its parts must move and transform as the solution is built.",
     "",
-    "DRAWN AS SVG, ONLY WHEN THE MANIM OPS ABOVE CANNOT SHOW IT WELL: a detailed structure or real object that",
-    "presets, sketch and diagram would reduce to boxes and lines -- a cell and its organelles, an organ (the heart,",
-    "a nephron, the eye, a neuron, a flower in section), a cross-section, real lab apparatus or a machine beyond the",
-    "presets (a distillation set-up, an electric motor, a generator). It is drawn for you as a clean textbook SVG from",
-    "your description; you describe it, you do not draw it:",
+    "DETAILED DIAGRAMS, ONLY WHEN THE MANIM OPS ABOVE CANNOT BUILD IT EXACTLY: a detailed structure or real object",
+    "that presets, sketch and diagram would reduce to boxes and lines -- a cell and its organelles, an organ (the",
+    "heart, a nephron, the eye, a neuron, a flower in section), a cross-section, real lab apparatus or a machine",
+    "beyond the presets (a distillation set-up, an electric motor, a generator). It is made for you by the diagram",
+    "model (an image model that draws exact, detailed textbook diagrams) in the lecture's style, from your words:",
     '  {"op":"draw","id":"heart","what":"A human heart in front section: right and left atria above the right and',
     "   left ventricles; the thick wall of the left ventricle; the vena cava into the right atrium, the pulmonary",
     "   artery out of the right ventricle, the aorta out of the left ventricle; the valves between atria and",
-    '   ventricles.","parts":["ra","la","rv","lv","vena_cava","aorta","valves"],"show"?:["ra","la","rv","lv"],',
-    '   "moves"?:"blood flows through the chambers","title"?}',
-    "  what: everything on the picture, in English, precisely: each part, each label (the term the class must",
-    "  learn), each arrow with where it starts and where it points, numbers and units.",
-    "  parts: an id for each thing you will point at (letters, digits and _); reveal and focus take them like any",
-    '  diagram: {"op":"reveal","diagram":"heart","nodes":["aorta"]}, {"op":"focus","diagram":"heart","node":"lv"}.',
-    "  moves: ONLY when seeing it move teaches it (blood through the heart, an impulse along a neuron); otherwise",
-    "  leave it out. Never draw what a preset, sketch, diagram, graph or sim already shows: those are built in Manim.",
+    '   ventricles.","labels":["right atrium","left atrium","right ventricle","left ventricle","aorta","vena cava"],',
+    '   "caption"?}',
+    "  what: everything on the picture, in English, precisely: each part, each arrow with where it starts and where",
+    "  it points, numbers and units. The picture itself has no words.",
+    "  labels: up to 6 parts to name, in the lecture's language, each a part really in the picture: the board writes",
+    "  each beside the picture with a line to its part.",
+    "  It is shown whole: no reveal or focus of its parts (say them in order; the labels are there). Never one for",
+    "  what a preset, sketch, diagram, graph or sim already shows: those are built in Manim.",
     "",
     "Map operations (only with a region):",
     '  {"op":"marker","place":"Jaipur" | "lonlat":[lon,lat],"label"?,"color"?,"side"?:"left|right|up|down","picture"?}',

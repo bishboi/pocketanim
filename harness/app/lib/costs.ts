@@ -1,6 +1,6 @@
 /**
  * What a lecture cost, task by task: the model calls that wrote it (transcript, video script, fixes), the
- * pictures drawn for it (the book's figures and the script's drawings as SVG, AI illustrations), its voice, and
+ * pictures made for it (the book's figures looked at and redrawn, AI illustrations and diagrams), its voice, and
  * its build. The server keeps one ledger per generation and streams it with every usage event; the page adds the
  * voice and the build, which happen when the lecture is built.
  */
@@ -14,7 +14,7 @@ export type CostLine = {
   calls: number;
   inputTokens: number;
   outputTokens: number;
-  /** Things made: figures or drawings drawn as SVG, illustrations generated. */
+  /** Things made: book figures redrawn, illustrations and diagrams generated. */
   items: number;
   /** A short word on what the items are, or what else happened ("3 built in Manim, 1 photograph"). */
   note?: string;
@@ -31,14 +31,14 @@ export const COST_LABELS: Record<CostTask, string> = {
   transcript: "Transcribing the lecture",
   script: "Writing the video script",
   fixes: "Fixing the script",
-  figures: "Book figures drawn as SVG",
-  drawings: "Pictures drawn as SVG",
+  figures: "Book figures",
+  drawings: "Detailed diagrams",
   images: "AI illustrations",
 };
 
 const ITEM_WORDS: Partial<Record<CostTask, [string, string]>> = {
-  figures: ["SVG", "SVGs"],
-  drawings: ["SVG", "SVGs"],
+  figures: ["redrawn", "redrawn"],
+  drawings: ["diagram", "diagrams"],
   images: ["image", "images"],
 };
 
@@ -123,7 +123,7 @@ export function duration(seconds: number): string {
   return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
 }
 
-/** "4 SVGs", "1 image", "" for a task without items. */
+/** "4 redrawn", "1 image", "" for a task without items. */
 export function itemsText(task: CostTask, line: CostLine): string {
   const words = ITEM_WORDS[task];
   if (!words) return "";
@@ -135,13 +135,13 @@ export function usd(value: number): string {
   return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(value < 1 ? 3 : 2)}`;
 }
 
-/** A picture the AI made for a lecture: an SVG drawn for a book figure or for the script, or an illustration an
- * image model drew. `usd` is what it cost this lecture; one `reused` from an earlier run cost nothing now, and
+/** A picture the AI made for a lecture: a book figure redrawn or made again, or an illustration or diagram an image
+ * model made. `usd` is what it cost this lecture; one `reused` from an earlier run cost nothing now, and
  * `paid` says what it cost when it was made. */
 export type AiPicture = {
-  /** figure: a book figure redrawn as SVG; photo: a book photo (shown as the web's photo like it, or as it is);
-   * rebuilt: a book figure built in Manim instead (or not drawn); drawing: a picture drawn as SVG; illustration:
-   * one an image model drew. */
+  /** figure: a book figure redrawn by the diagram model; photo: a book photo (made again by the image model, or as
+   * it is); rebuilt: a book figure built in Manim instead; drawing: a detailed diagram the diagram model made;
+   * illustration: one the illustration model made. */
   kind: "figure" | "photo" | "rebuilt" | "drawing" | "illustration";
   /** Where it is on the server (/api/picture serves it). */
   file: string;
@@ -149,7 +149,7 @@ export type AiPicture = {
   usd: number;
   reused: boolean;
   paid?: number | null;
-  /** Its parts (an SVG), or the model that drew it (an illustration). */
+  /** Its labels, or the model that made it. */
   detail?: string;
   /** What became of a book figure, in a few words ("shown as a real photo like it", "built in Manim"). */
   status?: string;
@@ -158,9 +158,9 @@ export type AiPicture = {
 };
 
 export const PICTURE_KINDS: Record<AiPicture["kind"], string> = {
-  figure: "Book figure, drawn as SVG",
+  figure: "Book figure, redrawn",
   photo: "Book photo",
   rebuilt: "Book figure, built in Manim",
-  drawing: "Picture drawn as SVG",
+  drawing: "Detailed diagram",
   illustration: "AI illustration",
 };

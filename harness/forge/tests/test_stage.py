@@ -44,8 +44,8 @@ def test_pictures_are_made_never_searched(generated, monkeypatch):
     assert row and row["source"] == "generated" and row["title"] == "Mahatma Gandhi"
     picture = Image.open(row["png"])
     assert picture.mode == "RGBA" and picture.getpixel((0, 0))[3] == 0 and picture.size[0] < 320
-    # Shown as vector shapes, so the phone draws it (a raster would play only as sampled frames).
-    assert row["file"].endswith(".svg") and "<path" in open(row["file"]).read()
+    # Shown as the PNG it is: the phone draws it from the program's image line (nothing is traced to SVG).
+    assert row["file"] == row["png"] and row["file"].endswith(".png")
     assert "CUTOUT" in row["prompt"] and "no border" in row["prompt"] and "No words" in row["prompt"]
     assert len(genimage.MADE) == 1
     again = generated.fetch(subject="Mahatma Gandhi")          # made once: from the cache, nothing paid again

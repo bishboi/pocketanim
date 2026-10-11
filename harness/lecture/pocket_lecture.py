@@ -1903,10 +1903,106 @@ class Lecture(Scene):
         self._beat_revealed = []
         self._beat_asides = []
         self._beat_added = []
+        self._check_beat(text)
         rest = seconds + pad - spent
         if rest > 0.02:
             self.wait(rest)
         return seconds
+
+    # ---------------- the visual check ----------------
+    # After each beat's animations, what is on screen is checked the way a viewer would see it: words too small to
+    # read, words off the frame, words over other words, a stage left nearly empty. Words off the frame are brought
+    # back in (said as fixed); the rest are written to PANIM_CHECK_LOG (one JSON line a beat), with the frame
+    # saved to PANIM_CHECK_FRAMES when set, for the app to show a vision model (lib/visualcheck.ts).
+    CHECK_MIN_TEXT = 13.0            # points, as drawn on the frame
+    CHECK_OVERLAP = 0.3              # share of the smaller of two words' boxes they may share
+
+    def _visible_texts(self) -> list:
+        out = []
+        for top in self.mobjects:
+            for m in top.get_family():
+                if not isinstance(m, Text) or not len(m.submobjects):
+                    continue
+                if getattr(m, "z_index", 0) >= Z_CAPTION or top is self.cap:
+                    continue
+                try:
+                    if m.get_fill_opacity() < 0.2 and m.get_stroke_opacity() < 0.2:
+                        continue
+                except Exception:  # noqa: BLE001
+                    pass
+                if m.width > 1e-3 and m.height > 1e-3:
+                    out.append(m)
+        return out
+
+    def _check_beat(self, text: str) -> list[str]:
+        log, frames = os.environ.get("PANIM_CHECK_LOG"), os.environ.get("PANIM_CHECK_FRAMES")
+        if not log and not os.environ.get("PANIM_CHECK"):
+            return []
+        issues, fixed = [], []
+        half_w, half_h = config.frame_width / 2, config.frame_height / 2
+        texts = [m for m in self._visible_texts() if m not in getattr(self, "chrome", VGroup()).get_family()]
+        for m in texts:
+            words = (getattr(m, "original_text", "") or "").strip()[:40]
+            size = float(getattr(m, "font_size", 0) or 0)
+            if size and size < 10:
+                # Past reading on a phone: grown to the smallest readable size where it is.
+                m.scale(self.CHECK_MIN_TEXT / size)
+                fixed.append(f"tiny text ({size:.0f}pt) grown to {self.CHECK_MIN_TEXT:.0f}pt: {words!r}")
+            elif size and size < self.CHECK_MIN_TEXT:
+                issues.append(f"small text ({size:.0f}pt): {words!r}")
+            lo, hi = m.get_corner(DL), m.get_corner(UR)
+            dx = max(0.0, -half_w + 0.05 - lo[0]) - max(0.0, hi[0] - (half_w - 0.05))
+            dy = max(0.0, -half_h + 0.05 - lo[1]) - max(0.0, hi[1] - (half_h - 0.05))
+            if abs(dx) > 0.02 or abs(dy) > 0.02:
+                # Brought back onto the frame: a word half off the screen is read by no one.
+                m.shift(np.array([dx, dy, 0]))
+                fixed.append(f"text off the frame brought in: {words!r}")
+        boxes = [(m, _bbox(m)) for m in texts]
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                a, b = boxes[i][1], boxes[j][1]
+                shared = _overlap(a, b)
+                small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) or 1e-9
+                if shared / small > self.CHECK_OVERLAP and boxes[i][0] not in boxes[j][0].get_family() \
+                        and boxes[j][0] not in boxes[i][0].get_family():
+                    names = " / ".join(repr((getattr(x, "original_text", "") or "")[:30])
+                                       for x in (boxes[i][0], boxes[j][0]))
+                    # The later words moved just clear of the earlier, up or down, whichever stays on the frame.
+                    mover = boxes[j][0]
+                    down = a[1] - b[3] - 0.06
+                    up = a[3] - b[1] + 0.06
+                    step = down if b[1] + down > -half_h + 0.9 else up
+                    if abs(step) < 1.2:
+                        mover.shift(np.array([0, step, 0]))
+                        boxes[j] = (mover, _bbox(mover))
+                        fixed.append(f"words over words moved apart: {names}")
+                    else:
+                        issues.append(f"words over words: {names}")
+        body = getattr(self, "stage_body", None)
+        if body is not None and getattr(self, "stage_items", None) is not None and len(body.get_family()) > 1:
+            cx, cy, w, h = self.STAGE
+            share = (body.width * body.height) / max(w * h, 1e-6)
+            if share < 0.12:
+                issues.append(f"the stage's picture is small ({share:.0%} of its space)")
+        if not issues and not fixed:
+            return []
+        self._checks = getattr(self, "_checks", 0) + 1
+        row = {"beat": self._checks, "say": text[:200], "issues": issues[:12], "fixed": fixed[:12]}
+        if frames and issues:
+            try:
+                from PIL import Image
+
+                Path(frames).mkdir(parents=True, exist_ok=True)
+                self.renderer.update_frame(self, ignore_skipping=True)
+                target = Path(frames) / f"beat-{os.getpid()}-{self._checks:04d}.png"
+                Image.fromarray(self.renderer.get_frame()).convert("RGB").resize((960, 540)).save(target)
+                row["frame"] = str(target)
+            except Exception as error:  # noqa: BLE001 -- the check is said without its frame
+                row["frame_error"] = f"{type(error).__name__}: {error}"[:160]
+        if log:
+            with open(log, "a", encoding="utf-8") as out:
+                out.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return issues
 
     def pause(self, seconds: float = 0.6) -> None:
         self.wait(seconds)

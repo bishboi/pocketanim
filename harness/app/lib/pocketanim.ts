@@ -309,6 +309,9 @@ async function exportSceneNow(
     ],
     // A long lecture is hundreds of beats: Manim takes a while (its voice is spoken beforehand, by prespeak).
     { timeoutMs: 3 * 3600_000, env: { PANIM_BUILD_WORKERS: String(buildWorkers()),
+      // Each beat checked as it is drawn (pocket_lecture _check_beat), the frames it could not mend kept for a look.
+      ...(process.env.PANIM_CHECK === "0" ? {} : {
+        PANIM_CHECK_LOG: path.join(buildDir, "checks.jsonl"), PANIM_CHECK_FRAMES: path.join(buildDir, "checks") }),
       ...(progress ? { PANIM_PROGRESS_FILE: progress } : {}) } },
   );
 

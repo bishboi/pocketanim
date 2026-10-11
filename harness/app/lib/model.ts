@@ -100,10 +100,19 @@ const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms 
  * How hard the model thinks before it writes: PANIM_REASONING_EFFORT = low (the default), minimal, medium or
  * high; "off" sends no setting (the model's own default). Low keeps a lecture quick and cheap to write.
  */
-export function reasoningOption(): { reasoning?: { effort: string } } {
-  const effort = (process.env.PANIM_REASONING_EFFORT || "low").trim().toLowerCase();
+export function reasoningOption(chosen?: string): { reasoning?: { effort: string } } {
+  const effort = (chosen || process.env.PANIM_REASONING_EFFORT || "low").trim().toLowerCase();
   if (effort === "off" || effort === "none" || effort === "default") return {};
   return { reasoning: { effort: ["minimal", "low", "medium", "high"].includes(effort) ? effort : "low" } };
+}
+
+/**
+ * How hard the model thinks when it writes the video's chapters (the pictures, diagrams, labels and when to zoom):
+ * PANIM_VIDEO_REASONING_EFFORT, medium by default. The visual choices are where thinking pays most; the transcript
+ * keeps PANIM_REASONING_EFFORT.
+ */
+export function videoEffort(): string {
+  return (process.env.PANIM_VIDEO_REASONING_EFFORT || "medium").trim().toLowerCase();
 }
 
 function systemPrompt(template: Template): string {
@@ -486,7 +495,7 @@ async function streamCompletion(
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
-  withReasoning = true,
+  withReasoning: boolean | string = true,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   const response = await undiciFetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -503,7 +512,7 @@ async function streamCompletion(
       tool_choice: toolChoice,
       stream: true,
       usage: { include: true },
-      ...(withReasoning ? reasoningOption() : {}),
+      ...(withReasoning ? reasoningOption(typeof withReasoning === "string" ? withReasoning : undefined) : {}),
     }),
   });
   if (!response.ok) {
@@ -645,6 +654,7 @@ async function completionWithRetry(
   tools: ToolSpec[] = TOOLS,
   signal?: AbortSignal,
   toolChoice: "auto" | "required" = "auto",
+  effort?: string,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason?: string; span: [number, number] }> {
   // When the request began and its answer came: the task's time (lib/costs.ts), retries included.
   const began = Date.now();
@@ -654,7 +664,7 @@ async function completionWithRetry(
     // After an empty reply, ask more loosely: some providers answer nothing when a tool call is "required",
     // and a reasoning model can spend its whole output on thinking. The prompts still ask for the tool.
     const choice = empties > 0 ? "auto" : toolChoice;
-    const reasoning = empties < 2 && !cut;
+    const reasoning: boolean | string = empties < 2 && !cut ? (effort || true) : false;
     try {
       let result;
       try {
@@ -1559,7 +1569,7 @@ async function viaOpenRouter(
             lastDelta = Date.now();
             if (kind === "thinking") state.thinking = true;
             else state.chars += text.length;
-          }, sectionTools, abort.signal, "required");
+          }, sectionTools, abort.signal, "required", videoEffort());
         } catch (error) {
           if (stopped()) return null;
           refused += 1;

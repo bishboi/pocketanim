@@ -33,6 +33,9 @@ type ExportState = {
   frames?: number;
   error?: string;
   voiceWarning?: string | null;
+  /** What the visual check found on screen at each beat (lib/visualcheck.ts). */
+  checks?: { beats: { beat: number; say: string; issues: string[]; fixed: string[]; review?: string }[];
+    fixed: number; flagged: number; reviewed: number; model?: string } | null;
   /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
   voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
   narrationUrl?: string | null;
@@ -1844,6 +1847,25 @@ export default function Home() {
                       ))}
                     </ul>
                   </div>
+                )}
+                {exported.checks && (exported.checks.fixed > 0 || exported.checks.flagged > 0) && (
+                  <details className="text-xs text-neutral-300" data-testid="visual-check">
+                    <summary className={exported.checks.flagged ? "cursor-pointer text-amber-300" : "cursor-pointer"}>
+                      Visual check: {exported.checks.fixed} thing{exported.checks.fixed === 1 ? "" : "s"} mended on
+                      screen{exported.checks.flagged ? `, ${exported.checks.flagged} beat${exported.checks.flagged === 1 ? "" : "s"} to look at` : ""}
+                      {exported.checks.reviewed ? ` (${exported.checks.reviewed} looked at by ${exported.checks.model})` : ""}
+                    </summary>
+                    <ul className="mt-1 list-inside list-disc">
+                      {exported.checks.beats.slice(0, 30).map((b) => (
+                        <li key={b.beat}>
+                          <span className="text-neutral-400">&ldquo;{b.say.slice(0, 80)}&rdquo;</span>{" "}
+                          {b.issues.length > 0 && <span className="text-amber-300">{b.issues.join("; ")}</span>}
+                          {b.fixed.length > 0 && <span className="text-emerald-300/80"> mended: {b.fixed.join("; ")}</span>}
+                          {b.review && <span className={b.review === "OK" ? "text-emerald-300" : "text-amber-200"}> · {b.review}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
                 {exported.container && exported.buildDir && (
                   <p className="text-xs text-neutral-300">

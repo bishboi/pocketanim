@@ -1,3 +1,4 @@
+import { readVisualCheck } from "@/lib/visualcheck";
 import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -113,7 +114,10 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
         "server log has Google's message).";
     }
 
-    return reply({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing });
+    // What the visual check found at each beat, and what a model that reads images says of the frames it flagged.
+    const checks = result.error ? null : await readVisualCheck(buildDir);
+
+    return reply({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing, checks });
   } catch (error) {
     return reply(
       { error: error instanceof Error ? error.message : String(error) },

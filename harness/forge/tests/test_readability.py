@@ -120,3 +120,35 @@ def test_the_chapter_tag_is_large():
     scene.section(1)
     tag = scene.chrome[-1]
     assert tag.height >= pl.T("A", 23).height * 0.9
+
+
+def test_each_beat_is_checked_and_what_can_be_mended_is(tmp_path, monkeypatch):
+    """The visual check after each beat: text off the frame brought in, unreadable text grown, words over words moved
+    apart; a beat with nothing wrong writes nothing."""
+    import pocket_lecture as pl
+    from manim import FadeIn, FadeOut, tempconfig
+
+    log, frames = tmp_path / "checks.jsonl", tmp_path / "frames"
+    monkeypatch.setenv("PANIM_CHECK_LOG", str(log))
+    monkeypatch.setenv("PANIM_CHECK_FRAMES", str(frames))
+    monkeypatch.setenv("PANIM_VOICE", "silent")
+    seen = {}
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            self.board()
+            a = pl.T("tiny words here", 9).move_to([0, 1, 0])
+            b = pl.T("running off the edge of the frame", 30).move_to([7.5, 0, 0])
+            c = pl.T("first label", 24).move_to([-3, -1, 0])
+            d = pl.T("second label", 24).move_to([-2.8, -1.05, 0])
+            self.beat("A beat with problems.", FadeIn(a), FadeIn(b), FadeIn(c), FadeIn(d))
+            seen.update(edge=b.get_right()[0], size=a.font_size, apart=pl._overlap(pl._bbox(c), pl._bbox(d)))
+            self.beat("A clean beat.", FadeOut(a), FadeOut(b), FadeOut(c), FadeOut(d))
+
+    with tempconfig({"dry_run": True, "media_dir": str(tmp_path), "disable_caching": True}):
+        Probe().render()
+    rows = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["say"] == "A beat with problems."
+    fixed = " ".join(rows[0]["fixed"])
+    assert "off the frame" in fixed and "grown to 13pt" in fixed and "moved apart" in fixed
+    assert seen["edge"] <= pl.config.frame_width / 2 and seen["size"] >= 12.9 and seen["apart"] == 0

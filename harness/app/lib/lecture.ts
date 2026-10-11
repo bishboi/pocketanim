@@ -318,7 +318,7 @@ export const LECTURE_TOOL = {
       properties: {
         script: {
           type: "object",
-          description: "The beat script: title, sub, region, intro, chapters[{title, sub, narration, map, beats[{say, do[ops]}]}], recap, credits.",
+          description: "The beat script: title, sub, region, emblem, intro, chapters[{title, sub, narration, map, beats[{say, do[ops]}]}], recap, credits.",
         },
         more: {
           type: "boolean",
@@ -634,6 +634,12 @@ export function lecturePrompt(
     "  name them the same way every time and the first picture of them is matched.",
     '  "move"?: "bob" (a boat on water), "sway" (a flag, a tree in wind), "breathe" (a heart, a lung), "drift" (a',
     "  ship or caravan moving on): the picture moves gently once drawn. Only where moving is what the thing does.",
+    '  "points"?: ["2-4 short lines"] -> the split layout: the picture large on the left, the few things to take away',
+    "  from it on the right (a person and what they did, a tool and what it was for). Not with labels.",
+    '  THE LECTURE\'S EMBLEM: "emblem": "<one simple object that stands for the whole topic>" at the top of the script',
+    '  ("a golden crown" for feudalism, "a spinning wheel" for the freedom struggle, "a steam engine" for the',
+    "  Industrial Revolution): shown on the title, every chapter card and beside the chapter's name. The same words in",
+    "  every part of a series.",
     "  THE DOCUMENT'S OWN FIGURES come first whenever one shows what the paragraph explains:",
     '  {"op":"picture","figure":"fig2"} (or put several in items).',
     "  SCIENCE -> molecule, equation, graph, sketch and the physics presets (DRAWN IN MANIM, below); HISTORY ->",

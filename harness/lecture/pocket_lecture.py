@@ -1933,6 +1933,11 @@ class Lecture(Scene):
         for part in card.get_family():
             part._art_decorated = True
         self.chrome = VGroup(track, done, card, tag)
+        mark = self.emblem(0.42)
+        if mark is not None:
+            # The lecture's emblem beside the chapter's name: one motif through the whole series.
+            mark.next_to(card, RIGHT, buff=0.12)
+            self.chrome.add(mark)
         self.chrome.set_z_index(Z_CHROME)
         self.add(self.chrome)
 
@@ -2610,7 +2615,8 @@ class Lecture(Scene):
 
         self._live_start(image, step, "loop", keep=True)
 
-    def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None):
+    def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
+                    points=()):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
         the problem, its figure and its working off the board mid-solution.
 
@@ -2624,6 +2630,8 @@ class Lecture(Scene):
         if caption:
             line = T(wrap(_short_caption(caption), 70), 16, P.CREAM, line_spacing=0.85)
         room = h - (line.height + 0.3 if line is not None else 0) - (0.3 if credit else 0)
+        if is_cutout(path) and points:
+            return self._split_picture(path, [str(p) for p in points if str(p).strip()][:5], caption, move)
         if is_cutout(path):
             # A picture the image model made: a cutout, in vector shapes, no frame around it, drawn in.
             labels = [tuple(x) for x in labels or ()]
@@ -2656,6 +2664,34 @@ class Lecture(Scene):
             parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
         group = Group(*parts).move_to([cx, cy, 0])
         return self._to_stage(group)
+
+    def _split_picture(self, path: str, points: list[str], caption: str = "", move: str | None = None):
+        """The split layout: the picture large on the left, the few words to take away from it on the right, each
+        with a bullet in the style's accent, written in after the picture is drawn."""
+        cx, cy, w, h = self.STAGE
+        left_w = w * 0.52
+        image = cutout_mob(path, left_w - 0.2, h - 0.4)
+        image.move_to([cx - w / 2 + left_w / 2, cy, 0])
+        room = w - left_w - 0.3
+        rows = []
+        for words in points:
+            dot = Dot(radius=0.07, color=role("accent"))
+            text = fit(T(wrap(words, 34), 22, P.CREAM, line_spacing=0.9), room - 0.4)
+            rows.append(VGroup(dot, text).arrange(RIGHT, buff=0.18, aligned_edge=UP))
+            dot.shift(DOWN * 0.12)
+        column = VGroup(*rows).arrange(DOWN, buff=0.32, aligned_edge=LEFT)
+        if caption:
+            head = fit(T(_short_caption(caption), 24, P.TITLE, font=TH["serif"], weight=BOLD), room)
+            column = VGroup(head, column).arrange(DOWN, buff=0.36, aligned_edge=LEFT)
+        if column.height > h - 0.4:
+            column.scale((h - 0.4) / column.height)
+        column.move_to([cx - w / 2 + left_w + 0.3 + column.width / 2, cy, 0])
+        group = Group(image, column)
+        draw = [*cutout_strokes(image), *column]
+        shown = self._to_stage(group, draw=draw)
+        if move:
+            self._move_picture(image, [], move)
+        return shown
 
     def _picture_labels(self, image, labels, width: float) -> list:
         """Labels beside a picture, each a tag joined by a line to the point on its part: those on the picture's left
@@ -4242,6 +4278,21 @@ class Lecture(Scene):
             keep.add(id(self.cap))
         return [m for m in self.mobjects if id(m) not in keep and m is not self.chrome]
 
+    # The lecture's emblem (a crown for feudalism, a wheel for the Industrial Revolution): one small picture made
+    # once, on the title, every chapter card and beside the chapter's name. None: no emblem.
+    EMBLEM: str | None = None
+
+    def emblem(self, height: float):
+        """The emblem at a height, or None."""
+        if not self.EMBLEM or not Path(str(self.EMBLEM)).is_file():
+            return None
+        try:
+            return cutout_mob(str(self.EMBLEM), height * 1.6, height)
+        except Exception as error:  # noqa: BLE001 -- an emblem that will not draw is left off
+            skipped(f"the emblem left off: {type(error).__name__}: {error}"[:300])
+            self.EMBLEM = None
+            return None
+
     def chapter(self, num: int, title: str, sub: str, narration: str) -> None:
         """A full-frame title card over the first beat of a chapter.
 
@@ -4267,6 +4318,13 @@ class Lecture(Scene):
         else:
             intro = LaggedStart(FadeIn(card[0], scale=1.2), GrowFromCenter(card[1]),
                                 FadeIn(card[2], shift=UP * 0.2), FadeIn(card[3]), lag_ratio=0.3)
+        mark = self.emblem(1.0)
+        if mark is not None:
+            mark.next_to(card, UP, buff=0.3).set_z_index(Z_CARD)
+            if mark.get_top()[1] > config.frame_height / 2 - 0.7:
+                mark.shift(DOWN * (mark.get_top()[1] - config.frame_height / 2 + 0.7))
+            intro = AnimationGroup(intro, FadeIn(mark, scale=0.8))
+            card = VGroup(*card, mark)
         self.beat(narration, intro, rt=2.2)
         self.play(FadeOut(card, shift=UP * 0.3), run_time=0.8)
 
@@ -4276,9 +4334,12 @@ class Lecture(Scene):
         line = T(sub, 30, P.CREAM, font=TH["serif"]) if sub else VGroup()
         fit(line, 12)
         label = T(tag, 16, P.MUTED, weight=BOLD)
-        group = VGroup(label, head, line).arrange(DOWN, buff=0.28).move_to(UP * 0.4)
+        mark = self.emblem(1.3)
+        group = VGroup(*([mark] if mark is not None else []), label, head, line).arrange(DOWN, buff=0.28)
+        group.move_to(UP * 0.4)
         group.set_z_index(Z_CARD)
-        self.beat(narration or f"{title}. {sub}", LaggedStart(FadeIn(label), Write(head), FadeIn(line, shift=UP * 0.2),
+        self.beat(narration or f"{title}. {sub}", LaggedStart(*([FadeIn(mark, scale=0.8)] if mark is not None else []),
+                                                             FadeIn(label), Write(head), FadeIn(line, shift=UP * 0.2),
                                                              lag_ratio=0.35), rt=3.0)
         self.play(FadeOut(group, shift=UP * 0.3), run_time=0.8)
 
@@ -4420,11 +4481,67 @@ class Lecture(Scene):
         self.wait(seconds + (2.0 if extra else 0.0))
         self.play(*[FadeOut(p) for p in parts], run_time=0.8)
 
+    # How a chapter gives way to the next, by style: a page turned (an old page, a cardboard sheet), a chalk smudge
+    # rubbed across the board, a whiteboard's eraser wipe; the rest fade. PANIM_TRANSITION (page, smudge, wipe,
+    # fade) sets one for every style.
+    TRANSITIONS = {"parchment": "page", "cardboard": "page", "chalkboard": "smudge", "whiteboard": "wipe",
+                   "blueprint": "wipe"}
+
+    def transition_kind(self) -> str:
+        kind = os.environ.get("PANIM_TRANSITION") or TH.get("transition") or \
+            self.TRANSITIONS.get(STYLE) or self.TRANSITIONS.get(TH.get("base_style", ""), "fade")
+        return kind if kind in ("page", "smudge", "wipe") else "fade"
+
+    def _sweeper(self, kind: str) -> VGroup:
+        """The sheet that sweeps across the frame: the board's colour, with an edge that says what it is."""
+        w, h = config.frame_width, config.frame_height
+        sheet = Rectangle(width=w + 0.2, height=h + 0.2, fill_color=P.BG, fill_opacity=1, stroke_width=0)
+        parts = [sheet]
+        lead = sheet.get_left()[0]
+        if kind == "page":
+            # A page's turned edge: a soft shadow ahead of it and a crisp line.
+            for k, opacity in enumerate((0.16, 0.1, 0.05)):
+                shade = Rectangle(width=0.18, height=h + 0.2, fill_color="#000000", fill_opacity=opacity,
+                                  stroke_width=0).move_to([lead - 0.09 - 0.18 * k, 0, 0])
+                parts.append(shade)
+            parts.append(Line([lead, -h / 2 - 0.1, 0], [lead, h / 2 + 0.1, 0], stroke_color=P.MUTED, stroke_width=2))
+        elif kind == "smudge":
+            # Chalk rubbed across: a ragged, half-clear edge.
+            rng = np.random.default_rng(7)
+            ys = np.linspace(-h / 2 - 0.1, h / 2 + 0.1, 24)
+            edge = [[lead - 0.35 - 0.3 * float(rng.random()), y, 0] for y in ys]
+            rag = Polygon(*edge, [lead + 0.01, h / 2 + 0.1, 0], [lead + 0.01, -h / 2 - 0.1, 0],
+                          fill_color=P.BG, fill_opacity=0.7, stroke_width=0)
+            parts.append(rag)
+        else:
+            # The eraser: a felt bar leading the wipe.
+            parts.append(Rectangle(width=0.3, height=h + 0.2, fill_color=P.MUTED, fill_opacity=0.85,
+                                   stroke_width=0).move_to([lead - 0.15, 0, 0]))
+        group = VGroup(*parts)
+        for part in group.get_family():
+            part._art_decorated = True
+        group.set_z_index(Z_CHROME - 0.5)
+        return group
+
     def outro_fade(self, run_time: float = 1.0) -> None:
-        """Fade everything a chapter added; keep the backdrop and chrome."""
+        """Fade everything a chapter added; keep the backdrop and chrome. In a style with a transition of its own
+        (transition_kind), a sheet sweeps across instead, taking the chapter with it."""
         going = self.on_stage()
         self.clear_caption()
-        if going:
+        kind = self.transition_kind()
+        if going and kind != "fade":
+            sheet = self._sweeper(kind)
+            # Turned from the right, as a book's page; rubbed and wiped from the left.
+            sign = -1 if kind == "page" else 1
+            if sign < 0:
+                sheet.rotate(PI)
+            width = config.frame_width + 1.2
+            sheet.move_to([-sign * width, 0, 0])
+            self.play(sheet.animate.move_to(ORIGIN), run_time=run_time * 0.55, rate_func=smooth)
+            self.remove(*going)
+            self.play(sheet.animate.move_to([sign * width, 0, 0]), run_time=run_time * 0.45, rate_func=smooth)
+            self.remove(sheet)
+        elif going:
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
         self.panel_items = VGroup()
         self.panel_images = Group()

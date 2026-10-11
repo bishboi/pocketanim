@@ -133,3 +133,51 @@ def test_a_picture_moves_once_it_is_drawn_and_comes_back(kind):
             assert abs(seen[-1][0] - start[0]).max() < 1e-6 and abs(seen[-1][1] - start[1]) < 1e-6   # still drawing
     moved = max(abs(c - start[0]).max() + abs(w - start[1]) for c, w, _ in seen)
     assert 0.01 < moved < 0.8
+
+
+def test_an_emblem_and_a_split_picture_compile(monkeypatch, tmp_path):
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.delenv("PANIM_IMAGES", raising=False)
+    import genimage
+
+    importlib.reload(genimage)
+    cl.script_photos.clear()
+    script = {"title": "Feudal Society", "style": "parchment", "emblem": "a golden crown", "auto_visuals": False,
+              "place_figures": False, "chapters": [{"title": "A", "map": False, "beats": [
+                  {"say": "A knight served his lord.", "do": [{"op": "picture", "generate": "a medieval knight",
+                                                               "points": ["Fought for his lord", "Held a fief"]}]}]}]}
+    source = cl.compile_script(script)
+    assert "    EMBLEM = " in source and "gen-" in source.split("EMBLEM = ")[1].splitlines()[0]
+    assert "points=['Fought for his lord', 'Held a fief']" in source
+    plain = cl.compile_script({**script, "emblem": None})
+    assert "EMBLEM" not in plain
+
+
+def test_each_style_turns_its_chapters_its_own_way(monkeypatch):
+    import pocket_lecture as pl
+    from manim import Square
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    monkeypatch.delenv("PANIM_TRANSITION", raising=False)
+    try:
+        kinds = {}
+        for style in ("parchment", "chalkboard", "whiteboard", "atlas"):
+            pl.use_style(style)
+            scene = Probe()
+            kinds[style] = scene.transition_kind()
+        assert kinds == {"parchment": "page", "chalkboard": "smudge", "whiteboard": "wipe", "atlas": "fade"}
+        monkeypatch.setenv("PANIM_TRANSITION", "wipe")
+        assert Probe().transition_kind() == "wipe"
+        pl.use_style("parchment")
+        monkeypatch.setenv("PANIM_TRANSITION", "page")
+        scene = Probe()
+        scene.setup()
+        sheet = scene._sweeper("page")
+        assert sheet.width > pl.config.frame_width and sheet.z_index == pl.Z_CHROME - 0.5
+    finally:
+        pl.use_style("atlas")

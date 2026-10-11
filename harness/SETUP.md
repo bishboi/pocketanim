@@ -143,6 +143,14 @@ asks for it, or all of them ahead of time with `.venv/bin/python harness/lecture
 mountains and plateaus in view as hill marks (Natural Earth, downloaded like the borders). A map zoomed in to a few
 places shows a small locator map of the whole country in its corner (`PANIM_LOCATOR=0` turns it off).
 
+### Chapters, emblem and layouts
+
+A chapter gives way to the next in its style's own way: a page turned (parchment, cardboard), a chalk smudge
+(chalkboard), an eraser wipe (whiteboard, blueprint); the rest fade (`PANIM_TRANSITION` = page, smudge, wipe or fade
+sets one for every style). A script's `emblem` ("a golden crown") is made once and shown on the title, each
+chapter card and beside the chapter's name. A picture with `points` is laid out split: the picture on the left,
+those few lines on the right.
+
 ### Words on screen
 
 No word is set below 15pt (a credit line may be). The subtitle colours the words of a label on screen that the line

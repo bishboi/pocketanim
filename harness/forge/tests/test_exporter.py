@@ -168,7 +168,7 @@ def test_a_diagram_set_moving_moves_its_parts_in_the_program_and_brings_them_bac
     scene.write_text(cl.compile_script(json.loads(json.dumps(script))))
     out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
                           "GeneratedScene", str(tmp_path)], capture_output=True, text=True, timeout=900,
-                         env={**__import__("os").environ, "PANIM_VOICE": "silent"})
+                         env={**__import__("os").environ, "PANIM_VOICE": "silent", "PANIM_TRANSITION": "fade"})
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert result["tier"] == 1 and result["blockers"] == [], result
     program = result["program"]

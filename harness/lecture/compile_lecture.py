@@ -324,6 +324,19 @@ def _historical(name, year: int):
         return True
 
 
+def _emblem_op(script: dict) -> dict:
+    """The picture op that makes a lecture's emblem: one simple motif for the whole series."""
+    what = str(script["emblem"]).strip()[:120]
+    return {"op": "illustration", "query": f"{what}, a simple bold emblem", "optional": True}
+
+
+def _emblem_file(script: dict) -> str | None:
+    if not (isinstance(script.get("emblem"), str) and script["emblem"].strip()):
+        return None
+    row = script_photos.get(_photo_key(_emblem_op(script)))
+    return str(row["file"]) if row and row.get("file") else None
+
+
 def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     """Ops that cannot be drawn as written and need no new words to mend: an unknown op, a map op with no map,
     one missing what it draws, a picture whose kind is not one of the picture keys. Each is left out (a broken
@@ -817,6 +830,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     else:
         errors += _unknown_places(places, home, script.get("region"))
     errors += _unknown_icons(icon_names)
+    if isinstance(script.get("emblem"), str) and script["emblem"].strip():
+        # The lecture's emblem: one small picture, made like any other (optional: no emblem if it cannot be made).
+        photos.append(("the lecture's emblem", _emblem_op(script)))
     errors += _unfetched_photos(photos, script.get("genre"), script.get("style"), contexts)
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
@@ -2761,8 +2777,10 @@ def _op_call(op: dict) -> str:
         if not row:
             return None            # nothing reusable was found: the beat plays without it
         move = f", move={_q(op['move'])}" if op.get("move") in PICTURE_MOVES else ""
+        points = [str(x) for x in op["points"] if str(x).strip()][:5] if isinstance(op.get("points"), list) else []
+        listed = f", points={points!r}" if points and not _labels_of(op) else ""
         return (f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))}"
-                f"{_labels_arg(row)}{move})")
+                f"{_labels_arg(row)}{move}{listed})")
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
@@ -3197,6 +3215,9 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         fields = ", ".join(f"{k}={_q(v)}" for k, v in region.items() if v)
         out.append(f"    REGION = dict({fields})")
     out.append(f"    SECTIONS = [{', '.join(_q(s) for s in sections)}]")
+    emblem = _emblem_file(script)
+    if emblem:
+        out.append(f"    EMBLEM = {_q(emblem)}")
     out += ["", "    def construct(self):"]
     if script.get("title"):
         intro = script.get("intro") or f"{script['title']}. {script.get('sub', '')}".strip()

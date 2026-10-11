@@ -22,7 +22,7 @@ import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
 import { MediaLog, type MediaItem } from "./media";
-import { SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
+import { PREVIEW_MINUTES, SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -61,6 +61,9 @@ export type GenerateRequest = {
   art?: string;
   /** The generate job's id (app/api/generate): the generation's record in Supabase is kept under it (lib/media.ts). */
   generationId?: string;
+  /** A preview of 2-3 minutes: the lecture's opening sections only, with a map and a diagram if it has any, to judge
+   * the look and the voice before the whole series is made. */
+  preview?: boolean;
 };
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
@@ -875,8 +878,15 @@ async function viaOpenRouter(
   if (lecture && !(request.instruction && request.previousSource)) {
     // A book (a PDF) is taught section by section, each with its own slice of the text; a reference video is
     // remade part by part.
-    const sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
-    series = planTopics(sections).length > 1;
+    let sections = transcriptSections(reference, minutes, reference?.parts?.length ? "" : doc?.markdown ?? "");
+    if (request.preview) {
+      // A preview: the opening of the lecture only, about PREVIEW_MINUTES of teaching, as one short video.
+      sections = previewSections(sections);
+      emit({ type: "message", role: "status", text: `Preview: the first ${sections.length} section` +
+        `${sections.length > 1 ? "s" : ""} only (about ${PREVIEW_MINUTES} min), to check the look and the voice. ` +
+        "Untick Preview to make the whole lecture." });
+    }
+    series = !request.preview && planTopics(sections).length > 1;
     if (series) {
       emit({ type: "message", role: "status", text: `About ${Math.round(sections.reduce((n, x) => n + x.minutes, 0))} min ` +
         "estimated: made as videos of 25-30 min, each ending where the written transcript reaches that length, between " +
@@ -1526,6 +1536,9 @@ async function viaOpenRouter(
         first ? "This is the first section: the script also has the lecture's title, sub and intro."
           : "Give the script a title (only the first section's is used) and no intro.",
         ...seriesDuties(section.n, last),
+        ...(request.preview ? ["PREVIEW: this short lecture shows how the whole one will look. Include, where the " +
+          "content allows, one chapter on the map and one with a diagram, besides the pictures, so each kind can be " +
+          "judged."] : []),
         ...(() => {
           // What the other sections' chapters (written so far) already put on screen: build on it, do not redraw it.
           const shown = shownSoFar(done, section.n);

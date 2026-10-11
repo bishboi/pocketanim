@@ -178,3 +178,20 @@ def test_a_video_section_is_told_what_the_others_put_on_screen(lib):
     assert 'the very same "generate" words' in text
     assert "Section 2" not in text and "words only" not in text          # its own section, and words, are left out
     assert got["none"] == []
+
+
+def test_a_preview_is_the_opening_few_minutes(lib):
+    """Preview first: the opening sections only, cut at a paragraph to about three minutes of teaching, without
+    the book's exercise questions, renumbered from 1."""
+    para = "Feudal society had three orders. " * 40
+    sections = [{"n": 1, "parts": [], "minutes": 8, "words": 1600, "source": "\n\n".join([para] * 8), "book": True,
+                 "questions": [{"text": "Q?"}]},
+                {"n": 2, "parts": [], "minutes": 6, "words": 1200, "source": para, "book": True},
+                {"n": 3, "parts": [], "minutes": 2, "words": 300, "source": "Questions.", "questionsOnly": True}]
+    got = _node(lib, f"""console.log(JSON.stringify(t.previewSections({json.dumps(sections)})))""")
+    assert len(got) == 1 and got[0]["n"] == 1 and got[0]["questions"] == []
+    assert got[0]["minutes"] == 3 and len(got[0]["source"]) < len(sections[0]["source"]) * 0.5
+    short = [{**sections[1], "n": 1, "minutes": 1.5}, {**sections[1], "n": 2, "minutes": 1.2},
+             {**sections[1], "n": 3, "minutes": 2}]
+    got = _node(lib, f"""console.log(JSON.stringify(t.previewSections({json.dumps(short)})))""")
+    assert [s["n"] for s in got] == [1, 2] and sum(s["minutes"] for s in got) <= 3.01

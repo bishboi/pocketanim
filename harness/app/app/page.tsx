@@ -274,6 +274,8 @@ export default function Home() {
   const [content, setContent] = useState("");
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const [art, setArt] = useState("auto");
+  // A short preview first: the lecture's opening 2-3 minutes, to judge the look and voice before the whole series.
+  const [preview, setPreview] = useState(false);
   const [versions, setVersions] = useState<Version[]>([]);
   const [current, setCurrent] = useState(-1);
   // The version on screen, for work that finishes later (a part built in the background).
@@ -853,6 +855,7 @@ export default function Home() {
           transcriptModel: template.kind === "lecture" && writer.trim() ? writer.trim() : undefined,
           svgModel: template.kind === "lecture" && drawer.trim() ? drawer.trim() : undefined,
           referenceId: template.kind === "lecture" ? reference.id : undefined,
+          preview: template.kind === "lecture" && preview && !edit ? true : undefined,
         }),
       });
       if (!response.ok || !response.body) {
@@ -1469,6 +1472,11 @@ export default function Home() {
                         </option>
                       ))}
                     </select>
+                  </label>
+                  <label className="flex items-center gap-2" title="Make only the first 2-3 minutes (with a map and a diagram if the lecture has them) to check the look and the voice; untick to make the whole lecture.">
+                    <input type="checkbox" data-testid="lecture-preview" checked={preview} disabled={!!busy}
+                      onChange={(e) => setPreview(e.target.checked)} />
+                    <span className="text-neutral-300">Preview first (2-3 min)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <span className="text-neutral-300">Language</span>

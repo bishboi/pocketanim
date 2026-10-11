@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     transcriptModel: typeof body.transcriptModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.transcriptModel.trim())
       ? body.transcriptModel.trim() : undefined,
     art: artStyle(body.art),
+    preview: body.preview === true,
     svgModel: typeof body.svgModel === "string" && /^[\w.\-]+\/[\w.:\-]+$/.test(body.svgModel.trim())
       ? body.svgModel.trim() : undefined,
   };

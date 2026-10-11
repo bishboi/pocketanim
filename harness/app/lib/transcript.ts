@@ -572,3 +572,36 @@ export function transcriptProblem(script: unknown, written: WrittenSection[], on
       ". Every line of the transcript is said, in order, one or two a beat ({\"lines\": [n]}).";
   }).join("\n");
 }
+
+/** How long a preview teaches (minutes). */
+export const PREVIEW_MINUTES = 3;
+
+/**
+ * A preview's sections: the opening ones, cut to about PREVIEW_MINUTES of teaching (the first section's text cut
+ * at a paragraph when it alone is longer), without the book's exercise questions.
+ */
+export function previewSections(sections: Section[]): Section[] {
+  const out: Section[] = [];
+  let total = 0;
+  for (const section of sections) {
+    if (total >= PREVIEW_MINUTES * 0.8) break;
+    if (section.questionsOnly) continue;
+    const room = PREVIEW_MINUTES - total;
+    let kept = { ...section, questions: [], questionsOnly: false };
+    if (section.minutes > room * 1.2) {
+      const share = Math.max(0.15, room / Math.max(section.minutes, 0.1));
+      const paragraphs = section.source.split(/\n\s*\n/);
+      const wanted = Math.max(1, Math.round(section.source.length * share));
+      let text = "";
+      for (const p of paragraphs) {
+        if (text && text.length + p.length > wanted) break;
+        text += (text ? "\n\n" : "") + p;
+      }
+      kept = { ...kept, source: text || section.source.slice(0, wanted), minutes: room,
+        words: Math.round(section.words * room / Math.max(section.minutes, 0.1)) };
+    }
+    out.push(kept);
+    total += kept.minutes;
+  }
+  return out.length ? out.map((s, k) => ({ ...s, n: k + 1 })) : sections.slice(0, 1);
+}

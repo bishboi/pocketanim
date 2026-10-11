@@ -47,6 +47,11 @@ LOOKS = {
 # Models that refused this compile (not available in this region, no access, no such model, not an image model):
 # model -> why. Not asked again in the same compile: one refusal is reported for every picture, not 70 calls.
 REFUSED: dict[str, str] = {}
+# Models that take words only (no picture in the request): asked once with a reference picture, they said so; from
+# then on, this run, they are asked in words alone (NO_REFERENCE).
+NO_REFERENCE: set[str] = set()
+IMAGE_INPUT_REFUSED = re.compile(r"support(?:s|ed)? (?:the requested )?(?:image input|input modalit)|"
+                                 r"image input|does not support images?|vision (?:is )?not supported", re.I)
 
 
 def configured() -> str:
@@ -533,7 +538,7 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
 
 
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
-             context: str | None = None, scene: bool = False) -> dict | None:
+             context: str | None = None, scene: bool = False, match: bool = True) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -578,7 +583,9 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     if model() in REFUSED:
         _failed(what, REFUSED[model()])          # refused already this run: not asked again
         return None
-    like = reference_for(what, style, realistic) if not target.exists() else None
+    like = reference_for(what, style, realistic) if match and not target.exists() and model() not in NO_REFERENCE \
+        else None
+    plain = prompt
     reference = None
     if like is not None:
         try:
@@ -589,7 +596,17 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
         except OSError:
             reference = None
     try:
-        data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference)
+        try:
+            data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference)
+        except RuntimeError as error:
+            if reference is None or not IMAGE_INPUT_REFUSED.search(str(error)):
+                raise
+            # A model that takes words only: asked again without the reference picture (and never sent one again).
+            NO_REFERENCE.add(model())
+            reference, prompt = None, plain
+            row["prompt"] = prompt
+            row.pop("like", None)
+            data, usd = _ask(prompt, None)
     except Exception as error:  # noqa: BLE001 -- offline, refused, no key: the picture is left out, and said why
         why = str(error) or type(error).__name__
         if _refusal(why):

@@ -204,3 +204,51 @@ def test_an_emblem_that_is_a_picture_not_shapes_is_shown(tmp_path, monkeypatch):
 
     with tempconfig({"dry_run": True, "media_dir": str(tmp_path), "disable_caching": True}):
         Probe().render()
+
+
+def test_a_model_that_takes_words_only_is_asked_again_without_the_reference(monkeypatch, tmp_path):
+    """recraft and the like answer a request with a picture in it with HTTP 404 "No endpoints found that support
+    image input": the picture is asked for again in words alone, and that model is not sent a reference again."""
+    asked: list[dict] = []
+    picture = _png()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            asked.append(body)
+            if isinstance(body["messages"][0]["content"], list):
+                status, reply = 404, {"error": {"message": "No endpoints found that support image input"}}
+            else:
+                status, reply = 200, {"choices": [{"message": {"images": [{"image_url": {"url": picture}}]}}]}
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "recraft/words-only")
+    monkeypatch.setenv("PANIM_IMAGE_API", "chat")
+    for name in ("PANIM_IMAGE_FAKE", "PANIM_IMAGES", "PANIM_IMAGE_PROXY", "PANIM_IMAGE_REFERENCE"):
+        monkeypatch.delenv(name, raising=False)
+    import genimage
+
+    gen = importlib.reload(genimage)
+    try:
+        assert gen.generate("a Mongol warrior on horseback")
+        second = gen.generate("a Mongol horse bow")
+        third = gen.generate("a Mongol yurt")
+        emblem = gen.generate("a Mongol saddle, a simple bold emblem", match=False)
+    finally:
+        server.shutdown()
+    assert second and third and emblem and not second.get("like")
+    kinds = [isinstance(a["messages"][0]["content"], list) for a in asked]
+    assert kinds == [False, True, False, False, False]          # one refused try, then words alone from then on
+    assert gen.report()["failed"] == []

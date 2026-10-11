@@ -327,7 +327,8 @@ def _historical(name, year: int):
 def _emblem_op(script: dict) -> dict:
     """The picture op that makes a lecture's emblem: one simple motif for the whole series."""
     what = str(script["emblem"]).strip()[:120]
-    return {"op": "illustration", "query": f"{what}, a simple bold emblem", "optional": True}
+    # Not drawn to match another picture: an emblem is a motif, not a person already shown.
+    return {"op": "illustration", "query": f"{what}, a simple bold emblem", "optional": True, "_emblem": True}
 
 
 def _emblem_file(script: dict) -> str | None:
@@ -1174,7 +1175,8 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         context = picture_context((contexts or {}).get(at), op)
         if op.get("op") == "illustration":
             row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
-                               parts=_labels_of(op), context=context, scene=bool(op.get("scene"))) \
+                               parts=_labels_of(op), context=context, scene=bool(op.get("scene")),
+                               match=not op.get("_emblem")) \
                 if images.enabled() else None
             if row:
                 script_photos[key] = _with_labels(row, op)

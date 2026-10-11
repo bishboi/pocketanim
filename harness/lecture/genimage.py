@@ -44,42 +44,9 @@ LOOKS = {
 }
 
 
-# Models that refused this run (not available in this region, no access, no such model, not an image model):
-# model -> why. Not asked again; the fallback is asked instead.
+# Models that refused this compile (not available in this region, no access, no such model, not an image model):
+# model -> why. Not asked again in the same compile: one refusal is reported for every picture, not 70 calls.
 REFUSED: dict[str, str] = {}
-
-
-_LOADED = False
-REFUSED_FILE = "refused.json"
-REFUSED_HOURS = 6
-
-
-def _load_refused() -> None:
-    """Refusals other compiles of this machine met in the last hours (each compile is its own process): a model
-    not available here is not asked again by every part of a lecture."""
-    import time
-
-    try:
-        rows = json.loads((CACHE / REFUSED_FILE).read_text())
-    except (OSError, ValueError):
-        return
-    for name, row in rows.items():
-        if time.time() - float(row.get("at") or 0) < REFUSED_HOURS * 3600:
-            REFUSED.setdefault(name, str(row.get("why") or "refused"))
-
-
-def _refuse(name: str, why: str) -> None:
-    import time
-
-    REFUSED[name] = why
-    try:
-        path = CACHE / REFUSED_FILE
-        rows = json.loads(path.read_text()) if path.exists() else {}
-        rows[name] = {"why": why, "at": time.time()}
-        CACHE.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(rows, indent=1))
-    except (OSError, ValueError):
-        pass
 
 
 def configured() -> str:
@@ -87,18 +54,10 @@ def configured() -> str:
     return os.environ.get("PANIM_IMAGE_MODEL") or MODEL_DEFAULT
 
 
-def fallback() -> str | None:
-    """The model asked when the configured one refuses (PANIM_IMAGE_FALLBACK; "none" for no fallback)."""
-    name = os.environ.get("PANIM_IMAGE_FALLBACK", MODEL_DEFAULT).strip()
-    return None if name.lower() in ("", "none", "off", "0") else name
-
-
 def model() -> str:
-    """The image model asked now: the configured one, or the fallback once the configured one has refused."""
-    chosen = configured()
-    if chosen in REFUSED and fallback() and fallback() not in REFUSED:
-        return fallback()
-    return chosen
+    """The image model asked: the one the settings name (PANIM_IMAGE_MODEL). There is no fallback: a model that
+    refuses is reported, never swapped for another."""
+    return configured()
 
 
 def _refusal(error: str) -> bool:
@@ -327,10 +286,6 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
 
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
-    global _LOADED
-    if not _LOADED:
-        _LOADED = True
-        _load_refused()
     prompt = prompt_for(what, style, realistic)
     key = hashlib.sha256(f"{model()}|{prompt}".encode()).hexdigest()[:20]
     target = CACHE / f"gen-{key}.png"
@@ -360,13 +315,8 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
         data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt)
     except Exception as error:  # noqa: BLE001 -- offline, refused, no key: the picture is left out, and said why
         why = str(error) or type(error).__name__
-        asked = model()
         if _refusal(why):
-            _refuse(asked, why)
-            if model() != asked:
-                # The configured model refused: this picture, and the rest, are asked of the fallback.
-                ASKED.pop()
-                return generate(what, style, realistic)
+            REFUSED[model()] = why
         _failed(what, why)
         return None
     try:
@@ -388,8 +338,6 @@ def report() -> dict:
     why), and which model, for the lecture's log (compile_lecture --json "images")."""
     out = {"model": model(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
            "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED}
-    if model() != configured():
-        out["fallback"] = {"from": configured(), "to": model(), "why": REFUSED.get(configured(), "")}
     return out
 
 
@@ -407,14 +355,7 @@ def check(what: str = "a red apple with one green leaf") -> dict:
     try:
         data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt_for(what))
     except Exception as error:  # noqa: BLE001 -- reported, not raised
-        why = str(error) or type(error).__name__
-        failed = {**out, "error": why, "seconds": round(time.time() - started, 1)}
-        if _refusal(why) and fallback() and fallback() != model():
-            # What a lecture would do next: ask the fallback. Said, with the configured model's error.
-            _refuse(model(), why)
-            other = check(what)
-            return {**other, "configured": configured(), "configured_error": why}
-        return failed
+        return {**out, "error": str(error) or type(error).__name__, "seconds": round(time.time() - started, 1)}
     out.update(seconds=round(time.time() - started, 1), usd=usd, bytes=len(data))
     try:
         png = cutout(data)

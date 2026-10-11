@@ -59,7 +59,6 @@ def test_a_model_that_is_not_an_image_model_is_named(gen, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "some/text-model")
-    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
     got = gen.check()
     server.shutdown()
     assert not got["ok"] and "some/text-model returned no image" in got["error"] and "I cannot draw" in got["error"]
@@ -70,7 +69,6 @@ def test_an_http_error_is_reported_and_a_lecture_records_it(gen, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "bad/model")
-    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
     got = gen.check()
     assert "HTTP 404" in got["error"] and "No endpoints found" in got["error"]
     assert gen.generate("a steam locomotive") is None
@@ -159,42 +157,27 @@ def _refusing_server(refused: str, png: bytes):
     return server, calls
 
 
-def test_a_model_not_available_here_falls_back_once_for_the_whole_run(gen, monkeypatch):
+def test_a_model_not_available_here_is_reported_and_never_swapped(gen, monkeypatch):
+    """No fallback: a model that refuses is reported for every picture, asked once, and no other model is used."""
     server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
-    rows = [gen.generate(w) for w in ("a knight", "a manor", "a church")]
-    report = gen.report()
-    # The next compile (a process of its own) does not ask the refusing model again.
-    gen2 = importlib.reload(gen)
-    again = gen2.generate("a monk")
-    server.shutdown()
-    assert all(r and r["model"] == "google/gemini-2.5-flash-image" for r in rows)
-    assert calls == ["meta/muse-image", "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-image",
-                     "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-image"]
-    assert report["made"] == 3 and report["failed"] == [] and report["asked"] == 3
-    assert report["fallback"]["from"] == "meta/muse-image" and "region" in report["fallback"]["why"]
-    assert again and again["model"] == "google/gemini-2.5-flash-image"
-
-
-def test_the_check_names_the_refusing_model_and_tries_the_fallback(gen, monkeypatch):
-    server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
-    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
-    monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
+    rows = [gen.generate(w) for w in ("a knight", "a manor")]
     got = gen.check()
     server.shutdown()
-    assert got["ok"] and got["model"] == "google/gemini-2.5-flash-image"
-    assert got["configured"] == "meta/muse-image" and "not available in your region" in got["configured_error"]
+    assert rows == [None, None] and set(calls) == {"meta/muse-image"}
+    report = gen.report()
+    assert report["model"] == "meta/muse-image" and "fallback" not in report
+    assert all("not available in your region" in f["error"] for f in report["failed"])
+    assert not got["ok"] and got["model"] == "meta/muse-image" and "not available in your region" in got["error"]
 
 
-def test_no_fallback_stops_asking_after_the_first_refusal(gen, monkeypatch):
+def test_a_refusing_model_is_asked_once_a_compile(gen, monkeypatch):
     server, calls = _refusing_server("meta/muse-image", gen._stand_in("x"))
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
     monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
-    monkeypatch.setenv("PANIM_IMAGE_FALLBACK", "none")
     assert gen.generate("a knight") is None and gen.generate("a manor") is None
     server.shutdown()
     assert calls == ["meta/muse-image"]

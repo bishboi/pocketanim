@@ -320,10 +320,33 @@ def T(text: str, size: float = 24, color: str | None = None, font: str | None = 
     font = font or TH["sans"]
     if font == "Permanent Marker":
         text = text.replace("≈", "~")
-    if size < LAYOUT_SIZE and _complex(text):
+    if weight == BOLD and not _has_bold(font):
+        # A font with no bold of its own (Patrick Hand, Architects Daughter) is faked bold by the text engine, which
+        # on some systems spaces the letters unevenly: written in its own weight instead.
+        weight = NORMAL
+    if size < LAYOUT_SIZE:
+        # Laid out large and scaled down: at small sizes the text engine rounds each letter's place to whole
+        # pixels, which on some systems (macOS especially) leaves uneven gaps ("pro te cts") and drops spaces
+        # ("servesloyally"). The same for every script, not only Hindi.
         mob = Text(text, font=font, font_size=LAYOUT_SIZE, color=color or P.CREAM, weight=weight, **kw)
         return mob.scale(size / LAYOUT_SIZE)
     return Text(text, font=font, font_size=size, color=color or P.CREAM, weight=weight, **kw)
+
+
+_BOLD: dict[str, bool] = {}
+
+
+def _has_bold(font: str) -> bool:
+    """Whether a font family has a bold face of its own (fontconfig); True when that cannot be told."""
+    if font not in _BOLD:
+        try:
+            out = subprocess.run(["fc-list", f":family={font}", "style", "weight"], capture_output=True, text=True,
+                                 timeout=10).stdout
+        except Exception:  # noqa: BLE001 -- no fontconfig: leave the weight as asked
+            out = ""
+        # A variable font (one file, every weight) lists its weight range, e.g. "weight=[400 200]".
+        _BOLD[font] = (not out.strip()) or bool(re.search(r"bold|weight=\[|weight=(?:2\d\d|1[5-9]\d)", out, re.I))
+    return _BOLD[font]
 
 
 def _art(mob) -> None:

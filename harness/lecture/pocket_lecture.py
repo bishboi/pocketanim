@@ -2165,8 +2165,15 @@ class Lecture(Scene):
         if len(lines) > 2:
             lines = textwrap.wrap(text, int(len(text) / 2) + 8)
         shown = "\n".join(lines)
-        # No ligatures ("fi" drawn as one glyph): one glyph per letter, so the said terms can be coloured.
-        t = fit(T(shown, tok("caption_size", 19), TH["cap_fg"], line_spacing=0.9, disable_ligatures=True), 13.2)
+        # No ligatures ("fi" drawn as one glyph): one glyph per letter, so the said terms can be coloured. Not for a
+        # script whose letters join (Hindi): Manim refuses that, and its joined shapes are what is read.
+        size = tok("caption_size", 19)
+        try:
+            if _complex(shown):
+                raise ValueError("joined script")
+            t = fit(T(shown, size, TH["cap_fg"], line_spacing=0.9, disable_ligatures=True), 13.2)
+        except ValueError:
+            t = fit(T(shown, size, TH["cap_fg"], line_spacing=0.9), 13.2)
         spans = self._caption_spans(shown) if os.environ.get("PANIM_CAPTION_TERMS", "1") != "0" else []
         if spans:
             # The highlight's colour, shaded until it reads on the caption box and stands apart from its words.

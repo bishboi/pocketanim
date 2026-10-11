@@ -263,3 +263,22 @@ def test_the_caption_colours_the_words_that_are_on_screen():
     assert ink[0] != ink[6] and ink[0] == ink[16]                   # "Akbar" and "Mughal" coloured, "ruled" not
     plain = scene.caption("Nothing on screen is said here at all.")[-1]
     assert not getattr(plain, "_panim_terms", None)
+
+
+def test_a_hindi_caption_is_set_in_its_joined_letters():
+    """Hinglish lines: Devanagari letters join, so the caption is not set letter by letter (Manim refuses that);
+    it is shown as written, a term on screen left uncoloured rather than the line failing."""
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    scene.add(pl.T("empires", 24).move_to([2, 1, 0]))
+    line = ("दोस्तों, आज हम एक लंबे ऐतिहासिक सफ़र की शुरुआत कर रहे हैं—ऐसे empires की कहानी, जो तीन continents "
+            "तक फैले, और ऐसे nomadic empires की भी, जिनकी ताकत केवल शहरों पर निर्भर नहीं थी।")
+    cap = scene.caption(line)
+    assert len(cap[-1].submobjects) > 20

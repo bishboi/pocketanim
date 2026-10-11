@@ -522,6 +522,8 @@ export function lecturePrompt(
     '     short names in the lecture\'s language, parts that are really in it): {"op":"picture","generate":"a medieval',
     '     knight in armour on horseback, side view","labels":["helmet","lance","shield","chain mail"]}: each is written',
     "     beside the picture with a line to its part.",
+    "  Only teaching and learning content is shown: never the book's furniture (QR codes, logos, scan boxes, page",
+    "  headers), even when the transcript or a figure mentions one.",
     "  Nothing is searched for on the web, and there are no icons or emoji. Never a random image; every picture",
     "  shows what is being said. process and quote are boxes of words: use them rarely. Captions in the lecture's",
     "  language.",

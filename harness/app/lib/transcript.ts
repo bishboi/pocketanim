@@ -286,6 +286,8 @@ export function transcriptPrompt(options: {
       "    and numbers garbled; work out what the teacher meant. Its channel talk (subscribe, the next video) is not",
       "    content.",
     ] : []),
+    "  - Teach the subject only. The book's own furniture is not content: never mention or describe its QR codes,",
+    "    \"scan for e-content\" boxes, logos, page numbers, page layout, reprint or copyright notes.",
     "  - Each request asks for one section, with the end of the one before when it is written: write that one",
     "    section, carrying on from there.",
     ...(options.subject ? [`  - The subject is ${options.subject}.`] : []),

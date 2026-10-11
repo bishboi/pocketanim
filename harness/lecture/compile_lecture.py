@@ -880,6 +880,90 @@ def _chapter_spots(chapter: dict) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+# A map chapter is zoomed to the places it shows, with this much room round them (a share of their spread), never
+# closer than MIN_SPAN degrees across, and not at all when they spread over most of the map anyway.
+ZOOM_ROOM = 0.35
+MIN_SPAN = (12.0, 8.0)          # degrees of longitude, latitude
+ZOOM_WHEN_UNDER = 0.6           # zoom only when the places take less than this share of the map's width and height
+
+
+def _chapter_frame(chapter: dict, region: dict | None) -> tuple | None:
+    """The lon/lat box a map chapter is fitted to: the places it marks, the journeys and arrows it draws and the
+    areas it fills, with room round them, so the class sees them large and close instead of a whole continent
+    with a few dots on it. None to show the whole map (nothing is pointed at, or it is spread over most of it)."""
+    if not region:
+        return None
+    try:
+        import pocket_lecture as pl
+
+        bounds = pl.map_bounds(region)
+        home = None if pl.region_kind(region) == "area" else region.get("country")
+    except Exception:  # noqa: BLE001 -- no engine here, or a region it does not know: the whole map
+        return None
+    if not bounds:
+        return None
+    lons: list[float] = []
+    lats: list[float] = []
+
+    def add(where) -> None:
+        try:
+            if isinstance(where, str):
+                lon, lat = pl.place(where, home, bounds)
+            else:
+                lon, lat = float(where[0]), float(where[1])
+        except Exception:  # noqa: BLE001 -- a place the gazetteer does not know is passed over
+            return
+        if pl._inside((lon, lat), bounds):
+            lons.append(lon)
+            lats.append(lat)
+
+    for beat in chapter.get("beats") or []:
+        for op in beat.get("do") or []:
+            if not isinstance(op, dict):
+                continue
+            kind = op.get("op")
+            if kind == "marker":
+                add(op.get("place") or op.get("lonlat"))
+            elif kind == "journey":
+                for stop in op.get("stops") or []:
+                    add(stop)
+            elif kind in ("path", "arrow"):
+                for point in op.get("points") or []:
+                    add(point)
+            elif kind == "icon":
+                for spot in _icon_spots(op):
+                    add(spot)
+            elif kind == "state" and op.get("name"):
+                try:
+                    shape = pl.state(op["name"], home) if home else pl.country_home(op["name"])
+                except Exception:  # noqa: BLE001
+                    try:
+                        shape = pl.country_home(op["name"])
+                    except Exception:  # noqa: BLE001
+                        continue
+                x0, y0, x1, y1 = shape.bounds
+                lons.extend([x0, x1])
+                lats.extend([y0, y1])
+    if not lons:
+        return None
+    lon0, lon1, lat0, lat1 = min(lons), max(lons), min(lats), max(lats)
+    pad = max(lon1 - lon0, lat1 - lat0) * ZOOM_ROOM
+    lon0, lon1, lat0, lat1 = lon0 - pad, lon1 + pad, lat0 - pad, lat1 + pad
+    # Never closer than MIN_SPAN: one place is shown with its surroundings, not as a dot on a blank page.
+    for k, (lo, hi) in enumerate(((lon0, lon1), (lat0, lat1))):
+        short = MIN_SPAN[k] - (hi - lo)
+        if short > 0:
+            lo, hi = lo - short / 2, hi + short / 2
+        if k == 0:
+            lon0, lon1 = lo, hi
+        else:
+            lat0, lat1 = lo, hi
+    b0, b1, b2, b3 = bounds
+    if (lon1 - lon0) > ZOOM_WHEN_UNDER * (b2 - b0) and (lat1 - lat0) > ZOOM_WHEN_UNDER * (b3 - b1):
+        return None
+    return (round(lon0, 2), round(lat0, 2), round(lon1, 2), round(lat1, 2))
+
+
 def _picture_value(spec) -> tuple | None:
     """A picture as the engine takes it: ("image", file), ("svg", file), ("entity", name), or None (not found or
     not drawn: the words stand alone)."""
@@ -1830,6 +1914,28 @@ def no_icons(script: dict) -> dict:
                     out.append(op)
             beat["do"] = out
     return script
+
+
+def _fills_panel(chapter: dict, figures: dict | None = None) -> bool:
+    """Whether a map chapter puts anything in the side panel beyond its title (a fact, a stat, a bar chart, an icon
+    or a figure in the panel). Without, it is drawn wide: the map across the whole frame, no empty panel."""
+    for beat in chapter.get("beats") or []:
+        for op in beat.get("do") or []:
+            if not isinstance(op, dict):
+                continue
+            kind = op.get("op")
+            if kind in ("fact", "stat", "bars"):
+                return True
+            if kind == "icon" and not _icon_spots(op):
+                return True
+            if kind == "photo" and op.get("where") == "panel":
+                return True
+            if kind == "figure":
+                drawn = (figures or {}).get(str(op.get("id"))) or {}
+                # A figure redrawn as SVG is shown on the stage; the book's own picture goes in the panel.
+                if not (drawn.get("svg") and not op.get("photo")) and op.get("where", "panel") == "panel":
+                    return True
+    return False
 
 
 def _map_chapter(chapter: dict, has_region: bool) -> bool:
@@ -2979,7 +3085,12 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter.get('narration') or chapter['title'])})")
         on_map = _map_chapter(chapter, bool(region))
-        out.append("        self.show_map()" if on_map else
+        if on_map:
+            # Fitted to the places this chapter shows (or back to the whole map when it shows them all over it).
+            box = _chapter_frame(chapter, script.get("region"))
+            out.append(f"        self.use_frame({box!r})")
+        wide = on_map and not _fills_panel(chapter, script.get("figures"))
+        out.append(("        self.show_map(wide=True)" if wide else "        self.show_map()") if on_map else
                    "        self.board()" if board_chapter(script, chapter) else "        self.add_panel()")
         if on_map:
             # Every place the chapter will mark, spoken for now: no label set early covers a later marker's dot.

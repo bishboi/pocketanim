@@ -364,6 +364,10 @@ def _tint(icon_id: str) -> str:
 OUTLINE = 4.5
 
 
+# The smallest size (in the font's points, as drawn on the frame) an arrow's words in a diagram are shown at.
+READABLE_LABEL = 17
+
+
 def marker(text: str, size: float = 20, color: str | None = None):
     """A diagram's words: the style's own font, bold, in the board's ink."""
     return T(str(text), size, color or P.CREAM, weight=BOLD)
@@ -1461,7 +1465,9 @@ class MapFrame:
         self.center = np.array(center, dtype=float)
         # Shapes are cut at the panel's left edge: nothing under the panel is
         # ever seen, and baking it only makes the asset bigger.
-        self.clip = (-7.4, -4.3, 1.05, 4.3) if clip else None
+        # Cut at the panel's edge (a number: at that x instead, for a map drawn across the whole frame).
+        right = PANEL_X if clip is True else float(clip) if clip else None
+        self.clip = (-7.4, -4.3, right, 4.3) if right is not None else None
 
     def xy(self, lon, lat) -> np.ndarray:
         lon = np.atleast_1d(np.asarray(lon, float))
@@ -1806,8 +1812,15 @@ class Lecture(Scene):
         done = Line(LEFT * half, LEFT * half + RIGHT * config.frame_width * min(index, total) / total,
                     stroke_width=3, color=P.SAND).align_to(track, UP)
         name = self.SECTIONS[index] if index < len(self.SECTIONS) else ""
-        tag = T(f"{index:02d}  ·  {name.upper()}", 15, P.MUTED, weight=BOLD).to_corner(UL, buff=0.28).shift(DOWN * 0.05)
-        self.chrome = VGroup(track, done, tag)
+        # Big enough to read at a glance on a phone: where in the lecture this is.
+        tag = fit(T(f"{index:02d}  ·  {name.upper()}", 23, P.MUTED, weight=BOLD), config.frame_width * 0.62)
+        tag.to_corner(UL, buff=0.26).shift(DOWN * 0.04)
+        # On a card the colour of the page, so a map drawn under it never runs through its words.
+        card = RoundedRectangle(corner_radius=0.08, width=tag.width + 0.3, height=tag.height + 0.18, fill_color=P.BG,
+                                fill_opacity=0.92, stroke_width=0).move_to(tag)
+        for part in card.get_family():
+            part._art_decorated = True
+        self.chrome = VGroup(track, done, card, tag)
         self.chrome.set_z_index(Z_CHROME)
         self.add(self.chrome)
 
@@ -1942,7 +1955,10 @@ class Lecture(Scene):
         return FadeIn(group, shift=UP * 0.12)
 
     def panel_title(self, title: str, sub: str | None = None):
-        """Clear the panel and head it. Returns the animation. On a board: the strip's title."""
+        """Clear the panel and head it. Returns the animation. On a board: the strip's title. On a wide map (no
+        panel): nothing, the chapter's tag at the top already names it."""
+        if getattr(self, "_wide", False) and getattr(self, "_map_on", False) and not self.board_mode:
+            return None
         if self.board_mode:
             head = self.board_title(title, sub)
             if self.stage_body is not None and not self._beat_new and not self._beat_revealed:
@@ -2662,9 +2678,8 @@ class Lecture(Scene):
         if not items:
             return None
         n = len(items)
-        cols = 1 if n == 1 else 2
-        rows = 2 if n >= 3 else 1          # three: two above, one below, each larger than three in a row
         head = 0.6 if title else 0.0
+        rows, cols = self._gallery_grid([self._aspect(p) for p, _ in items], w, h - head)
         cell_w = (w - 0.3 * (cols - 1)) / cols
         cell_h = (h - head - 0.35 * (rows - 1)) / rows - 0.45       # room for the caption
         cells = []
@@ -2685,7 +2700,7 @@ class Lecture(Scene):
                 parts.append(fit(T(wrap(caption, 26), 14, P.CREAM, line_spacing=0.85), cell_w).next_to(image, DOWN, buff=0.1))
             cells.append(Group(*parts))
         grid = Group(*cells).arrange_in_grid(rows=rows, cols=cols, buff=(0.3, 0.35))
-        if n == 3:
+        if n == 3 and rows == 2:
             cells[2].set_x(grid.get_center()[0])       # the third one centred under the two
         body = Group(grid)
         if title:
@@ -2713,6 +2728,41 @@ class Lecture(Scene):
                 arrivals.append(FadeIn(c, shift=UP * 0.15))
         show = LaggedStart(*arrivals, lag_ratio=0.35)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
+
+    @staticmethod
+    def _aspect(path: str) -> float:
+        """A picture's width over its height (1 when it cannot be read)."""
+        try:
+            mob = cutout_mob(path, 4.0, 4.0) if is_cutout(path) else ImageMobject(path)
+            return max(0.2, min(5.0, mob.width / max(mob.height, 1e-6)))
+        except Exception:  # noqa: BLE001
+            return 1.0
+
+    @staticmethod
+    def _gallery_grid(aspects: list[float], width: float, height: float) -> tuple[int, int]:
+        """(rows, cols) for pictures of these shapes in a width x height box: the grid in which they come out
+        largest (three tall portraits side by side in one row; four wide scenes two by two)."""
+        n = len(aspects)
+        if n <= 1:
+            return 1, 1
+        best = None
+        for rows in range(1, n + 1):
+            cols = -(-n // rows)
+            if (rows - 1) * cols >= n:
+                continue
+            cell_w = (width - 0.3 * (cols - 1)) / cols
+            cell_h = (height - 0.35 * (rows - 1)) / rows - 0.45
+            if cell_w <= 0 or cell_h <= 0:
+                continue
+            # The area each picture gets, fitted to its cell; the smallest counts double, so none is left tiny.
+            areas = []
+            for a in aspects:
+                pic_h = min(cell_h, cell_w / a)
+                areas.append(pic_h * pic_h * a)
+            score = sum(areas) + min(areas)
+            if best is None or score > best[0]:
+                best = (score, rows, cols)
+        return (best[1], best[2]) if best else (1, n)
 
     def _picture(self, spec, height: float, width: float | None = None, motion: str | None = None):
         """A picture beside words in a diagram's node, a timeline's event or a map's label, at most height x width:
@@ -2834,7 +2884,10 @@ class Lecture(Scene):
                 edges = [[ids[0], i] for i in ids[1:]]
             return self._hierarchy(key, nodes, edges, title, show, animate, bool(flow))
         nodes, ids = nodes[:16], ids[:16]
-        if kind == "flowchart" or (kind == "flow" and (not plain or len(ids) > 9
+        # Words on the arrows alone do not make a flowchart: a chain with labelled arrows is laid out in rows that
+        # wrap (each step large), not in one long line of ranks that shrinks every box to fit.
+        shaped = any(n.get("shape") or n.get("lane") for n in nodes)
+        if kind == "flowchart" or (kind == "flow" and (shaped or len(ids) > 9
                                                        or (edges and self._branching(ids, edges)))):
             # Branches, joins, decisions and loops (or more steps than a row of boxes holds): laid out as a
             # flowchart (flowchart.py).
@@ -2874,7 +2927,9 @@ class Lecture(Scene):
             if not edges:
                 edges = [[ids[0], i] for i in ring]
         else:                                                           # flow
-            per_row = 3 if len(ids) > 4 else max(len(ids), 1) if len(ids) <= 3 else 2
+            # As many to a row as the stage is wide for: three on the whole frame, two beside a panel.
+            most = 3 if w >= 9 else 2
+            per_row = max(len(ids), 1) if len(ids) <= most else (most if len(ids) > 4 or most == 2 else 2)
             rows = [Group(*[mobs[i] for i in ids[r:r + per_row]]).arrange(
                 RIGHT if (r // per_row) % 2 == 0 else LEFT, buff=0.8) for r in range(0, len(ids), per_row)]
             Group(*rows).arrange(DOWN, buff=0.7)
@@ -2888,7 +2943,7 @@ class Lecture(Scene):
             arrow = self._clear_arrow(mobs[a], mobs[b], [m for k, m in mobs.items() if k not in (a, b)])
             label = None
             if len(e) > 2 and e[2]:
-                label = marker(str(e[2]), 14)
+                label = marker(str(e[2]), 17)
                 along = end - start
                 # Beside the arrow: above a level one, to the right of a steep one.
                 side = np.array([0, 0.22, 0]) if abs(along[0]) >= abs(along[1]) else np.array([label.width / 2 + 0.15, 0, 0])
@@ -2946,7 +3001,7 @@ class Lecture(Scene):
                            fill_opacity=1, **line)
             parts = [path, mark]
             if (p, c) in labels:
-                tag = marker(labels[(p, c)], 14)
+                tag = marker(labels[(p, c)], 17)
                 x0, y0 = pts[0]
                 tag.next_to([x0, y0, 0], UP, buff=0.08).shift(RIGHT * (tag.width / 2 + 0.1))
                 tag.is_label = True
@@ -3193,7 +3248,7 @@ class Lecture(Scene):
             parts = [seen, tip]
             label = None
             if (a, b) in labels:
-                label = marker(labels[(a, b)], 14, P.GOLD if getattr(mobs[a], "flow_shape", "") == "decision" else None)
+                label = marker(labels[(a, b)], 17, P.GOLD if getattr(mobs[a], "flow_shape", "") == "decision" else None)
                 spot = path.point_from_proportion(0.3 if getattr(mobs[a], "flow_shape", "") == "decision" else 0.5)
                 label.move_to(spot + (np.array([0, 0.2, 0]) if abs((pts[-1] - pts[0])[0]) > abs((pts[-1] - pts[0])[1])
                                       else np.array([label.width / 2 + 0.12, 0, 0])))
@@ -3254,6 +3309,24 @@ class Lecture(Scene):
         scale = min(1.45, (w - 0.3) / max(whole.width, 0.01), room_h / max(whole.height, 0.01))
         whole.scale(scale)
         whole.move_to([cx, cy - (0.3 if head else 0), 0])
+        # A big diagram laid out and fitted to the stage shrinks its arrows' words with it, past reading: they are
+        # grown back to a readable size (READABLE_LABEL), and set again clear of the arrows and nodes.
+        labels = [m for _, _, edge in arrows for m in edge.get_family() if getattr(m, "is_label", False)]
+        small = []
+        for label in labels:
+            # Its size now (the layout and the fit may both have shrunk it), in the font's own points.
+            size = getattr(label, "font_size", None)
+            if not size or size <= 0:
+                continue
+            grow = min(READABLE_LABEL / float(size), 3.0)
+            if grow > 1.02:
+                label.scale(grow)
+                small.append(label)
+        if small:
+            import stem
+
+            stem._settle_labels([*mobs.values(), *[m for _, _, m in arrows]],
+                                (cx, whole.get_center()[1], w - 0.2, room_h), backing=P.BG)
         if head:
             head.next_to(whole, UP, buff=0.3)
             if head.get_top()[1] > cy + h / 2:
@@ -3950,7 +4023,8 @@ class MapLecture(BoardMixin, Lecture):
         if not hasattr(self, "_frame"):
             height, width = self.MAP_SIZE
             fit_to = _box(self.FRAME_BBOX) if self.FRAME_BBOX else self.mainland
-            self._frame = MapFrame(fit_to, center=self.MAP_CENTER, height=height, width=width)
+            self._frame = MapFrame(fit_to, center=self.MAP_CENTER, height=height, width=width,
+                                   clip=7.4 if getattr(self, "_wide", False) else True)
         return self._frame
 
     def use_frame(self, bbox: tuple | None = None) -> None:
@@ -4052,9 +4126,28 @@ class MapLecture(BoardMixin, Lecture):
         self.layers = SimpleNamespace(neighbours=nb, lines=inner, outline=outline)
         return nb, inner, outline
 
-    def show_map(self, panel: bool = True, run_time: float = 1.4) -> None:
-        """Draw the base map (and the panel) in one move."""
+    # A map chapter with nothing for the panel is drawn across the whole frame: the map, and the pictures that take
+    # its place on the stage, get the width an empty panel would have wasted.
+    WIDE_MAP = dict(MAP_CENTER=(0.0, 0.05), MAP_SIZE=(6.6, 13.3), STAGE=(0.0, 0.2, 13.0, 6.1))
+
+    def _map_right(self) -> float:
+        """The map's right edge on screen: the panel's edge, or the frame's when the map is wide."""
+        return config.frame_width / 2 - 0.2 if getattr(self, "_wide", False) else PANEL_X - 0.08
+
+    def show_map(self, panel: bool = True, run_time: float = 1.4, wide: bool = False) -> None:
+        """Draw the base map (and the panel) in one move. `wide`: no panel, the map across the whole frame."""
         self.leave_board()
+        was = getattr(self, "_wide", False)
+        self._wide = bool(wide)
+        for key, value in self.WIDE_MAP.items():
+            if wide:
+                setattr(self, key, value)
+            else:
+                self.__dict__.pop(key, None)
+        if wide != was and hasattr(self, "_frame"):
+            del self._frame
+        if wide:
+            panel = False
         self._map_on = True
         self._map_taken = []          # what the map's labels and pictures cover so far (place_label)
         nb, inner, outline = self.base()
@@ -4118,7 +4211,7 @@ class MapLecture(BoardMixin, Lecture):
             self._taken().append((q[0] - 0.13, q[1] - 0.13, q[0] + 0.13, q[1] + 0.13))
         # A journey is one moving picture (its stops shown as it reaches them): drawings only, not photos.
         pictures = [pic if pic and str(pic[0]) != "image" else None for pic in list(pictures or [])] + [None] * len(stops)
-        markers = [self.marker(s, label=n or None, color=color, size=14, picture=pic)
+        markers = [self.marker(s, label=n or None, color=color, size=19, picture=pic)
                    for s, n, pic in zip(stops, names, pictures)]
         legs = np.cumsum([0.0] + [float(np.linalg.norm(b - a)) for a, b in zip(points, points[1:])])
         reach = [float(x / max(legs[-1], 1e-9)) for x in legs]
@@ -4150,22 +4243,37 @@ class MapLecture(BoardMixin, Lecture):
         color = color or P.RIVER
         fr = self.frame
         line = fr.path(lonlats, stroke_color=color, stroke_width=width)
+        # A pale edge under it, so the arrow stands out from the borders and coastlines it crosses.
+        edge = fr.path(lonlats, stroke_color=P.BG, stroke_width=width + 5, stroke_opacity=0.75)
         a, b = fr.pt(*lonlats[-2]), fr.pt(*lonlats[-1])
-        tip = Triangle(fill_color=color, fill_opacity=1, stroke_width=0).scale(0.14)
+        tip = Triangle(fill_color=color, fill_opacity=1, stroke_color=P.BG, stroke_width=2).scale(0.2)
         tip.rotate(math.atan2(b[1] - a[1], b[0] - a[0]) - PI / 2).move_to(b)
-        group = VGroup(line, tip)
+        group = VGroup(edge, line, tip)
         group.set_z_index(15)
-        return AnimationGroup(Create(line), FadeIn(tip), lag_ratio=0.8)
+        return AnimationGroup(Create(edge), Create(line), FadeIn(tip), lag_ratio=0.4)
 
-    def marker(self, where, label: str | None = None, color: str | None = None, d=RIGHT, size: float = 15,
-               r: float = 0.055, picture=None):
+    @staticmethod
+    def _map_text(words: str, size: float, color: str):
+        """A map label that reads over any coastline or border: the words in the board's ink, bold, on a
+        paper-coloured card edged in the marker's colour."""
+        text = T(str(words), size, P.CREAM, weight=BOLD)
+        card = RoundedRectangle(corner_radius=0.08, width=text.width + 0.22, height=text.height + 0.14,
+                                fill_color=P.BG, fill_opacity=0.9, stroke_color=color, stroke_width=1.6)
+        card.move_to(text)
+        for part in card.get_family():
+            part._art_decorated = True            # a backing, not a thing: no hatching or sheen on it
+        return VGroup(card, text)
+
+    def marker(self, where, label: str | None = None, color: str | None = None, d=RIGHT, size: float = 21,
+               r: float = 0.075, picture=None):
         """Dot, halo and label at a place name or (lon, lat); with a picture (a photo, a figure, a drawing of what
-        is there) above the label. The label goes where it overlaps nothing on the map (place_label)."""
+        is there) above the label. The label goes where it overlaps nothing on the map (place_label), on a card so
+        borders and coastlines never cross its words."""
         color = color or P.CREAM
         p = self.frame.pt(*self.at(where))
         dot = Dot(p, radius=r, color=color)
-        halo = Circle(radius=r * 2.2, color=color, stroke_width=1.5, stroke_opacity=0.6).move_to(p)
-        text = T(label or (where if isinstance(where, str) else ""), size, color)
+        halo = Circle(radius=r * 2.2, color=color, stroke_width=2.2, stroke_opacity=0.8).move_to(p)
+        text = self._map_text(label or (where if isinstance(where, str) else ""), size, color)
         pic = self._picture(picture, 0.7, 1.1) if picture else None
         tag = group_of(pic, text).arrange(DOWN, buff=0.06) if pic is not None else text
         lead = self.place_label(tag, p, r * 2.2 + 0.05, d)
@@ -4199,7 +4307,8 @@ class MapLecture(BoardMixin, Lecture):
         line back to the point. If nowhere is clear, the place it overlaps least. Returns that line, or None."""
         taken = self._taken()
         point = np.array(point, dtype=float)
-        left_edge, right_edge = -config.frame_width / 2 + 0.15, PANEL_X - 0.08
+        right = getattr(self, "_map_right", None)
+        left_edge, right_edge = -config.frame_width / 2 + 0.15, right() if right else PANEL_X - 0.08
         bottom, top = -config.frame_height / 2 + 0.55, config.frame_height / 2 - 0.45   # caption, title strip
         sides = []
         for v in (prefer, RIGHT, LEFT, UP, DOWN, UR, DR, UL, DL):
@@ -4256,7 +4365,7 @@ class MapLecture(BoardMixin, Lecture):
         # is drawn, and the label sits at its visible end rather than off-frame.
         screen = self.frame.xy(*np.array(pts).T)
         seen = [p for p, (x, y) in zip(pts, screen)
-                if -config.frame_width / 2 + 0.2 < x < PANEL_X - 0.1 and abs(y) < config.frame_height / 2 - 0.2]
+                if -config.frame_width / 2 + 0.2 < x < self._map_right() - 0.02 and abs(y) < config.frame_height / 2 - 0.2]
         pts = seen if len(seen) >= 2 else pts
         line = DashedVMobject(self.frame.path(pts, stroke_color=color or P.MUTED, stroke_width=2), num_dashes=50)
         group = VGroup(line)

@@ -199,8 +199,16 @@ def _vector(target: Path) -> Path:
     return svg if svg.exists() else target
 
 
-# Models found to answer only on OpenRouter's Image API (/api/v1/images), not chat completions: asked there next time.
-_IMAGE_API: set[str] = set()
+# How each model was found to answer this run (a route below), so it is asked that way straight away next time.
+_ROUTE: dict[str, str] = {}
+# The ways OpenRouter's image models are asked, in the order they are tried:
+#   chat        chat completions, image and text out (Gemini's image models and the like)
+#   chat-image  chat completions, image out only (image-only models: Recraft, FLUX and the like refuse "text")
+#   images      the Image API, /api/v1/images (models OpenRouter serves only there)
+ROUTES = ("chat", "chat-image", "images")
+# What OpenRouter says when a model is not served the way it was asked (the next route is tried).
+WRONG_ROUTE = re.compile(r"requested output modalities|/images\b|images endpoint|image generation model|"
+                         r"chat/completions", re.I)
 
 
 def proxy() -> str | None:
@@ -294,9 +302,10 @@ def _ask_images(prompt: str) -> tuple[bytes, float]:
     return _image_bytes(ref), usd
 
 
-def _ask_chat(prompt: str) -> tuple[bytes, float]:
-    """Chat completions with image output (Gemini's image models and the like)."""
-    reply = _post(_chat_url(), {"model": model(), "modalities": ["image", "text"], "usage": {"include": True},
+def _ask_chat(prompt: str, outputs=("image", "text")) -> tuple[bytes, float]:
+    """Chat completions with image output: ("image", "text") for models that also write (Gemini's image models),
+    ("image",) for image-only models."""
+    reply = _post(_chat_url(), {"model": model(), "modalities": list(outputs), "usage": {"include": True},
                                 "messages": [{"role": "user", "content": prompt}]})
     message = ((reply.get("choices") or [{}])[0]).get("message") or {}
     data_url = next((((i.get("image_url") or {}).get("url")) for i in message.get("images") or []
@@ -304,26 +313,39 @@ def _ask_chat(prompt: str) -> tuple[bytes, float]:
     usd = float((reply.get("usage") or {}).get("cost") or 0.0)
     if not data_url:
         said = str(message.get("content") or "")[:200]
-        raise RuntimeError(f"{model()} returned no image (is it an image model? OpenRouter's image models list "
-                           f"\"image\" in their output modalities)" + (f"; it said: {said}" if said else ""))
+        raise RuntimeError(f"{model()} returned no image (is it an image model? On OpenRouter, an image model "
+                           f"lists \"image\" as an output)" + (f"; it said: {said}" if said else ""))
     return _image_bytes(data_url), usd
 
 
-def _ask(prompt: str) -> tuple[bytes, float]:
-    """The image the model makes for a prompt, and what it cost. Chat completions first; a model that answers
-    only on the Image API (OpenRouter says so: "use the /api/v1/images endpoint") is asked there, now and for the
-    rest of the run. PANIM_IMAGE_API=images or chat picks one outright."""
-    way = os.environ.get("PANIM_IMAGE_API", "").strip().lower()
-    if way == "images" or (way != "chat" and model() in _IMAGE_API):
+def _ask_route(route: str, prompt: str) -> tuple[bytes, float]:
+    if route == "images":
         return _ask_images(prompt)
-    try:
-        return _ask_chat(prompt)
-    except RuntimeError as error:
-        if way == "chat" or not re.search(r"/images\b|images endpoint|image generation model|chat/completions",
-                                          str(error), re.I):
-            raise
-    _IMAGE_API.add(model())
-    return _ask_images(prompt)
+    return _ask_chat(prompt, ("image",) if route == "chat-image" else ("image", "text"))
+
+
+def _ask(prompt: str) -> tuple[bytes, float]:
+    """The image the model makes for a prompt, and what it cost. The model is asked the way it answered before in
+    this run; else each way in turn (ROUTES) while OpenRouter says it is not served that way ("No endpoints found
+    that support the requested output modalities", "use the /api/v1/images endpoint"), and the way that works is
+    remembered. PANIM_IMAGE_API = chat, chat-image or images asks one way only."""
+    forced = os.environ.get("PANIM_IMAGE_API", "").strip().lower()
+    if forced in ROUTES:
+        return _ask_route(forced, prompt)
+    known = _ROUTE.get(model())
+    order = [known] + [r for r in ROUTES if r != known] if known else list(ROUTES)
+    last: RuntimeError | None = None
+    for route in order:
+        try:
+            got = _ask_route(route, prompt)
+        except RuntimeError as error:
+            if not WRONG_ROUTE.search(str(error)):
+                raise
+            last = error
+            continue
+        _ROUTE[model()] = route
+        return got
+    raise last or RuntimeError(f"{model()} is not served as an image model on OpenRouter")
 
 
 def label_model() -> str:

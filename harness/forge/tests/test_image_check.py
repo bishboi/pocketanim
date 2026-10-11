@@ -122,9 +122,9 @@ def test_an_image_only_model_is_asked_on_the_image_api(gen, monkeypatch):
     assert got["ok"] and got["usd"] == 0.04, got.get("error")
     assert row and row["usd"] == 0.04
     paths = [p for p, _ in calls]
-    assert paths[0] == "/api/v1/chat/completions" and paths[1] == "/api/v1/images"
-    assert paths[2] == "/api/v1/images"                      # remembered: asked on the Image API from then on
-    assert calls[1][1] == {"model": "meta/muse-image", "prompt": calls[1][1]["prompt"]}
+    # Chat (image and text), chat (image only), then the Image API, which answers; remembered from then on.
+    assert paths == ["/api/v1/chat/completions", "/api/v1/chat/completions", "/api/v1/images", "/api/v1/images"]
+    assert calls[2][1] == {"model": "meta/muse-image", "prompt": calls[2][1]["prompt"]}
 
 
 def _refusing_server(refused: str, png: bytes):
@@ -255,3 +255,44 @@ def test_the_label_finder_reads_where_each_part_is(gen, monkeypatch, tmp_path):
     assert found == [["crown", 0.5, 0.1], ["robe", 0.4, 0.7]] and again == found and len(asked) == 1
     assert asked[0]["model"] == "vision/model"
     assert asked[0]["messages"][0]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_an_image_only_model_is_asked_for_an_image_alone(gen, monkeypatch):
+    """recraft/recraft-v4.1-flash and other image-only models refuse "image, text" output on chat completions
+    ("No endpoints found that support the requested output modalities"): they are asked for an image alone."""
+    import base64
+
+    png = gen._stand_in("an apple")
+    asked = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            asked.append(body.get("modalities"))
+            if body.get("modalities") == ["image", "text"]:
+                status, reply = 404, {"error": {"message": "No endpoints found that support the requested output "
+                                                           "modalities: image, text"}}
+            else:
+                url = "data:image/png;base64," + base64.b64encode(png).decode()
+                status, reply = 200, {"choices": [{"message": {"images": [{"image_url": {"url": url}}]}}],
+                                      "usage": {"cost": 0.01}}
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "recraft/recraft-v4.1-flash")
+    got = gen.check()
+    row = gen.generate("a steam locomotive")
+    server.shutdown()
+    assert got["ok"], got.get("error")
+    assert row and row["usd"] == 0.01
+    assert asked == [["image", "text"], ["image"], ["image"]]      # the second picture is asked the right way at once

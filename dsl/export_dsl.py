@@ -237,15 +237,12 @@ class Recorder:
         # form a cubic, which is the same filter the sampled exporter uses.
         points = getattr(mob, "points", None)
         drawable = points is not None and len(points) >= 4
-        # A raster image has no vector form. Packing its group used to drop the
-        # picture while the scene still claimed tier 1, so an image is always a
-        # blocker. The rest of its group -- a card, a caption, a backdrop -- is
-        # still declared (snapshot_family skips the image), so the preview keeps
-        # it and the program keeps the animation's time; the preview draws the
-        # image itself from the recorder's image track.
+        # A raster image has no vector form, so it is not declared here: the recorder's image track carries it
+        # (where it sits and how visible it is, keyed through the timeline) and the program gets an `image` line
+        # for it (image_lines). The rest of its group -- a card, a caption, a backdrop -- is still declared
+        # (snapshot_family skips the image), so the program keeps it and the animation's time.
         family = mob.get_family()
         if any(type(sub).__name__ in ("ImageMobject", "AbstractImageMobject") for sub in family):
-            self.blockers.append("raster image (ImageMobject): the phone plays sampled frames")
             if not any(type(sub).__name__ not in ("ImageMobject", "AbstractImageMobject")
                        and getattr(sub, "points", None) is not None and len(sub.points) >= 4 for sub in family):
                 return None
@@ -1052,6 +1049,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                   if getattr(mob, "_panim_static", False) and not any(id(m) in animated for m in mob.get_family())}
 
         def capture():
+            image_sample(scene, len(frames) + 1)
             row = []
             for mob in stage_entries(scene):
                 known = pre.get(id(mob))
@@ -1068,6 +1066,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             scene_.begin_animations()
             duration = float(scene_.duration)
             count = int(_math.ceil(duration * PROGRAM_FPS - 1e-9)) if duration > 0 else 0
+            mid_play["count"] = count
             for k in range(1, count + 1):
                 scene_.update_to_time(duration * k / count)
                 capture()
@@ -1515,6 +1514,20 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
     # player interpolates between those, which is what a fade or a move is.
     images: dict[int, dict] = {}
     last_prefix = {"value": 0}
+    # Inside a baked play, where each picture is on every sampled frame: a picture that bobs, sways or drifts (an
+    # updater) moves between the play's ends, and keys at the ends alone would hold it still.
+    mid_play: dict = {"count": 0, "samples": []}
+
+    def image_sample(scene, k: int) -> None:
+        import numpy as np
+
+        count = mid_play["count"] or 1
+        where = {}
+        for top in list(scene.mobjects):
+            for mob in top.get_family():
+                if type(mob).__name__ in ("ImageMobject", "AbstractImageMobject") and id(mob) in images:
+                    where[id(mob)] = [round(float(v), 4) for i in range(3) for v in np.asarray(mob.points[i][:2])]
+        mid_play["samples"].append((min(k / count, 1.0), where))
 
     def fade_timings(animations, kwargs) -> dict:
         """When, within this play, each image fades in or out: {id(image): (start, end, "in"|"out")} as fractions
@@ -1557,6 +1570,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         import numpy as np
 
         timing = timing or {}
+        samples = mid_play["samples"] if before is not None else []
+        mid_play["samples"] = []
+        mid_play["count"] = 0
 
         def at(fraction: float):
             return (before, prefix, round(float(fraction), 4)) if before is not None else prefix
@@ -1586,6 +1602,12 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 ul, ur, dl = (np.asarray(mob.points[i][:2], dtype=float) for i in range(3))
                 entry["z"] = float(getattr(mob, "z_index", 0) or 0)
                 corners = [round(float(v), 4) for v in (*ul, *ur, *dl)]
+                if entry["keys"] and entry["keys"][-1][1] > 0 and before is not None and samples:
+                    # On stage across the play: where it went on the way, wherever that differs from a straight
+                    # line between the keys either side (_thin keeps only those).
+                    for fraction, where in samples:
+                        if 0 < fraction < 1 and id(mob) in where:
+                            entry["keys"].append((at(fraction), 1.0, where[id(mob)]))
                 if not entry["keys"] or entry["keys"][-1][1] == 0:
                     fade = timing.get(id(mob))
                     if fade and fade[2] == "in":
@@ -1915,12 +1937,49 @@ def _image_track(rec: "Recorder", images: dict) -> list[dict]:
 
     out = []
     for entry in images.values():
-        keys = [[when(position), alpha, *corners] for position, alpha, corners in entry["keys"]]
+        keys = _thin([[when(position), alpha, *corners] for position, alpha, corners in entry["keys"]])
         if not any(k[1] > 0 for k in keys):
             continue
         out.append({"asset": entry["asset"], "width": entry["width"], "height": entry["height"],
                     "z": entry.get("z", 0.0), "keys": keys})
     return out
+
+
+def _thin(keys: list[list], tolerance: float = 0.004) -> list[list]:
+    """Keys without those a straight line between their neighbours already gives (to `tolerance` scene units and
+    an alpha step of 1/255): a picture that sat still through forty plays is two keys, not eighty, and one that
+    bobbed keeps the samples that make the bob."""
+    keys = [k for i, k in enumerate(keys) if i == 0 or k != keys[i - 1]]       # the same key twice is once
+    if len(keys) < 3:
+        return keys
+    out = [keys[0]]
+    for i in range(1, len(keys) - 1):
+        a, b, c = out[-1], keys[i], keys[i + 1]
+        span = c[0] - a[0]
+        if span <= 0 or b[0] == a[0] or b[0] == c[0]:
+            out.append(b)
+            continue
+        f = (b[0] - a[0]) / span
+        if abs(a[1] + f * (c[1] - a[1]) - b[1]) > 1 / 255 or any(
+                abs(a[j] + f * (c[j] - a[j]) - b[j]) > tolerance for j in range(2, 8)):
+            out.append(b)
+    out.append(keys[-1])
+    return out
+
+
+def image_lines(track: list[dict]) -> list[str]:
+    """The program's `image` lines for a recorder's image track: one picture each, named img0, img1, ... (the
+    recorder's names are capitals). `src` is the PNG beside the program (dsl/generated/images), `px` its
+    size, `keys` where it is and how visible, `frame:alpha:ulx,uly,urx,ury,dlx,dly`, in program frames -- the
+    players interpolate between keys, which is what a fade or a move is."""
+    lines = []
+    for index, image in enumerate(track):
+        keys = ";".join(f"{k[0]:g}:{k[1]:g}:" + ",".join(f"{v:g}" for v in k[2:8]) for k in image["keys"])
+        line = f"image img{index} src={image['asset']} px={image['width']},{image['height']} keys={keys}"
+        if image.get("z"):
+            line += f" z={image['z']:g}"
+        lines.append(line)
+    return lines
 
 
 # What the decimation is aimed at. A phone's long edge at the top of the range
@@ -2004,7 +2063,7 @@ def emit(rec: Recorder, mode: str, fps: int = 30) -> str:
     header = f"scene {mode} fps={fps}"
     if rec.background and rec.background.upper() != "#000000":
         header += f" bg={rec.background.upper()}"
-    lines = [header] + rec.declarations + rec.timeline
+    lines = [header] + rec.declarations + image_lines(getattr(rec, "images", None) or []) + rec.timeline
     return "\n".join(lines) + "\n"
 
 

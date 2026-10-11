@@ -42,6 +42,23 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     fun frameInstances(): Array<Instance> = current
     fun frameCamera(): FloatArray? = currentCamera
 
+    /** The frame's objects in draw order as (z, instances drawn once it is done): where a picture goes in. */
+    private var currentZ = DoubleArray(0)
+    private var currentEnds = IntArray(0)
+
+    /** How many of the frame's instances are drawn before a picture at [z]: those of every object at or below it. */
+    fun instancesAtOrBelow(z: Double): Int {
+        var count = 0
+        for (i in currentZ.indices) {
+            if (currentZ[i] > z) break
+            count = currentEnds[i]
+        }
+        return count
+    }
+
+    val images: List<ImageSpec> get() = program.images
+    fun imageBytes(src: String): ByteArray? = loader.image(src)
+
     // ---- declarations -----------------------------------------------------
 
     /** Surfaces declared as program become objects like anything else. */
@@ -199,7 +216,11 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         val frame = ArrayList<Instance>()
         // Stable: equal z keeps declaration order, which is every program
         // written before `z=` existed.
-        for (obj in objects.values.filter { it.visible }.sortedBy { it.z }) {
+        val staged = objects.values.filter { it.visible }.sortedBy { it.z }
+        val zs = DoubleArray(staged.size)
+        val ends = IntArray(staged.size)
+        for ((at, obj) in staged.withIndex()) {
+            zs[at] = obj.z
             if (obj.kind == "asset") {
                 val normals = obj.normals
                 val flags = obj.flags
@@ -245,8 +266,11 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                     )
                 )
             }
+            ends[at] = frame.size
         }
         emitEnd = shapes.size
+        currentZ = zs
+        currentEnds = ends
         current = frame.toTypedArray()
         currentCamera = if (is3d) cameraRecord() else null
     }

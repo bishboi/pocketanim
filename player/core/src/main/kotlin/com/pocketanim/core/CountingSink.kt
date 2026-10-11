@@ -71,4 +71,13 @@ class CountingSink(private val delegate: PathSink? = null) : PathSink {
         draws++
         delegate?.fillAndStrokePath(argb, widthInSceneUnits)
     }
+
+    override fun strokeStyle(round: Boolean) {
+        delegate?.strokeStyle(round)
+    }
+
+    override fun drawImage(image: ImageDraw, bytes: (String) -> ByteArray?) {
+        draws++
+        delegate?.drawImage(image, bytes)
+    }
 }

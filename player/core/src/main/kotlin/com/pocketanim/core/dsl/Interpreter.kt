@@ -34,6 +34,8 @@ interface AssetLoader {
     fun asset(id: String): ByteArray
     /** The library-wide glyph atlas that text assets index into. */
     fun glyphLibrary(): ByteArray
+    /** A picture an `image` line names (a PNG); null when it is not here. */
+    fun image(src: String): ByteArray? = null
 }
 
 private const val FOCAL_DISTANCE = 20.0

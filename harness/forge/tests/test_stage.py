@@ -141,9 +141,10 @@ class PhotoScene(Scene):
     run = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
                           "PhotoScene", str(out)], capture_output=True, text=True, cwd=REPO)
     result = json.loads(run.stdout.strip().splitlines()[-1])
-    assert result["blockers"] == ["raster image (ImageMobject): the phone plays sampled frames"], result
+    assert result["tier"] == 1 and result["blockers"] == [], result
     assert result["images"] == 2
     program = result["program"]
+    assert program.count("\nimage ") == 2                          # the phone draws both from the program
     assert "fade " in program and "fadeout " in program            # the caption still fades in and out
     track = json.loads((out / "dsl" / "generated" / "PhotoScene.images.json").read_text())
     first = track[0]["keys"]
@@ -181,7 +182,7 @@ class Swap(Scene):
     out = tmp_path / "build"
     run = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Swap",
                           str(out)], capture_output=True, text=True, cwd=REPO)
-    assert json.loads(run.stdout.strip().splitlines()[-1])["tier"] == 3
+    assert json.loads(run.stdout.strip().splitlines()[-1])["tier"] == 1
     keys = json.loads((out / "dsl" / "generated" / "Swap.images.json").read_text())[0]["keys"]
     gone = next(k[0] for k in keys if k[1] == 0 and k[0] > 10)
     # The swap play runs from 2 s to 5 s (frames 61-151); the photo's fade is its first third.

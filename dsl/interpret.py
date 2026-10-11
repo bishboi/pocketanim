@@ -237,6 +237,18 @@ def parse(text: str) -> dict:
             scene["assets"][positional[0]] = (verb, args["asset"])
             if "z" in args:
                 scene["z"][positional[0]] = float(args["z"])
+        elif verb == "image":
+            # A raster picture (export_dsl.image_lines): the PNG named by src, keyed through the program's frames.
+            width, height = (int(x) for x in args["px"].split(","))
+            keys = []
+            for key in args.get("keys", "").split(";"):
+                if key:
+                    frame, alpha, corners = key.split(":")
+                    keys.append([float(frame), float(alpha), *(float(v) for v in corners.split(","))])
+            scene.setdefault("images", []).append({
+                "name": positional[0], "src": args["src"], "width": width, "height": height,
+                "z": float(args.get("z", 0)), "keys": keys,
+            })
         elif verb == "clip":
             scene["clips"][positional[0]] = args["asset"]
             if "loop" in args:
@@ -1391,7 +1403,7 @@ def build_2d(scene: dict) -> DecodedIR:
 
     return DecodedIR(
         fps=fps, shapes=shapes, records=records, cameras=cameras if is_3d else None,
-        background=tuple(scene.get("background", (0, 0, 0))),
+        background=tuple(scene.get("background", (0, 0, 0))), images=list(scene.get("images") or []),
     )
 
 
@@ -1514,8 +1526,65 @@ NEEDS_OBJECT = {"transform": (1,), "stroke": (1,), "xform": (1,), "laggedgrow": 
                 "rotate": (1,), "indicate": (1,), "unwrite": (1,), "grow": (1,)}
 
 
+def image_at(keys: list, frame: float):
+    """(alpha, [ulx, uly, urx, ury, dlx, dly]) of a picture at `frame`, or None while it is not showing: before its
+    first key nothing, between two keys a straight line, after its last key held. The browser preview's
+    imagePlacement and the phone's ImageSpec.at are the same rule."""
+    before = -1
+    for i, key in enumerate(keys):
+        if key[0] <= frame:
+            before = i
+        else:
+            break
+    if before < 0:
+        return None
+    a = keys[before]
+    alpha, corners = a[1], list(a[2:8])
+    if before + 1 < len(keys) and keys[before + 1][0] > a[0]:
+        b = keys[before + 1]
+        t = min(1.0, max(0.0, (frame - a[0]) / (b[0] - a[0])))
+        alpha = a[1] + (b[1] - a[1]) * t
+        corners = [v + (b[i + 2] - v) * t for i, v in enumerate(corners)]
+    return (alpha, corners) if alpha > 0.004 else None
+
+
+def images_in_frame(ir, index: int) -> list:
+    """[(src, before, alpha, corners)] of the pictures showing in frame `index`, lowest z first: `before` is how many
+    of the frame's instances are drawn ahead of it (every object at or below its z), as the phone's
+    ProgramFrames.images says it."""
+    images = getattr(ir, "images", None) or []
+    if not images:
+        return []
+    snapshot = ir.records[index][1] if index < len(ir.records) else None
+    zs = getattr(snapshot, "zs", None) or ()
+    sizes = [len(g) for g in (getattr(snapshot, "groups", None) or ())]
+    out = []
+    for image in sorted(images, key=lambda i: i["z"]):
+        placed = image_at(image["keys"], index)
+        if placed is None:
+            continue
+        before = 0
+        for z, size in zip(zs, sizes):
+            if z > image["z"]:
+                break
+            before += size
+        out.append((image["src"], before, *placed))
+    return out
+
+
+def image_folder(program: str | Path) -> Path | None:
+    """Where a program's pictures are: images/ beside it (dsl/generated) or one up (a library's scenes/)."""
+    here = Path(program).resolve().parent
+    for folder in (here / "images", here.parent / "images"):
+        if folder.is_dir():
+            return folder
+    return None
+
+
 def load_program(path: str) -> DecodedIR:
-    return build(parse(Path(path).read_text()))
+    ir = build(parse(Path(path).read_text()))
+    ir.image_dir = image_folder(path)
+    return ir
 
 
 if __name__ == "__main__":

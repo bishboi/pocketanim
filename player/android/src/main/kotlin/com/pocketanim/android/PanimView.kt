@@ -85,6 +85,8 @@ class PanimView @JvmOverloads constructor(
 
     fun load(scene: Frames) {
         releaseAudio()
+        // A picture another library could not supply may be in this one.
+        sink.clearImages()
         this.scene = scene
         this.playback = Playback(scene).also { playback ->
             playback.onLoop = { index -> audio?.seekTo(index.toDouble() / scene.fps) }

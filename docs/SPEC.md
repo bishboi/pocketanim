@@ -1135,6 +1135,30 @@ A baked second is larger than a verb, typically 10–150 KB, but it still draws 
 so it stays sharp at any size and seeks exactly. The lecture engine's simulations, counters, traces,
 sweeps, continuous motion and zoom all export this way.
 
+### Raster pictures: `image`
+
+Photos, figures and generated illustrations (`ImageMobject`) were a tier 3 blocker. They are now part of the
+program, and the scene stays tier 1:
+
+- The exporter keys each picture at every play boundary, and at a fade's own start and end within a play:
+  `[frame, alpha, ulx, uly, urx, ury, dlx, dly]`, its upper-left, upper-right and lower-left corners in scene
+  units. Inside a baked play it keys every sampled frame, so a picture that bobs or drifts on an updater moves
+  on the phone too. Keys a straight line between their neighbours already gives (to 0.004 units and an alpha
+  step of 1/255) are dropped, so a picture that sits still for a minute is two keys.
+- The program declares it, `image imgN src=<md5>.png px=W,H keys=F:A:ulx,uly,urx,ury,dlx,dly;... [z=]`. The PNG
+  is in `images/` beside the program (`dsl/generated/images`, a library's `images/`), and a library lists it
+  among the scene's assets, so the phone fetches and checks it like any other file.
+- A player shows a picture from its first key, interpolates straight between keys and holds the last one;
+  under 0.004 alpha it is not drawn. Pixel (u, v) lands at `UL + u/W (UR - UL) + v/H (DL - UL)`.
+- It is drawn after every object at or below its z, as Manim's stable sort puts a picture added later over
+  them, and before the first object above it. A 3D frame draws pictures last.
+- A lecture built in chapter windows ends each window's pictures at the window's last frame: the next window
+  plays the chapters before it through and keys what is still up from its own start.
+
+The Python reference (`dsl/interpret.py`, `exporter/reference_render.py`) and the Kotlin player
+(`ProgramFrames.images`, `Renderer`, `CanvasSink`) share the rule, and the cross-check compares each picture's
+placement, alpha and slot in the draw order (`P` lines).
+
 ## 10. Exporter v2 — mostly overtaken by tier 1
 
 **This section was written when six of ten corpus scenes fell back to sampled IR and three of

@@ -127,7 +127,7 @@ def test_a_photo_moved_aside_by_working_still_previews(tmp_path, monkeypatch):
     exported = subprocess.run([sys.executable, str(REPO / "harness/scripts/export_scene.py"), str(scene), "S", str(out)],
                               capture_output=True, text=True, env=env, timeout=600)
     result = json.loads(exported.stdout.strip().splitlines()[-1])
-    assert result["tier"] == 3 and all(b.startswith("raster image") for b in result["blockers"]), result
+    assert result["tier"] == 1 and result["blockers"] == [], result
     preview = subprocess.run([sys.executable, str(REPO / "harness/scripts/scene_ir.py"), str(out), "S"],
                              capture_output=True, text=True, env=env, timeout=600)
     assert '"mode": "2d"' in preview.stdout and "error" not in preview.stdout, preview.stdout + preview.stderr

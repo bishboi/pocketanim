@@ -9,6 +9,7 @@ import com.pocketanim.core.Renderer
 import com.pocketanim.core.CountingSink
 import com.pocketanim.core.Benchmark
 import com.pocketanim.core.FrameTarget
+import com.pocketanim.core.ImageDraw
 import com.pocketanim.core.Frames
 import com.pocketanim.core.Library
 import com.pocketanim.core.Storage
@@ -42,6 +43,7 @@ import javax.imageio.ImageIO
  * move thousands of pixels and are exactly what this catches.
  */
 class Java2DSink(private val g: Graphics2D) : PathSink {
+    private val pictures = HashMap<String, BufferedImage?>()
     private val path = Path2D.Float()
     private var join = BasicStroke.JOIN_ROUND
 
@@ -82,6 +84,23 @@ class Java2DSink(private val g: Graphics2D) : PathSink {
         g.color = Color(argb, true)
         g.stroke = BasicStroke(widthInSceneUnits, BasicStroke.CAP_ROUND, join)
         g.draw(path)
+    }
+
+    override fun drawImage(image: ImageDraw, bytes: (String) -> ByteArray?) {
+        val picture = pictures.getOrPut(image.src) {
+            bytes(image.src)?.let { ImageIO.read(java.io.ByteArrayInputStream(it)) }
+        } ?: return
+        val c = image.corners
+        val w = picture.width.toDouble()
+        val h = picture.height.toDouble()
+        val place = java.awt.geom.AffineTransform(
+            (c[2] - c[0]) / w, (c[3] - c[1]) / w, (c[4] - c[0]) / h, (c[5] - c[1]) / h, c[0].toDouble(), c[1].toDouble(),
+        )
+        val saved = g.composite
+        g.composite = java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, image.alpha.coerceIn(0f, 1f))
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.drawImage(picture, place, null)
+        g.composite = saved
     }
 
     override fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
@@ -238,6 +257,11 @@ private fun dump(scene: Frames, probe: Int) {
         inst.normal?.let { for (k in 0 until 3) out.append(String.format(l, " %.6f", it[k])) }
         out.append('\n')
     }
+    for (image in scene.images(probe)) {
+        out.append(String.format(l, "P %s %d %.4f", image.src, image.before, image.alpha))
+        for (v in image.corners) out.append(String.format(l, " %.4f", v))
+        out.append('\n')
+    }
     print(out)
 }
 
@@ -306,6 +330,10 @@ private fun benchmark(scene: Frames, width: Int, height: Int) {
 private class FileAssets(private val root: File) : AssetLoader {
     override fun asset(id: String) = File(root, "assets/$id.panm").readBytes()
     override fun glyphLibrary() = File(root, "library.atlas").readBytes()
+    // images/ beside the program (dsl/generated), or one up (a library's scenes/).
+    override fun image(src: String): ByteArray? =
+        listOf(File(root, "images/$src"), File(root.absoluteFile.parentFile, "images/$src"))
+            .firstOrNull { it.isFile }?.readBytes()
 }
 
 /**
@@ -440,6 +468,11 @@ private fun libraryReport(root: File): Boolean {
             var seen = 0L
             for (i in intArrayOf(0, frames.frameCount / 2, frames.frameCount - 1)) {
                 seen += frames.instances(i).size
+                // A picture the program draws must be one the library holds and an image reader can open.
+                for (image in frames.images(i)) {
+                    val bytes = frames.imageBytes(image.src) ?: error("picture ${image.src} is not in the library")
+                    ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: error("picture ${image.src} does not decode")
+                }
             }
             println(String.format("%-22s %5d %7d %8d %9d  ok", entry.name, entry.tier,
                 frames.frameCount, entry.playableBytes, seen))

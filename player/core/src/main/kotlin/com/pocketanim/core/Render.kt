@@ -86,6 +86,12 @@ interface PathSink {
      * vertex, so they are not where the time goes.
      */
     fun strokeStyle(round: Boolean) {}
+
+    /**
+     * A raster picture, its pixel (u, v) at UL + u/width (UR - UL) + v/height (DL - UL) in scene coordinates, at
+     * [ImageDraw.alpha]; [bytes] reads its PNG. A sink that cannot draw pictures leaves them out.
+     */
+    fun drawImage(image: ImageDraw, bytes: (String) -> ByteArray?) {}
 }
 
 /**
@@ -370,8 +376,13 @@ object Renderer {
         // effect of producing the frame, so shape() is only valid afterwards.
         val instances = scene.instances(index)
         val camera = scene.camera(index)
-        if (camera == null) draw2D(scene, instances, sink, options)
-        else draw3D(scene, instances, camera, sink, options)
+        val images = scene.images(index)
+        if (camera == null) draw2D(scene, instances, sink, options, images)
+        else {
+            draw3D(scene, instances, camera, sink, options)
+            // A 3D frame is depth-sorted; a picture (only ever flat on a 2D stage) goes over it.
+            for (image in images) sink.drawImage(image, scene::imageBytes)
+        }
     }
 
     /**
@@ -389,6 +400,7 @@ object Renderer {
         instances: Array<Instance>,
         sink: PathSink,
         options: RenderOptions,
+        images: List<ImageDraw> = emptyList(),
     ) {
         sink.strokeStyle(options.roundJoins)
         var world = FloatArray(0)
@@ -397,8 +409,18 @@ object Renderer {
         var runColour = 0
         var runWidth = 0f
         var runVerbs = 0
+        var nextImage = 0
 
-        for (inst in instances) {
+        for ((position, inst) in instances.withIndex()) {
+            // The pictures that go in before this instance: an open run is stroked first, so what is under a
+            // picture stays under it.
+            while (nextImage < images.size && images[nextImage].before <= position) {
+                if (runOpen) {
+                    sink.strokePath(runColour, runWidth)
+                    runOpen = false
+                }
+                sink.drawImage(images[nextImage++], scene::imageBytes)
+            }
             val canonical = scene.shape(inst.atlasId)
             if (canonical.size < 12) continue
 
@@ -455,6 +477,7 @@ object Renderer {
         }
 
         if (runOpen) sink.strokePath(runColour, runWidth)
+        while (nextImage < images.size) sink.drawImage(images[nextImage++], scene::imageBytes)
     }
 
     /**

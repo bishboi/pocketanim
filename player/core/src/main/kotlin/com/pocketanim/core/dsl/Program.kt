@@ -29,6 +29,51 @@ class SurfaceSpec(
     val stroke: Double,
 )
 
+/**
+ * A raster picture (`image NAME src=FILE px=W,H keys=... z=Z`): the PNG [src] beside the program (the library's
+ * images/ folder), [keys] where it is and how visible through the program's frames, eight numbers a key --
+ * frame, alpha, then the upper-left, upper-right and lower-left corners in scene units.
+ */
+class ImageSpec(
+    val name: String,
+    val src: String,
+    val width: Int,
+    val height: Int,
+    val z: Double,
+    val keys: DoubleArray,
+) {
+    val keyCount: Int get() = keys.size / KEY
+
+    /**
+     * Where the picture is at [frame], into [corners] (ulx, uly, urx, ury, dlx, dly); returns its alpha, 0 while it
+     * is not showing. Before the first key nothing, between two keys a straight line, after the last key held --
+     * the rule exporter/reference_render.py and the browser preview apply.
+     */
+    fun at(frame: Double, corners: FloatArray): Float {
+        var before = -1
+        for (k in 0 until keyCount) {
+            if (keys[k * KEY] <= frame) before = k else break
+        }
+        if (before < 0) return 0f
+        val a = before * KEY
+        var alpha = keys[a + 1]
+        val next = before + 1
+        if (next < keyCount && keys[next * KEY] > keys[a]) {
+            val b = next * KEY
+            val t = ((frame - keys[a]) / (keys[b] - keys[a])).coerceIn(0.0, 1.0)
+            alpha += (keys[b + 1] - alpha) * t
+            for (i in 0 until 6) corners[i] = (keys[a + 2 + i] + (keys[b + 2 + i] - keys[a + 2 + i]) * t).toFloat()
+        } else {
+            for (i in 0 until 6) corners[i] = keys[a + 2 + i].toFloat()
+        }
+        return if (alpha > 0.004) alpha.toFloat() else 0f
+    }
+
+    companion object {
+        const val KEY = 8
+    }
+}
+
 sealed class Step {
     /** [lag] is Create's lag_ratio over an asset's children; null means Manim's 1.0. */
     class Create(
@@ -135,6 +180,8 @@ class Program(
     val clips: Map<String, String> = emptyMap(),
     /** name -> phase of each looping clip (`loop=P`): it holds one period, played round from frame P. */
     val clipLoops: Map<String, Int> = emptyMap(),
+    /** The raster pictures, in declaration order. */
+    val images: List<ImageSpec> = emptyList(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -153,6 +200,7 @@ class Program(
             val z = HashMap<String, Double>()
             val clips = LinkedHashMap<String, String>()
             val clipLoops = HashMap<String, Int>()
+            val images = ArrayList<ImageSpec>()
 
             for (raw in text.lineSequence()) {
                 val line = raw.trim()
@@ -191,6 +239,25 @@ class Program(
                     "clip" -> {
                         clips[positional[0]] = args.getValue("asset")
                         args["loop"]?.let { clipLoops[positional[0]] = it.toInt() }
+                    }
+                    "image" -> {
+                        val px = args.getValue("px").split(",")
+                        val keys = ArrayList<Double>()
+                        for (key in (args["keys"] ?: "").split(";")) {
+                            if (key.isEmpty()) continue
+                            val parts = key.split(":")
+                            keys.add(parts[0].toDouble())
+                            keys.add(parts[1].toDouble())
+                            val corners = parts[2].split(",")
+                            require(corners.size == 6) { "an image key needs six corner numbers: $key" }
+                            corners.forEach { keys.add(it.toDouble()) }
+                        }
+                        images.add(
+                            ImageSpec(
+                                positional[0], args.getValue("src"), px[0].toInt(), px[1].toInt(),
+                                (args["z"] ?: "0").toDouble(), keys.toDoubleArray(),
+                            )
+                        )
                     }
                     "run" -> timeline.add(Step.Run(positional[0], t()))
                     "surface" -> surfaces.add(
@@ -299,7 +366,7 @@ class Program(
             }
 
             return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background, clips,
-                clipLoops)
+                clipLoops, images)
         }
 
         private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom", "clip")

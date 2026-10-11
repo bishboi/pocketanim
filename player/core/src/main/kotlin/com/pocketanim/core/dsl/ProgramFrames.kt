@@ -1,6 +1,7 @@
 package com.pocketanim.core.dsl
 
 import com.pocketanim.core.Frames
+import com.pocketanim.core.ImageDraw
 import com.pocketanim.core.Instance
 
 /**
@@ -41,4 +42,22 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
         position(index)
         return builder.frameInstances()
     }
+
+    override fun images(index: Int): List<ImageDraw> {
+        val specs = builder.images
+        if (specs.isEmpty()) return emptyList()
+        position(index)
+        val out = ArrayList<ImageDraw>(2)
+        val frame = index.coerceIn(0, maxOf(frameCount - 1, 0)).toDouble()
+        // Lower z first, declaration order between equals: then each goes in no earlier than the one before it.
+        for (spec in specs.sortedBy { it.z }) {
+            val corners = FloatArray(6)
+            val alpha = spec.at(frame, corners)
+            if (alpha <= 0f) continue
+            out.add(ImageDraw(spec.src, spec.width, spec.height, alpha, corners, builder.instancesAtOrBelow(spec.z)))
+        }
+        return out
+    }
+
+    override fun imageBytes(src: String): ByteArray? = builder.imageBytes(src)
 }

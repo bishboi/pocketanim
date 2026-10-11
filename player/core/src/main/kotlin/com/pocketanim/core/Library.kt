@@ -138,6 +138,8 @@ class Library(
         override fun asset(id: String) = storage.read("assets/$id.panm")
         override fun glyphLibrary() =
             storage.read(glyphAtlas ?: error("scene needs the glyph atlas but the library has none"))
+        override fun image(src: String): ByteArray? =
+            "images/$src".takeIf(storage::exists)?.let(storage::read)
     }
 
     companion object {

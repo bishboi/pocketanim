@@ -15,6 +15,7 @@ not a protocol.
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
       assets/<digest>.panm  baked geometry, shared
+      images/<digest>.png   raster pictures a program's `image` lines draw, shared
       audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 24 kbit/s
                             (audio/<name>.wav when ffmpeg cannot encode it)
 
@@ -46,6 +47,7 @@ ASSETS = PROGRAMS / "assets"
 GLYPHS = PROGRAMS / "library.atlas"
 
 ASSET_REF = re.compile(r"\basset=([0-9a-f]+)")
+IMAGE_REF = re.compile(r"^image\s+\S+.*?\bsrc=(\S+)", re.M)
 
 # Skia rasterises a path on the CPU once it exceeds kMaxGPUPathRendererVerbs.
 # The limit is per *path*, not per frame, and a path here is one atlas shape:
@@ -137,6 +139,8 @@ def scene_manifest(name: str, program: Path | None, container: Path | None) -> d
         entry["program"] = f"scenes/{name}.panim"
         entry["program_bytes"] = len(text.encode())
         entry["assets"] = [f"assets/{a}.panm" for a in assets]
+        # Pictures are files the scene cannot play without, like its assets: the phone fetches them with the rest.
+        entry["assets"] += [f"images/{i}" for i in sorted(set(IMAGE_REF.findall(text)))]
         entry["needs_glyph_atlas"] = uses_glyphs
         entry["frames"] = frame_count(program)
     if container is not None:
@@ -147,9 +151,16 @@ def scene_manifest(name: str, program: Path | None, container: Path | None) -> d
     # Every byte the device must hold before this scene will play offline.
     payload = entry.get("program_bytes", 0) if program else entry.get("container_bytes", 0)
     for ref in entry.get("assets", []):
-        payload += (ASSETS / Path(ref).name).stat().st_size
+        payload += _source_of(ref).stat().st_size
     entry["playable_bytes"] = payload
     return entry
+
+
+def _source_of(ref: str) -> Path:
+    """Where a manifest path (assets/<id>.panm, images/<name>.png) is in the export being packed."""
+    if ref.startswith("images/"):
+        return PROGRAMS / "images" / Path(ref).name
+    return ASSETS / Path(ref).name
 
 
 def frame_count(program: Path) -> int | None:
@@ -188,7 +199,7 @@ def main() -> int:
         CONTAINERS = PROGRAMS / "containers"
 
     out = Path(args.out)
-    for sub in ("scenes", "assets", "audio"):
+    for sub in ("scenes", "assets", "images", "audio"):
         (out / sub).mkdir(parents=True, exist_ok=True)
 
     names = sorted({p.stem for p in PROGRAMS.glob("*.panim")} |
@@ -219,7 +230,7 @@ def main() -> int:
         entry = scene_manifest(name, program, container)
         if program:
             shutil.copy(program, out / "scenes" / f"{name}.panim")
-            wanted_assets.update(Path(a).name for a in entry["assets"])
+            wanted_assets.update(entry["assets"])
         if container:
             shutil.copy(container, out / "scenes" / f"{name}.panm")
 
@@ -237,10 +248,10 @@ def main() -> int:
     # every device's cache.
     asset_records = []
     for asset in sorted(wanted_assets):
-        source = ASSETS / asset
-        shutil.copy(source, out / "assets" / asset)
+        source = _source_of(asset)
+        shutil.copy(source, out / asset)
         asset_records.append({
-            "path": f"assets/{asset}",
+            "path": asset,
             "bytes": source.stat().st_size,
             "sha256_16": digest_of(source),
         })
@@ -249,8 +260,8 @@ def main() -> int:
     # under the limit crosses it with one more zoom level of detail, and the
     # symptom is a scene that silently rasterises on the CPU on every device.
     near_limit = []
-    for asset in sorted(wanted_assets):
-        for index, verbs in oversized_shapes(ASSETS / asset):
+    for asset in sorted(a for a in wanted_assets if a.startswith("assets/")):
+        for index, verbs in oversized_shapes(_source_of(asset)):
             near_limit.append((asset, index, verbs))
 
     glyphs = None

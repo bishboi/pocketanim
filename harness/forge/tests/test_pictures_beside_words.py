@@ -138,8 +138,9 @@ def test_pictures_play_on_the_phone(tmp_path, photos):
                           "GeneratedScene", str(tmp_path)], capture_output=True, text=True, timeout=1500,
                          env={**os.environ, "PANIM_VOICE": "silent"})
     result = json.loads(out.stdout.strip().splitlines()[-1])
-    # Photos are always reported (the phone draws them from the image track), and nothing else blocks.
-    assert set(result["blockers"]) <= {"raster image (ImageMobject): the phone plays sampled frames"}, result
+    # Photos are in the program as image lines: nothing blocks.
+    assert result["tier"] == 1 and result["blockers"] == [], result
+    assert result["program"].count("\nimage ") == 6
     assert not result.get("skipped"), result["skipped"]
     track = json.loads((tmp_path / "dsl" / "generated" / "GeneratedScene.images.json").read_text())
     assert len(track) == 6                                  # 2 rock photos, 2 timeline photos, 2 marker photos

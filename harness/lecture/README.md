@@ -365,8 +365,9 @@ in `excluded.json` beside the PDF, which Forge's reader honours too.
 
 A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`, or several at once in a
 gallery. The app supplies the
-`figures` table (id → image file); the model only names ids. A figure is a raster image, so the phone
-export marks such a scene as blocked and plays sampled frames.
+`figures` table (id → image file); the model only names ids. A figure is a raster image: the phone
+export writes it into the program as an `image` line (its PNG goes in the library's `images/` folder), and the
+scene stays tier 1.
 
 Figures the script does not show itself are placed automatically: each goes on the beat whose words best
 match its caption, or in document order, at most one every two beats and never over a map beat. Set

@@ -276,12 +276,32 @@ private fun importChecks(c: Checks, full: Map<String, ByteArray>) {
     }
 }
 
+/** A picture's line, parsed and placed: shown from its first key, straight between keys, held after the last. */
+private fun imageChecks(c: Checks) {
+    val program = com.pocketanim.core.dsl.Program.parse(
+        "scene 2d fps=30\nimage img0 src=ab.png px=80,50 keys=10:0:-4,1,0,1,-4,-1;20:1:-4,1,0,1,-4,-1;30:1:-2,1,2,1,-2,-1 z=3\nwait t=2\n"
+    )
+    val image = program.images.single()
+    c.equal("image name and file", "img0/ab.png", "${image.name}/${image.src}")
+    c.equal("image size and z", "80x50 z3.0", "${image.width}x${image.height} z${image.z}")
+    val corners = FloatArray(6)
+    c.check("not shown before its first key", image.at(5.0, corners) == 0f)
+    c.check("half faded in halfway through its fade", kotlin.math.abs(image.at(15.0, corners) - 0.5f) < 1e-6)
+    image.at(25.0, corners)
+    c.check("moves straight between keys", kotlin.math.abs(corners[0] + 3f) < 1e-6 && kotlin.math.abs(corners[2] - 1f) < 1e-6)
+    c.check("held after its last key", image.at(99.0, corners) == 1f && corners[0] == -2f)
+    c.threw("a key without six corner numbers is refused") {
+        com.pocketanim.core.dsl.Program.parse("image img0 src=a.png px=1,1 keys=0:1:1,2,3\n")
+    }
+}
+
 fun runSelfTest(): Boolean {
     val c = Checks()
     jsonChecks(c)
     clockChecks(c)
     audioClockChecks(c)
     libraryChecks(c)
+    imageChecks(c)
 
     if (c.failures.isEmpty()) {
         println("selftest: ${c.passed} checks passed")

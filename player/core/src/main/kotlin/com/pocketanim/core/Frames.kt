@@ -29,4 +29,27 @@ interface Frames {
      * implementation detail.
      */
     fun instances(index: Int): Array<Instance>
+
+    /**
+     * The raster pictures showing in this frame, each with the instance it is drawn before. Called after
+     * [instances] for the same frame. A sampled container has none.
+     */
+    fun images(index: Int): List<ImageDraw> = emptyList()
+
+    /** A picture's file (PNG), by the name an [ImageDraw] carries; null when the source has none. */
+    fun imageBytes(src: String): ByteArray? = null
 }
+
+/**
+ * One picture in one frame: its pixel (u, v) lands at UL + u/[width] (UR - UL) + v/[height] (DL - UL), [corners]
+ * being ulx, uly, urx, ury, dlx, dly in scene units; drawn at [alpha] just before instance [before] of the frame
+ * (after every object at or below its z).
+ */
+class ImageDraw(
+    @JvmField val src: String,
+    @JvmField val width: Int,
+    @JvmField val height: Int,
+    @JvmField val alpha: Float,
+    @JvmField val corners: FloatArray,
+    @JvmField val before: Int,
+)

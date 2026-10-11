@@ -7,7 +7,7 @@ that needs to inspect a .panm without Manim present.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -43,6 +43,9 @@ class DecodedIR:
     # The frame's clear colour as (r, g, b). A program carries it on its
     # `scene` line; a sampled container predates it and means black.
     background: tuple[int, int, int] = (0, 0, 0)
+    # A program's raster pictures (dsl.interpret's `image` lines) and the folder their PNGs are in.
+    images: list = field(default_factory=list)
+    image_dir: object = None
 
     def frame(self, index: int) -> list[DecodedInstance]:
         """Resolve frame `index` to its full ordered instance list.

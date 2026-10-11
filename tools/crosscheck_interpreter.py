@@ -76,6 +76,11 @@ def python_dump(ir, frame: int) -> list[str]:
             parts += ["%.6f" % v for v in inst.normal]
         lines.append(" ".join(parts))
 
+    from dsl.interpret import images_in_frame
+
+    for src, before, alpha, corners in images_in_frame(ir, frame):
+        lines.append("P %s %d %.4f " % (src, before, alpha) + " ".join("%.4f" % v for v in corners))
+
     return lines
 
 

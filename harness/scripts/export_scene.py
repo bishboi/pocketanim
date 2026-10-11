@@ -355,11 +355,18 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
         timeline += [renamed(line) for line in result["timeline"]]
         offset = frames / PROGRAM_FPS
         sounds += [(at + offset, path, gain) for at, path, gain in result.get("sounds") or []]
+        length = timeline_frames(parse("\n".join(result["timeline"]))["timeline"], PROGRAM_FPS)
+        last = (out, result) == parts[-1]
         for image in result.get("images_track") or []:
             image = dict(image)
             image["keys"] = [[key[0] + frames, *key[1:]] for key in image["keys"]]
+            if not last and image["keys"] and image["keys"][-1][1] > 0:
+                # Still showing when this window ends: the next window keys it again from its own start (its
+                # build plays the chapters before it through), so this one's ends here -- a picture's last key is
+                # held, and held, it stayed over every chapter after.
+                image["keys"].append([frames + length, 0.0, *image["keys"][-1][2:]])
             images.append(image)
-        frames += timeline_frames(parse("\n".join(result["timeline"]))["timeline"], PROGRAM_FPS)
+        frames += length
         skipped += [s for s in result.get("skipped") or [] if s not in skipped]
         blockers += [b for b in result.get("blockers") or [] if b not in blockers]
         made = result.get("ai_images") or {}
@@ -424,6 +431,13 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
             }
             if joined["simplified"]:
                 result["simplified"] = joined["simplified"]
+            if joined["images_track"]:
+                # The windows' pictures, moved to where their window starts, declared once for the whole program.
+                from dsl.export_dsl import image_lines
+
+                lines = program.splitlines()
+                program = "\n".join([lines[0], *image_lines(joined["images_track"]), *lines[1:]]) + "\n"
+                result.update(program=program, program_bytes=len(program))
             Path("dsl/generated").mkdir(parents=True, exist_ok=True)
             Path(f"dsl/generated/{scene_class}.panim").write_text(program)
             sounds, images_track = joined["sounds"], joined["images_track"]
@@ -466,8 +480,8 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         assets = sorted(p.name for p in Path("dsl/generated/assets").glob("*.panm")) \
             if Path("dsl/generated/assets").is_dir() else []
         result["assets"] = assets
-        # Photos and figures: not in the program (no verb carries pixels), but
-        # the browser preview draws them from this track (scene_ir.py).
+        # Photos and figures: in the program as `image` lines, the PNGs beside it in dsl/generated/images; the
+        # browser preview still draws them from this track (scene_ir.py).
         if images_track:
             Path(f"dsl/generated/{scene_class}.images.json").write_text(json.dumps(images_track))
             result["images"] = len(images_track)

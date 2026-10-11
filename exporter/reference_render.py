@@ -215,8 +215,31 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
 
         instances = [inst for inst in instances if faces_viewer(inst)]
 
-    for inst in instances:
-        draw_instance(ctx, inst, ir.shapes, camera, lod)
+    pictures = _pictures_at(ir, index)
+    if not pictures:
+        for inst in instances:
+            draw_instance(ctx, inst, ir.shapes, camera, lod)
+    else:
+        # Each picture goes in after every object at or below its z (Manim's stable sort puts a picture added later
+        # over them): the frame's groups carry their z, and a picture is drawn before the first group above it.
+        snapshot = ir.records[index][1] if index < len(ir.records) else None
+        zs = getattr(snapshot, "zs", None)
+        groups = getattr(snapshot, "groups", None)
+        if camera is not None or not zs or groups is None or sum(len(g) for g in groups) != len(instances):
+            layers = [(float("-inf"), instances)]
+        else:
+            layers, at = [], 0
+            for z, group in zip(zs, groups):
+                layers.append((z, instances[at:at + len(group)]))
+                at += len(group)
+        pending = sorted(pictures, key=lambda p: p[0])
+        for z, members in layers:
+            while pending and pending[0][0] < z:
+                _draw_picture(ctx, *pending.pop(0)[1:])
+            for inst in members:
+                draw_instance(ctx, inst, ir.shapes, camera, lod)
+        for picture in pending:
+            _draw_picture(ctx, *picture[1:])
 
     surface.flush()
     buf = np.ndarray(
@@ -225,3 +248,59 @@ def render_frame(ir: DecodedIR, index: int, width: int = 1280, height: int = 720
         buffer=surface.get_data(),
     )
     return buf[:, :width, [2, 1, 0]].copy()  # BGRA -> RGB
+
+
+_PICTURES: dict = {}
+
+
+def _picture_surface(path):
+    """A PNG as a Cairo surface (premultiplied BGRA), read once."""
+    key = str(path)
+    if key not in _PICTURES:
+        from PIL import Image
+
+        rgba = np.asarray(Image.open(path).convert("RGBA"), dtype=np.float32)
+        alpha = rgba[..., 3:4] / 255.0
+        bgra = np.concatenate([rgba[..., 2::-1] * alpha, rgba[..., 3:4]], axis=2).round().astype(np.uint8)
+        height, width = bgra.shape[:2]
+        stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_ARGB32, width)
+        data = np.zeros((height, stride // 4, 4), dtype=np.uint8)
+        data[:, :width] = bgra
+        surface = cairo.ImageSurface.create_for_data(memoryview(data), cairo.FORMAT_ARGB32, width, height, stride)
+        _PICTURES[key] = (surface, data, width, height)
+    return _PICTURES[key]
+
+
+def _pictures_at(ir, index: int) -> list:
+    """[(z, path, alpha, corners)] of the program's pictures showing at frame `index`."""
+    images = getattr(ir, "images", None) or []
+    folder = getattr(ir, "image_dir", None)
+    if not images or folder is None:
+        return []
+    from dsl.interpret import image_at
+
+    out = []
+    for image in images:
+        placed = image_at(image["keys"], index)
+        path = os.path.join(str(folder), image["src"])
+        if placed is not None and os.path.exists(path):
+            out.append((image["z"], path, *placed))
+    return out
+
+
+def _draw_picture(ctx, path, alpha: float, corners) -> None:
+    """A picture with its pixel (u, v) at UL + u/w (UR - UL) + v/h (DL - UL), in scene units."""
+    surface, _, width, height = _picture_surface(path)
+    ulx, uly, urx, ury, dlx, dly = corners
+    ctx.save()
+    ctx.transform(cairo.Matrix((urx - ulx) / width, (ury - uly) / width, (dlx - ulx) / height, (dly - uly) / height,
+                               ulx, uly))
+    ctx.set_source_surface(surface, 0, 0)
+    # Padded, then clipped to the picture: its edge stays sharp, as Manim's and the phone's are, rather than
+    # filtering into transparency.
+    ctx.get_source().set_extend(cairo.EXTEND_PAD)
+    ctx.get_source().set_filter(cairo.FILTER_GOOD)
+    ctx.rectangle(0, 0, width, height)
+    ctx.clip()
+    ctx.paint_with_alpha(alpha)
+    ctx.restore()

@@ -127,6 +127,22 @@ phone; a more complex picture is traced more coarsely.
 `http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is
 served in. The status bar, the **test** button and the lecture log say when it is on.
 
+### Maps of the past and of the land
+
+An `empire` op fills a state as it stood in a year (the Mughal Empire in 1600, the Roman Empire in 100) from the
+historical-basemaps project's maps (2000 BC to 2010, GPL-3.0, credited at the end of a lecture). They are not in
+this repository: each year's map is downloaded into `harness/lecture/data/historical/` the first time a lecture
+asks for it, or all of them ahead of time with `.venv/bin/python harness/lecture/historical.py --fetch`
+(`PANIM_HISTORICAL_DIR` puts them elsewhere; `PANIM_HISTORICAL_FETCH=0` never downloads). A `relief` op draws the
+mountains and plateaus in view as hill marks (Natural Earth, downloaded like the borders). A map zoomed in to a few
+places shows a small locator map of the whole country in its corner (`PANIM_LOCATOR=0` turns it off).
+
+### Words on screen
+
+No word is set below 15pt (a credit line may be). The subtitle colours the words of a label on screen that the line
+also says (`PANIM_CAPTION_TERMS=0` turns this off). Each style's marking colours are checked against its
+background and shaded darker or lighter where they would read below 3:1.
+
 ## 5. The web app
 
 ```sh

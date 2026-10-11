@@ -137,7 +137,7 @@ def test_each_beat_is_checked_and_what_can_be_mended_is(tmp_path, monkeypatch):
     class Probe(pl.MapLecture):
         def construct(self):
             self.board()
-            a = pl.T("tiny words here", 9).move_to([0, 1, 0])
+            a = pl.T("tiny words here", 9, fine=True).move_to([0, 1, 0])
             b = pl.T("running off the edge of the frame", 30).move_to([7.5, 0, 0])
             c = pl.T("first label", 24).move_to([-3, -1, 0])
             d = pl.T("second label", 24).move_to([-2.8, -1.05, 0])
@@ -220,3 +220,46 @@ def test_diagrams_carry_meaning():
     scene.diagram("p", "pyramid", [{"id": k, "label": k.title(), "items": ["x"]} for k in ("king", "nobles", "peasants")])
     bands = [scene.diagrams["p"]["nodes"][k][0] for k in ("king", "nobles", "peasants")]
     assert bands[0].width < bands[1].width < bands[2].width                     # narrow at the top
+
+
+def test_no_words_are_set_below_the_type_scale_but_credits():
+    import pocket_lecture as pl
+
+    assert pl.T("a label", 11).font_size == pytest.approx(pl.MIN_TEXT, abs=0.5)
+    assert pl.T("Photo: Wikimedia", 10, fine=True).font_size == pytest.approx(10, abs=0.5)
+
+
+def test_every_style_marks_things_in_colours_that_read_on_its_background():
+    import pocket_lecture as pl
+
+    try:
+        for name in pl.THEMES:
+            pl.use_style(name)
+            for key in pl.CONTRAST_ROLES:
+                assert pl.contrast(getattr(pl.P, f"role_{key}"), pl.P.BG) >= 3.0, (name, key)
+        pl.use_style("cardboard")
+        assert any(f.startswith("highlight") for f in pl.CONTRAST_FIXED)   # gold on kraft paper is shaded darker
+    finally:
+        pl.use_style("atlas")
+
+
+def test_the_caption_colours_the_words_that_are_on_screen():
+    import pocket_lecture as pl
+    from manim import FadeIn
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    scene.add(pl.T("Mughal Empire", 24).move_to([2, 1, 0]))
+    scene._coming = (FadeIn(pl.T("Akbar", 24)),)
+    cap = scene.caption("Akbar ruled the Mughal Empire for almost fifty years, and his court was the richest.")
+    text = cap[-1]
+    assert sorted(text._panim_terms) == ["Akbar", "Mughal Empire"]
+    ink = [g.get_fill_color().to_hex().upper() for g in text.submobjects]
+    assert ink[0] != ink[6] and ink[0] == ink[16]                   # "Akbar" and "Mughal" coloured, "ruled" not
+    plain = scene.caption("Nothing on screen is said here at all.")[-1]
+    assert not getattr(plain, "_panim_terms", None)

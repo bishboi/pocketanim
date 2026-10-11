@@ -266,6 +266,43 @@ def register_style(name: str, theme: dict) -> None:
     THEMES[name] = merged
 
 
+def _luminance(colour: str) -> float:
+    """WCAG relative luminance of a #hex colour."""
+    h = str(colour).lstrip("#")[:6]
+    channels = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    r, g, b = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG contrast ratio of two #hex colours (1 to 21)."""
+    lo, hi = sorted((_luminance(a), _luminance(b)))
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def readable(colour: str, on: str, need: float = 3.0) -> str:
+    """`colour`, or the nearest shade of it (toward black on a light ground, white on a dark one) that reads at
+    `need`:1 against `on`."""
+    if not (isinstance(colour, str) and colour.startswith("#") and len(colour) >= 7):
+        return colour
+    if contrast(colour, on) >= need:
+        return colour
+    toward = 0.0 if _luminance(on) > 0.18 else 1.0
+    rgb = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    for step in range(1, 21):
+        t = step / 20
+        mixed = "#" + "".join(f"{round(255 * (c + (toward - c) * t)):02X}" for c in rgb)
+        if contrast(mixed, on) >= need:
+            return mixed
+    return "#000000" if toward == 0.0 else "#FFFFFF"
+
+
+# The roles that mark things on the background (a highlight ring, an ally's arrow, a label's tone): each style's
+# colour for them is checked against its background and, below 3:1, shaded until it reads (CONTRAST_FIXED).
+CONTRAST_ROLES = ("ink", "muted", "accent", "highlight", "friendly", "enemy", "ally", "neutral")
+CONTRAST_FIXED: list[str] = []
+
+
 def use_style(name: str) -> dict:
     """Switch every colour, font and treatment to one entry of THEMES."""
     global TH, STYLE
@@ -283,6 +320,13 @@ def use_style(name: str) -> dict:
         setattr(P, f"role_{key}", roles.get(key) or TH["pal"].get(source) or TH["pal"]["CREAM"])
     if TH.get("land") and "land" not in roles:
         P.role_land = TH["land"]
+    CONTRAST_FIXED.clear()
+    for key in CONTRAST_ROLES:
+        was = getattr(P, f"role_{key}")
+        now = readable(was, P.BG)
+        if now != was:
+            setattr(P, f"role_{key}", now)
+            CONTRAST_FIXED.append(f"{key} {was}->{now}")
     config.background_color = TH["bg"]
     # The art style draws the pictures; left to "auto" it is the one this template draws with (artstyle.py).
     import artstyle
@@ -303,6 +347,10 @@ use_style(os.environ.get("LECTURE_STYLE", "atlas"))
 # these clusters apart, so such text is laid out large and scaled down.
 COMPLEX_SCRIPTS = ((0x0900, 0x0DFF), (0x0600, 0x06FF), (0x0E00, 0x0E7F))
 LAYOUT_SIZE = 48
+# The type scale: no word on screen is set smaller than MIN_TEXT (a phone held at arm's length reads 15pt at 1080p
+# and not much less); only a picture's credit or a source line, which nobody needs to read, goes below (fine=True).
+MIN_TEXT = 15
+TYPE = {"fine": 11, "small": 15, "label": 17, "body": 20, "heading": 24, "title": 34}
 
 
 def _complex(text: str) -> bool:
@@ -310,9 +358,11 @@ def _complex(text: str) -> bool:
 
 
 def T(text: str, size: float = 24, color: str | None = None, font: str | None = None,
-      weight=NORMAL, **kw) -> Text:
+      weight=NORMAL, fine: bool = False, **kw) -> Text:
     """Text in the style's body font (in a picture being drawn, the art style's: artstyle.font). Characters a font
-    lacks are swapped."""
+    lacks are swapped. Set no smaller than MIN_TEXT unless `fine` (a credit, a source line)."""
+    if not fine:
+        size = max(size, MIN_TEXT)
     if font is None:
         import artstyle
 
@@ -1914,7 +1964,9 @@ class Lecture(Scene):
         wav, seconds = narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         _progress_beat()
+        self._coming = anims
         cap = self.caption(text)
+        self._coming = ()
         if wav:
             self.add_sound(wav)
         if self.cap is not None:
@@ -2046,11 +2098,81 @@ class Lecture(Scene):
     def pause(self, seconds: float = 0.6) -> None:
         self.wait(seconds)
 
+    # Caption keywords: the words of a label on screen (a diagram's box, a defined term, a place) that the line
+    # also says are coloured in the subtitle, so the ear, the eye and the picture meet on the same word.
+    CAPTION_TERMS = 3
+    _TERM_SKIP = {"the", "and", "for", "with", "from", "this", "that", "into", "then", "what", "when", "where"}
+
+    def _screen_terms(self) -> list[str]:
+        """The short labels on screen now, or arriving with this line (`_coming`): one to four words each."""
+        mobs = list(self.mobjects)
+        coming = list(getattr(self, "_coming", ()) or ())
+        while coming:
+            # A group of animations builds its own mobject only when played: its parts are looked into instead.
+            anim = coming.pop()
+            if getattr(anim, "mobject", None) is not None:
+                mobs.append(anim.mobject)
+            coming.extend(getattr(anim, "animations", ()) or ())
+        chrome = set(id(m) for m in getattr(self, "chrome", VGroup()).get_family())
+        terms = []
+        for top in mobs:
+            if top is self.cap:
+                continue
+            for m in top.get_family():
+                if not isinstance(m, Text) or id(m) in chrome:
+                    continue
+                words = " ".join(str(getattr(m, "original_text", "") or "").split())
+                n = len(words.split())
+                if 1 <= n <= 4 and len(words) >= 4 and words.lower() not in self._TERM_SKIP and words not in terms:
+                    terms.append(words)
+        return terms
+
+    def _caption_spans(self, text: str) -> list[tuple[int, int]]:
+        """Where the line says a label that is on screen: (start, end) character spans, longest labels first,
+        no two overlapping, at most CAPTION_TERMS."""
+        spans: list[tuple[int, int]] = []
+        for term in sorted(self._screen_terms(), key=len, reverse=True):
+            pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in term.split()) + r"(?!\w)"
+            hit = re.search(pattern, text, re.I)
+            if hit and not any(a < hit.end() and hit.start() < b for a, b in spans):
+                spans.append(hit.span())
+            if len(spans) >= self.CAPTION_TERMS:
+                break
+        return spans
+
+    @staticmethod
+    def _colour_spans(t: Text, text: str, spans, colour: str) -> bool:
+        """Colour the glyphs of `t` (made from `text`) inside `spans`. One glyph per character (with ligatures off,
+        spaces and line breaks are glyphs too) or per character that is not a space; a script whose glyphs join
+        (Hindi) matches neither and is left as it is."""
+        for glyphs in (list(range(len(text))), [i for i, c in enumerate(text) if not c.isspace()]):
+            if len(glyphs) == len(t.submobjects):
+                break
+        else:
+            return False
+        for k, i in enumerate(glyphs):
+            if any(a <= i < b for a, b in spans):
+                t.submobjects[k].set_fill(colour, opacity=1)
+        return True
+
     def caption(self, text: str) -> VGroup:
         lines = textwrap.wrap(text, 92)
         if len(lines) > 2:
             lines = textwrap.wrap(text, int(len(text) / 2) + 8)
-        t = fit(T("\n".join(lines), tok("caption_size", 19), TH["cap_fg"], line_spacing=0.9), 13.2)
+        shown = "\n".join(lines)
+        # No ligatures ("fi" drawn as one glyph): one glyph per letter, so the said terms can be coloured.
+        t = fit(T(shown, tok("caption_size", 19), TH["cap_fg"], line_spacing=0.9, disable_ligatures=True), 13.2)
+        spans = self._caption_spans(shown) if os.environ.get("PANIM_CAPTION_TERMS", "1") != "0" else []
+        if spans:
+            # The highlight's colour, shaded until it reads on the caption box and stands apart from its words.
+            colour = readable(getattr(P, "role_highlight", P.GOLD), TH["cap_bg"], 4.5)
+            if contrast(colour, TH["cap_fg"]) < 1.6:
+                colour = readable(P.GOLD, TH["cap_bg"], 4.5)
+            if self._colour_spans(t, shown, spans, colour):
+                t._panim_terms = [shown[a:b].replace("\n", " ") for a, b in spans]
+        if len(t.submobjects) == len(shown):
+            # A space or a line break is a blank glyph: none goes to the phone as a shape.
+            t.remove(*[g for g, c in zip(list(t.submobjects), shown) if c.isspace()])
         box = RoundedRectangle(corner_radius=0.03 if TH["upper"] else 0.12, width=t.width + 0.5,
                                height=t.height + 0.3, fill_color=TH["cap_bg"], fill_opacity=TH["cap_op"],
                                stroke_width=1.2 if STYLE == "blueprint" else 0, stroke_color=P.MUTED)
@@ -2470,7 +2592,7 @@ class Lecture(Scene):
             if line is not None:
                 parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
             if credit:
-                parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
+                parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
             group = Group(*parts)
             shift = np.array([cx, cy, 0]) - group.get_center()
             group.shift(shift)
@@ -2486,7 +2608,7 @@ class Lecture(Scene):
         if line is not None:
             parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
         if credit:
-            parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
+            parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
         group = Group(*parts).move_to([cx, cy, 0])
         return self._to_stage(group)
 
@@ -4240,11 +4362,15 @@ class Lecture(Scene):
             import drawlib
 
             note = f"{note}  {drawlib.credit(USED_DRAWINGS)}."
+        if any(d.startswith("historical:") for d in USED_DRAWINGS):
+            import historical
+
+            note = f"{note}  {historical.CREDIT}."
         credit = fit(T(line, 14, P.MUTED), 13).move_to(DOWN * 1.9)
         small = fit(T(note, 13, P.MUTED), 13).next_to(credit, DOWN, buff=0.15)
         parts = [credit, small]
         if extra:
-            parts.append(fit(T(wrap(extra, 150), 11, P.MUTED, line_spacing=0.8), 13).next_to(small, DOWN, buff=0.15))
+            parts.append(fit(T(wrap(extra, 150), TYPE["fine"], P.MUTED, line_spacing=0.8, fine=True), 13).next_to(small, DOWN, buff=0.15))
         self.play(*[FadeIn(p) for p in parts], run_time=1.0)
         self.wait(seconds + (2.0 if extra else 0.0))
         self.play(*[FadeOut(p) for p in parts], run_time=0.8)
@@ -4464,6 +4590,9 @@ class MapLecture(BoardMixin, Lecture):
         if panel:
             self.panel = self.panel_bg()
             anims.append(FadeIn(self.panel))
+        inset = self.locator()
+        if inset is not None:
+            anims.append(FadeIn(inset))
         self.play(*anims, run_time=run_time)
 
     def region_fill(self, geom, color: str, opacity: float = 0.6, z: float = Z_FILL) -> VGroup:
@@ -4545,8 +4674,9 @@ class MapLecture(BoardMixin, Lecture):
         self._live_start(body, step, "process")
         return FadeIn(body, run_time=0.3)
 
-    def flow(self, lonlats, color: str | None = None, width: float = 7):
-        """A curved arrow along lon/lat points: a smoothed path and a tip."""
+    def flow(self, lonlats, color: str | None = None, width: float = 7, label: str | None = None):
+        """A curved arrow along lon/lat points: a smoothed path and a tip. With a label (what moves: "spices",
+        "the Aryans", "monsoon winds"), the label rides the arrow's head as it is drawn and stays at its middle."""
         color = color or P.RIVER
         fr = self.frame
         line = fr.path(lonlats, stroke_color=color, stroke_width=width)
@@ -4557,7 +4687,218 @@ class MapLecture(BoardMixin, Lecture):
         tip.rotate(math.atan2(b[1] - a[1], b[0] - a[0]) - PI / 2).move_to(b)
         group = VGroup(edge, line, tip)
         group.set_z_index(15)
-        return AnimationGroup(Create(edge), Create(line), FadeIn(tip), lag_ratio=0.4)
+        if not label:
+            return AnimationGroup(Create(edge), Create(line), FadeIn(tip), lag_ratio=0.4)
+        tag = self._map_text(str(label), 17, color)
+        tag.set_z_index(Z_MARK)
+
+        def at(f: float, side: float) -> np.ndarray:
+            """Beside the line a fraction f along it, on one side (+1: the upper)."""
+            f = min(max(f, 1e-3), 1 - 1e-3)
+            here, ahead = line.point_from_proportion(f), line.point_from_proportion(min(f + 0.01, 1.0))
+            d = ahead - here
+            normal = np.array([-d[1], d[0], 0.0]) / (np.linalg.norm(d[:2]) or 1.0)
+            if normal[1] < 0 or (normal[1] == 0 and normal[0] < 0):
+                normal = -normal
+            # Far enough along the normal that the card's nearest corner clears the line.
+            reach = abs(normal[0]) * tag.width / 2 + abs(normal[1]) * tag.height / 2
+            return here + side * normal * (reach + width / 100 + 0.1)
+
+        # Where it comes to rest: near the middle, on the side and at the point where it covers the fewest labels
+        # already on the map.
+        taken = self._taken()
+        best = None
+        for f in self.ARROW_LABEL_RESTS:
+            for side in (1.0, -1.0):
+                tag.move_to(at(f, side))
+                cost = sum(_overlap(_bbox(tag, 0.04), t) for t in taken)
+                if best is None or cost < best[0] - 1e-9:
+                    best = (cost, f, side)
+        _, rest, side = best
+
+        def ride(m, alpha: float) -> None:
+            m.move_to(at(min(alpha, rest), side))
+            m.set_opacity(min(1.0, alpha * 6))
+
+        ride(tag, 1.0)
+        taken.append(_bbox(tag, 0.04))
+        ride(tag, 0.0)
+        drawing = AnimationGroup(Create(edge), Create(line), UpdateFromAlphaFunc(tag, ride))
+        return AnimationGroup(drawing, FadeIn(tip), lag_ratio=0.85)
+
+    # Where along its arrow a riding label may come to rest, the most wanted first (its middle).
+    ARROW_LABEL_RESTS = (0.5, 0.4, 0.6, 0.3, 0.7)
+
+    # ---------------- historical borders (historical.py) ----------------
+    def empire(self, name: str, year: int, color: str | None = None, opacity: float = 0.42, label: str | None = None):
+        """A state as it stood in a year, filled on the map with its border and its name (the Mughal Empire in
+        1600, the Maurya Empire under Ashoka): the historical-basemaps map nearest that year. Nothing (and a note in
+        SKIPPED) when the state or the map cannot be found."""
+        import historical
+
+        try:
+            found = historical.empire(name, int(year))
+        except Exception as error:  # noqa: BLE001
+            found = None
+            SKIPPED.append(f"historical map for {name!r}: {type(error).__name__}: {error}"[:300])
+        if not found:
+            SKIPPED.append(f"no state named {name!r} on the historical map of {year}")
+            return None
+        shape, map_name, map_year = found
+        USED_DRAWINGS.add("historical:" + map_name)
+        color = color or P.ROSE
+        piece = _valid(shape).intersection(_box(self.lonlat_bounds(margin=0.9)))
+        if piece.is_empty:
+            SKIPPED.append(f"{map_name} ({map_year}) lies outside this map")
+            return None
+        fill = self.frame.poly(piece, simplify=0.006, min_area=0.002, fill_color=color, fill_opacity=opacity,
+                               stroke_width=0)
+        edge = self.frame.poly(piece, simplify=0.006, min_area=0.002, fill_opacity=0, stroke_color=color,
+                               stroke_width=2.6)
+        _art(fill)
+        _art(edge)
+        fill.set_z_index(Z_FILL + 0.5)
+        edge.set_z_index(Z_OUTLINE + 0.5)
+        when = f"{-int(year)} BC" if int(year) < 0 else f"{int(year)}"
+        words = f"{label or name} ({when})"
+        tag = self._map_text(words, 19, color)
+        shown = self.frame.project_geom(piece)
+        inside = shown.representative_point() if not shown.is_empty else None
+        point = np.array([inside.x, inside.y, 0.0]) if inside is not None else np.array([*self.MAP_CENTER, 0.0])
+        lead = self.place_label(tag, point, 0.0, UP, reserve_point=False)
+        tag.set_z_index(Z_MARK)
+        parts = [FadeIn(fill), Create(edge), FadeIn(tag)]
+        if lead is not None:
+            lead.set_z_index(Z_MARK)
+            parts.append(Create(lead))
+        return AnimationGroup(*parts, lag_ratio=0.35)
+
+    # ---------------- relief ----------------
+    RELIEF_KINDS = ("Range/mtn", "Plateau")
+    RELIEF_STEP = 0.32          # the hill marks' spacing, in scene units
+    RELIEF_MOST = 700
+    RELIEF_MIN_AREA = 0.06      # a range smaller than this on screen is left out
+    RELIEF_NAMES = 4            # how many ranges are named when none were asked for
+
+    def relief(self, names=None, label: bool = True):
+        """The mountains and plateaus on the map, as an atlas draws them in line: each range shaded and filled with
+        small hill marks (vector, so the phone draws it like every other line), and named. `names`: only these
+        (the Himalayas, the Western Ghats); otherwise every range in view."""
+        from shapely.geometry import Point
+
+        bounds = _box(self.lonlat_bounds())
+        wanted = {_norm(n) for n in (names or [])}
+        ranges = []
+        for attrs, geom in _records("geography_regions_polys", "physical", "10m"):
+            if attrs.get("FEATURECLA") not in self.RELIEF_KINDS or not geom.intersects(bounds):
+                continue
+            name = str(attrs.get("NAME") or "")
+            if wanted and not any(w and (w in _norm(name) or _norm(name) in w) for w in wanted):
+                continue
+            ranges.append((name, _valid(geom).intersection(bounds), attrs.get("FEATURECLA")))
+        if not ranges:
+            SKIPPED.append(f"no mountains to draw here{' named ' + ', '.join(names) if names else ''}")
+            return None
+        ink = readable(P.MOUNT, P.BG, 1.6)
+        shade, marks, tags = VGroup(), VGroup(), VGroup()
+        count = 0
+        # The ranges big enough to see, largest first; named only the largest few unless asked for by name.
+        sized = sorted(((self.frame.project_geom(g).area, n, g, k) for n, g, k in ranges), key=lambda r: -r[0])
+        ranges = [(n, g, k) for a, n, g, k in sized if a >= self.RELIEF_MIN_AREA or wanted]
+        # Named first: the ranges on the land the map is about (the Himalayas on a map of India), then the largest.
+        focus = self.focus
+        by_note = sorted(ranges, key=lambda r: not r[1].intersects(focus))
+        named = {n for n, _, _ in by_note[:len(ranges) if wanted else self.RELIEF_NAMES]}
+        share = max(10, self.RELIEF_MOST // max(1, len(ranges)))
+        for name, geom, kind in ranges:
+            shape = self.frame.poly(geom, simplify=0.01, min_area=0.004, fill_color=P.MOUNT, fill_opacity=0.22,
+                                    stroke_width=0)
+            if not len(shape):
+                continue
+            shade.add(shape)
+            shown = self.frame.project_geom(geom)
+            x0, y0, x1, y1 = shown.bounds
+            # Spaced so each range gets its share of the marks: a vast plateau sparser, a thin range as drawn.
+            step = max(self.RELIEF_STEP * (1.4 if kind == "Plateau" else 1.0), math.sqrt(shown.area / share))
+            mine = 0
+            for row, y in enumerate(np.arange(y0 + step / 2, y1, step * 0.8)):
+                for x in np.arange(x0 + step / 2 + (step / 2 if row % 2 else 0), x1, step):
+                    if count >= self.RELIEF_MOST or mine >= share or not shown.contains(Point(x, y)):
+                        continue
+                    mine += 1
+                    # A hill: a small peak (a plateau: a flat-topped one).
+                    w, h = step * 0.32, step * 0.24
+                    if kind == "Plateau":
+                        pts = [[x - w, y - h / 2, 0], [x - w / 3, y + h / 2, 0], [x + w / 3, y + h / 2, 0],
+                               [x + w, y - h / 2, 0]]
+                    else:
+                        pts = [[x - w, y - h / 2, 0], [x, y + h / 2, 0], [x + w, y - h / 2, 0]]
+                    hill = VMobject(stroke_color=ink, stroke_width=1.6, stroke_opacity=0.85)
+                    hill.set_points_as_corners(np.array(pts, dtype=float))
+                    marks.add(hill)
+                    count += 1
+            if label and name in named and shape.width > 0.8:
+                tag = T(name.replace(" Mts.", " Mountains").replace(" Ra.", " Range"), 15, ink, slant=ITALIC)
+                inside = shown.representative_point()
+                tag.move_to([inside.x, inside.y, 0])
+                # Clear of the caption and the title strip.
+                low, high = CAPTION_Y + 0.5, config.frame_height / 2 - 0.55
+                tag.shift(UP * (max(0.0, low - tag.get_bottom()[1]) - max(0.0, tag.get_top()[1] - high)))
+                if not any(_overlap(_bbox(tag, 0.04), t) for t in self._taken()):
+                    self._taken().append(_bbox(tag, 0.04))
+                    tags.add(tag)
+        for part in (*shade.get_family(), *marks.get_family()):
+            part._art_decorated = True
+        shade.set_z_index(Z_FILL - 0.5)
+        marks.set_z_index(Z_LINES + 0.5)
+        tags.set_z_index(Z_MARK - 1)
+        return AnimationGroup(FadeIn(shade), LaggedStart(*[FadeIn(m) for m in marks], lag_ratio=0.01),
+                              FadeIn(tags), lag_ratio=0.3)
+
+    # ---------------- locator inset ----------------
+    # A map zoomed in to a few places gets a small map in its corner: the whole country (or area), with a box
+    # where the big map is, so where on Earth this is stays clear. Only when the view is under this share of it.
+    LOCATOR_BELOW = 0.5
+    LOCATOR_SIZE = 1.55
+
+    def locator(self):
+        """The inset (a VGroup), or None when the map is not zoomed in."""
+        if not self.FRAME_BBOX or os.environ.get("PANIM_LOCATOR") == "0":
+            return None
+        context = self.mainland
+        lon0, lat0, lon1, lat1 = self.FRAME_BBOX
+        c0, d0, c1, d1 = context.bounds
+        share = max((lon1 - lon0) / max(c1 - c0, 1e-6), (lat1 - lat0) / max(d1 - d0, 1e-6))
+        if share >= self.LOCATOR_BELOW:
+            return None
+        size = self.LOCATOR_SIZE
+        left = -config.frame_width / 2 + 0.25
+        bottom = -config.frame_height / 2 + 0.75
+        centre = (left + size / 2 + 0.1, bottom + size / 2 + 0.1)
+        small = MapFrame(context, center=centre, height=size, width=size, clip=False)
+        land = small.poly(context, simplify=0.01, min_area=0.0005, fill_color=TH.get("land") or P.SAND,
+                          fill_opacity=0.9 if TH.get("land") else 0.35, stroke_color=P.MUTED, stroke_width=1.2)
+        view = _box(self.FRAME_BBOX)
+        here = small.poly(view, simplify=0.0, min_area=0.0, fill_color=P.ROSE, fill_opacity=0.25,
+                          stroke_color=role("highlight"), stroke_width=2.4)
+        if not len(here):
+            return None
+        # Never smaller than a dot: a battlefield in a big country is still seen.
+        if here.width < 0.12:
+            here = VGroup(Square(0.12, stroke_color=role("highlight"), stroke_width=2.4, fill_color=P.ROSE,
+                                 fill_opacity=0.25).move_to(here.get_center()))
+        both = VGroup(land, here)
+        card = RoundedRectangle(corner_radius=0.08, width=both.width + 0.24, height=both.height + 0.24,
+                                fill_color=P.BG, fill_opacity=0.88, stroke_color=P.MUTED, stroke_width=1.2)
+        card.move_to(both)
+        for part in card.get_family():
+            part._art_decorated = True
+        inset = VGroup(card, land, here)
+        # Kept inside the frame, above the caption.
+        inset.shift(RIGHT * max(0.0, left - card.get_left()[0]) + UP * max(0.0, bottom - card.get_bottom()[1]))
+        inset.set_z_index(Z_MARK - 1)
+        self._taken().append(_bbox(inset, 0.05))
+        return inset
 
     @staticmethod
     def _map_text(words: str, size: float, color: str):
@@ -4873,6 +5214,7 @@ import artstyle as _artstyle  # noqa: E402
 
 _artstyle.drawn_by(Lecture, ("diagram", "svg_figure", "plot", "process", "molecule", "big_timeline", "network",
                              "timeline", "compare", "_svg_drawing"))
-_artstyle.drawn_by(MapLecture, ("journey", "marker", "mark", "route", "unit", "icon", "flow", "graticule", "clock"))
+_artstyle.drawn_by(MapLecture, ("journey", "marker", "mark", "route", "unit", "icon", "flow", "graticule", "clock",
+                                         "empire", "locator", "relief"))
 
 __all__ = [name for name in globals() if not name.startswith("_") or name == "_box"]

@@ -70,7 +70,7 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "journey", "diagram", "figure", "picture", "compare", "bars", "sim"],
+        "kit": ["marker", "river", "state", "journey", "relief", "diagram", "figure", "picture", "compare", "bars", "sim"],
         "guidance": "Geography: the map carries the where (markers, rivers, states) and movement (a journey: the "
                     "monsoon winds, a trade route, a river's course); the stage carries how it works: diagrams built "
                     "from drawings (how rivers feed a delta, what a crop needs), the water cycle and the seasons as "
@@ -81,7 +81,8 @@ PROFILES = {
     },
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
-        "kit": ["timeline", "picture", "diagram", "figure", "marker", "journey", "arrow", "quote", "compare", "sim"],
+        "kit": ["timeline", "picture", "diagram", "figure", "marker", "journey", "arrow", "empire", "quote", "compare",
+                "sim"],
         "guidance": "History: open each era with a timeline on the stage (a still one: its dates, events and "
                     "pictures of the people and places); show the people, communities and places of a "
                     "paragraph together (one picture op with items, each generated: portraits, monuments, scenes); build causes and consequences "

@@ -65,7 +65,7 @@ STYLES = ("atlas", "vox", "cardboard", "whiteboard", "blueprint", "chalkboard", 
 ARTS = ("auto", "clean", "detailed", "blueprint", "chalk", "sketch", "neon", "watercolour")
 PALETTE = {"SAND", "DUNE", "TERRA", "RUST", "TEAL", "RIVER", "GREEN", "OLIVE", "CREAM", "MUTED",
            "ROSE", "GOLD", "VIOLET", "HI", "MOUNT"}
-MAP_OPS = {"marker", "river", "path", "arrow", "state", "dim", "graticule", "journey"}
+MAP_OPS = {"marker", "river", "path", "arrow", "state", "dim", "graticule", "journey", "empire", "relief"}
 SIDES = {"left": "LEFT", "right": "RIGHT", "up": "UP", "down": "DOWN"}
 
 # The panel runs from y = 2.35 down to the caption's top, near -2.85. These
@@ -301,6 +301,29 @@ def _purge(script: dict) -> None:
                 beat["do"] = [op for op in beat["do"] if not (isinstance(op, dict) and op.get("_drop"))]
 
 
+def _year_of(value) -> int | None:
+    """A year as a number: 1600, "1600", "c. 1600", "250 BC" (-250), "AD 100"."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
+    hit = re.search(r"(\d{1,4})\s*(BCE?|B\.C\.)?", str(value or ""), re.I)
+    if not hit:
+        return None
+    return -int(hit.group(1)) if hit.group(2) else int(hit.group(1))
+
+
+def _historical(name, year: int):
+    """historical.empire for a lint check: the state as found, None when the map has no such state, True when the
+    map cannot be had here (no network): the engine then decides."""
+    try:
+        import historical
+
+        if historical.path(year) is None:
+            return True
+        return historical.empire(str(name), year)
+    except Exception:  # noqa: BLE001 -- no shapely here: leave it to the engine
+        return True
+
+
 def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     """Ops that cannot be drawn as written and need no new words to mend: an unknown op, a map op with no map,
     one missing what it draws, a picture whose kind is not one of the picture keys. Each is left out (a broken
@@ -310,7 +333,8 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     known = {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo", "illustration"} \
         | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
-            "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"]}
+            "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"],
+            "empire": ["name"]}
     pictured: set[str] = set()     # book figures shown as their picture: they have no parts to reveal
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
@@ -346,6 +370,16 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(v, (int, float)) for v in x))]
                     if len(op["stops"]) < 2:
                         missing.append("two stops")
+                if kind == "empire":
+                    year = _year_of(op.get("year"))
+                    if year is None:
+                        missing.append("year")
+                    else:
+                        op["year"] = year
+                        found = _historical(op.get("name"), year) if op.get("name") else True
+                        if found is None:
+                            _drop(op, at, f"no state named {op.get('name')!r} on the historical map of {year}", notes)
+                            continue
                 if kind == "figure" and str(op.get("id")) not in figures:
                     _drop(op, at, f"no book figure {op.get('id')!r}", notes)
                     continue
@@ -994,6 +1028,12 @@ def _chapter_frame(chapter: dict, region: dict | None) -> tuple | None:
             elif kind == "icon":
                 for spot in _icon_spots(op):
                     add(spot)
+            elif kind == "empire" and op.get("name") and _year_of(op.get("year")) is not None:
+                found = _historical(op["name"], _year_of(op.get("year")))
+                if isinstance(found, tuple):
+                    x0, y0, x1, y1 = found[0].intersection(pl._box(bounds)).bounds or bounds
+                    lons.extend([x0, x1])
+                    lats.extend([y0, y1])
             elif kind == "state" and op.get("name"):
                 try:
                     shape = pl.state(op["name"], home) if home else pl.country_home(op["name"])
@@ -2646,7 +2686,16 @@ def _op_call(op: dict) -> str:
         pts = ", ".join(f"({float(x):g}, {float(y):g})" for x, y in op["points"])
         color = f", {_colour(op.get('color'))}" if op.get("color") else ""
         method = "path" if kind == "path" else "flow"
-        return f"self.{method}([{pts}]{color})"
+        label = f", label={_q(op['label'])}" if kind == "arrow" and op.get("label") else ""
+        return f"self.{method}([{pts}]{color}{label})"
+    if kind == "relief":
+        names = [str(n) for n in op["names"]] if isinstance(op.get("names"), list) else None
+        label = "" if op.get("label", True) else ", label=False"
+        return f"self.relief({names!r}{label})"
+    if kind == "empire":
+        color = f", color={_colour(op.get('color'))}" if op.get("color") else ""
+        label = f", label={_q(op['label'])}" if op.get("label") else ""
+        return f"self.empire({_q(op['name'])}, {int(op['year'])}{color}{label})"
     if kind == "journey":
         stops = ", ".join(_q(x) if isinstance(x, str) else f"({float(x[0]):g}, {float(x[1]):g})" for x in op["stops"])
         color = f", color={_colour(op.get('color'))}" if op.get("color") else ""

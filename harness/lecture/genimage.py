@@ -156,17 +156,17 @@ def _vector(target: Path) -> Path:
     return svg if svg.exists() else target
 
 
-def _ask(prompt: str) -> tuple[bytes | None, float]:
-    """The image the model returns for a prompt (OpenRouter), and what it cost."""
+# Models found to answer only on OpenRouter's Image API (/api/v1/images), not chat completions: asked there next time.
+_IMAGE_API: set[str] = set()
+
+
+def _post(url: str, body: dict) -> dict:
+    """POST JSON to OpenRouter; an HTTP error is raised with the provider's own message."""
+    import urllib.error
     import urllib.request
 
-    url = os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
-    body = json.dumps({"model": model(), "modalities": ["image", "text"], "usage": {"include": True},
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
-    request = urllib.request.Request(url, data=body, headers={
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
         "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
-    import urllib.error
-
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             reply = json.loads(response.read())
@@ -177,17 +177,80 @@ def _ask(prompt: str) -> tuple[bytes | None, float]:
         except (ValueError, AttributeError):
             pass
         raise RuntimeError(f"HTTP {error.code} from the image model {model()}: {detail}") from None
-    if reply.get("error"):
+    if isinstance(reply, dict) and reply.get("error"):
         raise RuntimeError(f"the image model {model()} refused: {(reply['error'] or {}).get('message') or reply['error']}")
+    return reply
+
+
+def _chat_url() -> str:
+    return os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _images_url() -> str:
+    """OpenRouter's Image API, beside chat completions (OPENROUTER_IMAGES_URL to set it outright)."""
+    if os.environ.get("OPENROUTER_IMAGES_URL"):
+        return os.environ["OPENROUTER_IMAGES_URL"]
+    chat = _chat_url()
+    return re.sub(r"chat/completions/?$", "images", chat) if chat.rstrip("/").endswith("chat/completions") \
+        else chat.rstrip("/") + "/images"
+
+
+def _image_bytes(ref: str) -> bytes:
+    """An image the API returned: a data URL, bare base64, or a link to fetch."""
+    if ref.startswith("data:image"):
+        return base64.b64decode(ref.split(",", 1)[1])
+    if ref.startswith("http"):
+        import urllib.request
+
+        with urllib.request.urlopen(ref, timeout=120) as response:
+            return response.read()
+    return base64.b64decode(ref)
+
+
+def _ask_images(prompt: str) -> tuple[bytes, float]:
+    """The Image API (/api/v1/images): {model, prompt} in, the picture in data[0].b64_json (or .url) out. The way
+    image-only models (meta/muse-image and the like) are asked."""
+    reply = _post(_images_url(), {"model": model(), "prompt": prompt})
+    items = reply.get("data") or reply.get("images") or []
+    first = items[0] if items else {}
+    ref = (first.get("b64_json") or first.get("url") or (first.get("image_url") or {}).get("url") or "") \
+        if isinstance(first, dict) else str(first or "")
+    usd = float((reply.get("usage") or {}).get("cost") or 0.0)
+    if not ref:
+        raise RuntimeError(f"{model()} returned no image from the Image API: {json.dumps(reply)[:200]}")
+    return _image_bytes(ref), usd
+
+
+def _ask_chat(prompt: str) -> tuple[bytes, float]:
+    """Chat completions with image output (Gemini's image models and the like)."""
+    reply = _post(_chat_url(), {"model": model(), "modalities": ["image", "text"], "usage": {"include": True},
+                                "messages": [{"role": "user", "content": prompt}]})
     message = ((reply.get("choices") or [{}])[0]).get("message") or {}
     data_url = next((((i.get("image_url") or {}).get("url")) for i in message.get("images") or []
-                     if ((i.get("image_url") or {}).get("url") or "").startswith("data:image")), None)
+                     if ((i.get("image_url") or {}).get("url") or "")), None)
     usd = float((reply.get("usage") or {}).get("cost") or 0.0)
     if not data_url:
         said = str(message.get("content") or "")[:200]
         raise RuntimeError(f"{model()} returned no image (is it an image model? OpenRouter's image models list "
                            f"\"image\" in their output modalities)" + (f"; it said: {said}" if said else ""))
-    return base64.b64decode(data_url.split(",", 1)[1]), usd
+    return _image_bytes(data_url), usd
+
+
+def _ask(prompt: str) -> tuple[bytes, float]:
+    """The image the model makes for a prompt, and what it cost. Chat completions first; a model that answers
+    only on the Image API (OpenRouter says so: "use the /api/v1/images endpoint") is asked there, now and for the
+    rest of the run. PANIM_IMAGE_API=images or chat picks one outright."""
+    way = os.environ.get("PANIM_IMAGE_API", "").strip().lower()
+    if way == "images" or (way != "chat" and model() in _IMAGE_API):
+        return _ask_images(prompt)
+    try:
+        return _ask_chat(prompt)
+    except RuntimeError as error:
+        if way == "chat" or not re.search(r"/images\b|images endpoint|image generation model|chat/completions",
+                                          str(error), re.I):
+            raise
+    _IMAGE_API.add(model())
+    return _ask_images(prompt)
 
 
 def _failed(what: str, error: str) -> None:

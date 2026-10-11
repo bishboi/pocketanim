@@ -348,6 +348,25 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                 if missing:
                     _drop(op, at, f"it has no {missing[0]}", notes)
                     continue
+                if kind == "timeline":
+                    events = [e for e in (op.get("events") if isinstance(op.get("events"), list) else [])
+                              if (isinstance(e, (list, tuple)) and len(e) >= 2) or (isinstance(e, dict) and e.get("label"))]
+                    op["events"] = events
+                    if len(events) == 1:
+                        # One date is not a timeline: the date and what happened, as a card.
+                        e = events[0]
+                        date, label = (e[0], e[1]) if isinstance(e, (list, tuple)) else (e.get("date"), e.get("label"))
+                        text = f"{date}: {label}" if date not in (None, "") else str(label)
+                        op.clear()
+                        op.update({"op": "fact", "text": text})
+                        notes.append(f"{FIXED}{at}: a timeline of one event shown as a card ({text[:60]})")
+                        continue
+                if kind in KIT_OPS:
+                    problem = _kit_problem(op)
+                    if problem:
+                        # Cannot be drawn as written: left out, and the narration over it stands.
+                        _drop(op, at, problem, notes)
+                        continue
                 if kind == "figure" and op.get("show") and (figures[str(op["id"])] or {}).get("parts"):
                     parts = [str(p) for p in figures[str(op["id"])]["parts"]]
                     _keep_known(op, "show", parts, at, notes)

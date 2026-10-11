@@ -112,3 +112,16 @@ def test_only_three_ways_to_a_picture():
     assert beats[2]["do"][0] == {"op": "illustration", "query": "a red deer in a meadow, side view", "caption": "Deer"}
     assert beats[3]["do"][0]["events"][0][2] == {"generate": "sword"}
     assert cl._picture_fetch({"generate": "deer"}) == {"op": "illustration", "query": "deer", "optional": True}
+
+
+def test_a_timeline_of_one_event_is_a_card_and_of_none_is_left_out():
+    """A timeline with fewer than two dates was sent back to the writer; now the compiler mends it itself."""
+    script = _script([{"op": "timeline", "events": [["1066", "Norman Conquest"]]}],
+                     [{"op": "timeline", "events": []}])
+    errors, warnings = cl.lint(script)
+    assert not errors, errors
+    first, second = (b["do"] for b in script["chapters"][0]["beats"])
+    assert first == [{"op": "fact", "text": "1066: Norman Conquest"}] and second == []
+    assert any("timeline of one event shown as a card" in w for w in warnings)
+    assert any("left out 'timeline'" in w for w in warnings)
+    assert cl.compile_script(script, "GeneratedScene")

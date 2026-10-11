@@ -82,3 +82,46 @@ def test_a_lecture_without_a_key_says_so(gen, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert gen.generate("a steam locomotive") is None
     assert "OPENROUTER_API_KEY" in gen.report()["failed"][0]["error"]
+
+
+def test_an_image_only_model_is_asked_on_the_image_api(gen, monkeypatch):
+    """OpenRouter refuses an image-only model on chat completions ("use the /api/v1/images endpoint"): it is asked
+    on the Image API instead, and the picture comes back from data[0].b64_json."""
+    import base64
+
+    png = gen._stand_in("an apple")
+    calls = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            calls.append((self.path, body))
+            if self.path.endswith("/chat/completions"):
+                status, reply = 404, {"error": {"message": "meta/muse-image is an image generation model and cannot be "
+                                                           "used with the chat/completions endpoint. Use the "
+                                                           "/api/v1/images endpoint instead."}}
+            else:
+                status, reply = 200, {"data": [{"b64_json": base64.b64encode(png).decode()}], "usage": {"cost": 0.04}}
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "meta/muse-image")
+    got = gen.check()
+    row = gen.generate("a steam locomotive")
+    server.shutdown()
+    assert got["ok"] and got["usd"] == 0.04, got.get("error")
+    assert row and row["usd"] == 0.04
+    paths = [p for p, _ in calls]
+    assert paths[0] == "/api/v1/chat/completions" and paths[1] == "/api/v1/images"
+    assert paths[2] == "/api/v1/images"                      # remembered: asked on the Image API from then on
+    assert calls[1][1] == {"model": "meta/muse-image", "prompt": calls[1][1]["prompt"]}

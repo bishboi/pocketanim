@@ -117,6 +117,12 @@ border or background, traced into vector shapes so the phone plays them at tier 
 again the same way. `.venv/bin/python harness/lecture/genimage.py "a steam locomotive, side view"` makes one and
 prints where it went. `PANIM_IMAGES=0` turns the image model off.
 
+Generated pictures are richly detailed and drawn onto the board shape by shape (big areas of colour first, then
+the details). A picture may name parts to label (`"labels": ["helmet", "lance"]`): a model that reads images
+(`PANIM_LABEL_MODEL`, else `OPENROUTER_SVG_MODEL`) finds each part, and the board writes the label beside the
+picture with a line to it. `PANIM_TRACE_MAX_PATHS` (2200) caps how many shapes a traced picture may have on the
+phone; a more complex picture is traced more coarsely.
+
 `PANIM_IMAGE_PROXY` (testing only) sends the image model's calls, and nothing else, through a proxy, e.g.
 `http://user:password@host:8080`. Leave it unset in production, where the server runs in a region the model is
 served in. The status bar, the **test** button and the lecture log say when it is on.

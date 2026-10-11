@@ -546,6 +546,21 @@ def cutout_mob(path, width: float, height: float):
     return mob
 
 
+def cutout_strokes(mob, batches: int = 10) -> list:
+    """A traced cutout as the pieces it is drawn in by, in the order a painter would: its shapes are stacked
+    largest first (vtracer), so the first pieces are its big areas of colour and the last its finest details.
+    Each piece is written onto the board (outlined, then filled), so the picture is drawn, not faded in. A PNG
+    cutout (the tracer was missing) is one piece, faded in."""
+    shapes = [m for m in mob.family_members_with_points()] if isinstance(mob, VMobject) else []
+    if len(shapes) < 2:
+        return [mob]
+    n = max(1, min(batches, len(shapes)))
+    # Fewer shapes in the first pieces (the big areas, drawn slowly), more in the last (the many small details).
+    bounds = [round(len(shapes) * (k / n) ** 1.6) for k in range(n + 1)]
+    pieces = [VGroup(*shapes[a:b]) for a, b in zip(bounds, bounds[1:]) if b > a]
+    return pieces or [mob]
+
+
 def board_svg(path, width: float, height: float):
     """An SVG drawing (a book figure redrawn, or a draw op's picture) as the board shows it, at most width x height:
     colour names in it (INK, MUTED, BOARD, ROSE, GOLD...) in this style's colours, black lines in the ink, its labels
@@ -2257,9 +2272,12 @@ class Lecture(Scene):
         going = self._stage_leaving()
         return AnimationGroup(*going) if going else None
 
-    def stage_image(self, path: str, caption: str = "", credit: str = ""):
+    def stage_image(self, path: str, caption: str = "", credit: str = "", labels=()):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
-        the problem, its figure and its working off the board mid-solution."""
+        the problem, its figure and its working off the board mid-solution.
+
+        A picture the image model made is drawn in, shape by shape (cutout_strokes), and `labels` ([(text, x, y)],
+        x and y from 0 to 1 across and down the picture) are written beside it, each with a line to its part."""
         if self.board_mode and self._solving() and not self._beat_new:
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
@@ -2269,9 +2287,21 @@ class Lecture(Scene):
             line = T(wrap(_short_caption(caption), 70), 16, P.CREAM, line_spacing=0.85)
         room = h - (line.height + 0.3 if line is not None else 0) - (0.3 if credit else 0)
         if is_cutout(path):
-            # A picture the image model made: a cutout, in vector shapes, no frame around it.
-            image = cutout_mob(path, w, room)
-            parts = [image]
+            # A picture the image model made: a cutout, in vector shapes, no frame around it, drawn in.
+            labels = [tuple(x) for x in labels or ()]
+            image = cutout_mob(path, w * (0.58 if labels else 1.0), room)
+            image.move_to([cx, cy + (h - room) / 2, 0])
+            tags = self._picture_labels(image, labels, w) if labels else []
+            parts = [image, *tags]
+            if line is not None:
+                parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
+            if credit:
+                parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
+            group = Group(*parts)
+            shift = np.array([cx, cy, 0]) - group.get_center()
+            group.shift(shift)
+            draw = [*cutout_strokes(image), *tags, *parts[1 + len(tags):]]
+            return self._to_stage(group, draw=draw)
         else:
             image = ImageMobject(path)
             image.scale_to_fit_width(w)
@@ -2285,6 +2315,42 @@ class Lecture(Scene):
             parts.append(fit(T(credit, 10, P.MUTED), w).next_to(parts[-1], DOWN, buff=0.06))
         group = Group(*parts).move_to([cx, cy, 0])
         return self._to_stage(group)
+
+    def _picture_labels(self, image, labels, width: float) -> list:
+        """Labels beside a picture, each a tag joined by a line to the point on its part: those on the picture's left
+        half go to its left, the rest to its right, in order down the picture, spread so no two touch."""
+        lo, hi = image.get_corner(DL), image.get_corner(UR)
+        room = max((width - image.width) / 2 - 0.35, 0.9)
+        sides: dict[int, list] = {-1: [], 1: []}
+        for text, x, y in labels:
+            point = np.array([lo[0] + float(x) * (hi[0] - lo[0]), hi[1] - float(y) * (hi[1] - lo[1]), 0])
+            sides[-1 if float(x) < 0.5 else 1].append((str(text), point))
+        out = []
+        for side, items in sides.items():
+            items.sort(key=lambda item: -item[1][1])
+            tags = [fit(marker(text, 17), room) for text, _ in items]
+            # Down the side in the order of their parts, at their parts' heights where there is room.
+            ys, gap = [], 0.12
+            for tag, (_, point) in zip(tags, items):
+                want = point[1]
+                if ys:
+                    want = min(want, ys[-1][0] - ys[-1][1] / 2 - gap - tag.height / 2)
+                ys.append((want, tag.height))
+            # Pushed back up when the last ran off the bottom of the picture.
+            bottom = lo[1] + ys[-1][1] / 2 if ys else 0
+            if ys and ys[-1][0] < bottom:
+                lift = bottom - ys[-1][0]
+                ys = [(y + lift, height) for y, height in ys]
+            for tag, (_, point), (y, _) in zip(tags, items, ys):
+                edge = lo[0] - 0.3 if side < 0 else hi[0] + 0.3
+                tag.move_to([edge + side * tag.width / 2, y, 0])
+                start = tag.get_right() if side < 0 else tag.get_left()
+                pointer = Line(start, point, color=P.CREAM, stroke_width=2)
+                dot = Dot(point, radius=0.05, color=P.GOLD)
+                label = VGroup(pointer, dot, tag)
+                label.set_z_index(Z_MARK + 12)
+                out.append(label)
+        return out
 
     def illustration(self, hero: str, items=(), title: str | None = None, color: str | None = None):
         """An illustration built from icons: one large, up to four small ones labelled beneath."""
@@ -2602,9 +2668,11 @@ class Lecture(Scene):
         cell_w = (w - 0.3 * (cols - 1)) / cols
         cell_h = (h - head - 0.35 * (rows - 1)) / rows - 0.45       # room for the caption
         cells = []
+        drawn: dict[int, object] = {}       # cell -> its cutout, drawn in shape by shape
         for path, caption in items:
             if is_cutout(path):
                 image = cutout_mob(path, cell_w, cell_h)          # the image model's picture: no frame
+                drawn[len(cells)] = image
                 parts = [image]
             else:
                 image = ImageMobject(path)
@@ -2634,7 +2702,15 @@ class Lecture(Scene):
         arrivals = [FadeIn(card)]
         if title:
             arrivals.append(FadeIn(self._stage_add(body[0])))
-        arrivals += [FadeIn(self._stage_add(c), shift=UP * 0.15) for c in cells]
+        for k, c in enumerate(cells):
+            self._stage_add(c)
+            if k in drawn:
+                # The image model's picture is drawn in, its big shapes first; then its caption is written.
+                pieces = [write_in(piece) for piece in cutout_strokes(drawn[k])]
+                pieces += [Write(m) for m in c[1:]]
+                arrivals.append(LaggedStart(*pieces, lag_ratio=0.5))
+            else:
+                arrivals.append(FadeIn(c, shift=UP * 0.15))
         show = LaggedStart(*arrivals, lag_ratio=0.35)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 

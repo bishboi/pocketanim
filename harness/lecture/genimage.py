@@ -97,14 +97,20 @@ def most() -> int:
         return 40
 
 
-def prompt_for(what: str, style: str | None = None, realistic: bool = False) -> str:
-    """The words the model is given: the subject alone, as a cutout, no border, no text."""
+def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None) -> str:
+    """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
+    the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
+    shown clearly where it can be pointed at."""
     look = ("as a realistic photograph-like image" if realistic
             else LOOKS.get(style or "", "in a clean, colourful educational illustration style"))
-    return (f"{what.strip()}, {look}. One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
+    named = [str(p).strip() for p in parts or [] if str(p).strip()]
+    show = (f" Show each of these clearly and in its true place, easy to point at: {', '.join(named)}." if named else "")
+    return (f"{what.strip()}, {look}. Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
+            "materials, textures and small features a student should notice, with clean outlines and clear areas of "
+            f"colour.{show} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
             "pure white background: no border, no frame, no rounded card, no drop shadow box, no background scene, "
-            "no floor or horizon. No words, letters, numbers or labels anywhere in the image. Accurate and clear, "
-            "for a school lesson. If it is a real person, an illustrated portrait, not a photograph.")
+            "no floor or horizon. No words, letters, numbers or labels anywhere in the image. "
+            "For a school lesson. If it is a real person, an illustrated portrait, not a photograph.")
 
 
 def cutout(data: bytes, tolerance: int = 28) -> bytes:
@@ -140,28 +146,47 @@ def cutout(data: bytes, tolerance: int = 28) -> bytes:
     return buffer.getvalue()
 
 
-def vectorize(png: bytes, most: int = 512) -> str | None:
-    """A cutout traced into vector shapes (vtracer: colour regions as filled paths; the transparent background is
-    left out), so the phone draws it as it draws everything else, not as a raster frame. Shrunk to `most` pixels
-    first and fine speckle dropped, so it stays a few dozen paths. None when the tracer is missing or fails."""
+# Tracing settings, most detailed first: (longest side in pixels, smallest speck kept, colour precision, layer
+# difference). The first whose tracing stays under PANIM_TRACE_MAX_PATHS shapes is kept, so a richly detailed
+# illustration keeps its detail and a photograph-like one is not thousands of shapes on the phone.
+TRACE_LEVELS = [(720, 4, 6, 16), (600, 6, 6, 20), (512, 8, 5, 24), (384, 12, 4, 32)]
+
+
+def trace_most() -> int:
+    try:
+        return int(os.environ.get("PANIM_TRACE_MAX_PATHS", "2200"))
+    except ValueError:
+        return 2200
+
+
+def vectorize(png: bytes, most: int | None = None) -> str | None:
+    """A cutout traced into vector shapes (vtracer: colour regions as filled paths, stacked from the largest to the
+    finest; the transparent background is left out), so the phone draws it as it draws everything else, not as a
+    raster frame, and the board can draw it in shape by shape. As detailed as stays under PANIM_TRACE_MAX_PATHS
+    shapes (TRACE_LEVELS); `most` forces one size. None when the tracer is missing or fails."""
     try:
         import vtracer
         from PIL import Image
     except ImportError:
         return None
-    try:
-        image = Image.open(io.BytesIO(png)).convert("RGBA")
-        image.thumbnail((most, most))
-        buffer = io.BytesIO()
-        image.save(buffer, "PNG")
-        svg = vtracer.convert_raw_image_to_svg(buffer.getvalue(), img_format="png", colormode="color",
-                                               hierarchical="stacked", mode="spline", filter_speckle=8,
-                                               color_precision=5, layer_difference=24, corner_threshold=60,
-                                               length_threshold=4.0, max_iterations=10, splice_threshold=45,
-                                               path_precision=2)
-    except Exception:  # noqa: BLE001 -- an image the tracer cannot read stays a PNG
-        return None
-    return svg if "<path" in svg else None
+    levels = [(most, 8, 5, 24)] if most else TRACE_LEVELS
+    svg = None
+    for size, speck, colours, layers in levels:
+        try:
+            image = Image.open(io.BytesIO(png)).convert("RGBA")
+            image.thumbnail((size, size))
+            buffer = io.BytesIO()
+            image.save(buffer, "PNG")
+            svg = vtracer.convert_raw_image_to_svg(buffer.getvalue(), img_format="png", colormode="color",
+                                                   hierarchical="stacked", mode="spline", filter_speckle=speck,
+                                                   color_precision=colours, layer_difference=layers,
+                                                   corner_threshold=60, length_threshold=4.0, max_iterations=10,
+                                                   splice_threshold=45, path_precision=2)
+        except Exception:  # noqa: BLE001 -- an image the tracer cannot read stays a PNG
+            return None
+        if svg.count("<path") <= trace_most():
+            break
+    return svg if svg and "<path" in svg else None
 
 
 def _vector(target: Path) -> Path:
@@ -196,11 +221,12 @@ def proxy_shown() -> str | None:
     return f"{parts.scheme}://{parts.hostname}" + (f":{parts.port}" if parts.port else "")
 
 
-def _open(request, timeout: float):
-    """urlopen through PANIM_IMAGE_PROXY when it is set (for http and https alike), else as usual."""
+def _open(request, timeout: float, proxied: bool = True):
+    """urlopen through PANIM_IMAGE_PROXY when it is set (for http and https alike), else as usual. `proxied`
+    False: a call that is not the image model's (the label finder) goes direct."""
     import urllib.request
 
-    address = proxy()
+    address = proxy() if proxied else None
     if not address:
         return urllib.request.urlopen(request, timeout=timeout)
     address = address if "://" in address else f"http://{address}"
@@ -208,7 +234,7 @@ def _open(request, timeout: float):
     return opener.open(request, timeout=timeout)
 
 
-def _post(url: str, body: dict) -> dict:
+def _post(url: str, body: dict, proxied: bool = True, who: str | None = None) -> dict:
     """POST JSON to OpenRouter; an HTTP error is raised with the provider's own message."""
     import urllib.error
     import urllib.request
@@ -216,7 +242,7 @@ def _post(url: str, body: dict) -> dict:
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
         "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
     try:
-        with _open(request, 180) as response:
+        with _open(request, 180, proxied) as response:
             reply = json.loads(response.read())
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:400]
@@ -224,9 +250,10 @@ def _post(url: str, body: dict) -> dict:
             detail = json.loads(detail).get("error", {}).get("message") or detail
         except (ValueError, AttributeError):
             pass
-        raise RuntimeError(f"HTTP {error.code} from the image model {model()}: {detail}") from None
+        raise RuntimeError(f"HTTP {error.code} from {who or 'the image model ' + model()}: {detail}") from None
     if isinstance(reply, dict) and reply.get("error"):
-        raise RuntimeError(f"the image model {model()} refused: {(reply['error'] or {}).get('message') or reply['error']}")
+        raise RuntimeError(f"{who or 'the image model ' + model()} refused: "
+                           f"{(reply['error'] or {}).get('message') or reply['error']}")
     return reply
 
 
@@ -299,11 +326,74 @@ def _ask(prompt: str) -> tuple[bytes, float]:
     return _ask_images(prompt)
 
 
+def label_model() -> str:
+    """The model that finds where a picture's labelled parts are: one that reads images (PANIM_LABEL_MODEL, else
+    the SVG drawings' model, else the script's)."""
+    return (os.environ.get("PANIM_LABEL_MODEL") or os.environ.get("OPENROUTER_SVG_MODEL")
+            or os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash")
+
+
+def _spread(labels: list[str]) -> list[list]:
+    """Where labels go when nothing can look at the picture (offline, PANIM_IMAGE_FAKE): spaced down its middle."""
+    n = max(len(labels), 1)
+    return [[label, 0.35 if k % 2 == 0 else 0.65, (k + 0.5) / n] for k, label in enumerate(labels)]
+
+
+def locate(png_path: str, labels) -> list[list] | None:
+    """Where each labelled part is in a picture: [[label, x, y], ...], x and y from 0 to 1 across and down the
+    picture (the cutout as traced, so the board's shapes line up). A model that reads images is shown the picture
+    and asked; the answer is kept beside it. Parts it cannot see are left out; None when it cannot be asked."""
+    labels = [str(x).strip()[:40] for x in labels or [] if str(x).strip()][:8]
+    path = Path(str(png_path))
+    if not labels or not path.is_file():
+        return None
+    key = hashlib.sha256(f"{label_model()}|{'|'.join(labels)}".encode()).hexdigest()[:12]
+    kept = path.with_name(f"{path.stem}.labels-{key}.json")
+    if kept.exists():
+        try:
+            return json.loads(kept.read_text())
+        except ValueError:
+            pass
+    if _fake():
+        found = _spread(labels)
+    elif not os.environ.get("OPENROUTER_API_KEY"):
+        return None
+    else:
+        image = "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
+        ask = ("This is a picture for a school lesson. For each part named below, give the point to draw a label's "
+               "pointer to: on the part itself, as x and y from 0 to 1 (x from the left edge, y from the top edge "
+               "of the image). Reply with JSON only: {\"points\": [{\"label\": ..., \"x\": ..., \"y\": ...}]}. "
+               "Leave out a part that is not in the picture.\nParts: " + "; ".join(labels))
+        try:
+            reply = _post(_chat_url(), {"model": label_model(), "temperature": 0,
+                                        "messages": [{"role": "user", "content": [
+                                            {"type": "image_url", "image_url": {"url": image}},
+                                            {"type": "text", "text": ask}]}]},
+                          proxied=False, who=f"the label finder {label_model()}")
+            text = str((((reply.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            data = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+        except Exception as error:  # noqa: BLE001 -- the picture is shown without its labels, and said why
+            _failed(f"labels for {path.name}", str(error) or type(error).__name__)
+            return None
+        wanted = {label.lower(): label for label in labels}
+        found = []
+        for point in data.get("points") or []:
+            try:
+                name = wanted.get(str(point.get("label", "")).strip().lower())
+                x, y = float(point["x"]), float(point["y"])
+            except (TypeError, ValueError, KeyError, AttributeError):
+                continue
+            if name and 0 <= x <= 1 and 0 <= y <= 1 and all(f[0] != name for f in found):
+                found.append([name, round(x, 3), round(y, 3)])
+    kept.write_text(json.dumps(found))
+    return found
+
+
 def _failed(what: str, error: str) -> None:
     FAILED.append({"what": what, "model": model(), "error": error})
 
 
-def generate(what: str, style: str | None = None, realistic: bool = False) -> dict | None:
+def generate(what: str, style: str | None = None, realistic: bool = False, parts=None) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -314,7 +404,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
 
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
-    prompt = prompt_for(what, style, realistic)
+    prompt = prompt_for(what, style, realistic, parts)
     key = hashlib.sha256(f"{model()}|{prompt}".encode()).hexdigest()[:20]
     target = CACHE / f"gen-{key}.png"
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",

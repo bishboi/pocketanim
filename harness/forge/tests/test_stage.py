@@ -220,7 +220,8 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
 
     script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "chapters": [
         {"title": "Animals", "map": False, "narration": "x", "beats": [
-            {"say": "A deer in the forest.", "do": [{"op": "picture", "generate": "a red deer, side view"}]},
+            {"say": "A deer in the forest.", "do": [{"op": "picture", "generate": "a red deer, side view",
+                                                     "labels": ["antlers", "hooves"]}]},
             {"say": "Two more.", "do": [{"op": "picture", "items": [{"generate": "a fox", "caption": "Fox"},
                                                                     {"generate": "a rabbit", "caption": "Rabbit"}]}]},
             {"say": "Who eats whom.", "do": [{"op": "diagram", "id": "d", "edges": [["g", "r"]], "nodes": [
@@ -228,6 +229,9 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
     result = _compile(script, dict(os.environ))
     assert result["errors"] == [], result["errors"]
     assert len(result["generated"]) == 4                     # deer, fox, rabbit, grass: each made once
+    # The deer is labelled where the label finder put its parts, and drawn in (not faded) on the stage.
+    assert "labels=[('antlers', " in result["source"] and "('hooves', " in result["source"]
+    assert any("antlers, hooves" in m["prompt"] for m in result["generated"])
     scene = tmp_path / "scene.py"
     scene.write_text(result["source"])
     out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
@@ -235,3 +239,30 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
                          env={**os.environ, "PANIM_VOICE": "silent"})
     exported = json.loads(out.stdout.strip().splitlines()[-1])
     assert exported["tier"] == 1 and exported["blockers"] == [], exported
+
+
+def test_a_generated_picture_is_drawn_in_shape_by_shape_with_its_labels(generated):
+    """Not faded in: its shapes are written onto the board biggest first, then each label with its line."""
+    import genimage
+    import pocket_lecture as pl
+    from manim import Write
+
+    row = genimage.generate("a red deer, side view", parts=["antlers"])
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    anim = scene.stage_image(row["file"], "A deer", labels=[("antlers", 0.5, 0.2), ("tail", 0.1, 0.5)])
+    def every(a):
+        yield a
+        for b in getattr(a, "animations", []) or []:
+            yield from every(b)
+
+    writes = [a for a in every(anim) if isinstance(a, Write)]
+    assert len(writes) >= 3                                  # its shapes, then its two labels, each written in
+    pieces = pl.cutout_strokes(pl.cutout_mob(row["file"], 4, 4))
+    assert len(pieces) >= 1

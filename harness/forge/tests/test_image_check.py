@@ -218,3 +218,40 @@ def test_the_test_proxy_carries_the_image_calls_alone(gen, monkeypatch):
     assert gen.report()["proxy"] == got["proxy"]
     monkeypatch.delenv("PANIM_IMAGE_PROXY")
     assert gen.proxy() is None and gen.proxy_shown() is None
+
+
+def test_the_label_finder_reads_where_each_part_is(gen, monkeypatch, tmp_path):
+    """A model that reads images is shown the picture and asked where its parts are; what it cannot see, or
+    places off the picture, is left out; the answer is kept beside the picture, and the call never uses the
+    image model's test proxy."""
+    asked = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            asked.append(body)
+            text = ('```json\n{"points": [{"label": "Crown", "x": 0.5, "y": 0.1}, {"label": "robe", "x": 0.4, '
+                    '"y": 0.7}, {"label": "sword", "x": 1.7, "y": 0.2}]}\n```')
+            data = json.dumps({"choices": [{"message": {"content": text}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/api/v1/chat/completions")
+    monkeypatch.setenv("PANIM_LABEL_MODEL", "vision/model")
+    monkeypatch.setenv("PANIM_IMAGE_PROXY", "http://127.0.0.1:9")            # unreachable: must not be used
+    png = tmp_path / "gen-king.png"
+    png.write_bytes(gen._stand_in("a king"))
+    found = gen.locate(str(png), ["crown", "robe", "sword", "sceptre"])
+    again = gen.locate(str(png), ["crown", "robe", "sword", "sceptre"])          # kept: not asked twice
+    server.shutdown()
+    assert found == [["crown", 0.5, 0.1], ["robe", 0.4, 0.7]] and again == found and len(asked) == 1
+    assert asked[0]["model"] == "vision/model"
+    assert asked[0]["messages"][0]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")

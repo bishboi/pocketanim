@@ -768,9 +768,28 @@ script_photos: dict = {}
 
 
 def _photo_key(op: dict) -> str:
+    named = "|".join(_labels_of(op))
+    labelled = f"|labels:{named}" if named else ""
     if op.get("op") == "illustration":
-        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}"
-    return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}"
+        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}"
+    return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}{labelled}"
+
+
+def _labels_of(op: dict) -> list[str]:
+    """The parts a picture labels ("labels": ["crown", "sceptre"]): short names, at most 6."""
+    labels = op.get("labels") if isinstance(op.get("labels"), list) else []
+    return [str(x).strip()[:32] for x in labels if str(x).strip()][:6]
+
+
+def _with_labels(row: dict | None, op: dict) -> dict | None:
+    """The picture's row with where its labels go (genimage.locate), for a generated picture that names parts."""
+    labels = _labels_of(op)
+    if not row or not labels or not row.get("png"):
+        return row
+    import genimage
+
+    found = genimage.locate(row["png"], labels)
+    return {**row, "labels": found} if found else row
 
 
 # ---------------- pictures in diagrams, timelines and map labels ----------------
@@ -877,6 +896,12 @@ def _picture_found(spec) -> tuple | None:
     return ("image", str(row["file"])) if row and row.get("file") else None
 
 
+def _labels_arg(row: dict) -> str:
+    """stage_image's labels: [(text, x, y), ...] where the label finder put them."""
+    found = [(str(t), float(x), float(y)) for t, x, y in row.get("labels") or []]
+    return f", labels={found!r}" if found else ""
+
+
 def _picture_arg(spec) -> str:
     return repr(_picture_value(spec))
 
@@ -893,15 +918,16 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         if key in script_photos:
             continue
         if op.get("op") == "illustration":
-            row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style) \
-                if images.enabled() else None
+            row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
+                               parts=_labels_of(op)) if images.enabled() else None
             if row:
-                script_photos[key] = row
+                script_photos[key] = _with_labels(row, op)
             # else: dropped at compile, and said as a warning (see lint): a missing diagram is no reason to stop
             continue
-        row = images.fetch(op.get("image"), op.get("query"), op.get("subject")) if images.enabled() else None
+        row = images.fetch(op.get("image"), op.get("query"), op.get("subject"), parts=_labels_of(op)) \
+            if images.enabled() else None
         if row:
-            script_photos[key] = row
+            script_photos[key] = _with_labels(row, op)
         elif op.get("optional"):
             continue
         elif not images.enabled():
@@ -2435,7 +2461,7 @@ def _op_call(op: dict) -> str:
         where = op.get("where", "stage")
         caption = op.get("caption") or ""
         if where == "stage":
-            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(_shown_credit(row))})"
+            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(_shown_credit(row))}{_labels_arg(row)})"
         return f"self.figure({_q(row['file'])}, {_q(caption)}, where={_q(where)})"
     if kind == "molecule":
         label = f", {_q(op['label'])}" if op.get("label") else ""
@@ -2463,7 +2489,8 @@ def _op_call(op: dict) -> str:
         row = script_photos.get(_photo_key(op))
         if not row:
             return None            # nothing reusable was found: the beat plays without it
-        return f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))})"
+        return (f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))}"
+                f"{_labels_arg(row)})")
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""

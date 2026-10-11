@@ -2929,7 +2929,9 @@ def main() -> int:
                           "minutes": round(estimate_minutes(script), 2),
                           "pictures": pictures_used(script) if source else [],
                           # Pictures the image model made during this compile, and what each cost (genimage.py).
-                          "generated": __import__("genimage").MADE}))
+                          "generated": __import__("genimage").MADE,
+                          # What the script asked of the image model, and why any picture was not made.
+                          "images": __import__("genimage").report()}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

@@ -43,7 +43,10 @@ export type CompiledPicture = { file: string; kind: "photo" | "illustration"; de
 /** A picture the image model made while a script compiled (genimage.MADE), and what it cost. */
 export type GeneratedPicture = { path: string; what: string; prompt: string; model: string; usd?: number; made?: boolean };
 export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number;
-  pictures?: CompiledPicture[]; generated?: GeneratedPicture[] };
+  pictures?: CompiledPicture[]; generated?: GeneratedPicture[]; images?: ImageReport };
+/** What a compile asked of the image model (genimage.py report): pictures asked for, made now, found made, failed. */
+export type ImageReport = { model: string; asked: number; cached: number; made: number;
+  failed: { what: string; model: string; error: string }[] };
 
 /** A lecture runs this long unless the request names a length, or its content is long. */
 export const DEFAULT_LECTURE_MINUTES = 10;
@@ -106,6 +109,8 @@ export async function compileLecture(
     art?: string;
     /** Told of the pictures the image model made during this compile (genimage.py), to bill and show them. */
     onGenerated?: (made: GeneratedPicture[]) => void;
+    /** Told what the script asked of the image model and what failed, so the log says why pictures are missing. */
+    onImages?: (report: ImageReport) => void;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -133,6 +138,7 @@ export async function compileLecture(
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");
     if (compiled.generated?.length) options.onGenerated?.(compiled.generated);
+    if (compiled.images) options.onImages?.(compiled.images);
     const warnings = compiled.warnings ?? [];
     return { ...compiled, warnings: warnings.filter((w) => !w.startsWith("fixed: ")),
       fixed: warnings.filter((w) => w.startsWith("fixed: ")) };

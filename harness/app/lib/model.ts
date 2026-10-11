@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
-import { unbuiltFigures, type Compiled, type GeneratedPicture } from "./lecture";
+import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
 import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
@@ -1284,9 +1284,32 @@ async function viaOpenRouter(
       showPicture({ kind: "drawing", file: p.file, title: p.what, usd: p.kept ? 0 : p.usd, reused: p.kept, paid: p.usd,
         detail: p.parts.join(", "), context: { chapter: p.chapter, line: p.say, moves: p.moves } }),
   } : undefined;
+  // What each compile asked of the image model, in the log once: a failing model is told apart from a script that
+  // chose to draw its pictures as SVG or in Manim.
+  const imageNotes = new Set<string>();
+  const noteImages = (report: ImageReport) => {
+    const notes: string[] = [];
+    if (!report.asked) {
+      notes.push(`Pictures: the script asked the image model (${report.model}) for none here; its pictures are SVG ` +
+        "drawings or built in Manim.");
+    } else {
+      notes.push(`Pictures: ${report.asked} asked of the image model (${report.model}): ${report.made} made now, ` +
+        `${report.cached} made before${report.failed.length ? `, ${report.failed.length} FAILED` : ""}.`);
+    }
+    for (const error of new Set(report.failed.map((f) => f.error))) {
+      const what = report.failed.filter((f) => f.error === error).map((f) => f.what).slice(0, 3).join("; ");
+      notes.push(`Image model failed (${what}): ${error}`);
+    }
+    for (const text of notes) {
+      if (imageNotes.has(text)) continue;
+      imageNotes.add(text);
+      emit({ type: "message", role: "status", text });
+    }
+  };
   const lectureOptions = () => ({
     draw: drawOptions,
     onGenerated: billGenerated,
+    onImages: noteImages,
     style,
     art: request.art,
     genre: subject?.genre,

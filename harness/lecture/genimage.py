@@ -29,6 +29,11 @@ CACHE = Path(os.environ.get("PANIM_IMAGE_CACHE") or (HERE / ".cache" / "images")
 MODEL_DEFAULT = "google/gemini-2.5-flash-image"
 # What this process made: [{path, prompt, model, usd}], for the bill.
 MADE: list[dict] = []
+# Pictures asked for that the model did not make, and why: [{what, model, error}] (compile_lecture --json reports
+# them, so a lecture says "the image model failed: HTTP 404 ..." instead of quietly showing fewer pictures).
+FAILED: list[dict] = []
+# Every picture a script asked the image model for, made now or found made already: [{what, cached}].
+ASKED: list[dict] = []
 
 LOOKS = {
     "parchment": "drawn like an engraved plate in an old textbook, sepia ink",
@@ -160,13 +165,33 @@ def _ask(prompt: str) -> tuple[bytes | None, float]:
                        "messages": [{"role": "user", "content": prompt}]}).encode()
     request = urllib.request.Request(url, data=body, headers={
         "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=180) as response:
-        reply = json.loads(response.read())
+    import urllib.error
+
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            reply = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:400]
+        try:
+            detail = json.loads(detail).get("error", {}).get("message") or detail
+        except (ValueError, AttributeError):
+            pass
+        raise RuntimeError(f"HTTP {error.code} from the image model {model()}: {detail}") from None
+    if reply.get("error"):
+        raise RuntimeError(f"the image model {model()} refused: {(reply['error'] or {}).get('message') or reply['error']}")
     message = ((reply.get("choices") or [{}])[0]).get("message") or {}
     data_url = next((((i.get("image_url") or {}).get("url")) for i in message.get("images") or []
                      if ((i.get("image_url") or {}).get("url") or "").startswith("data:image")), None)
     usd = float((reply.get("usage") or {}).get("cost") or 0.0)
-    return (base64.b64decode(data_url.split(",", 1)[1]) if data_url else None), usd
+    if not data_url:
+        said = str(message.get("content") or "")[:200]
+        raise RuntimeError(f"{model()} returned no image (is it an image model? OpenRouter's image models list "
+                           f"\"image\" in their output modalities)" + (f"; it said: {said}" if said else ""))
+    return base64.b64decode(data_url.split(",", 1)[1]), usd
+
+
+def _failed(what: str, error: str) -> None:
+    FAILED.append({"what": what, "model": model(), "error": error})
 
 
 def generate(what: str, style: str | None = None, realistic: bool = False) -> dict | None:
@@ -186,6 +211,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",
            "license": "generated", "artist": model(), "credit": f"made with {model()}", "prompt": prompt,
            "model": model(), "png": str(target)}
+    ASKED.append({"what": what, "cached": target.exists()})
     if target.exists():
         shown = _vector(target)
         row.update(file=str(shown), path=str(shown))
@@ -194,13 +220,17 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
         except (OSError, ValueError):
             paid = None
         return {**row, "paid": paid}
-    if not enabled() or sum(1 for m in MADE if m.get("made")) >= most():
+    if not enabled():
+        _failed(what, "the image model is off (PANIM_IMAGES=0)" if os.environ.get("PANIM_IMAGES") == "0"
+                else "no OPENROUTER_API_KEY in the compiler's environment")
+        return None
+    if sum(1 for m in MADE if m.get("made")) >= most():
+        _failed(what, f"the limit of {most()} new pictures a lecture was reached (PANIM_IMAGE_MAX)")
         return None
     try:
         data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt)
-    except Exception:  # noqa: BLE001 -- offline, refused, no key: the picture is left out
-        return None
-    if not data:
+    except Exception as error:  # noqa: BLE001 -- offline, refused, no key: the picture is left out, and said why
+        _failed(what, str(error) or type(error).__name__)
         return None
     try:
         data = cutout(data)
@@ -216,8 +246,45 @@ def generate(what: str, style: str | None = None, realistic: bool = False) -> di
     return {**row, "file": str(shown), "path": str(shown), "usd": usd, "made": True}
 
 
+def report() -> dict:
+    """What this process asked of the image model: how many pictures, how many made now, found made, failed (and
+    why), and which model, for the lecture's log (compile_lecture --json "images")."""
+    return {"model": model(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
+            "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED}
+
+
+def check(what: str = "a red apple with one green leaf") -> dict:
+    """A real call to the image model, never from the cache: whether it works, which model, how long, what it
+    cost, and the picture as the model made it (PNG) and as the phone draws it (traced SVG). The app's "test"
+    button on the Pictures row runs it, so a lecture with no pictures can be told apart from a model that fails."""
+    import time
+
+    out = {"model": model(), "key": bool(os.environ.get("OPENROUTER_API_KEY")), "fake": _fake(),
+           "off": os.environ.get("PANIM_IMAGES") == "0", "ok": False}
+    if not out["key"] and not out["fake"]:
+        return {**out, "error": "OPENROUTER_API_KEY is not set where the compiler runs (harness/app/.env.local)"}
+    started = time.time()
+    try:
+        data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt_for(what))
+    except Exception as error:  # noqa: BLE001 -- reported, not raised
+        return {**out, "error": str(error) or type(error).__name__, "seconds": round(time.time() - started, 1)}
+    out.update(seconds=round(time.time() - started, 1), usd=usd, bytes=len(data))
+    try:
+        png = cutout(data)
+    except Exception as error:  # noqa: BLE001
+        return {**out, "error": f"the model's picture could not be cut out: {error}"}
+    svg = vectorize(png)
+    out.update(ok=True, png="data:image/png;base64," + base64.b64encode(png).decode(),
+               svg=svg, paths=svg.count("<path") if svg else 0,
+               traced=bool(svg), note=None if svg else "vtracer is missing: the picture stays a PNG (tier 3)")
+    return out
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if "--check" in args:
+        print(json.dumps(check(" ".join(a for a in args if a != "--check") or "a red apple with one green leaf")))
+        sys.exit(0)
     realistic = "--realistic" in args
     args = [a for a in args if a != "--realistic"]
     print(json.dumps(generate(" ".join(args), realistic=realistic), ensure_ascii=False))

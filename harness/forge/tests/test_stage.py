@@ -232,6 +232,14 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
     # The deer is labelled where the label finder put its parts, and drawn in (not faded) on the stage.
     assert "labels=[('antlers', " in result["source"] and "('hooves', " in result["source"]
     assert any("antlers, hooves" in m["prompt"] for m in result["generated"])
+    # Each picture is made knowing what it is for: the lesson, the chapter, the lines said while it is up, the words
+    # it sits beside.
+    deer = next(m for m in result["generated"] if "red deer" in m["prompt"])
+    assert 'WHAT IT IS FOR: It is for a school lesson video, "T"' in deer["prompt"]
+    assert 'the part about "Animals"' in deer["prompt"]
+    assert 'the teacher says: "A deer in the forest. Two more."' in deer["prompt"]
+    grass = next(m for m in result["generated"] if m["prompt"].startswith("grass"))
+    assert 'beside the words "Grass"' in grass["prompt"] and "Who eats whom." in grass["prompt"]
     scene = tmp_path / "scene.py"
     scene.write_text(result["source"])
     out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),

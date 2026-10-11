@@ -103,20 +103,26 @@ function asDrawOp(op: Record<string, unknown> | undefined, id: string): void {
   delete op.draw;
 }
 
-/** Each draw op in a script (a problem's figure too), with the line it is said on and its chapter. */
-function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[] {
-  const out: { op: DrawOp; say: string; chapter: string }[] = [];
+/** Each draw op in a script (a problem's figure too), with the line it is said on, its chapter, and what the lesson
+ * is (its title, and the line said after it while the picture is still up), for the drawer to know what it is for. */
+function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string; context: string }[] {
+  const out: { op: DrawOp; say: string; chapter: string; context: string }[] = [];
+  const lecture = String((script as { title?: unknown })?.title ?? "").trim();
   const chapters = (script as { chapters?: { title?: string; beats?: { say?: string; do?: Record<string, unknown>[] }[] }[] })
     ?.chapters ?? [];
   for (const [c, chapter] of chapters.entries()) {
     for (const [b, beat] of (chapter.beats ?? []).entries()) {
+      const after = String(chapter.beats?.[b + 1]?.say ?? "").trim();
+      const context = [lecture ? `The lesson: "${lecture.slice(0, 120)}".` : "",
+        after ? `Said next, while it is still up: "${after.slice(0, 300)}"` : ""].filter(Boolean).join(" ");
       for (const [k, op] of (beat.do ?? []).entries()) {
         asDrawOp(op, `picture${c + 1}_${b + 1}_${k + 1}`);
         if (op?.op === "problem") asDrawOp(op.figure as Record<string, unknown> | undefined, `${op.id || "problem"}_figure`);
         const figure = op?.op === "problem" ? (op.figure as Record<string, unknown> | undefined) : undefined;
         for (const candidate of [op, figure]) {
           if (candidate?.op === "draw" && typeof candidate.what === "string" && Array.isArray(candidate.parts)) {
-            out.push({ op: candidate as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? "") });
+            out.push({ op: candidate as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? ""),
+              context });
           }
         }
         // A picture to draw beside the words of a diagram's node, a timeline's event or a map's label: one part,
@@ -126,7 +132,8 @@ function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[
           picture.what = `${picture.draw.trim()} (a small picture beside a label: one clear subject, bold shapes, ` +
             "no words in it)";
           picture.parts = ["picture"];
-          out.push({ op: picture as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? "") });
+          out.push({ op: picture as unknown as DrawOp, say: String(beat.say ?? ""), chapter: String(chapter.title ?? ""),
+            context });
         }
       }
     }
@@ -135,7 +142,7 @@ function drawOps(script: unknown): { op: DrawOp; say: string; chapter: string }[
 }
 
 /** Draw one picture (or find it drawn): the SVG's path, or why it could not be drawn. */
-async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOptions):
+async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOptions, context = ""):
   Promise<{ svg?: string; error?: string }> {
   // Never a map: the compiler refuses one anyway (mapguard.py), so it is not paid for.
   if (isMap(op.what)) return { error: MAP_ADVICE };
@@ -158,6 +165,7 @@ async function drawOne(op: DrawOp, say: string, chapter: string, options: DrawOp
     op.moves?.trim() ? `MOVES: ${op.moves.trim()}` : "MOVES: nothing (a still picture: no animation)",
     "",
     `It goes with this line of the lecture${chapter ? ` (chapter "${chapter}")` : ""}: "${say}"`,
+    ...(context ? [context, "Draw what the student needs to see at this moment of the lesson, true to its subject."] : []),
   ].join("\n");
   const messages: Message[] = [{ role: "system", content: DRAW_PROMPT }, { role: "user", content: ask0 }];
   // Drawn, checked, repaired, then looked at as the board shows it and fixed (figures.ts settle).
@@ -196,7 +204,7 @@ export async function drawScript(script: unknown, options: DrawOptions): Promise
     for (let item = queue.shift(); item; item = queue.shift()) {
       const key = cachePaths(options.repo, item.op).svg;
       if (!pending.has(key)) {
-        pending.set(key, drawOne(item.op, item.say, item.chapter, options).catch((error) => {
+        pending.set(key, drawOne(item.op, item.say, item.chapter, options, item.context).catch((error) => {
           if (options.signal?.aborted) throw error;
           return { error: String(error instanceof Error ? error.message : error).slice(0, 200) };
         }));

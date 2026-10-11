@@ -596,6 +596,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     places: list[tuple[str, str]] = []
     icon_names: list[tuple[str, str]] = []
     photos: list[tuple[str, dict]] = []
+    # What each beat is teaching, for the pictures made there: the image model is told what the picture is for.
+    contexts: dict[str, dict] = {}
     if not chapters:
         errors.append("a lecture needs at least one chapter")
     for ci, chapter in enumerate(chapters, 1):
@@ -605,9 +607,13 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         if not chapter.get("title"):
             errors.append(f"{where}: missing title")
         used = 0.0
-        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+        beats_here = chapter.get("beats") or []
+        for bi, beat in enumerate(beats_here, 1):
             at = f"{where} beat {bi}"
             say = str(beat.get("say") or "").strip()
+            following = str((beats_here[bi] if bi < len(beats_here) else {}).get("say") or "").strip()
+            contexts[at] = {"lecture": script.get("title"), "subject": script.get("subject") or script.get("genre"),
+                            "chapter": chapter.get("title"), "said": " ".join(x for x in (say, following) if x)}
             if not say:
                 errors.append(f"{at}: no narration ('say')")
             elif len(say) > 184:
@@ -630,7 +636,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     if problem:
                         errors.append(f"{at}: {where}: {problem}")
                     elif _picture_fetch(spec):
-                        photos.append((at, _picture_fetch(spec)))
+                        fetch = _picture_fetch(spec)
+                        fetch["_beside"] = _beside_words(op, spec)
+                        photos.append((at, fetch))
                     elif spec.get("draw") and script.get("drawn") and not spec.get("svg"):
                         warnings.append(f"{at}: {where}: the picture {spec['draw']!r} could not be drawn"
                                         f"{': ' + str(spec['_draw_error']) if spec.get('_draw_error') else ''}; "
@@ -709,7 +717,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     else:
         errors += _unknown_places(places, home, script.get("region"))
     errors += _unknown_icons(icon_names)
-    errors += _unfetched_photos(photos, script.get("genre"), script.get("style"))
+    errors += _unfetched_photos(photos, script.get("genre"), script.get("style"), contexts)
     warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
                  if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
@@ -906,8 +914,44 @@ def _picture_arg(spec) -> str:
     return repr(_picture_value(spec))
 
 
-def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, style: str | None = None) -> list[str]:
-    """Download every photo now (cached), so the scene draws local files; report the ones that failed."""
+def _beside_words(op: dict, spec) -> str:
+    """The words a picture sits beside: its diagram node's label, its timeline event's, its map label's."""
+    for n in op.get("nodes") or []:
+        if isinstance(n, dict) and n.get("picture") is spec:
+            return str(n.get("label") or "")
+    for e in op.get("events") or []:
+        if isinstance(e, dict) and e.get("picture") is spec:
+            return f"{e.get('date', '')} {e.get('label', '')}".strip()
+        if isinstance(e, list) and len(e) > 2 and e[2] is spec:
+            return f"{e[0]} {e[1]}"
+    return str(op.get("label") or op.get("place") or "")
+
+
+def picture_context(context: dict | None, op: dict) -> str:
+    """What a picture is for, told to the image model: the lecture and its subject, the chapter, what the teacher
+    says while it is up, the words it sits beside and its caption. Short (at most ~700 characters)."""
+    context = context or {}
+    parts = []
+    if context.get("lecture"):
+        parts.append(f"a school lesson video, \"{str(context['lecture'])[:120]}\""
+                     + (f" ({str(context['subject'])[:40]})" if context.get("subject") else ""))
+    if context.get("chapter"):
+        parts.append(f"the part about \"{str(context['chapter'])[:100]}\"")
+    lines = []
+    if context.get("said"):
+        lines.append(f"It is on screen while the teacher says: \"{str(context['said'])[:420]}\"")
+    if op.get("_beside"):
+        lines.append(f"It sits beside the words \"{str(op['_beside'])[:80]}\".")
+    if op.get("caption"):
+        lines.append(f"Its caption: \"{str(op['caption'])[:120]}\".")
+    head = ("It is for " + ", in ".join(parts) + ".") if parts else ""
+    return " ".join(x for x in [head, *lines] if x)
+
+
+def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, style: str | None = None,
+                      contexts: dict[str, dict] | None = None) -> list[str]:
+    """Make every picture now (cached), so the scene draws local files; report the ones that failed. Each is made
+    knowing what it is for (picture_context): the lesson, the chapter, the lines said over it."""
     if not photos:
         return []
     import images
@@ -917,15 +961,16 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         key = _photo_key(op)
         if key in script_photos:
             continue
+        context = picture_context((contexts or {}).get(at), op)
         if op.get("op") == "illustration":
             row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
-                               parts=_labels_of(op)) if images.enabled() else None
+                               parts=_labels_of(op), context=context) if images.enabled() else None
             if row:
                 script_photos[key] = _with_labels(row, op)
             # else: dropped at compile, and said as a warning (see lint): a missing diagram is no reason to stop
             continue
-        row = images.fetch(op.get("image"), op.get("query"), op.get("subject"), parts=_labels_of(op)) \
-            if images.enabled() else None
+        row = images.fetch(op.get("image"), op.get("query"), op.get("subject"), parts=_labels_of(op),
+                           context=context) if images.enabled() else None
         if row:
             script_photos[key] = _with_labels(row, op)
         elif op.get("optional"):

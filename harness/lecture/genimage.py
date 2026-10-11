@@ -97,7 +97,8 @@ def most() -> int:
         return 40
 
 
-def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None) -> str:
+def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None,
+               context: str | None = None) -> str:
     """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
     the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
     shown clearly where it can be pointed at."""
@@ -105,7 +106,13 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
             else LOOKS.get(style or "", "in a clean, colourful educational illustration style"))
     named = [str(p).strip() for p in parts or [] if str(p).strip()]
     show = (f" Show each of these clearly and in its true place, easy to point at: {', '.join(named)}." if named else "")
-    return (f"{what.strip()}, {look}. Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
+    # What it is for: the lesson, the chapter, what the teacher says while it is on screen (the teacher's words may
+    # be in Hindi or Hinglish). The picture shows what the lesson needs the student to see there, true to its
+    # time, place and subject.
+    purpose = (f" WHAT IT IS FOR: {context.strip()} Draw what the student needs to see at this moment of the lesson, "
+               "accurate to the time, place and subject described (clothing, buildings, tools, landscape of that "
+               "period and region)." if context and context.strip() else "")
+    return (f"{what.strip()}, {look}.{purpose} Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
             "materials, textures and small features a student should notice, with clean outlines and clear areas of "
             f"colour.{show} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
             "pure white background: no border, no frame, no rounded card, no drop shadow box, no background scene, "
@@ -415,7 +422,8 @@ def _failed(what: str, error: str) -> None:
     FAILED.append({"what": what, "model": model(), "error": error})
 
 
-def generate(what: str, style: str | None = None, realistic: bool = False, parts=None) -> dict | None:
+def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
+             context: str | None = None) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -426,7 +434,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
 
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
-    prompt = prompt_for(what, style, realistic, parts)
+    prompt = prompt_for(what, style, realistic, parts, context)
     key = hashlib.sha256(f"{model()}|{prompt}".encode()).hexdigest()[:20]
     target = CACHE / f"gen-{key}.png"
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",

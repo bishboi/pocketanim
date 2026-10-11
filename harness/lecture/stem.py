@@ -1644,7 +1644,14 @@ class BoardMixin:
         # each piece on the stage moves by itself: a new Group around them would be added to the scene as a
         # second copy of the picture
         on_stage = set(map(id, self.get_mobject_family_members()))
-        parts = [m for m in (body, *self.stage_extra) if id(m) in on_stage]
+        # A picture written in piece by piece is on the scene as its pieces, not as one group: those move.
+        whole = {id(m) for m in body.get_family()}
+        pieces = [body] if id(body) in on_stage else [m for m in self.mobjects if id(m) in whole]
+        parts, seen = [], set()
+        for m in [*pieces, *self.stage_extra]:
+            if id(m) in on_stage and id(m) not in seen:
+                seen.add(id(m))
+                parts.append(m)
 
         def baked(*anims):
             # the phone gets this as a clip of whole frames (export_dsl asks_to_bake): the parts sit inside the

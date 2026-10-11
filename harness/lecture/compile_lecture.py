@@ -558,9 +558,70 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     canonical_ops(script)
     notes = _fix_unusable(script, has_map)
     notes += _fix_steps(script)
+    notes += _build_with_speech(script)
     reveals: list[str] = []
     _complete_reveals(script, reveals, script.get("figures") or {})
     return notes + reveals
+
+
+# A picture that stays up this many beats at most is built along them (_build_with_speech).
+SPEECH_REACH = 6
+# Ops that put a new picture on the stage: the diagram before is gone, so it is built no further.
+_NEW_PICTURE = {"diagram", "draw", "figure", "picture", "photo", "illustration", "gallery", "sketch", "graph",
+                "compare", "define", "timeline", "process", "quote", "problem", "sim", "manim", "equation", "plot"}
+
+
+def _named_in(label: str, said: str) -> bool:
+    """Whether a line names a diagram's part: its whole label, or every longer word of it."""
+    label, said = label.lower().strip(), said.lower()
+    if not label:
+        return False
+    if label in said:
+        return True
+    words = [w for w in re.findall(r"[\w']+", label) if len(w) > 3]
+    return bool(words) and all(re.search(rf"\b{re.escape(w)}", said) for w in words)
+
+
+def _build_with_speech(script: dict) -> list[str]:
+    """A diagram put up whole while the lines after it name its parts one by one is built in step with them: the
+    parts its own line names (or its first) come first, and each other part arrives on the line that names it,
+    as a teacher draws on a board while talking. Only for a diagram the script shows whole and never reveals
+    itself; its parts no later line names are there from the start."""
+    notes: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        beats = chapter.get("beats") or []
+        stepped = {str(op.get("diagram")) for b in beats for op in b.get("do") or []
+                   if isinstance(op, dict) and op.get("op") in ("reveal", "focus", "zoom")}
+        for i, beat in enumerate(beats):
+            for op in beat.get("do") or []:
+                if not (isinstance(op, dict) and op.get("op") == "diagram" and op.get("id")
+                        and op.get("show") is None and str(op["id"]) not in stepped):
+                    continue
+                nodes = [n for n in op.get("nodes") or [] if isinstance(n, dict) and n.get("id") is not None]
+                if len(nodes) < 3:
+                    continue
+                label = {str(n["id"]): str(n.get("label") or n["id"]) for n in nodes}
+                first = [i_ for i_ in label if _named_in(label[i_], str(beat.get("say") or ""))] or [str(nodes[0]["id"])]
+                later: dict[int, list[str]] = {}
+                placed = set(first)
+                for j in range(i + 1, min(len(beats), i + 1 + SPEECH_REACH)):
+                    ops = [o for o in beats[j].get("do") or [] if isinstance(o, dict)]
+                    if any(o.get("op") in _NEW_PICTURE for o in ops):
+                        break
+                    said = str(beats[j].get("say") or "")
+                    named = [n for n in label if n not in placed and _named_in(label[n], said)]
+                    if named:
+                        later[j] = named
+                        placed.update(named)
+                if sum(len(v) for v in later.values()) < 2:
+                    continue
+                # What no line names is there from the start, so nothing is left off.
+                op["show"] = [n for n in label if n in first or n not in placed]
+                for j, named in later.items():
+                    beats[j].setdefault("do", []).append({"op": "reveal", "diagram": str(op["id"]), "nodes": named})
+                notes.append(f"{FIXED}chapter {c + 1} beat {i + 1}: diagram {op['id']!r} built as it is spoken of "
+                             f"({len(placed) - len(first)} parts arrive on the lines that name them)")
+    return notes
 
 
 

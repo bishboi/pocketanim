@@ -152,3 +152,45 @@ def test_each_beat_is_checked_and_what_can_be_mended_is(tmp_path, monkeypatch):
     fixed = " ".join(rows[0]["fixed"])
     assert "off the frame" in fixed and "grown to 13pt" in fixed and "moved apart" in fixed
     assert seen["edge"] <= pl.config.frame_width / 2 and seen["size"] >= 12.9 and seen["apart"] == 0
+
+
+def test_a_diagram_is_built_as_its_parts_are_spoken_of():
+    script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "chapters": [
+        {"title": "A", "map": False, "beats": [
+            {"say": "Society had three orders, starting with the clergy.", "do": [
+                {"op": "diagram", "id": "d", "kind": "hub", "nodes": [
+                    {"id": "s", "label": "Society"}, {"id": "c", "label": "Clergy"},
+                    {"id": "n", "label": "Nobility"}, {"id": "p", "label": "Peasants"}]}]},
+            {"say": "Then came the nobility, who fought.", "do": []},
+            {"say": "And the peasants worked the land.", "do": []}]}]}
+    errors, warnings = cl.lint(script)
+    assert not errors
+    beats = script["chapters"][0]["beats"]
+    assert beats[0]["do"][0]["show"] == ["s", "c"]
+    assert beats[1]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["n"]}]
+    assert beats[2]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["p"]}]
+    assert any("built as it is spoken of" in w for w in warnings)
+
+
+def test_a_spotlight_quiets_the_rest_and_moves_in_on_a_big_diagram():
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    ids = [f"n{k}" for k in range(8)]
+    scene.diagram("d", "flow", [{"id": i, "label": i} for i in ids], [[a, b] for a, b in zip(ids, ids[1:])])
+    scene.add(*scene.stage_items, *scene.stage_extra)
+    assert scene.spotlight("d", "n4") is not None
+    d = scene.diagrams["d"]
+    assert len(d["veils"]) == 7 and d.get("pushed")                 # every other part veiled; moved in on it
+    small = [f"m{k}" for k in range(4)]
+    scene.diagram("e", "flow", [{"id": i, "label": i} for i in small], [[a, b] for a, b in zip(small, small[1:])])
+    scene.spotlight("e", "m1")
+    assert len(scene.diagrams["e"]["veils"]) == 3 and not scene.diagrams["e"].get("pushed")
+    scene.reveal_nodes("e", [])
+    assert scene.diagrams["e"]["veils"] == []                       # the focus moved on: the veils lift

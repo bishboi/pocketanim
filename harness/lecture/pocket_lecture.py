@@ -3517,6 +3517,13 @@ class Lecture(Scene):
             return None
         new = [str(n) for n in nodes if str(n) in d["nodes"] and str(n) not in d["shown"]]
         d["shown"].update(new)
+        # The focus moves on: the veils lift, and a stage moved in on one part moves back out to the whole.
+        before = self._unveil(d)
+        if d.get("pushed") and key in getattr(self, "_zoomed", {}):
+            out = self.zoom(key, None)
+            if out is not None:
+                before.append(out)
+            d["pushed"] = False
         drawn = [d["nodes"][i] for i in new] + [mob for a, b, mob in d["edges"]
                                                  if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
         self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
@@ -3530,6 +3537,9 @@ class Lecture(Scene):
             if (a in new or b in new) and a in d["shown"] and b in d["shown"]:
                 anims.append(Create(self._stage_add(mob)))
         self._diagram_moves(key, drawn)
+        if before:
+            reveal = LaggedStart(*anims, lag_ratio=0.3) if anims else None
+            return AnimationGroup(AnimationGroup(*before), *([reveal] if reveal else []), lag_ratio=1.0)
         return LaggedStart(*anims, lag_ratio=0.3) if anims else None
 
     def _flow_dots(self, arrow, count: int = 3):
@@ -3562,8 +3572,24 @@ class Lecture(Scene):
             if dots is not None:
                 start(dots, lambda t, _p, dots=dots: dots.place(t), "loop", True)
 
+    # The rest of a diagram while one part is talked about: under a veil of the board's colour this opaque.
+    DIM_VEIL = 0.6
+    # A diagram this many parts or more is moved in on as one of them is talked about (the camera follows).
+    PUSH_IN_FROM = 7
+
+    def _unveil(self, d: dict) -> list:
+        """The veils over a diagram's other parts lifted (the focus moved on, or more of it is shown)."""
+        going = [FadeOut(v) for v in d.get("veils") or []]
+        for v in d.get("veils") or []:
+            if v in self.stage_extra:
+                self.stage_extra.remove(v)
+        d["veils"] = []
+        return going
+
     def spotlight(self, key: str, node: str):
-        """Draw the eye to one node of a diagram: a ring around it (the last ring goes)."""
+        """Draw the eye to one node of a diagram: a ring around it (the last ring goes), the rest of the diagram
+        dimmed under a veil of the board's colour while it is talked about, and, on a big diagram, the stage moved
+        in on it (the camera follows the explanation)."""
         d = self.diagrams.get(key)
         if not d or d.get("gone") or str(node) not in d["nodes"] or str(node) not in d["shown"]:
             # Its picture has left the stage: a ring now would circle an empty patch of whatever replaced it.
@@ -3577,9 +3603,42 @@ class Lecture(Scene):
             anims.append(FadeOut(d["focus"]))
             if d["focus"] in self.stage_extra:
                 self.stage_extra.remove(d["focus"])
+        anims += self._unveil(d)
+        # On a big diagram the stage first moves in on this part (the camera follows the explanation); what is laid
+        # over the diagram after that (the veils, the ring) is laid where the parts will then be.
+        shown_parts = len([i for i in d["shown"] if i in d["nodes"]])
+        push, moved = None, None
+        if shown_parts >= self.PUSH_IN_FROM and hasattr(self, "zoom"):
+            back = self.zoom(key, None) if key in getattr(self, "_zoomed", {}) else None
+            closer = self.zoom(key, str(node), 1.5)
+            steps = [a for a in (back, closer) if a is not None]
+            if steps:
+                push = AnimationGroup(*steps, lag_ratio=1.0)
+                d["pushed"] = True
+                f, about = self._zoomed[key]
+                middle = np.array([self.STAGE[0], self.STAGE[1], 0.0])
+                moved = lambda m: m.scale(f, about_point=about).shift(middle - about)  # noqa: E731
+        if moved is not None:
+            moved(ring)
+        # One focal point: every other part shown so far goes quiet under a veil; the arrows into and out of this one
+        # stay clear.
+        if not d.get("drawing"):
+            veils = []
+            for other, mob in d["nodes"].items():
+                if other == str(node) or other not in d["shown"] or not len(mob.get_family()):
+                    continue
+                veil = RoundedRectangle(corner_radius=0.12, width=mob.width + 0.16, height=mob.height + 0.16,
+                                        fill_color=P.BG, fill_opacity=self.DIM_VEIL, stroke_width=0).move_to(mob)
+                if moved is not None:
+                    moved(veil)
+                veil._art_decorated = True
+                veils.append(self._stage_add(veil))
+            d["veils"] = veils
+            anims += [FadeIn(v) for v in veils]
         d["focus"] = self._stage_add(ring)
         anims.append(Create(ring))
-        return AnimationGroup(*anims, lag_ratio=0.3)
+        lit = AnimationGroup(*anims, lag_ratio=0.2)
+        return AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
 
     @staticmethod
     def _card(inner, tone: str, pad: float = 0.42, width: float | None = None):

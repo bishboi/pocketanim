@@ -8,6 +8,7 @@
  * the content is taught in order in sections of about five minutes.
  */
 
+import { taughtSoFar } from "./continuity";
 import { linesOf, numberedSection } from "./lines";
 import { microMinutes } from "./topics";
 import type { DocumentManifest } from "./document";
@@ -35,7 +36,13 @@ export type Section = {
   questionsOnly?: boolean;
 };
 
-export type WrittenSection = { n: number; title: string; text: string };
+export type WrittenSection = {
+  n: number;
+  title: string;
+  text: string;
+  /** What it taught, as its writer noted it (write_section "taught"): told to the sections written after it. */
+  taught?: string[];
+};
 
 /** The sections to write, and how many words each needs for the lecture to run `minutes`. */
 export function transcriptSections(reference: DocumentManifest | null, minutes: number, book = ""): Section[] {
@@ -200,8 +207,16 @@ export const SECTION_TOOL = {
         section: { type: "integer", description: "The section number, starting at 1." },
         title: { type: "string", description: "A short English title for what the section teaches." },
         text: { type: "string", description: "The section's full spoken transcript, paragraph by paragraph." },
+        taught: {
+          type: "array",
+          items: { type: "string" },
+          description: "Short notes of what this section taught, for the sections written after it: each term or " +
+            "idea it defined, each example, story or analogy it used, each question it asked the class. A few " +
+            "words each, in English, at most 14 (e.g. \"defined inertia\", \"example: bus braking\", \"asked: why " +
+            "does a ball stop?\").",
+        },
       },
-      required: ["section", "title", "text"],
+      required: ["section", "title", "text", "taught"],
       additionalProperties: false,
     },
   },
@@ -397,10 +412,12 @@ export function sectionRequest(section: Section, count: number, written: Written
   const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
   const opening = section.n === 1;
+  const taught = taughtSoFar(written);
   return [
     written.length
       ? `Written so far: ${written.map((w) => `section ${w.n} "${w.title}"`).join(", ")}.`
       : opening ? "Nothing is written yet: this is the start of the lecture." : "",
+    ...(taught.length ? ["", ...taught, ""] : []),
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
       : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one (its topic is in the ` +
         "outline of sections).", ""]),

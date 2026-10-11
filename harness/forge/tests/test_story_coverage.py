@@ -130,3 +130,50 @@ def test_length_style_and_repetition_are_the_writers(lib):
         again: t.sectionProblem({json.dumps(again)}, s, 'english'),
         long: t.sectionProblem({json.dumps(once * 400)}, {{ ...s, words: 50 }}, 'english') }}))""")
     assert got == {"short": None, "again": None, "long": None}, got
+
+
+def test_a_section_is_told_what_the_ones_before_it_taught(lib):
+    """The transcript writer notes what each section taught (write_section "taught"); a later section is given those
+    notes, to point back instead of explaining again or reusing an example."""
+    prior = [{"n": 1, "title": "Force", "text": "...", "taught": ["defined force", "example: pushing a door"]},
+             {"n": 2, "title": "Inertia", "text": "...", "taught": ["defined inertia", "asked: why does a ball stop?"]}]
+    section = {"n": 3, "parts": [], "minutes": 1, "words": 60, "source": BOOK, "book": True}
+    got = _node(lib, f"""console.log(JSON.stringify({{request: t.sectionRequest({json.dumps(section)}, 5,
+        {json.dumps(prior)}), tool: t.SECTION_TOOL, first: t.sectionRequest({json.dumps(section)}, 5, [])}}))""")
+    request = got["request"]
+    assert "ALREADY TAUGHT" in request
+    assert 'Section 1 "Force": defined force; example: pushing a door' in request
+    assert 'Section 2 "Inertia": defined inertia; asked: why does a ball stop?' in request
+    assert "ALREADY TAUGHT" not in got["first"]
+    assert "taught" in got["tool"]["function"]["parameters"]["required"]
+
+
+def test_taught_notes_are_short_and_distinct(lib):
+    notes = ["- defined force", "defined force", "example: " + "x" * 300, "", "asked: why?"]
+    got = _node(lib, f"""const k = require({json.dumps(str(lib / 'continuity.js'))});
+        console.log(JSON.stringify(k.taughtNotes({json.dumps(notes)})))""")
+    assert got[0] == "defined force" and len(got) == 3 and len(got[1]) <= 90
+
+
+def test_a_video_section_is_told_what_the_others_put_on_screen(lib):
+    """Each section's video writer sees what the other sections' chapters showed (figures, pictures, diagrams,
+    timelines, maps), so the same picture is not drawn again in every section."""
+    def script(*ops):
+        return {"chapters": [{"title": "A", "beats": [{"lines": [1], "do": list(ops)}]}]}
+    done = [[1, script({"op": "figure", "id": "fig4", "caption": "A manorial estate", "show": ["church", "fields"]},
+                       {"op": "picture", "generate": "a medieval knight on horseback", "labels": ["lance"]})],
+            [2, script({"op": "diagram", "id": "orders", "kind": "hub", "nodes": [{"id": "k", "label": "King"},
+                                                                                  {"id": "n", "label": "Nobles"}]},
+                       {"op": "timeline", "events": [["800", "Charlemagne crowned"], ["1066", "Norman Conquest"]]},
+                       {"op": "panel", "title": "words only"})],
+            [3, script({"op": "picture", "generate": "a monk copying a book"})]]
+    got = _node(lib, f"""const k = require({json.dumps(str(lib / 'continuity.js'))});
+        const done = new Map({json.dumps(done)});
+        console.log(JSON.stringify({{forTwo: k.shownSoFar(done, 2), none: k.shownSoFar(new Map(), 1)}}))""")
+    text = "\n".join(got["forTwo"])
+    assert "ALREADY ON SCREEN" in text and "Do not draw these again" in text
+    assert "the book's figure fig4 (\"A manorial estate\"), parts church, fields" in text
+    assert "a picture of a medieval knight on horseback (labelled lance)" in text
+    assert "Section 3: a picture of a monk copying a book" in text
+    assert "Section 2" not in text and "words only" not in text          # its own section, and words, are left out
+    assert got["none"] == []

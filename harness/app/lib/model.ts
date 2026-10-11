@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
+import { shownSoFar, taughtNotes } from "./continuity";
 import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
 import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
@@ -918,7 +919,7 @@ async function viaOpenRouter(
       // The longest refused try: kept when every try is refused, so one stubborn section does not lose the lecture.
       let fallback: { title: string; text: string; problem: string } | null = null;
       // The last try's section and why it was refused, for mending it instead of starting again.
-      let current: { title: string; text: string; problem: string } | null = null;
+      let current: { title: string; text: string; problem: string; taught: string[] } | null = null;
       for (let attempt = 1; attempt <= TRIES; attempt++) {
         if (stopped() || halted) return null;
         const mending = !!current && repairable(current.problem);
@@ -975,19 +976,24 @@ async function viaOpenRouter(
         // from a provider that answered in plain text instead of calling the tool, the reply itself.
         let title = "";
         let text = "";
+        let taught: string[] = [];
         for (const call of result.message.tool_calls ?? []) {
           try {
-            const args = JSON.parse(call.function.arguments || "{}") as { title?: string; text?: string };
+            const args = JSON.parse(call.function.arguments || "{}") as { title?: string; text?: string; taught?: unknown };
             if (String(args.text ?? "").trim().length > text.length) {
               text = String(args.text).trim();
               title = String(args.title ?? "");
+              taught = taughtNotes(args.taught);
             }
           } catch {}
         }
         if (!text) text = (result.message.content ?? "").trim();
         if (mending && text) {
           // What to add, at the end; a reply that wrote the whole section again replaces it instead.
-          if (!rewroteWhole(text, current!.text)) text = `${current!.text}\n\n${text}`;
+          if (!rewroteWhole(text, current!.text)) {
+            text = `${current!.text}\n\n${text}`;
+            taught = taughtNotes([...current!.taught, ...taught]);
+          }
           title = current!.title;
         }
         // Headings, bullet marks and [stage directions] are taken out, not refused.
@@ -996,9 +1002,9 @@ async function viaOpenRouter(
         const problem = sectionProblem(text, section, language);
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
-        if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text };
+        if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text, taught };
         note = problem;
-        if (text) current = { title, text, problem };
+        if (text) current = { title, text, problem, taught };
         if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
       }
       if (fallback) {
@@ -1510,6 +1516,11 @@ async function viaOpenRouter(
         first ? "This is the first section: the script also has the lecture's title, sub and intro."
           : "Give the script a title (only the first section's is used) and no intro.",
         ...seriesDuties(section.n, last),
+        ...(() => {
+          // What the other sections' chapters (written so far) already put on screen: build on it, do not redraw it.
+          const shown = shownSoFar(done, section.n);
+          return shown.length ? ["", ...shown, ""] : [];
+        })(),
         "Call write_lecture once with this script ({title, sub, intro, chapters, recap}); use the find tools first if " +
           "you need pictures. Write it straight away.",
         ...(note ? ["", "You wrote this section's chapters before, and the check of the whole lecture refused them:", note,

@@ -1932,7 +1932,7 @@ class Lecture(Scene):
                                 fill_opacity=0.92, stroke_width=0).move_to(tag)
         for part in card.get_family():
             part._art_decorated = True
-        self.chrome = VGroup(track, done, card, tag)
+        self.chrome = Group(track, done, card, tag)       # a Group: the emblem may be a picture, not shapes
         mark = self.emblem(0.42)
         if mark is not None:
             # The lecture's emblem beside the chapter's name: one motif through the whole series.
@@ -4324,7 +4324,7 @@ class Lecture(Scene):
             if mark.get_top()[1] > config.frame_height / 2 - 0.7:
                 mark.shift(DOWN * (mark.get_top()[1] - config.frame_height / 2 + 0.7))
             intro = AnimationGroup(intro, FadeIn(mark, scale=0.8))
-            card = VGroup(*card, mark)
+            card = Group(*card, mark)
         self.beat(narration, intro, rt=2.2)
         self.play(FadeOut(card, shift=UP * 0.3), run_time=0.8)
 
@@ -4335,7 +4335,7 @@ class Lecture(Scene):
         fit(line, 12)
         label = T(tag, 16, P.MUTED, weight=BOLD)
         mark = self.emblem(1.3)
-        group = VGroup(*([mark] if mark is not None else []), label, head, line).arrange(DOWN, buff=0.28)
+        group = Group(*([mark] if mark is not None else []), label, head, line).arrange(DOWN, buff=0.28)
         group.move_to(UP * 0.4)
         group.set_z_index(Z_CARD)
         self.beat(narration or f"{title}. {sub}", LaggedStart(*([FadeIn(mark, scale=0.8)] if mark is not None else []),

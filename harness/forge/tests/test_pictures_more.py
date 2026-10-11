@@ -181,3 +181,26 @@ def test_each_style_turns_its_chapters_its_own_way(monkeypatch):
         assert sheet.width > pl.config.frame_width and sheet.z_index == pl.Z_CHROME - 0.5
     finally:
         pl.use_style("atlas")
+
+
+def test_an_emblem_that_is_a_picture_not_shapes_is_shown(tmp_path, monkeypatch):
+    """An emblem the tracer could not turn into shapes is its PNG: shown on the title, the card and the chapter tag."""
+    import pocket_lecture as pl
+    from manim import tempconfig
+    from PIL import Image
+
+    emblem = tmp_path / "gen-emblem.png"
+    Image.new("RGBA", (64, 64), (200, 160, 40, 255)).save(emblem)
+    monkeypatch.setenv("PANIM_VOICE", "silent")
+
+    class Probe(pl.MapLecture):
+        EMBLEM = str(emblem)
+        SECTIONS = ["Intro", "Growth"]
+
+        def construct(self):
+            self.title_slide("CHAPTER 13", "Plant Growth", narration="Chapter thirteen.")
+            self.chapter(1, "Growth", "", "Growth.")
+            assert any(isinstance(m, pl.ImageMobject) for m in self.chrome.get_family())
+
+    with tempconfig({"dry_run": True, "media_dir": str(tmp_path), "disable_caching": True}):
+        Probe().render()

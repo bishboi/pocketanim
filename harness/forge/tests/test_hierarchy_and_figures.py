@@ -257,7 +257,7 @@ def test_a_book_photo_is_redrawn_by_the_diagram_model_never_shown_as_it_is(figur
     assert "gen-diagram-" in drawn["generated"]["file"] and drawn["generated"]["file"] != str(figure)
     kinds = [k for k, _ in _Model.CALLS]
     assert kinds[:2] == ["decide", "generate"]                            # sorted (not one Manim builds), then redrawn
-    assert _Model.CALLS[0][1] == 1                                        # the sorting model saw the figure
+    assert _Model.CALLS[0][1] == 2                                        # the sorting model saw the figure (one image part)
     asked = _Model.CALLS[1][1]
     assert '"image_url"' in asked                                         # the book's figure goes with it
     assert "EXACT, CLEAN COPY" in asked and "watermarks" in asked and "The Ganges at Varanasi" in asked

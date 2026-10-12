@@ -818,6 +818,7 @@ async function viaOpenRouter(
       python: python(),
       onStatus: (text) => emit({ type: "message", role: "status", text }),
       style,
+      art: request.art,
       onTime: (start, end) => ledger.time("figures", start, end),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);

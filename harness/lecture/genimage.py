@@ -604,28 +604,64 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
 
 
 # ---------------- the book's diagrams, redrawn by the diagram model ----------------
-DIAGRAM_VERSION = 2
+DIAGRAM_VERSION = 3
+
+# How each art style (artstyle.py) is told to the diagram model, so a redrawn figure looks like the rest of the
+# lecture's pictures.
+ART_LOOKS = {
+    "clean": "a polished flat-design vector illustration: solid flat colour fills, crisp even outlines, no texture",
+    "detailed": "a polished, richly detailed textbook illustration: shapes shaded with soft gradients, highlights "
+                "and rim light, crisp dark outlines",
+    "blueprint": "a precise technical line drawing: fine exact lines, faint translucent fills, light construction "
+                 "marks",
+    "chalk": "a neat chalk drawing: soft pastel chalk strokes with a slight hand-drawn wobble",
+    "sketch": "a neat hand-drawn pencil-and-ink sketch: confident ink outlines, cross-hatched shading",
+    "neon": "glowing neon line art: bright luminous lines with a soft glow, translucent filled shapes",
+    "watercolour": "a watercolour illustration: layered translucent washes, soft edges, thin ink outlines",
+}
+
+
+def _template_look(style: str | None, art: str | None = None) -> dict:
+    """The template's look for a redrawn figure: its board colour (drawn on, then cut away), its ink, its accent
+    colours, its art style and that style's lettering."""
+    look = {"bg": "#FFFFFF", "ink": "#111111", "accents": [], "art": "clean", "font": None}
+    try:
+        import artstyle
+        import pocket_lecture as pl
+
+        theme = pl.THEMES.get(style or "") or pl.THEMES["atlas"]
+        pal = theme["pal"]
+        look.update(bg=str(theme["bg"]), ink=str(pal.get("CREAM", "#111111")),
+                    accents=[str(pal[k]) for k in ("SAND", "RIVER", "TEAL", "GREEN", "ROSE", "TERRA") if pal.get(k)])
+        name = (art or "auto").strip().lower()
+        name = "watercolour" if name == "watercolor" else name
+        if name in ("", "auto", "default") or name not in artstyle.ART_STYLES:
+            name = artstyle.TEMPLATE_ART.get(style or "", "clean")
+        look.update(art=name, font=artstyle.ART_FONTS.get(name))
+    except Exception:  # noqa: BLE001 -- no engine here: a white page and black ink
+        pass
+    return look
 
 
 def _board_colours(style: str | None) -> tuple[str, str]:
     """(background, ink) of a lecture style's board, for a diagram drawn to sit on it."""
-    try:
-        import pocket_lecture as pl
-
-        theme = pl.THEMES.get(style or "") or pl.THEMES["atlas"]
-        return str(theme["bg"]), str(theme["pal"].get("CREAM", "#111111"))
-    except Exception:  # noqa: BLE001 -- no engine here: a white page and black ink
-        return "#FFFFFF", "#111111"
+    look = _template_look(style)
+    return look["bg"], look["ink"]
 
 
-def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None) -> str:
+def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None,
+                  art: str | None = None) -> str:
     """What the diagram model is told when it redraws a book's figure from the figure itself: the same picture,
-    exactly, clean, in the lecture's style."""
-    look = LOOKS.get(style or "", "in a clean, colourful educational illustration style")
-    bg, ink = _board_colours(style)
+    exactly, beautifully drawn in the template's look (its art style, ink and colours), on the board's flat colour,
+    which is then cut away: the figure stands on the board with no background of its own."""
+    look = _template_look(style, art)
+    accents = ", ".join(look["accents"][:5])
+    lettering = (f"lettered in a style like the {look['font']} font, large and clear" if look["font"]
+                 else "in a large, plain, clear font")
     return (
-        "REDRAW THE ATTACHED FIGURE from a school textbook as an EXACT, CLEAN COPY of it for a video lesson, "
-        f"{look}. What it is: {caption.strip() or 'a textbook figure'}."
+        "REDRAW THE ATTACHED FIGURE from a school textbook as an EXACT copy of it for a video lesson, drawn "
+        f"BEAUTIFULLY as {ART_LOOKS.get(look['art'], ART_LOOKS['clean'])}: polished, professional, crisp and well "
+        f"made, like a figure in the best modern textbook. What it is: {caption.strip() or 'a textbook figure'}."
         + (f" WHAT IT IS FOR: {context.strip()[:600]}" if context and context.strip() else "")
         + " IT MUST BE THE SAME PICTURE: the same layout and composition, the same parts in the same places and the "
         "same proportions, every arrow, line, connection and direction as it is, every number and unit, and EVERY "
@@ -634,11 +670,13 @@ def redraw_prompt(caption: str, style: str | None, context: str | None = None, f
         "it shows, from the same view. Nothing added, nothing left out, nothing rearranged."
         " ONLY THESE CHANGE: (1) everything that is not the figure itself is removed: watermarks, stamps, publisher "
         "or book logos, QR codes, 'scan for e-content' boxes, the figure number, the caption, any title, page "
-        "numbers, page edges, scan noise, stains, shadows, blur and yellowed paper; (2) it is drawn crisp and sharp "
-        "in the lecture's style: lines, shapes and colours redone in that style, labels in a large, plain, clear "
-        "font that reads on a phone."
-        f" Draw it on a plain, flat background of colour {bg}, lines and words in {ink} and colours that read on "
-        "that background; fill the frame, no border or frame around it."
+        "numbers, page edges, scan noise, stains, shadows, blur and yellowed paper; (2) it is redrawn in that style: "
+        f"lines, shapes and colours redone, outlines and words in {look['ink']}, colours from this palette where the "
+        f"figure has colour ({accents or 'clear, rich colours'}), labels {lettering}, readable on a phone."
+        f" NO BACKGROUND: the figure stands alone on a single plain, flat, solid colour {look['bg']} that fills the "
+        "whole rest of the image edge to edge (it is cut away afterwards); no paper, page, panel, card, box, frame, "
+        "border, vignette, gradient, texture, drop shadow, floor or scenery behind or around it. The figure's own "
+        "parts keep their fills. Fill the frame with the figure."
         + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that, and keep everything else the same."
            if fix and fix.strip() else "")
     )
@@ -696,7 +734,8 @@ def diagram_tries() -> int:
         return 4
 
 
-def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None) -> dict:
+def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None,
+           art: str | None = None) -> dict:
     """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
     reference), every label kept, then checked against it (verify) and redrawn with what was wrong, up to
     PANIM_DIAGRAM_TRIES (4) times. The book's own picture is never shown: when no try passes the check, the
@@ -712,7 +751,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
             reference = _as_png(raw)
         except Exception:  # noqa: BLE001
             reference = raw
-        key = hashlib.sha256(f"{model()}|{style or ''}|{DIAGRAM_VERSION}|".encode() + hashlib.sha256(raw).digest()
+        key = hashlib.sha256(f"{model()}|{style or ''}|{_template_look(style, art)['art']}|{DIAGRAM_VERSION}|".encode() + hashlib.sha256(raw).digest()
                              ).hexdigest()[:20]
         target = CACHE / f"gen-diagram-{key}.png"
         meta = target.with_suffix(".json")
@@ -728,7 +767,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
                              "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
         usd, fix, last, best = 0.0, None, None, None
         for attempt in range(1, diagram_tries() + 1):
-            prompt = redraw_prompt(caption, style, context, fix)
+            prompt = redraw_prompt(caption, style, context, fix, art)
             try:
                 data, cost = (_stand_in(caption or source.name), 0.0) if _fake() else _ask(prompt, reference)
             except RuntimeError as error:
@@ -756,6 +795,11 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         # The closest try: the book's picture is never shown instead.
         _, png, check = best if best is not None else (0, *last)
         CACHE.mkdir(parents=True, exist_ok=True)
+        # No background: the board's flat colour around the figure is cut away (checked before, on the whole).
+        try:
+            png = cutout(png)
+        except Exception:  # noqa: BLE001 -- kept as drawn
+            pass
         target.write_bytes(png)
         row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": model(), "style": style,
                "source": str(source), "check": check, "ok": check.get("ok"), "usd": usd, "diagram": True,
@@ -804,10 +848,11 @@ if __name__ == "__main__":
         print(json.dumps(check(" ".join(a for a in args if a != "--check") or "a red apple with one green leaf")))
         sys.exit(0)
     if "--redraw" in args:
-        # genimage.py --redraw FIGURE.png [--style S] [--caption C] [--context X]: the book's figure redrawn.
+        # genimage.py --redraw FIGURE.png [--style S] [--art A] [--caption C] [--context X]: the book's figure redrawn.
         def value(flag):
             return args[args.index(flag) + 1] if flag in args and args.index(flag) + 1 < len(args) else None
-        print(json.dumps(redraw(value("--redraw"), value("--caption") or "", value("--style"), value("--context")),
+        print(json.dumps(redraw(value("--redraw"), value("--caption") or "", value("--style"), value("--context"),
+                                value("--art")),
                          ensure_ascii=False))
         sys.exit(0)
     realistic = "--realistic" in args

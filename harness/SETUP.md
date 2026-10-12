@@ -134,7 +134,9 @@ Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, o
 and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's own pictures are never shown:
 every figure of an uploaded book (a diagram, a graph, an apparatus, a photograph) is redrawn by the diagram model
 from the figure itself as an exact copy (the same layout, parts, arrows, numbers, every label copied letter for
-letter) in the lecture's style, with watermarks, logos, QR codes, figure numbers, captions and scan marks left out.
+letter), drawn polished in the template's look (its art style, or the one chosen, in its ink and colours, labels
+in that style's lettering), with watermarks, logos, QR codes, figure numbers, captions and scan marks left out. It
+has no background: it is drawn on the board's flat colour, which is cut away, so it stands on the board unframed.
 A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
 what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (4) tries, and the closest try
 is kept. A figure the model cannot redraw at all is left out and rebuilt in Manim. The script waits up to

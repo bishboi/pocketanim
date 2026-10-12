@@ -21,7 +21,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Bumped when the prompt or the routes change: older decisions are made again (8: graphs and the like to Manim). */
-export const DRAWING_VERSION = 8;
+export const DRAWING_VERSION = 9;
 /** Figures redrawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 
@@ -146,11 +146,12 @@ function runPython(python: string, repo: string, args: string[], signal?: AbortS
  * style, every label kept, checked against the book's and redrawn with what was wrong; the closest try is kept when
  * none passes. Undefined generated (and the reason) only when the model made nothing: the figure is then left out.
  */
-export async function redrawDiagram(figure: FigureInfo, context: string, options: SettleOptions & { style?: string }):
+export async function redrawDiagram(figure: FigureInfo, context: string,
+  options: SettleOptions & { style?: string; art?: string }):
   Promise<{ generated?: Drawn["generated"]; checked?: boolean; issues?: string; error?: string; usd: number }> {
   const script = path.join(options.repo, "harness", "lecture", "genimage.py");
   const args = [script, "--redraw", figure.file, "--caption", figure.caption || "", "--context", context.slice(0, 600),
-    ...(options.style ? ["--style", options.style] : [])];
+    ...(options.style ? ["--style", options.style] : []), ...(options.art ? ["--art", options.art] : [])];
   try {
     const row = JSON.parse((await runPython(options.python, options.repo, args, options.signal))
       .trim().split("\n").pop() || "null") as { file?: string; title?: string; credit?: string; usd?: number;
@@ -193,6 +194,8 @@ export async function drawFigures(
     onTime?: (start: number, end: number) => void;
     /** The lecture's style: every figure is redrawn in it. */
     style?: string;
+    /** The lecture's art style (auto or none: the template's own): the redraws are drawn in it. */
+    art?: string;
   },
 ): Promise<Record<string, Drawn>> {
   const out: Record<string, Drawn> = {};

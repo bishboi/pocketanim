@@ -132,11 +132,13 @@ book's figure it redraws).
 
 Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, objects, scenes: quick and cheap),
 and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's own pictures are never shown:
-every figure of an uploaded book (a diagram, a graph, an apparatus, a photograph) is redrawn by the diagram model
-from the figure itself as an exact copy (the same layout, parts, arrows, numbers, every label copied letter for
-letter), drawn polished in the template's look (its art style, or the one chosen, in its ink and colours, labels
-in that style's lettering), with watermarks, logos, QR codes, figure numbers, captions and scan marks left out. It
-has no background: it is drawn on the board's flat colour, which is cut away, so it stands on the board unframed.
+the figure model looks at each figure of an uploaded book and decides how it is best shown, with its own note on
+how: a graph, chart, circuit or the like is rebuilt in Manim; a map is built on the lecture's map; a figure whose
+look is what is taught (an anatomy or specimen drawing, a microscope view, real apparatus, a photograph, an artwork
+or historical source) is redrawn by the diagram model close to the book's own look, only cleaned, not restyled;
+any other is redrawn in the template's look (its art style, ink and colours, labels in its lettering). Either redraw
+keeps the same layout, parts, arrows, numbers and every label, leaves the page's marks out, and stands on the board
+with no background (a flat colour around it is cut away; a photograph or scene keeps its own).
 A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
 what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (4) tries, and the closest try
 is kept. When the model's content filter blocks a figure, it is asked once more in plainer words; then each

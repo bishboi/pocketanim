@@ -192,6 +192,18 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
             "For a school lesson. If it is a real person, an illustrated portrait, not a photograph.")
 
 
+def flat_background(data: bytes, tolerance: int = 28) -> bool:
+    """Whether a picture stands on one flat colour (its four corners alike): only then is there a background to cut
+    away; a photograph or a scene keeps its own."""
+    import numpy as np
+    from PIL import Image
+
+    rgb = np.asarray(Image.open(io.BytesIO(data)).convert("RGB")).astype(np.int16)
+    h, w = rgb.shape[:2]
+    corners = np.array([rgb[0, 0], rgb[0, w - 1], rgb[h - 1, 0], rgb[h - 1, w - 1]])
+    return bool((np.abs(corners - np.median(corners, axis=0)).max(axis=1) <= tolerance).all())
+
+
 def cutout(data: bytes, tolerance: int = 28) -> bytes:
     """The picture with the plain background around its subject made transparent and the rest trimmed away: the
     pixels near the corners' colour that are connected to the edge go (white inside the subject stays), with a
@@ -706,15 +718,41 @@ def _board_colours(style: str | None) -> tuple[str, str]:
 
 
 def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None,
-                  art: str | None = None, plain: bool = False) -> str:
+                  art: str | None = None, plain: bool = False, faithful: bool = False, how: str | None = None) -> str:
     """What the diagram model is told when it redraws a book's figure from the figure itself: the same diagram, its
     parts and labels kept, beautifully drawn in the template's look (its art style, ink and colours), on the board's
     flat colour, which is then cut away: the figure stands on the board with no background of its own.
 
     Worded as a new educational illustration made from a reference sketch: words such as "exact copy", "textbook",
     "watermark" or "logo" make image models' content filters block it as copying. `plain`: the shortest form, asked
-    when the filter blocked the full one (no lesson text, no fix)."""
+    when the filter blocked the full one (no lesson text, no fix). `faithful`: the figure must look as it does in
+    the book (the figure model said so): redrawn close to its own drawing, colours and detail, only cleaned, not
+    restyled; it keeps its own background when it has one. `how`: the figure model's note on this figure."""
     look = _template_look(style, art)
+    note = f" NOTE ON THIS FIGURE: {how.strip()[:300]}" if how and how.strip() else ""
+    if faithful:
+        what = (caption.strip() or "a figure")[:160]
+        if plain:
+            return (f"An educational figure for a school lesson: {what}. Make a clean, sharp version of the attached "
+                    "reference image that looks just like it: the same drawing, colours, parts and labels. Only the "
+                    "figure itself.")
+        return (
+            "Make a clean, sharp version of the attached REFERENCE IMAGE for a video lesson that LOOKS JUST LIKE IT: "
+            f"what it shows is taught by how it looks. What it shows: {what}."
+            + (f" WHAT IT IS FOR: {context.strip()[:500]}" if context and context.strip() else "") + note
+            + " KEEP ITS OWN LOOK: the same drawing style, colours, shading, textures, proportions and fine detail, "
+            "the same layout, every part in its place, every arrow and line, every number and unit, and EVERY LABEL "
+            "with the same words and spelling beside the same part. Do NOT restyle it, simplify it, recolour it or "
+            "add anything. If it is a photograph, keep it photographic and true. ONLY CLEAN IT: sharp and clear, "
+            "labels crisp and readable on a phone, without blur, grain, stains, yellowed paper or uneven light, and "
+            "show only the figure itself: leave out everything around it that is not part of it (any page, border, "
+            "caption, figure number, title, page number, stamp, mark or stray text)."
+            f" If the figure has no background of its own, it stands on a single plain, flat colour {look['bg']} "
+            "filling the rest of the image edge to edge, no frame, card or shadow; if it has one (a photograph, a "
+            "scene, a microscope field), keep it. Fill the frame with the figure."
+            + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that, and keep everything else the same."
+               if fix and fix.strip() else "")
+        )
     drawn = ART_LOOKS.get(look["art"], ART_LOOKS["clean"])
     what = (caption.strip() or "a diagram")[:160]
     if plain:
@@ -729,7 +767,7 @@ def redraw_prompt(caption: str, style: str | None, context: str | None = None, f
         "Make a new, clean EDUCATIONAL ILLUSTRATION for a video lesson from the attached REFERENCE IMAGE (a sketch of "
         f"a diagram), drawn BEAUTIFULLY as {drawn}: polished, professional, crisp and well made. What it shows: "
         f"{what}."
-        + (f" WHAT IT IS FOR: {context.strip()[:500]}" if context and context.strip() else "")
+        + (f" WHAT IT IS FOR: {context.strip()[:500]}" if context and context.strip() else "") + note
         + " KEEP THE DIAGRAM FAITHFUL to the reference: the same layout, the same parts in the same places and "
         "proportions, every arrow, line, connection and direction, every number and unit, and EVERY LABEL with the "
         "same words and spelling, beside the same part (never translate, reword, add, drop or move a label). If the "
@@ -801,7 +839,8 @@ def diagram_tries() -> int:
         return 4
 
 
-def _redraw_tries(reference: bytes, source: Path, caption: str, style, context, art) -> dict:
+def _redraw_tries(reference: bytes, source: Path, caption: str, style, context, art, faithful: bool = False,
+                  how: str | None = None) -> dict:
     """The tries of one model (model()) at a redraw: drawn, checked against the book's figure, drawn again with what
     was wrong, up to PANIM_DIAGRAM_TRIES; the closest kept. When its content filter blocks the request, asked once
     more in the plainest words. {"png", "check", "prompt", "model", "usd"} or {"error", "usd"}."""
@@ -812,7 +851,7 @@ def _redraw_tries(reference: bytes, source: Path, caption: str, style, context, 
                          "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
     usd, fix, best, plain, attempt, prompt = 0.0, None, None, False, 0, ""
     while attempt < diagram_tries():
-        prompt = redraw_prompt(caption, style, context, fix, art, plain=plain)
+        prompt = redraw_prompt(caption, style, context, fix, art, plain=plain, faithful=faithful, how=how)
         try:
             data, cost = (_stand_in(caption or source.name), 0.0) if _fake() else _ask(prompt, reference)
         except RuntimeError as error:
@@ -847,13 +886,16 @@ def _redraw_tries(reference: bytes, source: Path, caption: str, style, context, 
 
 
 def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None,
-           art: str | None = None) -> dict:
+           art: str | None = None, faithful: bool = False, how: str | None = None) -> dict:
     """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
     reference), every label kept, then checked against it (verify) and redrawn with what was wrong, up to
     PANIM_DIAGRAM_TRIES (4) times. The book's own picture is never shown: when no try passes the check, the
     closest one (the fewest labels missing or wrong) is kept, and its check says what is still off. Kept beside the
     other pictures, by the figure and the style. Returns a row with `file` (the PNG), `png`, `ok`, `check`, `usd`;
-    or {"error": why} only when the model made nothing (no key, refused, offline)."""
+    or {"error": why} only when the model made nothing (no key, refused, offline).
+
+    `faithful`: the figure must look as in the book (the figure model decided so): redrawn close to its own look,
+    only cleaned, not restyled. `how`: the figure model's note on how to redraw it."""
     source = Path(str(source_path))
     if not source.is_file():
         return {"error": f"no figure file {source}"}
@@ -863,7 +905,8 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
             reference = _as_png(raw)
         except Exception:  # noqa: BLE001
             reference = raw
-        key = hashlib.sha256(f"{model()}|{style or ''}|{_template_look(style, art)['art']}|{DIAGRAM_VERSION}|".encode() + hashlib.sha256(raw).digest()
+        way = "faithful" if faithful else f"{style or ''}|{_template_look(style, art)['art']}"
+        key = hashlib.sha256(f"{model()}|{way}|{DIAGRAM_VERSION}|".encode() + hashlib.sha256(raw).digest()
                              ).hexdigest()[:20]
         target = CACHE / f"gen-diagram-{key}.png"
         meta = target.with_suffix(".json")
@@ -876,7 +919,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         usd, whys, got = 0.0, [], None
         for name in [model(), *fallbacks()]:
             with _pinned(name):
-                got = _redraw_tries(reference, source, caption, style, context, art)
+                got = _redraw_tries(reference, source, caption, style, context, art, faithful, how)
             usd += got.get("usd") or 0.0
             if "error" not in got:
                 break
@@ -887,14 +930,17 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         used, png, check, prompt = got["model"], got["png"], got["check"], got["prompt"]
         # The closest try: the book's picture is never shown instead.
         CACHE.mkdir(parents=True, exist_ok=True)
-        # No background: the board's flat colour around the figure is cut away (checked before, on the whole).
+        # No background: the flat colour around the figure is cut away (checked before, on the whole); a figure
+        # with a background of its own (a photograph, a scene) keeps it.
         try:
-            png = cutout(png)
+            if flat_background(png):
+                png = cutout(png)
         except Exception:  # noqa: BLE001 -- kept as drawn
             pass
         target.write_bytes(png)
         row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": used, "style": style,
                "source": str(source), "check": check, "ok": check.get("ok"), "usd": usd, "diagram": True,
+               "faithful": bool(faithful),
                "credit": f"redrawn with {used} from the book's figure"
                          + (" (fallback)" if used != model() else "")}
         meta.write_text(json.dumps(row, ensure_ascii=False))
@@ -941,11 +987,11 @@ if __name__ == "__main__":
         print(json.dumps(check(" ".join(a for a in args if a != "--check") or "a red apple with one green leaf")))
         sys.exit(0)
     if "--redraw" in args:
-        # genimage.py --redraw FIGURE.png [--style S] [--art A] [--caption C] [--context X]: the book's figure redrawn.
+        # genimage.py --redraw FIGURE.png [--style S] [--art A] [--faithful] [--how H] [--caption C] [--context X]: the book's figure redrawn.
         def value(flag):
             return args[args.index(flag) + 1] if flag in args and args.index(flag) + 1 < len(args) else None
         print(json.dumps(redraw(value("--redraw"), value("--caption") or "", value("--style"), value("--context"),
-                                value("--art")),
+                                value("--art"), "--faithful" in args, value("--how")),
                          ensure_ascii=False))
         sys.exit(0)
     realistic = "--realistic" in args

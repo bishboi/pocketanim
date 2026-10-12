@@ -194,7 +194,7 @@ class _Model(BaseHTTPRequestHandler):
             message = {"content": "", "images": [{"image_url": {
                 "url": "data:image/png;base64," + __import__("base64").b64encode(out.getvalue()).decode()}}]}
         else:
-            message = {"content": "PHOTO: Ganges river at Varanasi ghats\nSUBJECT: -"}
+            message = {"content": "EXACT | a photograph of the ghats: keep it photographic, the boats and steps as they are"}
             _Model.CALLS.append(("decide", images))
         data = json.dumps({"choices": [{"message": message}], "usage": {"cost": 0.001}}).encode()
         self.send_response(200)
@@ -260,7 +260,10 @@ def test_a_book_photo_is_redrawn_by_the_diagram_model_never_shown_as_it_is(figur
     assert _Model.CALLS[0][1] == 2                                        # the sorting model saw the figure (one image part)
     asked = _Model.CALLS[1][1]
     assert '"image_url"' in asked                                         # the book's figure goes with it
-    assert "KEEP THE DIAGRAM FAITHFUL" in asked and "NO BACKGROUND" in asked and "watermark" not in asked and "The Ganges at Varanasi" in asked
+    # The figure model said EXACT: close to the book's own look, not restyled, with its note on this figure.
+    assert "LOOKS JUST LIKE IT" in asked and "Do NOT restyle it" in asked and "watermark" not in asked
+    assert "keep it photographic, the boats and steps" in asked and "The Ganges at Varanasi" in asked
+    assert drawn["faithful"] is True and "photographic" in drawn["how"]
     # Kept beside the figure: a second lecture from the book asks nothing again.
     _Model.CALLS = []
     again = _draw(figures_js, servers, tmp_path, figure)

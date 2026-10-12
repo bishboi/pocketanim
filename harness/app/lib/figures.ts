@@ -1,13 +1,15 @@
 /**
  * The book's figures, as a video lecture shows them: never the book's own picture. A model that reads images looks
- * at each figure once and sorts it two ways:
- *   - one the board's own shapes build exactly (a graph or plot, a chart, a number line, a geometric construction,
- *     a circuit, a vector or ray diagram, a flowchart, a table): the script writer rebuilds it in Manim, in full
- *     detail, from the figure (shown to it) -- exact and revealed part by part;
- *   - any other (a labelled diagram, a cell, a cross-section, an apparatus, a photograph): redrawn by the diagram
- *     model from the figure itself as an exact copy -- the same layout, parts, arrows, numbers and labels letter for
- *     letter, in the lecture's style, with the watermarks, logos, QR codes, figure numbers, captions and scan marks
- *     left out; checked label by label against the book's and redrawn with what was wrong (genimage.py --redraw).
+ * at each figure once and decides how it is best shown, with a note on how (its own judgement, per figure):
+ *   - MANIM: the board's own shapes build it exactly (a graph or plot, a chart, a number line, a geometric
+ *     construction, a circuit, a vector or ray diagram, a flowchart, a table): the script writer rebuilds it in
+ *     Manim, in full detail, from the figure (shown to it) -- exact and revealed part by part;
+ *   - MAP: a map: the script writer builds it with the lecture's map ops (places, borders, rivers, routes);
+ *   - EXACT: it must look as it does in the book (an anatomy or specimen drawing, a real apparatus, a photograph,
+ *     an artwork or historical source): redrawn by the diagram model close to the book's own look, only cleaned;
+ *   - STYLED: any other picture: redrawn by the diagram model in the lecture's style.
+ *   Either redraw keeps the same layout, parts, arrows, numbers and labels, leaves the page's marks out, and is
+ *   checked label by label against the book's and redrawn with what was wrong (genimage.py --redraw).
  * A figure that cannot be redrawn at all (no image model, refused) is left out of the lecture's figures, and the
  * script writer rebuilds it in Manim instead.
  *
@@ -20,8 +22,9 @@ import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-/** Bumped when the prompt or the routes change: older decisions are made again (8: graphs and the like to Manim). */
-export const DRAWING_VERSION = 9;
+/** Bumped when the prompt or the routes change: older decisions are made again (8: graphs and the like to Manim;
+ * 10: maps to the map ops, and the model says how close to the book each redraw stays). */
+export const DRAWING_VERSION = 10;
 /** Figures redrawn at once. */
 const AT_ONCE = Number(process.env.PANIM_FIGURE_DRAWERS ?? 4);
 
@@ -41,6 +44,12 @@ export type Drawn = {
   diagramError?: string;
   /** The board's own shapes build it exactly (a graph, a chart, a circuit...): the writer rebuilds it in Manim. */
   manim?: boolean;
+  /** A map: the writer builds it with the lecture's map ops. */
+  map?: boolean;
+  /** Redrawn close to the book's own look (it must look as in the book), not restyled. */
+  faithful?: boolean;
+  /** The figure model's note on how to show or redraw it. */
+  how?: string;
   /** What redrawing it cost (US dollars), kept with it so a later run can say so. */
   usd?: number;
 };
@@ -59,15 +68,23 @@ export function figureContext(markdown: string, id: string, around = 900): strin
 }
 
 export const CLASSIFY_PROMPT = [
-  "You look at ONE figure from a textbook and say how a video lecture should show it. Reply with exactly one word:",
+  "You look at ONE figure from a textbook and decide how a video lecture should best show it. Reply on ONE line:",
+  "KIND | HOW, where KIND is one word and HOW is your own short instruction (at most 40 words) for whoever builds",
+  "or redraws it: what matters in it, what must stay exactly as it is, what may change.",
   "- MANIM: the board's own shapes can build it EXACTLY, every value, label and line in place: a graph or plot of a",
   "  function or of data, a bar, line or pie chart, a number line, a coordinate or geometric construction (triangles,",
   "  circles, angles), a vector or force diagram, a ray diagram, a circuit schematic, a block on an incline, a",
   "  pulley, a spring, a pendulum, a flowchart, a cycle or tree of labelled boxes, a table, a Venn diagram, a",
   "  Punnett square. It is rebuilt there, exact and drawn part by part.",
-  "- REDRAW: anything else: a labelled diagram of a real thing (a cell, an organ, a plant, a cross-section, a",
-  "  machine, real apparatus), a map, an illustration, a photograph. It is redrawn as a picture, an exact copy.",
-  "When in doubt, REDRAW.",
+  "- MAP: a map of a real place (countries, states, rivers, routes, trade or migration, an empire, places",
+  "  marked). It is built with the lecture's own map, every place, border, route and label of the book's.",
+  "- EXACT: it must look as it does in the book, because its look is what is taught: an anatomy or specimen",
+  "  drawing, a microscope view, a real apparatus or set-up, a rock, mineral or organism, a photograph, an",
+  "  artwork, a coin, inscription or historical source. Redrawn close to the book's own drawing, colours and",
+  "  detail, only cleaned up, not restyled.",
+  "- STYLED: any other picture: a schematic illustration, a labelled diagram whose look is not the point, a",
+  "  cartoon or scene. Redrawn in the lecture's own art style, the same parts and labels.",
+  "When in doubt between EXACT and STYLED, EXACT.",
 ].join("\n");
 
 /** One chat completion (not streamed): the reply's text, and what it cost. */
@@ -76,7 +93,7 @@ async function ask(key: string, model: string, content: Part[], signal?: AbortSi
     method: "POST",
     signal,
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: 20, usage: { include: true },
+    body: JSON.stringify({ model, max_tokens: 160, usage: { include: true },
       messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content }] }),
   });
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 200)}`);
@@ -103,22 +120,33 @@ async function picture(file: string): Promise<string | null> {
   }
 }
 
-/** Whether the board's shapes build the figure exactly (MANIM) or it is redrawn (REDRAW, and when it cannot be
- * asked: no key, no answer). */
-async function buildsInManim(figure: FigureInfo, context: string, key: string | undefined, model: string | undefined,
-  signal: AbortSignal | undefined, onCost: (usd: number) => void): Promise<boolean> {
-  if (!key || !model) return false;
+export type FigureWay = { kind: "manim" | "map" | "exact" | "styled"; how?: string };
+
+/** How the figure model says a figure is best shown (CLASSIFY_PROMPT): built in Manim, built on the map, or
+ * redrawn close to the book's look or in the lecture's style, with its note on how. EXACT when it cannot be asked
+ * (no key, no answer): a faithful redraw is never wrong. */
+export function readWay(text: string): FigureWay {
+  const line = text.trim().split("\n")[0] ?? "";
+  const kind = /^\W*(MANIM|MAP|EXACT|STYLED|REDRAW)\b/i.exec(line)?.[1]?.toLowerCase();
+  const how = line.includes("|") ? line.slice(line.indexOf("|") + 1).trim().slice(0, 300) : "";
+  const way = kind === "manim" || kind === "map" || kind === "styled" ? kind : "exact";
+  return how ? { kind: way, how } : { kind: way };
+}
+
+async function chooseWay(figure: FigureInfo, context: string, key: string | undefined, model: string | undefined,
+  signal: AbortSignal | undefined, onCost: (usd: number) => void): Promise<FigureWay> {
+  if (!key || !model) return { kind: "exact" };
   const image = await picture(figure.file);
-  if (!image) return false;
+  if (!image) return { kind: "exact" };
   try {
     const said = await ask(key, model, [{ type: "text", text: `Figure ${figure.id}: ${figure.caption || "(no caption)"}` +
       (context ? `\n\nThe book around it:\n${context.slice(0, 900)}` : "") }, { type: "image_url", image_url: { url: image } }],
     signal);
     onCost(said.cost);
-    return /^\W*MANIM\b/i.test(said.text.trim());
+    return readWay(said.text);
   } catch (error) {
     if (signal?.aborted) throw error;
-    return false;                       // not asked: redrawn, which shows it whatever it is
+    return { kind: "exact" };           // not asked: redrawn faithfully, which shows it whatever it is
   }
 }
 
@@ -147,11 +175,12 @@ function runPython(python: string, repo: string, args: string[], signal?: AbortS
  * none passes. Undefined generated (and the reason) only when the model made nothing: the figure is then left out.
  */
 export async function redrawDiagram(figure: FigureInfo, context: string,
-  options: SettleOptions & { style?: string; art?: string }):
+  options: SettleOptions & { style?: string; art?: string; faithful?: boolean; how?: string }):
   Promise<{ generated?: Drawn["generated"]; checked?: boolean; issues?: string; error?: string; usd: number }> {
   const script = path.join(options.repo, "harness", "lecture", "genimage.py");
   const args = [script, "--redraw", figure.file, "--caption", figure.caption || "", "--context", context.slice(0, 600),
-    ...(options.style ? ["--style", options.style] : []), ...(options.art ? ["--art", options.art] : [])];
+    ...(options.style ? ["--style", options.style] : []), ...(options.art ? ["--art", options.art] : []),
+    ...(options.faithful ? ["--faithful"] : []), ...(options.how ? ["--how", options.how] : [])];
   try {
     const row = JSON.parse((await runPython(options.python, options.repo, args, options.signal))
       .trim().split("\n").pop() || "null") as { file?: string; title?: string; credit?: string; usd?: number;
@@ -206,7 +235,7 @@ export async function drawFigures(
     if (existsSync(oldSvg)) await rm(oldSvg, { force: true });
     try {
       const kept = JSON.parse(await readFile(meta, "utf8"));
-      if (kept.version === DRAWING_VERSION && (kept.manim || (kept.generated && existsSync(kept.generated.file)))) {
+      if (kept.version === DRAWING_VERSION && (kept.manim || kept.map || (kept.generated && existsSync(kept.generated.file)))) {
         out[figure.id] = kept;
         options.onDrawn?.(figure.id, kept, true);
         continue;
@@ -217,10 +246,10 @@ export async function drawFigures(
     todo.push(figure);
   }
   if (!todo.length) return out;
-  options.onStatus?.(`Looking at the book's ${todo.length} figure${todo.length > 1 ? "s" : ""}: graphs, charts and ` +
-    "the like are rebuilt in Manim; the rest redrawn by the diagram model, each an exact copy in the lecture's " +
-    "style, watermarks and page marks left out, its labels checked against the book's. The book's own pictures are " +
-    "never shown.");
+  options.onStatus?.(`Looking at the book's ${todo.length} figure${todo.length > 1 ? "s" : ""}: the figure model ` +
+    "decides how each is shown: graphs, charts and the like rebuilt in Manim, maps on the lecture's map, and the rest " +
+    "redrawn by the diagram model, close to the book's own look where that matters, else in the lecture's style, " +
+    "its labels checked against the book's. The book's own pictures are never shown.");
   let done = 0;
 
   const drawOne = async (figure: FigureInfo): Promise<Drawn> => {
@@ -230,10 +259,14 @@ export async function drawFigures(
       options.onCost?.(cost);
     };
     const context = figureContext(options.markdown, figure.id);
-    if (await buildsInManim(figure, context, options.key, options.model, options.signal, bill)) return { manim: true, usd };
-    const redrawn = await redrawDiagram(figure, context, { ...options, onCost: bill });
-    if (!redrawn.generated) return { diagramError: redrawn.error, usd };
-    return { photo: true, diagram: true, generated: redrawn.generated, checked: redrawn.checked,
+    const way = await chooseWay(figure, context, options.key, options.model, options.signal, bill);
+    const how = way.how ? { how: way.how } : {};
+    if (way.kind === "manim") return { manim: true, ...how, usd };
+    if (way.kind === "map") return { map: true, ...how, usd };
+    const faithful = way.kind === "exact";
+    const redrawn = await redrawDiagram(figure, context, { ...options, onCost: bill, faithful, how: way.how });
+    if (!redrawn.generated) return { diagramError: redrawn.error, faithful, ...how, usd };
+    return { photo: true, diagram: true, faithful, ...how, generated: redrawn.generated, checked: redrawn.checked,
       ...(redrawn.issues ? { issues: redrawn.issues } : {}), usd };
   };
 
@@ -251,13 +284,14 @@ export async function drawFigures(
       options.onTime?.(began, Date.now());
       out[figure.id] = drawn;
       options.onDrawn?.(figure.id, drawn, false);
-      if (drawn.generated || drawn.manim) {
+      if (drawn.generated || drawn.manim || drawn.map) {
         await writeFile(drawnPaths(figure).meta, JSON.stringify({ ...drawn, version: DRAWING_VERSION }), "utf8");
       }
       done++;
       options.onStatus?.(`Figure ${figure.id} ${drawn.manim ? "is rebuilt in Manim (the board's shapes build it exactly)"
+        : drawn.map ? "is built on the lecture's map"
         : drawn.generated
-        ? `redrawn by the diagram model in the lecture's style${drawn.checked ? ", every label checked"
+        ? `redrawn by the diagram model ${drawn.faithful ? "close to the book's own look" : "in the lecture's style"}${drawn.checked ? ", every label checked"
           : ` (the closest try kept: ${drawn.issues || "not every label matched"})`}`
         : `could not be redrawn (${drawn.diagramError ?? "no picture"}): left out, rebuilt on the board instead`}` +
         ` — ${done} of ${todo.length}.`);
@@ -267,14 +301,18 @@ export async function drawFigures(
   return out;
 }
 
-/** A figure's line in the script writer's prompt: how to show it. */
+/** A figure's line in the script writer's prompt: how to show it (and the figure model's note on it). */
 export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
   const head = `  ${figure.id}: ${figure.caption}${figure.page ? ` (page ${figure.page})` : ""}`;
+  const note = drawn?.how ? ` Note on it: ${drawn.how}` : "";
   if (drawn?.generated) return `${head} — redrawn as a picture with its labels: ` +
     `{"op":"figure","id":"${figure.id}","photo":true,"where":"stage"} (no parts to reveal)`;
   if (drawn?.manim) return `${head} — BUILD IT IN MANIM in full detail, exactly as the book's figure (shown to you): ` +
     `every value, label, line and axis (graph, plot, sketch, preset, diagram, or a manim op), marked ` +
-    `"from_figure":"${figure.id}"`;
+    `"from_figure":"${figure.id}".${note}`;
+  if (drawn?.map) return `${head} — A MAP: BUILD IT ON THE LECTURE'S MAP with the map ops (marker, state, river, ` +
+    `path, arrow, journey, empire), every place, border, route and label of the book's map, marked ` +
+    `"from_figure":"${figure.id}" (with no map in this lecture, build it with a manim op instead).${note}`;
   return `${head} — not available as a picture: build it on the board in full detail, every value and label of ` +
     `the book's figure (sketch, preset, graph, diagram, or a manim op), marked "from_figure":"${figure.id}"`;
 }

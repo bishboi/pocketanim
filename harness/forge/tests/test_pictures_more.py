@@ -428,3 +428,35 @@ def test_a_filtered_illustration_does_not_stop_the_next_one(two_models, monkeypa
     monkeypatch.setenv("PANIM_IMAGE_FALLBACK_MODELS", "test/illustrations")
     row = gen.generate("a temple gate")
     assert row and row["model"] == "test/illustrations" and "(fallback)" in row["credit"]
+
+
+def test_a_figure_that_must_look_as_in_the_book_is_redrawn_close_to_it_not_restyled(two_models):
+    """The figure model said EXACT (its look is what is taught): the redraw keeps the book's own drawing and
+    colours, only cleaned, with the model's note; the template's art style is not imposed."""
+    gen, asked, figure = two_models
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "parchment", faithful=True,
+                     how="a stained microscope view: keep the purple stain")
+    assert "error" not in row and row["faithful"] is True
+    first = _text_of([a for a in asked if a["model"] == "test/diagrams"][0])
+    assert "LOOKS JUST LIKE IT" in first and "Do NOT restyle it" in first and "keep the purple stain" in first
+    assert "pencil-and-ink sketch" not in first and "BEAUTIFULLY" not in first
+    styled = gen.redraw(str(figure), "Fig. 3: a plant cell", "parchment")
+    assert styled["file"] != row["file"]                               # kept apart: a faithful and a styled redraw
+
+
+def test_a_picture_with_its_own_background_keeps_it():
+    """Only a flat colour around a figure is cut away: a photograph or a scene (corners unlike) keeps its own."""
+    from PIL import Image
+
+    import genimage as gen
+
+    def png(corners):
+        image = Image.new("RGB", (60, 40), (250, 250, 250))
+        for (x, y), colour in zip([(0, 0), (59, 0), (0, 39), (59, 39)], corners):
+            image.putpixel((x, y), colour)
+        out = io.BytesIO()
+        image.save(out, "PNG")
+        return out.getvalue()
+
+    assert gen.flat_background(png([(250, 250, 250)] * 4))
+    assert not gen.flat_background(png([(250, 250, 250), (30, 90, 160), (120, 80, 40), (250, 250, 250)]))

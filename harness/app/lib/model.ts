@@ -833,25 +833,29 @@ async function viaOpenRouter(
         const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
         if (made.manim && figure?.file) {
           showPicture({ kind: "rebuilt", file: figure.file, title, ...paid, status: "a graph or the like: rebuilt in Manim" });
+        } else if (made.map && figure?.file) {
+          showPicture({ kind: "rebuilt", file: figure.file, title, ...paid, status: "a map: built on the lecture's map" });
         } else if (made.generated?.file) {
+          const how = made.faithful ? "close to the book's own look" : "in the lecture's style";
           showPicture({ kind: "figure", file: made.generated.file, title, ...paid, detail: made.generated.credit,
-            status: made.checked ? "redrawn by the diagram model, every label checked"
-              : `redrawn by the diagram model (closest try: ${made.issues || "not every label matched"})` });
+            status: made.checked ? `redrawn by the diagram model ${how}, every label checked`
+              : `redrawn by the diagram model ${how} (closest try: ${made.issues || "not every label matched"})` });
         } else if (figure?.file) {
           showPicture({ kind: "rebuilt", file: figure.file, title, ...paid,
             status: `not redrawn (${made.diagramError ?? "no picture"}): left out, rebuilt in Manim` });
         }
         if (kept) figureTally.kept += 1;
-        else if (made.manim) figureTally.manim += 1;
+        else if (made.manim || made.map) figureTally.manim += 1;
         else if (made.generated) figureTally.diagram += 1;
         else figureTally.failed += 1;
         ledger.count("figures", made.generated && !kept ? 1 : 0, [
           figureTally.diagram ? `${figureTally.diagram} redrawn by the diagram model` : "",
-          figureTally.manim ? `${figureTally.manim} rebuilt in Manim` : "",
+          figureTally.manim ? `${figureTally.manim} rebuilt on the board (Manim or the map)` : "",
           figureTally.kept ? `${figureTally.kept} decided by an earlier run (free)` : "",
           figureTally.failed ? `${figureTally.failed} not redrawn (rebuilt in Manim)` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.manim ? "rebuilt in Manim" : made.generated ? "redrawn by the diagram model" : "not redrawn"}`);
+        sendCosts(`book figure ${id}: ${made.manim ? "rebuilt in Manim" : made.map ? "built on the map"
+          : made.generated ? "redrawn by the diagram model" : "not redrawn"}`);
       },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not redrawn (${String(error).slice(0, 160)}); ` +

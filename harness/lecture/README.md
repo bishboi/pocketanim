@@ -138,7 +138,7 @@ An image-model picture is a **cutout**. The model (OpenRouter, `PANIM_IMAGE_MODE
 background or text. The white around it is made transparent and the picture trimmed. It sits on the board
 without a frame, and the phone draws the same PNG (the program's `image` lines), at tier 1. Each picture is made
 once and cached by its words, style and model (`.cache/images/gen-*.png`), with its cost beside it. A compile reports what it made and what that cost (`generated` in `--json`),
-and the app bills it. `PANIM_IMAGE_MAX` (40) caps the new pictures one compile may make. `PANIM_IMAGES=0`
+and the app bills it. There is no limit on how many a compile makes. `PANIM_IMAGES=0`
 turns them off, and `PANIM_IMAGE_FAKE=1` draws an offline stand-in for tests.
 
 | Operation | What it shows |

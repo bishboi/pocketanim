@@ -119,14 +119,6 @@ def _stand_in(what: str) -> bytes:
     return buffer.getvalue()
 
 
-def most() -> int:
-    """At most this many new pictures a process (PANIM_IMAGE_MAX, 40): a runaway script cannot run up a bill."""
-    try:
-        return int(os.environ.get("PANIM_IMAGE_MAX", "40"))
-    except ValueError:
-        return 40
-
-
 SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a wide 16:9 landscape composition (the "
                "place, its ground and sky, the people in it doing what the lesson tells of), a clear main subject near "
                "the centre, few small details at the edges. No border or frame. No words, letters, numbers or labels "
@@ -557,9 +549,6 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     if not enabled():
         _failed(what, "the image model is off (PANIM_IMAGES=0)" if os.environ.get("PANIM_IMAGES") == "0"
                 else "no OPENROUTER_API_KEY in the compiler's environment")
-        return None
-    if sum(1 for m in MADE if m.get("made")) >= most():
-        _failed(what, f"the limit of {most()} new pictures a lecture was reached (PANIM_IMAGE_MAX)")
         return None
     if model() in REFUSED:
         _failed(what, REFUSED[model()])          # refused already this run: not asked again

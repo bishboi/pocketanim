@@ -12,6 +12,8 @@ resolve_region.py    the country or state a piece of content is about
 examples/india.json  the reference India lecture, condensed
 examples/motion.json  every moving picture: trace, sweep, live motion, the ten sims, counters, zoom
 examples/animated-diagrams.json  diagrams whose pictures move and whose arrows flow
+examples/manim-diagrams.json  38 kinds of diagram free Manim builds (manim_catalog.py writes it)
+manim_catalog.py     the diagrams free Manim builds that no other op draws, each a worked, checked example
 ```
 
 ## What is the same as the guide

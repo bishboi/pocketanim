@@ -14,7 +14,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { shownSoFar, taughtNotes } from "./continuity";
-import { type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
+import { picturesStatus, type Compiled, type Prefetch, type GeneratedPicture, type ImageReport } from "./lecture";
 import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
@@ -1342,8 +1342,7 @@ async function viaOpenRouter(
   const lectureOptions = () => ({
     onGenerated: billGenerated,
     onImages: noteImages,
-    onTime: (span: [number, number], images: [number, number][], prefetch?: { pictures?: number; seconds?: number;
-      slowest?: number }, more?: { phases?: Record<string, number>; calls?: { for: string; who: string; model: string;
+    onTime: (span: [number, number], images: [number, number][], prefetch?: Prefetch, more?: { phases?: Record<string, number>; calls?: { for: string; who: string; model: string;
       route: string; start: number; end: number; error?: string }[]; source?: string | null; errors?: string[] }) => {
       ledger.time("compile", span[0], span[1], { phases: more?.phases, ok: more?.source !== null,
         errors: more?.errors?.length || undefined });
@@ -1352,10 +1351,8 @@ async function viaOpenRouter(
         timing.span(call.who === "image" ? "picture-request" : "picture-check", call.start, call.end,
           { for: call.for, model: call.model, ...(call.error ? { error: call.error } : {}) });
       }
-      if (prefetch?.pictures && (prefetch.seconds ?? 0) >= 1) {
-        emit({ type: "message", role: "status", text: `Pictures: ${prefetch.pictures} made at once in ` +
-          `${prefetch.seconds} s (the slowest ${prefetch.slowest} s; ${process.env.PANIM_IMAGE_PARALLEL || 6} at a time).` });
-      }
+      const status = picturesStatus(prefetch);
+      if (status) emit({ type: "message", role: "status", text: status });
     },
     style,
     art: request.art,

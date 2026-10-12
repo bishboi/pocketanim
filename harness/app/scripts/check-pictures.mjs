@@ -12,7 +12,17 @@ process.env.PANIM_IMAGE_FAKE = "1";
 process.env.PANIM_IMAGE_CACHE = cache;
 process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "test";
 delete process.env.PANIM_IMAGES;
-const { compileLecture, makePictures } = await import("../lib/lecture.ts");
+const { compileLecture, makePictures, picturesStatus } = await import("../lib/lecture.ts");
+
+// The status line says what came back: never "made" for pictures that all failed.
+const failedAll = picturesStatus({ pictures: 81, made: 0, failed: 81, error: "HTTP 403: not available in your region", seconds: 12, slowest: 3 }, 6);
+assert.match(failedAll, /^Pictures: all 81 failed in 12 s .*region/);
+assert.doesNotMatch(failedAll, /made/);
+assert.match(picturesStatus({ pictures: 10, made: 7, failed: 3, error: "filtered", seconds: 40, slowest: 20 }, 6),
+  /^Pictures: 7 of 10 made at once in 40 s .*; 3 failed \(filtered\)\.$/);
+assert.equal(picturesStatus({ pictures: 5, made: 5, failed: 0, seconds: 30, slowest: 9 }, 6),
+  "Pictures: 5 of 5 made at once in 30 s (the slowest 9 s; 6 at a time).");
+assert.equal(picturesStatus({ pictures: 3, made: 3, seconds: 0.2 }, 6), null);   // all found made already
 
 const script = { title: "T", style: "parchment", auto_visuals: false, place_figures: false, chapters: [
   { title: "A", map: false, section: 1, beats: [

@@ -41,12 +41,31 @@ export type CompiledPicture = { file: string; kind: "photo" | "illustration"; de
   found_by?: Record<string, unknown>; source?: Record<string, unknown>; context?: Record<string, unknown> };
 /** A picture the image model made while a script compiled (genimage.MADE), and what it cost. */
 export type GeneratedPicture = { path: string; what: string; prompt: string; model: string; usd?: number; made?: boolean };
+export type Prefetch = { pictures?: number; made?: number; failed?: number; error?: string | null; seconds?: number;
+  slowest?: number };
+/** The status line for a compile's pictures made at once: how many came back and how many failed, or null when
+ * there were none (or they were all found made already, in under a second). Every one failing is said as that,
+ * with the image model's reason, never as pictures made. */
+export function picturesStatus(prefetch: Prefetch | undefined, parallel = process.env.PANIM_IMAGE_PARALLEL || 6): string | null {
+  const asked = prefetch?.pictures ?? 0;
+  if (!asked || (prefetch?.seconds ?? 0) < 1) return null;
+  // An older compiler said only how many it asked for.
+  const made = prefetch?.made ?? asked;
+  const failed = prefetch?.failed ?? asked - made;
+  const why = prefetch?.error ? ` (${prefetch.error.slice(0, 200)})` : "";
+  const time = `in ${prefetch?.seconds} s (the slowest ${prefetch?.slowest} s; ${parallel} at a time)`;
+  if (!made) return `Pictures: all ${asked} failed ${time}${why}.`;
+  return `Pictures: ${made} of ${asked} made at once ${time}` +
+    (failed ? `; ${failed} failed${why}.` : ".");
+}
+
 export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number;
   pictures?: CompiledPicture[]; generated?: GeneratedPicture[]; images?: ImageReport;
   /** When the image models and the Manim checks were at work in this compile ([start, end], ms since the epoch). */
   image_spans?: [number, number][]; probe_spans?: [number, number][];
-  /** The pictures this compile made at once before writing the code: how many, how long, the slowest (s). */
-  prefetch?: { pictures?: number; seconds?: number; slowest?: number };
+  /** The pictures this compile asked for at once before writing the code: how many, how many came back made and
+   * how many failed (with the first reason), how long, the slowest (s). */
+  prefetch?: Prefetch;
   /** Where the compile's time went (seconds), and each model request it made (genimage.CALLS). */
   phases?: Record<string, number>;
   calls?: { for: string; who: string; model: string; route: string; start: number; end: number; error?: string }[] };

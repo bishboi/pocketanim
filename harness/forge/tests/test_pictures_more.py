@@ -553,3 +553,27 @@ def test_a_persons_later_picture_waits_only_for_their_first(monkeypatch, tmp_pat
     assert when["Akbar on horseback"][0] >= when["Akbar on his throne"][1] - 0.01      # after his first picture
     assert when["a monsoon sky"][0] < when["Akbar on his throne"][1]                   # not held up by it
     assert gen.PREFETCHED["pictures"] == 4
+    assert gen.PREFETCHED["made"] == 0 and gen.PREFETCHED["failed"] == 4      # none came back: none counted made
+
+
+def test_a_prefetch_says_how_many_failed_and_why(monkeypatch, tmp_path):
+    """Pictures the image model refused are counted as failed, with its first reason, not as made."""
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.delenv("PANIM_IMAGES", raising=False)
+    import genimage
+
+    gen = importlib.reload(genimage)
+    png = tmp_path / "x.png"
+
+    def some(what, **_):
+        if what.startswith("a "):
+            return {"png": str(png)}
+        gen.FAILED.append({"what": what, "model": "m", "error": "HTTP 403: not available in your region"})
+        return None
+
+    monkeypatch.setattr(gen, "generate", some)
+    gen.prefetch([{"what": w, "labels": []} for w in ["a ship", "a market", "Akbar", "Babur"]])
+    assert (gen.PREFETCHED["made"], gen.PREFETCHED["failed"]) == (2, 2)
+    assert "region" in gen.PREFETCHED["error"] and gen.FAILED == []         # the real pass reports them, once

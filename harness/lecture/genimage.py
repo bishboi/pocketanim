@@ -705,7 +705,8 @@ def parallel() -> int:
         return 6
 
 
-# What the last prefetch did: pictures made at once, how long it took, and the slowest one (seconds).
+# What the last prefetch did: pictures asked for at once, how many came back made and how many failed (with the
+# first reason), how long it took, and the slowest one (seconds).
 PREFETCHED: dict = {}
 
 
@@ -726,12 +727,16 @@ def prefetch(requests: list[dict]) -> None:
             todo.append(request)
     began = time.time()
     slowest = [0.0]
+    made = [0]
+    counting = threading.Lock()
 
     def make(request) -> None:
         start = time.time()
         try:
             row = generate(**{k: v for k, v in request.items() if k != "labels"})
             if row and row.get("png"):
+                with counting:
+                    made[0] += 1
                 for labels in request.get("labels") or []:
                     locate(row["png"], labels)
         except Exception:  # noqa: BLE001 -- the real pass asks again and says why
@@ -757,7 +762,10 @@ def prefetch(requests: list[dict]) -> None:
             futures.append(future)
         for future in futures:
             future.result()
-    PREFETCHED.update(pictures=len(todo), seconds=round(time.time() - began, 1), slowest=round(slowest[0], 1))
+    errors = [str(f.get("error") or "") for f in FAILED[failed:]]
+    PREFETCHED.update(pictures=len(todo), made=made[0], failed=len(todo) - made[0],
+                      error=next((e for e in errors if e), None),
+                      seconds=round(time.time() - began, 1), slowest=round(slowest[0], 1))
     # The real pass asks for each again (found made now) and says what failed: counted there, once.
     del ASKED[asked:]
     del FAILED[failed:]

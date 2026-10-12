@@ -764,9 +764,11 @@ async function viaOpenRouter(
   // As long as the content needs; a long one is as many micro-lectures of 25-30 min as that makes (topics.ts).
   const minutes = request.minutes ?? (referenceMinutes ||
     targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
+  const planningBegan = Date.now();
   const subject = lecture
     ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}\n${(doc?.markdown ?? "").slice(0, 15000)}` }, emit)
     : null;
+  const planningEnded = Date.now();
   const style = lecture ? effectiveStyle(template, subject) : template.style;
   if (reference?.parts?.length) {
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
@@ -780,6 +782,7 @@ async function viaOpenRouter(
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
   kept.ledger = ledger;
+  ledger.time("planning", planningBegan, planningEnded);
   let inputTokens = 0;
   let outputTokens = 0;
   let costUsd = 0;
@@ -1214,8 +1217,10 @@ async function viaOpenRouter(
   }
   // STAGE 2: the video, whose narration is the transcript sentence for sentence.
   // The book's figures as pictures, for the model to rebuild each one in Manim (it is not shown as it is).
+  const waitBegan = Date.now();
   const drawn = await figuresWithin(drawing, figuresReady, drawingStarted, (text) =>
     emit({ type: "message", role: "status", text }));
+  ledger.time("waiting", waitBegan, Date.now());
   mark("figures ready");
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
   // Figures shown as their picture need no look; only those to rebuild in Manim go to the model as pictures.
@@ -1332,6 +1337,10 @@ async function viaOpenRouter(
   const lectureOptions = () => ({
     onGenerated: billGenerated,
     onImages: noteImages,
+    onTime: (span: [number, number], images: [number, number][]) => {
+      ledger.time("compile", span[0], span[1]);
+      for (const [start, end] of images) ledger.time("images", start, end);
+    },
     style,
     art: request.art,
     genre: subject?.genre,

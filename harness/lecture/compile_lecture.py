@@ -3309,6 +3309,41 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     return "\n".join(out) + "\n"
 
 
+def prefetch_pictures(script: dict, scene_class: str = "GeneratedScene") -> None:
+    """Every picture the script will ask the image models for, made several at once before the compile: a first
+    pass through the checks and the code with the pictures only noted down (genimage.collecting), then made in
+    parallel (genimage.prefetch); the real pass then finds each made. Without it they were made one after another,
+    10-40 s each. PANIM_IMAGE_PARALLEL=1 turns it off."""
+    import copy
+
+    import genimage
+
+    if genimage.parallel() <= 1 or not genimage.enabled():
+        return
+    check = os.environ.get("PANIM_MANIM_CHECK")
+    os.environ["PANIM_MANIM_CHECK"] = "off"           # the Manim blocks are checked in the real pass
+    # What the compile keeps of the pictures it found: the noting-down pass's stand-ins must not stay there.
+    photos, figures = dict(script_photos), dict(script_figures)
+    try:
+        with genimage.collecting() as requests:
+            draft = copy.deepcopy(script)
+            try:
+                if not lint(draft)[0]:
+                    compile_script(draft, scene_class)
+            except Exception:  # noqa: BLE001 -- the real pass reports it
+                pass
+    finally:
+        script_photos.clear()
+        script_photos.update(photos)
+        script_figures.clear()
+        script_figures.update(figures)
+        if check is None:
+            os.environ.pop("PANIM_MANIM_CHECK", None)
+        else:
+            os.environ["PANIM_MANIM_CHECK"] = check
+    genimage.prefetch(requests)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("script")
@@ -3338,6 +3373,8 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
+    if args.json or not args.check:
+        prefetch_pictures(script, args.scene_class)
     errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples, args.min_problems)
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
@@ -3347,7 +3384,10 @@ def main() -> int:
                           # Pictures the image model made during this compile, and what each cost (genimage.py).
                           "generated": __import__("genimage").MADE,
                           # What the script asked of the image model, and why any picture was not made.
-                          "images": __import__("genimage").report()}))
+                          "images": __import__("genimage").report(),
+                          # When the image models and the Manim checks were at work (ms since the epoch).
+                          "image_spans": __import__("genimage").SPANS,
+                          "probe_spans": __import__("free_check").SPANS}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

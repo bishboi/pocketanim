@@ -40,7 +40,7 @@ export function CostBreakdown({ version, series = [] }: { version: CostedVersion
   const costs = version.costs ?? {};
   for (const task of COST_TASKS) {
     const line = costs[task];
-    if (!line || (!line.usd && !line.calls && !line.items && !line.note)) continue;
+    if (!line || (!line.usd && !line.calls && !line.items && !line.note && !line.seconds)) continue;
     const bits = [
       itemsText(task, line),
       line.calls ? `${line.calls} request${line.calls > 1 ? "s" : ""}` : "",
@@ -57,7 +57,7 @@ export function CostBreakdown({ version, series = [] }: { version: CostedVersion
   if (writing) {
     const other = writing - busySeconds(costs);
     if (other >= 1) {
-      rows.push({ task: "Planning and checks", what: "the subject, the map, checking and compiling the script",
+      rows.push({ task: "Other", what: "between the steps above (each step's time is on its own row)",
         cost: 0, free: true, time: other, stage: "writing" });
     }
   }

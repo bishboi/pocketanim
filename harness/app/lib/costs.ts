@@ -5,7 +5,7 @@
  * voice and the build, which happen when the lecture is built.
  */
 
-export const COST_TASKS = ["transcript", "script", "fixes", "figures", "drawings", "images"] as const;
+export const COST_TASKS = ["planning", "transcript", "script", "fixes", "figures", "waiting", "compile", "drawings", "images"] as const;
 export type CostTask = (typeof COST_TASKS)[number];
 
 export type CostLine = {
@@ -28,10 +28,13 @@ export type CostLine = {
 export type Costs = Partial<Record<CostTask, CostLine>>;
 
 export const COST_LABELS: Record<CostTask, string> = {
+  planning: "Choosing the subject and map",
   transcript: "Transcribing the lecture",
   script: "Writing the video script",
   fixes: "Fixing the script",
   figures: "Book figures",
+  waiting: "Waiting for the book's figures",
+  compile: "Checking and compiling the script",
   drawings: "Detailed diagrams",
   images: "AI illustrations",
 };

@@ -72,7 +72,7 @@ for (const shown of ["Transcribing the lecture", "2 requests", "Writing the vide
   "Building the video", "rendering and baking the phone program", "free", "for all 2 parts",
   // Times: each task's, the writing start to finish, the steps after it, and the whole.
   "Transcribing the lecture", "50 s", "1 min 10 s", "Detailed diagrams", "30 s",
-  "Planning and checks", "Writing, start to finish (its tasks run side by side) 2 min 30 s",
+  "Other", "Writing, start to finish (its tasks run side by side) 2 min 30 s",
   "Building the video", "2 min 55 s", "Rendering the MP4", "1 min 00 s", "Saving to the library", "20 s"]) {
   assert.ok(page.includes(shown), `the breakdown shows "${shown}": ${page}`);
 }
@@ -81,8 +81,18 @@ assert.ok(page.includes("Total $1.42") || /Total [^$]*\$1\.42/.test(page), page)
 // Writing 150 s, then voice 70 s, build 175 s, MP4 60 s and save 20 s, one after another: 475 s.
 assert.ok(page.includes("Total 7 min 55 s $1.42"), page);
 assert.ok(page.includes("time 7 min 55 s"), page);
-// "Planning and checks" is the writing's time no task accounts for: 150 s less the 120 s the tasks were at work.
-assert.match(page, /Planning and checks [^$]*? 30 s free/);
+// "Other" is the writing's time no task accounts for: 150 s less the 120 s the tasks were at work.
+assert.match(page, /Other [^$]*? 30 s free/);
+// A step timed but not billed (compiling, waiting for figures, choosing the subject) is its own row, free.
+{
+  const timed = new CostLedger();
+  timed.time("compile", 0, 40_000);
+  timed.time("waiting", 10_000, 25_000);
+  const rows = text(renderToStaticMarkup(createElement(CostBreakdown, { version: { costs: timed.snapshot(), writeSeconds: 60 } })));
+  assert.match(rows, /Checking and compiling the script [^$]*?40 s/);
+  assert.match(rows, /Waiting for the book's figures [^$]*?15 s/);
+  assert.match(rows, /Other [^$]*?20 s free/);                    // 60 s less the 40 s the two were at work, overlaps once
+}
 assert.equal(Math.round(versionTotal(first) * 1000) / 1000, 1.129);
 
 // Before a build: the voice and the build are still to come, not $0 that looks final.

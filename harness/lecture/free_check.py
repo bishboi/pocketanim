@@ -51,7 +51,12 @@ TEXT_CORE = 0.2
 # A block's animations may run this much longer than its line before the narration is left far behind.
 OVERRUN = 2.0
 OVERRUN_SECONDS = 4.0
-PROBE_TIMEOUT = int(os.environ.get("PANIM_MANIM_CHECK_SECONDS", "240"))
+PROBE_TIMEOUT = int(os.environ.get("PANIM_MANIM_CHECK_SECONDS", "120"))
+# Probe processes at once: a script's blocks are checked in parallel, each process a share of them, so one slow
+# block no longer holds up (or times out) the rest.
+PROBE_PARALLEL = max(1, int(os.environ.get("PANIM_MANIM_CHECK_PARALLEL", "4") or 4))
+# When the probes were at work ([start, end], ms since the epoch), for the lecture's timing.
+SPANS: list[list[float]] = []
 
 SAFE_BUILTINS = {
     name: getattr(__builtins__, name) if not isinstance(__builtins__, dict) else __builtins__[name]
@@ -195,23 +200,42 @@ def verify(script: dict) -> list[str]:
             todo.append(group)
     if not todo:
         return errors
-    with tempfile.TemporaryDirectory() as folder:
-        groups_file, result_file = Path(folder) / "groups.json", Path(folder) / "result.json"
-        groups_file.write_text(json.dumps({"style": style, "groups": todo}))
+    shares = [todo[k::PROBE_PARALLEL] for k in range(min(PROBE_PARALLEL, len(todo)))]
+
+    def probe(share: list) -> list[str]:
+        """One probe process for a share of the blocks: their errors, each id's verdict cached."""
+        import time
+
+        start = time.time() * 1000
         try:
-            run = subprocess.run([sys.executable, str(Path(__file__)), "--probe", str(groups_file), str(result_file)],
-                                 cwd=str(REPO), capture_output=True, text=True, timeout=PROBE_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            return errors + [f"the manim blocks ({', '.join(g['key'] for g in todo)}) did not finish running in "
-                             f"{PROBE_TIMEOUT} s: keep each block to a few animations"]
-        if not result_file.exists():
-            tail = (run.stderr or run.stdout or "").strip().splitlines()[-3:]
-            return errors + ["the manim blocks could not be checked: " + " | ".join(tail)[:400]]
-        results = json.loads(result_file.read_text())
-    for group in todo:
-        found = results.get(group["key"], [])
-        (CACHE / f"{_digest(group, style)}.json").write_text(json.dumps(found))
-        errors += found
+            with tempfile.TemporaryDirectory() as folder:
+                groups_file, result_file = Path(folder) / "groups.json", Path(folder) / "result.json"
+                groups_file.write_text(json.dumps({"style": style, "groups": share}))
+                try:
+                    run = subprocess.run([sys.executable, str(Path(__file__)), "--probe", str(groups_file),
+                                          str(result_file)], cwd=str(REPO), capture_output=True, text=True,
+                                         timeout=PROBE_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    return [f"the manim blocks ({', '.join(g['key'] for g in share)}) did not finish running in "
+                            f"{PROBE_TIMEOUT} s: keep each block to a few animations"]
+                if not result_file.exists():
+                    tail = (run.stderr or run.stdout or "").strip().splitlines()[-3:]
+                    return ["the manim blocks could not be checked: " + " | ".join(tail)[:400]]
+                results = json.loads(result_file.read_text())
+            found_all: list[str] = []
+            for group in share:
+                found = results.get(group["key"], [])
+                (CACHE / f"{_digest(group, style)}.json").write_text(json.dumps(found))
+                found_all += found
+            return found_all
+        finally:
+            SPANS.append([start, time.time() * 1000])
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=len(shares)) as pool:
+        for found in pool.map(probe, shares):
+            errors += found
     return errors
 
 

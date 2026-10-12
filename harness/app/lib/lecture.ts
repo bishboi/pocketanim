@@ -42,7 +42,9 @@ export type CompiledPicture = { file: string; kind: "photo" | "illustration"; de
 /** A picture the image model made while a script compiled (genimage.MADE), and what it cost. */
 export type GeneratedPicture = { path: string; what: string; prompt: string; model: string; usd?: number; made?: boolean };
 export type Compiled = { source: string | null; errors: string[]; warnings: string[]; fixed?: string[]; minutes?: number;
-  pictures?: CompiledPicture[]; generated?: GeneratedPicture[]; images?: ImageReport };
+  pictures?: CompiledPicture[]; generated?: GeneratedPicture[]; images?: ImageReport;
+  /** When the image models and the Manim checks were at work in this compile ([start, end], ms since the epoch). */
+  image_spans?: [number, number][]; probe_spans?: [number, number][] };
 /** What a compile asked of the image model (genimage.py report): pictures asked for, made now, found made, failed. */
 export type ImageReport = { model: string; proxy?: string | null; asked: number; cached: number; made: number;
   failed: { what: string; model: string; error: string }[] };
@@ -108,6 +110,8 @@ export async function compileLecture(
     onGenerated?: (made: GeneratedPicture[]) => void;
     /** Told what the script asked of the image model and what failed, so the log says why pictures are missing. */
     onImages?: (report: ImageReport) => void;
+    /** Told when the compile ran, and when within it the image models were at work (for the lecture's timing). */
+    onTime?: (span: [number, number], images: [number, number][]) => void;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
@@ -128,10 +132,12 @@ export async function compileLecture(
         }
       : script;
   const args = [compiler, "-", "--json"];
+  const began = Date.now();
   const { stdout, stderr } = await runPython(args, JSON.stringify(body));
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");
+    options.onTime?.([began, Date.now()], compiled.image_spans ?? []);
     if (compiled.generated?.length) options.onGenerated?.(compiled.generated);
     if (compiled.images) options.onImages?.(compiled.images);
     const warnings = compiled.warnings ?? [];

@@ -8,7 +8,7 @@ import importlib
 import io
 import json
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 import pytest
 
@@ -460,3 +460,68 @@ def test_a_picture_with_its_own_background_keeps_it():
 
     assert gen.flat_background(png([(250, 250, 250)] * 4))
     assert not gen.flat_background(png([(250, 250, 250), (30, 90, 160), (120, 80, 40), (250, 250, 250)]))
+
+
+def test_a_compiles_pictures_are_made_at_once_and_the_real_pass_finds_them_made(monkeypatch, tmp_path):
+    """The compiler asked for its pictures one by one (10-40 s each, one after another). Now a first pass notes
+    them down, they are made several at once (with their labels found), and the real pass asks for nothing new."""
+    import time
+
+    picture = _png()
+    calls: list[str] = []
+    busy = {"now": 0, "most": 0}
+    lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            with lock:
+                busy["now"] += 1
+                busy["most"] = max(busy["most"], busy["now"])
+            time.sleep(0.3)
+            with lock:
+                busy["now"] -= 1
+            drawing = "image" in (body.get("modalities") or [])
+            calls.append("draw" if drawing else "labels")
+            message = ({"images": [{"image_url": {"url": picture}}]} if drawing
+                       else {"content": json.dumps({"points": [{"label": "helmet", "x": 0.5, "y": 0.3}]})})
+            data = json.dumps({"choices": [{"message": message}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("OPENROUTER_URL", f"http://127.0.0.1:{server.server_port}/")
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "test/image-model")
+    monkeypatch.setenv("PANIM_LABEL_MODEL", "test/vision")
+    monkeypatch.setenv("PANIM_IMAGE_API", "chat")
+    for name in ("PANIM_IMAGE_FAKE", "PANIM_IMAGES", "PANIM_IMAGE_PROXY", "PANIM_IMAGE_PARALLEL"):
+        monkeypatch.delenv(name, raising=False)
+    import genimage
+
+    gen = importlib.reload(genimage)
+    cl.script_photos.clear()
+    things = ["a Portuguese carrack", "a spice market", "a monsoon sky", "a medieval knight"]
+    script = {"title": "T", "style": "parchment", "auto_visuals": False, "place_figures": False, "chapters": [
+        {"title": "A", "map": False, "beats": [
+            {"say": f"Look at this {k}.", "do": [{"op": "picture", "generate": what,
+                                                  **({"labels": ["helmet"]} if "knight" in what else {})}]}
+            for k, what in enumerate(things)]}]}
+    try:
+        cl.prefetch_pictures(script)
+        made = list(calls)
+        assert made.count("draw") == 4 and made.count("labels") == 1
+        assert busy["most"] > 1                                          # several at once
+        source = cl.compile_script(script)
+    finally:
+        server.shutdown()
+    assert calls == made                                                  # the real pass asked for nothing new
+    assert source.count("/gen-") >= 4 and "collect-" not in source and "helmet" in source
+    assert len(gen.SPANS) == 5 and gen.report()["failed"] == []

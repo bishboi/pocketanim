@@ -24,6 +24,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -32,6 +34,18 @@ CACHE = Path(os.environ.get("PANIM_IMAGE_CACHE") or (HERE / ".cache" / "images")
 MODEL_DEFAULT = "google/gemini-2.5-flash-image"
 # What this process made: [{path, prompt, model, usd}], for the bill.
 MADE: list[dict] = []
+# When the image models were at work in this process ([start, end], ms since the epoch): a compile's picture time,
+# for the lecture's timing (compile_lecture --json "image_spans").
+SPANS: list[list[float]] = []
+
+
+@contextmanager
+def _timed():
+    start = time.time() * 1000
+    try:
+        yield
+    finally:
+        SPANS.append([start, time.time() * 1000])
 # Pictures asked for that the model did not make, and why: [{what, model, error}] (compile_lecture --json reports
 # them, so a lecture says "the image model failed: HTTP 404 ..." instead of quietly showing fewer pictures).
 FAILED: list[dict] = []
@@ -71,7 +85,42 @@ def diagram_model() -> str:
 
 
 # Which of the two models the calls below are for ("illustration" or "diagram"): set by using().
-_KIND = ["illustration"]
+# Per thread: pictures are made several at once (prefetch), each thread asking its own model.
+_LOCAL = threading.local()
+
+
+def _stack(name: str, first: list) -> list:
+    if not hasattr(_LOCAL, name):
+        setattr(_LOCAL, name, list(first))
+    return getattr(_LOCAL, name)
+
+
+class _Stack:
+    """A list per thread, used as the module's _KIND and _PIN were (append, pop, [-1], truth)."""
+
+    def __init__(self, name: str, first: list):
+        self.name, self.first = name, first
+
+    def _list(self) -> list:
+        return _stack(self.name, self.first)
+
+    def append(self, value) -> None:
+        self._list().append(value)
+
+    def pop(self):
+        return self._list().pop()
+
+    def __getitem__(self, index):
+        return self._list()[index]
+
+    def __bool__(self) -> bool:
+        return bool(self._list())
+
+    def __len__(self) -> int:
+        return len(self._list())
+
+
+_KIND = _Stack("kind", ["illustration"])
 
 
 @contextmanager
@@ -85,7 +134,7 @@ def using(kind: str):
 
 
 # A model the calls inside are pinned to (a fallback being asked): set by _pinned().
-_PIN: list[str] = []
+_PIN = _Stack("pin", [])
 
 
 @contextmanager
@@ -282,6 +331,11 @@ def _open(request, timeout: float, proxied: bool = True):
 
 def _post(url: str, body: dict, proxied: bool = True, who: str | None = None) -> dict:
     """POST JSON to OpenRouter; an HTTP error is raised with the provider's own message."""
+    with _timed():
+        return _post_now(url, body, proxied, who)
+
+
+def _post_now(url: str, body: dict, proxied: bool = True, who: str | None = None) -> dict:
     import urllib.error
     import urllib.request
 
@@ -418,6 +472,11 @@ def locate(png_path: str, labels) -> list[list] | None:
     path = Path(str(png_path))
     if not labels or not path.is_file():
         return None
+    if _COLLECT is not None:
+        hit = re.match(r"collect-(\d+)$", path.stem)
+        if hit and int(hit.group(1)) < len(_COLLECT):
+            _COLLECT[int(hit.group(1))]["labels"].append(labels)
+        return _spread(labels)
     key = hashlib.sha256(f"{label_model()}|{'|'.join(labels)}".encode()).hexdigest()[:12]
     kept = path.with_name(f"{path.stem}.labels-{key}.json")
     if kept.exists():
@@ -561,8 +620,98 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     """A picture of `what` (see _generate), by the illustration model, or by the diagram model when it names parts
     to label (or kind="diagram"): a labelled picture's parts must be there and right."""
     kind = kind or ("diagram" if any(str(p).strip() for p in parts or []) else "illustration")
+    if _COLLECT is not None:
+        return _collected(dict(what=what, style=style, realistic=realistic, parts=parts, context=context,
+                               scene=scene, match=match, kind=kind))
     with using(kind):
         return _generate(what, style, realistic, parts, context, scene, match)
+
+
+# ---------------- making a compile's pictures at once ----------------
+# The compiler asks for its pictures one by one as it writes the code: each a call of 10-40 s, one after another.
+# First the script is run through once with the pictures only noted down (collect), then they are made several at
+# once (prefetch), and the real pass finds every one made. PANIM_IMAGE_PARALLEL (6) at once.
+_COLLECT: list[dict] | None = None
+_COLLECT_DIR: Path | None = None
+
+
+def _collected(request: dict) -> dict | None:
+    """In the noting-down pass: the request kept, and a stand-in row so the compile goes on as if it were made."""
+    what = re.sub(r"\s+", " ", str(request.get("what") or "")).strip()
+    if not what:
+        return None
+    import mapguard
+
+    if mapguard.is_map(what):
+        return None
+    index = len(_COLLECT)
+    _COLLECT.append({**request, "labels": []})
+    png = _COLLECT_DIR / f"collect-{index}.png"
+    if not png.exists():
+        png.write_bytes(_stand_in(what))
+    return {"id": f"gen:collect-{index}", "title": what[:200], "description": what[:500], "source": "generated",
+            "license": "generated", "credit": "", "model": model(), "png": str(png), "file": str(png),
+            "path": str(png)}
+
+
+@contextmanager
+def collecting():
+    """Inside, generate() only notes what is asked (and locate() which labels), returning stand-ins; the requests
+    are yielded as a list, for prefetch()."""
+    import tempfile
+
+    global _COLLECT, _COLLECT_DIR
+    requests: list[dict] = []
+    with tempfile.TemporaryDirectory() as folder:
+        _COLLECT, _COLLECT_DIR = requests, Path(folder)
+        try:
+            yield requests
+        finally:
+            _COLLECT, _COLLECT_DIR = None, None
+
+
+def parallel() -> int:
+    try:
+        return max(1, min(12, int(os.environ.get("PANIM_IMAGE_PARALLEL", "6"))))
+    except ValueError:
+        return 6
+
+
+def prefetch(requests: list[dict]) -> None:
+    """The pictures noted down (collecting), made several at once, each then its labels found, so the compile's
+    real pass finds them all made. A person's or a thing's first picture is made before the others of them (a later
+    one is drawn to match it: reference_for), so those come in a second wave."""
+    if not requests or not enabled():
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    seen, first, later = set(), [], []
+    for request in requests:
+        key = (str(request["what"]).strip().lower(), request.get("style"), bool(request.get("realistic")),
+               tuple(request.get("parts") or []), bool(request.get("scene")), request.get("kind"))
+        if key in seen:
+            continue
+        seen.add(key)
+        names = frozenset(_names(str(request["what"])))
+        (later if names and any(names & n for n in [r[1] for r in first]) else first).append((request, names))
+
+    def make(item) -> None:
+        request = item[0]
+        try:
+            row = generate(**{k: v for k, v in request.items() if k != "labels"})
+            if row and row.get("png"):
+                for labels in request.get("labels") or []:
+                    locate(row["png"], labels)
+        except Exception:  # noqa: BLE001 -- the real pass asks again and says why
+            pass
+
+    asked, failed = len(ASKED), len(FAILED)
+    with ThreadPoolExecutor(max_workers=parallel()) as pool:
+        for wave in (first, later):
+            list(pool.map(make, wave))
+    # The real pass asks for each again (found made now) and says what failed: counted there, once.
+    del ASKED[asked:]
+    del FAILED[failed:]
 
 
 def _generate(what: str, style: str | None = None, realistic: bool = False, parts=None,

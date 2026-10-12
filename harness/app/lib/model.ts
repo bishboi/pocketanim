@@ -19,7 +19,7 @@ import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classif
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { TimingLog } from "./timing";
-import { dropRepeats } from "./repeats";
+import { dropRepeats, sameParagraph } from "./repeats";
 import { fillManim, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
@@ -1066,7 +1066,10 @@ async function viaOpenRouter(
       const titled = group.map((x) => done.get(x.n)).find((w): w is WrittenSection => !!w);
       const topic: Topic = { index: topics.length + 1, of: 0, sections: group.map((x) => x.n),
         minutes: Math.round(group.reduce((n, x) => n + x.minutes, 0) * 10) / 10,
-        title: (/^#{1,6}\s+(.+)$/m.exec(group[0].source ?? "")?.[1] ?? "").replace(/[*_`]/g, "").trim().slice(0, 80) ||
+        // The writer's title of the video's first section ("The Three Orders"), before the book's heading there (a
+        // chapter's first heading may be a label: "THEME").
+        title: done.get(group[0].n)?.title?.replace(/^Section \d+$/, "") ||
+          (/^#{1,6}\s+(.+)$/m.exec(group[0].source ?? "")?.[1] ?? "").replace(/[*_`]/g, "").trim().slice(0, 80) ||
           titled?.title || "" };
       topics.push(topic);
       // Its chapters are written now, while the rest of the transcript is (stage 2).
@@ -1113,7 +1116,12 @@ async function viaOpenRouter(
     };
     const addWords = (n: number, words: string, where: "start" | "end") => {
       const w = done.get(n);
-      if (w && words) done.set(n, { ...w, text: where === "end" ? `${w.text}\n\n${words}` : `${words}\n\n${w.text}` });
+      if (!w || !words) return;
+      // What the section already says is not said again: an opening that copied the section's first paragraph
+      // made it heard twice.
+      const fresh = dropRepeats(words, linesOf(w.text)).text.trim();
+      if (!fresh || sameParagraph(fresh, where === "start" ? w.text.split(/\n\s*\n/)[0] : w.text.split(/\n\s*\n/).pop() ?? "")) return;
+      done.set(n, { ...w, text: where === "end" ? `${w.text}\n\n${fresh}` : `${fresh}\n\n${w.text}` });
     };
     /** Every video the sections written so far decide, in order (one call at a time). */
     const planVideos = () => (planning = planning.then(async () => {

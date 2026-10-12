@@ -6,7 +6,8 @@
 
 /** A sentence's words, lower case, letters and digits of any script. */
 export function wordsOf(sentence: string): string[] {
-  return (sentence.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  // Marks too: a Hindi word's vowel signs (ो, ि) are marks, and without them "दोस्तों" fell apart into letters.
+  return (sentence.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
 }
 
 /** The fewest words a sentence has before its saying again counts as a repeat. */
@@ -58,4 +59,18 @@ export function dropRepeats(text: string, earlier: string[] = []): { text: strin
   const paragraphs = new Map<number, string[]>();
   for (const k of kept) paragraphs.set(k.paragraph, [...(paragraphs.get(k.paragraph) ?? []), k.sentence]);
   return { text: [...paragraphs.values()].map((s) => s.join(" ")).join("\n\n"), dropped };
+}
+
+/**
+ * Whether `added` says what `paragraph` already says in other words: most of its words are the paragraph's (an
+ * opening that restated the topic the section's own first paragraph introduces, said twice in a row).
+ */
+export function sameParagraph(added: string, paragraph: string): boolean {
+  const content = (text: string) => new Set(wordsOf(text).filter((w) => w.length >= 3));
+  const a = content(added);
+  const b = content(paragraph);
+  if (a.size < 4) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  return shared / a.size >= 0.7;
 }

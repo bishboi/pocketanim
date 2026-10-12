@@ -157,6 +157,21 @@ console.log(JSON.stringify(repeats.dropRepeats(text, earlier)));
     assert len(out["dropped"]) == 2
 
 
+def test_an_opening_that_restates_the_sections_first_paragraph_is_not_added(lib):
+    """The words opening a video were added before its first section, whose first paragraph introduced the same
+    topic: heard twice in a row (word for word, or in other words)."""
+    out = _node(lib, f"const repeats = require({json.dumps(str(lib / 'repeats.js'))});" + """
+const first = 'दोस्तों, अब हम manor और उसके आसपास की estate को समझेंगे। पहले इस तस्वीर पर ध्यान दो।';
+console.log(JSON.stringify({
+  copied: repeats.dropRepeats(first, first.split(/(?<=।)\s+/)).text,
+  restated: repeats.sameParagraph('अच्छा दोस्तों, अब हम manor और estate को समझेंगे।', first),
+  welcome: repeats.sameParagraph('Welcome back, friends. Last time we saw how vassals served their lords.', first),
+}));
+""")
+    assert out["copied"].strip() == ""
+    assert out["restated"] is True and out["welcome"] is False
+
+
 def test_the_section_request_names_what_its_neighbours_teach(lib):
     out = _node(lib, """
 const mk = (n, source) => ({ n, parts: [], minutes: 5, words: 600, source, book: true });

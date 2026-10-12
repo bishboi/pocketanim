@@ -172,6 +172,7 @@ console.log(JSON.stringify(transcript.transitionRequest(
 """)
     assert "CLOSE video 2" in out and "OPEN video 3" in out and "keeps rolling" in out and "rolling on grass" in out
     assert "as you judge best for the learning" in out and "write_transition" in out
+    assert "never repeat or restate them" in out
 
 
 @pytest.mark.parametrize("mcqs", [0, 100, 200])

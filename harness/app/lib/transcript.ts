@@ -447,8 +447,11 @@ export function transitionRequest(ending: { index: number; minutes: number; titl
     `  ${next.head.slice(0, 1500)}...`,
     "",
     `Write the words that CLOSE video ${ending.index} (said after its last line) and the words that OPEN video ` +
-      `${ending.index + 1} (said before its first line), as you judge best for the learning. Do not teach again ` +
-      "what the videos teach, and do not say how many videos there are. Call write_transition once.",
+      `${ending.index + 1} (said before its first line), as you judge best for the learning. Each is one or two ` +
+      "sentences: the lines quoted above are said right next to them, so never repeat or restate them (the next " +
+      "video's first lines already introduce its topic; the opening only welcomes the student back and recalls in a " +
+      "few words where the last video stopped). Do not teach again what the videos teach, and do not say how many " +
+      "videos there are. Call write_transition once.",
   ].join("\n");
 }
 

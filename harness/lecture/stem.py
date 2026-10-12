@@ -1324,7 +1324,7 @@ class BoardMixin:
         end."""
         import free_check
         import pocket_lecture as pl
-        from manim import FadeOut, Group
+        from manim import FadeIn, FadeOut, Group
 
         pad = pl.BEAT_PAD if pad is None else pad
         if getattr(self, "_free_key", None) != key:
@@ -1337,6 +1337,19 @@ class BoardMixin:
             self._free_key = key
             self._free_names = free_check.namespace(self)
             self._free_owned = []
+            self._free_group = None
+        else:
+            # The figure goes on after something else took the stage (a question card, a definition): that goes,
+            # and the figure's parts it faded come back, so the next block draws on its own figure, not over a card.
+            mine = getattr(self, "_free_group", None)
+            others = [m for m in [self.stage_items, *self.stage_extra]
+                      if m is not mine and (len(m.get_family()) > 1 or len(m.points))]
+            if others or self.stage_body is not None:
+                going = [a for a in self._stage_leaving() if a.mobject is not mine]
+                here = {id(m) for m in self.mobjects}
+                back = [FadeIn(m) for m in self._free_owned if id(m) not in here]
+                if going or back:
+                    self.play(*going, *back, run_time=0.5)
         wav, seconds = pl.narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         pl._progress_beat()
@@ -1364,7 +1377,8 @@ class BoardMixin:
         owned = [m for m in [*self._free_owned, *new] if id(m) in here and m is not self.cap]
         self._free_owned = list({id(m): m for m in owned}.values())
         # The blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
-        self.stage_extra = [Group(*self._free_owned)] if self._free_owned else []
+        self._free_group = Group(*self._free_owned) if self._free_owned else None
+        self.stage_extra = [self._free_group] if self._free_group is not None else []
         self._beat_new, self._beat_revealed, self._beat_asides, self._beat_added = [], [], [], []
         rest = seconds + pad - spent
         if rest > 0.02:

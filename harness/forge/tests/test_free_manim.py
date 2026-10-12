@@ -145,3 +145,38 @@ def test_a_lecture_with_free_manim_plays_on_the_phone(tmp_path, monkeypatch):
                              str(tmp_path / "phone" / "Free-abc123"), "devicebench"],
                             capture_output=True, text=True, timeout=600)
     assert "GeneratedScene" in played.stdout and "PASS" in played.stdout, played.stdout + played.stderr
+
+
+def test_a_figure_that_goes_on_after_a_question_card_does_not_draw_over_it(tmp_path, monkeypatch):
+    # A figure built over beats, a question card between, then more of the figure: the later blocks drew over the
+    # card ("Think about it" under "At rest" and the figure's boxes). The card goes; the figure's parts come back.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script(BUILD)
+    beats = script["chapters"][0]["beats"]
+    beats.append({"say": "Must a body stop?", "do": [{"op": "question", "text": "Must a body stop?",
+                                                         "answer": "No: it keeps its state."}]})
+    beats.append({"say": "No, it need not.", "do": [{"op": "answer"}]})
+    beats.append({"say": "We draw a box on the board and watch it.", "do": [{"op": "manim", "id": "fig", "code": MOVE}]})
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.json"
+    scene.write_text(cl.compile_script(script) + f'''
+
+class Seen(GeneratedScene):
+    def free(self, *a, **kw):
+        out = super().free(*a, **kw)
+        import json as _json
+        texts = [m.text for m in self.get_mobject_family_members() if hasattr(m, "text")]
+        boxes = [m for m in self.mobjects for x in m.get_family() if type(x).__name__ == "Square"]
+        with open({str(seen)!r}, "a") as f:
+            f.write(_json.dumps({{"texts": texts, "squares": len(boxes)}}) + "\\n")
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent",
+           "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    first, last = [json.loads(line) for line in seen.read_text().splitlines()]
+    assert first["squares"] == 1
+    assert not any("Mustabodystop" in t or "keepsitsstate" in t for t in last["texts"]), last["texts"]  # no spaces
+    assert last["squares"] == 2                       # the first box came back beside its copy

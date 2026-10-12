@@ -277,10 +277,15 @@ def _image_bytes(ref: str) -> bytes:
     return base64.b64decode(ref)
 
 
-def _ask_images(prompt: str) -> tuple[bytes, float]:
+def _ask_images(prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
     """The Image API (/api/v1/images): {model, prompt} in, the picture in data[0].b64_json (or .url) out. The way
-    image-only models (meta/muse-image and the like) are asked."""
-    reply = _post(_images_url(), {"model": model(), "prompt": prompt})
+    image-only models (meta/muse-image and the like) are asked. `reference`: a picture sent with the words in
+    input_references (image to image), e.g. the book's figure to redraw."""
+    body: dict = {"model": model(), "prompt": prompt}
+    if reference:
+        url = "data:image/png;base64," + base64.b64encode(reference).decode()
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": url}}]
+    reply = _post(_images_url(), body)
     items = reply.get("data") or reply.get("images") or []
     first = items[0] if items else {}
     ref = (first.get("b64_json") or first.get("url") or (first.get("image_url") or {}).get("url") or "") \
@@ -314,7 +319,7 @@ def _ask_chat(prompt: str, outputs=("image", "text"), reference: bytes | None = 
 
 def _ask_route(route: str, prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
     if route == "images":
-        return _ask_images(prompt)            # the Image API takes words only: the reference is told in them
+        return _ask_images(prompt, reference)  # the reference goes in input_references
     return _ask_chat(prompt, ("image",) if route == "chat-image" else ("image", "text"), reference)
 
 
@@ -736,9 +741,6 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
                     REFUSED[model()] = why
                 return {"error": why[:300], "usd": usd}
             usd += cost
-            if not _fake() and _ROUTE.get(model()) == "images":
-                return {"error": f"the diagram model {model()} is served only through the Image API, which takes no "
-                                 "picture: it cannot copy the book's figure (PANIM_DIAGRAM_MODEL)", "usd": usd}
             png = _as_png(data)
             check = verify(reference, png, caption)
             last = (png, check)

@@ -270,6 +270,15 @@ def two_models(monkeypatch, tmp_path):
             asked.append(body)
             if body["model"] == "test/vision":
                 reply = {"choices": [{"message": {"content": json.dumps(verdicts.pop(0) if verdicts else {})}}]}
+            elif body["model"] == "test/muse" and self.path.endswith("/images"):
+                reply = {"data": [{"b64_json": picture.split(",", 1)[1]}], "usage": {"cost": 0.01}}
+            elif body["model"] == "test/muse":
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": {"message": "test/muse is an image generation model and cannot "
+                                                                  "be used with chat/completions. Use the /api/v1/images "
+                                                                  "endpoint instead."}}).encode())
+                return
             elif body["model"] == "test/words-only" and isinstance(body["messages"][0]["content"], list):
                 self.send_response(404)
                 self.end_headers()
@@ -344,3 +353,20 @@ def test_a_words_only_diagram_model_is_told_to_be_changed(two_models, monkeypatc
     monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/words-only")
     row = gen.redraw(str(figure), "Fig. 3", "lab")
     assert "takes words only" in row["error"] and "PANIM_DIAGRAM_MODEL" in row["error"]
+
+
+def test_an_image_api_diagram_model_like_muse_is_sent_the_figure_in_input_references(two_models, monkeypatch):
+    """meta/muse-image is served only through OpenRouter's Image API: the book's figure goes with the words in
+    input_references (image to image), and the redraw is checked and redone as on chat."""
+    gen, asked, figure = two_models
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/muse")
+    monkeypatch.delenv("PANIM_IMAGE_API", raising=False)
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "lab")
+    assert "error" not in row and row["ok"] is True and row["model"] == "test/muse" and row["usd"] == 0.02
+    images = [a for a in asked if a["model"] == "test/muse" and "prompt" in a]
+    assert len(images) == 2                                           # redrawn once more with what was wrong
+    for a in images:
+        ref = a["input_references"]
+        assert len(ref) == 1 and ref[0]["type"] == "image_url"
+        assert ref[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "REDRAW THE ATTACHED FIGURE" in images[0]["prompt"] and "LAST TRY WAS WRONG" in images[1]["prompt"]

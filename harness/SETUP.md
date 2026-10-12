@@ -126,8 +126,9 @@ Generated pictures are richly detailed and brought onto the board whole. A pictu
 A picture may be a whole scene (`"scene": true`: a setting drawn edge to edge, not cut out) and may move once
 drawn (`"move"`: bob, sway, breathe or drift, played on the phone as a looping clip). A person named again in a
 new picture (Akbar's portrait, then Akbar on horseback) is drawn to match the first picture of them: that picture is
-sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a model asked through the Image API
-gets the words only).
+sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a model served only through
+OpenRouter's Image API, e.g. `meta/muse-image`, gets it in `input_references`, image to image, and so does the
+book's figure it redraws).
 
 Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, objects, scenes: quick and cheap),
 and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's own pictures are never shown:

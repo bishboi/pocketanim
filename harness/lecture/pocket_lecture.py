@@ -473,6 +473,18 @@ def marker(text: str, size: float = 20, color: str | None = None):
     return T(str(text), size, color or P.CREAM, weight=BOLD)
 
 
+# Above every picture on the stage: the labels written on a picture (its tags, their lines and dots).
+Z_LABEL = 26.0
+
+
+def lift_labels(mob) -> None:
+    """Put the labels marked to sit on a picture (`_panim_above`) back above it: setting a group's z-index sets it on
+    every member, labels too, and a label level with its picture was drawn under it on the phone."""
+    for part in mob.get_family():
+        if getattr(part, "_panim_above", False):
+            part.set_z_index(Z_LABEL)
+
+
 _DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
 
 
@@ -2262,6 +2274,7 @@ class Lecture(Scene):
         going = self._stage_leaving()
         new = Group(self._stage_card(), group)
         new.set_z_index(Z_MARK + 10)
+        lift_labels(new)
         self.stage_items = new
         self.stage_body = group
         self.stage_pending, self._next_pending = self._next_pending, []
@@ -2310,6 +2323,7 @@ class Lecture(Scene):
             self.stage_items.remove(first)
             self.stage_items.add(group)
             group.set_z_index(Z_MARK + 10)
+            lift_labels(group)
             picture, card = group, first
             picture_parts, card_parts = self._next_pending, self.stage_pending
             self.stage_body = group
@@ -2400,6 +2414,7 @@ class Lecture(Scene):
     def _stage_add(self, mob):
         """A part added to the picture already on the stage; it leaves with it."""
         mob.set_z_index(Z_MARK + 11)
+        lift_labels(mob)
         self.stage_extra.append(mob)
         self._beat_added.append(mob)
         return mob
@@ -2534,6 +2549,14 @@ class Lecture(Scene):
             self._move_picture(image, [], move)
         return shown
 
+    def _label_tag(self, text: str, room: float):
+        """A picture's label as it is written on the stage: its words on a highlight -- a solid patch of the
+        board's colour with a gold edge -- so they read over a white picture, a dark one, or the board."""
+        words = fit(marker(text, 17), room - 0.2)
+        patch = SurroundingRectangle(words, buff=0.08, corner_radius=0.08, color=P.GOLD, stroke_width=2,
+                                     fill_color=P.BG, fill_opacity=0.92)
+        return VGroup(patch, words)
+
     def _picture_labels(self, image, labels, width: float) -> list:
         """Labels beside a picture, each a tag joined by a line to the point on its part: those on the picture's left
         half go to its left, the rest to its right, in order down the picture, spread so no two touch."""
@@ -2546,7 +2569,7 @@ class Lecture(Scene):
         out = []
         for side, items in sides.items():
             items.sort(key=lambda item: -item[1][1])
-            tags = [fit(marker(text, 17), room) for text, _ in items]
+            tags = [self._label_tag(text, room) for text, _ in items]
             # Down the side in the order of their parts, at their parts' heights where there is room.
             ys, gap = [], 0.12
             for tag, (_, point) in zip(tags, items):
@@ -2563,10 +2586,15 @@ class Lecture(Scene):
                 edge = lo[0] - 0.3 if side < 0 else hi[0] + 0.3
                 tag.move_to([edge + side * tag.width / 2, y, 0])
                 start = tag.get_right() if side < 0 else tag.get_left()
-                pointer = Line(start, point, color=P.CREAM, stroke_width=2)
-                dot = Dot(point, radius=0.05, color=P.GOLD)
-                label = VGroup(pointer, dot, tag)
-                label.set_z_index(Z_MARK + 12)
+                # The line in the highlight colour over a halo of the board's colour, and the dot ringed the same
+                # way: it shows on a white picture as on a dark one.
+                halo = Line(start, point, color=P.BG, stroke_width=7, stroke_opacity=0.9)
+                pointer = Line(start, point, color=P.GOLD, stroke_width=3)
+                dot = Dot(point, radius=0.075, color=P.GOLD, stroke_color=P.BG, stroke_width=3)
+                label = VGroup(halo, pointer, dot, tag)
+                for part in label.get_family():
+                    part._panim_above = True
+                label.set_z_index(Z_LABEL)
                 out.append(label)
         return out
 

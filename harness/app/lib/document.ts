@@ -226,9 +226,10 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
       `FIGURES from the book (${figures.length}). Show each where the text explains it, as its line below says: a`,
       "figure REDRAWN by the diagram model (an exact copy in this lecture's style, every label kept) is shown whole on",
       'the stage; walk the class through it, naming each labelled part ({"op":"figure","id":"fig3","photo":true,',
-      '"where":"stage"}). A figure listed "not available as a picture" is rebuilt in Manim (sketch, preset, graph,',
-      'diagram, or a manim op) with "from_figure", in full detail: the same parts, labels, arrows, values and',
-      "geometry as the book's. The book's own pictures are never shown. Every redrawn figure is shown (the compiler",
+      '"where":"stage"}). A figure listed "BUILD IT IN MANIM" (a graph, a chart, a circuit...; its picture is',
+      'attached) or "not available as a picture" is rebuilt in Manim (graph, plot, sketch, preset, diagram, or a manim',
+      'op) with "from_figure", in full detail: the same parts, labels, arrows, values, axes and geometry as the book\'s.',
+      "The book's own pictures are never shown. Every redrawn figure is shown (the compiler",
       "checks). The text marks where each sits as [FIGURE figN: caption].",
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");

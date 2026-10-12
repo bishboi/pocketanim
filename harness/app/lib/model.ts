@@ -772,9 +772,10 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
       `${reference.parts.length} parts; the lecture follows them in order (about ${minutes} min).` });
   }
-  // The book's figures, redrawn by the diagram model (figures.ts) while the transcript is written, each an exact
-  // copy in the lecture's style; the script writer is told about them once they are done (stage 2). The book's own
-  // pictures are never shown. PANIM_SVG_FIGURES=0 builds them all in Manim.
+  // The book's figures, looked at (figures.ts) while the transcript is written: graphs and the like rebuilt in Manim,
+  // the rest redrawn by the diagram model as exact copies in the lecture's style; the script writer is told about
+  // them once they are done (stage 2). The book's own pictures are never shown. PANIM_SVG_FIGURES=0 builds them all
+  // in Manim.
   // What the lecture cost, task by task (lib/costs.ts); costUsd is its total. Both stages and the figures run at
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
@@ -784,7 +785,7 @@ async function viaOpenRouter(
   let costUsd = 0;
   const sendCosts = (text: string) =>
     emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot(), seconds: ledger.elapsed });
-  const figureTally = { diagram: 0, kept: 0, failed: 0 };
+  const figureTally = { diagram: 0, manim: 0, kept: 0, failed: 0 };
   // Each picture the AI made for the lecture goes to the page as it is made (once), with what it cost.
   const shownPictures = new Set<string>();
   const showPicture = (picture: AiPicture) => {
@@ -810,6 +811,8 @@ async function viaOpenRouter(
   const drawingStarted = Date.now();
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
+      key: process.env.OPENROUTER_API_KEY,
+      model: svgModel(request.svgModel),
       markdown: doc.markdown,
       repo: REPO,
       python: python(),
@@ -827,7 +830,9 @@ async function viaOpenRouter(
         const figure = teachingFigures(doc).find((f) => f.id === id);
         const title = `${id}: ${figure?.caption ?? ""}`.trim();
         const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
-        if (made.generated?.file) {
+        if (made.manim && figure?.file) {
+          showPicture({ kind: "rebuilt", file: figure.file, title, ...paid, status: "a graph or the like: rebuilt in Manim" });
+        } else if (made.generated?.file) {
           showPicture({ kind: "figure", file: made.generated.file, title, ...paid, detail: made.generated.credit,
             status: made.checked ? "redrawn by the diagram model, every label checked"
               : `redrawn by the diagram model (closest try: ${made.issues || "not every label matched"})` });
@@ -836,14 +841,16 @@ async function viaOpenRouter(
             status: `not redrawn (${made.diagramError ?? "no picture"}): left out, rebuilt in Manim` });
         }
         if (kept) figureTally.kept += 1;
+        else if (made.manim) figureTally.manim += 1;
         else if (made.generated) figureTally.diagram += 1;
         else figureTally.failed += 1;
         ledger.count("figures", made.generated && !kept ? 1 : 0, [
           figureTally.diagram ? `${figureTally.diagram} redrawn by the diagram model` : "",
-          figureTally.kept ? `${figureTally.kept} redrawn by an earlier run (free)` : "",
+          figureTally.manim ? `${figureTally.manim} rebuilt in Manim` : "",
+          figureTally.kept ? `${figureTally.kept} decided by an earlier run (free)` : "",
           figureTally.failed ? `${figureTally.failed} not redrawn (rebuilt in Manim)` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.generated ? "redrawn by the diagram model" : "not redrawn"}`);
+        sendCosts(`book figure ${id}: ${made.manim ? "rebuilt in Manim" : made.generated ? "redrawn by the diagram model" : "not redrawn"}`);
       },
     }).catch((error) => {
       emit({ type: "message", role: "status", text: `The figures were not redrawn (${String(error).slice(0, 160)}); ` +

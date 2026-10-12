@@ -1726,7 +1726,9 @@ export default function Home() {
               )}
               {ir && "mode" in ir && ir.mode === "2d" && (
                   <Player
-                    key={version?.n}
+                    // A series' parts share one n: keyed by the build, switching parts starts the new one's player
+                    // (its frame, geometry, pictures and voice) instead of carrying on the last one's.
+                    key={`${current}:${exported?.buildDir ?? version?.n}`}
                     ir={ir}
                     autoPlay
                     audioSrc={version?.voiceUrl}

@@ -49,6 +49,13 @@ export function Player({
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
   const total = ir.frames;
+  // The voice stops with its player: a lecture switched away from kept talking over the next one.
+  useEffect(() => {
+    const audio = audioRef.current;
+    return () => {
+      audio?.pause();
+    };
+  }, []);
 
   // A long lecture comes in segments of about two minutes: the one playing and the next are loaded, the rest
   // are fetched when reached and dropped when left behind, so an hour of geometry is never in the tab at once.

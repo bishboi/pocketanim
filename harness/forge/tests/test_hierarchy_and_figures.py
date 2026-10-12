@@ -260,7 +260,7 @@ def test_a_book_photo_is_redrawn_by_the_diagram_model_never_shown_as_it_is(figur
     assert _Model.CALLS[0][1] == 2                                        # the sorting model saw the figure (one image part)
     asked = _Model.CALLS[1][1]
     assert '"image_url"' in asked                                         # the book's figure goes with it
-    assert "EXACT copy" in asked and "NO BACKGROUND" in asked and "watermarks" in asked and "The Ganges at Varanasi" in asked
+    assert "KEEP THE DIAGRAM FAITHFUL" in asked and "NO BACKGROUND" in asked and "watermark" not in asked and "The Ganges at Varanasi" in asked
     # Kept beside the figure: a second lecture from the book asks nothing again.
     _Model.CALLS = []
     again = _draw(figures_js, servers, tmp_path, figure)

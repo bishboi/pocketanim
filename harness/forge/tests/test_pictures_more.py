@@ -270,6 +270,13 @@ def two_models(monkeypatch, tmp_path):
             asked.append(body)
             if body["model"] == "test/vision":
                 reply = {"choices": [{"message": {"content": json.dumps(verdicts.pop(0) if verdicts else {})}}]}
+            elif body["model"] == "test/filtered" or (body["model"] == "test/picky"
+                                                      and "KEEP THE DIAGRAM FAITHFUL" in json.dumps(body)):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": {"message": "The response was filtered due to the prompt "
+                                                                  "triggering our content management policy."}}).encode())
+                return
             elif body["model"] == "test/muse" and self.path.endswith("/images"):
                 reply = {"data": [{"b64_json": picture.split(",", 1)[1]}], "usage": {"cost": 0.01}}
             elif body["model"] == "test/muse":
@@ -380,4 +387,44 @@ def test_an_image_api_diagram_model_like_muse_is_sent_the_figure_in_input_refere
         ref = a["input_references"]
         assert len(ref) == 1 and ref[0]["type"] == "image_url"
         assert ref[0]["image_url"]["url"].startswith("data:image/png;base64,")
-    assert "REDRAW THE ATTACHED FIGURE" in images[0]["prompt"] and "LAST TRY WAS WRONG" in images[1]["prompt"]
+    assert "REFERENCE IMAGE" in images[0]["prompt"] and "LAST TRY WAS WRONG" in images[1]["prompt"]
+
+
+def test_a_filtered_redraw_is_asked_again_in_plainer_words(two_models, monkeypatch):
+    """A content filter that blocks the full redraw prompt: the same model is asked once more in the plainest words
+    (no lesson text), and that picture is kept."""
+    gen, asked, figure = two_models
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/picky")
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "lab", "the lesson on cells")
+    assert "error" not in row and row["model"] == "test/picky"
+    draws = [json.dumps(a) for a in asked if a["model"] == "test/picky"]
+    assert "KEEP THE DIAGRAM FAITHFUL" in draws[0] and "KEEP THE DIAGRAM FAITHFUL" not in draws[1]
+    assert "the lesson on cells" not in draws[1] and "plant cell" in draws[1]
+    assert "test/picky" not in gen.REFUSED                         # one blocked picture is not a refusal
+
+
+def test_a_figure_the_filter_always_blocks_goes_to_the_fallback_models(two_models, monkeypatch):
+    gen, asked, figure = two_models
+    monkeypatch.setenv("PANIM_DIAGRAM_MODEL", "test/filtered")
+    row = gen.redraw(str(figure), "Fig. 3: a plant cell", "lab")
+    assert "content management policy" in row["error"] and "test/filtered" not in gen.REFUSED
+    assert len([a for a in asked if a["model"] == "test/filtered"]) == 2        # full words, then plainest
+    monkeypatch.setenv("PANIM_DIAGRAM_FALLBACK_MODELS", "test/filtered, test/diagrams")
+    other = figure.with_name("fig4.png")
+    other.write_bytes(figure.read_bytes())
+    row = gen.redraw(str(other), "Fig. 4: a plant cell", "parchment")
+    assert "error" not in row and row["model"] == "test/diagrams" and "(fallback)" in row["credit"]
+    assert row["file"].endswith(".png")
+
+
+def test_a_filtered_illustration_does_not_stop_the_next_one(two_models, monkeypatch):
+    """Before, one filtered picture marked the model refused, and every later picture of the compile was skipped
+    with the same message. Now only that one fails; a fallback, when set, makes it."""
+    gen, asked, _ = two_models
+    monkeypatch.setenv("PANIM_IMAGE_MODEL", "test/filtered")
+    assert gen.generate("a battle scene") is None
+    assert gen.generate("a village well") is None
+    assert len([a for a in asked if a["model"] == "test/filtered"]) == 2       # the second was still asked
+    monkeypatch.setenv("PANIM_IMAGE_FALLBACK_MODELS", "test/illustrations")
+    row = gen.generate("a temple gate")
+    assert row and row["model"] == "test/illustrations" and "(fallback)" in row["credit"]

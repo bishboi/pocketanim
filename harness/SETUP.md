@@ -139,7 +139,10 @@ in that style's lettering), with watermarks, logos, QR codes, figure numbers, ca
 has no background: it is drawn on the board's flat colour, which is cut away, so it stands on the board unframed.
 A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
 what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (4) tries, and the closest try
-is kept. A figure the model cannot redraw at all is left out and rebuilt in Manim. The script waits up to
+is kept. When the model's content filter blocks a figure, it is asked once more in plainer words; then each
+model in `PANIM_DIAGRAM_FALLBACK_MODELS` (comma-separated, none by default) is asked in turn
+(`PANIM_IMAGE_FALLBACK_MODELS` does the same for illustrations). A filter that blocks one picture never stops the
+others. A figure no model can redraw is left out and rebuilt in Manim. The script waits up to
 `PANIM_FIGURE_WAIT_SECONDS` (420) for the redraws. The diagram model must take a picture in
 (a words-only model such as Recraft cannot copy a figure: the log says so). A picture with labelled parts, and a
 script's detailed diagram (`draw`), is also made by the diagram model.

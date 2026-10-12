@@ -84,14 +84,51 @@ def using(kind: str):
         _KIND.pop()
 
 
+# A model the calls inside are pinned to (a fallback being asked): set by _pinned().
+_PIN: list[str] = []
+
+
+@contextmanager
+def _pinned(name: str):
+    _PIN.append(name)
+    try:
+        yield
+    finally:
+        _PIN.pop()
+
+
 def model() -> str:
-    """The image model asked now: the illustration model, or the diagram model inside using("diagram"). There is
-    no fallback: a model that refuses is reported, never swapped for another."""
+    """The image model asked now: the illustration model, or the diagram model inside using("diagram"), or a
+    fallback model while it is being asked (fallbacks())."""
+    if _PIN:
+        return _PIN[-1]
     return diagram_model() if _KIND[-1] == "diagram" else configured()
 
 
+def fallbacks() -> list[str]:
+    """The models asked, in order, when the model for this kind of picture refuses one or its filter blocks it:
+    PANIM_DIAGRAM_FALLBACK_MODELS for diagrams and the book's figures, PANIM_IMAGE_FALLBACK_MODELS for
+    illustrations (comma-separated OpenRouter ids). None by default: nothing is swapped unless they are set."""
+    name = "PANIM_DIAGRAM_FALLBACK_MODELS" if _KIND[-1] == "diagram" else "PANIM_IMAGE_FALLBACK_MODELS"
+    first = diagram_model() if _KIND[-1] == "diagram" else configured()
+    out: list[str] = []
+    for item in re.split(r"[,\s]+", os.environ.get(name, "")):
+        if item and item != first and item not in out:
+            out.append(item)
+    return out
+
+
+# The model's content filter blocked this one picture (the words or the reference): not a refusal of every
+# picture, so the next is still asked; this one is asked again in plainer words, then of the fallbacks.
+FILTERED = re.compile(r"content (?:management )?polic|content[_ ]?filter|filtered|moderation|safety (?:system|"
+                      r"filter|policy)|responsible ?ai|prohibited content|flagged", re.I)
+
+
 def _refusal(error: str) -> bool:
-    """Whether an error means the model will refuse every picture (not a passing failure such as a timeout)."""
+    """Whether an error means the model will refuse every picture (not a passing failure such as a timeout, nor a
+    content filter that blocked one picture)."""
+    if FILTERED.search(error):
+        return False
     return bool(re.search(r"HTTP (?:400|401|402|403|404)\b|not available in your region|returned no image|"
                           r"No endpoints found|not a valid model", error, re.I))
 
@@ -555,7 +592,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
         _failed(what, "the image model is off (PANIM_IMAGES=0)" if os.environ.get("PANIM_IMAGES") == "0"
                 else "no OPENROUTER_API_KEY in the compiler's environment")
         return None
-    if model() in REFUSED:
+    if model() in REFUSED and not fallbacks():
         _failed(what, REFUSED[model()])          # refused already this run: not asked again
         return None
     like = reference_for(what, style, realistic) if match and not target.exists() and model() not in NO_REFERENCE \
@@ -570,9 +607,15 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
             row["like"] = str(like["what"])
         except OSError:
             reference = None
-    try:
+    used = model()
+
+    def ask_one() -> tuple[bytes, float]:
+        nonlocal reference, prompt
+        if model() in REFUSED:
+            raise RuntimeError(REFUSED[model()])
         try:
-            data, usd = (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference)
+            return (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference if model() not in NO_REFERENCE
+                                                              else None)
         except RuntimeError as error:
             if reference is None or not IMAGE_INPUT_REFUSED.search(str(error)):
                 raise
@@ -581,13 +624,26 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
             reference, prompt = None, plain
             row["prompt"] = prompt
             row.pop("like", None)
-            data, usd = _ask(prompt, None)
-    except Exception as error:  # noqa: BLE001 -- offline, refused, no key: the picture is left out, and said why
-        why = str(error) or type(error).__name__
-        if _refusal(why):
-            REFUSED[model()] = why
-        _failed(what, why)
+            return _ask(prompt, None)
+
+    whys: list[str] = []
+    data = None
+    for name in [model(), *fallbacks()]:
+        with _pinned(name):
+            try:
+                data, usd = ask_one()
+                used = name
+                break
+            except Exception as error:  # noqa: BLE001 -- offline, refused, filtered: the next model, else left out
+                why = str(error) or type(error).__name__
+                if _refusal(why):
+                    REFUSED[name] = why
+                whys.append(why if not whys else f"{name}: {why}")
+    if data is None:
+        _failed(what, "; then ".join(whys)[:600])
         return None
+    if used != row["model"]:
+        row.update(model=used, artist=used, credit=f"made with {used} (fallback)")
     try:
         # A scene keeps its setting; anything else is cut out of its plain background.
         data = data if scene else cutout(data)
@@ -595,10 +651,10 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
         pass
     CACHE.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-    target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": model(), "style": style,
+    target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": used, "style": style,
                                                        "realistic": realistic, "parts": named, "usd": usd,
                                                        "scene": bool(scene), "like": row.get("like")}))
-    MADE.append({"path": str(target), "png": str(target), "what": what, "prompt": prompt, "model": model(), "usd": usd,
+    MADE.append({"path": str(target), "png": str(target), "what": what, "prompt": prompt, "model": used, "usd": usd,
                  "made": True})
     return {**row, "file": str(target), "path": str(target), "usd": usd, "made": True}
 
@@ -650,33 +706,44 @@ def _board_colours(style: str | None) -> tuple[str, str]:
 
 
 def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None,
-                  art: str | None = None) -> str:
-    """What the diagram model is told when it redraws a book's figure from the figure itself: the same picture,
-    exactly, beautifully drawn in the template's look (its art style, ink and colours), on the board's flat colour,
-    which is then cut away: the figure stands on the board with no background of its own."""
+                  art: str | None = None, plain: bool = False) -> str:
+    """What the diagram model is told when it redraws a book's figure from the figure itself: the same diagram, its
+    parts and labels kept, beautifully drawn in the template's look (its art style, ink and colours), on the board's
+    flat colour, which is then cut away: the figure stands on the board with no background of its own.
+
+    Worded as a new educational illustration made from a reference sketch: words such as "exact copy", "textbook",
+    "watermark" or "logo" make image models' content filters block it as copying. `plain`: the shortest form, asked
+    when the filter blocked the full one (no lesson text, no fix)."""
     look = _template_look(style, art)
+    drawn = ART_LOOKS.get(look["art"], ART_LOOKS["clean"])
+    what = (caption.strip() or "a diagram")[:160]
+    if plain:
+        return (f"An educational diagram for a school science lesson: {what}. Make a new, clean illustration of the "
+                f"diagram in the attached reference image, drawn as {drawn}: the same parts in the same places, the "
+                "same arrows and the same labels with the same words. Only the diagram, on a plain flat background "
+                f"of colour {look['bg']}, lines and words in {look['ink']}.")
     accents = ", ".join(look["accents"][:5])
     lettering = (f"lettered in a style like the {look['font']} font, large and clear" if look["font"]
                  else "in a large, plain, clear font")
     return (
-        "REDRAW THE ATTACHED FIGURE from a school textbook as an EXACT copy of it for a video lesson, drawn "
-        f"BEAUTIFULLY as {ART_LOOKS.get(look['art'], ART_LOOKS['clean'])}: polished, professional, crisp and well "
-        f"made, like a figure in the best modern textbook. What it is: {caption.strip() or 'a textbook figure'}."
-        + (f" WHAT IT IS FOR: {context.strip()[:600]}" if context and context.strip() else "")
-        + " IT MUST BE THE SAME PICTURE: the same layout and composition, the same parts in the same places and the "
-        "same proportions, every arrow, line, connection and direction as it is, every number and unit, and EVERY "
-        "LABEL with exactly the same words and spelling, copied letter for letter, beside the same part (never "
-        "translate, reword, add, drop or move a label). A photograph becomes a faithful illustration of exactly what "
-        "it shows, from the same view. Nothing added, nothing left out, nothing rearranged."
-        " ONLY THESE CHANGE: (1) everything that is not the figure itself is removed: watermarks, stamps, publisher "
-        "or book logos, QR codes, 'scan for e-content' boxes, the figure number, the caption, any title, page "
-        "numbers, page edges, scan noise, stains, shadows, blur and yellowed paper; (2) it is redrawn in that style: "
-        f"lines, shapes and colours redone, outlines and words in {look['ink']}, colours from this palette where the "
-        f"figure has colour ({accents or 'clear, rich colours'}), labels {lettering}, readable on a phone."
-        f" NO BACKGROUND: the figure stands alone on a single plain, flat, solid colour {look['bg']} that fills the "
-        "whole rest of the image edge to edge (it is cut away afterwards); no paper, page, panel, card, box, frame, "
-        "border, vignette, gradient, texture, drop shadow, floor or scenery behind or around it. The figure's own "
-        "parts keep their fills. Fill the frame with the figure."
+        "Make a new, clean EDUCATIONAL ILLUSTRATION for a video lesson from the attached REFERENCE IMAGE (a sketch of "
+        f"a diagram), drawn BEAUTIFULLY as {drawn}: polished, professional, crisp and well made. What it shows: "
+        f"{what}."
+        + (f" WHAT IT IS FOR: {context.strip()[:500]}" if context and context.strip() else "")
+        + " KEEP THE DIAGRAM FAITHFUL to the reference: the same layout, the same parts in the same places and "
+        "proportions, every arrow, line, connection and direction, every number and unit, and EVERY LABEL with the "
+        "same words and spelling, beside the same part (never translate, reword, add, drop or move a label). If the "
+        "reference is a photograph, make a faithful illustration of what it shows, from the same view. Nothing "
+        "added, nothing left out, nothing rearranged."
+        " SHOW ONLY THE DIAGRAM ITSELF: leave out everything around it that is not part of the diagram (any page, "
+        "border, caption, figure number, title, page number, stamp, mark or stray text) and any blur, stains or "
+        f"grain. Lines, shapes and colours redrawn in that style, outlines and words in {look['ink']}, colours from "
+        f"this palette where the diagram has colour ({accents or 'clear, rich colours'}), labels {lettering}, "
+        "readable on a phone."
+        f" NO BACKGROUND: the diagram stands alone on a single plain, flat, solid colour {look['bg']} that fills the "
+        "whole rest of the image edge to edge; no paper, panel, card, box, frame, border, vignette, gradient, "
+        "texture, drop shadow, floor or scenery behind or around it. The diagram's own parts keep their fills. Fill "
+        "the frame with the diagram."
         + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that, and keep everything else the same."
            if fix and fix.strip() else "")
     )
@@ -734,6 +801,51 @@ def diagram_tries() -> int:
         return 4
 
 
+def _redraw_tries(reference: bytes, source: Path, caption: str, style, context, art) -> dict:
+    """The tries of one model (model()) at a redraw: drawn, checked against the book's figure, drawn again with what
+    was wrong, up to PANIM_DIAGRAM_TRIES; the closest kept. When its content filter blocks the request, asked once
+    more in the plainest words. {"png", "check", "prompt", "model", "usd"} or {"error", "usd"}."""
+    if model() in REFUSED:
+        return {"error": REFUSED[model()]}
+    if model() in NO_REFERENCE:
+        return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes words only); "
+                         "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
+    usd, fix, best, plain, attempt, prompt = 0.0, None, None, False, 0, ""
+    while attempt < diagram_tries():
+        prompt = redraw_prompt(caption, style, context, fix, art, plain=plain)
+        try:
+            data, cost = (_stand_in(caption or source.name), 0.0) if _fake() else _ask(prompt, reference)
+        except RuntimeError as error:
+            why = str(error)
+            if IMAGE_INPUT_REFUSED.search(why):
+                NO_REFERENCE.add(model())
+                return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes words "
+                                 "only); pick one that takes images (PANIM_DIAGRAM_MODEL)", "usd": usd}
+            if FILTERED.search(why) and not plain:
+                plain = True                 # blocked by its content filter: once more, in the plainest words
+                continue
+            if best is not None:
+                break                        # a later try failed: the closest so far is kept
+            if _refusal(why):
+                REFUSED[model()] = why
+            return {"error": why[:300], "usd": usd}
+        attempt += 1
+        usd += cost
+        png = _as_png(data)
+        check = verify(reference, png, caption)
+        faults = len(check.get("missing") or []) + len(check.get("wrong") or []) + (check.get("ok") is False)
+        if best is None or faults < best[0]:
+            best = (faults, png, check, prompt)
+        if check.get("ok") is not False:
+            break
+        fix = None if plain else "; ".join(x for x in [
+            f"labels missing: {', '.join(check['missing'])}" if check.get("missing") else "",
+            f"labels wrong or misplaced: {', '.join(check['wrong'])}" if check.get("wrong") else "",
+            check.get("notes") or ""] if x)
+    _, png, check, prompt = best
+    return {"png": png, "check": check, "prompt": prompt, "model": model(), "usd": usd}
+
+
 def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None,
            art: str | None = None) -> dict:
     """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
@@ -760,40 +872,20 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
             return {**row, "file": str(target), "png": str(target), "usd": 0.0, "paid": row.get("usd")}
         if not enabled():
             return {"error": "the image model is off (no OPENROUTER_API_KEY, or PANIM_IMAGES=0)"}
-        if model() in REFUSED:
-            return {"error": REFUSED[model()]}
-        if model() in NO_REFERENCE:
-            return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes words only); "
-                             "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
-        usd, fix, last, best = 0.0, None, None, None
-        for attempt in range(1, diagram_tries() + 1):
-            prompt = redraw_prompt(caption, style, context, fix, art)
-            try:
-                data, cost = (_stand_in(caption or source.name), 0.0) if _fake() else _ask(prompt, reference)
-            except RuntimeError as error:
-                why = str(error)
-                if IMAGE_INPUT_REFUSED.search(why):
-                    NO_REFERENCE.add(model())
-                    return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes "
-                                     "words only); pick one that takes images (PANIM_DIAGRAM_MODEL)", "usd": usd}
-                if _refusal(why):
-                    REFUSED[model()] = why
-                return {"error": why[:300], "usd": usd}
-            usd += cost
-            png = _as_png(data)
-            check = verify(reference, png, caption)
-            last = (png, check)
-            faults = len(check.get("missing") or []) + len(check.get("wrong") or []) + (check.get("ok") is False)
-            if best is None or faults < best[0]:
-                best = (faults, png, check)
-            if check.get("ok") is not False:
+        # The diagram model, then each fallback (PANIM_DIAGRAM_FALLBACK_MODELS) while one makes nothing.
+        usd, whys, got = 0.0, [], None
+        for name in [model(), *fallbacks()]:
+            with _pinned(name):
+                got = _redraw_tries(reference, source, caption, style, context, art)
+            usd += got.get("usd") or 0.0
+            if "error" not in got:
                 break
-            fix = "; ".join(x for x in [
-                f"labels missing: {', '.join(check['missing'])}" if check.get("missing") else "",
-                f"labels wrong or misplaced: {', '.join(check['wrong'])}" if check.get("wrong") else "",
-                check.get("notes") or ""] if x)
+            whys.append(got["error"] if not whys else f"{name}: {got['error']}")
+            got = None
+        if got is None:
+            return {"error": "; then ".join(whys)[:600], "usd": usd}
+        used, png, check, prompt = got["model"], got["png"], got["check"], got["prompt"]
         # The closest try: the book's picture is never shown instead.
-        _, png, check = best if best is not None else (0, *last)
         CACHE.mkdir(parents=True, exist_ok=True)
         # No background: the board's flat colour around the figure is cut away (checked before, on the whole).
         try:
@@ -801,11 +893,12 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         except Exception:  # noqa: BLE001 -- kept as drawn
             pass
         target.write_bytes(png)
-        row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": model(), "style": style,
+        row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": used, "style": style,
                "source": str(source), "check": check, "ok": check.get("ok"), "usd": usd, "diagram": True,
-               "credit": f"redrawn with {model()} from the book's figure"}
+               "credit": f"redrawn with {used} from the book's figure"
+                         + (" (fallback)" if used != model() else "")}
         meta.write_text(json.dumps(row, ensure_ascii=False))
-        MADE.append({"path": str(target), "png": str(target), "what": row["what"], "prompt": prompt, "model": model(),
+        MADE.append({"path": str(target), "png": str(target), "what": row["what"], "prompt": prompt, "model": used,
                      "usd": usd, "made": True})
         return {**row, "file": str(target), "png": str(target)}
 

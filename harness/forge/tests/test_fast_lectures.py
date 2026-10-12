@@ -177,28 +177,3 @@ const all = [mk(1, '## Levers\\nA lever is a bar.'), mk(2, '## Pulleys\\nA pulle
 console.log(JSON.stringify(transcript.sectionRequest(all[1], 3, [], undefined, all)));
 """)
     assert "NOT YOURS TO TEACH" in out and "Section 1 (before this one)" in out and "Section 3 (after this one)" in out
-
-
-def test_the_compiler_takes_out_a_sentence_said_again():
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lecture"))
-    import compile_lecture as cl
-
-    script = {"title": "T", "chapters": [{"title": "A", "map": False, "beats": [
-        {"say": "Friction always opposes the motion of a body.", "do": []},
-        {"say": "Friction always opposes the motion of a body. Look at the block.", "do": []},
-        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "x"}]},
-        {"say": "A new idea.", "do": []}]}]}
-    notes = cl._drop_repeated_says(script)
-    beats = script["chapters"][0]["beats"]
-    assert [b["say"] for b in beats] == ["Friction always opposes the motion of a body.", "Look at the block.", "A new idea."]
-    # The repeated beat's picture comes up with the line before it (which showed none): nothing drawn is lost.
-    assert beats[1]["do"] == [{"op": "fact", "text": "x"}] and notes and notes[0].startswith("fixed: 2 sentences")
-
-    # With no beat free to take its pictures, a repeated line stays rather than lose what it shows.
-    busy = {"title": "T", "chapters": [{"title": "A", "map": False, "beats": [
-        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "a"}]},
-        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "b"}]},
-        {"say": "Next.", "do": [{"op": "fact", "text": "c"}]}]}]}
-    assert cl._drop_repeated_says(busy) == [] and len(busy["chapters"][0]["beats"]) == 3

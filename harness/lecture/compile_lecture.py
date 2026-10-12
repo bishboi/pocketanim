@@ -643,83 +643,6 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     return notes + reveals
 
 
-# A sentence said again, word for word or nearly, is taken out of the beat that says it again (_drop_repeated_says):
-# sections were written several at once and a beat could name a line another beat had said, so the same sentence
-# came out two or three times. Shorter sentences ("Let's see.") may come back.
-REPEAT_MIN_WORDS = 5
-REPEAT_LOOKBACK = 300           # sentences a near-repeat is looked for among (an exact one, in the whole lecture)
-_SENTENCE = re.compile(r"(?<=[.?!।])\s+")
-
-
-def _say_words(sentence: str) -> list[str]:
-    return re.findall(r"[^\W_]+", sentence.lower())
-
-
-def _says_again(a: list[str], b: list[str]) -> bool:
-    """Whether b says a again: the same words, or nearly (most words shared) with the same numbers: "fact number 3"
-    and "fact number 4" are two facts."""
-    if len(a) < REPEAT_MIN_WORDS or len(b) < REPEAT_MIN_WORDS:
-        return False
-    if a == b:
-        return True
-    if [w for w in a if w.isdigit()] != [w for w in b if w.isdigit()]:
-        return False
-    sa, sb = set(a), set(b)
-    return len(sa & sb) / max(len(sa), len(sb)) >= 0.85
-
-
-def _drop_repeated_says(script: dict) -> list[str]:
-    """Every sentence of every beat's line, in order: one that says again what was said before is taken out. A beat
-    left with nothing to say goes; its pictures are never lost: they move to the beat before or after it when that
-    one shows none, and when neither is free the beat keeps its line (one repeat is better than a missing step)."""
-    exact: set[str] = set()
-    recent: list[list[str]] = []
-    dropped: list[str] = []
-    for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        beats = chapter.get("beats") or []
-        keep: list = []
-        for bi, beat in enumerate(beats, 1):
-            say = beat.get("say") if isinstance(beat, dict) else None
-            if not isinstance(say, str) or not say.strip():
-                keep.append(beat)
-                continue
-            kept, gone, fresh = [], [], []
-            for sentence in (x.strip() for x in _SENTENCE.split(say.strip()) if x.strip()):
-                words = _say_words(sentence)
-                key = " ".join(words)
-                if len(words) >= REPEAT_MIN_WORDS and (key in exact or any(_says_again(w, words) for w in recent)):
-                    gone.append(sentence)
-                    continue
-                kept.append(sentence)
-                if len(words) >= REPEAT_MIN_WORDS:
-                    fresh.append((key, words))
-            ops = beat.get("do") or []
-            following = beats[bi] if bi < len(beats) and isinstance(beats[bi], dict) else None
-            if not kept and ops:
-                before = keep[-1] if keep and isinstance(keep[-1], dict) else None
-                if before is not None and not before.get("do"):
-                    before["do"] = ops                  # its pictures come up with the line before
-                elif following is not None and not following.get("do"):
-                    following["do"] = ops               # ...or with the line after
-                else:
-                    kept, gone = [say.strip()], []      # nowhere free: the line stays, so nothing drawn is lost
-                    fresh = [(" ".join(_say_words(say)), _say_words(say))]
-            dropped += [f"chapter {ci} beat {bi}: \"{g[:60]}\"" for g in gone]
-            for key, words in fresh:
-                exact.add(key)
-                recent.append(words)
-            del recent[:-REPEAT_LOOKBACK]
-            if kept:
-                if gone:
-                    beat = {**beat, "say": " ".join(kept)}     # a copy: a beat object may be shared
-                keep.append(beat)
-        chapter["beats"] = keep
-    if not dropped:
-        return []
-    return [f"{FIXED}{len(dropped)} sentence{'s' if len(dropped) > 1 else ''} said before taken out "
-            f"({'; '.join(dropped[:3])}{'; ...' if len(dropped) > 3 else ''})"]
-
-
 # A picture that stays up this many beats at most is built along them (_build_with_speech).
 SPEECH_REACH = 6
 # Ops that put a new picture on the stage: the diagram before is gone, so it is built no further.
@@ -972,8 +895,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                       "by teaching more of the content: a step or idea left out, an example from daily life, a "
                       "hard term explained, a worked problem, a question for the class. Never restate what is "
                       "already said. Keep every existing beat that is right.")
-    # Last, once every check has seen the script as written: a sentence said again is taken out of what is drawn.
-    warnings += _drop_repeated_says(script)
     return errors, warnings
 
 

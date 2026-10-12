@@ -213,7 +213,6 @@ Some paragraphs need no picture at all.
 | `{"op":"diagram","id":"chain","kind":"flow\|cycle\|hub","nodes":[{"id","label","picture"?}],"edges"?:[[from,to,label?]],"show"?:[ids],"title"?}` | A diagram of the things themselves. A node may carry a picture (`{"generate"}`, `{"draw"}` or `{"figure"}`) beside its label, and arrows join the nodes. `flow` takes its layout from its edges (a chain, a hierarchy or a flowchart), `cycle` goes round, and `hub` puts the first node in the middle. `show` draws some nodes first. |
 | `{"op":"reveal","diagram":"chain","nodes":["deer"]}` | The next nodes of that diagram, with the arrows that now connect them. |
 | `{"op":"focus","diagram":"chain","node":"plants"}` | A ring around one node while the narration talks about it. |
-| `"at": "plants"` (on any op) | Ties the op to words of its beat's line: it plays as they are spoken (`Lecture.on_words`, timed by where they fall in the line's audio, stops at commas and full stops counted in), not as the line begins; a `focus` tied to words lets go when its sentence ends or the next part is lit. Words the line does not say are dropped (the op plays as the line begins). The compiler's own reveals for a diagram built as it is spoken of get its parts' names. |
 | `{"op":"define","term","meaning"}` | A hard word, big, with its meaning in plain words. |
 | `{"op":"compare","columns":[{"title","points":[…]}],"title"?}` | Two or three kinds side by side. |
 

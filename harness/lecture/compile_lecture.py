@@ -732,28 +732,11 @@ def _build_with_speech(script: dict) -> list[str]:
                 # What no line names is there from the start, so nothing is left off.
                 op["show"] = [n for n in label if n in first or n not in placed]
                 for j, named in later.items():
-                    reveal = {"op": "reveal", "diagram": str(op["id"]), "nodes": named}
-                    # Lands as the first part's name is said (its whole label, when the line says it as it is).
-                    said = str(beats[j].get("say") or "")
-                    if label[named[0]].lower().strip() in said.lower():
-                        reveal["at"] = label[named[0]]
-                    beats[j].setdefault("do", []).append(reveal)
+                    beats[j].setdefault("do", []).append({"op": "reveal", "diagram": str(op["id"]), "nodes": named})
                 notes.append(f"{FIXED}chapter {c + 1} beat {i + 1}: diagram {op['id']!r} built as it is spoken of "
                              f"({len(placed) - len(first)} parts arrive on the lines that name them)")
     return notes
 
-
-
-def spoken_anchor(op: dict, say) -> str | None:
-    """The words of its beat's line an op is tied to ({"op": "focus", ..., "at": "fief"}), when the line says
-    them; None otherwise (it plays as the line begins, as before). Only a string: a sketch item's "at" is a place."""
-    at = op.get("at") if isinstance(op, dict) else None
-    if not isinstance(at, str) or not at.strip() or not isinstance(say, str):
-        return None
-    words = re.findall(r"[\w']+", at.lower())
-    if not words or not re.search(r"\W+".join(re.escape(w) for w in words), say.lower()):
-        return None
-    return " ".join(at.split())
 
 
 def lint(script: dict, min_minutes: float | None = None, min_questions: int | None = None,
@@ -1696,7 +1679,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape", "at"}
+             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -3374,10 +3357,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 call = _op_call(op)
                 if call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
-                    call = f"self.safe(lambda: {call}, {_q(what)})"
-                    anchor = spoken_anchor(op, beat.get("say"))
-                    # Tied to words of the line: it plays as they are spoken (Lecture.on_words), not as the line begins.
-                    calls.append(f"self.on_words({_q(anchor)}, {call})" if anchor else call)
+                    calls.append(f"self.safe(lambda: {call}, {_q(what)})")
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
             pad = "PARAGRAPH_PAD" if bi in closing else ""

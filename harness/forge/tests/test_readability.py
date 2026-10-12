@@ -167,8 +167,9 @@ def test_a_diagram_is_built_as_its_parts_are_spoken_of():
     assert not errors
     beats = script["chapters"][0]["beats"]
     assert beats[0]["do"][0]["show"] == ["s", "c"]
-    assert beats[1]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["n"]}]
-    assert beats[2]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["p"]}]
+    # Each part lands as its name is said.
+    assert beats[1]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["n"], "at": "Nobility"}]
+    assert beats[2]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["p"], "at": "Peasants"}]
     assert any("built as it is spoken of" in w for w in warnings)
 
 

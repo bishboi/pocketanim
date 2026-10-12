@@ -1870,6 +1870,42 @@ class Lecture(Scene):
         if animations:
             super().play(*animations, **kwargs)
 
+    # How long a voice stops at each mark, counted in characters of speech: a little at a comma, longer at the end
+    # of a sentence. A phrase's time in its line is where it falls among the line's characters and stops.
+    PAUSE_WEIGHT = {",": 4, ";": 6, ":": 6, "\u2014": 5, ".": 9, "?": 9, "!": 9, "\u0964": 9}
+    # A picture tied to words lands this long before them (the eye takes a moment), and takes this long to land.
+    ANCHOR_LEAD = 0.2
+    ANCHOR_RT = 0.6
+
+    def on_words(self, phrase, anim):
+        """An animation that waits in its beat for these words of the line (a node revealed, a part lit, as the
+        teacher names it) instead of playing as the line begins."""
+        if anim is not None and phrase:
+            anim._panim_at = str(phrase)
+        return anim
+
+    @classmethod
+    def spoken_at(cls, text: str, phrase: str, seconds: float):
+        """(when the phrase begins, when its sentence ends), in seconds into the line's audio, or None when the
+        line does not say it. Estimated from where it falls in the line: a voice keeps an even pace, and its stops
+        at commas and full stops are counted in."""
+        low, want = text.lower(), " ".join(str(phrase).lower().split())
+        i = low.find(want) if want else -1
+        if i < 0:
+            words = re.findall(r"[\w']+", want)
+            if not words:
+                return None
+            m = re.search(r"\W+".join(re.escape(w) for w in words), low)
+            if not m:
+                return None
+            i, want = m.start(), m.group(0)
+        weights = [1 + cls.PAUSE_WEIGHT.get(ch, 0) for ch in text]
+        total = float(sum(weights)) or 1.0
+        before = sum(weights[:i])
+        stop = re.search(r"[.?!\u0964]", text[i + len(want):])
+        end_at = i + len(want) + (stop.end() if stop else len(text) - i - len(want))
+        return seconds * before / total, seconds * sum(weights[:end_at]) / total
+
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None) -> float:
         """One narration line and the animations that go with it.
 
@@ -1897,11 +1933,30 @@ class Lecture(Scene):
         self.add(cap)
         self.cap = cap
         spent = 0.0
-        anims = [a for a in (_playable(a) for a in anims) if a is not None]
+        # What is tied to words of the line (`at`) waits for them; the rest plays as the line begins.
+        timed, releases = [], []
+        now = []
+        for a in anims:
+            phrase = getattr(a, "_panim_at", None)
+            release = getattr(a, "_panim_release", None)
+            a = _playable(a)
+            if a is None:
+                continue
+            when = self.spoken_at(text, phrase, seconds) if phrase else None
+            if when is None or when[0] - self.ANCHOR_LEAD < 0.35:
+                now.append(a)
+                if when is not None and release is not None:
+                    releases.append((when[1], release))
+            else:
+                timed.append((when, a, release))
+        anims = now
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
             anims += self._cover_changes()
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
+            if timed and rt is None:
+                # Done before the first words something waits for.
+                spent = min(spent, max(0.6, min(w[0] for w, _, _ in timed) - self.ANCHOR_LEAD - 0.05))
         # A live process (a titration, cell division) runs from when its picture is in to the end of the line.
         self._beat_span = max(0.6, seconds + pad - spent)
         if anims:
@@ -1915,15 +1970,63 @@ class Lecture(Scene):
                 self.play(*items, run_time=spent * 0.5)
             else:
                 self.play(*anims, run_time=spent)
+        elapsed = spent
+        if timed or releases:
+            elapsed = self._play_on_words(timed, releases, elapsed, seconds)
         self._beat_new = []
         self._beat_revealed = []
         self._beat_asides = []
         self._beat_added = []
         self._check_beat(text)
-        rest = seconds + pad - spent
+        rest = seconds + pad - elapsed
         if rest > 0.02:
             self.wait(rest)
         return seconds
+
+    def _play_on_words(self, timed, releases, elapsed: float, seconds: float) -> float:
+        """Play each animation tied to words as they are spoken, and let a part lit for words go when the voice
+        moves on: at the next words something is tied to, or at the end of their sentence. Returns the time into
+        the line when the last one is done."""
+        timed = sorted(timed, key=lambda t: t[0][0])
+        groups = []
+        for when, anim, release in timed:
+            if groups and when[0] - groups[-1][0] < 0.25:
+                groups[-1][1].append(anim)
+                groups[-1][2].extend([(when[1], release)] if release is not None else [])
+            else:
+                groups.append([when[0], [anim], [(when[1], release)] if release is not None else []])
+        pending = sorted(releases, key=lambda r: r[0])
+
+        def let_go(until: float, elapsed: float) -> float:
+            # What was lit for words whose sentence is over by `until` lets go then.
+            while pending and pending[0][0] <= until:
+                end, release = pending.pop(0)
+                going = list(release() or [])
+                if not going:
+                    continue
+                if end - elapsed > 0.02:
+                    self.wait(end - elapsed)
+                    elapsed = end
+                self.play(*going, run_time=0.4)
+                elapsed += 0.4
+            return elapsed
+
+        for start, group, lit in groups:
+            elapsed = let_go(start - self.ANCHOR_LEAD, elapsed)
+            at = max(start - self.ANCHOR_LEAD, elapsed)
+            going = []
+            if lit:
+                # Another part lit: the one before lets go as it lights.
+                for _, release in pending:
+                    going += list(release() or [])
+                pending.clear()
+            if at - elapsed > 0.02:
+                self.wait(at - elapsed)
+            self.play(*going, *group, run_time=self.ANCHOR_RT)
+            elapsed = at + self.ANCHOR_RT
+            pending = sorted(pending + lit, key=lambda r: r[0])
+        elapsed = let_go(seconds, elapsed)
+        return elapsed
 
     # ---------------- the visual check ----------------
     # After each beat's animations, what is on screen is checked the way a viewer would see it: words too small to
@@ -3960,7 +4063,20 @@ class Lecture(Scene):
         d["focus"] = self._stage_add(ring)
         anims.append(Create(ring))
         lit = AnimationGroup(*anims, lag_ratio=0.2)
-        return AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
+        whole = AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
+
+        def release():
+            # Tied to words (`at`), the light goes when the voice moves on: the veils lift, the ring goes. A ring
+            # another focus has replaced since is that focus's to clear.
+            if d.get("gone") or d.get("focus") is not ring:
+                return []
+            d["focus"] = None
+            if ring in self.stage_extra:
+                self.stage_extra.remove(ring)
+            return [*self._unveil(d), FadeOut(ring)]
+
+        whole._panim_release = release
+        return whole
 
     @staticmethod
     def _card(inner, tone: str, pad: float = 0.42, width: float | None = None):

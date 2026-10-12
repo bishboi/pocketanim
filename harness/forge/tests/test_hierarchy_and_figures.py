@@ -276,3 +276,46 @@ def test_without_an_image_model_the_book_figure_is_not_shown(figures_js, servers
     _book_photo(figure)
     drawn = _draw(figures_js, servers, tmp_path, figure, PANIM_IMAGES="0")
     assert "generated" not in drawn and drawn["diagramError"]
+
+
+def test_a_hub_puts_the_parent_on_top_and_its_children_below():
+    """A hub ("Feudal Society" includes three things) was drawn with its centre in the middle and the rest around
+    it; now the parent is on top and its children in a row below, with the words on the arrows kept."""
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    nodes = [{"id": "f", "label": "Feudal Society"}, {"id": "s", "label": "Social relations"},
+             {"id": "l", "label": "Land management"}, {"id": "c", "label": "Popular culture"}]
+    scene.diagram("h", "hub", nodes, [["f", "s", "includes"], ["f", "l", "includes"], ["f", "c", "includes"]])
+    d = scene.diagrams["h"]
+    top = d["nodes"]["f"].get_center()[1]
+    below = [d["nodes"][i].get_center()[1] for i in ("s", "l", "c")]
+    assert all(top > y + 0.5 for y in below)
+    assert max(below) - min(below) < 0.3                               # the children side by side
+    words = [m for m in scene.stage_items.get_family() + [x for e in scene.stage_extra for x in e.get_family()]
+             if isinstance(m, pl.Text) and "includes" in getattr(m, "original_text", "")]
+    assert words
+
+
+def test_a_flow_with_a_step_branching_in_two_runs_top_down():
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    nodes = [{"id": k, "label": k} for k in ("Lord", "Knight", "Peasant", "Fief", "Service")]
+    edges = [["Lord", "Knight", "grants"], ["Lord", "Peasant", "protects"], ["Knight", "Fief"],
+             ["Peasant", "Fief"], ["Fief", "Service"], ["Service", "Lord", "owed to"]]
+    scene.diagram("g", "flow", nodes, edges)
+    n = scene.diagrams["g"]["nodes"]
+    assert n["Lord"].get_center()[1] > n["Knight"].get_center()[1] > n["Fief"].get_center()[1]

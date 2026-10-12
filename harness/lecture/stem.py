@@ -1629,11 +1629,12 @@ class BoardMixin:
         self._live_start(group, step, "process")
         return AnimationGroup(*going, FadeIn(group))
 
-    def zoom(self, key: str, node: str | None = None, scale: float = 1.8):
+    def zoom(self, key: str, node: str | None = None, scale: float = 1.8, inside: bool = False):
         """Move in on a part of the picture on the stage (scaled up about it and brought to the middle), or, with
-        no node, back out to the whole picture."""
+        no node, back out to the whole picture. `inside`: no further in than keeps the whole picture on the stage
+        (a focus's own push in), the part as near the middle as that allows."""
         import numpy as np
-        from manim import AnimationGroup
+        from manim import DL, UR, AnimationGroup
 
         d = self.diagrams.get(key)
         body = getattr(self, "stage_body", None)
@@ -1660,27 +1661,87 @@ class BoardMixin:
             group._panim_bake = True
             return group
 
-        def move(f, about, shift):
-            return baked(*(m.animate.scale(f, about_point=about).shift(shift) for m in parts))
-
         if not parts:
             return None
+        # The parts not on the screen yet move too: the ones this beat brings in (a node revealed with this
+        # focus) and the ones still to come. Left where they were, a node revealed with the focus came in at its old
+        # size beside the moved picture, and the ring meant for it circled an empty patch.
+        moving = {id(x) for m in parts for x in m.get_family()}
+        waiting, seen_w = [], set()
+        for m in [*self.stage_extra, *getattr(self, "stage_pending", []), *d.get("nodes", {}).values(),
+                  *(e[2] for e in d.get("edges", ()))]:
+            if id(m) in moving or id(m) in seen_w:
+                continue
+            seen_w.update(id(x) for x in m.get_family())
+            waiting.append(m)
+        record = zoomed.get(key)
 
-        cx, cy, _, _ = self.STAGE
-        middle = np.array([cx, cy, 0.0])
+        def undo(m):
+            # back to the picture as it was before the move in
+            if record:
+                f0, about0, middle0 = record
+                m.shift(about0 - middle0).scale(1 / f0, about_point=about0)
+            return m
+
+        def flat(p):
+            if not record:
+                return np.array(p, dtype=float)
+            f0, about0, middle0 = record
+            return (np.array(p, dtype=float) - middle0) / f0 + about0
+
         if node is None:
-            done = zoomed.pop(key, None)
-            if not done:
+            if not record:
                 return None
-            f, about = done
-            # undo the move in: back by the shift, then down about the same point
-            return baked(*(m.animate.shift(about - middle).scale(1 / f, about_point=about) for m in parts))
-        if key in zoomed or node not in d.get("nodes", {}):
+            zoomed.pop(key)
+            self._zoom_place = undo
+            for m in waiting:
+                undo(m)
+            return baked(*(undo(m.animate) for m in parts))
+        if node not in d.get("nodes", {}):
             return None
+        box = self.STAGE
+        if any(getattr(m, "is_aside", False) for m in self.stage_extra):
+            box = self._halves()[0]
+        cx, cy, w, h = box
+        # How far in: as asked, but never past the stage. Grown past it, the picture ran under the chapter's heading
+        # and the caption, and its labels over each other.
+        every = [m for m in [*parts, *waiting] if len(m.get_family()) and (m.width > 1e-3 or m.height > 1e-3)]
+        lows = [flat(m.get_corner(DL)) for m in every]
+        highs = [flat(m.get_corner(UR)) for m in every]
+        x0, y0 = min(p[0] for p in lows), min(p[1] for p in lows)
+        x1, y1 = max(p[0] for p in highs), max(p[1] for p in highs)
         f = max(1.1, min(float(scale or 1.8), 3.0))
-        about = d["nodes"][node].get_center()
-        zoomed[key] = (f, about)
-        return move(f, about, middle - about)
+        about = flat(d["nodes"][node].get_center())
+        middle = np.array([cx, cy, 0.0])
+        if inside:
+            fit = min((w - 0.3) / max(x1 - x0, 0.01), (h - 0.3) / max(y1 - y0, 0.01))
+            f = min(f, fit)
+            if f < 1.1 and not record:
+                return None
+            f = max(f, 1.0)
+            # The part as near the middle as the picture allows, the whole picture inside the stage.
+            mx = min(max(cx, cx - w / 2 + 0.15 - f * (x0 - about[0])), cx + w / 2 - 0.15 - f * (x1 - about[0]))
+            my = min(max(cy, cy - h / 2 + 0.15 - f * (y0 - about[1])), cy + h / 2 - 0.15 - f * (y1 - about[1]))
+            middle = np.array([mx, my, 0.0])
+
+        def place(m):
+            undo(m)
+            return m.scale(f, about_point=about).shift(middle - about)
+
+        zoomed[key] = (f, about, middle)
+        self._zoom_place = place
+        for m in waiting:
+            place(m)
+        return baked(*(place(m.animate) for m in parts))
+
+    def _zoom_follow(self, f: float, centre, shift) -> None:
+        """The stage's picture was scaled by f about `centre` and shifted (to make room for a card beside it): a
+        picture moved in on is still moved in on, and moving back out has to land where the picture now is."""
+        import numpy as np
+
+        for key, (f0, about0, middle0) in list(getattr(self, "_zoomed", {}).items()):
+            moved = lambda p: (np.array(p, dtype=float) - centre) * f + centre + shift  # noqa: E731
+            self._zoomed[key] = (f0, moved(about0), moved(middle0))
 
     def _live_motion(self, key: str, spec: dict, at, vec, live):
         """Continuous motion of a sketch's parts for the line (orbit, follow, vibrate, spin, flow)."""

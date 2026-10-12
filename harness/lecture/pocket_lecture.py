@@ -1898,6 +1898,8 @@ class Lecture(Scene):
         self.cap = cap
         spent = 0.0
         anims = [a for a in (_playable(a) for a in anims) if a is not None]
+        if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
+            anims += self._cover_changes()
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
         # A live process (a titration, cell division) runs from when its picture is in to the end of the line.
@@ -2305,12 +2307,17 @@ class Lecture(Scene):
     STAGE = (-3.05, 0.3, 6.5, 6.1)
 
     def _stage_card(self):
-        """What a stage picture sits on: opaque over a map, invisible on the bare backdrop."""
+        """What a stage picture sits on: invisible itself, and over a map the map's cover (_map_cover) under it."""
         cx, cy, w, h = self.STAGE
         covering = bool(getattr(self, "layers", None)) and getattr(self, "_map_on", False)
-        card = Rectangle(width=w + 0.5, height=h + 0.6, fill_color=P.BG, fill_opacity=1 if covering else 0,
-                         stroke_width=0)
+        card = Rectangle(width=w + 0.5, height=h + 0.6, fill_color=P.BG, fill_opacity=0, stroke_width=0)
         card.move_to([cx, cy, 0])
+        cover = self._map_cover() if covering else None
+        if cover is not None and getattr(self, "_cover_holder", None) is None:
+            # The first picture over the map brings the cover in with it (it fades in with the picture); from
+            # then on the cover stays up on its own while pictures come and go over it.
+            card.add(cover)
+            self._cover_holder = card
         import artstyle
 
         marks = artstyle.stage_marks(self.STAGE)
@@ -2318,8 +2325,71 @@ class Lecture(Scene):
             card.add(marks)
         return card
 
+    def _map_cover(self):
+        """What hides the map while pictures are on the stage: the backdrop's colour over the whole of the map's
+        part of the frame. A card the size of the stage left the map's edges showing round the picture, and,
+        going out with each picture, put the whole map back up for a moment every time the picture changed."""
+        cover = getattr(self, "_cover", None)
+        if cover is None:
+            left = -config.frame_width / 2
+            right = self._map_right() if hasattr(self, "_map_right") else self.STAGE[0] + self.STAGE[2] / 2
+            cover = Rectangle(width=right - left, height=config.frame_height, fill_color=P.BG, fill_opacity=1,
+                              stroke_width=0).move_to([(left + right) / 2, 0, 0])
+            cover.is_map_cover = True
+            self._cover = cover
+            self._cover_holder = None
+        return cover
+
+    def _keep_cover(self) -> None:
+        """The cover stays when the picture it came in with leaves: it is taken out of that picture's card and
+        stays on the screen by itself, under the pictures that follow."""
+        cover, holder = getattr(self, "_cover", None), getattr(self, "_cover_holder", None)
+        if cover is None or not holder or not any(cover is m for m in holder.submobjects):
+            return
+        holder.remove(cover)
+        self._cover_holder = False
+        if any(holder is m for m in self.get_mobject_family_members()):
+            # Just under the stage's level: the picture leaving still fades out over it.
+            self.add(cover.set_z_index(Z_MARK + 9.9))
+        else:
+            # Its picture never came up (replaced in the same beat): the next picture brings a cover of its own.
+            self._cover = self._cover_holder = None
+
+    def _cover_changes(self) -> list:
+        """What the map shows above the cover goes and comes back with it: its labels and markers sit above the
+        stage's own level (so they are read over the map's fills), and a cover under the pictures left them
+        showing through ("Madrid" under a diagram)."""
+        hidden = getattr(self, "_cover_hidden", [])
+        if getattr(self, "_cover", None) is None:
+            self._cover_hidden = []
+            return [FadeIn(m) for m in hidden]
+        keep = {id(x) for m in [self.stage_items, *self.stage_extra, getattr(self, "chrome", None),
+                                getattr(self, "panel", None), self.cap, self._cover]
+                if m is not None for x in m.get_family()}
+        right = self._map_right() if hasattr(self, "_map_right") else self.STAGE[0] + self.STAGE[2] / 2
+        out = []
+        for m in list(self.mobjects):
+            if id(m) in keep or any(m is h for h in hidden):
+                continue
+            zs = [getattr(x, "z_index", 0) for x in m.get_family()]
+            if not zs or max(zs) < Z_MARK + 10 or max(zs) >= Z_CARD or m.get_center()[0] > right:
+                continue
+            hidden.append(m)
+            out.append(FadeOut(m))
+        self._cover_hidden = hidden
+        return out
+
+    def _drop_cover(self) -> list:
+        """Fade-outs for the map's cover: the stage is cleared back to the map."""
+        self._keep_cover()
+        cover, self._cover, self._cover_holder = getattr(self, "_cover", None), None, None
+        if cover is None or not any(cover is m for m in self.mobjects):
+            return []
+        return [FadeOut(cover)]
+
     def _stage_leaving(self) -> list:
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
+        self._keep_cover()
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
         for key in getattr(self, "_stage_keys", ()):
             if key in self.diagrams:
@@ -2388,6 +2458,7 @@ class Lecture(Scene):
         centre = whole.get_center()
         for m in mobs:
             m.scale(f, about_point=centre).shift(np.array([cx, cy, 0]) - centre)
+        return f, np.array(centre, dtype=float), np.array([cx, cy, 0]) - centre
 
     def _beside(self, group):
         """The beat's second picture: the drawing takes the left half, the words about it (a definition, an
@@ -2413,7 +2484,9 @@ class Lecture(Scene):
             picture_parts = [*picture_parts, *added]
         else:
             card_parts = [*card_parts, *added]
-        self._fit_box([picture, *picture_parts], left)
+        moved = self._fit_box([picture, *picture_parts], left)
+        if picture is first and hasattr(self, "_zoom_follow"):
+            self._zoom_follow(*moved)
         self._fit_box([card, *card_parts], right, grow=1.3)
         card.is_aside = True
         card.aside_box = right
@@ -2471,6 +2544,8 @@ class Lecture(Scene):
         not shown yet) are simply put there, since two animations on one part fight and it stayed behind."""
         cx, cy = box[0], box[1]
         shift = np.array([cx, cy, 0]) - centre
+        if hasattr(self, "_zoom_follow"):
+            self._zoom_follow(f, np.array(centre, dtype=float), shift)
         arriving = {id(m) for m in [*self._beat_new, *self._beat_revealed]}
         slides = []
         for m in [self.stage_items, *self.stage_extra]:
@@ -2502,7 +2577,7 @@ class Lecture(Scene):
         order a model often writes) would wipe what the beat is about to show."""
         if self._beat_new or self._beat_added:
             return None
-        going = self._stage_leaving()
+        going = self._stage_leaving() + self._drop_cover()
         return AnimationGroup(*going) if going else None
 
     # How a picture on the stage moves once it is drawn: (kind) -> what it does over time. It starts when the
@@ -3207,7 +3282,15 @@ class Lecture(Scene):
             kind, numbered = "flow", True
         if kind == "pyramid":
             return self._pyramid(key, nodes[:7], title, show)
-        plain = not any(len(e) > 2 and e[2] for e in edges) and not any(n.get("shape") or n.get("lane") for n in nodes)
+        # Words on the arrows ("includes") keep a hierarchy a hierarchy: the tree layout writes them on its
+        # connectors.
+        plain = not any(n.get("shape") or n.get("lane") for n in nodes)
+        if kind == "hub" and plain and len(ids) > 2:
+            # The thing all the others hang from goes on top, the others below it (a hub drawn with its centre in the
+            # middle and the rest around it read as no order at all).
+            hub_edges = edges or [[ids[0], i] for i in ids[1:]]
+            if _hier.is_tree(ids, hub_edges):
+                kind, edges = "tree", hub_edges
         if kind in ("tree", "categories", "hierarchy") or (kind == "flow" and plain and _hier.is_tree(ids, edges)):
             # A whole above its kinds, each above its own kinds (hierarchy.py): the main thing on top.
             nodes, ids = nodes[:20], ids[:20]
@@ -3508,8 +3591,14 @@ class Lecture(Scene):
                                       entity=n.get("entity"), motion=(n.get("anim") or "auto") if animate else "none",
                                       picture=n.get("picture"))
         lanes = {str(n["id"]): str(n["lane"]) for n in nodes if n.get("lane")}
+        # A step with two or more after it is a parent with its children: above them, always.
+        outs = {}
+        for e in edges:
+            outs[str(e[0])] = outs.get(str(e[0]), 0) + 1
+        branches = any(v > 1 for v in outs.values())
         lay = fc.layout(ids, [(str(e[0]), str(e[1])) for e in edges],
                         {i: (m.width, m.height) for i, m in mobs.items()}, lanes=lanes or None,
+                        direction="down" if branches and not lanes else "auto",
                         board=(self.STAGE[2], self.STAGE[3] - (0.8 if title else 0.2)), gap_rank=0.95, gap_step=0.45)
         for i, (x, y) in lay.centres.items():
             mobs[i].move_to([x, y, 0])
@@ -3846,15 +3935,11 @@ class Lecture(Scene):
         shown_parts = len([i for i in d["shown"] if i in d["nodes"]])
         push, moved = None, None
         if shown_parts >= self.PUSH_IN_FROM and hasattr(self, "zoom"):
-            back = self.zoom(key, None) if key in getattr(self, "_zoomed", {}) else None
-            closer = self.zoom(key, str(node), 1.5)
-            steps = [a for a in (back, closer) if a is not None]
-            if steps:
-                push = AnimationGroup(*steps, lag_ratio=1.0)
+            # One move from wherever the stage is (moved in on another part, or not) to this part.
+            push = self.zoom(key, str(node), 1.5, inside=True)
+            if push is not None:
                 d["pushed"] = True
-                f, about = self._zoomed[key]
-                middle = np.array([self.STAGE[0], self.STAGE[1], 0.0])
-                moved = lambda m: m.scale(f, about_point=about).shift(middle - about)  # noqa: E731
+                moved = self._zoom_place
         if moved is not None:
             moved(ring)
         # One focal point: every other part shown so far goes quiet under a veil; the arrows into and out of this one
@@ -4445,6 +4530,8 @@ class Lecture(Scene):
         self.diagrams = {}
         self._full_figure = self._new_figure = None
         self._map_on = False
+        self._cover = self._cover_holder = None
+        self._cover_hidden = []
         self.panel_y = 2.35
         self.stage_body, self.stage_pending, self._next_pending = None, [], []
         self.works, self._problem, self._question = {}, None, None

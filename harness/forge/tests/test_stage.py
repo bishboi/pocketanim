@@ -275,3 +275,39 @@ def test_a_generated_picture_is_drawn_in_shape_by_shape_with_its_labels(generate
     assert len(writes) >= 3                                  # its shapes, then its two labels, each written in
     pieces = pl.cutout_strokes(pl.cutout_mob(row["file"], 4, 4))
     assert len(pieces) >= 1
+
+
+def test_the_map_stays_hidden_while_pictures_change_on_the_stage():
+    """A picture over the map hides the whole map, its labels too ("Madrid" showed through a diagram), and the
+    map does not come back for a moment each time the picture changes: only when the stage is cleared."""
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        REGION = dict(country="India")
+
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.show_map()
+    before = list(scene.mobjects)
+    scene.play(scene.mark("Delhi", label="Delhi"), run_time=0.1)
+    label = [m for m in scene.mobjects if all(m is not b for b in before)][-1]
+    lifted = scene.mobjects[0].copy().set_z_index(pl.Z_LABEL).move_to(label)      # a map label above the stage's level
+    scene.add(lifted)
+    on = lambda m: any(m is x for x in scene.mobjects)  # noqa: E731
+    top = lambda m: max(getattr(x, "z_index", 0) for x in m.get_family())  # noqa: E731
+    scene.beat("A diagram over the map.", scene.diagram("a", "flow", [{"id": "x", "label": "Lords"},
+                                                                     {"id": "y", "label": "Peasants"}], [["x", "y"]]))
+    cover = scene._cover
+    assert cover is not None and on(label) and top(label) < top(cover)  # under the cover
+    assert not on(lifted)                                               # above it: taken away with the map
+    left = -pl.config.frame_width / 2
+    assert cover.get_left()[0] <= left + 0.01 and cover.width >= scene._map_right() - left - 0.01
+    assert cover.height >= pl.config.frame_height - 0.01
+    scene.beat("Another picture.", scene.diagram("b", "flow", [{"id": "p", "label": "Church"},
+                                                              {"id": "q", "label": "Kings"}], [["p", "q"]]))
+    assert scene._cover is cover and on(cover)                          # still up while the picture changed
+    scene.beat("Back to the map.", scene.clear_stage())
+    assert scene._cover is None and not on(cover) and on(label) and on(lifted)   # the map is back, labels too

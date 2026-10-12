@@ -187,13 +187,61 @@ def test_a_spotlight_quiets_the_rest_and_moves_in_on_a_big_diagram():
     scene.add(*scene.stage_items, *scene.stage_extra)
     assert scene.spotlight("d", "n4") is not None
     d = scene.diagrams["d"]
-    assert len(d["veils"]) == 7 and d.get("pushed")                 # every other part veiled; moved in on it
+    # Every other part veiled. The diagram already fills the stage: it is not pushed past it (grown past it, it
+    # ran under the chapter's heading and the caption).
+    assert len(d["veils"]) == 7 and not d.get("pushed")
     small = [f"m{k}" for k in range(4)]
     scene.diagram("e", "flow", [{"id": i, "label": i} for i in small], [[a, b] for a, b in zip(small, small[1:])])
     scene.spotlight("e", "m1")
     assert len(scene.diagrams["e"]["veils"]) == 3 and not scene.diagrams["e"].get("pushed")
     scene.reveal_nodes("e", [])
     assert scene.diagrams["e"]["veils"] == []                       # the focus moved on: the veils lift
+
+
+def test_moving_in_keeps_the_picture_on_the_stage_and_takes_new_parts_along():
+    """A push in on a diagram with room to grow stays inside the stage; a part revealed in the same beat (not on
+    the screen yet) moves with the rest instead of arriving at its old size; moving the stage aside for a card and
+    back out lands the picture where it now belongs."""
+    import numpy as np
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    ids = [f"n{k}" for k in range(8)]
+    scene.diagram("d", "flow", [{"id": i, "label": i} for i in ids], [[a, b] for a, b in zip(ids, ids[1:])],
+                  show=ids[:7])
+    d = scene.diagrams["d"]
+    for m in [*scene.stage_items, *scene.stage_extra, *d["nodes"].values()]:
+        m.scale(0.45, about_point=np.array([scene.STAGE[0], scene.STAGE[1], 0.0]))
+    scene.add(*scene.stage_items, *scene.stage_extra)
+    late = d["nodes"]["n7"]
+    width_before = late.width
+    scene.reveal_nodes("d", ["n7"])
+    push = scene.zoom("d", "n7", 1.8, inside=True)
+    assert push is not None
+    f = scene._zoomed["d"][0]
+    assert f > 1.1 and abs(late.width - width_before * f) < 1e-6        # the new part moved with the picture
+    scene.play(push, run_time=0.1)
+    cx, cy, w, h = scene.STAGE
+    for m in [*scene.stage_items, *scene.stage_extra]:
+        for x in m.get_family():
+            if x.width > 1e-3 and isinstance(x, pl.Text):
+                assert cx - w / 2 - 0.05 <= x.get_left()[0] and x.get_right()[0] <= cx + w / 2 + 0.05
+                assert cy - h / 2 - 0.05 <= x.get_bottom()[1] and x.get_top()[1] <= cy + h / 2 + 0.05
+    # The stage moved aside (a card beside it), then back out: the picture's original size, at its new place.
+    centre = np.array([cx, cy, 0.0])
+    shift = np.array([-1.0, 0.0, 0.0])
+    for m in [*scene.stage_items, *scene.stage_extra]:
+        m.scale(0.8, about_point=centre).shift(shift)
+    scene._zoom_follow(0.8, centre, shift)
+    out = scene.zoom("d", None)
+    scene.play(out, run_time=0.1)
+    assert abs(late.width - width_before * 0.8) < 1e-3
 
 
 def test_diagrams_carry_meaning():

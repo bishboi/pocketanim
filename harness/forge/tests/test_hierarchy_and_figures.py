@@ -247,31 +247,28 @@ def _draw(figures_js: Path, servers: dict, tmp_path: Path, figure: Path, **extra
     return json.loads(done.stdout.strip().splitlines()[-1])["fig1"]
 
 
-def test_a_book_photo_is_made_again_by_the_image_model_as_a_cutout(figures_js, servers, tmp_path):
-    """No web search: the figure model says what the photograph shows, and the image model makes it again, cut out
-    on transparent with no border."""
-    from PIL import Image
-
+def test_a_book_photo_is_redrawn_by_the_diagram_model_never_shown_as_it_is(figures_js, servers, tmp_path):
+    """Every figure, a photograph too, is redrawn by the diagram model from the figure itself (sent with the
+    request): an exact copy in the lecture's style, the book's watermarks and page marks left out."""
     figure = tmp_path / "fig1.jpg"
     _book_photo(figure)
     drawn = _draw(figures_js, servers, tmp_path, figure)
-    assert drawn["photo"] and drawn["looked"] and drawn["query"] == "Ganges river at Varanasi ghats"
-    assert drawn["generated"]["file"].endswith(".png")                       # the PNG itself: nothing traced
-    made = Image.open(drawn["generated"]["file"])
-    assert made.mode == "RGBA" and made.getpixel((0, 0))[3] == 0          # the white around it is gone
-    assert made.size[0] < 300 and made.size[1] < 200                        # trimmed to the subject
+    assert drawn["photo"] and drawn["diagram"] and drawn["generated"]["file"].endswith(".png")
+    assert "gen-diagram-" in drawn["generated"]["file"] and drawn["generated"]["file"] != str(figure)
     kinds = [k for k, _ in _Model.CALLS]
-    assert kinds == ["decide", "generate"]
-    asked = _Model.CALLS[1][1]
-    assert "Ganges river at Varanasi ghats" in asked and "CUTOUT" in asked and "no border" in asked
+    assert kinds[0] == "generate" and "decide" not in kinds[:1]          # no sorting first: straight to the redraw
+    asked = _Model.CALLS[0][1]
+    assert '"image_url"' in asked                                         # the book's figure goes with it
+    assert "EXACT, CLEAN COPY" in asked and "watermarks" in asked and "The Ganges at Varanasi" in asked
     # Kept beside the figure: a second lecture from the book asks nothing again.
     _Model.CALLS = []
     again = _draw(figures_js, servers, tmp_path, figure)
     assert again["generated"]["file"] == drawn["generated"]["file"] and _Model.CALLS == []
 
 
-def test_without_an_image_model_the_book_photo_stays(figures_js, servers, tmp_path):
+def test_without_an_image_model_the_book_figure_is_not_shown(figures_js, servers, tmp_path):
+    """No redraw: the figure is left out (the writer rebuilds it), never shown as the book's own picture."""
     figure = tmp_path / "fig1.jpg"
     _book_photo(figure)
     drawn = _draw(figures_js, servers, tmp_path, figure, PANIM_IMAGES="0")
-    assert drawn["photo"] and drawn["looked"] and "generated" not in drawn
+    assert "generated" not in drawn and drawn["diagramError"]

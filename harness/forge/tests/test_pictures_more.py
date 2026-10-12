@@ -329,11 +329,14 @@ def test_a_book_diagram_is_redrawn_from_itself_and_its_labels_checked(two_models
     assert again["file"] == row["file"] and len(asked) == 4              # kept: not drawn again
 
 
-def test_a_diagram_whose_labels_never_come_right_is_not_used(two_models, monkeypatch):
+def test_a_diagram_whose_labels_never_come_right_keeps_the_closest_try(two_models, monkeypatch):
+    """The book's own picture is never shown: when no try passes the label check, the closest one is kept, and its
+    check says what is still off."""
     gen, asked, figure = two_models
     monkeypatch.setenv("PANIM_DIAGRAM_TRIES", "1")
     row = gen.redraw(str(figure), "Fig. 3: a plant cell", "lab")
-    assert "error" in row and "cell wall" in row["error"]
+    assert "error" not in row and row["file"].endswith(".png") and row["ok"] is False
+    assert "cell wall" in row["check"]["missing"] + row["check"]["wrong"]
 
 
 def test_a_words_only_diagram_model_is_told_to_be_changed(two_models, monkeypatch):

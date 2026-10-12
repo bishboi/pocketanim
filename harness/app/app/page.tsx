@@ -299,23 +299,6 @@ export default function Home() {
       // no storage here: the server's setting
     }
   }, []);
-  /** The model that looks at the book's figures, typed on the page (kept in this browser); empty: the server's. */
-  const [drawer, setDrawer] = useState("");
-  useEffect(() => {
-    try {
-      setDrawer(localStorage.getItem("panim.svgModel") ?? "");
-    } catch {
-      // no storage here: the server's setting
-    }
-  }, []);
-  function chooseDrawer(value: string) {
-    setDrawer(value);
-    try {
-      localStorage.setItem("panim.svgModel", value.trim());
-    } catch {
-      // not remembered, still used for this lecture
-    }
-  }
   function chooseWriter(value: string) {
     setWriter(value);
     try {
@@ -853,7 +836,6 @@ export default function Home() {
           subject: template.kind === "lecture" ? subject : undefined,
           language: template.kind === "lecture" ? language : undefined,
           transcriptModel: template.kind === "lecture" && writer.trim() ? writer.trim() : undefined,
-          svgModel: template.kind === "lecture" && drawer.trim() ? drawer.trim() : undefined,
           referenceId: template.kind === "lecture" ? reference.id : undefined,
           preview: template.kind === "lecture" && preview && !edit ? true : undefined,
         }),
@@ -1504,22 +1486,6 @@ export default function Home() {
                     />
                     <span className="text-neutral-500">
                       writes what the teacher says; the video (the script, Manim) uses {status?.model ?? "OPENROUTER_MODEL"}
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <span className="text-neutral-300">Figure model</span>
-                    <input
-                      aria-label="Figure model"
-                      data-testid="svg-model"
-                      className="w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-200"
-                      placeholder={status?.svgModel ?? "OpenRouter model id"}
-                      value={drawer}
-                      disabled={!!busy}
-                      onChange={(e) => chooseDrawer(e.target.value)}
-                    />
-                    <span className="text-neutral-500">
-                      looks at each of the book&apos;s figures and says how it is shown: made again, redrawn by the
-                      diagram model, or built in Manim (pick a model that reads images)
                     </span>
                   </label>
                   <span>

@@ -189,18 +189,22 @@ export async function figureFile(id: string, figure: string): Promise<string> {
   return found.file;
 }
 
-/** The script's `figures` table: what the compiler resolves figure ops against, each with the picture it shows. */
+/** The script's `figures` table: what the compiler resolves figure ops against, each with its redrawn picture. A
+ * figure with no redraw is not in it at all: the book's own picture is never shown (the writer rebuilds it). */
 export function scriptFigures(doc: DocumentManifest, drawn: Record<string, Drawn> = {}):
   Record<string, { file: string; caption: string; credit?: string; web?: boolean }> {
-  return Object.fromEntries(doc.figures.map((f) => {
-    // A photograph or a diagram is shown as the image model made it again (figures.ts), credited; else the scan.
-    const web = drawn[f.id]?.photo ? drawn[f.id].generated : undefined;
-    return [f.id, {
-      file: web && existsSync(web.file) ? web.file : f.file,
-      caption: f.caption,
-      ...(web && existsSync(web.file) ? { credit: web.credit ?? "", web: true } : {}),
-    }];
+  return Object.fromEntries(doc.figures.flatMap((f) => {
+    const made = drawn[f.id]?.generated;
+    return made && existsSync(made.file)
+      ? [[f.id, { file: made.file, caption: f.caption, credit: made.credit ?? "", web: true }]]
+      : [];
   }));
+}
+
+/** Every teaching figure of the document, by id, with its caption: what the lecture must cover, each one shown as
+ * its redraw or rebuilt in Manim (lecture.ts unbuiltFigures). */
+export function figureCaptions(doc: DocumentManifest): Record<string, { caption: string }> {
+  return Object.fromEntries(teachingFigures(doc).map((f) => [f.id, { caption: f.caption }]));
 }
 
 /** The lines of the prompt that tell the model which figures it may show. */
@@ -216,17 +220,16 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
   const figures = teachingFigures(doc);
   if (!figures.length) return "";
   if (drawn) {
-    // The figures were looked at (figures.ts): diagrams redrawn by the diagram model, photographs made again,
-    // the rest to rebuild in Manim.
+    // The figures were redrawn by the diagram model (figures.ts): shown as their redraws, never as the book's.
     return [
       "",
-      `FIGURES from the book (${figures.length}). Show each where the text explains it, as its line below says:`,
-      "a diagram was REDRAWN by the diagram model in this lecture's style, every label kept: shown whole on the stage,",
-      'walk the class through it, naming each labelled part ({"op":"figure","id":"fig3","photo":true,"where":"stage"}).',
-      'A photograph is shown as the image model made it again ({"op":"figure","id":"fig4","photo":true}). A figure',
-      'listed "build it" is rebuilt in Manim (sketch, preset, graph, diagram, or a manim op) with "from_figure", in',
-      "full detail: the same parts, labels, arrows, values and geometry as the book's, revealed a part at a time.",
-      "Every figure is shown (the compiler checks). The text marks where each sits as [FIGURE figN: caption].",
+      `FIGURES from the book (${figures.length}). Show each where the text explains it, as its line below says: a`,
+      "figure REDRAWN by the diagram model (an exact copy in this lecture's style, every label kept) is shown whole on",
+      'the stage; walk the class through it, naming each labelled part ({"op":"figure","id":"fig3","photo":true,',
+      '"where":"stage"}). A figure listed "not available as a picture" is rebuilt in Manim (sketch, preset, graph,',
+      'diagram, or a manim op) with "from_figure", in full detail: the same parts, labels, arrows, values and',
+      "geometry as the book's. The book's own pictures are never shown. Every redrawn figure is shown (the compiler",
+      "checks). The text marks where each sits as [FIGURE figN: caption].",
       ...figures.map((f) => drawnLine(f, drawn[f.id])),
     ].join("\n");
   }
@@ -238,9 +241,9 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
     "revealed a part a beat as you talk about it. Use the op that fits: sketch or preset (apparatus, forces, a set-up),",
     "graph (a plotted relation), diagram (a process, a cycle, a classification), compare, a map sequence (a map).",
     'Mark the op with the figure it rebuilds: {"op":"sketch","id":"fbd",...,"figure":"fig3"}. Every figure is rebuilt',
-    "this way (the compiler checks). Only a PHOTOGRAPH (a real person, place, object or specimen, which no drawing can",
-    'replace) may be shown as it is: {"op":"figure","id":"fig4","photo":true,"caption"?}. The text marks where each',
-    "figure sits as [FIGURE figN: caption].",
+    "this way (the compiler checks). The book's own pictures are never shown, photographs included: a photograph",
+    'is shown as a picture the image model makes of the same thing ({"op":"picture","generate":"..."}). The text',
+    "marks where each figure sits as [FIGURE figN: caption].",
     ...figures.map((f) => `  ${f.id}: ${f.caption}${f.page ? ` (page ${f.page})` : ""}`),
   ].join("\n");
 }

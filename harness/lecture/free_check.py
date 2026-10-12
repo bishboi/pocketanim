@@ -35,12 +35,19 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 CACHE = HERE / ".cache" / "free"
 # Bump when the probe's checks change: cached verdicts from before are stale.
-REVISION = 1
+REVISION = 2
 
 # The board a block draws on: the whole frame between the title strip and the caption (stem.BOARD).
 AREA = (-6.9, 6.9, -3.05, 2.85)
 SLACK = 0.15
 MAX_CODE = 6000
+# Quality: words must read on a phone. Text below this font size is too small (a 6-inch phone shows the board's
+# 14 units in about 13 cm).
+MIN_FONT = 20
+# Two pieces of text whose boxes share more than this part of the smaller one overlap.
+TEXT_OVERLAP = 0.12
+# A line crossing the middle of a piece of text (its box shrunk by this much on each side) runs through the words.
+TEXT_CORE = 0.2
 # A block's animations may run this much longer than its line before the narration is left far behind.
 OVERRUN = 2.0
 OVERRUN_SECONDS = 4.0
@@ -242,6 +249,7 @@ def probe_group(scene, group: dict, export_dsl) -> list[str]:
     errors: list[str] = []
     names = namespace(scene)
     rec = getattr(export_dsl, "ACTIVE", None)
+    base = {id(m) for m in scene.mobjects}
     for block in group["blocks"]:
         where = block["where"]
         before = {id(m) for m in scene.mobjects}
@@ -264,6 +272,11 @@ def probe_group(scene, group: dict, export_dsl) -> list[str]:
             errors.append(f"{where}: its animations run {spent:.1f} s but its line is said in about "
                           f"{block['seconds']:.1f} s: keep a block to what its sentence says, and put the rest on "
                           "the next beats")
+        # How it reads: the words on the board once this block has run, among everything this id has drawn.
+        owned = [m for m in scene.mobjects if id(m) not in base and len(m.get_family())]
+        layout = layout_faults(owned)
+        if layout:
+            errors.append(f"{where}: the drawing does not read cleanly: " + "; ".join(layout[:4]))
         x0, x1, y0, y1 = AREA
         for m in scene.mobjects:
             if id(m) in before or not len(m.get_family()):
@@ -280,6 +293,113 @@ def probe_group(scene, group: dict, export_dsl) -> list[str]:
                               "(the title strip is above, the caption below)")
                 break
     return errors[:6]
+
+
+TEXT_TYPES = ("Text", "MarkupText", "Paragraph", "MathTex", "Tex", "SingleStringMathTex", "DecimalNumber", "Integer",
+              "Variable")
+
+
+def _words(mob) -> str:
+    """What a piece of text says, for a message."""
+    for attr in ("original_text", "tex_string", "text"):
+        value = getattr(mob, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:40]
+    return type(mob).__name__
+
+
+def _box(mob):
+    import numpy as np
+
+    lo, hi = mob.get_corner(np.array([-1, -1, 0])), mob.get_corner(np.array([1, 1, 0]))
+    return float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1])
+
+
+def _shown(mob) -> bool:
+    """Whether anything of it is drawn (a faded-out or empty part is not)."""
+    for part in mob.family_members_with_points():
+        try:
+            if part.get_stroke_opacity() > 0.05 or part.get_fill_opacity() > 0.05:
+                return True
+        except Exception:  # noqa: BLE001 -- a mobject without VMobject styling (an image): it is drawn
+            return True
+    return False
+
+
+def layout_faults(roots) -> list[str]:
+    """What makes a drawing hard to read, among the mobjects a block has on the board: words too small for a phone,
+    two pieces of text on top of each other, a line running through words. [] when it reads cleanly."""
+    import numpy as np
+
+    texts, inside = [], set()
+    for root in roots:
+        for mob in root.get_family():
+            if id(mob) in inside or type(mob).__name__ not in TEXT_TYPES:
+                continue
+            inside.update(id(m) for m in mob.get_family())
+            if mob.has_points() or any(m.has_points() for m in mob.get_family()):
+                if _shown(mob) and mob.width > 0.02:
+                    texts.append(mob)
+    faults: list[str] = []
+    for mob in texts:
+        size = getattr(mob, "font_size", None)
+        try:
+            size = float(size) if size is not None else None
+        except (TypeError, ValueError):
+            size = None
+        if size is not None and size < MIN_FONT - 0.5:
+            faults.append(f"the text {_words(mob)!r} is font size {size:.0f}: at least {MIN_FONT} to read on a phone")
+    boxes = [_box(m) for m in texts]
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            a, b = boxes[i], boxes[j]
+            w = min(a[2], b[2]) - max(a[0], b[0])
+            h = min(a[3], b[3]) - max(a[1], b[1])
+            if w <= 0 or h <= 0:
+                continue
+            smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) or 1e-9
+            if w * h / smaller > TEXT_OVERLAP:
+                faults.append(f"the texts {_words(texts[i])!r} and {_words(texts[j])!r} overlap: move one clear "
+                              "of the other (next_to with a buff, or arrange)")
+    text_parts = set(inside)
+    lines = []
+    for root in roots:
+        for part in root.family_members_with_points():
+            if id(part) in text_parts or not hasattr(part, "get_stroke_width"):
+                continue
+            try:
+                stroked = part.get_stroke_width() > 0 and part.get_stroke_opacity() > 0.2
+            except Exception:  # noqa: BLE001
+                stroked = False
+            if stroked and len(part.points) >= 4:
+                lines.append(part)
+    crossed = set()
+    for k, mob in enumerate(texts):
+        x0, y0, x1, y1 = boxes[k]
+        dx, dy = (x1 - x0) * TEXT_CORE, (y1 - y0) * TEXT_CORE
+        core = (x0 + dx, y0 + dy, x1 - dx, y1 - dy)
+        if core[2] <= core[0] or core[3] <= core[1]:
+            continue
+        for part in lines:
+            px0, py0, px1, py1 = _box(part)
+            if px1 < core[0] or px0 > core[2] or py1 < core[1] or py0 > core[3]:
+                continue
+            pts = np.asarray(part.points)
+            n = len(pts) // 4
+            if not n:
+                continue
+            t = np.linspace(0, 1, 12)[:, None]
+            curves = pts[: n * 4].reshape(n, 4, 3)
+            sample = (((1 - t) ** 3)[None] * curves[:, 0:1] + (3 * (1 - t) ** 2 * t)[None] * curves[:, 1:2]
+                      + (3 * (1 - t) * t ** 2)[None] * curves[:, 2:3] + (t ** 3)[None] * curves[:, 3:4]).reshape(-1, 3)
+            hit = ((sample[:, 0] > core[0]) & (sample[:, 0] < core[2]) & (sample[:, 1] > core[1])
+                   & (sample[:, 1] < core[3]))
+            if hit.any() and id(mob) not in crossed:
+                crossed.add(id(mob))
+                faults.append(f"a line runs through the text {_words(mob)!r}: move the label beside what it names "
+                              "(next_to with a buff), or the line around it")
+                break
+    return list(dict.fromkeys(faults))
 
 
 def _probe_main(groups_file: str, result_file: str) -> int:

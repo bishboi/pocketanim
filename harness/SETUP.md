@@ -130,12 +130,14 @@ sent to the model with the words (`PANIM_IMAGE_REFERENCE=0` turns this off; a mo
 gets the words only).
 
 Two image models: `PANIM_IMAGE_MODEL` makes the illustrations (people, places, objects, scenes: quick and cheap),
-and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. Each of the book's figures is looked at
-once by `OPENROUTER_FIGURE_MODEL` (a photograph, a figure Manim builds exactly, or a diagram), and a diagram is
-redrawn by the diagram model from the figure itself, in the lecture's style, every label copied letter for letter.
+and `PANIM_DIAGRAM_MODEL` (empty: the same one) makes what must be exact. The book's own pictures are never shown:
+every figure of an uploaded book (a diagram, a graph, an apparatus, a photograph) is redrawn by the diagram model
+from the figure itself as an exact copy (the same layout, parts, arrows, numbers, every label copied letter for
+letter) in the lecture's style, with watermarks, logos, QR codes, figure numbers, captions and scan marks left out.
 A model that reads images (`PANIM_LABEL_MODEL`) then compares the redraw with the book's figure, label by label;
-what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (3) tries. A diagram whose
-labels never come out right is shown as the book's own figure, never wrong. The diagram model must take a picture in
+what is missing or wrong goes back to the diagram model, up to `PANIM_DIAGRAM_TRIES` (4) tries, and the closest try
+is kept. A figure the model cannot redraw at all is left out and rebuilt in Manim. The script waits up to
+`PANIM_FIGURE_WAIT_SECONDS` (420) for the redraws. The diagram model must take a picture in
 (a words-only model such as Recraft cannot copy a figure: the log says so). A picture with labelled parts, and a
 script's detailed diagram (`draw`), is also made by the diagram model.
 

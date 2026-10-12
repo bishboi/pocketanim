@@ -478,11 +478,11 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         _drop(op, at, problem, notes)
                         continue
                 if kind == "figure" and script.get("rebuild_figures") and not op.get("photo"):
-                    # The book's diagram had no redrawing to show and the writer built none: shown as the book has
-                    # it, rather than the section sent back.
+                    # A figure in the table is its redraw (the diagram model's copy, never the book's own picture):
+                    # shown whole, as a picture.
                     op["photo"] = True
                     pictured.add(str(op.get("id")))
-                    notes.append(f"{FIXED}{at}: figure {op.get('id')!r} shown as the book's picture (not rebuilt)")
+                    notes.append(f"{FIXED}{at}: figure {op.get('id')!r} shown as its redrawn picture")
                 if kind == "figure" and op.get("show") and (figures[str(op["id"])] or {}).get("parts"):
                     parts = [str(p) for p in figures[str(op["id"])]["parts"]]
                     _keep_known(op, "show", parts, at, notes)

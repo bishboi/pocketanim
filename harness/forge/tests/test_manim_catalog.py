@@ -30,3 +30,21 @@ def test_every_block_passes_the_sandbox_and_the_probe():
 def test_the_example_lecture_is_the_catalogue():
     kept = json.loads((LECTURE / "examples" / "manim-diagrams.json").read_text())
     assert kept == json.loads(json.dumps(mc.script(), ensure_ascii=False))
+
+
+def test_a_block_that_does_not_read_cleanly_is_sent_back():
+    """Words too small for a phone, two labels on top of each other, a line through a label: each is a fault the
+    writer is told to fix. A label inside its box, or beside a line, is fine."""
+    from manim import LEFT, RIGHT, DOWN, Line, Rectangle, Text
+
+    small = Text("tiny words", font_size=12)
+    assert any("font size 12" in f for f in free_check.layout_faults([small]))
+    a = Text("Mitochondria", font_size=30)
+    b = Text("Nucleus here", font_size=30).move_to(a.get_center() + RIGHT * 0.3)
+    assert any("'Mitochondria' and 'Nucleus here' overlap" in f for f in free_check.layout_faults([a, b]))
+    word = Text("Force", font_size=34)
+    assert any("a line runs through the text 'Force'" in f
+               for f in free_check.layout_faults([Line(LEFT * 3, RIGHT * 3), word]))
+    assert free_check.layout_faults([Line(LEFT * 3, RIGHT * 3).shift(DOWN), word]) == []
+    box = Rectangle(width=3, height=1.2)
+    assert free_check.layout_faults([box, Text("Nucleus", font_size=30).move_to(box)]) == []

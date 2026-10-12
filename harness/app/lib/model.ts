@@ -16,7 +16,7 @@ import { Template, explainWith, filmBrief, isLecture, layoutContract, templateBy
 import { shownSoFar, taughtNotes } from "./continuity";
 import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
 import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
-import { figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
+import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
@@ -772,9 +772,9 @@ async function viaOpenRouter(
     emit({ type: "message", role: "status", text: `Reference video: ${reference.video?.title ?? "transcript"}, ` +
       `${reference.parts.length} parts; the lecture follows them in order (about ${minutes} min).` });
   }
-  // The book's figures, looked at (figures.ts) while the transcript is written: photographs made again, diagrams
-  // redrawn by the diagram model, the rest built in Manim; the script writer is told about them once they are done
-  // (stage 2). PANIM_SVG_FIGURES=0 builds them all in Manim.
+  // The book's figures, redrawn by the diagram model (figures.ts) while the transcript is written, each an exact
+  // copy in the lecture's style; the script writer is told about them once they are done (stage 2). The book's own
+  // pictures are never shown. PANIM_SVG_FIGURES=0 builds them all in Manim.
   // What the lecture cost, task by task (lib/costs.ts); costUsd is its total. Both stages and the figures run at
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
@@ -784,7 +784,7 @@ async function viaOpenRouter(
   let costUsd = 0;
   const sendCosts = (text: string) =>
     emit({ type: "usage", text, inputTokens, outputTokens, costUsd, costs: ledger.snapshot(), seconds: ledger.elapsed });
-  const figureTally = { diagram: 0, kept: 0, manim: 0, photo: 0, failed: 0 };
+  const figureTally = { diagram: 0, kept: 0, failed: 0 };
   // Each picture the AI made for the lecture goes to the page as it is made (once), with what it cost.
   const shownPictures = new Set<string>();
   const showPicture = (picture: AiPicture) => {
@@ -810,8 +810,6 @@ async function viaOpenRouter(
   const drawingStarted = Date.now();
   const drawing = lecture && doc && process.env.PANIM_SVG_FIGURES !== "0" && teachingFigures(doc).length
     ? drawFigures(teachingFigures(doc), {
-      key: process.env.OPENROUTER_API_KEY ?? "",
-      model: svgModel(request.svgModel),
       markdown: doc.markdown,
       repo: REPO,
       python: python(),
@@ -820,44 +818,35 @@ async function viaOpenRouter(
       onTime: (start, end) => ledger.time("figures", start, end),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);
-        sendCosts(`book figure looked at: $${usd.toFixed(4)}`);
+        sendCosts(`book figure redrawn: $${usd.toFixed(4)}`);
       },
       onDrawn: (id, made, kept) => {
         figuresReady[id] = made;
-        // Every book figure is listed with what it cost, whatever became of it: a diagram redrawn by the diagram
-        // model, a photo (shown as the image model's remake of it, or as it is), or built in Manim.
+        // Every book figure is listed with what it cost: redrawn by the diagram model, or left out (never the
+        // book's own picture) and rebuilt in Manim.
         const figure = teachingFigures(doc).find((f) => f.id === id);
         const title = `${id}: ${figure?.caption ?? ""}`.trim();
         const paid = { usd: kept ? 0 : made.usd ?? 0, reused: kept, paid: made.usd ?? null };
-        if (made.diagram && (made.generated?.file || figure?.file)) {
-          showPicture({ kind: "figure", file: made.generated?.file ?? figure!.file, title, ...paid,
-            detail: made.generated?.credit ?? made.diagramError,
-            status: made.generated ? "redrawn by the diagram model, labels checked"
-              : `shown as the book's (not redrawn: ${made.diagramError ?? "labels not kept"})` });
-        } else if (made.photo && (made.generated?.file || figure?.file)) {
-          showPicture({ kind: "photo", file: made.generated?.file ?? figure!.file, title, ...paid,
-            detail: made.generated?.credit ?? made.query,
-            status: made.generated ? "made again by the image model, like it" : "shown as it is (the image model made none)" });
+        if (made.generated?.file) {
+          showPicture({ kind: "figure", file: made.generated.file, title, ...paid, detail: made.generated.credit,
+            status: made.checked ? "redrawn by the diagram model, every label checked"
+              : `redrawn by the diagram model (closest try: ${made.issues || "not every label matched"})` });
         } else if (figure?.file) {
           showPicture({ kind: "rebuilt", file: figure.file, title, ...paid,
-            status: made.manim ? "built in Manim" : `not looked at (${made.failed ?? "no reply"}): built in Manim` });
+            status: `not redrawn (${made.diagramError ?? "no picture"}): left out, rebuilt in Manim` });
         }
         if (kept) figureTally.kept += 1;
-        else if (made.diagram && made.generated) figureTally.diagram += 1;
-        else if (made.manim) figureTally.manim += 1;
-        else if (made.photo) figureTally.photo += 1;
+        else if (made.generated) figureTally.diagram += 1;
         else figureTally.failed += 1;
-        ledger.count("figures", made.diagram && made.generated && !kept ? 1 : 0, [
+        ledger.count("figures", made.generated && !kept ? 1 : 0, [
           figureTally.diagram ? `${figureTally.diagram} redrawn by the diagram model` : "",
-          figureTally.kept ? `${figureTally.kept} decided by an earlier run (free)` : "",
-          figureTally.manim ? `${figureTally.manim} built in Manim` : "",
-          figureTally.photo ? `${figureTally.photo} photograph${figureTally.photo > 1 ? "s" : ""}` : "",
-          figureTally.failed ? `${figureTally.failed} not looked at` : "",
+          figureTally.kept ? `${figureTally.kept} redrawn by an earlier run (free)` : "",
+          figureTally.failed ? `${figureTally.failed} not redrawn (rebuilt in Manim)` : "",
         ].filter(Boolean).join(", "));
-        sendCosts(`book figure ${id}: ${made.diagram ? (made.generated ? "redrawn by the diagram model" : "a diagram, shown as the book's") : made.manim ? "built in Manim" : made.photo ? (made.generated ? "a photograph, made again by the image model" : "a photograph") : "not looked at"}`);
+        sendCosts(`book figure ${id}: ${made.generated ? "redrawn by the diagram model" : "not redrawn"}`);
       },
     }).catch((error) => {
-      emit({ type: "message", role: "status", text: `The figures were not looked at (${String(error).slice(0, 160)}); ` +
+      emit({ type: "message", role: "status", text: `The figures were not redrawn (${String(error).slice(0, 160)}); ` +
         "they are built on the board instead." });
       return undefined;
     })
@@ -1359,13 +1348,13 @@ async function viaOpenRouter(
     const compiled = await compileLecture(script, lectureOptions());
     const unsaid = compiled.source ? transcriptProblem(script, written) : null;
     if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
-    const unbuilt = compiled.source && doc ? unbuiltFigures(script, scriptFigures(doc, drawn)) : [];
+    const unbuilt = compiled.source && doc ? unbuiltFigures(script, figureCaptions(doc)) : [];
     if (unbuilt.length) {
       return { ...compiled, source: null, errors: [
         `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not in the ` +
-        "lecture. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal and " +
-        "focus on its parts); build the others in Manim (sketch, preset, graph, diagram), marked with \"from_figure\"; " +
-        "show a photograph as it is with {\"op\":\"figure\",\"photo\":true}."] };
+        "lecture. Show each redrawn one where the narration explains it ({\"op\":\"figure\",\"id\":...,\"photo\":true}); " +
+        "build the others in Manim (sketch, preset, graph, diagram, manim), marked with \"from_figure\". The book's own " +
+        "pictures are never shown."] };
     }
     const parts = reference?.parts?.length ?? 0;
     if (!compiled.source || !parts || written.length) return compiled;
@@ -1776,13 +1765,12 @@ async function viaOpenRouter(
       // Each of the book's figures in this section, shown (the transcript already covers its questions).
       if (doc) {
         const marked = new Set([...(sectionOf(n)?.source ?? "").matchAll(/\[FIGURE (\w+):/g)].map((m) => m[1]));
-        const figures = Object.fromEntries(Object.entries(scriptFigures(doc, drawn)).filter(([id]) => marked.has(id)));
+        const figures = Object.fromEntries(Object.entries(figureCaptions(doc)).filter(([id]) => marked.has(id)));
         const unbuilt = unbuiltFigures(part, figures);
         if (unbuilt.length) {
           add(n, `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not ` +
-            "shown. Show each drawn one where the narration explains it ({\"op\":\"figure\",\"id\":...}, then reveal " +
-            "its parts); build the others in Manim marked with \"from_figure\", or show a photograph as it is with " +
-            "{\"op\":\"figure\",\"photo\":true}.");
+            "shown. Show each redrawn one where the narration explains it ({\"op\":\"figure\",\"id\":...,\"photo\":true}); " +
+            "build the others in Manim marked with \"from_figure\". The book's own pictures are never shown.");
         }
       }
     }

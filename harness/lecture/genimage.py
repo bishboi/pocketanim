@@ -599,7 +599,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
 
 
 # ---------------- the book's diagrams, redrawn by the diagram model ----------------
-DIAGRAM_VERSION = 1
+DIAGRAM_VERSION = 2
 
 
 def _board_colours(style: str | None) -> tuple[str, str]:
@@ -614,21 +614,28 @@ def _board_colours(style: str | None) -> tuple[str, str]:
 
 
 def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None) -> str:
-    """What the diagram model is told when it redraws a book's figure from the figure itself."""
+    """What the diagram model is told when it redraws a book's figure from the figure itself: the same picture,
+    exactly, clean, in the lecture's style."""
     look = LOOKS.get(style or "", "in a clean, colourful educational illustration style")
     bg, ink = _board_colours(style)
     return (
-        f"REDRAW THE ATTACHED FIGURE from a school textbook as a clean, detailed teaching diagram, {look}. "
-        f"What it is: {caption.strip() or 'a textbook figure'}."
+        "REDRAW THE ATTACHED FIGURE from a school textbook as an EXACT, CLEAN COPY of it for a video lesson, "
+        f"{look}. What it is: {caption.strip() or 'a textbook figure'}."
         + (f" WHAT IT IS FOR: {context.strip()[:600]}" if context and context.strip() else "")
-        + " ACCURACY COMES FIRST: keep exactly what the figure shows: every part with its shape and place, every "
-        "arrow, line and connection, every number and unit, and EVERY LABEL with exactly the same words and spelling, "
-        "copied letter for letter (never translate, reword, add or drop a label; keep each one beside the part it "
-        "names). Labels in a large, plain, clear font that reads on a phone. Leave out the figure number, the "
-        "caption, any title, page number, book logo, watermark or QR code."
+        + " IT MUST BE THE SAME PICTURE: the same layout and composition, the same parts in the same places and the "
+        "same proportions, every arrow, line, connection and direction as it is, every number and unit, and EVERY "
+        "LABEL with exactly the same words and spelling, copied letter for letter, beside the same part (never "
+        "translate, reword, add, drop or move a label). A photograph becomes a faithful illustration of exactly what "
+        "it shows, from the same view. Nothing added, nothing left out, nothing rearranged."
+        " ONLY THESE CHANGE: (1) everything that is not the figure itself is removed: watermarks, stamps, publisher "
+        "or book logos, QR codes, 'scan for e-content' boxes, the figure number, the caption, any title, page "
+        "numbers, page edges, scan noise, stains, shadows, blur and yellowed paper; (2) it is drawn crisp and sharp "
+        "in the lecture's style: lines, shapes and colours redone in that style, labels in a large, plain, clear "
+        "font that reads on a phone."
         f" Draw it on a plain, flat background of colour {bg}, lines and words in {ink} and colours that read on "
         "that background; fill the frame, no border or frame around it."
-        + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that." if fix and fix.strip() else "")
+        + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that, and keep everything else the same."
+           if fix and fix.strip() else "")
     )
 
 
@@ -679,17 +686,18 @@ def _as_png(data: bytes) -> bytes:
 
 def diagram_tries() -> int:
     try:
-        return max(1, int(os.environ.get("PANIM_DIAGRAM_TRIES", "3")))
+        return max(1, int(os.environ.get("PANIM_DIAGRAM_TRIES", "4")))
     except ValueError:
-        return 3
+        return 4
 
 
 def redraw(source_path: str, caption: str = "", style: str | None = None, context: str | None = None) -> dict:
     """A book's figure redrawn by the diagram model in the lecture's style, from the figure itself (sent as the
     reference), every label kept, then checked against it (verify) and redrawn with what was wrong, up to
-    PANIM_DIAGRAM_TRIES times. Kept beside the other pictures, by the figure and the style. Returns a row with
-    `file` (the PNG), `png`, `ok`, `check`, `usd`; or {"error": why} when no try was true to the
-    book's figure (the lecture then shows the book's own)."""
+    PANIM_DIAGRAM_TRIES (4) times. The book's own picture is never shown: when no try passes the check, the
+    closest one (the fewest labels missing or wrong) is kept, and its check says what is still off. Kept beside the
+    other pictures, by the figure and the style. Returns a row with `file` (the PNG), `png`, `ok`, `check`, `usd`;
+    or {"error": why} only when the model made nothing (no key, refused, offline)."""
     source = Path(str(source_path))
     if not source.is_file():
         return {"error": f"no figure file {source}"}
@@ -713,7 +721,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
         if model() in NO_REFERENCE:
             return {"error": f"the diagram model {model()} cannot be shown the book's figure (it takes words only); "
                              "pick one that takes images (PANIM_DIAGRAM_MODEL)"}
-        usd, fix, last = 0.0, None, None
+        usd, fix, last, best = 0.0, None, None, None
         for attempt in range(1, diagram_tries() + 1):
             prompt = redraw_prompt(caption, style, context, fix)
             try:
@@ -734,17 +742,17 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
             png = _as_png(data)
             check = verify(reference, png, caption)
             last = (png, check)
+            faults = len(check.get("missing") or []) + len(check.get("wrong") or []) + (check.get("ok") is False)
+            if best is None or faults < best[0]:
+                best = (faults, png, check)
             if check.get("ok") is not False:
                 break
             fix = "; ".join(x for x in [
                 f"labels missing: {', '.join(check['missing'])}" if check.get("missing") else "",
                 f"labels wrong or misplaced: {', '.join(check['wrong'])}" if check.get("wrong") else "",
                 check.get("notes") or ""] if x)
-        png, check = last
-        if check.get("ok") is False:
-            return {"error": "no redraw kept every label (" + "; ".join(
-                x for x in [", ".join(check.get("missing") or []), ", ".join(check.get("wrong") or []),
-                            check.get("notes") or ""] if x)[:300] + ")", "usd": usd, "check": check}
+        # The closest try: the book's picture is never shown instead.
+        _, png, check = best if best is not None else (0, *last)
         CACHE.mkdir(parents=True, exist_ok=True)
         target.write_bytes(png)
         row = {"what": f"diagram: {caption}"[:300], "title": caption[:200], "model": model(), "style": style,

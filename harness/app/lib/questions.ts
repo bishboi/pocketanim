@@ -146,33 +146,3 @@ export function questionLine(question: BookQuestion): string {
   return `  ${question.id} (the book's ${question.number}): ${question.text}${choices ? `\n      ${choices}` : ""}` +
     (question.answer ? `\n      the book's answer: ${question.answer}` : "");
 }
-
-function fold(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-/** The book questions a section's text does not take up (how it explains them is the writer's). */
-export function unexplainedQuestions(text: string, questions: BookQuestion[]): { id: string; what: string }[] {
-  const said = fold(text);
-  const out: { id: string; what: string }[] = [];
-  for (const q of questions) {
-    // Explained in another language than the book's (an English exercise taught in Hindi), its words are not in
-    // the narration: then its number said out ("प्रश्न 4.1"), or most of its numbers, show it is the one taught.
-    const number = q.number.replace(".", "\\.");
-    const called = new RegExp(
-      q.number.includes(".") ? `(^|[^\\d.])${number}(?![\\d])`
-        : `(question|प्रश्न|सवाल|exercise|अभ्यास|Q\\.?)\\s*(नंबर|संख्या|number|no\\.?)?\\s*${number}(?![\\d])`,
-      "i").test(text);
-    const values = q.text.match(/\d+(?:\.\d+)?/g) ?? [];
-    const valuesHeard = values.filter((v) => text.includes(v)).length;
-    const words = q.text.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4);
-    const heard = words.filter((w) => said.includes(fold(w))).length;
-    const covered = called || (values.length >= 2 && valuesHeard >= Math.ceil(values.length * 0.6)) ||
-      !words.length || heard >= Math.ceil(words.length * 0.5);
-    if (!covered) {
-      out.push({ id: q.id, what: `question ${q.number} ("${q.text.slice(0, 60)}")` });
-      continue;
-    }
-  }
-  return out;
-}

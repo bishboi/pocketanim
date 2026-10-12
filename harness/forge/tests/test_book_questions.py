@@ -73,17 +73,6 @@ def test_the_books_questions_are_found_with_their_choices():
     assert found[5]["choices"] == ["जूल", "न्यूटन", "वाट", "पास्कल"]
 
 
-def test_a_question_left_out_is_found_and_how_it_is_explained_is_the_writers():
-    out = _run("import { unexplainedQuestions } from './lib/questions.ts';"
-               "const q = { id: 'q4', number: '2', text: 'The SI unit of force is', choices: ['joule', 'newton', 'watt', 'pascal'] };"
-               "const told = 'The SI unit of force is asked here. Option A, joule, is energy. Option B, newton, is right. ';"
-               "console.log(JSON.stringify([unexplainedQuestions(told, [q]),"
-               " unexplainedQuestions(told + 'Watt is power, and pascal is pressure.', [q]),"
-               " unexplainedQuestions('Nothing about it.', [q])]));")
-    assert out[0] == [] and out[1] == []           # taken up: going through every option is the writer's choice
-    assert out[2][0]["what"].startswith("question 2 (")
-
-
 def test_many_questions_are_split_into_sections_a_model_can_write(tmp_path):
     tsc = APP / "node_modules" / ".bin" / "tsc"
     if not tsc.exists() or not shutil.which("node"):
@@ -102,7 +91,7 @@ let said = last.questions.map((x) => 'बच्चों, ' + x.text + ' Option 
 while (said.split(/\s+/).length < last.words) said += ' और ध्यान से समझो।';
 console.log(JSON.stringify({{
   sections: s.map((x) => [x.words, (x.questions || []).length, !!x.questionsOnly]),
-  problem: t.sectionProblem(said, last, 'hinglish'),
+  problem: t.sectionProblem(said, last),
 }}));
 """
     done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
@@ -139,16 +128,12 @@ def test_a_long_lecture_without_a_topic_plan_is_cut_between_chapters_into_parts(
     assert [(p["intro"], p["recap"], p["credits"]) for p in two] == [(True, False, "c"), (False, True, "c")]
 
 
-def test_chapter_numbered_exercises_and_a_hindi_explanation_of_english_questions():
-    out = _run("import { bookQuestions, unexplainedQuestions } from './lib/questions.ts';"
+def test_chapter_numbered_exercises():
+    out = _run("import { bookQuestions } from './lib/questions.ts';"
                "const md = '## Exercises\\n\\n4.1 Give the magnitude and direction of the net force acting on a drop of rain.\\n\\n"
                "4.2 A pebble of mass 0.05 kg is thrown vertically upwards. Give the net force on it at 2.5 s.\\n\\n"
                "4.23 Explain why\\n(a) a horse cannot pull a cart and run in empty space,\\n"
                "(b) passengers are thrown forward from their seats when a speeding bus stops suddenly,\\n';"
                "const qs = bookQuestions(md);"
-               "const hindi = 'अब प्रश्न 4.1 देखो, बूंद पर नेट बल शून्य है। कंकड़ का द्रव्यमान 0.05 किलोग्राम, समय 2.5 सेकंड।';"
-               "console.log(JSON.stringify({ qs: qs.map((q) => [q.number, q.choices.length, q.text.slice(0, 12)]),"
-               " left: unexplainedQuestions(hindi, qs).map((x) => x.id) }));")
+               "console.log(JSON.stringify({ qs: qs.map((q) => [q.number, q.choices.length, q.text.slice(0, 12)]) }));")
     assert out["qs"] == [["4.1", 0, "Give the mag"], ["4.2", 0, "A pebble of "], ["4.23", 0, "Explain why "]]
-    # 4.1 by its number, 4.2 by its numbers (0.05 kg, 2.5 s); 4.23, its parts, never: still to explain.
-    assert out["left"] == ["q3"]

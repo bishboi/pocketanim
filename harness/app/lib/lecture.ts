@@ -404,29 +404,6 @@ export const ADD_CHAPTERS_TOOL = {
 };
 
 /** The system prompt for a lecture template. */
-/**
- * The book figures a finished script neither showed (as its picture, with "photo": true) nor rebuilt in Manim (an op
- * with "from_figure").
- */
-export function unbuiltFigures(script: unknown, figures: Record<string, { caption: string }>): string[] {
-  const done = new Set<string>();
-  const chapters = ((script as { chapters?: { beats?: { do?: Record<string, unknown>[] }[] }[] })?.chapters ?? []);
-  for (const chapter of chapters) {
-    for (const beat of chapter.beats ?? []) {
-      for (const op of beat.do ?? []) {
-        if (op?.from_figure) done.add(String(op.from_figure));
-        // A picture op of a book figure ({"op":"picture","figure":"fig4"}) is a figure op.
-        const id = String(op?.op === "picture" && op.figure ? op.figure : op?.id);
-        const shown = op?.op === "figure" || (op?.op === "picture" && !!op.figure);
-        if (shown && op.photo) done.add(id);
-      }
-    }
-  }
-  return Object.entries(figures)
-    .filter(([id, f]) => !done.has(id) && !/\b(QR|bar ?code|logo|watermark)\b|क्यूआर/i.test(f.caption))
-    .map(([id]) => id);
-}
-
 /** The narration languages the page offers; "auto" follows the content's. */
 export const LANGUAGES = ["auto", "english", "hindi", "hinglish"] as const;
 export type Language = (typeof LANGUAGES)[number];
@@ -500,17 +477,6 @@ export function referencePrompt(ref: {
     }),
     "",
   ].join("\n");
-}
-
-/** Reference parts no chapter says it teaches ("from_part"), for a script that follows a reference video. */
-export function uncoveredParts(script: unknown, parts: number): number[] {
-  const chapters = (script as { chapters?: { from_part?: unknown }[] })?.chapters ?? [];
-  const covered = new Set<number>();
-  for (const c of Array.isArray(chapters) ? chapters : []) {
-    const from = c?.from_part;
-    for (const n of Array.isArray(from) ? from : [from]) if (Number.isFinite(Number(n))) covered.add(Number(n));
-  }
-  return Array.from({ length: parts }, (_, i) => i + 1).filter((n) => !covered.has(n));
 }
 
 /** The model that writes the free-form Manim blocks (PANIM_MANIM_MODEL). When set, the script writer only plans

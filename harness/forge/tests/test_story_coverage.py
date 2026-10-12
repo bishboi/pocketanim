@@ -71,23 +71,6 @@ def test_the_thread_and_the_asides_are_found(lib):
     assert {"kind": "aside", "text": "friction"} in got["ideas"]
 
 
-def test_a_section_that_skips_part_of_its_book_is_refused_and_mended(lib):
-    section = {"n": 2, "parts": [], "minutes": 1, "words": 85, "source": BOOK, "book": True}
-    body = (f"const s = {json.dumps(section)};"
-            f"const good = {json.dumps(GOOD)};"
-            "const skipped = good.replace(/A quick side note.*?Back to our question\\. /, '')"
-            "  .replace('Now that we know inertia, we can understand momentum: mass times velocity.', 'That is all.');"
-            "console.log(JSON.stringify({good: t.sectionProblem(good, s, 'english'),"
-            "  bad: t.sectionProblem(skipped, s, 'english'),"
-            "  hindi: t.sectionProblem(skipped, s, 'hindi')}));")
-    got = _node(lib, body)
-    assert got["good"] is None, got["good"]
-    assert "leaves out parts of its source" in got["bad"] and "Momentum" in got["bad"] and "friction" in got["bad"]
-    # An English book taught in Hindi cannot be matched word for word: left to the prompt, not refused.
-    assert got["hindi"] is None or "leaves out" not in got["hindi"]
-    assert _node(lib, f"console.log(JSON.stringify(t.repairable({json.dumps(got['bad'])})))") is True
-
-
 def test_the_prompt_has_three_aims_and_no_rules_of_teaching(lib):
     """Only three things are asked: the quality of the learning (how to teach is the writer's), videos of 25-30
     minutes, and everything in the source covered."""
@@ -119,17 +102,20 @@ def test_the_teacher_talks_to_the_class_as_friends(lib, language):
         assert "got it, friends?" in voice
 
 
-def test_length_style_and_repetition_are_the_writers(lib):
-    """A section is never sent back for its length, for saying something twice, for its questions or examples:
-    only for leaving part of its source out."""
+def test_only_an_empty_section_is_sent_back(lib):
+    """A section is never sent back for its length, for saying something twice, for what it covers: what it
+    teaches is the writer's, told in the prompt. Only an empty reply is refused."""
     section = {"n": 3, "parts": [], "minutes": 1, "words": 1200, "source": "plain notes"}
     once = "A force is a push or a pull on a body."
     again = once + " Remember, a force is a push or a pull on a body. " * 3
     got = _node(lib, f"""const s = {json.dumps(section)};
-      console.log(JSON.stringify({{ short: t.sectionProblem({json.dumps(once)}, s, 'english'),
-        again: t.sectionProblem({json.dumps(again)}, s, 'english'),
-        long: t.sectionProblem({json.dumps(once * 400)}, {{ ...s, words: 50 }}, 'english') }}))""")
-    assert got == {"short": None, "again": None, "long": None}, got
+      console.log(JSON.stringify({{ short: t.sectionProblem({json.dumps(once)}, s),
+        again: t.sectionProblem({json.dumps(again)}, s),
+        long: t.sectionProblem({json.dumps(once * 400)}, {{ ...s, words: 50 }}),
+        book: t.sectionProblem('Nothing of the book.', {{ ...s, book: true, source: {json.dumps(BOOK)} }}),
+        empty: t.sectionProblem('  ', s) }}))""")
+    assert {k: v for k, v in got.items() if k != "empty"} == {"short": None, "again": None, "long": None, "book": None}, got
+    assert "came back empty" in got["empty"]
 
 
 def test_a_section_is_told_what_the_ones_before_it_taught(lib):

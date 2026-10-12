@@ -227,10 +227,13 @@ Put your keys in `.env.local`. All of them are optional.
   for every section's request (cached by the provider; marked for caching on Anthropic and Google models); each
   request adds its own slice of the book or reference. A section's video request carries its numbered lines, its own
   book questions and the figures its text marks.
-- **Mended, not rewritten.** A transcript section refused for being short, or for a missing question or example, is
-  sent back with "add only the new paragraphs"; headings, bullet marks and [stage directions] are taken out rather
-  than refused. A section's chapters refused once for ops that will not compile have those beats' ops left out on
-  the next try instead (the beat is said over the picture before it).
+- **Two things are checked, and only two.** What the lecture teaches is the writer's, told in its prompt: a
+  transcript section is never sent back for what it covers, its length or its style (only an empty reply is asked
+  again); headings, bullet marks and [stage directions] are taken out, and a sentence said before is dropped. What is
+  checked is that the video can be drawn and its pictures are right: the compile (ops, maps, Manim blocks run, with
+  their errors sent back to the Manim model) and the picture checks. A section's chapters refused once for ops that
+  will not compile have those beats' ops left out on the next try instead (the beat is said over the picture before
+  it).
 - **Three builds at once.** The page builds a series' micro-lectures three at a time.
 
 ## 6. Check that everything is in place

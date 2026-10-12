@@ -450,12 +450,12 @@ A lecture is made in two stages (`harness/app/lib/transcript.ts`):
 1. **The transcript.** The model writes the whole lecture as the teacher speaks it, one section of about five
    minutes at a time (`write_section`). With a reference video, each section remakes its next parts: the same
    order, examples, solved problems (same numbers) and the video's own questions, explained more slowly and in
-   more detail. A section shorter than its share of the chosen length (100 words a minute) is sent back, and so
-   is Hinglish that is mostly English or written in Latin letters. The page shows the transcript under the agent
-   log, with a download button.
+   more detail. What it covers and how it teaches are told in the prompt, not checked afterwards: only an empty
+   section is asked again. The page shows the transcript under the agent log, with a download button.
 2. **The video.** The beat script's narration is that transcript, sentence for sentence, in order; its chapters
-   name their `section`. A part that leaves out more than a tenth of its sections' sentences is sent back, so
-   the detail of stage one reaches the video. The model's work in this stage is the pictures.
+   name their `section`, and beats name its lines by number; a line no beat names is said on a beat of its own,
+   so the detail of stage one reaches the video. The model's work in this stage is the pictures, and only they
+   are checked (the compile and the picture checks).
 
 The length follows the reference video (up to 90 minutes) unless one is chosen; a 60-minute source makes a
 60-minute lecture, written in twelve sections.

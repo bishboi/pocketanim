@@ -1,13 +1,11 @@
 /**
- * What a section of the book holds that its transcript must say, and what the transcript left out.
+ * What a section of the book holds that its transcript must say (listed in its request; the writer covers it).
  *
  * A book's part has its MAIN THREAD -- its headings and the terms it sets in bold or italics, which the lesson
  * tells as one story -- and its ASIDES: boxes such as "Do you know?", "Interesting fact" or "Activity" that sit
  * beside the thread. Every one of both is taught (the source is covered whole); an aside is said as an aside, so
  * the story is not broken by it.
  */
-
-import type { Language } from "./lecture";
 
 /** A box beside the thread: by its heading or its opening words, or set as a quotation. */
 const ASIDE = /^(?:do you know|did you know|interesting (?:fact|facts)|fun fact|amazing fact|fact ?file|know more|think about it|think it over|activity|box|note|extra|for your information|more to know|क्या आप जानते हैं|क्या तुम जानते हो|रोचक तथ्य|रोचक जानकारी|मज़ेदार तथ्य|मजेदार तथ्य|जानकारी|क्रियाकलाप|गतिविधि|सोचिए|याद रखें|ध्यान दें)\b/i;
@@ -68,36 +66,4 @@ export function ideasOf(source: string): Idea[] {
   }
   for (const m of text.matchAll(/\*\*([^*\n]{2,80})\*\*|__([^_\n]{2,80})__/g)) add("term", m[1] ?? m[2]);
   return out;
-}
-
-const LATIN = /[A-Za-z]/;
-const DEVANAGARI = /[ऀ-ॿ]/;
-
-function words(text: string): string[] {
-  return text.toLowerCase().normalize("NFKC").split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
-}
-
-/** Whether the transcript says an idea: a short term as it is, a longer heading by most of its words. */
-export function says(transcript: string, idea: string): boolean {
-  const said = ` ${words(transcript).join(" ")} `;
-  const wanted = words(idea);
-  if (!wanted.length) return true;
-  if (wanted.length <= 2) return said.includes(` ${wanted.join(" ")} `) || wanted.every((w) => said.includes(` ${w}`));
-  const content = wanted.filter((w) => w.length >= (DEVANAGARI.test(w) ? 2 : 4));
-  const found = content.filter((w) => said.includes(` ${w}`)).length;
-  return found >= Math.ceil(content.length * 0.6);
-}
-
-/** The ideas of a part of the book the transcript leaves out. An idea in a script the lecture is not written in
- * (an English book taught in Hindi) cannot be matched word for word, and is left to the prompt. */
-export function uncovered(transcript: string, source: string, language: Language): Idea[] {
-  const latinLecture = language === "english" || language === "hinglish" ||
-    (language === "auto" && LATIN.test(transcript) && !DEVANAGARI.test(transcript.slice(0, 2000)));
-  const devanagariLecture = language === "hindi" || language === "hinglish" ||
-    (language === "auto" && DEVANAGARI.test(transcript));
-  return ideasOf(source).filter((idea) => {
-    const latin = LATIN.test(idea.text) && !DEVANAGARI.test(idea.text);
-    if (latin ? !latinLecture : !devanagariLecture) return false;
-    return !says(transcript, idea.text);
-  });
 }

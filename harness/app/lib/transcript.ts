@@ -9,12 +9,12 @@
  */
 
 import { taughtSoFar } from "./continuity";
-import { linesOf, numberedSection } from "./lines";
+import { numberedSection } from "./lines";
 import { microMinutes } from "./topics";
 import type { DocumentManifest } from "./document";
 import type { Language } from "./lecture";
-import { bookQuestions, questionLine, questionWords, unexplainedQuestions, type BookQuestion } from "./questions";
-import { asidesOf, ideasOf, uncovered } from "./coverage";
+import { bookQuestions, questionLine, questionWords, type BookQuestion } from "./questions";
+import { asidesOf, ideasOf } from "./coverage";
 
 /** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
 export const WORDS_PER_MINUTE = 100;
@@ -271,8 +271,8 @@ export function transcriptPrompt(options: {
     "     written transcript, always between sections, and you are then asked for the words that close one video and",
     "     open the next. So write the sections as one continuous lecture, and spend the time where learning needs it.",
     "  3. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
-    "     and question in it. This is the one thing checked: a section that leaves part of its text out, or one of",
-    "     the source's own questions, is sent back.",
+    "     and question in it: every heading of its part of the book, every box beside the text, and each of the",
+    "     source's own questions (say which one it is, by its number). Nothing checks this after you: it is yours.",
     "",
     ...classVoice(options.language),
     "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
@@ -310,30 +310,12 @@ export function transcriptPrompt(options: {
 
 
 /**
- * Why a written section is sent back, or null when it is accepted. Coverage is the only check: every idea, aside
- * and figure of its part of the book, and each of the source's own questions taken up. How it teaches, and how
- * long it takes, are the writer's.
+ * Why a written section is sent back, or null when it is accepted: only a reply with nothing in it. What it covers
+ * and how it teaches are the writer's, told in the prompt (a coverage check by word matching flagged headings the
+ * section did teach, and its mending appended the same teaching again).
  */
-export function sectionProblem(text: string, section: Section, language: Language): string | null {
-  if (!text.trim()) return `Section ${section.n} came back empty.`;
-  const skipped = unexplainedQuestions(text, section.questions ?? []);
-  if (skipped.length) {
-    return `Section ${section.n} leaves out the source's ${skipped.map((s) => s.what).join("; ")}. Take up every ` +
-      "question of the section (say which one it is, by its number).";
-  }
-  if (section.book && !section.questionsOnly) {
-    // The whole of its part of the book: every heading, every aside, and the terms it sets in bold (one may be
-    // missed: a bold word in a caption, say).
-    const missing = uncovered(text, section.source, language);
-    const heavy = missing.filter((idea) => idea.kind !== "term");
-    const terms = missing.filter((idea) => idea.kind === "term");
-    if (heavy.length || terms.length > 1) {
-      const named = [...heavy, ...terms].slice(0, 8).map((idea) => `${idea.kind === "aside" ? "the aside " : ""}"${idea.text}"`);
-      return `Section ${section.n} leaves out parts of its source: ${named.join(", ")}${missing.length > 8 ? ", ..." : ""}. ` +
-        "Teach each of them, where it fits.";
-    }
-  }
-  return null;
+export function sectionProblem(text: string, section: Section): string | null {
+  return text.trim() ? null : `Section ${section.n} came back empty.`;
 }
 
 /**
@@ -348,34 +330,6 @@ export function cleanSection(text: string): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-/** Whether a refusal can be mended by adding to the end of the section rather than writing it again: all of them
- * can (something of the source is missing). */
-export function repairable(problem: string): boolean {
-  return /leaves out/.test(problem);
-}
-
-/** The request that mends a refused section by adding to it (repairable): only the new paragraphs, at its end. */
-export function repairRequest(section: Section, count: number, text: string, problem: string): string {
-  return [
-    `SECTION ${section.n} of ${count} is written, and it ends like this:`,
-    `  ...${text.slice(-1500)}`,
-    "",
-    `It was sent back: ${problem}`,
-    "",
-    "Do NOT write the section again. Write ONLY the new paragraphs that teach what is missing, to be added at its " +
-      "end, carrying on naturally from where it stops, in the same voice and language.",
-    ...(sectionSource(section) ? ["", sectionSource(section)] : []),
-    "",
-    `Call write_section with section: ${section.n} and, as its text, only the new paragraphs.`,
-  ].join("\n");
-}
-
-/** Whether a reply to repairRequest wrote the whole section again instead of only what to add. */
-export function rewroteWhole(addition: string, before: string): boolean {
-  const start = norm(before.slice(0, 160));
-  return addition.length > before.length * 0.7 && start.length > 20 && norm(addition.slice(0, 400)).includes(start.slice(0, 40));
 }
 
 /**
@@ -548,53 +502,10 @@ export function sectionForVideo(section: WrittenSection, questions: BookQuestion
   ].join("\n");
 }
 
-function norm(sentence: string): string {
-  return sentence.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-export function sentencesOf(text: string): string[] {
-  return text.split(/(?<=[.?!।])\s+|\n+/).map((s) => s.trim()).filter((s) => norm(s).length > 3);
-}
-
-/**
- * Which of the given sections' sentences no beat says (compared letters and digits only). A part of a long
- * lecture is checked against the sections its chapters name.
- */
-export function unsaidSentences(script: unknown, written: WrittenSection[], only?: number[]): { n: number; missing: string[]; total: number }[] {
-  const chapters = ((script as { chapters?: { section?: unknown; beats?: { say?: unknown }[] }[] })?.chapters ?? []);
-  const said = norm(chapters.flatMap((c) => (c.beats ?? []).map((b) => String(b?.say ?? ""))).join(" "));
-  const wanted = only ?? written.map((s) => s.n);
-  return written
-    .filter((s) => wanted.includes(s.n))
-    .map((s) => {
-      const sentences = sentencesOf(s.text);
-      return { n: s.n, total: sentences.length, missing: sentences.filter((line) => !said.includes(norm(line))) };
-    });
-}
-
 /** The sections a part of the script names ("section" on its chapters). */
 export function sectionsOf(script: unknown): number[] {
   const chapters = ((script as { chapters?: { section?: unknown }[] })?.chapters ?? []);
   return [...new Set(chapters.map((c) => Number(c?.section)).filter((n) => Number.isFinite(n) && n > 0))];
-}
-
-/** An error for a script whose narration leaves out more than a tenth of its sections' transcript, or null. */
-export function transcriptProblem(script: unknown, written: WrittenSection[], only?: number[]): string | null {
-  if (!written.length) return null;
-  const sections = only ?? written.map((s) => s.n);
-  if (only && !sections.length) {
-    return "Give each chapter \"section\": the number of the transcript section it speaks.";
-  }
-  const gaps = unsaidSentences(script, written, sections).filter((g) => g.missing.length > g.total * 0.1);
-  if (!gaps.length) return null;
-  return gaps.map((g) => {
-    const own = linesOf(written.find((w) => w.n === g.n)?.text ?? "");
-    const numbers = g.missing.map((m) => own.indexOf(m) + 1).filter((k) => k > 0);
-    return `Section ${g.n}: ${g.missing.length} of ${g.total} transcript sentences are not said` +
-      (numbers.length ? ` (lines ${numbers.slice(0, 12).join(", ")}${numbers.length > 12 ? ", ..." : ""})` : "") + ", e.g. " +
-      g.missing.slice(0, 2).map((m) => `"${m.slice(0, 90)}"`).join("; ") +
-      ". Every line of the transcript is said, in order, one or two a beat ({\"lines\": [n]}).";
-  }).join("\n");
 }
 
 /** How long a preview teaches (minutes). */

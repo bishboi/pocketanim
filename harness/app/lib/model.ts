@@ -14,8 +14,8 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { shownSoFar, taughtNotes } from "./continuity";
-import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
-import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
+import { type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
+import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { TimingLog } from "./timing";
@@ -25,7 +25,7 @@ import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
 import { MediaLog, type MediaItem } from "./media";
-import { PREVIEW_MINUTES, SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
+import { PREVIEW_MINUTES, SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines, linesOf } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
@@ -953,43 +953,32 @@ async function viaOpenRouter(
     const done = new Map<number, WrittenSection>();
     const failed: number[] = [];
     // What each section in flight is doing, for the progress line: when it started, words so far, its try.
-    const live = new Map<number, { started: number; words: number; attempt: number; thinking: boolean; mending: boolean }>();
+    const live = new Map<number, { started: number; words: number; attempt: number; thinking: boolean }>();
     let halted: unknown = null;
     const progress = setInterval(() => {
       if (!live.size) return;
       const now = Date.now();
       const parts = [...live.entries()].sort((x, y) => x[0] - y[0]).map(([n, p]) =>
         `${n} (${clock(now - p.started)}, ${p.words ? `about ${p.words} words` : p.thinking ? "thinking" : "waiting"}` +
-        `${p.mending ? ", mending" : p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
+        `${p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
       emit({ type: "message", role: "status",
         text: `Transcript: ${done.size} of ${sections.length} sections written; writing ${parts.join(", ")}` });
     }, 10_000);
 
-    /**
-     * One section, tried up to TRIES times; null when no try gave anything usable. A section that leaves part of
-     * its source out is asked only for what to add at its end (repairRequest): the section is kept and grows.
-     */
+    /** One section, tried up to TRIES times (a stalled or failed reply, an empty one); null when none gave text. */
     const writeOne = async (section: (typeof sections)[number]): Promise<WrittenSection | null> => {
       let note: string | undefined;
-      // The longest refused try: kept when every try is refused, so one stubborn section does not lose the lecture.
-      let fallback: { title: string; text: string; problem: string } | null = null;
-      // The last try's section and why it was refused, for mending it instead of starting again.
-      let current: { title: string; text: string; problem: string; taught: string[] } | null = null;
       for (let attempt = 1; attempt <= TRIES; attempt++) {
         if (stopped() || halted) return null;
-        const mending = !!current && repairable(current.problem);
-        const state = { started: Date.now(), words: 0, attempt, thinking: false, mending };
+        const state = { started: Date.now(), words: 0, attempt, thinking: false };
         live.set(section.n, state);
         emit({ type: "message", role: "status",
-          text: `Transcript: ${mending ? "adding what is missing to" : "writing"} section ${section.n} of ${sections.length}` +
-            `${attempt > 1 && !mending ? `, try ${attempt} of ${TRIES}` : ""}` });
+          text: `Transcript: writing section ${section.n} of ${sections.length}${attempt > 1 ? `, try ${attempt} of ${TRIES}` : ""}` });
         const prior = [...done.values()].filter((w) => w.n < section.n).sort((x, y) => x.n - y.n);
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: OutMessage[] = [
           cachedSystem(prompt, writer),
-          { role: "user", content: mending
-            ? repairRequest(section, sections.length, current!.text, current!.problem)
-            : sectionRequest(section, sections.length, prior, note, sections) },
+          { role: "user", content: sectionRequest(section, sections.length, prior, note, sections) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -1045,18 +1034,10 @@ async function viaOpenRouter(
           } catch {}
         }
         if (!text) text = (result.message.content ?? "").trim();
-        if (mending && text) {
-          // What to add, at the end; a reply that wrote the whole section again replaces it instead.
-          if (!rewroteWhole(text, current!.text)) {
-            text = `${current!.text}\n\n${text}`;
-            taught = taughtNotes([...current!.taught, ...taught]);
-          }
-          title = current!.title;
-        }
         // Headings, bullet marks and [stage directions] are taken out, not refused.
         text = cleanSection(text);
-        // Only coverage is checked: how it teaches, and at what length, are the writer's.
-        const problem = sectionProblem(text, section, language);
+        // Only an empty reply is refused: what it covers and how it teaches are the writer's (its prompt says so).
+        const problem = sectionProblem(text, section);
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
         if (!problem) {
@@ -1072,13 +1053,6 @@ async function viaOpenRouter(
           return { n: section.n, title: title || `Section ${section.n}`, text: cleaned.text, taught };
         }
         note = problem;
-        if (text) current = { title, text, problem, taught };
-        if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
-      }
-      if (fallback) {
-        emit({ type: "message", role: "status",
-          text: `Transcript: section ${section.n} kept after ${TRIES} tries, though not every check passed: ${fallback.problem}` });
-        return { n: section.n, title: fallback.title || `Section ${section.n}`, text: fallback.text };
       }
       return null;
     };
@@ -1407,29 +1381,9 @@ async function viaOpenRouter(
     mark(`whole lecture compiled${compiled.source ? "" : " (with faults)"}`);
     return compiled;
   };
-  const compileWholeChecked = async (script: unknown) => {
-    const compiled = await compileChecked(script, lectureOptions());
-    const unsaid = compiled.source ? transcriptProblem(script, written) : null;
-    if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
-    const unbuilt = compiled.source && doc ? unbuiltFigures(script, figureCaptions(doc)) : [];
-    if (unbuilt.length) {
-      return { ...compiled, source: null, errors: [
-        `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not in the ` +
-        "lecture. Show each redrawn one where the narration explains it ({\"op\":\"figure\",\"id\":...,\"photo\":true}); " +
-        "build the others in Manim (sketch, preset, graph, diagram, manim), marked with \"from_figure\". The book's own " +
-        "pictures are never shown."] };
-    }
-    const parts = reference?.parts?.length ?? 0;
-    if (!compiled.source || !parts || written.length) return compiled;
-    const missing = uncoveredParts(script, parts);
-    if (!missing.length) return compiled;
-    return {
-      ...compiled,
-      source: null,
-      errors: [`No chapter teaches part${missing.length > 1 ? "s" : ""} ${missing.join(", ")} of the reference video. ` +
-        "Every part is taught, in order, and each chapter says which part it teaches with \"from_part\"."],
-    };
-  };
+  // The compile is the whole check: the video can be drawn (its ops, its Manim, its pictures). What the lecture
+  // covers is the transcript's, and every transcript line is put on a beat by fillLines, not refused.
+  const compileWholeChecked = (script: unknown) => compileChecked(script, lectureOptions());
   // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
   // length or counts.
   // The free-form Manim blocks, by their own model when PANIM_MANIM_MODEL is set (lib/manimcoder.ts): the writer
@@ -1522,11 +1476,6 @@ async function viaOpenRouter(
   let requireTool = false;     // after a reminder, the next reply must be a tool call, not more prose
   // A part of a long lecture is whole chapters: a first part of one chapter with one beat became a 20-second video.
   const partBeats = minutes >= 5 ? 6 : 3;
-  const thinChapters = (chapters: unknown) =>
-    (Array.isArray(chapters) ? chapters : []).filter((c) => {
-      const beats = (c as { beats?: unknown[] })?.beats;
-      return !Array.isArray(beats) || beats.length < partBeats;
-    }).length;
   const size = (chars: number) => (chars >= 1024 ? `about ${Math.round(chars / 1024)} KB` : `${chars} characters`);
 
   /** A section's chapters as a script of their own, checked as a part is: null when they pass, else what is wrong. */
@@ -1573,11 +1522,7 @@ async function viaOpenRouter(
       dropped = dropOps(own, compiled.errors);
       if (dropped) compiled = await compileChecked(own, { ...partOptions(), withoutPictures: true });
     }
-    const errors = [
-      ...filled.problems,
-      ...[section ? transcriptProblem(own, [section], [n]) : null].filter((e): e is string => !!e),
-      ...(compiled.source ? [] : compiled.errors),
-    ];
+    const errors = [...filled.problems, ...(compiled.source ? [] : compiled.errors)];
     const repeated = "repeated" in filled ? filled.repeated ?? 0 : 0;
     if (!errors.length && (filled.added || filled.merged || dropped || repeated)) {
       emit({ type: "message", role: "status", text: `Video: section ${n}: ` + [
@@ -1884,22 +1829,6 @@ async function viaOpenRouter(
         add(0, error);
       }
     }
-    for (const n of sections) {
-      const ws = ready.get(n);
-      const gap = ws && chapters.some((c) => Number(c?.section) === n) ? transcriptProblem(part, [ws], [n]) : null;
-      if (gap) add(n, gap);
-      // Each of the book's figures in this section, shown (the transcript already covers its questions).
-      if (doc) {
-        const marked = new Set([...(sectionOf(n)?.source ?? "").matchAll(/\[FIGURE (\w+):/g)].map((m) => m[1]));
-        const figures = Object.fromEntries(Object.entries(figureCaptions(doc)).filter(([id]) => marked.has(id)));
-        const unbuilt = unbuiltFigures(part, figures);
-        if (unbuilt.length) {
-          add(n, `The book's figure${unbuilt.length > 1 ? "s" : ""} ${unbuilt.join(", ")} ${unbuilt.length > 1 ? "are" : "is"} not ` +
-            "shown. Show each redrawn one where the narration explains it ({\"op\":\"figure\",\"id\":...,\"photo\":true}); " +
-            "build the others in Manim marked with \"from_figure\". The book's own pictures are never shown.");
-        }
-      }
-    }
     return { compiled, errors };
   };
 
@@ -2006,11 +1935,6 @@ async function viaOpenRouter(
       // compile, no chapters at all) is that section's to fix: those sections are written again, at the same time,
       // told what was wrong. Only what belongs to no section is left to the turns below.
       const { bySection: notes } = errorsBySection(compiled.errors, script);
-      // The transcript check runs only once the compiler passes, so each section's is run here as well.
-      for (const s of written) {
-        const gap = bySection.has(s.n) ? transcriptProblem(script, written, [s.n]) : null;
-        if (gap) notes.set(s.n, [...(notes.get(s.n) ?? []), gap]);
-      }
       const notesFor = new Map([...notes].map(([n, errs]) => [n, errs.join("\n")]));
       for (const n of missing) notesFor.set(n, "Nothing usable came back for this section last time.");
       if (notesFor.size) {
@@ -2303,13 +2227,8 @@ async function viaOpenRouter(
           `was saved. Send it again in smaller pieces: at most ${FIX_CHAPTERS} chapters a call.`;
       } else if (call.function.name === "write_lecture" && args.more && args.script && typeof args.script === "object") {
         const first = args.script as Record<string, unknown>;
-        const thin = thinChapters(first.chapters);
-        const unsaid = written.length ? transcriptProblem(first, written, sectionsOf(first)) : null;
-        const compiled = unsaid
-          ? { source: null, errors: [unsaid], minutes: 0, warnings: [] }
-          : thin || chapterCount(first) === 0
-          ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin || "no"} chapter(s) ` +
-              `here have fewer. Send part 1 again with whole chapters, each teaching its topic fully.`], minutes: 0, warnings: [] }
+        const compiled = chapterCount(first) === 0
+          ? { source: null, errors: ["Part 1 has no chapters. Send it again with its chapters."], minutes: 0, warnings: [] }
           : await compileChecked(first, partOptions());
         if (compiled.source) {
           draft = first;
@@ -2333,17 +2252,7 @@ async function viaOpenRouter(
             ...(args.recap ? { recap: args.recap } : {}),
           };
           if (args.done && written.length) fillLines(next, written, allSections());
-          const thin = thinChapters(args.chapters);
-          const part = { chapters: args.chapters ?? [] };
-          // The sections these chapters speak are checked in the lecture they make, so a few chapters can replace
-          // part of a section; checked alone, every section touched had to be sent whole again.
-          const unsaid = written.length && !args.done ? transcriptProblem(next, written, sectionsOf(part)) : null;
-          const compiled = unsaid
-            ? { source: null, errors: [unsaid], minutes: 0, warnings: [] }
-            : thin
-            ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
-                "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
-            : args.done ? await compileWhole(next) : logFixed(await compileChecked(next, partOptions()));
+          const compiled = args.done ? await compileWhole(next) : logFixed(await compileChecked(next, partOptions()));
           if (compiled.source && args.done) {
             draft = next;
             scene = compiled.source;
@@ -2359,8 +2268,8 @@ async function viaOpenRouter(
           } else if (args.done) {
             // The parts are fine but the whole falls short (length, questions, problems): keep them, ask for more.
             const partsOk = (await compileChecked(next, partOptions())).source;
-            if (partsOk && !thin) draft = next;
-            if (partsOk && !thin) wholeRefused += 1;
+            if (partsOk) draft = next;
+            if (partsOk) wholeRefused += 1;
             output = [
               partsOk ? "Saved these chapters, but the whole lecture is not finished yet:" : "This part did not compile:",
               ...compiled.errors,

@@ -15,7 +15,7 @@ import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { shownSoFar, taughtNotes } from "./continuity";
 import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
-import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { fillManim, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
@@ -938,7 +938,7 @@ async function viaOpenRouter(
       text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}.` });
     const TRIES = 4;
     // A few sections at once (each its own request): one after another, a book chapter took most of an hour.
-    const PARALLEL = Math.max(1, Math.min(8, Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 6));
+    const PARALLEL = Math.max(1, Math.min(16, Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 10));
     const done = new Map<number, WrittenSection>();
     const failed: number[] = [];
     // What each section in flight is doing, for the progress line: when it started, words so far, its try.
@@ -1418,7 +1418,32 @@ async function viaOpenRouter(
       sendCosts(`a Manim figure written by ${coder}: $${usd.toFixed(4)}`);
     },
   });
+  // Each section's pictures, made in the background once its chapters pass (makePictures): a compile that shows
+  // pictures waits for those of its own sections first, so nothing is asked of the image models twice.
+  const pictureJobs = new Map<number, Promise<void>>();
+  // Sections' picture jobs at once (PANIM_PICTURE_JOBS, 3; each makes PANIM_IMAGE_PARALLEL pictures at once).
+  const JOBS = Math.max(1, Number(process.env.PANIM_PICTURE_JOBS) || 3);
+  let jobsRunning = 0;
+  const jobQueue: (() => void)[] = [];
+  const inTurn = async <T,>(run: () => Promise<T>): Promise<T> => {
+    if (jobsRunning >= JOBS) await new Promise<void>((resolve) => jobQueue.push(resolve));
+    jobsRunning += 1;
+    try {
+      return await run();
+    } finally {
+      jobsRunning -= 1;
+      jobQueue.shift()?.();
+    }
+  };
+  const picturesOf = async (script: unknown) => {
+    const chapters = script && typeof script === "object" && Array.isArray((script as { chapters?: unknown }).chapters)
+      ? (script as { chapters: { section?: unknown }[] }).chapters : [];
+    const sections = new Set(chapters.map((c) => Number(c?.section)).filter((n) => Number.isFinite(n)));
+    const waiting = [...pictureJobs].filter(([n]) => !sections.size || sections.has(n)).map(([, job]) => job);
+    if (waiting.length) await Promise.all(waiting);
+  };
   const compileChecked = async (script: unknown, options: Parameters<typeof compileLecture>[1]) => {
+    if (!options?.withoutPictures) await picturesOf(script);
     if (!coder || !script || typeof script !== "object" || !needsManim(script) && !hasManim(script)) {
       return compileLecture(script, options);
     }
@@ -1512,11 +1537,12 @@ async function viaOpenRouter(
     const own: Record<string, unknown> = { ...script, title: script.title || `Section ${n}`, chapters };
     const section = ready.get(n) ?? written.find((w) => w.n === n);
     const filled = section ? fillLines(own, [section], { complete: [n], minBeats: partBeats }) : { problems: [], added: 0, merged: 0 };
-    let compiled = await compileChecked(own, partOptions());
+    // Checked without its pictures: the image models' minutes no longer hold this section's writing slot.
+    let compiled = await compileChecked(own, { ...partOptions(), withoutPictures: true });
     let dropped = 0;
     if (!compiled.source && dropFailing) {
       dropped = dropOps(own, compiled.errors);
-      if (dropped) compiled = await compileChecked(own, partOptions());
+      if (dropped) compiled = await compileChecked(own, { ...partOptions(), withoutPictures: true });
     }
     const errors = [
       ...filled.problems,
@@ -1530,8 +1556,13 @@ async function viaOpenRouter(
         dropped ? `the ops of ${dropped} beat${dropped > 1 ? "s" : ""} that would not compile left out` : "",
       ].filter(Boolean).join("; ") + "." });
     }
-    // Its lines are final unless it is sent back: speak them now, while the other sections are written.
-    if (!errors.length && compiled.source && !usingFixture()) speakAhead(compiled.source);
+    // Its lines are final unless it is sent back: speak them now, while the other sections are written; and its
+    // pictures are made in the background, for the compiles of the lecture and its parts to find made.
+    if (!errors.length && compiled.source && !usingFixture()) {
+      speakAhead(compiled.source);
+      const copy = JSON.parse(JSON.stringify(own));
+      pictureJobs.set(n, inTurn(() => makePictures(copy, partOptions())));
+    }
     return { script: own, errors, compiles: !!compiled.source, dropped };
   };
 
@@ -1543,8 +1574,8 @@ async function viaOpenRouter(
    */
   const chaptersInParallel = async (source: Queue<WrittenSection>, total: number, notes = new Map<number, string>(),
     onSection?: (done: Map<number, Record<string, unknown>>, missing: number[]) => Promise<void> | void) => {
-    const PARALLEL = Math.max(1, Math.min(8, Number(process.env.PANIM_CHAPTERS_PARALLEL) ||
-      Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 6));
+    const PARALLEL = Math.max(1, Math.min(16, Number(process.env.PANIM_CHAPTERS_PARALLEL) ||
+      Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 10));
     const TRIES = 4;          // refused or failed replies before a section is given up
     const TURNS = 8;          // replies in all, the picture searches among them
     const done = new Map<number, Record<string, unknown>>();

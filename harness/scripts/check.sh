@@ -20,7 +20,7 @@ LOG="$(mktemp -d)"
   cd "$HERE/app" || exit 1
   status=0
   npx tsc --noEmit -p . > "$LOG/tsc.txt" 2>&1 || { echo "FAILED: tsc"; cat "$LOG/tsc.txt"; status=1; }
-  for check in figures costs speed manim; do
+  for check in figures costs speed manim pictures; do
     npm run -s "check:$check" > "$LOG/$check.txt" 2>&1 || { echo "FAILED: check:$check"; tail -20 "$LOG/$check.txt"; status=1; }
   done
   exit $status

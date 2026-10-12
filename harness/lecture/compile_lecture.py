@@ -3360,6 +3360,10 @@ def main() -> int:
                     help="with --min-minutes: an error when fewer beats give an example")
     ap.add_argument("--min-problems", type=int, default=None,
                     help="with --min-minutes: an error when the lecture works fewer long problems")
+    ap.add_argument("--pictures-only", action="store_true",
+                    help="only make the pictures the script asks for (into the cache), several at once, and print "
+                         "what was made as JSON: a section's pictures made in the background while the lecture is "
+                         "still being written")
     ap.add_argument("--embed-path", action="store_true",
                     help="put this engine's folder on sys.path in the output, for running `manim` directly")
     args = ap.parse_args()
@@ -3373,6 +3377,16 @@ def main() -> int:
             print(json.dumps({"source": None, "errors": [f"not a JSON beat script: {error}"], "warnings": []}))
             return 1
         raise
+    if args.pictures_only:
+        import genimage
+
+        if genimage.parallel() > 1:
+            prefetch_pictures(script, args.scene_class)
+        else:                                          # one at a time: the compile itself asks for them
+            compile_script(script, args.scene_class) if not lint(script)[0] else None
+        print(json.dumps({"generated": genimage.MADE, "images": genimage.report(), "image_spans": genimage.SPANS,
+                          "prefetch": genimage.PREFETCHED}))
+        return 0
     if args.json or not args.check:
         prefetch_pictures(script, args.scene_class)
     errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples, args.min_problems)

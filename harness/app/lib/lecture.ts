@@ -81,9 +81,9 @@ export function targetMinutes(text: string, source = ""): number {
 /** How long one compile may run (PANIM_COMPILE_TIMEOUT_SECONDS): one that hangs is stopped and reported. */
 const COMPILE_TIMEOUT_MS = Math.max(60, Number(process.env.PANIM_COMPILE_TIMEOUT_SECONDS) || 600) * 1000;
 
-function runPython(args: string[], input?: string, timeoutMs?: number): Promise<{ code: number; stdout: string; stderr: string }> {
+function runPython(args: string[], input?: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(python(), args, { cwd: REPO });
+    const child = spawn(python(), args, { cwd: REPO, ...(env ? { env: { ...process.env, ...env } } : {}) });
     let stdout = "";
     let stderr = "";
     const timer = timeoutMs ? setTimeout(() => {
@@ -127,14 +127,55 @@ export async function compileLecture(
     onImages?: (report: ImageReport) => void;
     /** Told when the compile ran, and when within it the image models were at work (for the lecture's timing). */
     onTime?: (span: [number, number], images: [number, number][], prefetch?: Compiled["prefetch"]) => void;
+    /** Checked without making its pictures (they are made apart, makePictures): a section's check does not wait
+     * on the image models, nor hold its writing slot while they work. */
+    withoutPictures?: boolean;
   } = {},
 ): Promise<Compiled> {
   const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
+  const body = compileBody(script, options);
+  const args = [compiler, "-", "--json"];
+  const began = Date.now();
+  const { stdout, stderr } = await runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS,
+    options.withoutPictures ? { PANIM_IMAGES: "0" } : undefined);
+  try {
+    const compiled = scriptJson<Compiled>(stdout);
+    if (!compiled) throw new Error("no JSON");
+    options.onTime?.([began, Date.now()], compiled.image_spans ?? [], compiled.prefetch);
+    if (compiled.generated?.length) options.onGenerated?.(compiled.generated);
+    if (compiled.images && !options.withoutPictures) options.onImages?.(compiled.images);
+    const warnings = compiled.warnings ?? [];
+    return { ...compiled, warnings: warnings.filter((w) => !w.startsWith("fixed: ")),
+      fixed: warnings.filter((w) => w.startsWith("fixed: ")) };
+  } catch {
+    return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
+  }
+}
+
+/** The pictures a script asks for, made into the cache (several at once) without compiling it
+ * (compile_lecture.py --pictures-only): a section's pictures, made in the background while the lecture is written.
+ * Never throws: a picture that cannot be made is asked for again, and reported, by the compile that needs it. */
+export async function makePictures(script: unknown, options: NonNullable<Parameters<typeof compileLecture>[1]> = {}): Promise<void> {
+  const compiler = path.join(REPO, "harness", "lecture", "compile_lecture.py");
+  const began = Date.now();
+  try {
+    const { stdout } = await runPython([compiler, "-", "--pictures-only"], JSON.stringify(compileBody(script, options)),
+      COMPILE_TIMEOUT_MS);
+    const made = scriptJson<Compiled>(stdout);
+    if (!made) return;
+    // The image models' time only: no compile ran ([began, began] adds nothing to the compile row).
+    options.onTime?.([began, began], made.image_spans ?? [], made.prefetch);
+    if (made.generated?.length) options.onGenerated?.(made.generated);
+  } catch {
+    // made, or not, by the compile that needs them
+  }
+}
+
+function compileBody(script: unknown, options: NonNullable<Parameters<typeof compileLecture>[1]> = {}): unknown {
   // The figures table comes from the uploaded document, never from the model.
-  const body =
-    script && typeof script === "object"
+  return script && typeof script === "object"
       ? {
-          ...script,
+          ...(script as Record<string, unknown>),
           // How to teach is the writer's: the compiler checks only what the video needs to be drawn.
           teaching_rules: false,
           ...(options.style ? { style: options.style } : {}),
@@ -146,21 +187,6 @@ export async function compileLecture(
           ...(options.language ? { language: options.language } : {}),
         }
       : script;
-  const args = [compiler, "-", "--json"];
-  const began = Date.now();
-  const { stdout, stderr } = await runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS);
-  try {
-    const compiled = scriptJson<Compiled>(stdout);
-    if (!compiled) throw new Error("no JSON");
-    options.onTime?.([began, Date.now()], compiled.image_spans ?? [], compiled.prefetch);
-    if (compiled.generated?.length) options.onGenerated?.(compiled.generated);
-    if (compiled.images) options.onImages?.(compiled.images);
-    const warnings = compiled.warnings ?? [];
-    return { ...compiled, warnings: warnings.filter((w) => !w.startsWith("fixed: ")),
-      fixed: warnings.filter((w) => w.startsWith("fixed: ")) };
-  } catch {
-    return { source: null, errors: [stderr.trim().slice(-600) || "the compiler returned nothing"], warnings: [] };
-  }
 }
 
 export type Subject = {

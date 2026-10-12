@@ -19,13 +19,14 @@ import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classif
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { TimingLog } from "./timing";
+import { dropRepeats } from "./repeats";
 import { fillManim, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
 import { MediaLog, type MediaItem } from "./media";
 import { PREVIEW_MINUTES, SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, repairable, repairRequest, rewroteWhole, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptProblem, transcriptSections, type Section, type WrittenSection } from "./transcript";
-import { fillLines } from "./lines";
+import { fillLines, linesOf } from "./lines";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, findMap, moleculeGuide, runTool } from "./agent";
 
@@ -988,7 +989,7 @@ async function viaOpenRouter(
           cachedSystem(prompt, writer),
           { role: "user", content: mending
             ? repairRequest(section, sections.length, current!.text, current!.problem)
-            : sectionRequest(section, sections.length, prior, note) },
+            : sectionRequest(section, sections.length, prior, note, sections) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -1058,7 +1059,18 @@ async function viaOpenRouter(
         const problem = sectionProblem(text, section, language);
         emit({ type: "tool_result", name: "write_section",
           text: problem ? problem : `Section ${section.n}: ${title}\n\n${text}` });
-        if (!problem) return { n: section.n, title: title || `Section ${section.n}`, text, taught };
+        if (!problem) {
+          // A sentence this section, or one written before it, already said is taken out: sections are written
+          // several at once, and the same sentence came out two or three times.
+          const before = [...done.values()].filter((w) => w.n !== section.n).flatMap((w) => linesOf(w.text));
+          const cleaned = dropRepeats(text, before);
+          if (cleaned.dropped.length) {
+            emit({ type: "message", role: "status", text: `Transcript: section ${section.n}: ${cleaned.dropped.length} ` +
+              `sentence${cleaned.dropped.length > 1 ? "s" : ""} said before taken out (${cleaned.dropped.slice(0, 2)
+                .map((d) => `"${d.slice(0, 60)}"`).join(", ")}${cleaned.dropped.length > 2 ? ", ..." : ""}).` });
+          }
+          return { n: section.n, title: title || `Section ${section.n}`, text: cleaned.text, taught };
+        }
         note = problem;
         if (text) current = { title, text, problem, taught };
         if (text && text.length > (fallback?.text.length ?? 0)) fallback = { title, text, problem };
@@ -1566,8 +1578,10 @@ async function viaOpenRouter(
       ...[section ? transcriptProblem(own, [section], [n]) : null].filter((e): e is string => !!e),
       ...(compiled.source ? [] : compiled.errors),
     ];
-    if (!errors.length && (filled.added || filled.merged || dropped)) {
+    const repeated = "repeated" in filled ? filled.repeated ?? 0 : 0;
+    if (!errors.length && (filled.added || filled.merged || dropped || repeated)) {
       emit({ type: "message", role: "status", text: `Video: section ${n}: ` + [
+        repeated ? `${repeated} transcript line${repeated > 1 ? "s" : ""} named by a second beat, said once` : "",
         filled.added ? `${filled.added} transcript line${filled.added > 1 ? "s" : ""} no beat named, said on beats of their own` : "",
         filled.merged ? `${filled.merged} thin chapter${filled.merged > 1 ? "s" : ""} merged into a neighbouring one` : "",
         dropped ? `the ops of ${dropped} beat${dropped > 1 ? "s" : ""} that would not compile left out` : "",

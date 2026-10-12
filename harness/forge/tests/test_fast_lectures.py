@@ -131,3 +131,74 @@ console.log(JSON.stringify({ prompt, ask, video }));
     assert "Heading 1" in out["prompt"] and "Heading 2" in out["prompt"]
     assert "BODY-2" in out["ask"] and "BODY-1" not in out["ask"]
     assert "1| One line.\n2| Two lines." in out["video"] and '"lines"' in out["video"]
+
+
+def test_a_line_named_by_two_beats_is_said_once_and_a_paraphrase_counts(lib):
+    """The same sentence came out two or three times: a beat named a line an earlier beat had said, or wrote a line
+    out in its own words and the line was then added again as unsaid."""
+    out = _node(lib, SECTION + """
+const script = { chapters: [
+  { title: 'A', section: 3, beats: [
+    { lines: [1, 2], do: [] },
+    { lines: [2], do: [{ op: 'fact', text: 'kept' }] },
+    { lines: [3, 4, 5], do: [] },
+    { say: 'Because the surfaces rub together.', do: [] },
+    { lines: [5, 6, 7, 8], do: [] },
+  ] },
+] };
+const report = lines.fillLines(script, [ws], { complete: [3] });
+console.log(JSON.stringify({ report, beats: script.chapters[0].beats }));
+""")
+    says = [b["say"] for b in out["beats"]]
+    assert says.count("A force is a push. A force is a pull.") == 1
+    assert sum("Ice has little friction." in s for s in says) == 1
+    # Line 2 again was a beat with nothing new: it went, and its picture moved to the next beat.
+    assert out["beats"][1]["do"] == [{"op": "fact", "text": "kept"}]
+    # "Because surfaces rub." is said in the beat's own words: not added again.
+    assert not any(s == "Because surfaces rub." for s in says) and out["report"]["added"] == 0
+    assert out["report"]["repeated"] == 2
+
+
+def test_a_transcript_sentence_said_before_is_taken_out(lib):
+    out = _node(lib, f"const repeats = require({json.dumps(str(lib / 'repeats.js'))});" + """
+const earlier = ['Friction is a force that opposes motion between two surfaces.'];
+const text = 'Friction is a force that opposes motion between two surfaces. Now think of ice.\\n\\n' +
+  'Ice is smooth, so it has very little friction. Ice is smooth, so it has very little friction! Yes.';
+console.log(JSON.stringify(repeats.dropRepeats(text, earlier)));
+""")
+    assert out["text"] == "Now think of ice.\n\nIce is smooth, so it has very little friction. Yes."
+    assert len(out["dropped"]) == 2
+
+
+def test_the_section_request_names_what_its_neighbours_teach(lib):
+    out = _node(lib, """
+const mk = (n, source) => ({ n, parts: [], minutes: 5, words: 600, source, book: true });
+const all = [mk(1, '## Levers\\nA lever is a bar.'), mk(2, '## Pulleys\\nA pulley is a wheel.'), mk(3, '## Gears\\nGears turn.')];
+console.log(JSON.stringify(transcript.sectionRequest(all[1], 3, [], undefined, all)));
+""")
+    assert "NOT YOURS TO TEACH" in out and "Section 1 (before this one)" in out and "Section 3 (after this one)" in out
+
+
+def test_the_compiler_takes_out_a_sentence_said_again():
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lecture"))
+    import compile_lecture as cl
+
+    script = {"title": "T", "chapters": [{"title": "A", "map": False, "beats": [
+        {"say": "Friction always opposes the motion of a body.", "do": []},
+        {"say": "Friction always opposes the motion of a body. Look at the block.", "do": []},
+        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "x"}]},
+        {"say": "A new idea.", "do": []}]}]}
+    notes = cl._drop_repeated_says(script)
+    beats = script["chapters"][0]["beats"]
+    assert [b["say"] for b in beats] == ["Friction always opposes the motion of a body.", "Look at the block.", "A new idea."]
+    # The repeated beat's picture comes up with the line before it (which showed none): nothing drawn is lost.
+    assert beats[1]["do"] == [{"op": "fact", "text": "x"}] and notes and notes[0].startswith("fixed: 2 sentences")
+
+    # With no beat free to take its pictures, a repeated line stays rather than lose what it shows.
+    busy = {"title": "T", "chapters": [{"title": "A", "map": False, "beats": [
+        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "a"}]},
+        {"say": "Friction always opposes the motion of a body.", "do": [{"op": "fact", "text": "b"}]},
+        {"say": "Next.", "do": [{"op": "fact", "text": "c"}]}]}]}
+    assert cl._drop_repeated_says(busy) == [] and len(busy["chapters"][0]["beats"]) == 3

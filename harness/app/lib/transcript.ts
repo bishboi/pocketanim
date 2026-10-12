@@ -289,7 +289,10 @@ export function transcriptPrompt(options: {
     "  - Teach the subject only. The book's own furniture is not content: never mention or describe its QR codes,",
     "    \"scan for e-content\" boxes, logos, page numbers, page layout, reprint or copyright notes.",
     "  - Each request asks for one section, with the end of the one before when it is written: write that one",
-    "    section, carrying on from there.",
+    "    section, carrying on from there. Several sections are written at the same time, each by its own request:",
+    "    the request names what the sections around it teach, which are theirs to teach.",
+    "  - The student hears the lecture once, in order: what one section explains, the student already knows in the",
+    "    next. A sentence said again, in this section or another, is taken out of the transcript.",
     ...(options.subject ? [`  - The subject is ${options.subject}.`] : []),
     "",
     options.languageRules.trim(),
@@ -386,6 +389,25 @@ function headingIn(source: string): string {
 }
 
 /** What one section is to say: its slice of the reference or the book, and the book's questions in it. */
+/** What the sections around this one teach, when they are not written yet (being written at the same time): theirs,
+ * not this section's, so it neither teaches nor previews them. */
+function neighbours(section: Section, all: Section[], written: WrittenSection[]): string[] {
+  const others = all.filter((s) => Math.abs(s.n - section.n) <= 2 && s.n !== section.n
+    && !written.some((w) => w.n === s.n));
+  const scope = (s: Section) => {
+    if (s.parts.length) return `part${s.parts.length > 1 ? "s" : ""} ${s.parts.join(", ")} of the reference: ` +
+      `"${s.source.slice(0, 200).replace(/\s+/g, " ")}..."`;
+    if (s.book) {
+      const ideas = ideasOf(s.source).filter((idea) => idea.kind !== "aside").map((idea) => idea.text).slice(0, 12);
+      return ideas.length ? ideas.join("; ") : `"${s.source.slice(0, 200).replace(/\s+/g, " ")}..."`;
+    }
+    return "";
+  };
+  const lines = others.map((s) => [s, scope(s)] as const).filter(([, what]) => what)
+    .map(([s, what]) => `  Section ${s.n}${s.n < section.n ? " (before this one)" : " (after this one)"}: ${what}`);
+  return lines.length ? ["BEING WRITTEN AT THE SAME TIME, NOT YOURS TO TEACH (do not explain or preview these):", ...lines, ""] : [];
+}
+
 export function sectionSource(section: Section): string {
   const questions = section.questions?.length
     ? `\nTHE SOURCE'S QUESTIONS IN THIS SECTION (${section.questions.length}; every one taken up):\n` +
@@ -409,7 +431,8 @@ function coverList(source: string): string {
       asides.map((a) => `  - ${a.title}: ${a.text.slice(0, 200)}`).join("\n") : "");
 }
 
-export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string): string {
+export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,
+  all: Section[] = []): string {
   // Sections are written a few at a time: the one just before this may still be on its way.
   const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
@@ -423,6 +446,7 @@ export function sectionRequest(section: Section, count: number, written: Written
     ...(last ? [`Section ${last.n} ended like this:`, `  ...${tail}`, ""]
       : opening ? [] : [`Section ${section.n - 1} is being written at the same time as this one (its topic is in the ` +
         "outline of sections).", ""]),
+    ...neighbours(section, all, written),
     `Now write SECTION ${section.n} of ${count}` + (section.n === count ? " (the last: the lecture ends with it)" : "") +
       (section.parts.length ? `, which remakes part${section.parts.length > 1 ? "s" : ""} ${section.parts.join(", ")} of the reference`
         : section.questionsOnly ? ", which takes up more of the source's questions, listed below"

@@ -9,6 +9,7 @@
  * not a refusal either: it is said on a beat of its own, without a picture, where it belongs in the order.
  */
 
+import { sameSentence, wordsOf } from "./repeats";
 import type { WrittenSection } from "./transcript";
 
 /** A section's sentences in order, as they are numbered for the video (1-based in the prompt). */
@@ -54,6 +55,9 @@ export type FillReport = {
   added: number;
   /** Chapters with too few beats, merged into the chapter before (or after) them. */
   merged: number;
+  /** Lines a beat named that an earlier beat already said: taken out of it (a beat left with nothing to say goes,
+   * its pictures to the beat after it). */
+  repeated?: number;
 };
 
 /**
@@ -66,7 +70,8 @@ export function fillLines(
   written: WrittenSection[],
   options: { complete?: number[]; minBeats?: number } = {},
 ): FillReport {
-  const report: FillReport = { problems: [], added: 0, merged: 0 };
+  const report: FillReport = { problems: [], added: 0, merged: 0, repeated: 0 };
+  const emptied: { chapter: Chapter; beat: Beat }[] = [];
   const chapters = ((script as { chapters?: unknown })?.chapters ?? []) as Chapter[];
   if (!Array.isArray(chapters)) return report;
   const lines = new Map(written.map((w) => [w.n, linesOf(w.text)]));
@@ -88,7 +93,11 @@ export function fillLines(
         report.problems.push(`chapter ${ci + 1} beat ${bi + 1}: line${bad.length > 1 ? "s" : ""} ${bad.join(", ") || "(none)"} ` +
           `not in section ${n}, which has lines 1-${own.length}`);
       }
-      const good = numbers.filter((k) => k >= 1 && k <= own.length);
+      const valid = numbers.filter((k) => k >= 1 && k <= own.length);
+      // A line an earlier beat already said is not said again (the same sentence came out twice or three times).
+      const good = valid.filter((k, i) => !said.get(n)?.has(k) && valid.indexOf(k) === i);
+      report.repeated! += valid.length - good.length;
+      if (valid.length && !good.length) emptied.push({ chapter, beat });
       if (good.length) {
         beat.say = good.map((k) => own[k - 1]).join(" ");
         const set = said.get(n) ?? new Set<number>();
@@ -107,10 +116,15 @@ export function fillLines(
       const at = own.findIndex((line) => text.includes(line));
       return at < 0 ? -1 : at + 1;
     };
+    // Each beat's sentences, as words: a beat that wrote a line out in its own words (nearly the same) says it too.
+    const written = mine.flatMap((c) => c.beats!).filter((b) => typeof b.say === "string")
+      .flatMap((b) => String(b.say).split(/(?<=[.?!।])\s+/)).map(wordsOf);
     const missing = own.map((_, i) => i + 1).filter((k) => {
       if (said.get(n)?.has(k)) return false;
       // A beat that wrote the sentence out instead of naming it still says it.
-      return !mine.some((c) => c.beats!.some((b) => typeof b.say === "string" && b.say.includes(own[k - 1])));
+      if (mine.some((c) => c.beats!.some((b) => typeof b.say === "string" && b.say.includes(own[k - 1])))) return false;
+      const words = wordsOf(own[k - 1]);
+      return !written.some((w) => sameSentence(w, words));
     });
     for (let i = 0; i < missing.length; ) {
       // One or two consecutive missing sentences a beat, as the script would have it.
@@ -136,6 +150,17 @@ export function fillLines(
       if (!placed) mine[0].beats!.unshift({ say: group.map((k) => own[k - 1]).join(" "), do: [] });
       report.added += group.length;
     }
+  }
+  // Beats left with nothing to say (every line they named was said before) go; their pictures move to the beat
+  // after them in the chapter when it shows none, so nothing drawn is lost.
+  for (const { chapter, beat } of emptied) {
+    const beats = chapter.beats!;
+    const at = beats.indexOf(beat);
+    if (at < 0) continue;
+    const ops = Array.isArray(beat.do) ? beat.do : [];
+    const next = beats[at + 1];
+    if (ops.length && next && (!Array.isArray(next.do) || !next.do.length)) next.do = ops;
+    beats.splice(at, 1);
   }
   if (options.minBeats) report.merged = mergeThin(chapters, options.minBeats, options.complete ?? []);
   return report;

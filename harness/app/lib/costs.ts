@@ -5,7 +5,7 @@
  * voice and the build, which happen when the lecture is built.
  */
 
-export const COST_TASKS = ["planning", "transcript", "script", "fixes", "stalled", "figures", "waiting", "compile", "drawings", "images"] as const;
+export const COST_TASKS = ["planning", "transcript", "script", "fixes", "stalled", "manim", "figures", "waiting", "compile", "drawings", "images"] as const;
 export type CostTask = (typeof COST_TASKS)[number];
 
 export type CostLine = {
@@ -33,6 +33,7 @@ export const COST_LABELS: Record<CostTask, string> = {
   script: "Writing the video script",
   fixes: "Fixing the script",
   stalled: "Model tries that stalled or failed (asked again)",
+  manim: "Writing the Manim figures",
   figures: "Book figures",
   waiting: "Waiting for the book's figures",
   compile: "Checking and compiling the script",
@@ -43,6 +44,7 @@ export const COST_LABELS: Record<CostTask, string> = {
 const ITEM_WORDS: Partial<Record<CostTask, [string, string]>> = {
   figures: ["redrawn", "redrawn"],
   stalled: ["try", "tries"],
+  manim: ["request", "requests"],
   drawings: ["diagram", "diagrams"],
   images: ["image", "images"],
 };

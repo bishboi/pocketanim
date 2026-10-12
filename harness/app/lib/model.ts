@@ -15,9 +15,10 @@ import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { shownSoFar, taughtNotes } from "./continuity";
 import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport } from "./lecture";
-import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
+import { fillManim, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
@@ -1378,7 +1379,7 @@ async function viaOpenRouter(
     return compiled;
   };
   const compileWholeChecked = async (script: unknown) => {
-    const compiled = await compileLecture(script, lectureOptions());
+    const compiled = await compileChecked(script, lectureOptions());
     const unsaid = compiled.source ? transcriptProblem(script, written) : null;
     if (unsaid) return { ...compiled, source: null, errors: [unsaid] };
     const unbuilt = compiled.source && doc ? unbuiltFigures(script, figureCaptions(doc)) : [];
@@ -1402,6 +1403,34 @@ async function viaOpenRouter(
   };
   // One part of a long lecture is checked on its own: its ops, captions and copying, not the whole lecture's
   // length or counts.
+  // The free-form Manim blocks, by their own model when PANIM_MANIM_MODEL is set (lib/manimcoder.ts): the writer
+  // plans each block, the Manim model writes its code (every figure at once) before the compiler runs, and a block
+  // the compiler's run refuses goes back to it with the reason, not to the section.
+  const coder = manimModel();
+  const coderOptions = (): ManimCoderOptions => ({
+    key, model: coder!, style, signal: undefined,
+    figureFile: (id) => (doc ? teachingFigures(doc).find((f) => f.id === id)?.file : undefined),
+    onStatus: (text) => emit({ type: "message", role: "status", text }),
+    onCost: (usd, span, tokens) => {
+      inputTokens += tokens.in;
+      outputTokens += tokens.out;
+      costUsd = ledger.bill("manim", usd, { inputTokens: tokens.in, outputTokens: tokens.out, span, items: 1 });
+      sendCosts(`a Manim figure written by ${coder}: $${usd.toFixed(4)}`);
+    },
+  });
+  const compileChecked = async (script: unknown, options: Parameters<typeof compileLecture>[1]) => {
+    if (!coder || !script || typeof script !== "object" || !needsManim(script) && !hasManim(script)) {
+      return compileLecture(script, options);
+    }
+    const own = script as Record<string, unknown>;
+    if (needsManim(own)) await fillManim(own, coderOptions());
+    let compiled = await compileLecture(own, options);
+    for (let round = 0; round < 2 && !compiled.source; round++) {
+      if (!(await repairManim(own, compiled.errors, coderOptions()))) break;
+      compiled = await compileLecture(own, options);
+    }
+    return compiled;
+  };
   const partOptions = lectureOptions;
   kept.options = partOptions;
   let draft: Record<string, unknown> | null = null;      // a long lecture's parts so far
@@ -1483,11 +1512,11 @@ async function viaOpenRouter(
     const own: Record<string, unknown> = { ...script, title: script.title || `Section ${n}`, chapters };
     const section = ready.get(n) ?? written.find((w) => w.n === n);
     const filled = section ? fillLines(own, [section], { complete: [n], minBeats: partBeats }) : { problems: [], added: 0, merged: 0 };
-    let compiled = await compileLecture(own, partOptions());
+    let compiled = await compileChecked(own, partOptions());
     let dropped = 0;
     if (!compiled.source && dropFailing) {
       dropped = dropOps(own, compiled.errors);
-      if (dropped) compiled = await compileLecture(own, partOptions());
+      if (dropped) compiled = await compileChecked(own, partOptions());
     }
     const errors = [
       ...filled.problems,
@@ -1779,7 +1808,7 @@ async function viaOpenRouter(
   /** One micro-lecture's errors, each with the section it belongs to (or 0: the lecture's own). */
   const topicErrors = async (part: Record<string, unknown>, sections: number[]) => {
     const chapters = (Array.isArray(part.chapters) ? part.chapters : []) as { section?: unknown; beats?: { do?: Record<string, unknown>[] }[] }[];
-    const compiled = logFixed(await compileLecture(part, partOptions()));
+    const compiled = logFixed(await compileChecked(part, partOptions()));
     const errors = new Map<number, string[]>();
     const add = (n: number, error: string) => errors.set(n, [...(errors.get(n) ?? []), error]);
     for (const error of compiled.source ? [] : compiled.errors) {
@@ -1841,7 +1870,7 @@ async function viaOpenRouter(
     let compiled = checked.compiled;
     if (!compiled.source) {
       // What still will not compile is left out (those beats' ops), rather than holding the lecture back.
-      if (dropOps(part.script, compiled.errors)) compiled = await compileLecture(part.script, partOptions());
+      if (dropOps(part.script, compiled.errors)) compiled = await compileChecked(part.script, partOptions());
     }
     if (!compiled.source) {
       emit({ type: "message", role: "status", text: `${label} ("${topic.title}") could not be made: ${compiled.errors.slice(0, 2).join("; ")}` });
@@ -1945,7 +1974,7 @@ async function viaOpenRouter(
       }
       // The sections are written but the whole still falls short (a question or figure left out, the length, the
       // count of problems): the chapters are kept and the model fixes only what is wrong, with add_chapters.
-      const partsOk = (await compileLecture(script, partOptions())).source;
+      const partsOk = (await compileChecked(script, partOptions())).source;
       draft = script;
       const list = (Array.isArray(script.chapters) ? script.chapters : []).map((c, i) => {
         const chapter = c as { title?: unknown; section?: unknown };
@@ -2042,7 +2071,7 @@ async function viaOpenRouter(
             text: `Turn ${turn + 1}: ${model} ${what}. Asking again (try ${quietTries + 1} of ${QUIET_TRIES + 1}).` });
           continue;
         }
-        const partial = draft ? await compileLecture(draft, partOptions()) : null;
+        const partial = draft ? await compileChecked(draft, partOptions()) : null;
         if (partial?.source) {
           Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
           emit({ type: "message", role: "status",
@@ -2140,7 +2169,7 @@ async function viaOpenRouter(
     }
     if (calls.length === 0 && draft && !/from manim import/.test(scene)) {
       // The model stopped before finishing a long lecture: the parts it wrote make a shorter video, not an error.
-      const partial = await compileLecture(draft, partOptions());
+      const partial = await compileChecked(draft, partOptions());
       if (partial.source) Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
       if (partial.source && (partial.minutes ?? 0) < minutes * 0.4) {
         // A fragment is not the lecture that was asked for: say so, rather than render 20 seconds of it.
@@ -2218,7 +2247,7 @@ async function viaOpenRouter(
           : thin || chapterCount(first) === 0
           ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin || "no"} chapter(s) ` +
               `here have fewer. Send part 1 again with whole chapters, each teaching its topic fully.`], minutes: 0, warnings: [] }
-          : await compileLecture(first, partOptions());
+          : await compileChecked(first, partOptions());
         if (compiled.source) {
           draft = first;
           output = `Saved part 1: ${chapterCount(first)} chapter(s), about ${compiled.minutes ?? "?"} of ${minutes} min. ` +
@@ -2251,7 +2280,7 @@ async function viaOpenRouter(
             : thin
             ? { source: null, errors: [`Each chapter needs at least ${partBeats} beats (8-12 is right); ${thin} of these have ` +
                 "fewer. Send them again as whole chapters."], minutes: 0, warnings: [] }
-            : args.done ? await compileWhole(next) : logFixed(await compileLecture(next, partOptions()));
+            : args.done ? await compileWhole(next) : logFixed(await compileChecked(next, partOptions()));
           if (compiled.source && args.done) {
             draft = next;
             scene = compiled.source;
@@ -2266,7 +2295,7 @@ async function viaOpenRouter(
               "Continue with add_chapters; done: true with the last part and the recap.";
           } else if (args.done) {
             // The parts are fine but the whole falls short (length, questions, problems): keep them, ask for more.
-            const partsOk = (await compileLecture(next, partOptions())).source;
+            const partsOk = (await compileChecked(next, partOptions())).source;
             if (partsOk && !thin) draft = next;
             if (partsOk && !thin) wholeRefused += 1;
             output = [
@@ -2301,7 +2330,7 @@ async function viaOpenRouter(
     if (draft && wholeRefused >= WHOLE_TRIES && !/from manim import/.test(scene)) {
       // A complete lecture whose whole-lecture checks still fail after several rounds of fixing: its chapters all
       // compile, so it is built (the checks named in the log), rather than turning for another hour.
-      const built = await compileLecture(draft, partOptions());
+      const built = await compileChecked(draft, partOptions());
       if (built.source) {
         Object.assign(kept, { script: draft, source: built.source, minutes: built.minutes });
         emit({ type: "message", role: "status", text: `The whole lecture was refused ${wholeRefused} times; building its ` +
@@ -2314,7 +2343,7 @@ async function viaOpenRouter(
   if (done) return done;
   if (draft) {
     // Out of turns with a long lecture's chapters saved: they are the video, not an error.
-    const partial = await compileLecture(draft, partOptions());
+    const partial = await compileChecked(draft, partOptions());
     if (partial.source) {
       Object.assign(kept, { script: draft, source: partial.source, minutes: partial.minutes });
       emit({ type: "message", role: "status", text: `Out of turns; building the lecture from the ${chapterCount(draft)} ` +

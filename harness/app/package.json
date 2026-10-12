@@ -10,7 +10,8 @@
     "check:draw": "node scripts/check-draw.cjs",
     "check:figures": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-figures.mjs",
     "check:speed": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-speed.mjs",
-    "check:costs": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-costs.mjs"
+    "check:costs": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-costs.mjs",
+    "check:manim": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/check-manim.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",

@@ -24,7 +24,7 @@ export type ManimCoderOptions = {
   figureFile?: (id: string) => string | undefined;
   signal?: AbortSignal;
   /** What each request cost, when it ran, and its tokens. */
-  onCost?: (usd: number, span: [number, number], tokens: { in: number; out: number }) => void;
+  onCost?: (usd: number, span: [number, number], tokens: { in: number; out: number }, detail?: Record<string, unknown>) => void;
   onStatus?: (text: string) => void;
 };
 
@@ -129,7 +129,8 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: 
   const body = (await response.json()) as { choices?: { message?: { content?: string } }[];
     usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
   options.onCost?.(body.usage?.cost ?? 0, [began, Date.now()],
-    { in: body.usage?.prompt_tokens ?? 0, out: body.usage?.completion_tokens ?? 0 });
+    { in: body.usage?.prompt_tokens ?? 0, out: body.usage?.completion_tokens ?? 0 },
+    { figure: id, beats: slots.length, repair: !!fix, model: options.model });
   const text = String(body.choices?.[0]?.message?.content ?? "");
   try {
     const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { blocks?: unknown };

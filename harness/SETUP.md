@@ -247,6 +247,15 @@ lists anything still missing, each with a **download** button:
 
 The app also downloads the voice by itself before the first lecture that needs it.
 
+**Where the time goes.** Every generation and every build writes a timing log in `harness/app/.logs` (one JSON
+line per step: each model request with its section and try, each compile and its phases, each picture request and
+what it was for, each Manim figure, each book figure, each narration request with its rate-limit refusals and the
+seconds spent waiting them out, each stalled try, each wait). The status log says where the file is, and a
+generation ends with a summary of each kind of step and the slowest steps; a build prints its summary in the
+terminal running `npm run dev`. `npm run timing` (in `harness/app`) sums up the newest log, `npm run timing -- build`
+the newest build, `npm run timing -- <file>` any one: time by kind of step, the slowest sections, picture requests by
+model, the narration's rate limits, and the 20 slowest steps.
+
 To run the tests and the app's checks, all at once on every core, use `scripts/check.sh`. Add `quick` to leave out
 the slow tests that render whole lectures. You can also name test files after it, for example
 `scripts/check.sh quick tests/test_pictures_more.py`. The full run takes about 2.5 minutes, quick mode about 1 minute,

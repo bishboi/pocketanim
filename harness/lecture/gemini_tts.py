@@ -101,6 +101,9 @@ def voice_for(style: str | None) -> str:
 PRICES = {"gemini-3.8-flash-lite-tts": (0.50, 6.00), "gemini-3.8-flash-tts": (0.50, 9.00)}
 AUDIO_TOKENS_PER_SECOND = 25
 _spent = threading.local()
+# Every request to Google, for the build's timing log: characters, how long it took, the tries and the seconds spent
+# waiting out refusals (429: the per-minute quota), and how it ended.
+CALLS: list[dict] = []
 
 
 def price(model_id: str | None = None) -> tuple[float, float]:
@@ -176,7 +179,20 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
         body["systemInstruction"] = {"parts": [{"text": STYLE if style == "teacher" else style}]}
     url = f"{_env('GEMINI_TTS_URL') or URL}/{model()}:generateContent"
     last = ""
+    call = {"chars": len(text), "start": time.time() * 1000, "tries": 0, "waited": 0.0, "codes": []}
+    CALLS.append(call)
+    try:
+        return _synthesize(body, url, call)
+    finally:
+        call["end"] = time.time() * 1000
+
+
+def _synthesize(body: dict, url: str, call: dict) -> tuple[bytes, int]:
+    global _REFUSES_INSTRUCTION
+    text = body["contents"][0]["parts"][0]["text"]
+    last = ""
     for attempt in range(TRIES):
+        call["tries"] = attempt + 1
         request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
             "Content-Type": "application/json; charset=utf-8", "x-goog-api-key": _key() or ""})
         try:
@@ -184,8 +200,10 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
                 reply = json.loads(response.read())
             pcm, rate = _audio_of(reply)
             _count(reply, text, pcm, rate)
+            call["ok"] = True
             return pcm, rate
         except urllib.error.HTTPError as error:
+            call["codes"].append(error.code)
             detail = error.read().decode("utf-8", "replace")
             try:
                 last = json.loads(detail)["error"]["message"]
@@ -203,7 +221,9 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
             if error.code in (429, 500, 502, 503, 504) and attempt < TRIES - 1:
                 # A long lecture is thousands of lines: the per-minute quota runs out, and is waited out.
                 wait = error.headers.get("Retry-After") if error.headers else None
-                time.sleep(float(wait) if wait and wait.isdigit() else min(60, 2 ** attempt * (4 if error.code == 429 else 1)))
+                pause = float(wait) if wait and wait.isdigit() else min(60, 2 ** attempt * (4 if error.code == 429 else 1))
+                call["waited"] += pause
+                time.sleep(pause)
                 continue
             if error.code in (401, 403) or "API key" in last:
                 raise RuntimeError(f"{NAME} {error.code}: {last} -- check GEMINI_API_KEY (a key from "
@@ -216,6 +236,7 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
                 continue
             raise RuntimeError(f"{NAME} unreachable: {last}") from None
         except (OSError, http.client.HTTPException) as error:
+            call["codes"].append(type(error).__name__)
             # The connection dropped partway through the reply (ConnectionResetError, a read timeout, an incomplete
             # read): the same request again, then a RuntimeError the caller reports, never a crash of the batch.
             last = f"{type(error).__name__}: {error}"

@@ -119,8 +119,24 @@ def main() -> int:
         else:
             batches.append([line])
     failed: list[str] = []
+    timing: list[dict] = []                       # each batch: lines, when, how long, how it ended
+
+    def timed(batch: list[str]) -> None:
+        import time
+
+        start = time.time() * 1000
+        outcome = "ok"
+        try:
+            pl.narrate_many(batch)
+        except Exception as error:  # noqa: BLE001 -- recorded, then raised as it was
+            outcome = type(error).__name__
+            raise
+        finally:
+            timing.append({"lines": len(batch), "chars": sum(len(x) for x in batch), "start": start,
+                           "end": time.time() * 1000, "outcome": outcome})
+
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        futures = {pool.submit(pl.narrate_many, batch): batch for batch in batches}
+        futures = {pool.submit(timed, batch): batch for batch in batches}
         for future in as_completed(futures):
             try:
                 future.result()
@@ -144,6 +160,13 @@ def main() -> int:
              "spoken": len(left), "lines": len(unique), "unknown": sum(c is None for c in whole),
              "engine": mode.split(":", 1)[0]}
     voice["batches"] = dict(pl.BATCHES)
+    try:
+        import tts
+
+        calls = list(getattr(tts.engine(mode.split(":", 1)[0]), "CALLS", []))
+    except Exception:  # noqa: BLE001
+        calls = []
+    voice["timing"] = {"batches": timing, "calls": calls, "threads": threads, "batch_lines": batch_lines}
     if any(pl.BATCHES.values()):
         print(f"prespeak: batches of up to {batch_lines} lines: {pl.BATCHES['ok']} cut cleanly, "
               f"{pl.BATCHES['uncut']} not cut (spoken line by line), {pl.BATCHES['failed']} failed"

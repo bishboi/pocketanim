@@ -1,4 +1,5 @@
 import { readVisualCheck } from "@/lib/visualcheck";
+import { TimingLog } from "@/lib/timing";
 import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -58,6 +59,8 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     const progress = progressFile(String(body?.jobId ?? ""));
     // How long the voice and the build took, for the page's cost breakdown (the build itself runs here, free).
     const started = Date.now();
+    // Every timed step of this build (lib/timing.ts), in harness/app/.logs; its summary goes to the server's log.
+    const log = new TimingLog(`build-${String(body?.jobId ?? sceneClass)}`);
     let voiceSeconds = 0;
     let beats = 0;
     let voiceCost: VoiceCost | undefined;
@@ -71,9 +74,12 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       beats = spoken.beats;
       voiceCost = spoken.voice;
       voiceSeconds = (Date.now() - started) / 1000;
+      logVoice(log, started, spoken.waitedAhead, spoken.voice);
     }
     const building = Date.now();
     const { result, buildDir } = await exportScene(source, sceneClass, progress);
+    log.span("build", building, Date.now(), { what: "Manim draws the lecture and the phone program is baked", tier: result.tier });
+    console.log(`[timing] build ${log.file}\n${log.summary().join("\n")}`);
     if (progress) await rm(progress, { force: true });
     // The video render (/api/video) counts its progress against this.
     if (beats) await writeFile(path.join(buildDir, "beats.json"), JSON.stringify({ beats }));
@@ -124,4 +130,26 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       { status: 500 },
     );
   }
+}
+
+/** The narration's steps in the build's timing log: the wait for speaking ahead, each batch, each request to the
+ * voice (its tries, its refusals, the seconds spent waiting them out), and a line that sums the requests up. */
+function logVoice(log: TimingLog, started: number, waitedAhead: number, voice?: VoiceCost) {
+  if (waitedAhead > 0.5) {
+    log.span("wait", started, started + waitedAhead * 1000, { what: "the build waited for speaking ahead to finish" });
+  }
+  const timing = voice?.timing;
+  if (!timing) return;
+  for (const b of timing.batches) log.span("tts-batch", b.start, b.end, { lines: b.lines, chars: b.chars, outcome: b.outcome });
+  for (const c of timing.calls) {
+    log.span("tts-request", c.start, c.end ?? c.start, { chars: c.chars, tries: c.tries, waited: c.waited,
+      ...(c.codes.length ? { refused: c.codes } : {}), ok: !!c.ok });
+  }
+  const calls = timing.calls;
+  const limited = calls.filter((c) => c.codes.includes(429)).length;
+  const waited = calls.reduce((t, c) => t + c.waited, 0);
+  const average = calls.length ? calls.reduce((t, c) => t + ((c.end ?? c.start) - c.start), 0) / calls.length / 1000 : 0;
+  log.note("tts-summary", { engine: voice?.engine, requests: calls.length, threads: timing.threads,
+    batch_lines: timing.batch_lines, rate_limited: limited, seconds_waiting_out_limits: Math.round(waited),
+    average_request_seconds: Math.round(average * 10) / 10, batches: voice?.batches });
 }

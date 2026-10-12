@@ -55,21 +55,26 @@ export class CostLedger {
   /** When the generation began: its whole time is from here to the last event. */
   readonly started = Date.now();
 
+  /** Told of every timed step, with what it was for (the generation's timing log, lib/timing.ts). */
+  onSpan?: (task: CostTask, start: number, end: number, detail?: Record<string, unknown>) => void;
+
   bill(task: CostTask, usd: number, more: { calls?: number; inputTokens?: number; outputTokens?: number; items?: number;
-    span?: [number, number] } = {}) {
+    span?: [number, number]; detail?: Record<string, unknown> } = {}) {
     const line = (this.lines[task] ??= { usd: 0, calls: 0, inputTokens: 0, outputTokens: 0, items: 0 });
     line.usd += Number.isFinite(usd) ? usd : 0;
     line.calls += more.calls ?? 1;
     line.inputTokens += more.inputTokens ?? 0;
     line.outputTokens += more.outputTokens ?? 0;
     line.items += more.items ?? 0;
-    if (more.span) this.time(task, more.span[0], more.span[1]);
+    if (more.span) this.time(task, more.span[0], more.span[1], { ...more.detail, usd: Number(usd.toFixed(5)),
+      in: more.inputTokens, out: more.outputTokens });
     return this.total;
   }
 
   /** The task was at work from `start` to `end` (ms since the epoch). */
-  time(task: CostTask, start: number, end: number) {
+  time(task: CostTask, start: number, end: number, detail?: Record<string, unknown>) {
     if (!(end > start)) return;
+    this.onSpan?.(task, start, end, detail);
     const line = (this.lines[task] ??= { usd: 0, calls: 0, inputTokens: 0, outputTokens: 0, items: 0 });
     line.spans = mergeSpans([...(line.spans ?? []), [start, end]]);
     line.seconds = spanSeconds(line.spans);

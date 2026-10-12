@@ -37,6 +37,24 @@ MADE: list[dict] = []
 # When the image models were at work in this process ([start, end], ms since the epoch): a compile's picture time,
 # for the lecture's timing (compile_lecture --json "image_spans").
 SPANS: list[list[float]] = []
+# Every request to an image model or a model that reads images, for the lecture's timing log: what it was for
+# (the picture's subject, a figure), which model, when, how it ended.
+CALLS: list[dict] = []
+
+
+def _about() -> str:
+    return getattr(_LOCAL, "about", "") or ""
+
+
+@contextmanager
+def about(what: str):
+    """The requests inside are for `what` (a picture's subject, a figure's caption), in the timing log."""
+    before = _about()
+    _LOCAL.about = str(what)[:120]
+    try:
+        yield
+    finally:
+        _LOCAL.about = before
 
 
 @contextmanager
@@ -331,8 +349,18 @@ def _open(request, timeout: float, proxied: bool = True):
 
 def _post(url: str, body: dict, proxied: bool = True, who: str | None = None) -> dict:
     """POST JSON to OpenRouter; an HTTP error is raised with the provider's own message."""
-    with _timed():
-        return _post_now(url, body, proxied, who)
+    start = time.time() * 1000
+    error = None
+    try:
+        with _timed():
+            return _post_now(url, body, proxied, who)
+    except Exception as failure:  # noqa: BLE001 -- recorded, then raised as it was
+        error = str(failure)[:200]
+        raise
+    finally:
+        CALLS.append({"for": _about(), "who": who or "image", "model": str(body.get("model") or ""),
+                      "route": "images" if url.rstrip("/").endswith("/images") else "chat",
+                      "start": start, "end": time.time() * 1000, **({"error": error} if error else {})})
 
 
 def _post_now(url: str, body: dict, proxied: bool = True, who: str | None = None) -> dict:
@@ -623,7 +651,7 @@ def generate(what: str, style: str | None = None, realistic: bool = False, parts
     if _COLLECT is not None:
         return _collected(dict(what=what, style=style, realistic=realistic, parts=parts, context=context,
                                scene=scene, match=match, kind=kind))
-    with using(kind):
+    with using(kind), about(what):
         return _generate(what, style, realistic, parts, context, scene, match)
 
 
@@ -1069,7 +1097,7 @@ def redraw(source_path: str, caption: str = "", style: str | None = None, contex
     source = Path(str(source_path))
     if not source.is_file():
         return {"error": f"no figure file {source}"}
-    with using("diagram"):
+    with using("diagram"), about(f"book figure {caption or source.name}"):
         raw = source.read_bytes()
         try:
             reference = _as_png(raw)

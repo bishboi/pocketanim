@@ -18,6 +18,7 @@ import { unbuiltFigures, type Compiled, type GeneratedPicture, type ImageReport 
 import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, uncoveredParts, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
+import { TimingLog } from "./timing";
 import { fillManim, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
@@ -736,6 +737,8 @@ type Kept = {
   ledger?: CostLedger;
   /** The generation's record in Supabase (lib/media.ts): its pictures, scenes and programs. */
   media?: MediaLog;
+  /** Every timed step of the generation (lib/timing.ts). */
+  timing?: TimingLog;
 };
 
 async function viaOpenRouter(
@@ -784,12 +787,19 @@ async function viaOpenRouter(
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
   kept.ledger = ledger;
+  // Every timed step, with what it was for, in harness/app/.logs (lib/timing.ts); its summary ends the run.
+  const timing = new TimingLog(`gen-${String(request.content ?? "lecture").slice(0, 40)}`);
+  kept.timing = timing;
+  ledger.onSpan = (task, start, end, detail) => {
+    if (!detail?.quiet) timing.span(task, start, end, detail ?? {});
+  };
+  emit({ type: "message", role: "status", text: `Timing log: ${timing.file}` });
   // A model try that stalled, went silent or failed, and was asked again: its time is lost, and shown as such.
-  const lostTry = (began: number) => {
-    ledger.time("stalled", began, Date.now());
+  const lostTry = (began: number, detail: Record<string, unknown> = {}) => {
+    ledger.time("stalled", began, Date.now(), detail);
     ledger.count("stalled", 1);
   };
-  ledger.time("planning", planningBegan, planningEnded);
+  ledger.time("planning", planningBegan, planningEnded, { what: "reading the source, choosing the subject" });
   let inputTokens = 0;
   let outputTokens = 0;
   let costUsd = 0;
@@ -829,7 +839,7 @@ async function viaOpenRouter(
       onStatus: (text) => emit({ type: "message", role: "status", text }),
       style,
       art: request.art,
-      onTime: (start, end) => ledger.time("figures", start, end),
+      onTime: (start, end, detail) => ledger.time("figures", start, end, detail),
       onCost: (usd) => {
         costUsd = ledger.bill("figures", usd);
         sendCosts(`book figure redrawn: $${usd.toFixed(4)}`);
@@ -998,7 +1008,7 @@ async function viaOpenRouter(
           }, [SECTION_TOOL], abort.signal, "required");
         } catch (error) {
           if (stopped()) return null;
-          lostTry(state.started);
+          lostTry(state.started, { step: "transcript", section: section.n, why: why ?? String(error).slice(0, 120) });
           // A reply that stalled, or failed after its own retries, is one failed try, not the end of the lecture.
           note = why === "silent"
             ? `Your last try sent nothing for ${FIRST_REPLY_MINUTES} minutes. Write the section straight away, without long planning.`
@@ -1015,7 +1025,8 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd = ledger.bill("transcript", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span });
+        costUsd = ledger.bill("transcript", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span,
+          detail: { section: section.n, try: attempt, model: writer } });
         sendCosts(`transcript section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         // The section is whatever the reply wrote: the longest write_section text, whatever number it gave, or,
         // from a provider that answered in plain text instead of calling the tool, the reply itself.
@@ -1228,7 +1239,7 @@ async function viaOpenRouter(
   const waitBegan = Date.now();
   const drawn = await figuresWithin(drawing, figuresReady, drawingStarted, (text) =>
     emit({ type: "message", role: "status", text }));
-  ledger.time("waiting", waitBegan, Date.now());
+  ledger.time("waiting", waitBegan, Date.now(), { what: "the script writer waited for the book's figures" });
   mark("figures ready");
   const system = systemBase + (lecture && doc ? figurePrompt(doc, drawn) : "") + systemTail;
   // Figures shown as their picture need no look; only those to rebuild in Manim go to the model as pictures.
@@ -1346,9 +1357,15 @@ async function viaOpenRouter(
     onGenerated: billGenerated,
     onImages: noteImages,
     onTime: (span: [number, number], images: [number, number][], prefetch?: { pictures?: number; seconds?: number;
-      slowest?: number }) => {
-      ledger.time("compile", span[0], span[1]);
-      for (const [start, end] of images) ledger.time("images", start, end);
+      slowest?: number }, more?: { phases?: Record<string, number>; calls?: { for: string; who: string; model: string;
+      route: string; start: number; end: number; error?: string }[]; source?: string | null; errors?: string[] }) => {
+      ledger.time("compile", span[0], span[1], { phases: more?.phases, ok: more?.source !== null,
+        errors: more?.errors?.length || undefined });
+      for (const [start, end] of images) ledger.time("images", start, end, { quiet: true });
+      for (const call of more?.calls ?? []) {
+        timing.span(call.who === "image" ? "picture-request" : "picture-check", call.start, call.end,
+          { for: call.for, model: call.model, ...(call.error ? { error: call.error } : {}) });
+      }
       if (prefetch?.pictures && (prefetch.seconds ?? 0) >= 1) {
         emit({ type: "message", role: "status", text: `Pictures: ${prefetch.pictures} made at once in ` +
           `${prefetch.seconds} s (the slowest ${prefetch.slowest} s; ${process.env.PANIM_IMAGE_PARALLEL || 6} at a time).` });
@@ -1411,10 +1428,10 @@ async function viaOpenRouter(
     key, model: coder!, style, signal: undefined,
     figureFile: (id) => (doc ? teachingFigures(doc).find((f) => f.id === id)?.file : undefined),
     onStatus: (text) => emit({ type: "message", role: "status", text }),
-    onCost: (usd, span, tokens) => {
+    onCost: (usd, span, tokens, detail) => {
       inputTokens += tokens.in;
       outputTokens += tokens.out;
-      costUsd = ledger.bill("manim", usd, { inputTokens: tokens.in, outputTokens: tokens.out, span, items: 1 });
+      costUsd = ledger.bill("manim", usd, { inputTokens: tokens.in, outputTokens: tokens.out, span, items: 1, detail });
       sendCosts(`a Manim figure written by ${coder}: $${usd.toFixed(4)}`);
     },
   });
@@ -1663,7 +1680,7 @@ async function viaOpenRouter(
           }, sectionTools, abort.signal, "required", silent ? "low" : videoEffort());
         } catch (error) {
           if (stopped()) return null;
-          lostTry(state.started);
+          lostTry(state.started, { step: "chapters", section: section.n, why: why ?? String(error).slice(0, 120) });
           refused += 1;
           if (why === "silent") silent += 1;
           const note = why === "silent" ? `sent nothing for ${Math.round(VIDEO_WAIT_MS / 60_000)} minutes` +
@@ -1681,7 +1698,8 @@ async function viaOpenRouter(
         const addedCost = Number(result.usage?.cost ?? 0);
         inputTokens += addedIn;
         outputTokens += addedOut;
-        costUsd = ledger.bill("script", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span });
+        costUsd = ledger.bill("script", addedCost, { inputTokens: addedIn, outputTokens: addedOut, span: result.span,
+          detail: { section: section.n, try: refused + 1, model } });
         sendCosts(`video section ${section.n}: ${addedIn} in, ${addedOut} out, $${addedCost.toFixed(4)}`);
         const calls = result.message.tool_calls ?? [];
         if (!calls.length) {
@@ -2695,7 +2713,17 @@ async function generateOnce(
   const template = templateById(request.templateId);
   const kept: Kept = { media };
   const startedAt = Date.now();
-  const result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
+  let result: Generated;
+  try {
+    result = usingFixture() ? await viaFixture(request, emit, kept) : await viaOpenRouter(request, emit, stopped, kept);
+  } finally {
+    // Where the time went, from the timing log (lib/timing.ts): each kind of step, then the slowest steps.
+    if (kept.timing?.events.length) {
+      const lines = kept.timing.summary(12);
+      emit({ type: "message", role: "status", text: `Timing (${kept.timing.file}):\n${lines.join("\n")}` });
+      console.log(`[timing] ${kept.timing.file}\n${lines.join("\n")}`);
+    }
+  }
   // A long lecture as videos of 25-30 min: cut where its videos meet when it was written as a series (their ends
   // decided from the transcript, topics.ts). A lecture written from a transcript is never cut otherwise; one
   // without (an edit by hand) is cut between chapters once it runs past PANIM_MAX_VIDEO_MINUTES (lib/parts.ts).

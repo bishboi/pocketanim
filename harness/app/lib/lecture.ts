@@ -46,7 +46,10 @@ export type Compiled = { source: string | null; errors: string[]; warnings: stri
   /** When the image models and the Manim checks were at work in this compile ([start, end], ms since the epoch). */
   image_spans?: [number, number][]; probe_spans?: [number, number][];
   /** The pictures this compile made at once before writing the code: how many, how long, the slowest (s). */
-  prefetch?: { pictures?: number; seconds?: number; slowest?: number } };
+  prefetch?: { pictures?: number; seconds?: number; slowest?: number };
+  /** Where the compile's time went (seconds), and each model request it made (genimage.CALLS). */
+  phases?: Record<string, number>;
+  calls?: { for: string; who: string; model: string; route: string; start: number; end: number; error?: string }[] };
 /** What a compile asked of the image model (genimage.py report): pictures asked for, made now, found made, failed. */
 export type ImageReport = { model: string; proxy?: string | null; asked: number; cached: number; made: number;
   failed: { what: string; model: string; error: string }[] };
@@ -126,7 +129,7 @@ export async function compileLecture(
     /** Told what the script asked of the image model and what failed, so the log says why pictures are missing. */
     onImages?: (report: ImageReport) => void;
     /** Told when the compile ran, and when within it the image models were at work (for the lecture's timing). */
-    onTime?: (span: [number, number], images: [number, number][], prefetch?: Compiled["prefetch"]) => void;
+    onTime?: (span: [number, number], images: [number, number][], prefetch?: Compiled["prefetch"], more?: Compiled) => void;
     /** Checked without making its pictures (they are made apart, makePictures): a section's check does not wait
      * on the image models, nor hold its writing slot while they work. */
     withoutPictures?: boolean;
@@ -141,7 +144,7 @@ export async function compileLecture(
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");
-    options.onTime?.([began, Date.now()], compiled.image_spans ?? [], compiled.prefetch);
+    options.onTime?.([began, Date.now()], compiled.image_spans ?? [], compiled.prefetch, compiled);
     if (compiled.generated?.length) options.onGenerated?.(compiled.generated);
     if (compiled.images && !options.withoutPictures) options.onImages?.(compiled.images);
     const warnings = compiled.warnings ?? [];
@@ -164,7 +167,7 @@ export async function makePictures(script: unknown, options: NonNullable<Paramet
     const made = scriptJson<Compiled>(stdout);
     if (!made) return;
     // The image models' time only: no compile ran ([began, began] adds nothing to the compile row).
-    options.onTime?.([began, began], made.image_spans ?? [], made.prefetch);
+    options.onTime?.([began, began], made.image_spans ?? [], made.prefetch, made);
     if (made.generated?.length) options.onGenerated?.(made.generated);
   } catch {
     // made, or not, by the compile that needs them

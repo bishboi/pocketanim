@@ -44,3 +44,4 @@ next-env.d.ts
 
 # Finished builds kept for a page that reloads (lib/jobs.ts)
 /.jobs/
+/.logs/

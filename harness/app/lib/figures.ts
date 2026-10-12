@@ -220,7 +220,7 @@ export async function drawFigures(
      * for all; `kept` when an earlier run redrew it (and it cost nothing now). */
     onDrawn?: (id: string, drawn: Drawn, kept: boolean) => void;
     /** How long a figure redrawn now took (ms since the epoch), whatever came of it. */
-    onTime?: (start: number, end: number) => void;
+    onTime?: (start: number, end: number, detail?: Record<string, unknown>) => void;
     /** The lecture's style: every figure is redrawn in it. */
     style?: string;
     /** The lecture's art style (auto or none: the template's own): the redraws are drawn in it. */
@@ -281,7 +281,9 @@ export async function drawFigures(
         if (options.signal?.aborted) throw error;
         drawn = { diagramError: String(error instanceof Error ? error.message : error).slice(0, 200) };
       }
-      options.onTime?.(began, Date.now());
+      options.onTime?.(began, Date.now(), { figure: figure.id, became: drawn.manim ? "manim" : drawn.map ? "map"
+        : drawn.generated ? (drawn.faithful ? "redrawn close to the book" : "redrawn in style") : "not redrawn",
+        ...(drawn.diagramError ? { error: drawn.diagramError.slice(0, 120) } : {}) });
       out[figure.id] = drawn;
       options.onDrawn?.(figure.id, drawn, false);
       if (drawn.generated || drawn.manim || drawn.map) {

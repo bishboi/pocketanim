@@ -11,7 +11,7 @@
 # an older version made, PDF and YouTube sources, geocoded places, icons (harness/lecture/.cache); the SVG drawing
 # libraries older versions downloaded and no longer use (harness/lecture/data/drawlib, data/bioicons); Manim's text
 # and LaTeX renders (harness/.cache);
-# Forge jobs and its cache; the web app's finished builds (.jobs), narration (.voice) and Next.js build cache
+# Forge jobs and its cache; the web app's finished builds (.jobs), narration (.voice), timing logs (.logs) and Next.js build cache
 # (.next); rendered videos (media/, corpus/renders); Python bytecode and pytest caches.
 #
 # It keeps what was downloaded once and is not history: the Python venv, node_modules, voice weights
@@ -43,6 +43,7 @@ TARGETS=(
   "harness/forge/cache"
   "harness/app/.jobs"
   "harness/app/.voice"
+  "harness/app/.logs"
   "harness/app/.next"
   "media"
   "corpus/renders"

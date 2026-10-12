@@ -3385,13 +3385,21 @@ def main() -> int:
         else:                                          # one at a time: the compile itself asks for them
             compile_script(script, args.scene_class) if not lint(script)[0] else None
         print(json.dumps({"generated": genimage.MADE, "images": genimage.report(), "image_spans": genimage.SPANS,
-                          "prefetch": genimage.PREFETCHED}))
+                          "prefetch": genimage.PREFETCHED, "calls": genimage.CALLS}))
         return 0
+    import time as _time
+
+    phases: dict[str, float] = {}
+    mark = _time.time()
     if args.json or not args.check:
         prefetch_pictures(script, args.scene_class)
+    phases["pictures"], mark = round(_time.time() - mark, 2), _time.time()
     errors, warnings = lint(script, args.min_minutes, args.min_questions, args.min_examples, args.min_problems)
+    phases["checks"], mark = round(_time.time() - mark, 2), _time.time()
     if args.json:
         source = None if errors else compile_script(script, args.scene_class)
+        phases["code"] = round(_time.time() - mark, 2)
+        phases["manim_checks"] = round(sum((b - a) for a, b, *_ in __import__("free_check").SPANS) / 1000, 2)
         print(json.dumps({"source": source, "errors": errors, "warnings": warnings,
                           "minutes": round(estimate_minutes(script), 2),
                           "pictures": pictures_used(script) if source else [],
@@ -3402,7 +3410,9 @@ def main() -> int:
                           # When the image models and the Manim checks were at work (ms since the epoch).
                           "image_spans": __import__("genimage").SPANS,
                           "probe_spans": __import__("free_check").SPANS,
-                          "prefetch": __import__("genimage").PREFETCHED}))
+                          "prefetch": __import__("genimage").PREFETCHED,
+                          # Where the compile's time went, and each model request it made, for the timing log.
+                          "phases": phases, "calls": __import__("genimage").CALLS}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

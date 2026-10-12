@@ -229,7 +229,7 @@ def verify(script: dict) -> list[str]:
                 found_all += found
             return found_all
         finally:
-            SPANS.append([start, time.time() * 1000])
+            SPANS.append([start, time.time() * 1000, [g["key"] for g in share]])
 
     from concurrent.futures import ThreadPoolExecutor
 

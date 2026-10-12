@@ -212,6 +212,15 @@ export type VoiceCost = {
   /** Lines spoken before costs were kept: not in lecture_usd. */
   unknown: number;
   engine: string;
+  /** How batching went: batches cut cleanly, not cut (spoken line by line), failed. */
+  batches?: { ok: number; uncut: number; failed: number };
+  /** For the build's timing log: each batch of lines, and each request to the voice (its tries and waits). */
+  timing?: {
+    batches: { lines: number; chars: number; start: number; end: number; outcome: string }[];
+    calls: { chars: number; start: number; end?: number; tries: number; waited: number; codes: (number | string)[]; ok?: boolean }[];
+    threads: number;
+    batch_lines: number;
+  };
 };
 
 /**
@@ -236,12 +245,14 @@ export function speakAhead(source: string): void {
   });
 }
 
-export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {
+export async function prespeak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost; waitedAhead: number }> {
   // A build speaks the whole lecture: what was waiting to be spoken ahead is in it, and the pass under way is let
-  // finish first, so the two never write the same line at once.
+  // finish first, so the two never write the same line at once. How long that wait was goes in the timing log.
   ahead.next = null;
+  const began = Date.now();
   await ahead.running;
-  return speak(source, progress);
+  const waitedAhead = (Date.now() - began) / 1000;
+  return { ...(await speak(source, progress)), waitedAhead };
 }
 
 async function speak(source: string, progress: string | null): Promise<{ error: string | null; beats: number; voice?: VoiceCost }> {

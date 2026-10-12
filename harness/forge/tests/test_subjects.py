@@ -303,3 +303,17 @@ def test_a_generated_picture_says_what_it_cost(monkeypatch, tmp_path):
     assert [m["usd"] for m in genimage.MADE] == [0.039]
     again = genimage.generate("a leaf in cross section")        # made already: from the cache, free
     assert again and "usd" not in again and again["paid"] == 0.039 and len(genimage.MADE) == 1
+
+def test_subjects_are_told_of_free_manim_unless_the_built_drawings_are_on(monkeypatch):
+    # With the presets, sketches, graphs and sims off, a subject's guidance and kit must not ask for them.
+    monkeypatch.delenv("PANIM_BUILT_DRAWINGS", raising=False)
+    physics = genre.profile("physics")
+    assert not set(physics["kit"]) & genre.FREE_DRAWN and "manim" in physics["kit"] and "diagram" in physics["kit"]
+    assert "incline, pulley" not in physics["guidance"] and "free-form manim" in physics["guidance"]
+    for name in genre.PROFILES:
+        told = genre.profile(name)
+        assert not set(told["kit"]) & genre.FREE_DRAWN
+        assert "sim " not in told["guidance"] and "(sim" not in told["guidance"]
+        assert "diagram" in told["guidance"].lower()
+    monkeypatch.setenv("PANIM_BUILT_DRAWINGS", "1")
+    assert "incline" in genre.profile("physics")["kit"]

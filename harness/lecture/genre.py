@@ -194,6 +194,117 @@ _SIM_HINTS = {
 }
 for _genre, _hint in _SIM_HINTS.items():
     PROFILES[_genre]["guidance"] += " " + _hint
+
+# Where each subject's ideas become diagrams of boxes and arrows (diagram ops: flow, cycle, hub, pyramid), whichever
+# way the drawings are made: a process, a sequence, causes and effects, kinds of something are diagrams, not cards.
+_DIAGRAM_HINTS = {
+    "physics": "Diagrams too: a procedure or a method of solving (drawing a free-body diagram, applying a law) as a "
+               "numbered flow (\"steps\": true); kinds of something (forces, energy, motion, waves) as a hierarchy; "
+               "energy changing form, or a chain of cause and effect (heating -> expansion -> pressure), as a flow; "
+               "a big idea and what it connects to as a hub.",
+    "chemistry": "Diagrams too: a lab procedure or an industrial process (the steps of a titration, the Haber "
+                 "process, extracting a metal) as a numbered flow; classifications (matter, reactions, elements, "
+                 "compounds) as a hierarchy; a cycle (the carbon or nitrogen cycle) as a cycle; what decides a "
+                 "property or a rate as a hub.",
+    "mathematics": "Diagrams too: a method in steps (completing the square, a proof's chain of reasons, an "
+                   "algorithm) as a numbered flow; kinds of numbers, shapes or functions as a hierarchy; a decision "
+                   "(which method to use) as a flowchart.",
+    "economics": "Diagrams: how one change leads to the next (a rise in demand, prices, wages) as a flow whose "
+                 "arrows say why; who pays whom (households, firms, the government, banks) as a cycle or flowchart "
+                 "with lanes; kinds (of markets, taxes, sectors) as a hierarchy.",
+    "geography": "Diagrams: a process (how a delta forms, how the monsoon arrives) as a numbered flow with a drawing "
+                 "in each node; kinds (of soil, rock, forest, climate) as a hierarchy; what a crop or a region "
+                 "depends on as a hub; causes and effects (deforestation -> erosion -> floods) as a chain.",
+    "history": "Diagrams: causes and consequences as a chain whose arrows say why; who held power over whom as a "
+               "pyramid or a hierarchy; how a system worked (land given for service, taxes paid upward) as a flow "
+               "with arrows saying what passes; a movement and the groups in it as a hub.",
+    "general": "A process, a sequence, causes and effects, parts of a whole or kinds of something is a diagram "
+               "(flow, cycle, hub, hierarchy or pyramid), built across the paragraph.",
+}
+for _genre, _hint in _DIAGRAM_HINTS.items():
+    if _genre in PROFILES:
+        PROFILES[_genre]["guidance"] += " " + _hint
+
+# Free-form Manim draws every maths, science and moving drawing unless PANIM_BUILT_DRAWINGS=1 brings back the
+# presets, sketches, graphs and sims (app/lib/lecture.ts builtDrawings, FREE_DRAWN_OPS): the subjects are then told
+# so, rather than to use ops the compiler turns into Manim plans anyway.
+FREE_DRAWN = {"incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
+              "sketch", "graph", "plot", "motion", "trace", "sweep", "sim", "counter"}
+_THEORY = ("THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
+           "long problems on it (problem op: the full question, given and find, its figure a manim drawing on the "
+           "beats before it), each solved in detail over many beats (work op: one step a beat, every step "
+           "explained, the answer boxed). Label everything. Build pictures in Manim (draw only what Manim cannot "
+           "show well); no generated pictures except of a scientist the lecture names.")
+FREE_GUIDANCE = {
+    "physics": "Physics: draw every situation as a labelled free-form manim drawing (a block on a slope, pulleys, "
+               "a circuit, a ray diagram, anything else), built over the beats that explain it, its forces, "
+               "velocities and lengths revealed one by one as the narration names them; graphs of how quantities "
+               "vary (v against t and the area under it, x against t, P against V) drawn in manim too, and set "
+               "moving where the narration describes motion (an orbit, a wave, a collision, a point riding a "
+               "graph). State each law as an equation. " + _THEORY,
+    "chemistry": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only where its "
+                 "structure is what is being taught: its bonds, its shape, its functional groups, isomers, how it "
+                 "reacts because of them; once, not again each time it is named, and never for a substance only "
+                 "mentioned. Write reactions with equation (reactants -> products, subscripts as H_2O). Apparatus "
+                 "(a beaker, a burette, a gas syringe), graphs of rates, concentrations and energy, and processes "
+                 "that happen (a titration's colour change, particles of a gas, an equation being balanced) are "
+                 "free-form manim drawings, built and set moving as they are said. " + _THEORY,
+    "mathematics": "Mathematics: every function discussed is graphed, every figure of geometry drawn (triangles and "
+                   "circles with their angles and lengths labelled), a construction done step by step with ruler and "
+                   "compass, all as free-form manim drawings, and set moving where the idea moves (the unit circle "
+                   "tracing a sine wave, rectangles closing in on an area, a graph shifted and stretched); derive "
+                   "and solve with work, one step per beat, each step said and justified. Young classes: hops on a "
+                   "number line, fraction bars, place-value blocks, drawn in manim. " + _THEORY,
+    "biology": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
+               "heart, a neuron, a nephron): the book's figure or a detailed drawing (draw) with its parts labelled; "
+               "when its parts are named one by one, a free-form manim drawing built part by part. A PROCESS "
+               "(digestion, photosynthesis, blood flow, a reflex, protein synthesis): a flow diagram (\"steps\": "
+               "true to number it) with a drawing in each node, a stage at a time; a CYCLE (cell cycle, life cycles, "
+               "the cardiac cycle, the nitrogen cycle): diagram kind cycle. A HIERARCHY or CLASSIFICATION (cell, "
+               "tissue, organ, system; kingdoms, phyla): a flow diagram whose edges go from each whole to its kinds. "
+               "Two things side by side (mitosis and meiosis, plant and animal cells): compare. Something that MOVES "
+               "(diffusion and osmosis, chromosomes separating, a heart beating, an impulse along a neuron) or a "
+               "measurement graphed (growth, enzyme activity against temperature): free-form manim, set moving as "
+               "it is said. Hard terms: define. Pictures only of organisms, habitats and scientists the lecture "
+               "names. A molecule's structural formula only where the lecture explains its structure; a summary "
+               "reaction with equation. No map unless the topic is where life lives.",
+    "geography": "Geography: the map carries the where (markers, rivers, states shaded) and movement (a journey: the "
+                 "monsoon winds, a trade route, a river's course); the stage carries how it works, as diagrams built "
+                 "from drawings. The water cycle, the seasons and the Earth's or the soil's layers are free-form "
+                 "manim drawings, set moving as they are said; real figures (rainfall by month, a population "
+                 "pyramid) are drawn in manim from the content's numbers only. The document's figures, and compare "
+                 "for differences. Pictures only of people, communities and places. " + _DIAGRAM_HINTS["geography"],
+    "history": "History: open each era with a timeline on the stage (its dates, events and pictures of the people "
+               "and places); a paragraph about several people or places is one scene picture with each labelled; "
+               "journeys on the map as they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); "
+               "empires and kingdoms shaded on the map; differences between two systems or periods with compare; "
+               "quote primary sources. " + _DIAGRAM_HINTS["history"],
+    "economics": "Economics: quantities as bars, and trends, supply and demand moving, money growing and data stories "
+                 "as free-form manim drawings, from real figures only; kinds side by side with compare; places on the "
+                 "map only when trade or regions are the point. " + _DIAGRAM_HINTS["economics"],
+}
+
+for _genre in ("physics", "chemistry", "mathematics"):
+    FREE_GUIDANCE[_genre] += " " + _DIAGRAM_HINTS[_genre]
+
+
+def built_drawings() -> bool:
+    import os
+
+    return os.environ.get("PANIM_BUILT_DRAWINGS") == "1"
+
+
+def _as_told(genre: str) -> dict:
+    """A subject's profile as the writer is told it: with free-form Manim, no presets, sketches, graphs or sims."""
+    base = PROFILES[genre]
+    if built_drawings():
+        return dict(base)
+    kit = [k for k in base["kit"] if k not in FREE_DRAWN]
+    if any(k in FREE_DRAWN for k in base["kit"]) and "manim" not in kit:
+        kit.append("manim")
+    if "diagram" not in kit:
+        kit.insert(0, "diagram")
+    return {**base, "kit": kit, "guidance": FREE_GUIDANCE.get(genre, base["guidance"])}
 # English terms as YouTube's Hindi captions spell them (फोर्स for force): a Hinglish lecture's captions have few
 # NCERT Hindi words, and without these its only clue was a date or two (Newton, 1642-1727) and it read as history.
 VOCAB_TRANSLIT = {
@@ -243,7 +354,7 @@ def classify(text: str) -> dict:
     if top < 1.0:
         genre = "general"
     confidence = round(min(1.0, (top - second) / (top or 1) + 0.3), 2) if genre != "general" else 0.0
-    profile = PROFILES[genre]
+    profile = _as_told(genre)
     return {"genre": genre, **profile, "scores": {k: round(v, 2) for k, v in ranked}, "confidence": confidence,
             "why": why}
 
@@ -251,7 +362,7 @@ def classify(text: str) -> dict:
 def profile(genre: str) -> dict:
     """The profile of a subject chosen by hand (the page's Subject menu), in classify()'s shape."""
     genre = genre if genre in PROFILES else "general"
-    return {"genre": genre, **PROFILES[genre], "scores": {}, "confidence": 1.0, "why": ["chosen"]}
+    return {"genre": genre, **_as_told(genre), "scores": {}, "confidence": 1.0, "why": ["chosen"]}
 
 
 if __name__ == "__main__":

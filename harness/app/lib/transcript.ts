@@ -245,6 +245,31 @@ export function classVoice(language: Language): string[] {
   ];
 }
 
+/** How the transcript tells its lesson: as a story the student follows, with the facts exact. */
+export const STORYTELLING: string[] = [
+  "HOW TO TELL IT AS A STORY:",
+  "  - Each section has one thread: a question, a puzzle or a tension the student wants answered (why did peasants",
+  "    run away to towns? why does a ball stop rolling?). Open on it with a hook (a scene, a person at a moment,",
+  "    a surprising fact, a question to the class), let every paragraph move it on, and end on its answer and on",
+  "    what it leads to next, so the next section picks the thread up.",
+  "  - Facts happen to someone. Put people, places and things in motion: who wanted what, what stood in the way,",
+  "    what they did, and what came of it. Join ideas by cause and consequence (so, but, because of this, and",
+  "    then), never by \"next, let us discuss\" or by reading a list.",
+  "  - Make the student part of it: \"imagine you are a serf in France in the year 1100...\", \"सोचो दोस्तों, अगर तुम",
+  "    उस गाँव में होते...\". Show the scene or the example first, then name the idea or the term it shows.",
+  "  - In science and mathematics the story is a puzzle and how it is solved: what was observed or wondered, the",
+  "    old idea and where it failed, the idea that explains it, and what it lets us do. A worked problem is a small",
+  "    story too: what we know, what we want, the key step, and why it works.",
+  "  - Lists, dates and steps become a sequence of events, each causing the next; a definition comes at the moment",
+  "    the story needs the word, then is used straight away.",
+  "  - A figure, a map or a table is shown at its moment in the story: say what it shows and why it matters there,",
+  "    and point at the one or two things to look at. Never read out every label on it.",
+  "  - The book's activities and questions come where the story reaches them, as something for the class to do.",
+  "  - The story never changes the facts: no invented events, people, quotes, numbers or dates presented as",
+  "    history or science. A scene you imagine is said as imagined (\"imagine...\", \"सोचो...\").",
+  "",
+];
+
 export function transcriptPrompt(options: {
   sections: Section[];
   minutes: number;
@@ -261,19 +286,20 @@ export function transcriptPrompt(options: {
     "step turns it into the video sentence for sentence and adds the pictures, so everything the student hears is",
     "in these words.",
     "",
-    "THREE THINGS MATTER above all:",
-    "  1. THE QUALITY OF THE LEARNING comes first. How to teach is yours to decide: the order of explanation, the",
-    "     examples, analogies and stories, questions for the class, worked problems, how deep each idea goes, how a",
-    "     video opens and closes. Do whatever makes the student truly understand and remember. Nothing about your",
-    "     style or length is counted or checked.",
-    `  2. VIDEOS OF ${range.min}-${range.max} MINUTES. A long lecture is watched as several videos of about ${range.min}-${range.max}`,
+    "FOUR THINGS MATTER above all:",
+    "  1. THE QUALITY OF THE LEARNING comes first: the student truly understands and remembers. The order of",
+    "     explanation, the examples, how deep each idea goes and how a video opens and closes are yours to decide.",
+    "     Nothing about your style or length is counted or checked.",
+    "  2. TOLD AS A STORY. The student follows a story, never a list of facts read out (rule 4 below says how).",
+    `  3. VIDEOS OF ${range.min}-${range.max} MINUTES. A long lecture is watched as several videos of about ${range.min}-${range.max}`,
     `     minutes (a minute is about ${WORDS_PER_MINUTE} spoken words). Where each starts and ends is decided from your`,
     "     written transcript, always between sections, and you are then asked for the words that close one video and",
     "     open the next. So write the sections as one continuous lecture, and spend the time where learning needs it.",
-    "  3. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
+    "  4. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
     "     and question in it: every heading of its part of the book, every box beside the text, and each of the",
     "     source's own questions (say which one it is, by its number). Nothing checks this after you: it is yours.",
     "",
+    ...STORYTELLING,
     ...classVoice(options.language),
     "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
     "  - A voice speaks it, so write only the words said: no headings, bullet lists, [brackets] or stage directions,",

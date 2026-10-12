@@ -71,17 +71,20 @@ def test_the_thread_and_the_asides_are_found(lib):
     assert {"kind": "aside", "text": "friction"} in got["ideas"]
 
 
-def test_the_prompt_has_three_aims_and_no_rules_of_teaching(lib):
-    """Only three things are asked: the quality of the learning (how to teach is the writer's), videos of 25-30
-    minutes, and everything in the source covered."""
+def test_the_prompt_has_four_aims_and_tells_it_as_a_story(lib):
+    """Four things are asked: the quality of the learning (how to teach is the writer's), told as a story, videos
+    of 25-30 minutes, and everything in the source covered."""
     section = {"n": 1, "parts": [], "minutes": 1, "words": 60, "source": BOOK, "book": True}
     got = _node(lib, f"""const s = {json.dumps(section)};
       console.log(JSON.stringify({{prompt: t.transcriptPrompt({{sections: [s], minutes: 5, language: 'english',
         languageRules: '', hasReference: false, content: ''}}), request: t.sectionRequest(s, 1, [])}}))""")
     prompt, request = got["prompt"], got["request"]
-    assert "THE QUALITY OF THE LEARNING" in prompt and "How to teach is yours to decide" in prompt
+    assert "THE QUALITY OF THE LEARNING" in prompt and "are yours to decide" in prompt
     assert "VIDEOS OF 25-30 MINUTES" in prompt and "COVER EVERYTHING IN THE SOURCE" in prompt
-    for rule in ("TELL IT AS ONE STORY", "SAY EACH THING ONCE", "everyday example", "Short sentences",
+    # Told as a story, with the facts exact and the figures used in the story, not read out.
+    assert "TOLD AS A STORY" in prompt and "HOW TO TELL IT AS A STORY" in prompt
+    assert "never changes the facts" in prompt and "Never read out every label" in prompt
+    for rule in ("SAY EACH THING ONCE", "everyday example", "Short sentences",
                  "at least", "words in", "EXAMPLE of the voice"):
         assert rule not in prompt, rule
     assert "about" not in request.split("\n")[0] or "words" not in request          # no word target per section

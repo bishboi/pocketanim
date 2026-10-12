@@ -275,6 +275,8 @@ def test_lines_spoken_together_are_cut_back_at_the_pauses_between_them():
 def test_a_batch_of_lines_is_one_request_and_each_line_is_cached_with_its_share_of_the_cost(gemini, monkeypatch, tmp_path):
     import pocket_lecture as pl
 
+    monkeypatch.setattr(pl, "BATCHES", {"ok": 0, "uncut": 0, "failed": 0})
+
     monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
     monkeypatch.setenv("PANIM_VOICE", "auto")
     gemini["speech"] = _spoken
@@ -294,6 +296,8 @@ def test_a_batch_of_lines_is_one_request_and_each_line_is_cached_with_its_share_
 def test_a_batch_that_cannot_be_cut_is_spoken_line_by_line(gemini, monkeypatch, tmp_path):
     import pocket_lecture as pl
 
+    monkeypatch.setattr(pl, "BATCHES", {"ok": 0, "uncut": 0, "failed": 0})
+
     monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
     monkeypatch.setenv("PANIM_VOICE", "auto")
     gemini["speech"] = lambda text: _spoken(text.replace("\n\n", " "))     # no pause between the lines
@@ -309,3 +313,19 @@ def test_a_connection_dropped_mid_reply_is_asked_again_not_a_crash(gemini):
     gemini["reset"] = 2
     assert gemini_tts.speak("One line.", "Charon")[:4] == b"RIFF"
     assert len(gemini["requests"]) == 3
+
+
+def test_batching_turns_itself_off_when_the_voice_cannot_be_cut(gemini, monkeypatch, tmp_path):
+    """Two batches whose audio could not be cut, none that could: the rest of the run is one request a line (a
+    failed batch costs its request and then one a line, slower than no batching)."""
+    import pocket_lecture as pl
+
+    monkeypatch.setattr(pl, "BATCHES", {"ok": 0, "uncut": 0, "failed": 0})
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    gemini["speech"] = lambda text: _spoken(text.replace("\n\n", " "))
+    pl.narrate_many(["one a", "one b"])
+    pl.narrate_many(["two a", "two b"])
+    assert len(gemini["requests"]) == 2 * 3 and not pl.batching_works()
+    pl.narrate_many(["three a", "three b"])
+    assert len(gemini["requests"]) == 6 + 2                                # no batch request any more

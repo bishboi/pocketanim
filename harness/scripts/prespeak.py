@@ -108,8 +108,8 @@ def main() -> int:
     write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))
     threads = max(1, int(os.environ.get("PANIM_TTS_THREADS", "8")))
     # Lines in order, a few to a request (pocket_lecture.narrate_many): Google allows only so many requests a minute.
-    batch_lines = max(1, int(os.environ.get("PANIM_TTS_BATCH", "8") or 8))
-    batch_bytes = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "1600"))
+    batch_lines = max(1, int(os.environ.get("PANIM_TTS_BATCH", "4") or 4))
+    batch_bytes = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "700"))
     batches: list[list[str]] = []
     for line in left:
         size = len(line.encode())
@@ -143,6 +143,11 @@ def main() -> int:
     voice = {"usd": round(spoken_now, 6), "lecture_usd": round(sum(c for c in whole if c is not None), 6),
              "spoken": len(left), "lines": len(unique), "unknown": sum(c is None for c in whole),
              "engine": mode.split(":", 1)[0]}
+    voice["batches"] = dict(pl.BATCHES)
+    if any(pl.BATCHES.values()):
+        print(f"prespeak: batches of up to {batch_lines} lines: {pl.BATCHES['ok']} cut cleanly, "
+              f"{pl.BATCHES['uncut']} not cut (spoken line by line), {pl.BATCHES['failed']} failed"
+              + ("" if pl.batching_works() else "; batching turned off for the rest of the run"), file=sys.stderr)
     if failed:
         print(json.dumps({"ok": False, "error": failed[0], "voice": voice}))
         return 0

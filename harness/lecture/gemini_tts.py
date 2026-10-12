@@ -268,8 +268,8 @@ def _speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
 # Google's TTS allows only so many requests a minute (about 10-15 on most keys): one request a line made a lecture
 # of 400 lines take half an hour of waiting out "429 Too Many Requests". Lines are spoken a few at a time instead,
 # one request for several, and the audio is cut back into lines at the pauses between them.
-BATCH_LINES = max(1, int(os.environ.get("PANIM_TTS_BATCH", "8") or 8))
-BATCH_BYTES = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "1600"))
+BATCH_LINES = max(1, int(os.environ.get("PANIM_TTS_BATCH", "4") or 4))
+BATCH_BYTES = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "700"))
 _FRAME = 0.01              # seconds a frame, when looking for pauses
 
 

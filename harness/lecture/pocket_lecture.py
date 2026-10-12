@@ -46,6 +46,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import subprocess
 import sys
 import textwrap
@@ -859,6 +860,18 @@ def narrate(text: str) -> tuple[str | None, float]:
     return str(out), _wav_seconds(out)
 
 
+# How batching went this run (narrate_many): batches cut cleanly, batches whose audio could not be cut, batches that
+# failed. When it does not work for this voice (two failures and no more successes than failures), the rest of the
+# run is spoken a line at a time: a failed batch costs its request and then one request a line.
+BATCHES = {"ok": 0, "uncut": 0, "failed": 0}
+_BATCH_LOCK = threading.Lock()
+
+
+def batching_works() -> bool:
+    bad = BATCHES["uncut"] + BATCHES["failed"]
+    return bad < 2 or BATCHES["ok"] > bad
+
+
 def narrate_many(texts: list[str]) -> None:
     """Lines spoken ahead of a build, several in one request where the voice can (gemini_tts.speak_many), into
     the cache narrate() reads: Google allows only so many requests a minute. A batch whose audio cannot be cut
@@ -873,11 +886,14 @@ def narrate_many(texts: list[str]) -> None:
     todo = [t for t in dict.fromkeys(texts)
             if not ((lambda f: f.exists() and f.stat().st_size > 44)(audio_file(mode, speechify(t))))]
     many = getattr(speaker, "speak_many", None)
-    if many is not None and len(todo) > 1:
+    if many is not None and len(todo) > 1 and batching_works():
+        failed = False
         try:
             spoken = many([speechify(t) for t in todo], voice, VOICE_SPEED)
         except Exception:  # noqa: BLE001 -- spoken one by one below, where the reason is reported
-            spoken = None
+            spoken, failed = None, True
+        with _BATCH_LOCK:
+            BATCHES["ok" if spoken is not None else "failed" if failed else "uncut"] += 1
         if spoken is not None:
             for text, (wav, spent) in zip(todo, spoken):
                 out = audio_file(mode, speechify(text))

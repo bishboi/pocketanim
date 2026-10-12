@@ -520,6 +520,9 @@ def _where(error: BaseException, scene_file: str) -> str:
     if mine and mine[-1] is not inner:
         line = (mine[-1].line or "").strip()
         parts.append(f"scene line {mine[-1].lineno}: {line[:160]}")
+    if isinstance(error, SyntaxError) and error.text:
+        # The file did not parse: its line is what tells why.
+        parts.append(f"the line: {error.text.strip()[:160]}")
     return " (" + "; ".join(parts) + ")"
 
 

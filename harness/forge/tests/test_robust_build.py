@@ -62,3 +62,31 @@ def test_an_export_error_names_where_it_happened(tmp_path):
                           str(tmp_path / "build")], capture_output=True, text=True, timeout=600)
     error = json.loads(out.stdout.strip().splitlines()[-1])["error"]
     assert error.startswith("IndexError") and "(at bad.py:" in error and "in construct" in error
+
+
+def test_a_title_with_a_line_break_stays_in_its_comment():
+    # A chapter title with a break in it carried the rest of the title out of the "# 01  title" comment, and the
+    # build stopped at "SyntaxError: invalid syntax (scene.py, line 54)".
+    script = {"title": "T", "chapters": [{"title": "Uniform motion\nF = ma \\ net force", "map": False,
+                                          "beats": [{"say": "A body keeps moving.", "do": []}]}]}
+    source = cl.compile_script(script)
+    compile(source, "scene.py", "exec")
+    assert "# 01  Uniform motion F = ma \\ net force" in source
+
+
+def test_a_half_written_narration_is_spoken_again(tmp_path):
+    # Prespeak and the build share the narration cache: a wav read while it was being written stopped the build
+    # with "EOFError" in wave.py. It is written whole or not at all now, and one that cannot be read is redone.
+    import wave
+
+    whole = tmp_path / "whole.wav"
+    with wave.open(str(whole), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(8000)
+        handle.writeframes(b"\x00\x00" * 8000)
+    assert abs(pl._cached_seconds(whole) - 1.0) < 1e-6
+    cut = tmp_path / "cut.wav"
+    cut.write_bytes(whole.read_bytes()[:30] + b"\x00" * 30)
+    assert pl._cached_seconds(cut) is None and not cut.exists()
+    assert pl._cached_seconds(tmp_path / "missing.wav") is None

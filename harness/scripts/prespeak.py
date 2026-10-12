@@ -102,7 +102,7 @@ def main() -> int:
         print(json.dumps({"ok": True, "lines": len(unique), "spoken": 0, "beats": len(lines)}))
         return 0
     left = [line for line in unique
-            if not (lambda f: f.exists() and f.stat().st_size > 44)(pl.audio_file(mode, pl.speechify(line)))]
+            if pl._cached_seconds(pl.audio_file(mode, pl.speechify(line))) is None]
     done = len(unique) - len(left)
     lock = threading.Lock()
     write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))

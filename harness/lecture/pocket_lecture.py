@@ -702,6 +702,24 @@ def _wav_seconds(path: Path) -> float:
         return handle.getnframes() / float(handle.getframerate())
 
 
+def _cached_seconds(out: Path) -> float | None:
+    """The cached line's length, or None when there is none to use: missing, empty, or unreadable (cut short by a
+    run stopped mid-write, before writes were whole-or-nothing). An unreadable one is removed, to be spoken again."""
+    if not (out.exists() and out.stat().st_size > 44):
+        return None
+    try:
+        return _wav_seconds(out)
+    except (EOFError, wave.Error, OSError):
+        out.unlink(missing_ok=True)
+        return None
+
+
+def _private(out: Path, tag: str) -> Path:
+    """A working file of this process and thread only: two runs speaking the same line at once (the narration
+    spoken ahead beside the build) wrote the same file, and the build read it half-written (EOFError)."""
+    return out.with_name(f"{out.stem}_{tag}{os.getpid()}_{threading.get_ident()}.wav")
+
+
 # Scripts a line may be written in. A line's language is taken from the line itself (chirp.runs splits a
 # mixed one further, a language run at a time).
 SCRIPT_LANGS = (("hi", 0x0900, 0x097F),)
@@ -744,14 +762,20 @@ def voice_mode() -> str:
 
 
 def _finish(raw: Path, out: Path) -> None:
-    """The house treatment every line gets: band-limit, level, 44.1 kHz stereo (as is without ffmpeg)."""
+    """The house treatment every line gets: band-limit, level, 44.1 kHz stereo (as is without ffmpeg). The line
+    appears in the cache whole or not at all (written aside, then renamed): a reader never sees it half-written."""
     if not shutil.which("ffmpeg"):
         raw.replace(out)
         return
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
-                    "highpass=f=70,loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(out)],
-                   check=True, timeout=120)
-    raw.unlink(missing_ok=True)
+    done = _private(out, "done")
+    try:
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-af",
+                        "highpass=f=70,loudnorm=I=-17:TP=-2,apad=pad_dur=0.1", "-ar", "44100", "-ac", "2", str(done)],
+                       check=True, timeout=120)
+        done.replace(out)
+    finally:
+        done.unlink(missing_ok=True)
+        raw.unlink(missing_ok=True)
 
 
 def audio_file(mode: str, spoken: str) -> Path:
@@ -842,9 +866,10 @@ def narrate(text: str) -> tuple[str | None, float]:
     if mode == "silent":
         return None, estimate_seconds(spoken)
     out = audio_file(mode, spoken)
-    if out.exists() and out.stat().st_size > 44:
-        return str(out), _wav_seconds(out)
-    raw = out.with_name(out.stem + "_raw.wav")
+    cached = _cached_seconds(out)
+    if cached is not None:
+        return str(out), cached
+    raw = _private(out, "raw")
     engine, voice = mode.split(":", 1)
     speaker = tts.engine(engine)
     try:
@@ -883,8 +908,7 @@ def narrate_many(texts: list[str]) -> None:
         return
     engine, voice = mode.split(":", 1)
     speaker = tts.engine(engine)
-    todo = [t for t in dict.fromkeys(texts)
-            if not ((lambda f: f.exists() and f.stat().st_size > 44)(audio_file(mode, speechify(t))))]
+    todo = [t for t in dict.fromkeys(texts) if _cached_seconds(audio_file(mode, speechify(t))) is None]
     many = getattr(speaker, "speak_many", None)
     if many is not None and len(todo) > 1 and batching_works():
         failed = False
@@ -897,7 +921,7 @@ def narrate_many(texts: list[str]) -> None:
         if spoken is not None:
             for text, (wav, spent) in zip(todo, spoken):
                 out = audio_file(mode, speechify(text))
-                raw = out.with_name(out.stem + "_raw.wav")
+                raw = _private(out, "raw")
                 raw.write_bytes(wav)
                 cost_file(out).write_text(json.dumps({**spent, "engine": engine}))
                 _finish(raw, out)

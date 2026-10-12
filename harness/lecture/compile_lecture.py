@@ -3317,7 +3317,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         intro = script.get("intro") or f"{script['title']}. {script.get('sub', '')}".strip()
         out.append(f"        self.title_slide({_q(script['title'])}, {_q(script.get('sub', ''))}, narration={_q(intro)})")
     for index, chapter in enumerate(chapters, 1):
-        out += ["", f"        # {index:02d}  {chapter['title']}"]
+        # On one line: a title with a line break in it would carry the rest of the title out of the comment.
+        out += ["", f"        # {index:02d}  {' '.join(str(chapter['title']).split())}"]
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter.get('narration') or chapter['title'])})")
         on_map = _map_chapter(chapter, bool(region))
@@ -3404,7 +3405,14 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         line = script.get("credits") or ("Map data: Natural Earth · Animation: Manim" if region else "Animation: Manim")
         photos = images.credit([*script_photos.values(), *web_figures])
         out.append(f"        self.credits({_q(line)}" + (f", extra={_q(photos)}" if photos else "") + ")")
-    return "\n".join(out) + "\n"
+    source = "\n".join(out) + "\n"
+    try:
+        compile(source, "scene.py", "exec")
+    except SyntaxError as error:
+        # Text the script carried broke out of its place in the code: said here, not by the build an hour later.
+        raise ValueError(f"the compiled scene does not parse, line {error.lineno}: {error.msg}: "
+                         f"{(error.text or '').strip()[:160]}") from error
+    return source
 
 
 def prefetch_pictures(script: dict, scene_class: str = "GeneratedScene") -> None:

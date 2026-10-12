@@ -525,3 +525,31 @@ def test_a_compiles_pictures_are_made_at_once_and_the_real_pass_finds_them_made(
     assert calls == made                                                  # the real pass asked for nothing new
     assert source.count("/gen-") >= 4 and "collect-" not in source and "helmet" in source
     assert len(gen.SPANS) == 5 and gen.report()["failed"] == []
+
+
+def test_a_persons_later_picture_waits_only_for_their_first(monkeypatch, tmp_path):
+    """Pictures start at once; one of a person already in an earlier one waits for that first picture only (it is
+    drawn to match it), not for every other picture."""
+    import time
+
+    monkeypatch.setenv("PANIM_IMAGE_FAKE", "1")
+    monkeypatch.setenv("PANIM_IMAGE_CACHE", str(tmp_path))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.delenv("PANIM_IMAGES", raising=False)
+    import genimage
+
+    gen = importlib.reload(genimage)
+    when: dict[str, list[float]] = {}
+
+    def slow(what, **_):
+        start = time.time()
+        time.sleep(0.4 if what == "Akbar on his throne" else 0.1)
+        when[what] = [start, time.time()]
+        return None
+
+    monkeypatch.setattr(gen, "generate", slow)
+    gen.prefetch([{"what": w, "labels": []} for w in
+                  ["Akbar on his throne", "a spice market", "Akbar on horseback", "a monsoon sky"]])
+    assert when["Akbar on horseback"][0] >= when["Akbar on his throne"][1] - 0.01      # after his first picture
+    assert when["a monsoon sky"][0] < when["Akbar on his throne"][1]                   # not held up by it
+    assert gen.PREFETCHED["pictures"] == 4

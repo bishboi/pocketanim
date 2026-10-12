@@ -93,9 +93,9 @@ export function svgModel(chosen?: string): string {
 
 const SCENE_CLASS = "GeneratedScene";
 /** How long a turn may pass with nothing from the model before it is stopped (PANIM_MODEL_WAIT_MINUTES). */
-const FIRST_REPLY_MINUTES = Math.max(1, Number(process.env.PANIM_MODEL_WAIT_MINUTES) || 15);
+const FIRST_REPLY_MINUTES = Math.max(1, Number(process.env.PANIM_MODEL_WAIT_MINUTES) || 5);
 // A reply that streams nothing for this long after it started writing has stalled: asked again.
-const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 180) * 1000;
+const STALL_MS = Math.max(30, Number(process.env.PANIM_STALL_SECONDS) || 90) * 1000;
 /** m:ss, for the progress lines. */
 const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
@@ -123,7 +123,7 @@ export function videoEffort(): string {
  * At medium effort some models think in silence for minutes; one that has not begun after this long has usually
  * hung, and holding its slot for FIRST_REPLY_MINUTES (15) held its whole lecture back.
  */
-const VIDEO_WAIT_MS = Math.max(2, Number(process.env.PANIM_VIDEO_WAIT_MINUTES) || 6) * 60_000;
+const VIDEO_WAIT_MS = Math.max(2, Number(process.env.PANIM_VIDEO_WAIT_MINUTES) || 3) * 60_000;
 
 function systemPrompt(template: Template): string {
   return [
@@ -746,6 +746,8 @@ async function viaOpenRouter(
   const key = process.env.OPENROUTER_API_KEY!;
   // How long each stage took, from the start of the run, in the status stream.
   const startedAt = Date.now();
+  // Reading the source (the document, a reference video) and choosing the subject: the "planning" row.
+  const planningBegan = startedAt;
   const mark = (stage: string) =>
     emit({ type: "message", role: "status", text: `[time] ${stage}: ${Math.round((Date.now() - startedAt) / 1000)} s` });
   // The transcript runs in the background of the video's chapters: when they fail, it stops too.
@@ -764,7 +766,6 @@ async function viaOpenRouter(
   // As long as the content needs; a long one is as many micro-lectures of 25-30 min as that makes (topics.ts).
   const minutes = request.minutes ?? (referenceMinutes ||
     targetMinutes(`${request.content}\n${request.instruction ?? ""}`, doc?.markdown ?? ""));
-  const planningBegan = Date.now();
   const subject = lecture
     ? await subjectOf({ ...request, content: `${request.content}\n${referenceText.slice(0, 15000)}\n${(doc?.markdown ?? "").slice(0, 15000)}` }, emit)
     : null;
@@ -782,6 +783,11 @@ async function viaOpenRouter(
   // once, so every bill goes through the ledger and is sent with a usage event straight away.
   const ledger = new CostLedger();
   kept.ledger = ledger;
+  // A model try that stalled, went silent or failed, and was asked again: its time is lost, and shown as such.
+  const lostTry = (began: number) => {
+    ledger.time("stalled", began, Date.now());
+    ledger.count("stalled", 1);
+  };
   ledger.time("planning", planningBegan, planningEnded);
   let inputTokens = 0;
   let outputTokens = 0;
@@ -991,6 +997,7 @@ async function viaOpenRouter(
           }, [SECTION_TOOL], abort.signal, "required");
         } catch (error) {
           if (stopped()) return null;
+          lostTry(state.started);
           // A reply that stalled, or failed after its own retries, is one failed try, not the end of the lecture.
           note = why === "silent"
             ? `Your last try sent nothing for ${FIRST_REPLY_MINUTES} minutes. Write the section straight away, without long planning.`
@@ -1337,9 +1344,14 @@ async function viaOpenRouter(
   const lectureOptions = () => ({
     onGenerated: billGenerated,
     onImages: noteImages,
-    onTime: (span: [number, number], images: [number, number][]) => {
+    onTime: (span: [number, number], images: [number, number][], prefetch?: { pictures?: number; seconds?: number;
+      slowest?: number }) => {
       ledger.time("compile", span[0], span[1]);
       for (const [start, end] of images) ledger.time("images", start, end);
+      if (prefetch?.pictures && (prefetch.seconds ?? 0) >= 1) {
+        emit({ type: "message", role: "status", text: `Pictures: ${prefetch.pictures} made at once in ` +
+          `${prefetch.seconds} s (the slowest ${prefetch.slowest} s; ${process.env.PANIM_IMAGE_PARALLEL || 6} at a time).` });
+      }
     },
     style,
     art: request.art,
@@ -1591,6 +1603,7 @@ async function viaOpenRouter(
           }, sectionTools, abort.signal, "required", silent ? "low" : videoEffort());
         } catch (error) {
           if (stopped()) return null;
+          lostTry(state.started);
           refused += 1;
           if (why === "silent") silent += 1;
           const note = why === "silent" ? `sent nothing for ${Math.round(VIDEO_WAIT_MS / 60_000)} minutes` +

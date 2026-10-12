@@ -677,26 +677,30 @@ def parallel() -> int:
         return 6
 
 
+# What the last prefetch did: pictures made at once, how long it took, and the slowest one (seconds).
+PREFETCHED: dict = {}
+
+
 def prefetch(requests: list[dict]) -> None:
     """The pictures noted down (collecting), made several at once, each then its labels found, so the compile's
-    real pass finds them all made. A person's or a thing's first picture is made before the others of them (a later
-    one is drawn to match it: reference_for), so those come in a second wave."""
+    real pass finds them all made. A picture of a person or thing already in an earlier one waits only for that
+    first picture (it is drawn to match it: reference_for); every other starts straight away."""
     if not requests or not enabled():
         return
     from concurrent.futures import ThreadPoolExecutor
 
-    seen, first, later = set(), [], []
+    seen, todo = set(), []
     for request in requests:
         key = (str(request["what"]).strip().lower(), request.get("style"), bool(request.get("realistic")),
                tuple(request.get("parts") or []), bool(request.get("scene")), request.get("kind"))
-        if key in seen:
-            continue
-        seen.add(key)
-        names = frozenset(_names(str(request["what"])))
-        (later if names and any(names & n for n in [r[1] for r in first]) else first).append((request, names))
+        if key not in seen:
+            seen.add(key)
+            todo.append(request)
+    began = time.time()
+    slowest = [0.0]
 
-    def make(item) -> None:
-        request = item[0]
+    def make(request) -> None:
+        start = time.time()
         try:
             row = generate(**{k: v for k, v in request.items() if k != "labels"})
             if row and row.get("png"):
@@ -704,11 +708,28 @@ def prefetch(requests: list[dict]) -> None:
                     locate(row["png"], labels)
         except Exception:  # noqa: BLE001 -- the real pass asks again and says why
             pass
+        slowest[0] = max(slowest[0], time.time() - start)
 
     asked, failed = len(ASKED), len(FAILED)
+    firsts: dict[str, object] = {}                  # a name -> the future of its first picture
     with ThreadPoolExecutor(max_workers=parallel()) as pool:
-        for wave in (first, later):
-            list(pool.map(make, wave))
+        futures = []
+        for request in todo:
+            names = _names(str(request["what"]))
+            before = [firsts[n] for n in names if n in firsts]
+
+            def run(request=request, before=before):
+                for future in before:
+                    future.result()
+                make(request)
+
+            future = pool.submit(run) if before else pool.submit(make, request)
+            for n in names:
+                firsts.setdefault(n, future)
+            futures.append(future)
+        for future in futures:
+            future.result()
+    PREFETCHED.update(pictures=len(todo), seconds=round(time.time() - began, 1), slowest=round(slowest[0], 1))
     # The real pass asks for each again (found made now) and says what failed: counted there, once.
     del ASKED[asked:]
     del FAILED[failed:]

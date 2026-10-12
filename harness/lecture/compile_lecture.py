@@ -3387,7 +3387,8 @@ def main() -> int:
                           "images": __import__("genimage").report(),
                           # When the image models and the Manim checks were at work (ms since the epoch).
                           "image_spans": __import__("genimage").SPANS,
-                          "probe_spans": __import__("free_check").SPANS}))
+                          "probe_spans": __import__("free_check").SPANS,
+                          "prefetch": __import__("genimage").PREFETCHED}))
         return 1 if errors else 0
     if args.check:
         print(json.dumps({"errors": errors, "warnings": warnings}))

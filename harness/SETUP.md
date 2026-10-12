@@ -91,7 +91,7 @@ Settings (all optional, in `.env.local`):
 | `PANIM_TTS_PRICE` | The voice's price in US dollars per million tokens, `in,out` (text in, audio out), for the cost shown in the agent log. Default: Google's list price, Flash-Lite TTS $0.50 / $6.00 and Flash TTS $0.50 / $9.00 until 31 December 2026, double from 1 January 2027. Set it for the batch tier (half) or priority (1.8×). |
 | `PANIM_TTS_THREADS` | How many lines are spoken at once before Manim draws the lecture (default 8). Lower it if Google answers "429: Resource exhausted" often; raise it on a paid tier. |
 | `PANIM_TRANSCRIPT_PARALLEL` | How many transcript sections are written at once (default 6, at most 8; lower it if the provider answers 429, too many requests). One after another, a book chapter's transcript took most of an hour. |
-| `PANIM_STALL_SECONDS` | A reply (transcript or video) that streams nothing for this long after it started (default 180) has stalled: it is stopped and asked again. One that sends nothing at all is stopped after `PANIM_MODEL_WAIT_MINUTES` (15). A section that fails every try is left out, with a note, rather than stopping the lecture (unless more than about one in seven fail). |
+| `PANIM_STALL_SECONDS` | A reply (transcript or video) that streams nothing for this long after it started (default 90) has stalled: it is stopped and asked again. One that sends nothing at all is stopped after `PANIM_MODEL_WAIT_MINUTES` (5). A section that fails every try is left out, with a note, rather than stopping the lecture (unless more than about one in seven fail). |
 | `PANIM_CHAPTERS_PARALLEL` | How many transcript sections have their video chapters written at once (default: `PANIM_TRANSCRIPT_PARALLEL`, else 6; at most 8). Each section's chapters are a request of their own, checked on their own, then put together and checked as a whole; a section the whole check still faults (transcript not all said, a chapter that does not compile, nothing written) is written again, in parallel, with the reasons; only what belongs to no section (the count of problems or questions, the length) is fixed with `add_chapters`, at most 3 chapters a call. After 4 refusals of the finished lecture, its chapters are built as they are. A turn that goes silent or stalls is asked again (twice), and if the model still does not answer, the chapters already written are built rather than lost. |
 | `PANIM_NARRATION_KBPS` | The narration's bitrate in the phone's files (Save, Download for the phone): Opus, mono, 24 kbit/s by default, about 11 MB an hour where the WAV was 300 MB (and over the 50 MB per-file upload limit of a free Supabase project). Needs ffmpeg with an Opus encoder; without one the WAV is shipped. The browser preview keeps the WAV. |
 | `PANIM_MANIM_CACHE` | Where every build keeps Manim's LaTeX and text renders (default `harness/.cache/manim`). They used to go in each build's own folder, so every build ran LaTeX again for every formula. The server fills it as it starts (`scripts/warm_caches.py`, from `app/instrumentation.ts`: Manim and the engine imported, the common formulas and each style's fonts drawn), so the first build does not pay for that; `PANIM_WARM=0` turns the warm-up off. |
@@ -197,8 +197,8 @@ Put your keys in `.env.local`. All of them are optional.
 | `OPENROUTER_API_KEY` | Lectures are written by a model. Without it, the app uses an offline test script. |
 | `OPENROUTER_MODEL` | Which model writes the video: the beat script, its diagrams and the Manim scene. |
 | `OPENROUTER_TRANSCRIPT_MODEL` | Which model writes a lecture's spoken transcript first (what the teacher says, section by section). Defaults to `OPENROUTER_MODEL`. The page's **Transcript model** field overrides it for your browser. |
-| `PANIM_VIDEO_WAIT_MINUTES` | How long a video-step request (a section's chapters) may send nothing at all before it is asked again (default 6); the next try of that section is asked at low reasoning effort, since medium effort's silent thinking is what hangs. |
-| `PANIM_MODEL_WAIT_MINUTES` | How long a model may send nothing at all before the request is stopped (default 15). Reasoning models think silently first; a "pro" model can take many minutes, so pick a non-pro model for lectures. |
+| `PANIM_VIDEO_WAIT_MINUTES` | How long a video-step request (a section's chapters) may send nothing at all before it is asked again (default 3); the next try of that section is asked at low reasoning effort, since medium effort's silent thinking is what hangs. |
+| `PANIM_MODEL_WAIT_MINUTES` | How long a model may send nothing at all before the request is stopped (default 5). Reasoning models think silently first; a "pro" model can take many minutes, so pick a non-pro model for lectures. |
 | `PANIM_REASONING_EFFORT` | How hard the model thinks before writing: `low` (the default: quicker and cheaper), `minimal`, `medium` or `high`; `off` leaves it to the model. Used by the editor and by Forge. |
 | `DATALAB_API_KEY` | Clean PDF conversion, with figures cut out properly. Without it, pypdf is used. |
 | `PANIM_IMAGES=0` | Turn off internet photos and illustrations. |
@@ -244,6 +244,11 @@ lists anything still missing, each with a **download** button:
   `dvisvgm`, which TinyTeX does not include), the bar names it, and **download** adds it.
 
 The app also downloads the voice by itself before the first lecture that needs it.
+
+To run the tests and the app's checks, all at once on every core, use `scripts/check.sh`. Add `quick` to leave out
+the slow tests that render whole lectures. You can also name test files after it, for example
+`scripts/check.sh quick tests/test_pictures_more.py`. The full run takes about 2.5 minutes, quick mode about 1 minute,
+and one file a few seconds.
 
 ## Troubleshooting
 

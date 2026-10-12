@@ -129,6 +129,10 @@ def main() -> int:
                 for other in futures:
                     other.cancel()               # a refused line stops the lecture: no point paying for the rest
                 continue
+            except Exception as error:  # noqa: BLE001 -- a dropped connection: the build speaks these lines itself
+                print(f"prespeak: {len(futures[future])} line(s) left for the build ({type(error).__name__}: "
+                      f"{str(error)[:160]})", file=sys.stderr)
+                continue
             with lock:
                 done += len(futures[future])
                 write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))

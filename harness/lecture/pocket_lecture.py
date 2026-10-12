@@ -876,8 +876,8 @@ def narrate_many(texts: list[str]) -> None:
     if many is not None and len(todo) > 1:
         try:
             spoken = many([speechify(t) for t in todo], voice, VOICE_SPEED)
-        except RuntimeError:
-            spoken = None                      # spoken one by one below, where the reason is reported
+        except Exception:  # noqa: BLE001 -- spoken one by one below, where the reason is reported
+            spoken = None
         if spoken is not None:
             for text, (wav, spent) in zip(todo, spoken):
                 out = audio_file(mode, speechify(text))

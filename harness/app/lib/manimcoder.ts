@@ -28,6 +28,9 @@ export type ManimCoderOptions = {
   onStatus?: (text: string) => void;
 };
 
+/** How long one figure's request may take before it is given up on and asked again (PANIM_MANIM_TIMEOUT_SECONDS):
+ * a request the connection left hanging held its section, and the lecture, for ever. */
+const TIMEOUT_MS = Math.max(1, Number(process.env.PANIM_MANIM_TIMEOUT_SECONDS) || 150) * 1000;
 /** Figures written at once (PANIM_MANIM_PARALLEL). */
 const PARALLEL = Math.max(1, Number(process.env.PANIM_MANIM_PARALLEL) || 6);
 /** Code already written for a figure (its beats' lines and plans): a script checked again asks nothing. */
@@ -114,9 +117,10 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: 
       { type: "image_url", image_url: { url: image } });
   }
   const began = Date.now();
+  const limit = AbortSignal.timeout(TIMEOUT_MS);
   const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    signal: options.signal,
+    signal: options.signal ? AbortSignal.any([options.signal, limit]) : limit,
     headers: { Authorization: `Bearer ${options.key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: options.model, usage: { include: true }, response_format: { type: "json_object" },
       messages: [{ role: "system", content: SYSTEM }, { role: "user", content }] }),
@@ -165,6 +169,11 @@ async function eachAtOnce<T>(items: T[], run: (item: T) => Promise<void>) {
 export async function fillManim(script: Record<string, unknown>, options: ManimCoderOptions): Promise<{ written: string[]; dropped: string[] }> {
   const todo = [...slotsOf(script)].filter(([, slots]) => slots.some((s) => !hasCode(s)));
   const out = { written: [] as string[], dropped: [] as string[] };
+  const fresh = todo.filter(([id, slots]) => !written.has(memoKey(id, slots)));
+  if (fresh.length) {
+    options.onStatus?.(`Manim: ${options.model} is writing ${fresh.length} figure${fresh.length > 1 ? "s" : ""} ` +
+      `(${fresh.map(([id]) => id).join(", ")}).`);
+  }
   await eachAtOnce(todo, async ([id, slots]) => {
     const kept = written.get(memoKey(id, slots));
     if (kept) return put(slots, kept);
@@ -179,6 +188,10 @@ export async function fillManim(script: Record<string, unknown>, options: ManimC
         }
       } catch (error) {
         if (options.signal?.aborted) throw error;
+        // Timed out, a dropped connection, an OpenRouter error: one more try, then the figure is left out.
+        options.onStatus?.(`Manim: figure ${id}, try ${attempt + 1}: ${error instanceof Error && error.name === "TimeoutError"
+          ? `no answer in ${TIMEOUT_MS / 1000} s` : String(error instanceof Error ? error.message : error).slice(0, 160)}` +
+          `${attempt === 0 ? "; asking again." : "."}`);
       }
     }
     drop(slots);

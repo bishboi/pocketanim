@@ -78,15 +78,28 @@ export function targetMinutes(text: string, source = ""): number {
   return Math.min(30, Math.max(DEFAULT_LECTURE_MINUTES, Math.round(words / SOURCE_WORDS_PER_MINUTE)));
 }
 
-function runPython(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
+/** How long one compile may run (PANIM_COMPILE_TIMEOUT_SECONDS): one that hangs is stopped and reported. */
+const COMPILE_TIMEOUT_MS = Math.max(60, Number(process.env.PANIM_COMPILE_TIMEOUT_SECONDS) || 600) * 1000;
+
+function runPython(args: string[], input?: string, timeoutMs?: number): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(python(), args, { cwd: REPO });
     let stdout = "";
     let stderr = "";
+    const timer = timeoutMs ? setTimeout(() => {
+      stderr += `\nthe compiler took longer than ${Math.round(timeoutMs / 1000)} s and was stopped`;
+      child.kill("SIGKILL");
+    }, timeoutMs) : undefined;
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
     if (input !== undefined) child.stdin.write(input);
     child.stdin.end();
   });
@@ -135,7 +148,7 @@ export async function compileLecture(
       : script;
   const args = [compiler, "-", "--json"];
   const began = Date.now();
-  const { stdout, stderr } = await runPython(args, JSON.stringify(body));
+  const { stdout, stderr } = await runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS);
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");

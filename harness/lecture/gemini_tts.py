@@ -26,6 +26,7 @@ Settings:
 from __future__ import annotations
 
 import base64
+import http.client
 import io
 import json
 import os
@@ -214,6 +215,14 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, int]:
                 time.sleep(2 ** attempt)
                 continue
             raise RuntimeError(f"{NAME} unreachable: {last}") from None
+        except (OSError, http.client.HTTPException) as error:
+            # The connection dropped partway through the reply (ConnectionResetError, a read timeout, an incomplete
+            # read): the same request again, then a RuntimeError the caller reports, never a crash of the batch.
+            last = f"{type(error).__name__}: {error}"
+            if attempt < TRIES - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(f"{NAME} connection failed: {last}") from None
         except RuntimeError as error:                   # an answer with no audio in it: once more, then give up
             last = str(error)
             if attempt < 1:

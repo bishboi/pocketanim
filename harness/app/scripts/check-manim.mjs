@@ -21,6 +21,7 @@ const server = http.createServer((req, res) => {
     busy -= 1;
     const beats = (text.match(/^Beat \d+ says/gm) ?? []).length;
     const id = /figure's id: (\w+)/.exec(text)[1];
+    if (id === "hangs") return;                          // a connection left hanging: never answered
     const blocks = id === "broken" ? ["only one"].concat([]).slice(0, beats - 1)
       : Array.from({ length: beats }, (_, k) => `${text.includes("refused") ? "fixed" : "made"}_${id}_${k} = Dot()`);
     res.setHeader("content-type", "application/json");
@@ -30,6 +31,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 process.env.OPENROUTER_URL = `http://127.0.0.1:${server.address().port}/v1/chat/completions`;
+process.env.PANIM_MANIM_TIMEOUT_SECONDS = "1";
 const { fillManim, repairManim, needsManim } = await import("../lib/manimcoder.ts");
 
 const script = () => ({ chapters: [{ beats: [
@@ -67,5 +69,14 @@ const repair = asked[asked.length - 1].text;
 assert.ok(repair.includes("NameError: mg") && repair.includes("made_wedge_1") && repair.includes("ROSE arrow"));
 assert.equal(first.chapters[0].beats[1].do[0].code, "fixed_wedge_1 = Dot()");
 assert.ok(spent > 0);
+// A request left hanging is given up on after its time limit (twice), and the figure is left out: the lecture goes on.
+const statuses = [];
+const hung = { chapters: [{ beats: [{ say: "x", do: [{ op: "manim", id: "hangs", plan: "p" }] }] }] };
+const started = Date.now();
+const left = await fillManim(hung, { ...options, onStatus: (t) => statuses.push(t) });
+assert.deepEqual(left.dropped, ["hangs"]);
+assert.ok(Date.now() - started < 6000, "not stuck");
+assert.ok(statuses.some((t) => /no answer in 1 s; asking again/.test(t)));
+server.closeAllConnections();
 server.close();
 console.log("ok: Manim figures written by their own model, at once, repaired with the reason, left out when they cannot be");

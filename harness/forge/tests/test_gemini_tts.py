@@ -31,6 +31,16 @@ def gemini(monkeypatch):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             state["requests"].append({"path": self.path, "key": self.headers.get("x-goog-api-key"), "body": body})
+            if state.get("reset"):
+                state["reset"] -= 1
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "100000")
+                self.end_headers()
+                self.wfile.write(b'{"candidates": [')         # the reply cut off: the connection drops mid-read
+                self.wfile.flush()
+                self.connection.shutdown(2)
+                return
             if state["fail"]:
                 code, message = state["fail"].pop(0)
                 self.send_response(code)
@@ -291,3 +301,11 @@ def test_a_batch_that_cannot_be_cut_is_spoken_line_by_line(gemini, monkeypatch, 
     pl.narrate_many(lines)
     assert len(gemini["requests"]) == 1 + 3
     assert all(pl.audio_file(pl.voice_mode(), pl.speechify(x)).exists() for x in lines)
+
+
+def test_a_connection_dropped_mid_reply_is_asked_again_not_a_crash(gemini):
+    """Google's connection reset partway through the reply (ConnectionResetError, an incomplete read) is retried
+    like a 503; it crashed the batch before."""
+    gemini["reset"] = 2
+    assert gemini_tts.speak("One line.", "Charon")[:4] == b"RIFF"
+    assert len(gemini["requests"]) == 3

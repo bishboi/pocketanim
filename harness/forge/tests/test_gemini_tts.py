@@ -39,6 +39,8 @@ def gemini(monkeypatch):
                 self.wfile.write(json.dumps({"error": {"code": code, "message": message}}).encode())
                 return
             audio, mime = _pcm(), "audio/L16;codec=pcm;rate=24000"
+            if state.get("speech"):
+                audio = state["speech"](body["contents"][0]["parts"][0]["text"])
             if state["wav"]:
                 out = io.BytesIO()
                 with wave.open(out, "w") as handle:
@@ -229,3 +231,63 @@ def test_a_language_code_the_model_refuses_is_dropped_not_fatal(gemini, monkeypa
     assert codes == ["en-IN", None, None]       # refused once: not sent again this run
     gemini_tts.speak("नमस्ते।", "Achird")
     assert gemini["requests"][-1]["body"]["generationConfig"]["speechConfig"]["languageCode"] == "hi-IN"
+
+
+def _spoken(text: str, gap: float = 0.5, breath: float = 0.12) -> bytes:
+    """A stand-in for Google's speech of `text`: each paragraph a tone as long as its words (with a short breath at
+    each sentence's end), paragraphs `gap` seconds apart."""
+    import numpy as np
+
+    rate, out = 24000, []
+    for k, paragraph in enumerate(text.split("\n\n")):
+        if k:
+            out.append(np.zeros(int(rate * gap)))
+        for j, sentence in enumerate(s for s in paragraph.split(". ") if s):
+            if j:
+                out.append(np.zeros(int(rate * breath)))
+            n = int(rate * 0.06 * len(sentence))
+            out.append(8000 * np.sin(np.arange(n) * 2 * np.pi * 220 / rate))
+    return np.concatenate(out).astype(np.int16).tobytes()
+
+
+def test_lines_spoken_together_are_cut_back_at_the_pauses_between_them():
+    lines = ["The force acts down. It is the weight", "Friction opposes motion", "Short",
+             "A longer line about the normal reaction. It has two sentences. And a third"]
+    pcm = _spoken("\n\n".join(lines))
+    clips = gemini_tts.split_lines(pcm, 24000, lines)
+    assert clips is not None and len(clips) == 4
+    seconds = [len(c) / 2 / 24000 for c in clips]
+    for line, length in zip(lines, seconds):
+        assert abs(length - 0.06 * len(line.replace(". ", ""))) < 0.8            # each clip is its own line
+    assert gemini_tts.split_lines(_spoken("one long line with no pauses at all"), 24000, lines) is None
+
+
+def test_a_batch_of_lines_is_one_request_and_each_line_is_cached_with_its_share_of_the_cost(gemini, monkeypatch, tmp_path):
+    import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    gemini["speech"] = _spoken
+    lines = ["Weight pulls the block down", "The normal reaction pushes back. It is equal and opposite",
+             "Friction acts along the surface", "So the block stays still"]
+    pl.narrate_many(lines)
+    assert len(gemini["requests"]) == 1
+    assert "\n\n".join(pl.speechify(x) for x in lines) == gemini["requests"][0]["body"]["contents"][0]["parts"][0]["text"]
+    costs = [json.loads(pl.cost_file(pl.audio_file(pl.voice_mode(), pl.speechify(x))).read_text()) for x in lines]
+    assert all(c["batched"] == 4 and c["usd"] > 0 for c in costs)
+    for line in lines:                                                     # the build finds each line spoken
+        wav, seconds = pl.narrate(line)
+        assert wav and seconds > 0.5
+    assert len(gemini["requests"]) == 1
+
+
+def test_a_batch_that_cannot_be_cut_is_spoken_line_by_line(gemini, monkeypatch, tmp_path):
+    import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("PANIM_VOICE", "auto")
+    gemini["speech"] = lambda text: _spoken(text.replace("\n\n", " "))     # no pause between the lines
+    lines = ["First line here", "Second line here", "Third line here"]
+    pl.narrate_many(lines)
+    assert len(gemini["requests"]) == 1 + 3
+    assert all(pl.audio_file(pl.voice_mode(), pl.speechify(x)).exists() for x in lines)

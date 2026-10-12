@@ -255,6 +255,126 @@ def _speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
     return out.getvalue()
 
 
+# ---------------- several lines in one request ----------------
+# Google's TTS allows only so many requests a minute (about 10-15 on most keys): one request a line made a lecture
+# of 400 lines take half an hour of waiting out "429 Too Many Requests". Lines are spoken a few at a time instead,
+# one request for several, and the audio is cut back into lines at the pauses between them.
+BATCH_LINES = max(1, int(os.environ.get("PANIM_TTS_BATCH", "8") or 8))
+BATCH_BYTES = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "1600"))
+_FRAME = 0.01              # seconds a frame, when looking for pauses
+
+
+def _pauses(samples, rate: int) -> list[tuple[float, float]]:
+    """The quiet stretches inside speech, (middle, length) in seconds, from frames of 10 ms."""
+    import numpy as np
+
+    size = max(1, int(rate * _FRAME))
+    frames = len(samples) // size
+    if frames < 3:
+        return []
+    level = np.sqrt((samples[:frames * size].astype(np.float64).reshape(frames, size) ** 2).mean(axis=1))
+    quiet = level < max(250.0, 0.06 * float(np.percentile(level, 95)))
+    out, start = [], None
+    for index, still in enumerate(quiet):
+        if still and start is None:
+            start = index
+        elif not still and start is not None:
+            if start > 0:                                   # not the silence before the first word
+                out.append(((start + index) / 2 * _FRAME, (index - start) * _FRAME))
+            start = None
+    return out                                               # the silence after the last word is left out
+
+
+def split_lines(pcm: bytes, rate: int, texts: list[str]) -> list[bytes] | None:
+    """`pcm`, the lines `texts` spoken one after another, cut into one clip a line; None when the cuts cannot be
+    trusted (a missing pause, a cut far from where its words put it), so the lines are spoken one by one instead.
+
+    Each line ends about where its share of the words puts it (`texts`' lengths); for each, the pause chosen is the
+    best by being long and near that point, in order (dynamic programming over the pauses)."""
+    import numpy as np
+
+    samples = np.frombuffer(pcm, dtype=np.int16)
+    n = len(texts)
+    if n == 1:
+        return [pcm]
+    total = len(samples) / rate
+    weights = [max(1, len(t)) for t in texts]
+    expected = list(np.cumsum(weights)[:-1] / sum(weights) * total)
+    pauses = [p for p in _pauses(samples, rate) if p[1] >= 0.12]
+    if len(pauses) < n - 1:
+        return None
+    longest = sorted((p[1] for p in pauses), reverse=True)[n - 2]
+    scale = max(0.6, total / n * 0.35)                # how far a cut may sit from its expected point
+
+    def cost(k: int, j: int) -> float:
+        middle, length = pauses[j]
+        return ((middle - expected[k]) / scale) ** 2 - 2.0 * min(length, 1.5)
+
+    m = len(pauses)
+    best = [[float("inf")] * m for _ in range(n - 1)]
+    back = [[-1] * m for _ in range(n - 1)]
+    for j in range(m):
+        best[0][j] = cost(0, j)
+    for k in range(1, n - 1):
+        run, arg = float("inf"), -1
+        for j in range(m):
+            if j - 1 >= 0 and best[k - 1][j - 1] < run:
+                run, arg = best[k - 1][j - 1], j - 1
+            if arg >= 0:
+                best[k][j] = run + cost(k, j)
+                back[k][j] = arg
+    end = min(range(m), key=lambda j: best[n - 2][j])
+    if best[n - 2][end] == float("inf"):
+        return None
+    chosen = [end]
+    for k in range(n - 2, 0, -1):
+        chosen.append(back[k][chosen[-1]])
+    chosen.reverse()
+    cuts = []
+    for k, j in enumerate(chosen):
+        middle, length = pauses[j]
+        # A cut must sit on a real break (as long as the shorter of the breaks between lines would be) and near
+        # where its words put it; else the lines are spoken one by one.
+        if length < min(0.25, 0.6 * longest) or abs(middle - expected[k]) > scale * 1.6:
+            return None
+        cuts.append(int(middle * rate))
+    bounds = [0, *cuts, len(samples)]
+    return [samples[a:b].tobytes() for a, b in zip(bounds, bounds[1:])]
+
+
+def _wav(pcm: bytes, rate: int) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(pcm)
+    return out.getvalue()
+
+
+def speak_many(texts: list[str], voice: str = DEFAULT_VOICE, speed: float = 1.0) -> list[tuple[bytes, dict]] | None:
+    """Several lines in one request: [(WAV, cost {"in", "out", "usd"})] a line, in order, the request's cost shared
+    by each line's length of speech; None when the audio cannot be cut back into the lines (they are then spoken one
+    at a time). The lines are read as paragraphs, so the voice pauses between them."""
+    texts = [t.strip() for t in texts]
+    if len(texts) < 2 or any(not t for t in texts):
+        return None
+    _spent.line = {"in": 0, "out": 0, "usd": 0.0}
+    pcm, rate = synthesize("\n\n".join(texts), voice)
+    spent = dict(_spent.line)
+    clips = split_lines(_trim(pcm, rate), rate, texts)
+    if clips is None:
+        return None
+    clips = [_tempo(_trim(clip, rate), rate, speed) for clip in clips]
+    length = sum(len(c) for c in clips) or 1
+    out = []
+    for clip in clips:
+        share = len(clip) / length
+        out.append((_wav(clip, rate), {"in": round(spent["in"] * share), "out": round(spent["out"] * share),
+                                       "usd": spent["usd"] * share, "batched": len(texts)}))
+    return out
+
+
 def check() -> int:
     """Whether a key is set and Gemini speaks with it (one short line)."""
     env_file = os.environ.get("PANIM_ENV_FILE", ENV_FILE)

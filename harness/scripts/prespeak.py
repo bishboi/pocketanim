@@ -107,9 +107,20 @@ def main() -> int:
     lock = threading.Lock()
     write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))
     threads = max(1, int(os.environ.get("PANIM_TTS_THREADS", "8")))
+    # Lines in order, a few to a request (pocket_lecture.narrate_many): Google allows only so many requests a minute.
+    batch_lines = max(1, int(os.environ.get("PANIM_TTS_BATCH", "8") or 8))
+    batch_bytes = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "1600"))
+    batches: list[list[str]] = []
+    for line in left:
+        size = len(line.encode())
+        if (batches and len(batches[-1]) < batch_lines and size < batch_bytes // 2
+                and sum(len(x.encode()) for x in batches[-1]) + size <= batch_bytes):
+            batches[-1].append(line)
+        else:
+            batches.append([line])
     failed: list[str] = []
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        futures = [pool.submit(pl.narrate, line) for line in left]
+        futures = {pool.submit(pl.narrate_many, batch): batch for batch in batches}
         for future in as_completed(futures):
             try:
                 future.result()
@@ -119,7 +130,7 @@ def main() -> int:
                     other.cancel()               # a refused line stops the lecture: no point paying for the rest
                 continue
             with lock:
-                done += 1
+                done += len(futures[future])
                 write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))
     # What the voice cost: the lines spoken now (this build's bill) and every line of the lecture (a line spoken
     # for an earlier build was paid for then). Lines spoken before costs were kept count as unknown.

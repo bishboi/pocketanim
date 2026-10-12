@@ -859,6 +859,37 @@ def narrate(text: str) -> tuple[str | None, float]:
     return str(out), _wav_seconds(out)
 
 
+def narrate_many(texts: list[str]) -> None:
+    """Lines spoken ahead of a build, several in one request where the voice can (gemini_tts.speak_many), into
+    the cache narrate() reads: Google allows only so many requests a minute. A batch whose audio cannot be cut
+    back into its lines, or that fails, is spoken a line at a time (narrate)."""
+    import tts
+
+    mode = voice_mode()
+    if mode == "silent":
+        return
+    engine, voice = mode.split(":", 1)
+    speaker = tts.engine(engine)
+    todo = [t for t in dict.fromkeys(texts)
+            if not ((lambda f: f.exists() and f.stat().st_size > 44)(audio_file(mode, speechify(t))))]
+    many = getattr(speaker, "speak_many", None)
+    if many is not None and len(todo) > 1:
+        try:
+            spoken = many([speechify(t) for t in todo], voice, VOICE_SPEED)
+        except RuntimeError:
+            spoken = None                      # spoken one by one below, where the reason is reported
+        if spoken is not None:
+            for text, (wav, spent) in zip(todo, spoken):
+                out = audio_file(mode, speechify(text))
+                raw = out.with_name(out.stem + "_raw.wav")
+                raw.write_bytes(wav)
+                cost_file(out).write_text(json.dumps({**spent, "engine": engine}))
+                _finish(raw, out)
+            return
+    for text in todo:
+        narrate(text)
+
+
 # ════════════════════════════════════════════════════════════════════════
 #  MAP DATA (Natural Earth through Cartopy)
 # ════════════════════════════════════════════════════════════════════════

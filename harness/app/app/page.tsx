@@ -1827,8 +1827,8 @@ export default function Home() {
                       {exported.checks.reviewed ? ` (${exported.checks.reviewed} looked at by ${exported.checks.model})` : ""}
                     </summary>
                     <ul className="mt-1 list-inside list-disc">
-                      {exported.checks.beats.slice(0, 30).map((b) => (
-                        <li key={b.beat}>
+                      {exported.checks.beats.slice(0, 30).map((b, i) => (
+                        <li key={`${i}-${b.beat}`}>
                           <span className="text-neutral-400">&ldquo;{b.say.slice(0, 80)}&rdquo;</span>{" "}
                           {b.issues.length > 0 && <span className="text-amber-300">{b.issues.join("; ")}</span>}
                           {b.fixed.length > 0 && <span className="text-emerald-300/80"> mended: {b.fixed.join("; ")}</span>}

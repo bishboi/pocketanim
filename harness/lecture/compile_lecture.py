@@ -1131,7 +1131,10 @@ def _chapter_frame(chapter: dict, region: dict | None) -> tuple | None:
                     try:
                         shape = pl.country_home(op["name"])
                     except Exception:  # noqa: BLE001
-                        continue
+                        try:
+                            shape = pl.area_shape(op["name"], home)
+                        except Exception:  # noqa: BLE001
+                            continue
                 x0, y0, x1, y1 = shape.bounds
                 lons.extend([x0, x1])
                 lats.extend([y0, y1])
@@ -2543,6 +2546,44 @@ def _km(a, b) -> float:
 GUESS_KM = 30
 
 
+# How big an area must be on the map (its share of the map's width or height) to be shaded rather than marked
+# with a dot: a country across a fifth of the map is its land; a city-state or a small district stays a dot.
+AREA_SHADE_SHARE = 0.06
+
+
+def _areas_shaded(script: dict, pl, home, bounds) -> list[str]:
+    """Markers that name an area (a country, a state or province, a region) big enough to see on this map become
+    that area shaded, its name written on it (a "state" op): a country drawn as one dot at its middle looked like
+    a town. Towns, sites and areas too small to see on the map stay dots. Returns the notes (fixed: ...)."""
+    notes: list[str] = []
+    box = pl._box(bounds) if bounds else None
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            ops = beat.get("do") if isinstance(beat.get("do"), list) else []
+            for k, op in enumerate(ops):
+                if not (isinstance(op, dict) and op.get("op") == "marker" and isinstance(op.get("place"), str)
+                        and not op.get("lonlat") and not op.get("picture")):
+                    continue
+                name = op["place"]
+                try:
+                    shape = pl.area_shape(name, home)
+                except Exception:  # noqa: BLE001 -- not an area: a town or a site, a dot
+                    continue
+                seen = shape.intersection(box) if box is not None else shape
+                if seen.is_empty:
+                    continue
+                x0, y0, x1, y1 = seen.bounds
+                share = max((x1 - x0) / max(bounds[2] - bounds[0], 1e-6), (y1 - y0) / max(bounds[3] - bounds[1], 1e-6)) \
+                    if bounds else 1.0
+                if share < AREA_SHADE_SHARE:
+                    continue
+                ops[k] = {"op": "state", "name": name, "label": op.get("label") or name,
+                          **({"color": op["color"]} if op.get("color") else {}),
+                          **({k2: op[k2] for k2 in ("at",) if op.get(k2)})}
+                notes.append(f"{FIXED}chapter {ci} beat {bi}: {name!r} is an area: shaded on the map, not a dot")
+    return notes
+
+
 def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
     """Where the map's points really are, before anything is drawn: a model's own [lon, lat] is often far off.
 
@@ -2560,7 +2601,7 @@ def _resolve_map_points(script: dict) -> tuple[list[str], list[str]]:
     if problem:
         return [], []
     bounds = pl.map_bounds(region)
-    warnings: list[str] = []
+    warnings: list[str] = _areas_shaded(script, pl, home, bounds)
 
     def known(name):
         try:
@@ -2780,8 +2821,10 @@ def _op_call(op: dict) -> str:
                     if isinstance(op.get("pictures"), list) and any(op["pictures"]) else "")
         return f"self.journey([{stops}]{color}{labels}{pictures})"
     if kind == "state":
-        color = _colour(op.get("color"), "P.SAND")
-        return f"self.fill_state({_q(op['name'])}, {color}, {float(op.get('opacity', 0.6)):g})"
+        # No colour: the engine gives each area a tone of its own.
+        color = _colour(op.get("color")) if op.get("color") else "None"
+        label = f", label={_q(op['label'])}" if op.get("label") else ""
+        return f"self.fill_state({_q(op['name'])}, {color}, {float(op.get('opacity', 0.6)):g}{label})"
     if kind == "dim":
         return f"*self.dim(opacity={float(op.get('opacity', 0.15)):g})"
     if kind == "icon":

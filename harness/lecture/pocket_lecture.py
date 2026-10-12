@@ -1155,6 +1155,58 @@ def state(name: str, country_name: str | None = None):
     return geom if clipped.is_empty else clipped
 
 
+# English names of regions Natural Earth keeps under their own (a French region, a part of a country).
+REGION_ALIASES = {"normandy": "normandie", "brittany": "bretagne", "burgundy": "bourgogne-franche-comte",
+                  "aquitaine": "nouvelle-aquitaine", "provence": "provence-alpes-cote-d'azur",
+                  "alsace": "grand est", "lorraine": "grand est", "champagne": "grand est",
+                  "picardy": "hauts-de-france", "flanders": "vlaanderen", "wallonia": "wallonie"}
+
+
+@lru_cache(None)
+def _state_group(name: str, country_name: str | None = None):
+    """A region made of several first-level divisions, by the region they belong to: England, Scotland and Wales
+    (the United Kingdom's countries), Normandy and Brittany (France's regions), Flanders. Their union; KeyError
+    when no division belongs to one so named."""
+    from shapely.ops import unary_union
+
+    wanted = _norm(REGION_ALIASES.get(_norm(name), name))
+    scope = _norm(country_name) if country_name else None
+    parts = []
+    for attrs, geom in _records("admin_1_states_provinces"):
+        if scope and scope not in (_norm(attrs.get("admin")), _norm(attrs.get("adm0_a3"))):
+            continue
+        if wanted in (_norm(attrs.get("region")), _norm(attrs.get("geonunit")), _norm(attrs.get("region_sub"))):
+            parts.append(_valid(geom))
+    if not parts:
+        raise KeyError(f"no region named {name!r}")
+    return _valid(unary_union(parts))
+
+
+def area_shape(name: str, country_name: str | None = None):
+    """The land a name stands for on a map, when it is an area rather than a point: a state or province (of the
+    map's country first), a country, or a wider area (a continent, "Western Europe"). Raises KeyError when the
+    name is none of them (a town, a site)."""
+    if country_name:
+        try:
+            return state(name, country_name)
+        except KeyError:
+            pass
+    try:
+        return country(name)
+    except KeyError:
+        pass
+    try:
+        return state(name, None)
+    except (KeyError, TypeError):
+        pass
+    for scope in ([country_name] if country_name else []) + [None]:
+        try:
+            return _state_group(name, scope)
+        except KeyError:
+            pass
+    return area(name)
+
+
 def states_of(country_name: str) -> list[tuple[str, object]]:
     scope = _norm(country_name)
     if _india_view() and scope in ("india", "ind"):
@@ -4701,6 +4753,7 @@ class Lecture(Scene):
         self._map_on = False
         self._cover = self._cover_holder = None
         self._cover_hidden = []
+        self._shaded = {}
         self.panel_y = 2.35
         self.stage_body, self.stage_pending, self._next_pending = None, [], []
         self.works, self._problem, self._question = {}, None, None
@@ -4908,23 +4961,70 @@ class MapLecture(BoardMixin, Lecture):
             anims.append(FadeIn(inset))
         self.play(*anims, run_time=run_time)
 
-    def region_fill(self, geom, color: str, opacity: float = 0.6, z: float = Z_FILL) -> VGroup:
-        m = self.frame.poly(_valid(geom).intersection(self.focus), simplify=0.006, min_area=0.002,
+    def region_fill(self, geom, color: str, opacity: float = 0.6, z: float = Z_FILL, clip=None) -> VGroup:
+        # Cut to the map's focus (its borders as drawn), or to `clip` (the map's whole window: a neighbouring
+        # country shaded on a map of an area).
+        m = self.frame.poly(_valid(geom).intersection(self.focus if clip is None else clip), simplify=0.006,
+                            min_area=0.002,
                             fill_color=color, fill_opacity=opacity, stroke_width=0)
         _art(m)
         m.set_z_index(z)
         return m
 
-    def fill_state(self, name: str, color: str | None = None, opacity: float = 0.6):
-        """FadeIn one first-level division of the focus country."""
+    def fill_state(self, name: str, color: str | None = None, opacity: float = 0.6, label: str | None = None):
+        """An area shaded on the map, its name written on it: a state or province, a country or a wider area
+        (area_shape). A country or a region is the land it covers, not a dot at its middle."""
         try:
             shape = state(name, self.home_country)
         except KeyError:
-            if not self.area_name:
-                raise
-            shape = country(name)            # on a map of an area, a whole country is filled
-        m = self.region_fill(shape, color or P.SAND, opacity)
-        return FadeIn(m)
+            shape = area_shape(name, self.home_country)
+        if not color:
+            # Each area shaded in a tone of its own: Normandy in the same sand as France was France.
+            tones = [P.SAND, P.RIVER, P.ROSE, P.GREEN, P.GOLD, P.TEAL, P.VIOLET]
+            self._shade_k = getattr(self, "_shade_k", -1) + 1
+            color = tones[self._shade_k % len(tones)]
+        # Its land on the screen: within the map's focus where it lies there, else (a neighbour of the area the
+        # map is about: Spain on a map of Western Europe) within the map's window, wider than the screen so the
+        # screen's edge, not a straight cut, ends it.
+        window = _box(self.lonlat_bounds())
+        inside = _valid(shape.intersection(self.focus))
+        clip = None if not inside.is_empty and inside.area >= 0.5 * _valid(shape.intersection(window)).area else window
+        m = self.region_fill(shape, color, opacity, clip=clip)
+        # Shaded again (England in its own colour once the war begins): the new shading takes the old one's place,
+        # its name written once.
+        shaded = getattr(self, "_shaded", {})
+        self._shaded = shaded
+        going = [FadeOut(x) for x in shaded.pop(_norm(name), ()) if any(x is y for y in self.mobjects)]
+        shaded[_norm(name)] = (m,)
+        if not label:
+            return AnimationGroup(*going, FadeIn(m)) if going else FadeIn(m)
+        # The name where the area is widest on the screen (a point inside it, never in a bay or a hole).
+        on_map = _valid(shape.intersection(self.focus if clip is None else clip))
+        if on_map.is_empty:
+            return FadeIn(m)
+        spot = on_map.representative_point()
+        tag = self._map_text(label, 20, color)
+        centre = self.frame.pt(spot.x, spot.y)
+        taken = self._taken()
+
+        def clear_at(p):
+            tag.move_to(p)
+            l, b, r, t = tag.get_left()[0], tag.get_bottom()[1], tag.get_right()[0], tag.get_top()[1]
+            return not any(l < x1 and x0 < r and b < y1 and y0 < t for x0, y0, x1, y1 in taken)
+
+        # On the area, where it covers no town's dot or name: the middle, else a step up, down or to a side.
+        step_y, step_x = tag.height + 0.12, tag.width * 0.6 + 0.12
+        for d in (ORIGIN, UP * step_y, DOWN * step_y, LEFT * step_x, RIGHT * step_x, UP * step_y * 2,
+                  DOWN * step_y * 2):
+            if clear_at(centre + d):
+                break
+        else:
+            tag.move_to(centre)
+        tag.set_z_index(Z_MARK + 2)
+        self._taken().append((tag.get_left()[0], tag.get_bottom()[1], tag.get_right()[0], tag.get_top()[1]))
+        shaded[_norm(name)] = (m, tag)
+        show = AnimationGroup(FadeIn(m), FadeIn(tag, scale=0.9), lag_ratio=0.5)
+        return AnimationGroup(AnimationGroup(*going), show) if going else show
 
     def river(self, name: str, color: str | None = None, width: float = 5):
         """Create a Natural Earth river, cut to the map's box."""

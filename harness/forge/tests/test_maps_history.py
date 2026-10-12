@@ -140,3 +140,46 @@ def test_new_map_ops_export_to_the_phone_as_lines(maps, tmp_path):
                          timeout=1500, env={**os.environ, "PANIM_VOICE": "silent"})
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert result["tier"] == 1 and result["blockers"] == [], result
+
+
+def test_a_country_or_region_is_shaded_not_a_dot():
+    """A marker naming an area big enough to see on the map (a country, a region of one) becomes that area shaded
+    with its name on it; a town stays a dot. England and Normandy are found from Natural Earth's divisions."""
+    script = {"title": "T", "style": "parchment", "teaching_rules": False, "auto_visuals": False,
+              "place_figures": False, "region": {"area": "Western Europe"}, "chapters": [{"title": "A", "beats": [
+                  {"say": "England and France.", "do": [{"op": "marker", "place": "England", "label": "England"},
+                                                         {"op": "marker", "place": "France"}]},
+                  {"say": "Normandy and Paris.", "do": [{"op": "marker", "place": "Normandy"},
+                                                        {"op": "marker", "place": "Paris", "label": "Paris"}]}]}]}
+    errors, warnings = cl.lint(script)
+    assert errors == [], errors
+    beats = script["chapters"][0]["beats"]
+    assert [op["op"] for op in beats[0]["do"]] == ["state", "state"]
+    assert beats[0]["do"][1]["label"] == "France"
+    assert [op["op"] for op in beats[1]["do"]] == ["state", "marker"]               # Paris stays a dot
+    assert sum("is an area: shaded" in w for w in warnings) == 3
+    code = cl.compile_script(script)
+    assert 'self.fill_state("England", None, 0.6, label="England")' in code
+
+
+def test_each_area_in_its_own_tone_and_named_once():
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        REGION = dict(area="Western Europe")
+
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.show_map()
+    scene._map_taken = []
+    scene.play(scene.fill_state("England", label="England"), scene.fill_state("France", label="France"), run_time=0.1)
+    fills = scene._shaded
+    tone = lambda m: m.get_family()[-1].get_fill_color()  # noqa: E731 -- a piece of the shading, not its group
+    assert tone(fills["england"][0]) != tone(fills["france"][0])
+    first = fills["england"]
+    scene.play(scene.fill_state("England", pl.P.ROSE, label="England"), run_time=0.1)
+    on = [m for m in scene.mobjects if any(m is x for x in first)]
+    assert on == []                                                                  # the old shading and name went

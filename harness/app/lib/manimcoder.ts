@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { MANIM_RULES } from "./lecture";
+import { FREE_DRAWN_OPS, MANIM_RULES } from "./lecture";
 
 type Op = Record<string, unknown>;
 type Slot = { op: Op; beat: Record<string, unknown>; where: string; say: string; plan: string; figure?: string };
@@ -234,4 +234,75 @@ export async function repairManim(script: Record<string, unknown>, errors: strin
     }
   });
   return fixed;
+}
+
+/** Map operations: a chapter with one is drawn over its map, where a free-form block (the board's) cannot go. */
+const MAP_OPS = new Set(["marker", "river", "path", "arrow", "state", "dim", "graticule", "journey", "empire", "relief", "icon"]);
+/** Steps that point at a figure drawn earlier (by its id in "diagram"). */
+const STEP_OPS = new Set(["reveal", "focus", "zoom", "motion", "trace", "sweep"]);
+/** What may share a beat with a drawing turned free-form: said in its plan (words, an equation, a card). */
+const FOLDED_OPS = new Set(["panel", "fact", "stat", "clear", "define", "equation", "work", "question", "answer", "option"]);
+
+/**
+ * The small built drawings the writer used although they are switched off (lecture.ts builtDrawings: presets,
+ * sketch, graph, plot, motion, trace, sweep, sims, counter), turned into free-form Manim planned from what the op
+ * said, for the Manim model to write: the first beat draws it, the later beats of the same id (a focus, a motion)
+ * carry on with the same figure. A figure is left built where it cannot be free-form: in a chapter over a map, or
+ * on a beat with a picture, a diagram or a timeline beside it. A problem's built figure is left out (its statement and
+ * working stay). Returns how many figures were turned.
+ */
+export function freeDrawings(script: Record<string, unknown>): number {
+  const drawn = new Set(FREE_DRAWN_OPS);
+  const chapters = Array.isArray(script.chapters) ? (script.chapters as Record<string, unknown>[]) : [];
+  let turned = 0;
+  chapters.forEach((chapter, c) => {
+    const beats = (Array.isArray(chapter?.beats) ? chapter.beats : []) as Record<string, unknown>[];
+    const opsOf = (beat: Record<string, unknown>) => (Array.isArray(beat?.do) ? (beat.do as Op[]) : []);
+    for (const beat of beats) {
+      for (const op of opsOf(beat)) {
+        const figure = op?.op === "problem" ? (op.figure as Op | undefined) : undefined;
+        if (figure && drawn.has(String(figure.op))) delete op.figure;
+      }
+    }
+    if (chapter.map === true || beats.some((b) => opsOf(b).some((op) => MAP_OPS.has(String(op?.op))))) return;
+    // Each drawing's id (one is given where the op had none), and the beats that draw it or step on it.
+    const ids = new Map<string, number[]>();
+    beats.forEach((beat, b) => opsOf(beat).forEach((op, k) => {
+      if (!op || typeof op !== "object") return;
+      if (drawn.has(String(op.op)) && !STEP_OPS.has(String(op.op))) {
+        const id = String(op.id ?? `draw${c + 1}_${b + 1}_${k + 1}`);
+        op.id = id;
+        ids.set(id, [...(ids.get(id) ?? []), b]);
+      }
+    }));
+    beats.forEach((beat, b) => opsOf(beat).forEach((op) => {
+      const id = String(op?.diagram ?? "");
+      if (STEP_OPS.has(String(op?.op)) && ids.has(id)) ids.set(id, [...ids.get(id)!, b]);
+    }));
+    // A figure is free-form only if every beat it is on can be: nothing on them but it, its steps and words.
+    const ok = [...ids].filter(([id, on]) => on.every((b) => opsOf(beats[b]).every((op) =>
+      FOLDED_OPS.has(String(op?.op)) || (drawn.has(String(op?.op)) && !STEP_OPS.has(String(op?.op)) && String(op.id) === id)
+      || (STEP_OPS.has(String(op?.op)) && String(op.diagram ?? "") === id))));
+    for (const [id, on] of ok) {
+      [...new Set(on)].sort((x, y) => x - y).forEach((b, n) => {
+        const beat = beats[b];
+        const parts = opsOf(beat).map((op) => {
+          const { op: kind, ...rest } = op;
+          const data = JSON.stringify(rest);
+          if (drawn.has(String(kind)) && !STEP_OPS.has(String(kind))) {
+            return `Draw this ${kind} (described as data: ${data}) on the board, labelled, in full detail` +
+              (kind === "sim" || kind === "counter" ? ", moving over the line as it describes" : "") + ".";
+          }
+          if (STEP_OPS.has(String(kind))) return `Then on the same figure: ${kind} ${data}.`;
+          return `Also show on the board: ${kind} ${data}.`;
+        });
+        const from = opsOf(beat).find((op) => typeof op.from_figure === "string")?.from_figure;
+        beat.do = [{ op: "manim", id, plan: (n === 0 ? "" : "Carry on with the figure drawn on earlier beats. ") +
+          parts.join(" "), ...(from ? { from_figure: from } : {}) }];
+      });
+      turned += 1;
+    }
+    if (ok.length) chapter.map = false;
+  });
+  return turned;
 }

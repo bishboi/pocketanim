@@ -79,4 +79,30 @@ assert.ok(Date.now() - started < 6000, "not stuck");
 assert.ok(statuses.some((t) => /no answer in 1 s; asking again/.test(t)));
 server.closeAllConnections();
 server.close();
+
+// The small built drawings switched off: a preset and the motion on it later are one free-form figure, planned from
+// what they said; a sketch in a chapter over a map stays built; a problem's built figure is left out.
+{
+  const { freeDrawings } = await import("../lib/manimcoder.ts");
+  const script = { chapters: [
+    { title: "A", beats: [
+      { say: "A block on a slope.", do: [{ op: "incline", id: "ramp", angle: 30 }, { op: "fact", text: "30°" }] },
+      { say: "Watch it slide.", do: [{ op: "motion", diagram: "ramp" }] },
+      { say: "A problem.", do: [{ op: "problem", id: "p1", text: "Find a.", figure: { op: "incline", angle: 30 } }] },
+    ] },
+    { title: "B", beats: [
+      { say: "Delhi.", do: [{ op: "marker", place: "Delhi" }] },
+      { say: "A triangle.", do: [{ op: "sketch", id: "t", items: [] }] },
+    ] },
+  ] };
+  assert.equal(freeDrawings(script), 1);
+  const [a, b] = script.chapters;
+  assert.equal(a.map, false);
+  assert.deepEqual(a.beats[0].do.map((op) => [op.op, op.id]), [["manim", "ramp"]]);
+  assert.match(a.beats[0].do[0].plan, /Draw this incline .*"angle":30/);
+  assert.match(a.beats[0].do[0].plan, /Also show on the board: fact/);
+  assert.match(a.beats[1].do[0].plan, /^Carry on with the figure.*motion/);
+  assert.equal(a.beats[2].do[0].figure, undefined);
+  assert.equal(b.beats[1].do[0].op, "sketch");                       // over a map: left built
+}
 console.log("ok: Manim figures written by their own model, at once, repaired with the reason, left out when they cannot be");

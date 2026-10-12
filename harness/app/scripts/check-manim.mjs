@@ -113,4 +113,16 @@ server.close();
   assert.equal(sanitizeScene(lecture), lecture);
   assert.equal(sanitizeScene("from manim import *\n    x = 1 if False else 2\n"), "from manim import *\n    2\n");
 }
+{
+  const { manimReasoning } = await import("../lib/manimcoder.ts");
+  const was = process.env.PANIM_MANIM_REASONING_EFFORT;
+  delete process.env.PANIM_MANIM_REASONING_EFFORT;
+  assert.deepEqual(manimReasoning(), {});                                   // unset: the model's own default
+  process.env.PANIM_MANIM_REASONING_EFFORT = " High ";
+  assert.deepEqual(manimReasoning(), { reasoning: { effort: "high" } });
+  process.env.PANIM_MANIM_REASONING_EFFORT = "off";
+  assert.deepEqual(manimReasoning(), {});
+  if (was === undefined) delete process.env.PANIM_MANIM_REASONING_EFFORT;
+  else process.env.PANIM_MANIM_REASONING_EFFORT = was;
+}
 console.log("ok: Manim figures written by their own model, at once, repaired with the reason, left out when they cannot be");

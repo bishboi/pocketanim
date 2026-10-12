@@ -97,6 +97,15 @@ async function picture(file: string): Promise<string | null> {
   }
 }
 
+/**
+ * How hard the Manim model thinks before it writes a figure: PANIM_MANIM_REASONING_EFFORT = minimal, low, medium,
+ * high or xhigh. Empty (the default), "off" or anything else sends no setting: the model's own default.
+ */
+export function manimReasoning(): { reasoning?: { effort: string } } {
+  const effort = (process.env.PANIM_MANIM_REASONING_EFFORT ?? "").trim().toLowerCase();
+  return ["minimal", "low", "medium", "high", "xhigh"].includes(effort) ? { reasoning: { effort } } : {};
+}
+
 /** The blocks of one figure from the model: one code string a beat, or null when its reply will not do. */
 async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: { errors: string[] }): Promise<string[] | null> {
   const lines = [
@@ -123,6 +132,7 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: 
     signal: options.signal ? AbortSignal.any([options.signal, limit]) : limit,
     headers: { Authorization: `Bearer ${options.key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: options.model, usage: { include: true }, response_format: { type: "json_object" },
+      ...manimReasoning(),
       messages: [{ role: "system", content: SYSTEM }, { role: "user", content }] }),
   });
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 200)}`);

@@ -866,10 +866,30 @@ def narrate(text: str) -> tuple[str | None, float]:
 
 @lru_cache(None)
 def _records(name: str, category: str = "cultural", resolution: str = "10m") -> list:
+    """A Natural Earth layer's records, (attributes, geometry). Reading a shapefile builds every shape in pure Python
+    (1-3 s a layer, and every compile is its own process), so the records are kept once read, pickled beside the
+    other caches, and loaded from there (0.03-0.2 s); a newer shapefile is read again."""
+    import pickle
+
     import cartopy.io.shapereader as shpreader
 
-    path = shpreader.natural_earth(resolution=resolution, category=category, name=name)
-    return [(rec.attributes, rec.geometry) for rec in shpreader.Reader(path).records()]
+    path = Path(shpreader.natural_earth(resolution=resolution, category=category, name=name))
+    stat = path.stat()
+    kept = (Path(os.environ.get("PANIM_MAP_CACHE") or Path(__file__).resolve().parent / ".cache" / "maps")
+            / f"{name}-{category}-{resolution}-{int(stat.st_mtime)}-{stat.st_size}.pickle")
+    try:
+        return pickle.loads(kept.read_bytes())
+    except (OSError, ValueError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
+        pass
+    records = [(rec.attributes, rec.geometry) for rec in shpreader.Reader(str(path)).records()]
+    try:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        part = kept.with_suffix(f".{os.getpid()}.part")
+        part.write_bytes(pickle.dumps(records, protocol=pickle.HIGHEST_PROTOCOL))
+        part.replace(kept)                      # whole or not at all: compiles run side by side
+    except OSError:
+        pass
+    return records
 
 
 def _norm(value) -> str:
@@ -1178,15 +1198,24 @@ def _inside(point, bounds) -> bool:
     return lon0 <= point[0] <= lon1 and lat0 <= point[1] <= lat1
 
 
+@lru_cache(None)
+def _places_by_name() -> dict:
+    """Natural Earth's populated places by each of their names (normalised): built once, not a scan of all 7,000
+    with every name normalised again for each place a lecture names."""
+    out: dict[str, list] = {}
+    for attrs, _geom in _records("populated_places"):
+        for key in {_norm(attrs.get("NAME")), _norm(attrs.get("NAMEASCII")), _norm(attrs.get("NAME_EN"))} - {""}:
+            out.setdefault(key, []).append(attrs)
+    return out
+
+
 def _natural_earth_place(name: str, scope: str | None, bounds=None):
     """The most populous place of that name, preferring one on the map (`bounds`): two towns share a name."""
     wanted = _norm(name)
     if not wanted:
         return None
     best = None
-    for attrs, _geom in _records("populated_places"):
-        if wanted not in (_norm(attrs.get("NAME")), _norm(attrs.get("NAMEASCII")), _norm(attrs.get("NAME_EN"))):
-            continue
+    for attrs in _places_by_name().get(wanted, ()):
         if scope and scope not in (_norm(attrs.get("ADM0NAME")), _norm(attrs.get("SOV0NAME")), _norm(attrs.get("ADM0_A3"))):
             continue
         point = (float(attrs["LONGITUDE"]), float(attrs["LATITUDE"]))

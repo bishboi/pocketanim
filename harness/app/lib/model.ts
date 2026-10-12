@@ -9,6 +9,8 @@
  * tested with no network and no key.
  */
 
+import { sanitizeScene } from "./scenefix";
+export { sanitizeScene };
 import { spawn } from "node:child_process";
 import { Agent, fetch as undiciFetch } from "undici";
 import { CostLedger, type AiPicture } from "./costs";
@@ -2543,26 +2545,6 @@ export function exposeMapProject(source: string): string {
   let text = source.replace(/^([ \t]+)return group\s*$/m, "$1return group, project");
   text = text.replace(/^([ \t]*)(\w+) = build_region\(\)\s*$/gm, "$1$2, project = build_region()");
   return text;
-}
-
-/** Drop the broken half of a line the model rewrote in place. */
-export function sanitizeScene(source: string): string {
-  return source
-    .split("\n")
-    .map((line) => {
-      const dead = line.match(/^(\s*).*\bif False else\b\s+(.*)$/);
-      // Manim has rotate_vector, not a free function named rotate. Method
-      // calls such as square.rotate(PI/4) are left alone.
-      const fixed = (dead ? `${dead[1]}${dead[2]}` : line)
-        .replace(/(?<!\.)\brotate\(/g, "rotate_vector(")
-        // `UP * (t / 50)[1]` indexes the number, not the vector.
-        .replace(
-          /(\b(?:UP|DOWN|LEFT|RIGHT|OUT|IN|ORIGIN)\s*\*\s*)\(([^()\n]+)\)(\[\d+\])/g,
-          "($1($2))$3",
-        );
-      return fixed;
-    })
-    .join("\n");
 }
 
 function syntaxError(source: string): Promise<string | null> {

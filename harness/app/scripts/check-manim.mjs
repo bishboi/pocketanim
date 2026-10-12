@@ -105,4 +105,12 @@ server.close();
   assert.equal(a.beats[2].do[0].figure, undefined);
   assert.equal(b.beats[1].do[0].op, "sketch");                       // over a map: left built
 }
+{
+  // A compiled lecture is left as the compiler wrote it: cutting a line at a block's "if False else" cut the opening
+  // quote of self.free's code off, and the build stopped at "unexpected character after line continuation".
+  const { sanitizeScene } = await import("../lib/scenefix.ts");
+  const lecture = 'from pocket_lecture import *  # noqa\n        self.free("k", "line", "a = b if False else VGroup(Text(\\"\\"))\\nself.play(Create(a))", pad=BEAT_PAD)\n';
+  assert.equal(sanitizeScene(lecture), lecture);
+  assert.equal(sanitizeScene("from manim import *\n    x = 1 if False else 2\n"), "from manim import *\n    2\n");
+}
 console.log("ok: Manim figures written by their own model, at once, repaired with the reason, left out when they cannot be");

@@ -143,7 +143,8 @@ def test_a_book_with_many_figures_keeps_every_web_picture(monkeypatch):
     gallery = {"op": "gallery", "items": [{"subject": "Marie Curie"}, {"subject": "Pierre Curie"}]}
     script = _script(json.loads(json.dumps(gallery)), FIGS)
     warnings = cl.lint(script)[1]
-    assert len(script["chapters"][0]["beats"][0]["do"][0]["items"]) == 2
+    op = script["chapters"][0]["beats"][0]["do"][0]                    # one scene with both of them in it
+    assert "Marie Curie" in op["query"] and "Pierre Curie" in op["query"]
     assert not any("from the web" in w for w in warnings)
 
 

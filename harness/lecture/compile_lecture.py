@@ -225,7 +225,7 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
     """The picture op as the op it amounts to (photo, illustration, figure, draw or gallery)."""
     rest = {k: v for k, v in op.items() if k != "op"}
     if rest.get("items"):
-        return {**rest, "op": "gallery"}
+        return _one_picture(rest)
     if rest.get("draw"):
         what = rest.pop("draw")
         return _drawn_picture({**rest, "op": "draw", "id": rest.get("id") or fallback_id, "what": what})
@@ -241,6 +241,39 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
     if rest.get("subject") or rest.get("query") or rest.get("image"):
         return {**rest, "op": "photo"}
     return op
+
+
+def _one_picture(op: dict) -> dict:
+    """Several pictures for one beat (a gallery: 2-4 side by side) as ONE picture: a scene the image model draws
+    with all of them in it, each labelled where it is in the picture (genimage.locate), the items' captions the
+    labels. A gallery's small pictures, side by side, read as a slide of thumbnails and were drawn over what was on
+    the stage. A book figure among them is shown by itself (the book's own figure is never redrawn into a scene)."""
+    items = [i for i in op.get("items") or [] if isinstance(i, dict)][:6]
+    rest = {k: v for k, v in op.items() if k not in ("op", "items", "title")}
+    figure = next((i for i in items if i.get("figure")), None)
+    if figure is not None:
+        return {**rest, "op": "figure", "id": str(figure["figure"]),
+                "caption": figure.get("caption") or op.get("caption") or ""}
+    things, labels = [], []
+    for item in items:
+        what = str(item.get("generate") or item.get("illustration") or item.get("draw") or item.get("subject")
+                   or item.get("query") or item.get("image") or "").strip()
+        if not what:
+            continue
+        things.append(what)
+        label = str(item.get("caption") or item.get("subject") or "").strip()
+        if label and label.lower() not in (x.lower() for x in labels):
+            labels.append(label[:32])
+    if not things:
+        return {**rest, "op": "illustration", "query": str(op.get("title") or op.get("caption") or "")}
+    query = things[0] if len(things) == 1 else (
+        "one illustrated scene with all of these in it, each clearly visible and apart from the others: "
+        + "; ".join(things))
+    out = {**rest, "op": "illustration", "query": query, "scene": len(things) > 1,
+           "caption": op.get("caption") or op.get("title") or ""}
+    if len(labels) > 1:
+        out["labels"] = labels[:6]
+    return out
 
 
 def _part_words(parts) -> list[str]:
@@ -294,6 +327,8 @@ def canonical_ops(script: dict) -> None:
                     continue
                 if op.get("op") == "picture":
                     ops[k] = op = _picture_op(op, f"picture{c + 1}_{b + 1}_{k + 1}")
+                if op.get("op") == "gallery":
+                    ops[k] = op = _one_picture(op)
                 if op.get("op") == "draw":
                     ops[k] = op = _drawn_picture(op)
                 if op.get("_drawn"):

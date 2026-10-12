@@ -32,7 +32,8 @@ def test_the_picture_op_is_each_of_the_old_ones():
     # A drawing in words is a detailed diagram the diagram model makes: never drawn as an SVG.
     assert ops[3] == {"op": "illustration", "query": "A block on a smooth slope, its weight drawn down",
                       "diagram": True, "_drawn": ops[3]["_drawn"]} and ops[3]["_drawn"]
-    assert ops[4]["op"] == "gallery"
+    # Several pictures are one scene with them all in it (a gallery's thumbnails side by side are no more).
+    assert ops[4]["op"] == "illustration" and "Pierre Curie" in ops[4]["query"] and "Marie Curie" in ops[4]["query"]
 
 
 def test_three_diagram_kinds_and_the_old_ones_as_aliases():

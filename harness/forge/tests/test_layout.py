@@ -119,13 +119,15 @@ def test_two_pictures_in_one_beat_sit_side_by_side():
     assert picture.get_right()[0] < card.get_left()[0]          # the drawing left, the equation right
 
 
-def test_a_definition_goes_beside_the_drawing_it_explains():
+def test_a_definition_goes_over_the_drawing_it_explains_as_a_strip():
     scene = _board_scene()
     scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}])
     scene._beat_new = []                                         # the drawing's beat has played
     scene.define("velocity", "speed and direction")
-    # The card in the right half; the drawing slides into the left one (an animation, not played here).
-    assert scene.stage_body is not None and scene.stage_extra[-1].get_left()[0] >= 0
+    # A strip across the top of the stage; the drawing moves down under it (an animation, not played here).
+    strip = scene.stage_extra[-1]
+    assert scene.stage_body is not None and getattr(strip, "is_term_strip", False)
+    assert strip.get_bottom()[1] > scene.STAGE[1]
 
 
 def test_equation_during_a_problem_joins_its_working():

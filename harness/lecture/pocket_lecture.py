@@ -2647,6 +2647,12 @@ class Lecture(Scene):
         not shown yet) are simply put there, since two animations on one part fight and it stayed behind."""
         cx, cy = box[0], box[1]
         shift = np.array([cx, cy, 0]) - centre
+        # The map's cover stays the size of the map: moved with the picture's card, it shrank and the map showed.
+        cover, holder = getattr(self, "_cover", None), getattr(self, "_cover_holder", None)
+        if cover is not None and holder and any(cover is m for m in holder.submobjects):
+            holder.remove(cover)
+            self._cover_holder = False
+            self.add(cover.set_z_index(Z_MARK + 9.9))
         if hasattr(self, "_zoom_follow"):
             self._zoom_follow(f, np.array(centre, dtype=float), shift)
         arriving = {id(m) for m in [*self._beat_new, *self._beat_revealed]}
@@ -4105,6 +4111,9 @@ class Lecture(Scene):
         parts = group_of(*([drawing] if drawing is not None else []), card).arrange(DOWN, buff=0.3)
         # On the board, beside the drawing being explained rather than in place of it.
         parts.is_text_card = True
+        strip = self._term_strip(term, meaning) if drawing is None else None
+        if strip is not None:
+            return strip
         beside = self._aside(parts, grow=1.2) if not self._beat_new else None
         if beside is not None:
             return beside
@@ -4112,6 +4121,50 @@ class Lecture(Scene):
         card = Group(parts)
         card.is_text_card = True
         return self._to_stage(card)
+
+    def _term_strip(self, term: str, meaning: str):
+        """A word defined while a picture is up (a timeline, a diagram, a drawing): a slim highlighted strip across
+        the top of the stage (the word in the accent colour, what it means after it), the picture moved down and
+        shrunk only as much as the strip needs. A card beside the picture took half the stage from it, and laid
+        over it the picture was hidden. None when there is no picture to keep (the card is shown as before)."""
+        body = self.stage_body
+        if body is None or getattr(body, "is_text_card", False) or not len(body.get_family()) > 1 \
+                or self.works or self._problem is not None:
+            return None
+        cx, cy, w, h = self.STAGE
+        word = T(term, 30, P.GOLD, font=TH["serif"], weight=BOLD)
+        room = w - 1.0 - word.width - 0.4
+        body_text = T(wrap(meaning, max(24, int(room * 6.2))), 24, P.CREAM, line_spacing=0.95)
+        line = VGroup(word, body_text).arrange(RIGHT, buff=0.4, aligned_edge=UP)
+        line = fit(line, w - 1.0)
+        back = RoundedRectangle(corner_radius=0.16, width=w - 0.3, height=line.height + 0.4,
+                                fill_color=_tint_on_bg(P.GOLD, 0.16), fill_opacity=1,
+                                stroke_color=_tint_on_bg(P.GOLD, 0.7), stroke_width=2)
+        bar = RoundedRectangle(corner_radius=0.04, width=0.09, height=max(back.height - 0.24, 0.2), fill_color=P.GOLD,
+                               fill_opacity=1, stroke_width=0).align_to(back, LEFT).shift(RIGHT * 0.16)
+        line.move_to(back).align_to(back, LEFT).shift(RIGHT * 0.4)
+        strip = VGroup(back, bar, line)
+        strip.move_to([cx, cy + h / 2 - strip.height / 2 - 0.05, 0])
+        strip.is_term_strip = True
+        anims = []
+        old = [m for m in self.stage_extra if getattr(m, "is_term_strip", False)]
+        for m in old:
+            # One word at a time: the next one takes the strip's place, the picture stays where it is.
+            self.stage_extra.remove(m)
+            anims.append(FadeOut(m))
+        if not old:
+            # The picture (and its parts still to come) moves down under the strip, shrunk only to fit.
+            below = (cx, cy - (strip.height + 0.15) / 2, w, h - strip.height - 0.15)
+            # Everything on the stage moves together, a card beside the drawing too (moved alone, the drawing slid
+            # under the card).
+            picture = Group(*[m for m in [body, *self.stage_extra, *self.stage_pending]])
+            f = min(1.0, (below[2] - 0.2) / max(picture.width, 0.01), (below[3] - 0.2) / max(picture.height, 0.01))
+            slide = self._move_stage(f, picture.get_center(), below)
+            if slide is not None:
+                anims.append(slide)
+        self._stage_add(strip)
+        show = FadeIn(strip, shift=DOWN * 0.15)
+        return AnimationGroup(AnimationGroup(*anims), show, lag_ratio=1.0) if anims else show
 
     def compare_cards(self, columns, title: str | None = None):
         """Two or three things side by side: a name and a few short points each (a picture of each is a picture op

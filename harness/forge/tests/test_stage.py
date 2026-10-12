@@ -229,7 +229,9 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
                 {"id": "g", "label": "Grass", "entity": "grass"}, {"id": "r", "label": "Deer"}]}]}]}]}
     result = _compile(script, dict(os.environ))
     assert result["errors"] == [], result["errors"]
-    assert len(result["generated"]) == 4                     # deer, fox, rabbit, grass: each made once
+    # deer, one scene with the fox and the rabbit in it (labelled), grass: each made once
+    assert len(result["generated"]) == 3
+    assert any("a fox" in m["prompt"] and "a rabbit" in m["prompt"] for m in result["generated"])
     # The deer is labelled where the label finder put its parts, and drawn in (not faded) on the stage.
     assert "labels=[('antlers', " in result["source"] and "('hooves', " in result["source"]
     assert any("antlers, hooves" in m["prompt"] for m in result["generated"])
@@ -311,3 +313,40 @@ def test_the_map_stays_hidden_while_pictures_change_on_the_stage():
     assert scene._cover is cover and on(cover)                          # still up while the picture changed
     scene.beat("Back to the map.", scene.clear_stage())
     assert scene._cover is None and not on(cover) and on(label) and on(lifted)   # the map is back, labels too
+
+
+def test_a_word_defined_beside_a_picture_is_a_strip_over_it_not_a_card_on_it():
+    """A define while a picture is up: a slim highlighted strip across the top of the stage, the picture moved down
+    under it (shrunk only to fit), never a card laid over it or taking half the stage."""
+    import pocket_lecture as pl
+
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    scene.board()
+    scene.beat("The medieval era.", scene.big_timeline([("5th century", "begins", None), ("900-1300", "studied", None),
+                                                        ("15th century", "ends", None)], "The medieval era"))
+    timeline = scene.stage_body
+    width_before = timeline.width
+    scene.beat("Historians call this feudalism.", scene.define("Feudalism", "A term for medieval relationships"))
+    strip = next(m for m in scene.stage_extra if getattr(m, "is_term_strip", False))
+    assert strip.height < 1.4 and strip.width > scene.STAGE[2] * 0.8                 # a strip, not a card
+    assert timeline.get_top()[1] <= strip.get_bottom()[1] + 0.01                     # the picture under it
+    assert timeline.width >= width_before * 0.75                                      # and nearly as big
+    scene.beat("And a fief.", scene.define("Fief", "Land given by a lord"))
+    strips = [m for m in scene.stage_extra if getattr(m, "is_term_strip", False)]
+    assert len(strips) == 1 and strips[0] is not strip                                # the next word takes its place
+
+
+def test_several_pictures_are_one_labelled_scene():
+    import compile_lecture as cl
+
+    op = cl._picture_op({"op": "picture", "items": [{"generate": "a medieval bishop", "caption": "Priest"},
+                                                    {"generate": "a hand holding soil", "caption": "Land"}]}, "p")
+    assert op["op"] == "illustration" and op["scene"] and op["labels"] == ["Priest", "Land"]
+    assert "a medieval bishop" in op["query"] and "a hand holding soil" in op["query"]
+    figure = cl._picture_op({"op": "picture", "items": [{"generate": "x"}, {"figure": "fig3", "caption": "Map"}]}, "p")
+    assert figure == {"op": "figure", "id": "fig3", "caption": "Map"}

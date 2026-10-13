@@ -352,3 +352,53 @@ class Seen(GeneratedScene):
                          capture_output=True, text=True, timeout=600, env=env)
     assert run.returncode == 0, run.stderr[-2000:]
     assert json.loads(seen.read_text())["squares"] == 0
+
+
+def _swap_lecture(swaps):
+    first = ("a = MathTex('FD', '=', '\\\\frac{CD}{2}').shift(RIGHT * 3)\n"
+             "box = SurroundingRectangle(a, color=PALETTE['GOLD'])\nself.play(Write(a), Create(box))")
+    then = "b = MathTex('f', '=', '\\\\frac{R}{2}').move_to(a)\n"
+    return {"title": "T", "style": "blueprint", "teaching_rules": False, "auto_visuals": False,
+            "place_figures": False, "chapters": [
+                {"title": f"Swap {k}", "map": False, "beats": [
+                    {"say": "Here FD is CD over two.", "do": [{"op": "manim", "id": f"s{k}", "code": first}]},
+                    {"say": "So f is R over two.", "do": [{"op": "manim", "id": f"s{k}", "code": then + swap}]},
+                    {"say": "That is the result.", "do": [{"op": "manim", "id": f"s{k}", "code": "self.wait(0.5)"}]}]}
+                for k, swap in enumerate(swaps)]}
+
+
+def _chapter_end_ink(tmp_path, name, script, chapters):
+    """Ink in the equation's place at the end of each chapter, in the program the editor and the phone play."""
+    import numpy as np
+
+    scene = tmp_path / f"{name}.py"
+    scene.write_text(cl.compile_script(script))
+    build = tmp_path / name
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PANIM_BUILD_WORKERS": "1"}
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(build)], capture_output=True, text=True, timeout=900, env=env)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result.get("tier") == 1, (result.get("error"), out.stderr[-1500:])
+    probe = (f"import sys, os, json\nsys.path.insert(0, {str(REPO)!r})\nos.chdir({str(build)!r})\n"
+             "from dsl.interpret import load_program\nfrom exporter.reference_render import render_frame\n"
+             "ir = load_program('dsl/generated/GeneratedScene.panim')\nn = len(ir.records)\n"
+             f"ink = [int((render_frame(ir, int(n * (k + 0.97) / {chapters}), 640, 360)[150:212, 405:510] > 150).sum())"
+             f" for k in range({chapters})]\nprint(json.dumps(ink))")
+    run = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=600)
+    assert run.returncode == 0, run.stderr[-1500:]
+    return np.array(json.loads(run.stdout.strip().splitlines()[-1]))
+
+
+def test_an_equation_swapped_any_way_leaves_nothing_behind_in_the_program(tmp_path, monkeypatch):
+    # The editor and the phone play the exported program, not the video: an equation turned into the next one piece
+    # by piece, through a copy, or by FadeTransform left the old one drawn under it (or, for FadeTransform, neither),
+    # and those leftovers stayed for the rest of the lecture under every later figure.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    swaps = ["self.play(ReplacementTransform(a[0], b[0]), ReplacementTransform(a[1], b[1]), "
+             "ReplacementTransform(a[2], b[2]))",
+             "self.play(ReplacementTransform(a.copy(), b), FadeOut(a))",
+             "self.play(FadeTransform(a, b))"]
+    plain = "self.play(FadeOut(a), FadeIn(b))"
+    swapped = _chapter_end_ink(tmp_path, "swapped", _swap_lecture(swaps), len(swaps))
+    reference = _chapter_end_ink(tmp_path, "plain", _swap_lecture([plain] * len(swaps)), len(swaps))
+    assert (abs(swapped - reference) <= reference * 0.15 + 20).all(), (swapped.tolist(), reference.tolist())

@@ -148,3 +148,13 @@ def test_historic_regions_and_countries_are_places_on_the_map():
     for name in ("Normandy", "Flanders", "France"):
         assert pl._inside(pl.place(name, None, bounds), bounds), name
     assert pl._inside(pl.place("Scotland", None, pl.map_bounds({"area": "Europe"})), pl.map_bounds({"area": "Europe"}))
+
+
+def test_manims_own_map_arguments_are_not_maps():
+    # TransformMatchingTex(a, b, key_map=...) and MathTex(..., tex_to_color_map=...) were refused as "a block that
+    # draws a map of its own".
+    import mapguard
+
+    assert not mapguard.code_draws_map("self.play(TransformMatchingTex(a, b, key_map={'FD': 'f'}))")
+    assert not mapguard.code_draws_map("t = MathTex('x', tex_to_color_map={'x': RED})")
+    assert mapguard.code_draws_map("india_map = Polygon(*points)")

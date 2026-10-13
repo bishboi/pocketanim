@@ -54,6 +54,8 @@ def is_map(text: str | None) -> bool:
 _CODE_NAMES = re.compile(r"(?i)\b(?:[a-z0-9]+_)*(?:map|maps|coast|coastline|coastlines|lon|lat|lons|lats|longitude|"
                          r"latitude|lonlat|latlon|continent|continents|country|countries|cartopy|geopandas|shapely)"
                          r"(?:_[a-z0-9]+)*\b(?!\s*\()")
+# Manim's own arguments with "map" in them (TransformMatchingTex's key_map, MathTex's tex_to_color_map): not maps.
+_MANIM_NAMES = re.compile(r"\b(?:key_map|tex_to_color_map|color_map|submobject_map)\b")
 _STRINGS = re.compile(r"(\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|\"[^\"\n]*\"|'[^'\n]*'|#[^\n]*)")
 
 
@@ -62,7 +64,7 @@ def code_draws_map(code: str | None) -> bool:
     code = str(code or "")
     if any(is_map(s.strip("\"'# ")) for s in _STRINGS.findall(code)):
         return True
-    return bool(_CODE_NAMES.search(_STRINGS.sub(" ", code)))
+    return bool(_CODE_NAMES.search(_MANIM_NAMES.sub(" ", _STRINGS.sub(" ", code))))
 
 
 MAP_ADVICE = ("a map is never drawn as a picture, an SVG or a block of Manim: maps come only from the lecture's map "

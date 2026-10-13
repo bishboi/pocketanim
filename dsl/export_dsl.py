@@ -876,6 +876,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         "play": Scene.play,
         "add": Scene.add,
         "remove": Scene.remove,
+        "replace": Scene.replace,
         "clear": Scene.clear,
         "add_sound": Scene.add_sound,
         "move_camera": ThreeDScene.move_camera,
@@ -1301,6 +1302,19 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     rec.timeline.append(f"wait t={duration:g}")
                 else:
                     rec.blockers.append("FadeOut target could not be declared")
+            elif type(anim).__name__ in ("FadeTransform", "FadeTransformPieces") and \
+                    getattr(anim, "to_add_on_completion", None) is not None and len(anim.mobject.submobjects) >= 1:
+                # FadeTransform(a, b): a fades out while b fades in in its place. Manim plays it on a group of a and
+                # a copy of b, then adds b; recorded as that group, b's own add was taken for part of it and b never
+                # showed (an equation turned into the next by a fade left an empty box).
+                old_name = rec.declare(anim.mobject.submobjects[0])
+                new_name = rec.declare(anim.to_add_on_completion)
+                if old_name and new_name:
+                    rec.timeline.append(f"par n=2 t={duration:g}")
+                    rec.timeline.append(f"fadeout {old_name} t={duration:g}")
+                    rec.timeline.append(f"fade {new_name} t={duration:g}")
+                else:
+                    rec.blockers.append("FadeTransform operands could not be declared")
             elif isinstance(anim, FadeIn):
                 # FadeIn subclasses Transform, so it must be tested first --
                 # and its target_mobject is not a separate declarable shape.
@@ -1662,9 +1676,64 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 rec.timeline.append(f"show {name}")
         return originals["add"](self, *mobjects, **kw)
 
+    def show_pieces(pieces) -> None:
+        """Pieces that are on stage on their own now (a drawn group broken up by Manim): each declared and shown."""
+        for piece in pieces:
+            if id(piece) in rec.containers or not piece.family_members_with_points():
+                continue
+            name = rec.declare(piece)
+            rec.flush()
+            if name:
+                rec.timeline.append(f"show {name}")
+
+    def hide_drawn(mob) -> None:
+        """`hide` for a mobject's own drawing, if it has one."""
+        name = rec.names.get(id(mob))
+        if name and rec.declared(name):
+            line = f"hide {name}"
+            if not rec.timeline or rec.timeline[-1] != line:
+                rec.timeline.append(line)
+
+    def broken_up(before: list, after: list, gone: set) -> None:
+        """Manim takes a part out of a group on stage by putting the group's other parts on stage in its place
+        (Scene.restructure_mobjects). The program drew the group as one picture, so the part stayed in it: the group's
+        drawing goes, and its remaining parts are drawn on their own."""
+        now = {id(m) for m in after}
+        was = {id(m) for m in before}
+        for top in before:
+            if id(top) not in now and id(top) not in gone:
+                hide_drawn(top)
+        show_pieces([m for m in after if id(m) not in was])
+
+    def patched_replace(self, mobject, *replacements, **kw):
+        """Scene.replace: what ReplacementTransform does at its end (the source's place goes to the target), at the
+        top of the scene or inside a group on it. Unrecorded, the source -- a copy morphed into the target, or a part
+        of an equation transformed piece by piece -- stayed drawn under the target for the rest of the program."""
+        if state["baking"] or not rec.recording:
+            return originals["replace"](self, mobject, *replacements, **kw)
+        holder = next((top for top in self.mobjects if top is not mobject
+                       and any(sub is mobject for sub in top.get_family())), None)
+        result = originals["replace"](self, mobject, *replacements, **kw)
+        for sub in mobject.get_family():
+            hide_drawn(sub)
+        if holder is not None and rec.names.get(id(holder)) and rec.declared(rec.names[id(holder)]):
+            # A part replaced inside a group drawn as one picture: that picture is out of date. It goes, and the
+            # group is drawn as its parts as they are now, down the branch that holds the new part.
+            hide_drawn(holder)
+            node = holder
+            while node is not None:
+                branch = next((child for child in node.submobjects
+                               if any(r in child.get_family() for r in replacements)), None)
+                show_pieces([child for child in node.submobjects if child is not branch])
+                node = branch if branch is not None and not any(branch is r for r in replacements) else None
+        show_pieces(list(replacements))
+        return result
+
     def patched_remove(self, *mobjects, **kw):
         if state["baking"] or not rec.recording:
             return originals["remove"](self, *mobjects, **kw)
+        before_top = list(self.mobjects)
+        gone = {id(m) for m in mobjects}
         # Manim takes things off stage as well as putting them on, and until
         # this existed the program had no way to say so. TransformMatchingTex
         # adds its working groups through add() and drops them again in
@@ -1685,7 +1754,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     line = f"hide {name}"
                     if not rec.timeline or rec.timeline[-1] != line:
                         rec.timeline.append(line)
-        return originals["remove"](self, *mobjects, **kw)
+        result = originals["remove"](self, *mobjects, **kw)
+        broken_up(before_top, list(self.mobjects), gone)
+        return result
 
     def patched_clear(self):
         if not rec.recording:
@@ -1790,6 +1861,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
     Scene.add = patched_add
     Scene.clear = patched_clear
     Scene.remove = patched_remove
+    Scene.replace = patched_replace
     ThreeDScene.move_camera = patched_move_camera
     ThreeDScene.set_camera_orientation = patched_orientation
     ThreeDScene.begin_ambient_camera_rotation = patched_spin
@@ -1901,6 +1973,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         Scene.play = originals["play"]
         Scene.add = originals["add"]
         Scene.remove = originals["remove"]
+        Scene.replace = originals["replace"]
         Scene.clear = originals["clear"]
         Scene.add_sound = originals["add_sound"]
         ThreeDScene.move_camera = originals["move_camera"]

@@ -128,6 +128,10 @@ def namespace(scene) -> dict:
                                                   "TEAL", "GREEN", "VIOLET") if hasattr(pl.P, k)}
     except Exception:  # noqa: BLE001 -- the probe may run without the engine's style
         ink, muted, bg, colours = "#FFFFFF", "#9E9E9E", "#000000", {}
+    # Words on a patch of the board, so a line or another equation under them never makes them unreadable.
+    import backed_text
+
+    names.update(backed_text.classes(bg))
     names.update(np=np, self=scene, INK=ink, MUTED_INK=muted, BACKGROUND=bg, PALETTE=colours,
                  BOARD_LEFT=AREA[0], BOARD_RIGHT=AREA[1], BOARD_BOTTOM=AREA[2], BOARD_TOP=AREA[3])
     names["__builtins__"] = dict(SAFE_BUILTINS)
@@ -336,8 +340,13 @@ def _words(mob) -> str:
 
 
 def _box(mob):
+    """Its bounds; a text's are its words', not the patch of board behind them (backed_text)."""
     import numpy as np
 
+    words = [p for p in mob.family_members_with_points() if not getattr(p, "is_backing", False)]
+    if words and len(words) < len(mob.family_members_with_points()):
+        pts = np.concatenate([p.points for p in words])
+        return float(pts[:, 0].min()), float(pts[:, 1].min()), float(pts[:, 0].max()), float(pts[:, 1].max())
     lo, hi = mob.get_corner(np.array([-1, -1, 0])), mob.get_corner(np.array([1, 1, 0]))
     return float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1])
 

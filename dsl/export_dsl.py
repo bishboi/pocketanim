@@ -1737,12 +1737,29 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             # A part replaced inside a group drawn as one picture: that picture is out of date. It goes, and the
             # group is drawn as its parts as they are now, down the branch that holds the new part.
             hide_drawn(holder)
-            node = holder
-            while node is not None:
-                branch = next((child for child in node.submobjects
-                               if any(r in child.get_family() for r in replacements)), None)
-                show_pieces([child for child in node.submobjects if child is not branch])
-                node = branch if branch is not None and not any(branch is r for r in replacements) else None
+
+            def in_order(node) -> list:
+                out = []
+                for child in node.submobjects:
+                    if any(child is r for r in replacements) or not any(r in child.get_family() for r in replacements):
+                        out.append(child)
+                    else:
+                        out += in_order(child)
+                return out
+
+            # In the order the video draws them, the new part among the group's others: the program draws in the
+            # order things are declared, so a part declared before (the new part, at its animation) is declared
+            # again after those drawn under it. Else a patch behind the old words (backed_text) was drawn over the
+            # new ones.
+            for piece in in_order(holder):
+                if id(piece) in rec.containers or not piece.family_members_with_points():
+                    continue
+                if rec.names.get(id(piece)) and rec.declared(rec.names[id(piece)]):
+                    for sub in piece.get_family():
+                        hide_drawn(sub)
+                        rec.names.pop(id(sub), None)
+                show_pieces([piece])
+            return result
         show_pieces(list(replacements))
         return result
 

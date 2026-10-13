@@ -471,3 +471,25 @@ def test_a_swap_while_a_part_redraws_itself_shows_its_target_in_the_program(tmp_
     reference = _chapter_end_ink(tmp_path, "plain", lecture("self.play(FadeOut(out), FadeIn(small))"), 2)
     assert reference[0] > 100, reference.tolist()
     assert abs(swapped[0] - reference[0]) <= reference[0] * 0.15 + 20, (swapped.tolist(), reference.tolist())
+
+
+def test_a_blocks_words_sit_on_a_patch_of_the_board_that_stays_out_of_their_way():
+    # Words drawn straight over a ray or over another equation could not be read. Each text a block makes carries
+    # a patch of the board behind it; indexing, colouring and matching still see the words only.
+    from manim import Line
+
+    names = free_check.namespace(None)
+    eq = names["MathTex"]("FD", "=", r"\\frac{CD}{2}", color=names["PALETTE"].get("GOLD", "#FFD700"))
+    patch = eq.submobjects[0]
+    assert getattr(patch, "is_backing", False) and len(eq) == 3 and not any(getattr(p, "is_backing", False) for p in eq)
+    assert patch.width > eq[0].width and patch.get_fill_opacity() > 0.9
+    eq.set_color("#FF0000")
+    assert patch.get_fill_color().to_hex().upper() == str(names["BACKGROUND"]).upper()
+    other = names["MathTex"]("f", "=", r"\\frac{R}{2}")
+    names["TransformMatchingTex"](eq, other)                     # the patch is keyed like a part
+    # The check measures the words, not the patch: two labels side by side do not overlap.
+    left = names["Text"]("left", font_size=30)
+    right = names["Text"]("right", font_size=30).next_to(left, names["RIGHT"], buff=0.1)
+    assert not [f for f in free_check.layout_faults([left, right]) if "overlap" in f]
+    assert free_check.layout_faults([eq, Line(eq.get_left() * 0 + eq.get_center() + [-3, 3, 0],
+                                              eq.get_center() + [3, -3, 0])])   # a line through words still counts

@@ -45,6 +45,9 @@ interface Frames {
      */
     fun contentKey(index: Int): Long = UNKNOWN
 
+    /** After a frame failed half-made: start again from a clean state, so the next frame is made whole. */
+    fun recover() {}
+
     /** The pictures (by [ImageDraw.src]) that show from frame [from] to [to]: to be decoded before they are due. */
     fun imagesBetween(from: Int, to: Int): List<String> = emptyList()
 

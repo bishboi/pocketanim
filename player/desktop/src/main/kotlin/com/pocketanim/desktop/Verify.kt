@@ -586,7 +586,39 @@ private fun playBenchmark(scene: Frames) {
     report("scrub, nearby", scrub)
 }
 
+private fun fullDigest(scene: Frames, index: Int, mode: String): Long {
+    var h = 1125899906842597L
+    val insts = scene.instances(index)
+    scene.camera(index)?.forEach { h = h * 31 + it.toRawBits() }
+    for (inst in insts) {
+        h = h * 31 + inst.fill; h = h * 31 + inst.stroke; h = h * 31 + inst.strokeWidth.toRawBits()
+        for (v in inst.transform) h = h * 31 + v.toRawBits()
+        for (v in scene.shape(inst.atlasId)) h = h * 31 + v.toRawBits()
+    }
+    for (im in scene.images(index)) {
+        h = h * 31 + im.src.hashCode(); h = h * 31 + im.alpha.toRawBits(); h = h * 31 + im.before
+        for (c in im.corners) h = h * 31 + c.toRawBits()
+    }
+    return h
+}
+
 fun main(args: Array<String>) {
+    if (args.size >= 3 && args[1] == "digests") {
+        // Verify <scene> digests <forward|stride:N|seek:SEED> <out>: a full digest of every frame, reached that way.
+        val scene = load(File(args[0]))
+        val n = scene.frameCount
+        val out = LongArray(n)
+        val mode = args[2]
+        val order: List<Int> = when {
+            mode == "forward" -> (0 until n).toList()
+            mode.startsWith("stride:") -> { val by = mode.substringAfter(':').toInt(); (0 until n step by).toList() }
+            else -> (0 until n).shuffled(kotlin.random.Random(mode.substringAfter(':').toInt()))
+        }
+        val seen = BooleanArray(n)
+        for (i in order) { out[i] = fullDigest(scene, i, mode); seen[i] = true }
+        File(args[3]).printWriter().use { w -> for (i in 0 until n) if (seen[i]) w.println("$i ${out[i]}") }
+        return
+    }
     if (args.size < 2 && args.firstOrNull() != "selftest") {
         println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library|devicebench> [args]")
         println("       Verify selftest")

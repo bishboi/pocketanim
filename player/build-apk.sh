@@ -76,7 +76,7 @@ sed 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<ma
   player/app/src/main/AndroidManifest.xml > "$WORK/AndroidManifest.xml"
 aapt2 link -o "$WORK/unsigned.apk" -I "$ANDROID_JAR" \
   --manifest "$WORK/AndroidManifest.xml" \
-  --min-sdk-version 29 --target-sdk-version 34 --version-code 3 --version-name 3.0 \
+  --min-sdk-version 29 --target-sdk-version 34 --version-code 4 --version-name 4.0 \
   -A "$WORK/assets"
 (cd "$WORK" && zip -q -j unsigned.apk classes.dex)
 

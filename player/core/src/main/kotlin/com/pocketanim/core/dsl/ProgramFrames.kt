@@ -64,6 +64,11 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
 
     override fun imageBytes(src: String): ByteArray? = builder.imageBytes(src)
 
+    override fun recover() {
+        builder.recover()
+        positioned = -1
+    }
+
     /** The frame built for [index] and where each picture stands in it. */
     override fun contentKey(index: Int): Long {
         position(index)

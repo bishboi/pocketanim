@@ -29,11 +29,19 @@ class PanimView @JvmOverloads constructor(
 
     private val sink = CanvasSink()
     private var thread: RenderThread? = null
-    private var surfaceCanvas: SurfaceCanvas? = null
+
+    /**
+     * Held while a frame is made and drawn. The scene's frames are made by a state machine that only one thread
+     * may drive, and a surface may not be drawn on once it is destroyed: turning the phone (or the whole-screen
+     * switch) destroys and remakes the surface, and the old thread, given half a second to stop, could still be
+     * mid-frame when the new one began -- two threads driving one scene crashed the app, or left a part of one frame
+     * drawn into the next.
+     */
+    private val drawLock = Any()
 
     /** Whether frames are going through the GPU pipeline. See [SurfaceCanvas]. */
     val usingHardwareCanvas: Boolean
-        get() = surfaceCanvas?.usingHardware == true
+        get() = thread?.surface?.usingHardware == true
 
     var backgroundColorArgb: Int = Color.BLACK
 
@@ -198,8 +206,8 @@ class PanimView @JvmOverloads constructor(
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        surfaceCanvas = SurfaceCanvas(holder)
-        thread = RenderThread(holder).also { it.start() }
+        thread?.shutdown()
+        thread = RenderThread(SurfaceCanvas(holder)).also { it.start() }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -211,7 +219,7 @@ class PanimView @JvmOverloads constructor(
         thread = null
     }
 
-    private inner class RenderThread(private val holder: SurfaceHolder) : Thread("panim-render") {
+    private inner class RenderThread(val surface: SurfaceCanvas) : Thread("panim-render") {
         @Volatile private var running = true
         @Volatile private var widthPx = 0
         @Volatile private var heightPx = 0
@@ -227,8 +235,10 @@ class PanimView @JvmOverloads constructor(
             forceRedraw = true
         }
 
+        /** Stop, and return only once no frame of this thread is being made or drawn (the surface may then go). */
         fun shutdown() {
             running = false
+            synchronized(drawLock) {}
             interrupt()
             try {
                 join(500)
@@ -260,37 +270,26 @@ class PanimView @JvmOverloads constructor(
                 forceRedraw = false
 
                 prefetchImages(active, index)
-                // A lecture is mostly holds: a frame that shows what is already on screen is not drawn again.
-                val key = active.contentKey(index)
-                if (!redraw && key != Frames.UNKNOWN && key == drawnKey && active === drawnScene) {
+                val started = System.nanoTime()
+                val drawn = synchronized(drawLock) {
+                    if (!running) return
+                    try {
+                        drawFrame(active, index, redraw)
+                    } catch (e: Throwable) {
+                        // A frame that cannot be made or drawn is dropped, not the app: the scene starts again from
+                        // a kept boundary, and the frame after is drawn whole. (A surface going away mid-frame is
+                        // one such; an OutOfMemoryError another.)
+                        android.util.Log.w("PanimView", "frame $index dropped", e)
+                        runCatching { active.recover() }
+                        drawnKey = Frames.UNKNOWN
+                        forceRedraw = true
+                        false
+                    }
+                }
+                if (!drawn) {
                     idle()
                     continue
                 }
-
-                val started = System.nanoTime()
-                // GPU-backed where the device allows it; see SurfaceCanvas for
-                // why lockCanvas alone is the wrong call.
-                val surface = surfaceCanvas ?: continue
-                val canvas = surface.acquire() ?: continue
-                try {
-                    // The scene's own clear colour: a paper or whiteboard style
-                    // drawn on black is a different picture, not a letterbox.
-                    val clear = if (active.background != BLACK) active.background else backgroundColorArgb
-                    val depth = sink.begin(canvas, widthPx, heightPx, clear)
-                    try {
-                        // Options, not defaults: the only one that depends on
-                        // the target is level of detail, and half a pixel is a
-                        // promise about pixels rather than about scene units.
-                        Renderer.drawFrame(active, index, sink, RenderOptions.forSurface(widthPx))
-                    } finally {
-                        sink.end(depth)
-                    }
-                } finally {
-                    surface.release(canvas)
-                }
-
-                drawnKey = key
-                drawnScene = active
                 lastFrameMillis = (System.nanoTime() - started) / 1e6
                 framesDrawn++
 
@@ -300,6 +299,35 @@ class PanimView @JvmOverloads constructor(
                 val now = clock.currentFrame()
                 if (now > index + 1) framesSkipped += (now - index - 1).toLong()
             }
+        }
+
+        /** Frame [index] on the surface; false when it was not drawn (the same picture, or no canvas to draw on). */
+        private fun drawFrame(active: Frames, index: Int, redraw: Boolean): Boolean {
+            // A lecture is mostly holds: a frame that shows what is already on screen is not drawn again.
+            val key = active.contentKey(index)
+            if (!redraw && key != Frames.UNKNOWN && key == drawnKey && active === drawnScene) return false
+            // GPU-backed where the device allows it; see SurfaceCanvas for
+            // why lockCanvas alone is the wrong call.
+            val canvas = surface.acquire() ?: return false
+            try {
+                // The scene's own clear colour: a paper or whiteboard style
+                // drawn on black is a different picture, not a letterbox.
+                val clear = if (active.background != BLACK) active.background else backgroundColorArgb
+                val depth = sink.begin(canvas, widthPx, heightPx, clear)
+                try {
+                    // Options, not defaults: the only one that depends on
+                    // the target is level of detail, and half a pixel is a
+                    // promise about pixels rather than about scene units.
+                    Renderer.drawFrame(active, index, sink, RenderOptions.forSurface(widthPx))
+                } finally {
+                    sink.end(depth)
+                }
+            } finally {
+                surface.release(canvas)
+            }
+            drawnKey = key
+            drawnScene = active
+            return true
         }
 
         private var drawnKey = Frames.UNKNOWN

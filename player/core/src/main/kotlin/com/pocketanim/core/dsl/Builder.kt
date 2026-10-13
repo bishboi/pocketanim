@@ -550,6 +550,14 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         cursorFrame = local
     }
 
+    /** Back to the start of the timeline, as after [prepare]: the next seek rebuilds from the first boundary. */
+    fun recover() {
+        restore(0)
+        cursorStep = -1
+        cursorFrame = -1
+        quiet = false
+    }
+
     private fun keepBoundary(step: Int) {
         if (step % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(step)) checkpoint(step)
     }

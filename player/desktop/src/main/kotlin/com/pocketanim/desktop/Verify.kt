@@ -391,7 +391,19 @@ private fun seekTest(scene: Frames): Boolean {
         return h
     }
 
-    val forward = LongArray(scene.frameCount) { digest(it) }
+    val keys = LongArray(scene.frameCount)
+    val forward = LongArray(scene.frameCount) { digest(it).also { _ -> keys[it] = scene.contentKey(it) } }
+
+    // A frame whose content key is the one before's is not drawn again: it must be the same picture.
+    var same = 0
+    var wrong = 0
+    for (i in 1 until scene.frameCount) {
+        if (keys[i] == Frames.UNKNOWN || keys[i] != keys[i - 1]) continue
+        same++
+        if (forward[i] != forward[i - 1]) wrong++
+    }
+    if (wrong > 0) println("  FAIL held: $wrong of $same frames kept as the one before differ from it")
+    else println("  ok   held: $same of ${scene.frameCount} frames are the one before (not drawn again)")
 
     val orders = listOf(
         "reverse" to (scene.frameCount - 1 downTo 0).toList(),
@@ -400,9 +412,11 @@ private fun seekTest(scene: Frames): Boolean {
         }),
         "repeated" to (0 until scene.frameCount).flatMap { listOf(it, it) },
         "ends" to (0 until scene.frameCount).flatMap { listOf(it, 0, scene.frameCount - 1) },
+        // Playing on with frames dropped, as a phone that falls behind does: by 2s, 3s, 7s, and 45 at a time.
+        "late" to listOf(2, 3, 7, 45).flatMap { by -> (0 until scene.frameCount step by).toList() },
     )
 
-    var failures = 0
+    var failures = if (wrong > 0) 1 else 0
     for ((name, order) in orders) {
         var bad = 0
         var firstBad = -1
@@ -538,6 +552,40 @@ private fun deviceBenchmark(root: File, only: List<String>?) {
     }
 }
 
+/**
+ * What a viewer feels: how long a seek takes before its frame can be drawn (a jump into the middle of a lecture, a
+ * scrub's run of nearby frames), and what a frame costs while playing, on time and when the frame before it was
+ * late and the player skips ahead. Timed on the frames the player asks for, drawn into a counting sink.
+ */
+private fun playBenchmark(scene: Frames) {
+    val sink = CountingSink()
+    val options = RenderOptions.forSurface(1280)
+    fun draw(i: Int): Double {
+        val t = System.nanoTime()
+        Renderer.drawFrame(scene, i, sink, options)
+        return (System.nanoTime() - t) / 1e6
+    }
+    val n = scene.frameCount
+    repeat(2) { for (i in 0 until n) draw(i) }                       // warm up
+    fun report(name: String, times: List<Double>) {
+        val sorted = times.sorted()
+        println(String.format(Locale.ROOT, "%-22s n=%d  avg %.2f ms  p95 %.2f ms  max %.2f ms", name, times.size,
+            times.average(), sorted[(sorted.size * 0.95).toInt().coerceAtMost(sorted.size - 1)], sorted.last()))
+    }
+    println("frames $n at ${scene.fps} fps")
+    report("play, every frame", (0 until n).map { draw(it) })
+    report("play, skipping 2", (0 until n step 3).map { draw(it) })
+    val random = java.util.Random(11)
+    report("seek, anywhere", (0 until 200).map { draw(random.nextInt(n)) })
+    val scrub = ArrayList<Double>()
+    var at = n / 2
+    repeat(200) {
+        at = (at + random.nextInt(61) - 30).coerceIn(0, n - 1)
+        scrub.add(draw(at))
+    }
+    report("scrub, nearby", scrub)
+}
+
 fun main(args: Array<String>) {
     if (args.size < 2 && args.firstOrNull() != "selftest") {
         println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library|devicebench> [args]")
@@ -546,6 +594,35 @@ fun main(args: Array<String>) {
     }
     if (args[0] == "selftest") {
         if (!runSelfTest()) kotlin.system.exitProcess(1)
+        return
+    }
+
+    if (args[1] == "seekdiff") {
+        // Frame N reached by playing on, and by seeking to it from M (default: the last frame): what differs.
+        val scene = load(File(args[0]))
+        val n = args[2].toInt()
+        val from = args.getOrNull(3)?.toInt() ?: (scene.frameCount - 1)
+        fun snap(i: Int) = scene.instances(i).map { inst ->
+            val pts = scene.shape(inst.atlasId)
+            "slot=${inst.slot} atlas=${inst.atlasId} fill=${Integer.toHexString(inst.fill)} " +
+                "stroke=${Integer.toHexString(inst.stroke)} w=${inst.strokeWidth} t=${inst.transform.joinToString(",")} " +
+                "pts=${pts.size}:${pts.firstOrNull()}:${pts.lastOrNull()}"
+        }
+        for (i in 0..n) scene.instances(i)
+        val forward = snap(n)
+        scene.instances(from)
+        val sought = snap(n)
+        println("instances: forward ${forward.size}, sought ${sought.size}")
+        for (k in 0 until maxOf(forward.size, sought.size)) {
+            val a = forward.getOrNull(k)
+            val b = sought.getOrNull(k)
+            if (a != b) println("  #$k\n    forward $a\n    sought  $b")
+        }
+        return
+    }
+
+    if (args[1] == "playbench") {
+        playBenchmark(load(File(args[0])))
         return
     }
 

@@ -38,6 +38,19 @@ interface Frames {
 
     /** A picture's file (PNG), by the name an [ImageDraw] carries; null when the source has none. */
     fun imageBytes(src: String): ByteArray? = null
+
+    /**
+     * What frame [index] shows, as a number: two frames with the same key are the same picture, so a player that
+     * has one on screen need not draw the other (a lecture is mostly holds). [UNKNOWN] when the source cannot say.
+     */
+    fun contentKey(index: Int): Long = UNKNOWN
+
+    /** The pictures (by [ImageDraw.src]) that show from frame [from] to [to]: to be decoded before they are due. */
+    fun imagesBetween(from: Int, to: Int): List<String> = emptyList()
+
+    companion object {
+        const val UNKNOWN = Long.MIN_VALUE
+    }
 }
 
 /**

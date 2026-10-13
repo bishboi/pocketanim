@@ -77,6 +77,7 @@ class AudioPlayer(
      * one buffer is imperceptible next to the seek itself.
      */
     fun seekTo(seconds: Double) {
+        clock.seeking = true
         seekTargetUs.set((seconds * 1_000_000).toLong())
     }
 
@@ -158,10 +159,19 @@ class AudioPlayer(
                             val pcm = ByteArray(info.size)
                             buffer.position(info.offset)
                             buffer.get(pcm)
-                            // Blocks when the track is full, which is the back
+                            // Waits while the track is full, which is the back
                             // pressure that keeps this thread in step with
-                            // playback instead of decoding the whole file.
-                            clock.write(pcm, 0, pcm.size)
+                            // playback instead of decoding the whole file. Not a
+                            // blocking write: paused, a full track blocked it until
+                            // playing again, so a seek made while paused was made
+                            // only then, after the old place had sounded.
+                            var written = 0
+                            while (written < pcm.size && running.get() && seekTargetUs.get() < 0) {
+                                val n = clock.write(pcm, written, pcm.size - written)
+                                if (n < 0) break
+                                written += n
+                                if (n == 0) Thread.sleep(WRITE_WAIT_MS)
+                            }
                         }
                         codec.releaseOutputBuffer(index, false)
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
@@ -194,6 +204,7 @@ class AudioPlayer(
 
     private companion object {
         const val TIMEOUT_US = 10_000L
+        const val WRITE_WAIT_MS = 5L
         const val BUFFERING_NANOS = 350_000_000L
     }
 }

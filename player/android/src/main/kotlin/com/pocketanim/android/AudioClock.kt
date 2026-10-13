@@ -78,9 +78,9 @@ class AudioClock(
     /** Whether the track is running, as opposed to paused or stopped. */
     val playing: Boolean get() = track.playState == AudioTrack.PLAYSTATE_PLAYING
 
-    /** Feed decoded PCM. Blocking; call from the audio thread, not the renderer. */
+    /** Feed decoded PCM: what the track took (0 when full). Call from the audio thread, not the renderer. */
     fun write(pcm: ByteArray, offset: Int, size: Int): Int =
-        track.write(pcm, offset, size)
+        track.write(pcm, offset, size, AudioTrack.WRITE_NON_BLOCKING)
 
     /**
      * Drop everything queued and restart the clock at [seconds].
@@ -93,16 +93,29 @@ class AudioClock(
         track.pause()
         track.flush()
         startOffsetSeconds = seconds
+        seekedAt = System.nanoTime()
+        seeking = false
     }
+
+    /**
+     * A seek has been asked for and the audio thread has not made it yet: until it has, the track still reports
+     * where it was, and the picture -- following it -- jumped back to the old place for a moment after every seek.
+     * The clock says nothing meanwhile (the picture keeps its own time from the place sought).
+     */
+    @Volatile var seeking = false
+
+    /** When the last seek was made: a timestamp from before it describes the old place, not this one. */
+    @Volatile private var seekedAt = 0L
 
     fun release() = track.release()
 
     override fun positionSeconds(): Double? {
-        if (track.playState != AudioTrack.PLAYSTATE_PLAYING) return null
+        if (seeking || track.playState != AudioTrack.PLAYSTATE_PLAYING) return null
         // getTimestamp is the one that accounts for buffering and device
         // latency; getPlaybackHeadPosition does not, and on a device with a
         // deep buffer that difference is tens of milliseconds of lip-sync.
-        if (track.getTimestamp(timestamp)) {
+        // One taken before the last flush still counts the old place's frames.
+        if (track.getTimestamp(timestamp) && timestamp.nanoTime >= seekedAt) {
             val elapsed = (System.nanoTime() - timestamp.nanoTime) / 1e9 * speed
             return startOffsetSeconds + timestamp.framePosition / rate + elapsed
         }

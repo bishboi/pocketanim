@@ -43,14 +43,17 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
         return builder.frameInstances()
     }
 
+    /** Lower z first, declaration order between equals: then each goes in no earlier than the one before it. */
+    private val byZ by lazy { builder.images.sortedBy { it.z } }
+    private val corners = FloatArray(6)
+
     override fun images(index: Int): List<ImageDraw> {
-        val specs = builder.images
+        val specs = byZ
         if (specs.isEmpty()) return emptyList()
         position(index)
         val out = ArrayList<ImageDraw>(2)
         val frame = index.coerceIn(0, maxOf(frameCount - 1, 0)).toDouble()
-        // Lower z first, declaration order between equals: then each goes in no earlier than the one before it.
-        for (spec in specs.sortedBy { it.z }) {
+        for (spec in specs) {
             val corners = FloatArray(6)
             val alpha = spec.at(frame, corners)
             if (alpha <= 0f) continue
@@ -60,4 +63,36 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
     }
 
     override fun imageBytes(src: String): ByteArray? = builder.imageBytes(src)
+
+    /** The frame built for [index] and where each picture stands in it. */
+    override fun contentKey(index: Int): Long {
+        position(index)
+        var key = builder.version
+        val frame = index.coerceIn(0, maxOf(frameCount - 1, 0)).toDouble()
+        for (spec in byZ) {
+            val alpha = spec.at(frame, corners)
+            key = key * 31 + alpha.toRawBits()
+            if (alpha > 0f) for (c in corners) key = key * 31 + c.toRawBits()
+        }
+        return key
+    }
+
+    override fun imagesBetween(from: Int, to: Int): List<String> {
+        val out = ArrayList<String>()
+        for (spec in byZ) {
+            var showing = false
+            var k = 0
+            while (k < spec.keyCount) {
+                val at = spec.keys[k * ImageSpec.KEY]
+                val alpha = spec.keys[k * ImageSpec.KEY + 1]
+                // Showing at some frame of [from, to]: a key in the window, or the key before it still visible.
+                if (at > to) break
+                if (alpha > 0.004 && (at >= from || k + 1 >= spec.keyCount ||
+                        spec.keys[(k + 1) * ImageSpec.KEY] >= from)) showing = true
+                k++
+            }
+            if (showing && spec.src !in out) out.add(spec.src)
+        }
+        return out
+    }
 }

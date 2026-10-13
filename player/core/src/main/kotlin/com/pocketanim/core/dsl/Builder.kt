@@ -34,9 +34,23 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private var current: Array<Instance> = emptyArray()
     private var currentCamera: FloatArray? = null
 
+    /** Each atlas entry as floats, kept with the points it was made from: a frame asks for every shape it draws,
+     * and a copy per shape per frame was most of what a frame allocated. */
+    private var floatSources = arrayOfNulls<DoubleArray>(0)
+    private var floatShapes = arrayOfNulls<FloatArray>(0)
+
     fun shape(atlasId: Int): FloatArray {
         val s = shapes[atlasId]
-        return FloatArray(s.size) { s[it].toFloat() }
+        if (atlasId >= floatShapes.size) {
+            val size = maxOf(atlasId + 1, floatShapes.size * 2, 64)
+            floatSources = floatSources.copyOf(size)
+            floatShapes = floatShapes.copyOf(size)
+        }
+        if (floatSources[atlasId] === s) return floatShapes[atlasId]!!
+        val out = FloatArray(s.size) { s[it].toFloat() }
+        floatSources[atlasId] = s
+        floatShapes[atlasId] = out
+        return out
     }
 
     fun frameInstances(): Array<Instance> = current
@@ -208,7 +222,14 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private var emitStart = -1
     private var emitEnd = -1
 
-    private fun emit() {
+    /** Frames built so far: unchanged between two frames, the picture is the same (a hold). */
+    var version = 0L
+        private set
+
+    /** Build the frame the stage now shows; false when none is built (a verb played only for its end). */
+    private fun emit(): Boolean {
+        if (quiet) return false
+        version++
         if (emitEnd >= 0 && shapes.size == emitEnd && emitStart in 0..emitEnd) {
             while (shapes.size > emitStart) shapes.removeAt(shapes.size - 1)
         }
@@ -273,6 +294,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         currentEnds = ends
         current = frame.toTypedArray()
         currentCamera = if (is3d) cameraRecord() else null
+        return true
     }
 
     // ---- helpers ----------------------------------------------------------
@@ -333,6 +355,11 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         fun render(k: Int)
         /** Settle the end-of-verb state that the next verb inherits. */
         fun exit()
+        /**
+         * Whether frames must come in order: a group that enters its parts as their turns come cannot be asked for
+         * an earlier frame than the last one; it is entered again from its start for that.
+         */
+        val forwardOnly: Boolean get() = false
     }
 
     /** Scene state at a verb boundary, so seeking back need not start over. */
@@ -478,31 +505,38 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     /**
      * Produce one frame.
      *
-     * Playing forward advances within the current verb. Seeking backwards
-     * restores the nearest verb boundary and replays inside that verb only, so
-     * the cost is bounded by the longest verb rather than by how far the seek
-     * went -- the same property that makes tier-3 snapshots cheap to seek in.
+     * A verb's frame is a pure function of the stage at its start and the frame number (see [Runner]), so only the
+     * frame asked for is computed: playing on, a frame late or not, and a seek within the verb cost one frame. Into a
+     * later verb, close by, the verbs between are played on from here, each as its last frame; further, or back, the
+     * stage comes from the nearest kept boundary ([reach]). Before, every frame on the way was built in full, and a
+     * late frame at a verb's end sent the player back to a boundary 30 verbs off: playing stuttered and seeking took
+     * most of a second on a phone.
      */
     fun seek(index: Int) {
         val target = index.coerceIn(0, frameCount - 1)
         val step = stepContaining(target)
         val local = target - starts[step]
 
-        if (step == cursorStep && local >= cursorFrame) {
-            for (k in (cursorFrame + 1)..local) runners[step].render(k)
+        if (step == cursorStep && (local >= cursorFrame || !runners[step].forwardOnly)) {
+            if (local != cursorFrame) runners[step].render(local)
             cursorFrame = local
             return
         }
 
-        // Finishing the current verb is the cheap way into the next one; it
-        // avoids replaying a verb we have just finished playing. Playing on
-        // goes straight into the next verb; only every CHECKPOINT_EVERY-th
-        // boundary keeps a copy of the stage.
-        if (cursorStep >= 0 && step == cursorStep + 1 &&
-            cursorFrame == runners[cursorStep].frames - 1
-        ) {
-            runners[cursorStep].exit()
-            if (step % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(step)) checkpoint(step)
+        if (step != cursorStep && cursorStep >= 0 && step > cursorStep && step - cursorStep <= CHECKPOINT_EVERY) {
+            // Playing on: this verb to its end, then the ones between, whole.
+            quietly {
+                val runner = runners[cursorStep]
+                if (runner.frames > 0 && cursorFrame != runner.frames - 1) runner.render(runner.frames - 1)
+                runner.exit()
+                var at = cursorStep + 1
+                keepBoundary(at)
+                while (at < step) {
+                    playWhole(at)
+                    at++
+                    keepBoundary(at)
+                }
+            }
             // As restore() leaves it: the next frame's shapes start a new run.
             emitStart = -1
             emitEnd = -1
@@ -511,9 +545,25 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
         applyStaging(step)
         runners[step].enter()
-        for (k in 0..local) runners[step].render(k)
+        runners[step].render(local)
         cursorStep = step
         cursorFrame = local
+    }
+
+    private fun keepBoundary(step: Int) {
+        if (step % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(step)) checkpoint(step)
+    }
+
+    /** Verbs played for the stage they leave, not shown: no frame is built for them. */
+    private var quiet = false
+
+    private inline fun quietly(body: () -> Unit) {
+        quiet = true
+        try {
+            body()
+        } finally {
+            quiet = false
+        }
     }
 
     /**
@@ -526,10 +576,12 @@ internal class Builder(private val program: Program, private val loader: AssetLo
     private fun reach(step: Int) {
         var from = checkpoints.keys.filter { it <= step }.max()
         restore(from)
-        while (from < step) {
-            playWhole(from)
-            from++
-            if (from % CHECKPOINT_EVERY == 0 && !checkpoints.containsKey(from)) checkpoint(from)
+        quietly {
+            while (from < step) {
+                playWhole(from)
+                from++
+                keepBoundary(from)
+            }
         }
         // As restore() leaves it, after the verbs played up to the step.
         emitStart = -1
@@ -550,12 +602,12 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
     }
 
-    /** Run a verb start to finish for its side effects, discarding its frames. */
+    /** Run a verb for the stage it leaves: its last frame (each frame stands on its own), then its end. */
     private fun playWhole(stepIndex: Int) {
         applyStaging(stepIndex)
         val runner = runners[stepIndex]
         runner.enter()
-        for (k in 0 until runner.frames) runner.render(k)
+        if (runner.frames > 0) runner.render(runner.frames - 1)
         runner.exit()
     }
 
@@ -608,6 +660,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
      */
     private fun sequenceRunner(children: List<Runner>) = object : Runner {
         override val frames = children.sumOf { it.frames }
+        override val forwardOnly = true
         /**
          * Children enter in turn. Entering them all at the start let a later
          * child capture the scene before an earlier one had changed it -- a
@@ -652,6 +705,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         val children = step.members.map { runnerFor(it) }
         return object : Runner {
             override val frames = frames(step.seconds)
+            override val forwardOnly = true
             /**
              * A child enters when its turn starts, not when the group does.
              * Entering them all up front put every later child on stage at
@@ -706,6 +760,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
      */
     private fun parallelRunner(children: List<Runner>) = object : Runner {
         override val frames = children.maxOfOrNull { it.frames } ?: 0
+        override val forwardOnly = children.any { it.forwardOnly }
         override fun enter() = children.forEach { it.enter() }
         override fun render(k: Int) =
             children.forEach { it.render(minOf(k, it.frames - 1).coerceAtLeast(0)) }
@@ -714,8 +769,14 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     private fun holdRunner(count: Int) = object : Runner {
         override val frames = count
-        override fun enter() {}
-        override fun render(k: Int) = emit()
+        /** A hold shows one picture throughout: it is built once, and the frames after it are the same frame. */
+        private var built = false
+        override fun enter() {
+            built = false
+        }
+        override fun render(k: Int) {
+            if (!built) built = emit()
+        }
         override fun exit() {}
     }
 

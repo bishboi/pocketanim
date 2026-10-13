@@ -159,6 +159,31 @@ class PanimView @JvmOverloads constructor(
         thread?.requestRedraw()
     }
 
+    private var scrubResume = false
+
+    /**
+     * A finger on the seek bar: the picture follows it ([scrubTo]) and the narration waits, paused, to be sought
+     * once where the finger lifts ([endScrub]). Seeking the narration at every move asked a stream for a new place
+     * dozens of times a second, and the voice stuttered over the drag.
+     */
+    fun beginScrub() {
+        scrubResume = playback?.playing == true
+        if (scrubResume) pause()
+    }
+
+    /** The picture at [index] while scrubbing; the narration is left where it is until [endScrub]. */
+    fun scrubTo(index: Int) {
+        playback?.seekToFrame(index)
+        thread?.requestRedraw()
+    }
+
+    /** The finger lifted at [index]: the narration is sought there, and playing goes on if it was playing. */
+    fun endScrub(index: Int) {
+        seekToFrame(index)
+        if (scrubResume) play()
+        scrubResume = false
+    }
+
     /** Call from the host's onDestroy; an AudioTrack outlives the view otherwise. */
     fun release() {
         releaseAudio()
@@ -231,7 +256,16 @@ class PanimView @JvmOverloads constructor(
                     }
                     index = clock.currentFrame()
                 }
+                val redraw = forceRedraw
                 forceRedraw = false
+
+                prefetchImages(active, index)
+                // A lecture is mostly holds: a frame that shows what is already on screen is not drawn again.
+                val key = active.contentKey(index)
+                if (!redraw && key != Frames.UNKNOWN && key == drawnKey && active === drawnScene) {
+                    idle()
+                    continue
+                }
 
                 val started = System.nanoTime()
                 // GPU-backed where the device allows it; see SurfaceCanvas for
@@ -255,6 +289,8 @@ class PanimView @JvmOverloads constructor(
                     surface.release(canvas)
                 }
 
+                drawnKey = key
+                drawnScene = active
                 lastFrameMillis = (System.nanoTime() - started) / 1e6
                 framesDrawn++
 
@@ -264,6 +300,21 @@ class PanimView @JvmOverloads constructor(
                 val now = clock.currentFrame()
                 if (now > index + 1) framesSkipped += (now - index - 1).toLong()
             }
+        }
+
+        private var drawnKey = Frames.UNKNOWN
+        private var drawnScene: Frames? = null
+        private var prefetchedAt = Int.MIN_VALUE
+
+        /**
+         * Pictures due in the next few seconds, decoded now on another thread: decoding one as it first appeared
+         * held that frame for tens of milliseconds, and its fade-in visibly caught.
+         */
+        private fun prefetchImages(active: Frames, index: Int) {
+            if (kotlin.math.abs(index - prefetchedAt) < active.fps) return
+            prefetchedAt = index
+            val ahead = active.imagesBetween(index, index + active.fps * PREFETCH_SECONDS)
+            for (src in ahead) sink.prefetch(src, active::imageBytes)
         }
 
         private fun idle() {
@@ -278,3 +329,4 @@ class PanimView @JvmOverloads constructor(
 }
 
 private val BLACK = 0xFF000000.toInt()
+private const val PREFETCH_SECONDS = 4

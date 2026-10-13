@@ -120,10 +120,39 @@ class CanvasSink : PathSink {
     }
     private val unreadable: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
 
-    private fun bitmapFor(image: ImageDraw, bytes: (String) -> ByteArray?): Bitmap? {
-        bitmaps.get(image.src)?.let { return it }
-        if (image.src in unreadable) return null
-        val data = bytes(image.src)
+    private fun bitmapFor(image: ImageDraw, bytes: (String) -> ByteArray?): Bitmap? = decode(image.src, bytes)
+
+    /** Pictures being decoded ahead of their frames ([prefetch]). */
+    private val pending: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
+    /**
+     * Decode [src] on the sink's own thread, ahead of the frame that shows it, so drawing it costs only the draw.
+     * Ready ones (and ones already being decoded) are left alone.
+     */
+    fun prefetch(src: String, bytes: (String) -> ByteArray?) {
+        if (bitmaps.get(src) != null || src in unreadable || !pending.add(src)) return
+        decoder.execute {
+            try {
+                decode(src, bytes)?.prepareToDraw()
+            } catch (_: Throwable) {
+                // OutOfMemoryError included: it is decoded when it is drawn, or not at all.
+            } finally {
+                pending.remove(src)
+            }
+        }
+    }
+
+    private val decoder = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "panim-images").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }
+
+    private fun decode(src: String, bytes: (String) -> ByteArray?): Bitmap? {
+        bitmaps.get(src)?.let { return it }
+        if (src in unreadable) return null
+        val data = bytes(src)
         val decoded = data?.let {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(it, 0, it.size, bounds)
@@ -132,10 +161,10 @@ class CanvasSink : PathSink {
             BitmapFactory.decodeByteArray(it, 0, it.size, BitmapFactory.Options().apply { inSampleSize = sample })
         }
         if (decoded == null) {
-            unreadable.add(image.src)
+            unreadable.add(src)
             return null
         }
-        bitmaps.put(image.src, decoded)
+        bitmaps.put(src, decoded)
         return decoded
     }
 

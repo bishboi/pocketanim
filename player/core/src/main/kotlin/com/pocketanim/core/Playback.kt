@@ -97,13 +97,20 @@ class Playback(
     fun pause() {
         playing = false
         system.pause()
+        // Paused where the picture is, so playing on starts from the frame on screen.
+        if (shown >= 0) system.seekTo(shown.toDouble() / scene.fps)
+        shown = -1
     }
 
     fun seekToFrame(index: Int) {
         val clamped = index.coerceIn(0, scene.frameCount - 1)
         system.seekTo(clamped.toDouble() / scene.fps)
         lastFrame = -1
+        shown = -1
     }
+
+    /** The latest frame given while playing, since the last seek: the picture does not step back from it. */
+    @Volatile private var shown = -1
 
     /**
      * The frame index for now. Audio wins when it can answer; otherwise the
@@ -119,13 +126,21 @@ class Playback(
                 // Re-anchor the wall clock at the wrapped frame, so it -- the
                 // fallback while audio restarts -- agrees with the picture.
                 system.seekTo(index.toDouble() / scene.fps)
+                shown = -1
                 onLoop?.invoke(index)
             } else {
                 index = scene.frameCount - 1
                 playing = false
             }
         }
-        return index.coerceAtLeast(0)
+        index = index.coerceAtLeast(0)
+        // Handing the clock from the wall to the narration (it starts a little behind the wall's count after a seek
+        // or a pause) and a timestamp's jitter would show as the picture stepping back a frame or a few: a stutter.
+        // While playing, the picture holds instead, until the clock passes it; a real step back is only a seek.
+        val ahead = shown
+        if (playing && ahead > index && ahead - index <= scene.fps / 2) return ahead
+        if (playing) shown = index
+        return index
     }
 
     /** The frame to draw, or -1 when the last drawn frame is still current. */

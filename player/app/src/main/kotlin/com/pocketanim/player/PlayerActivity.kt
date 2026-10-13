@@ -429,16 +429,18 @@ class PlayerActivity : Activity() {
                 scrubbing = true
                 wasPlaying = wantPlaying
                 main.removeCallbacks(hideControls)
+                // The picture follows the finger; the narration is sought once, where it lifts.
+                view.beginScrub()
             }
 
             override fun onScrub(fraction: Float) {
-                view.seekToFrame((fraction * (frameCount - 1)).toInt())
+                view.scrubTo((fraction * (frameCount - 1)).toInt())
                 showTime(fraction * (frameCount - 1))
             }
 
             override fun onScrubEnd(fraction: Float) {
                 scrubbing = false
-                view.seekToFrame((fraction * (frameCount - 1)).toInt())
+                view.endScrub((fraction * (frameCount - 1)).toInt())
                 endShown = false
                 endCard.visibility = View.GONE
                 if (wasPlaying) scheduleHide()
@@ -786,7 +788,7 @@ class PlayerActivity : Activity() {
     private fun sync() {
         val playback = view.playback ?: return
         // The network fell behind the narration: hold the picture with it, as a video buffers.
-        if (wantPlaying && !heldForNetwork && view.audioBuffering) {
+        if (wantPlaying && !scrubbing && !heldForNetwork && view.audioBuffering) {
             heldForNetwork = true
             view.pause()
             loading(true, "Buffering…")
@@ -815,7 +817,7 @@ class PlayerActivity : Activity() {
             }
         }
 
-        if (wantPlaying && !playback.playing && frame >= frameCount - 1 && !endShown) {
+        if (wantPlaying && !scrubbing && !playback.playing && frame >= frameCount - 1 && !endShown) {
             wantPlaying = false
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             playButton.setImageDrawable(IconDrawable(Icon.REPLAY, Ui.TEXT))

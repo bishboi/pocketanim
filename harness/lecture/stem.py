@@ -2138,7 +2138,19 @@ class BoardMixin:
                 area = self._problem["work"]
             else:
                 cx, cy, sw, sh = self.STAGE
-                if getattr(self, "stage_body", None) is not None and self.board_mode:
+                body = getattr(self, "stage_body", None)
+                whole = Group(body, *self.stage_extra, *self.stage_pending) if body is not None else None
+                if whole is not None and self.board_mode and whole.width > 2.4 * max(whole.height, 0.01) and \
+                        getattr(body, "free_area", None) != "left":
+                    # A wide, flat picture (a timeline, a chain across the board) halved beside the working had
+                    # labels too small to read: it keeps the board's width along the top, the working goes below.
+                    top_h = min(sh * 0.42, whole.height * sw / whole.width + 0.2)
+                    top = (cx, cy + sh / 2 - top_h / 2, sw - 0.3, top_h)
+                    moved = self._stage_aside(top)
+                    if moved:
+                        anims.append(moved)
+                    area = (cx, cy - top_h / 2 - 0.1, min(sw, 9.0), sh - top_h - 0.3)
+                elif body is not None and self.board_mode:
                     left = (cx - sw / 4 - 0.1, cy, sw / 2 - 0.3, sh)
                     moved = self._stage_aside(left)
                     if moved:

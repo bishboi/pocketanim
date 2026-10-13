@@ -203,8 +203,9 @@ class Seen(GeneratedScene):
         if fig is None or not line:
             return out
         with open({str(seen)!r}, "w") as f:
-            f.write(_json.dumps({{"fig_right": float(fig.get_right()[0]),
-                                 "work_left": min(float(m.get_left()[0]) for m in line)}}))
+            f.write(_json.dumps({{"fig_right": float(fig.get_right()[0]), "fig_bottom": float(fig.get_bottom()[1]),
+                                 "work_left": min(float(m.get_left()[0]) for m in line),
+                                 "work_top": max(float(m.get_top()[1]) for m in line)}}))
         return out
 ''')
     env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
@@ -212,7 +213,8 @@ class Seen(GeneratedScene):
                          capture_output=True, text=True, timeout=600, env=env)
     assert run.returncode == 0, run.stderr[-2000:]
     found = json.loads(seen.read_text())
-    assert found["fig_right"] < found["work_left"], found
+    # Beside it, or under it when the figure is wide and flat (this one is a single line): never over it.
+    assert found["fig_right"] < found["work_left"] or found["fig_bottom"] > found["work_top"], found
 
 
 def test_a_figure_that_redraws_itself_is_moved_aside_and_exported(tmp_path, monkeypatch):
@@ -283,3 +285,36 @@ def test_a_figure_area_is_left_or_full():
     script = _script(BUILD)
     script["chapters"][0]["beats"][0]["do"][0]["area"] = "right"
     assert any("area" in e for e in cl.lint(script)[0])
+
+
+def test_notes_go_under_a_wide_picture_and_beside_a_tall_one(tmp_path):
+    # A working (here notes in words) beside a timeline halved it, and its labels could not be read: a wide picture
+    # keeps the board's width along the top, the column under it.
+    script = {"title": "T", "style": "lab", "chapters": [{"title": "Era", "map": False, "beats": [
+        {"say": "The medieval era.", "do": [{"op": "timeline", "title": "The medieval era",
+                                             "events": [["476", "Rome falls"], ["1453", "Constantinople falls"]]}]},
+        {"say": "Why these dates.", "do": [{"op": "work", "id": "n", "lines": ["476: the last emperor is removed."]}]},
+    ]}]}
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.json"
+    scene.write_text(cl.compile_script(script) + f'''
+
+class Seen(GeneratedScene):
+    def beat(self, *a, **kw):
+        out = super().beat(*a, **kw)
+        import json as _json
+        if self.works:
+            w = next(iter(self.works.values()))
+            body = self.stage_body
+            with open({str(seen)!r}, "w") as f:
+                f.write(_json.dumps({{"body_bottom": float(body.get_bottom()[1]), "body_width": float(body.width),
+                                     "line_top": float(w["lines"][0].get_top()[1])}}))
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    found = json.loads(seen.read_text())
+    assert found["line_top"] < found["body_bottom"], found      # the notes under the timeline
+    assert found["body_width"] > 8, found                        # which keeps most of the board's width

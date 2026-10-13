@@ -4472,6 +4472,8 @@ class Lecture(Scene):
         """
         # A build that records some chapters only (export_dsl's chapter window, chapters built side by side)
         # starts and stops recording here.
+        # The title, for a hook that lists the chapters (the phone's chapter list: export_dsl).
+        self._chapter_title = title
         for hook in CHAPTER_HOOKS:
             hook(self, num)
         if self.on_stage():

@@ -1,0 +1,325 @@
+{
+  "version": 1,
+  "glyph_atlas": {
+    "path": "library.atlas",
+    "bytes": 19422,
+    "sha256_16": "0db242be198ed7eb"
+  },
+  "assets": [
+    {
+      "path": "assets/00301049ed.panm",
+      "bytes": 1027,
+      "sha256_16": "e166fb230d151c6f"
+    },
+    {
+      "path": "assets/00c9e798e5.panm",
+      "bytes": 2569,
+      "sha256_16": "f297fdc59140ace3"
+    },
+    {
+      "path": "assets/0195a5fd18.panm",
+      "bytes": 4586,
+      "sha256_16": "e192cec16d409852"
+    },
+    {
+      "path": "assets/032f121ba8.panm",
+      "bytes": 5858,
+      "sha256_16": "db30f9a1f0c11895"
+    },
+    {
+      "path": "assets/04035ae39d.panm",
+      "bytes": 124,
+      "sha256_16": "0657587d3cddce56"
+    },
+    {
+      "path": "assets/0d7aa70aa6.panm",
+      "bytes": 4044,
+      "sha256_16": "c8ba2f1824ca90fd"
+    },
+    {
+      "path": "assets/0de050e433.panm",
+      "bytes": 5687,
+      "sha256_16": "bdcddd8419733efc"
+    },
+    {
+      "path": "assets/0f1c1fc61f.panm",
+      "bytes": 96,
+      "sha256_16": "7aa20e3437c28d9b"
+    },
+    {
+      "path": "assets/1d1b3848b6.panm",
+      "bytes": 4990,
+      "sha256_16": "97838688bc749a29"
+    },
+    {
+      "path": "assets/21b8aa0ab9.panm",
+      "bytes": 488,
+      "sha256_16": "1ec1a53381a5d930"
+    },
+    {
+      "path": "assets/2f9774c1b8.panm",
+      "bytes": 8400,
+      "sha256_16": "a575d3694f167b32"
+    },
+    {
+      "path": "assets/3ff81cf618.panm",
+      "bytes": 444,
+      "sha256_16": "fe41fb1744aab0e5"
+    },
+    {
+      "path": "assets/5176be0e3e.panm",
+      "bytes": 54895,
+      "sha256_16": "2e6926e6fb13477b"
+    },
+    {
+      "path": "assets/569ad21fa9.panm",
+      "bytes": 249,
+      "sha256_16": "c12e38c166f5cc81"
+    },
+    {
+      "path": "assets/5a9ffaf2c9.panm",
+      "bytes": 292,
+      "sha256_16": "5b1834bf47ed872d"
+    },
+    {
+      "path": "assets/697f4249a2.panm",
+      "bytes": 145,
+      "sha256_16": "b45be1e3e544049d"
+    },
+    {
+      "path": "assets/6d299f12d0.panm",
+      "bytes": 6164,
+      "sha256_16": "ada62ed3540cc772"
+    },
+    {
+      "path": "assets/6e0b7ad4ff.panm",
+      "bytes": 245,
+      "sha256_16": "c6cdd6c572421eb1"
+    },
+    {
+      "path": "assets/6e413021f5.panm",
+      "bytes": 5556,
+      "sha256_16": "2f28b1dea9696539"
+    },
+    {
+      "path": "assets/7104b254b3.panm",
+      "bytes": 9582,
+      "sha256_16": "673f50b72b31aeb7"
+    },
+    {
+      "path": "assets/72b2f0b768.panm",
+      "bytes": 4096,
+      "sha256_16": "e30191e82694ba04"
+    },
+    {
+      "path": "assets/75f37e9ce5.panm",
+      "bytes": 10608,
+      "sha256_16": "d7fdb078dd3162ff"
+    },
+    {
+      "path": "assets/798d483e03.panm",
+      "bytes": 537,
+      "sha256_16": "0e835e5b0a431801"
+    },
+    {
+      "path": "assets/7ff3f49e6c.panm",
+      "bytes": 5876,
+      "sha256_16": "232f40eaf005fd2e"
+    },
+    {
+      "path": "assets/857d25ebaa.panm",
+      "bytes": 42840,
+      "sha256_16": "24e0d22381951661"
+    },
+    {
+      "path": "assets/866fd1fd1b.panm",
+      "bytes": 9473,
+      "sha256_16": "348da89b52306967"
+    },
+    {
+      "path": "assets/8dbe5a939a.panm",
+      "bytes": 38971,
+      "sha256_16": "589da69d1e62fb4b"
+    },
+    {
+      "path": "assets/8ded7f8670.panm",
+      "bytes": 369,
+      "sha256_16": "0be8588639dd1d34"
+    },
+    {
+      "path": "assets/93218e17cf.panm",
+      "bytes": 6394,
+      "sha256_16": "cde931023ac5ef08"
+    },
+    {
+      "path": "assets/9abd19c30c.panm",
+      "bytes": 6003,
+      "sha256_16": "ecfe851ef3f205a0"
+    },
+    {
+      "path": "assets/9bab7ce12b.panm",
+      "bytes": 145,
+      "sha256_16": "adc8e4b21dfc6de4"
+    },
+    {
+      "path": "assets/9f45eb5a92.panm",
+      "bytes": 194,
+      "sha256_16": "7cf22a4c7bb634cd"
+    },
+    {
+      "path": "assets/9fdbcff88b.panm",
+      "bytes": 2329,
+      "sha256_16": "e7d6d834c20d5b51"
+    },
+    {
+      "path": "assets/a5c23c10a9.panm",
+      "bytes": 3236,
+      "sha256_16": "d1f968fbcfe01fb2"
+    },
+    {
+      "path": "assets/a5f452c588.panm",
+      "bytes": 1202,
+      "sha256_16": "36661b1c777089c3"
+    },
+    {
+      "path": "assets/a9592ac4b0.panm",
+      "bytes": 249,
+      "sha256_16": "9826786e6931dc35"
+    },
+    {
+      "path": "assets/b36e139e9e.panm",
+      "bytes": 145,
+      "sha256_16": "002a66d025901ff6"
+    },
+    {
+      "path": "assets/b69a33784e.panm",
+      "bytes": 586,
+      "sha256_16": "504fd99e05481815"
+    },
+    {
+      "path": "assets/c35d3f84da.panm",
+      "bytes": 712,
+      "sha256_16": "79639157e7abcea4"
+    },
+    {
+      "path": "assets/c4c5e3d38e.panm",
+      "bytes": 47,
+      "sha256_16": "24a1c0254d931fc2"
+    },
+    {
+      "path": "assets/dca9650014.panm",
+      "bytes": 145,
+      "sha256_16": "62c4d6e444f96fa7"
+    },
+    {
+      "path": "assets/e2eef0dd60.panm",
+      "bytes": 60799,
+      "sha256_16": "1abe03b7b7d57abf"
+    },
+    {
+      "path": "assets/e41b4489b1.panm",
+      "bytes": 3949,
+      "sha256_16": "c9452fc4140df6b6"
+    },
+    {
+      "path": "assets/e878bb43a0.panm",
+      "bytes": 9048,
+      "sha256_16": "e8a6996476cd5f9c"
+    },
+    {
+      "path": "assets/ecd6fd9ec0.panm",
+      "bytes": 684,
+      "sha256_16": "500e5384c3db0db7"
+    },
+    {
+      "path": "assets/ecea2ecd81.panm",
+      "bytes": 878,
+      "sha256_16": "7458b030ee184b16"
+    },
+    {
+      "path": "assets/effd7469a4.panm",
+      "bytes": 2569,
+      "sha256_16": "5b0b9253e2897890"
+    },
+    {
+      "path": "assets/f4f3328a27.panm",
+      "bytes": 3949,
+      "sha256_16": "5c1a928780a99f44"
+    }
+  ],
+  "scenes": [
+    {
+      "name": "GeneratedScene",
+      "tier": 1,
+      "program": "scenes/GeneratedScene.panim",
+      "program_bytes": 3990,
+      "assets": [
+        "assets/00301049ed.panm",
+        "assets/00c9e798e5.panm",
+        "assets/0195a5fd18.panm",
+        "assets/032f121ba8.panm",
+        "assets/04035ae39d.panm",
+        "assets/0d7aa70aa6.panm",
+        "assets/0de050e433.panm",
+        "assets/0f1c1fc61f.panm",
+        "assets/1d1b3848b6.panm",
+        "assets/21b8aa0ab9.panm",
+        "assets/2f9774c1b8.panm",
+        "assets/3ff81cf618.panm",
+        "assets/5176be0e3e.panm",
+        "assets/569ad21fa9.panm",
+        "assets/5a9ffaf2c9.panm",
+        "assets/697f4249a2.panm",
+        "assets/6d299f12d0.panm",
+        "assets/6e0b7ad4ff.panm",
+        "assets/6e413021f5.panm",
+        "assets/7104b254b3.panm",
+        "assets/72b2f0b768.panm",
+        "assets/75f37e9ce5.panm",
+        "assets/798d483e03.panm",
+        "assets/7ff3f49e6c.panm",
+        "assets/857d25ebaa.panm",
+        "assets/866fd1fd1b.panm",
+        "assets/8dbe5a939a.panm",
+        "assets/8ded7f8670.panm",
+        "assets/93218e17cf.panm",
+        "assets/9abd19c30c.panm",
+        "assets/9bab7ce12b.panm",
+        "assets/9f45eb5a92.panm",
+        "assets/9fdbcff88b.panm",
+        "assets/a5c23c10a9.panm",
+        "assets/a5f452c588.panm",
+        "assets/a9592ac4b0.panm",
+        "assets/b36e139e9e.panm",
+        "assets/b69a33784e.panm",
+        "assets/c35d3f84da.panm",
+        "assets/c4c5e3d38e.panm",
+        "assets/dca9650014.panm",
+        "assets/e2eef0dd60.panm",
+        "assets/e41b4489b1.panm",
+        "assets/e878bb43a0.panm",
+        "assets/ecd6fd9ec0.panm",
+        "assets/ecea2ecd81.panm",
+        "assets/effd7469a4.panm",
+        "assets/f4f3328a27.panm"
+      ],
+      "needs_glyph_atlas": true,
+      "frames": 1375,
+      "playable_bytes": 335464,
+      "chapters": [
+        {
+          "number": 1,
+          "title": "Reflection",
+          "frame": 115
+        },
+        {
+          "number": 2,
+          "title": "A formula map",
+          "frame": 978
+        }
+      ],
+      "audio": "audio/GeneratedScene.ogg",
+      "audio_bytes": 265933
+    }
+  ]
+}

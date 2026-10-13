@@ -11,7 +11,7 @@ not a protocol.
     library/
       library.json          every scene, its tier, its bytes, its asset ids
       library.atlas         the shared glyph atlas (§3.5)
-      scenes/<name>.json    one scene's manifest
+      scenes/<name>.json    one scene's manifest (with its chapters: [{number, title, frame}])
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
       assets/<digest>.panm  baked geometry, shared
@@ -233,6 +233,11 @@ def main() -> int:
             wanted_assets.update(entry["assets"])
         if container:
             shutil.copy(container, out / "scenes" / f"{name}.panm")
+
+        # Where each chapter begins, for the player's chapter list and the marks on its seek bar.
+        chapters = PROGRAMS / f"{name}.chapters.json"
+        if chapters.exists():
+            entry["chapters"] = json.loads(chapters.read_text())
 
         narration = PROGRAMS / f"{name}.narration.wav"
         if narration.exists():

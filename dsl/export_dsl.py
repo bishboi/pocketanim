@@ -69,6 +69,8 @@ class Recorder:
         self.names: dict[int, str] = {}
         self.keep: list = []
         self.counter = 0
+        # (chapter number, title, timeline position) as each recorded chapter begins (chapter_starts).
+        self.chapters: list = []
         # Mobjects whose geometry is already inside a declared group asset.
         # Manim's introducer animations add each child to the scene on
         # clean-up, and declaring those again would put every atom on stage
@@ -2148,10 +2150,16 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             if len(bits) > 1 and bits[1] not in here:
                 rec.timeline.append(f"hide {bits[1]}")
 
+    def chapter_starts(scene, num) -> None:
+        # Where each chapter begins in the program, for the phone's chapter list and the marks on its seek bar.
+        if rec.recording:
+            rec.chapters.append((num, str(getattr(scene, "_chapter_title", "") or f"Chapter {num}"), len(rec.timeline)))
+
     lecture = sys.modules.get("pocket_lecture")
     stale_hooks = getattr(lecture, "CHAPTER_HOOKS", None)
     if stale_hooks is not None:
         stale_hooks.insert(0, stale_off)
+        stale_hooks.append(chapter_starts)
 
     try:
         with tempconfig(
@@ -2175,8 +2183,10 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
     finally:
         if hooks is not None:
             hooks.clear()
-        if stale_hooks is not None and stale_off in stale_hooks:
-            stale_hooks.remove(stale_off)
+        if stale_hooks is not None:
+            for hook in (stale_off, chapter_starts):
+                if hook in stale_hooks:
+                    stale_hooks.remove(hook)
         CairoRenderer.play = original_cairo_play
         TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]

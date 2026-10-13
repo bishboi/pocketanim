@@ -2,599 +2,868 @@ package com.pocketanim.player
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.OpenableColumns
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.SeekBar
+import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
-import com.pocketanim.android.AssetStorage
-import com.pocketanim.android.FileStorage
 import com.pocketanim.android.PanimView
+import com.pocketanim.core.Chapter
+import com.pocketanim.core.Frames
 import com.pocketanim.core.Library
 import com.pocketanim.core.LibraryImport
 import com.pocketanim.core.SavedLectures
 import com.pocketanim.core.SceneEntry
 import com.pocketanim.core.Storage
 import java.io.File
-import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * The player, as a viewer meets it.
+ * The player, as a viewer meets it: like a video, though nothing here is a video. The lecture is a program the
+ * phone draws frame by frame as it plays, which is why it starts after a few megabytes, seeks instantly and looks
+ * sharp at any size.
  *
- * Everything before this measured whether frames can be produced fast enough.
- * This is the part that decides whether that is worth anything: a scene opens,
- * plays, pauses, scrubs and loops, driven by a clock rather than by a loop that
- * renders as fast as it can. The benchmark never touched [PanimView], so none
- * of that had run on a phone until this existed.
+ * A saved lecture streams: its program and pictures (a few MB) come first and it starts; its narration plays from
+ * the network while it is kept on the phone for next time. The picture follows the narration, and holds -- with a
+ * spinner, as a video buffers -- when the network falls behind.
  *
- * What plays is a *program*. `HelloPocketanim` is 277 bytes of DSL and one text
- * asset; there is no video file anywhere in the APK, and nothing is decoded.
- * The frames are computed on the device as it draws them, which is why seeking
- * is instant and why the whole library is smaller than a single second of H.264.
+ * Tap the picture for the controls (they hide themselves while it plays); double-tap its left or right side to go
+ * back or on ten seconds. Turn the phone, or press the corner button, for the whole screen.
  */
 class PlayerActivity : Activity() {
 
+    companion object {
+        private const val EXTRA_KIND = "kind"
+        private const val EXTRA_ID = "id"
+        private const val EXTRA_TITLE = "title"
+        private const val EXTRA_FROM_START = "from_start"
+        private const val TICK_MILLIS = 66L
+        private const val HIDE_AFTER_MILLIS = 3200L
+        private const val SKIP_SECONDS = 10.0
+        private val SPEEDS = doubleArrayOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+
+        fun intent(context: Context, lecture: Lecture, fromStart: Boolean): Intent =
+            Intent(context, PlayerActivity::class.java)
+                .putExtra(EXTRA_FROM_START, fromStart)
+                .putExtra(EXTRA_TITLE, lecture.title)
+                .also { intent ->
+                    when (lecture) {
+                        is Lecture.Saved -> intent.putExtra(EXTRA_KIND, "saved").putExtra(EXTRA_ID, lecture.entry.buildId)
+                        is Lecture.Imported -> intent.putExtra(EXTRA_KIND, "dir").putExtra(EXTRA_ID, lecture.dir.path)
+                        is Lecture.Sample -> intent.putExtra(EXTRA_KIND, "sample").putExtra(EXTRA_ID, lecture.scene)
+                    }
+                }
+    }
+
+    private lateinit var lecture: Lecture
+    private lateinit var root: LinearLayout
+    private lateinit var stage: FrameLayout
     private lateinit var view: PanimView
-    private lateinit var playButton: Button
-    private lateinit var sceneButton: Button
-    private lateinit var importButton: Button
-    private lateinit var savedButton: Button
-    private lateinit var loopButton: Button
-    private lateinit var seekBar: SeekBar
+    private lateinit var overlay: FrameLayout
+    private lateinit var controls: FrameLayout
+    private lateinit var playButton: ImageView
+    private lateinit var timeline: TimelineView
     private lateinit var timeLabel: TextView
+    private lateinit var chapterLabel: TextView
     private lateinit var titleLabel: TextView
+    private lateinit var speedButton: TextView
+    private lateinit var fullscreenButton: ImageView
+    private lateinit var spinner: ProgressBar
+    private lateinit var loadingLabel: TextView
+    private lateinit var hint: TextView
+    private lateinit var notice: TextView
+    private lateinit var endCard: LinearLayout
+    private lateinit var details: ScrollView
+    private lateinit var chapterList: LinearLayout
+    private lateinit var infoLabel: TextView
 
-    /**
-     * One scene the picker offers, with the library it lives in: a lecture imported from the harness, a library
-     * pushed with adb, or the samples inside the APK. [label] is what the viewer sees (an import's file name: every
-     * lecture's scene is called GeneratedScene).
-     */
-    private class Item(val entry: SceneEntry, val library: Library, val storage: Storage, val label: String)
+    private var frames: Frames? = null
+    private var scene: SceneEntry? = null
+    private var chapters: List<Chapter> = emptyList()
+    private var fps = 30
+    private var frameCount = 1
 
-    private var items: List<Item> = emptyList()
-    private var current: Item? = null
-
-    /** Where imported lectures live, one folder each, named after the zip they came from. */
-    private val importRoot: File by lazy { File(filesDir, "imported") }
-
-    /** Where saved lectures are downloaded, one folder each, by build id. */
-    private val savedRoot: File by lazy { File(filesDir, "saved") }
-
-    /** True while a finger is on the bar, so the ticker stops fighting it. */
+    /** What the viewer asked for: playing or not. Buffering holds the picture without changing this. */
+    private var wantPlaying = false
+    private var heldForNetwork = false
+    private var controlsShown = true
     private var scrubbing = false
+    private var endShown = false
+    private var speed = 1.0
+    private var lastSaved = 0L
+    private var shownChapter = -1
+    private var loadedFraction = 1f
 
-    private val ticker = Handler(Looper.getMainLooper())
+    private val narrationFetch = AtomicBoolean(false)
+    private val main = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
-            syncTransport()
-            ticker.postDelayed(this, TICK_MILLIS)
+            sync()
+            main.postDelayed(this, TICK_MILLIS)
         }
     }
+    private val hideControls = Runnable { if (wantPlaying && !scrubbing) setControls(false) }
+
+    private var focus: AudioFocusRequest? = null
+    private val noisy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            // Headphones pulled out: stop, as a video app does, rather than speak to the room.
+            if (wantPlaying) togglePlay()
+        }
+    }
+
+    // ---- life ---------------------------------------------------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // A player that lets the screen sleep mid-scene is not a player.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        setContentView(buildUi())
-
-        reload(select = null)
-        // Opened with a lecture's zip (the harness's "Download for the phone", tapped on the phone).
-        handle(intent)
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handle(intent)
-    }
-
-    private fun handle(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_VIEW) intent.data?.let(::importFrom)
-    }
-
-    /**
-     * Every scene there is to play: imported lectures first, newest first; then a library pushed with adb; then
-     * the samples in the APK, HelloPocketanim first. Opens [select] (an import's name) when given, else the first.
-     */
-    private fun reload(select: String?) {
-        val found = ArrayList<Item>()
-        val problems = ArrayList<String>()
-        // Saved lectures (downloaded from Supabase) and imported zips: newest first. A folder with a dot in its name
-        // is one being written (.importing, .downloading, .old).
-        listOf(savedRoot, importRoot)
-            .flatMap { root -> root.listFiles()?.filter { it.isDirectory && !it.name.contains('.') }.orEmpty() }
-            .sortedByDescending { it.lastModified() }
-            .forEach { dir: File ->
-                try {
-                    val storage = LibraryImport.DirStorage(dir)
-                    val library = Library.load(storage)
-                    // A saved lecture's download carries its catalog label; an import is called by its file name.
-                    val name = File(dir, TITLE_FILE).takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null } ?: dir.name
-                    library.scenes.forEach { entry ->
-                        val label = if (library.scenes.size == 1) name else "$name · ${entry.name}"
-                        found.add(Item(entry, library, storage, label))
-                    }
-                } catch (e: Exception) {
-                    problems.add("${dir.name}: ${e.message}")
-                }
-            }
-        // A library pushed next to the app wins over the one inside it, so a
-        // scene built in the harness plays without rebuilding the APK:
-        //   adb push <library> /sdcard/Android/data/com.pocketanim.player/files/library
-        val pushed = getExternalFilesDir(null)?.let { File(it, "library") }
-        val storage: Storage = if (pushed != null && File(pushed, "library.json").isFile) FileStorage(pushed)
-            else AssetStorage(assets)
-        try {
-            val library = Library.load(storage)
-            // The sample first, then everything else alphabetically: the point of
-            // the app is that one scene, and a picker that buries it is a worse
-            // demonstration than one that does not.
-            library.scenes.sortedBy { if (it.name == SAMPLE) "" else it.name }
-                .forEach { found.add(Item(it, library, storage, it.name)) }
-        } catch (e: Exception) {
-            problems.add("the built-in library: ${e.message}")
-        }
-        items = found
-        if (items.isEmpty()) {
-            fail("nothing to play" + if (problems.isEmpty()) "" else ": ${problems.first()}")
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+        lecture = lectureFrom(intent) ?: run {
+            finish()
             return
         }
-        setControls(true)
-        open(items.firstOrNull { select != null && it.label.startsWith(select) } ?: items.first())
-    }
-
-    // ---- saved lectures (the harness's Save, in Supabase) ----------------------------------------------------
-
-    /** The Supabase project saved lectures come from: set in the app, or shipped in assets/supabase.json. */
-    private fun project(): SavedLectures.Project? {
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        var url = prefs.getString("url", null)
-        var key = prefs.getString("anon_key", null)
-        if (url.isNullOrBlank() || key.isNullOrBlank()) {
-            try {
-                val shipped = com.pocketanim.core.Json.parse(String(assets.open("supabase.json").use { it.readBytes() }))
-                url = shipped["url"]?.asString
-                key = shipped["anon_key"]?.asString
-            } catch (_: Exception) {
-            }
-        }
-        return if (url.isNullOrBlank() || key.isNullOrBlank()) null else SavedLectures.Project(url, key)
-    }
-
-    /** Ask for the project's URL and anon key (Supabase: Project Settings -> API), then show the saved lectures. */
-    private fun configure(then: Boolean = true) {
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val known = project()
-        val url = EditText(this).apply {
-            hint = "https://<project>.supabase.co"
-            setText(known?.url ?: "")
-            setSingleLine()
-        }
-        val key = EditText(this).apply {
-            hint = "anon public key"
-            setText(known?.anonKey ?: "")
-            setSingleLine()
-        }
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(PAD, PAD / 2, PAD, 0)
-            addView(url)
-            addView(key)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Where lectures are saved")
-            .setMessage("The Supabase project the harness saves to: its URL and anon key (Project Settings → API).")
-            .setView(form)
-            .setPositiveButton("Save") { _, _ ->
-                prefs.edit().putString("url", url.text.toString().trim()).putString("anon_key", key.text.toString().trim()).apply()
-                if (then) showSaved()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    /** The lectures saved from the harness: pick one, and it is downloaded (once) and played. */
-    private fun showSaved() {
-        val project = project() ?: return configure()
-        titleLabel.text = "Looking for saved lectures…"
-        Thread {
-            val result = runCatching { SavedLectures.catalog(project) }
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { entries ->
-                        if (entries.isEmpty()) {
-                            // Which project it asked, so a phone pointed at another one (Settings) is plain to see.
-                            titleLabel.text = "No saved lectures in ${project.url.removePrefix("https://")}. In the web " +
-                                "app, Save after a build, then \"Check the phone's Saved list\" says what it holds."
-                            return@fold
-                        }
-                        val names = entries.map { e ->
-                            val have = File(savedRoot, e.buildId).isDirectory
-                            "${e.label}${if (have) "  ✓" else "  (${humanBytes(e.libraryBytes)})"}"
-                        }.toTypedArray()
-                        titleLabel.text = current?.let { "${it.label}" } ?: ""
-                        AlertDialog.Builder(this)
-                            .setTitle("Saved lectures")
-                            .setItems(names) { _, which -> playSaved(project, entries[which]) }
-                            .setNeutralButton("Settings") { _, _ -> configure() }
-                            .setNegativeButton("Close", null)
-                            .show()
-                    },
-                    onFailure = {
-                        titleLabel.text = "Could not list saved lectures: ${it.message}"
-                        AlertDialog.Builder(this)
-                            .setTitle("Saved lectures")
-                            .setMessage("Could not reach the saved lectures:\n${it.message}")
-                            .setPositiveButton("Settings") { _, _ -> configure() }
-                            .setNegativeButton("Close", null)
-                            .show()
-                    },
-                )
-            }
-        }.start()
-    }
-
-    /** Play a saved lecture, downloading it first unless it already is on the phone. */
-    private fun playSaved(project: SavedLectures.Project, entry: SavedLectures.Entry) {
-        val dest = File(savedRoot, entry.buildId)
-        if (dest.isDirectory) {
-            reload(select = entry.label)
-            return
-        }
-        view.pause()
-        titleLabel.text = "Downloading ${entry.label}…"
-        Thread {
-            val result = runCatching {
-                SavedLectures.download(project, entry, dest) { progress ->
-                    runOnUiThread { titleLabel.text = "Downloading ${entry.label}… $progress" }
-                }
-                File(dest, TITLE_FILE).writeText(entry.label)
-            }
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { reload(select = entry.label) },
-                    onFailure = { titleLabel.text = "Could not download ${entry.label}: ${it.message}" },
-                )
-            }
-        }.start()
-    }
-
-    /** Pick a lecture's zip from the phone's files (Downloads, a chat app, a drive). */
-    private fun pickZip() {
-        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT)
-            .addCategory(Intent.CATEGORY_OPENABLE)
-            .setType("*/*")
-            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed",
-                "application/octet-stream"))
-        try {
-            @Suppress("DEPRECATION")
-            startActivityForResult(pick, PICK_ZIP)
-        } catch (e: Exception) {
-            titleLabel.text = "no file picker on this phone: ${e.message}"
-        }
-    }
-
-    @Deprecated("Activity result API needs AndroidX; this app has no dependencies")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PICK_ZIP && resultCode == RESULT_OK) data?.data?.let(::importFrom)
-    }
-
-    /**
-     * Unpack a lecture's zip into app storage, off the main thread (it hashes every file), then play it. A zip
-     * that is not a whole library is refused with the reason and nothing already imported is touched.
-     */
-    private fun importFrom(uri: Uri) {
-        val name = importName(uri)
-        titleLabel.text = "Importing $name…"
-        view.pause()
-        Thread {
-            val result = runCatching {
-                val input = contentResolver.openInputStream(uri) ?: error("cannot read $uri")
-                input.use { LibraryImport.unpack(it, File(importRoot, name)) }
-            }
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { reload(select = name) },
-                    onFailure = { titleLabel.text = "Could not import $name: ${it.message}" },
-                )
-            }
-        }.start()
-    }
-
-    /** The import's folder name: the zip's file name, made safe for a folder and without ".zip". */
-    private fun importName(uri: Uri): String {
-        var shown: String? = null
-        try {
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) shown = cursor.getString(0)
-            }
-        } catch (_: Exception) {
-        }
-        val raw = (shown ?: uri.lastPathSegment ?: "lecture").substringAfterLast('/')
-            .removeSuffix(".zip").removeSuffix("-library")
-        return raw.replace(Regex("[^A-Za-z0-9_-]+"), "-").trim('-').take(80).ifEmpty { "lecture" }
-    }
-
-    private fun buildUi(): View {
-        view = PanimView(this)
-
-        titleLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            setPadding(PAD, PAD, PAD, 0)
-        }
-
-        // Centred in a black frame. PanimView measures itself to Manim's 16:9
-        // rather than filling, so on a 20:9 phone this is what puts the letterbox
-        // either side of it instead of leaving the scene hard against one edge.
-        val stage = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            addView(
-                view,
-                FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER),
-            )
-        }
-
-        playButton = Button(this).apply {
-            text = PLAY
-            setOnClickListener { togglePlay() }
-        }
-        loopButton = Button(this).apply {
-            text = "Loop: on"
-            setOnClickListener { toggleLoop() }
-        }
-        sceneButton = Button(this).apply {
-            text = "Scene"
-            setOnClickListener { chooseScene() }
-        }
-        importButton = Button(this).apply {
-            text = "Import"
-            setOnClickListener { pickZip() }
-        }
-        savedButton = Button(this).apply {
-            text = "Saved"
-            setOnClickListener { showSaved() }
-            setOnLongClickListener {
-                configure(then = false)
-                true
-            }
-        }
-        timeLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(PAD, 0, PAD, 0)
-        }
-
-        seekBar = SeekBar(this).apply {
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
-                    // Only a drag seeks. Echoing the ticker's own writes back
-                    // into the clock would make playback stutter against itself.
-                    if (fromUser) {
-                        view.seekToFrame(value)
-                        showTime(value)
-                    }
-                }
-
-                override fun onStartTrackingTouch(bar: SeekBar) {
-                    scrubbing = true
-                }
-
-                override fun onStopTrackingTouch(bar: SeekBar) {
-                    scrubbing = false
-                }
-            })
-        }
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(playButton, LinearLayout.LayoutParams(WRAP, WRAP))
-            addView(seekBar, LinearLayout.LayoutParams(0, WRAP, 1f))
-            addView(timeLabel, LinearLayout.LayoutParams(WRAP, WRAP))
-            addView(loopButton, LinearLayout.LayoutParams(WRAP, WRAP))
-            addView(sceneButton, LinearLayout.LayoutParams(WRAP, WRAP))
-            addView(savedButton, LinearLayout.LayoutParams(WRAP, WRAP))
-            addView(importButton, LinearLayout.LayoutParams(WRAP, WRAP))
-        }
-
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
-            addView(titleLabel, LinearLayout.LayoutParams(MATCH, WRAP))
-            addView(stage, LinearLayout.LayoutParams(MATCH, 0, 1f))
-            addView(controls, LinearLayout.LayoutParams(MATCH, WRAP))
-        }
-    }
-
-    private fun open(item: Item) {
-        val entry = item.entry
-        val frames = try {
-            item.library.open(entry.name)
-        } catch (e: Throwable) {
-            // OutOfMemoryError included: a lecture too big for this phone is a message, not the app closing.
-            titleLabel.text = "cannot open ${item.label}: ${e.message ?: e.javaClass.simpleName}"
-            return
-        }
-        current = item
-        view.load(frames)
-        view.playback?.looping = true
-
-        seekBar.max = (frames.frameCount - 1).coerceAtLeast(0)
-        seekBar.progress = 0
-        val seconds = frames.frameCount.toDouble() / frames.fps
-        titleLabel.text = String.format(
-            Locale.ROOT,
-            "%s  ·  tier %d  ·  %d frames at %d fps  ·  %.1fs  ·  %s on the wire",
-            item.label, entry.tier, frames.frameCount, frames.fps, seconds,
-            humanBytes(entry.playableBytes),
-        )
-        showTime(0)
-        entry.audio?.let { attachNarration(item, it) }
-        view.play()
-        playButton.text = PAUSE
-    }
-
-    /**
-     * Play the scene's narration against its frames.
-     *
-     * The player decodes from a file, and an APK asset is not one, so the
-     * track is copied out to the cache once. A scene whose narration is
-     * missing or unreadable still plays, silently -- audio is optional by
-     * design (§5.3), and the picture keeps the system clock.
-     */
-    private fun attachNarration(item: Item, path: String) {
-        try {
-            // Keyed by the item's label too: two imported lectures are both GeneratedScene, with different voices.
-            val key = "${item.label}-${item.entry.name}".replace(Regex("[^A-Za-z0-9_-]+"), "-")
-            // An imported or downloaded lecture's track is already a file: decoded where it is. One packed in the
-            // APK is copied out once, streamed -- read whole, an hour of narration ran the phone out of memory.
-            val file = item.storage.file(path)?.takeIf { it.isFile }
-                ?: File(cacheDir, "narration-$key-${path.substringAfterLast('/')}").also { copy ->
-                    if (!copy.isFile || copy.length() != item.storage.sizeOf(path)) {
-                        item.storage.open(path).use { input -> copy.outputStream().use { input.copyTo(it, 64 * 1024) } }
-                    }
-                }
-            val extractor = MediaExtractor()
-            try {
-                extractor.setDataSource(file.absolutePath)
-                val format = (0 until extractor.trackCount)
-                    .map { extractor.getTrackFormat(it) }
-                    .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
-                    ?: return
-                view.attachAudio(
-                    file,
-                    format.getInteger(MediaFormat.KEY_SAMPLE_RATE),
-                    format.getInteger(MediaFormat.KEY_CHANNEL_COUNT),
-                )
-            } finally {
-                extractor.release()
-            }
-        } catch (e: Throwable) {
-            // OutOfMemoryError included: the lecture plays on, silent, rather than the app closing.
-            titleLabel.text = "${titleLabel.text}  ·  narration unavailable: ${e.message ?: e.javaClass.simpleName}"
-        }
-    }
-
-    private fun togglePlay() {
-        val playback = view.playback ?: return
-        if (playback.playing) {
-            view.pause()
-            playButton.text = PLAY
-        } else {
-            // Replay rather than sit on the last frame: reaching the end with
-            // looping off stops the clock there, and a play button that does
-            // nothing is indistinguishable from a broken one.
-            if (playback.currentFrame() >= playback.frameCount - 1) view.seekToFrame(0)
-            view.play()
-            playButton.text = PAUSE
-        }
-    }
-
-    private fun toggleLoop() {
-        val playback = view.playback ?: return
-        playback.looping = !playback.looping
-        loopButton.text = if (playback.looping) "Loop: on" else "Loop: off"
-    }
-
-    private fun chooseScene() {
-        val names = items.map { "${it.label}  (tier ${it.entry.tier})" }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Scene")
-            .setItems(names) { _, which -> open(items[which]) }
-            .show()
-    }
-
-    private fun syncTransport() {
-        val playback = view.playback ?: return
-        if (!scrubbing) {
-            val frame = playback.currentFrame()
-            seekBar.progress = frame
-            showTime(frame)
-        }
-        val wanted = if (playback.playing) PAUSE else PLAY
-        if (playButton.text != wanted) playButton.text = wanted
-    }
-
-    private fun showTime(frame: Int) {
-        val fps = view.scene?.fps ?: return
-        val total = view.playback?.frameCount ?: return
-        timeLabel.text = String.format(
-            Locale.ROOT, "%s / %s", clock(frame, fps), clock(total - 1, fps),
-        )
-    }
-
-    private fun clock(frame: Int, fps: Int): String {
-        val seconds = frame.toDouble() / fps
-        return String.format(Locale.ROOT, "%d:%04.1f", seconds.toInt() / 60, seconds % 60)
-    }
-
-    private fun humanBytes(bytes: Long): String = when {
-        bytes >= 1_000_000 -> String.format(Locale.ROOT, "%.1f MB", bytes / 1e6)
-        bytes >= 1_000 -> String.format(Locale.ROOT, "%.1f kB", bytes / 1e3)
-        else -> "$bytes B"
-    }
-
-    private fun fail(message: String) {
-        titleLabel.text = message
-        setControls(false)
-    }
-
-    /** Import stays usable when nothing else is: it is how there comes to be something to play. */
-    private fun setControls(enabled: Boolean) {
-        playButton.isEnabled = enabled
-        seekBar.isEnabled = enabled
-        sceneButton.isEnabled = enabled
-        loopButton.isEnabled = enabled
+        setContentView(build())
+        layoutFor(resources.configuration.orientation)
+        registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        prepare()
     }
 
     override fun onResume() {
         super.onResume()
-        ticker.post(tick)
+        main.post(tick)
     }
 
     override fun onPause() {
         super.onPause()
-        ticker.removeCallbacks(tick)
-        // Pause on leaving: the surface goes away and the clock would otherwise
-        // keep running, so coming back would jump to wherever it had reached.
-        view.pause()
-        playButton.text = PLAY
+        main.removeCallbacks(tick)
+        if (wantPlaying) togglePlay()
+        remember()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // An AudioTrack outlives the view unless someone says otherwise.
-        view.release()
+        narrationFetch.set(true)
+        runCatching { unregisterReceiver(noisy) }
+        abandonFocus()
+        if (::view.isInitialized) view.release()
     }
 
-    private companion object {
-        const val SAMPLE = "HelloPocketanim"
-        const val PICK_ZIP = 7
-        const val PREFS = "saved_lectures"
-        const val TITLE_FILE = "title.txt"
-        const val PLAY = "Play"
-        const val PAUSE = "Pause"
-        const val TICK_MILLIS = 66L  // ~15 Hz; a scrubber does not need 60
-        const val PAD = 24
-        const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
-        const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        layoutFor(newConfig.orientation)
     }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
+            // Out of the whole screen first, as a video app does; back again leaves.
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            main.postDelayed({ requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }, 1500)
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
+
+    private fun lectureFrom(intent: Intent): Lecture? {
+        val id = intent.getStringExtra(EXTRA_ID) ?: return null
+        return when (intent.getStringExtra(EXTRA_KIND)) {
+            "saved" -> Lectures.savedEntry(this, id)?.let { Lecture.Saved(it, File(Lectures.savedRoot(this), it.buildId)) }
+            "dir" -> Lecture.Imported(File(id), intent.getStringExtra(EXTRA_TITLE) ?: File(id).name)
+            "sample" -> Lecture.Sample(id, 0)
+            else -> null
+        }
+    }
+
+    // ---- getting it ready -----------------------------------------------------------------------------------------
+
+    /**
+     * Get the lecture onto the phone if it is not (a saved one: its program and pictures, a few MB, in one
+     * request), open it, and start. Off the main thread; the stage says how far it has got.
+     */
+    private fun prepare() {
+        loading(true, "Getting ready…")
+        Thread {
+            val result = runCatching {
+                val current = lecture
+                if (current is Lecture.Saved && !current.onPhone) {
+                    val project = Lectures.project(this) ?: error("no Supabase project is set (Library → ⋮)")
+                    SavedLectures.download(project, current.entry, current.dir) { progress ->
+                        if (progress.unit == "bytes" && progress.total > 0) {
+                            val share = progress.done.toFloat() / progress.total
+                            runOnUiThread { loading(true, "Loading the lecture · $progress", share) }
+                        } else runOnUiThread { loading(true, "Loading the lecture · $progress") }
+                    }
+                    File(current.dir, Lectures.TITLE_FILE).writeText(current.title)
+                }
+                runOnUiThread { loading(true, "Opening…") }
+                val storage = Lectures.storageOf(this, lecture)
+                val library = Library.load(storage)
+                val entry = if (lecture is Lecture.Sample) library.entry((lecture as Lecture.Sample).scene)
+                else library.scenes.first()
+                Triple(storage, entry, library.open(entry.name))
+            }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { (storage, entry, opened) -> start(storage, entry, opened) },
+                    onFailure = { error ->
+                        // OutOfMemoryError included: a message, not the app closing.
+                        loading(false)
+                        showNotice("Could not play this lecture: ${error.message ?: error.javaClass.simpleName}",
+                            action = "Back") { finish() }
+                    },
+                )
+            }
+        }.start()
+    }
+
+    private fun start(storage: Storage, entry: SceneEntry, opened: Frames) {
+        frames = opened
+        scene = entry
+        fps = opened.fps
+        frameCount = opened.frameCount.coerceAtLeast(1)
+        chapters = entry.chapters
+        view.load(opened)
+        view.playback?.looping = false
+        view.setSpeed(speed)
+        timeline.durationSeconds = frameCount.toDouble() / fps
+        timeline.chapters = chapters.map { it.frame.toFloat() / frameCount to it.title }
+        fillDetails()
+        loading(false)
+
+        val saved = Lectures.progress(this, lecture.key)
+        val from = intent.getBooleanExtra(EXTRA_FROM_START, false)
+        val total = frameCount.toDouble() / fps
+        if (!from && saved != null && saved.first > 5 && saved.first < total - 10) {
+            view.seekToFrame((saved.first * fps).toInt())
+            showNotice("Resumed at ${Ui.clock(saved.first)}", action = "Start over") { seekSeconds(0.0) }
+        }
+        play()
+        narrate(storage, entry)
+    }
+
+    /**
+     * The narration: from the phone when it is here; else, for a saved lecture, streamed from where Save put it,
+     * and kept on the phone as it plays. The picture plays at once; the voice joins at the picture's place.
+     */
+    private fun narrate(storage: Storage, entry: SceneEntry) {
+        val path = entry.audio ?: return
+        val current = lecture
+        Thread {
+            var source: String? = storage.file(path)?.takeIf { it.isFile && it.length() > 0 }?.absolutePath
+            if (source == null && current is Lecture.Sample) {
+                // Inside the app: copied out once, where the decoder can read it.
+                source = runCatching {
+                    val copy = File(cacheDir, "narration-${current.scene}-${path.substringAfterLast('/')}")
+                    if (!copy.isFile || copy.length() != storage.sizeOf(path)) {
+                        storage.open(path).use { input -> copy.outputStream().use { input.copyTo(it, 64 * 1024) } }
+                    }
+                    copy.absolutePath
+                }.getOrNull()
+            }
+            if (source == null && current is Lecture.Saved) {
+                val project = Lectures.project(this)
+                if (project != null) {
+                    source = SavedLectures.narrationUrl(project, current.entry, path)
+                    runOnUiThread { loadedFraction = 0f }
+                    keepNarration(project, current, path)
+                }
+            }
+            val found = source ?: return@Thread
+            val format = runCatching {
+                val extractor = MediaExtractor()
+                try {
+                    extractor.setDataSource(found)
+                    (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+                        .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+                        ?.let { it.getInteger(MediaFormat.KEY_SAMPLE_RATE) to it.getInteger(MediaFormat.KEY_CHANNEL_COUNT) }
+                } finally {
+                    extractor.release()
+                }
+            }
+            runOnUiThread {
+                val (rate, channels) = format.getOrNull() ?: run {
+                    showNotice("Playing without narration: " +
+                        (format.exceptionOrNull()?.message ?: "it could not be read"))
+                    return@runOnUiThread
+                }
+                if (!isFinishing) view.attachAudio(found, rate, channels)
+            }
+        }.start()
+    }
+
+    /** Download a streamed narration into the lecture's folder, so it plays offline next time. */
+    private fun keepNarration(project: SavedLectures.Project, current: Lecture.Saved, path: String) {
+        Thread {
+            runCatching {
+                SavedLectures.fetchNarration(project, current.entry, path, current.dir, { narrationFetch.get() }) { p ->
+                    if (p.total > 0) runOnUiThread { loadedFraction = p.done.toFloat() / p.total }
+                }
+            }
+            runOnUiThread { loadedFraction = 1f }
+        }.start()
+    }
+
+    // ---- layout -------------------------------------------------------------------------------------------------
+
+    private fun build(): View {
+        view = PanimView(this)
+
+        stage = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        stage.addView(view, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+
+        overlay = FrameLayout(this)
+        stage.addView(overlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                setControls(!controlsShown)
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val third = overlay.width / 3f
+                when {
+                    e.x < third -> skip(-SKIP_SECONDS)
+                    e.x > 2 * third -> skip(SKIP_SECONDS)
+                    else -> togglePlay()
+                }
+                return true
+            }
+        })
+        overlay.setOnTouchListener { _, event -> gestures.onTouchEvent(event) }
+
+        controls = FrameLayout(this)
+        overlay.addView(controls, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Top: back, the title and the chapter, chapters, speed.
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(6f), dp(8f), dp(24f))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xB3000000.toInt(), 0))
+        }
+        top.addView(Ui.iconButton(this, Icon.BACK, description = "Back") { onBackPressedCompat() })
+        val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleLabel = Ui.text(this, 15f, Ui.TEXT, Ui.MEDIUM, lines = 1).apply { text = lecture.title }
+        chapterLabel = Ui.text(this, 12f, 0xCCFFFFFF.toInt(), lines = 1).apply { setPadding(0, dp(3f), 0, 0) }
+        names.addView(titleLabel)
+        names.addView(chapterLabel)
+        top.addView(names, LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(4f) })
+        speedButton = Ui.text(this, 13f, Ui.TEXT, Ui.MEDIUM).apply {
+            text = "1×"
+            gravity = Gravity.CENTER
+            setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
+            background = Ui.pressable(0x33FFFFFF, dp(14f).toFloat())
+            contentDescription = "Playback speed"
+            setOnClickListener { chooseSpeed() }
+        }
+        top.addView(speedButton, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(4f) })
+        top.addView(Ui.iconButton(this, Icon.CHAPTERS, description = "Chapters") { chooseChapter() })
+        controls.addView(top, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+
+        // Middle: back ten seconds, play or pause, on ten seconds.
+        val middle = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        middle.addView(Ui.iconButton(this, Icon.BACK10, size = 52f, fill = 0x40000000, description = "Back 10 seconds") {
+            skip(-SKIP_SECONDS)
+        })
+        playButton = Ui.iconButton(this, Icon.PLAY, size = 68f, fill = 0x66000000, description = "Play") { togglePlay() }
+        middle.addView(playButton, LinearLayout.LayoutParams(dp(68f), dp(68f)).apply {
+            leftMargin = dp(28f)
+            rightMargin = dp(28f)
+        })
+        middle.addView(Ui.iconButton(this, Icon.FORWARD10, size = 52f, fill = 0x40000000,
+            description = "Forward 10 seconds") { skip(SKIP_SECONDS) })
+        controls.addView(middle, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+
+        // Bottom: the time, the timeline, the whole screen.
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8f), dp(28f), dp(8f), dp(2f))
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xB3000000.toInt(), 0))
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10f), 0, 0, 0)
+        }
+        timeLabel = Ui.text(this, 13f, Ui.TEXT, Ui.MEDIUM).apply { text = "0:00 / 0:00" }
+        row.addView(timeLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
+        fullscreenButton = Ui.iconButton(this, Icon.FULLSCREEN, size = 40f, description = "Whole screen") {
+            toggleFullscreen()
+        }
+        row.addView(fullscreenButton)
+        bottom.addView(row)
+        timeline = TimelineView(this)
+        timeline.listener = object : TimelineView.Listener {
+            private var wasPlaying = false
+            override fun onScrubStart() {
+                scrubbing = true
+                wasPlaying = wantPlaying
+                main.removeCallbacks(hideControls)
+            }
+
+            override fun onScrub(fraction: Float) {
+                view.seekToFrame((fraction * (frameCount - 1)).toInt())
+                showTime(fraction * (frameCount - 1))
+            }
+
+            override fun onScrubEnd(fraction: Float) {
+                scrubbing = false
+                view.seekToFrame((fraction * (frameCount - 1)).toInt())
+                endShown = false
+                endCard.visibility = View.GONE
+                if (wasPlaying) scheduleHide()
+            }
+        }
+        bottom.addView(timeline, LinearLayout.LayoutParams(MATCH, WRAP))
+        controls.addView(bottom, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+
+        // While getting ready or waiting on the network.
+        val loadingBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        spinner = ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(Ui.ACCENT)
+        }
+        loadingBox.addView(spinner, LinearLayout.LayoutParams(dp(48f), dp(48f)))
+        loadingLabel = Ui.text(this, 13f, Ui.TEXT).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(16f), dp(12f), dp(16f), 0)
+        }
+        loadingBox.addView(loadingLabel)
+        overlay.addView(loadingBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+
+        // "−10 s" / "+10 s" where a double tap landed.
+        hint = Ui.text(this, 15f, Ui.TEXT, Ui.MEDIUM).apply {
+            setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+            background = Ui.rounded(0x99000000.toInt(), dp(22f).toFloat())
+            visibility = View.GONE
+        }
+        overlay.addView(hint, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+
+        // A line with an action: "Resumed at 4:12 · Start over", a problem.
+        notice = Ui.text(this, 13f, Ui.TEXT).apply {
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+            background = Ui.rounded(0xE6202329.toInt(), dp(10f).toFloat())
+            visibility = View.GONE
+        }
+        overlay.addView(notice, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+            .apply { bottomMargin = dp(84f) })
+
+        // At the end: watch again, or the next lecture of the series.
+        endCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setBackgroundColor(0xB3000000.toInt())
+            isClickable = true
+        }
+        overlay.addView(endCard, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Below the picture when the phone is upright: the lecture, and its chapters to jump to.
+        details = ScrollView(this).apply { setBackgroundColor(Ui.BG) }
+        val words = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18f), dp(16f), dp(18f), dp(28f))
+        }
+        words.addView(Ui.text(this, 19f, Ui.TEXT, Ui.MEDIUM).apply {
+            text = lecture.title
+            setLineSpacing(0f, 1.15f)
+        })
+        infoLabel = Ui.text(this, 13f, Ui.MUTED).apply {
+            text = lecture.subtitle
+            setPadding(0, dp(6f), 0, dp(14f))
+            setLineSpacing(0f, 1.2f)
+        }
+        words.addView(infoLabel)
+        chapterList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        words.addView(chapterList)
+        details.addView(words)
+
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.BLACK)
+            addView(stage)
+            addView(details)
+        }
+        return root
+    }
+
+    /** Upright: the picture across the top, the lecture's details under it. Sideways: the picture, whole screen. */
+    private fun layoutFor(orientation: Int) {
+        val landscape = orientation == Configuration.ORIENTATION_LANDSCAPE
+        val width = resources.displayMetrics.widthPixels
+        stage.layoutParams = if (landscape) LinearLayout.LayoutParams(MATCH, 0, 1f)
+        else LinearLayout.LayoutParams(MATCH, width * 9 / 16)
+        details.visibility = if (landscape) View.GONE else View.VISIBLE
+        details.layoutParams = LinearLayout.LayoutParams(MATCH, 0, 1f)
+        root.fitsSystemWindows = !landscape
+        immersive(landscape)
+        fullscreenButton.setImageDrawable(IconDrawable(if (landscape) Icon.EXIT_FULLSCREEN else Icon.FULLSCREEN, Ui.TEXT))
+        root.requestLayout()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun immersive(on: Boolean) {
+        window.decorView.systemUiVisibility = if (on) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        } else 0
+    }
+
+    private fun toggleFullscreen() {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (landscape) main.postDelayed({ requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }, 1500)
+        scheduleHide()
+    }
+
+    private fun onBackPressedCompat() {
+        @Suppress("DEPRECATION")
+        onBackPressed()
+    }
+
+    // ---- the details panel ----------------------------------------------------------------------------------------
+
+    private fun fillDetails() {
+        val seconds = frameCount.toDouble() / fps
+        val bits = ArrayList<String>()
+        bits.add(lecture.subtitle)
+        bits.add(Ui.length(seconds))
+        if (chapters.isNotEmpty()) bits.add("${chapters.size} chapters")
+        infoLabel.text = bits.filter { it.isNotBlank() }.joinToString("  ·  ")
+        chapterList.removeAllViews()
+        if (chapters.isEmpty()) return
+        chapterList.addView(Ui.text(this, 12.5f, Ui.MUTED, Ui.MEDIUM).apply {
+            text = "CHAPTERS"
+            letterSpacing = 0.08f
+            setPadding(0, dp(4f), 0, dp(8f))
+        })
+        chapters.forEachIndexed { index, chapter ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+                background = Ui.pressable(0, dp(10f).toFloat())
+                isClickable = true
+                setOnClickListener { jumpTo(chapter) }
+                tag = index
+            }
+            row.addView(Ui.text(this, 13f, Ui.ACCENT, Ui.MEDIUM).apply {
+                text = Ui.clock(chapter.frame.toDouble() / fps)
+                minWidth = dp(56f)
+            })
+            row.addView(Ui.text(this, 14.5f, Ui.TEXT, lines = 2).apply { text = chapter.title },
+                LinearLayout.LayoutParams(0, WRAP, 1f))
+            chapterList.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+
+    private fun currentChapter(frame: Int): Int = chapters.indexOfLast { it.frame <= frame }
+
+    // ---- playing --------------------------------------------------------------------------------------------------
+
+    private fun play() {
+        if (frames == null) return
+        val playback = view.playback ?: return
+        if (playback.currentFrame() >= frameCount - 1) view.seekToFrame(0)
+        endShown = false
+        endCard.visibility = View.GONE
+        requestFocus()
+        wantPlaying = true
+        heldForNetwork = false
+        view.play()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        playButton.setImageDrawable(IconDrawable(Icon.PAUSE, Ui.TEXT))
+        playButton.contentDescription = "Pause"
+        scheduleHide()
+    }
+
+    private fun pause() {
+        wantPlaying = false
+        heldForNetwork = false
+        view.pause()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        playButton.setImageDrawable(IconDrawable(Icon.PLAY, Ui.TEXT))
+        playButton.contentDescription = "Play"
+        main.removeCallbacks(hideControls)
+        setControls(true)
+        remember()
+    }
+
+    private fun togglePlay() {
+        if (wantPlaying) pause() else play()
+    }
+
+    private fun seekSeconds(seconds: Double) {
+        val frame = (seconds * fps).toInt().coerceIn(0, frameCount - 1)
+        view.seekToFrame(frame)
+        endShown = false
+        endCard.visibility = View.GONE
+        showTime(frame.toFloat())
+    }
+
+    private fun skip(seconds: Double) {
+        val playback = view.playback ?: return
+        seekSeconds(playback.currentFrame().toDouble() / fps + seconds)
+        hint.text = if (seconds < 0) "« ${(-seconds).toInt()} s" else "${seconds.toInt()} s »"
+        (hint.layoutParams as FrameLayout.LayoutParams).gravity =
+            Gravity.CENTER_VERTICAL or if (seconds < 0) Gravity.START else Gravity.END
+        (hint.layoutParams as FrameLayout.LayoutParams).leftMargin = dp(40f)
+        (hint.layoutParams as FrameLayout.LayoutParams).rightMargin = dp(40f)
+        hint.requestLayout()
+        hint.visibility = View.VISIBLE
+        hint.alpha = 1f
+        hint.animate().alpha(0f).setStartDelay(500).setDuration(300).withEndAction { hint.visibility = View.GONE }
+        if (controlsShown) scheduleHide()
+    }
+
+    private fun jumpTo(chapter: Chapter) {
+        seekSeconds(chapter.frame.toDouble() / fps)
+        if (!wantPlaying) play()
+    }
+
+    private fun chooseChapter() {
+        if (chapters.isEmpty()) {
+            showNotice("This lecture has no chapters.")
+            return
+        }
+        val now = currentChapter(view.playback?.currentFrame() ?: 0)
+        val names = chapters.mapIndexed { i, c ->
+            "${if (i == now) "▶ " else ""}${Ui.clock(c.frame.toDouble() / fps)}   ${c.title}"
+        }.toTypedArray()
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Chapters")
+            .setItems(names) { _, which -> jumpTo(chapters[which]) }
+            .show()
+    }
+
+    private fun chooseSpeed() {
+        val names = SPEEDS.map { if (it == speed) "✓  ${label(it)}" else "     ${label(it)}" }.toTypedArray()
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Playback speed")
+            .setItems(names) { _, which ->
+                speed = SPEEDS[which]
+                view.setSpeed(speed)
+                speedButton.text = label(speed)
+            }
+            .show()
+    }
+
+    private fun label(value: Double): String =
+        (if (value == value.toInt().toDouble()) value.toInt().toString() else value.toString()) + "×"
+
+    // ---- controls -------------------------------------------------------------------------------------------------
+
+    private fun setControls(show: Boolean) {
+        controlsShown = show
+        controls.animate().cancel()
+        if (show) {
+            controls.visibility = View.VISIBLE
+            controls.animate().alpha(1f).setDuration(150)
+            if (wantPlaying) scheduleHide()
+        } else {
+            controls.animate().alpha(0f).setDuration(220).withEndAction {
+                if (!controlsShown) controls.visibility = View.INVISIBLE
+            }
+        }
+    }
+
+    private fun scheduleHide() {
+        main.removeCallbacks(hideControls)
+        if (wantPlaying) main.postDelayed(hideControls, HIDE_AFTER_MILLIS)
+    }
+
+    private fun loading(on: Boolean, text: String = "", share: Float = -1f) {
+        spinner.visibility = if (on) View.VISIBLE else View.GONE
+        loadingLabel.visibility = if (on && text.isNotEmpty()) View.VISIBLE else View.GONE
+        loadingLabel.text = text
+        if (on) {
+            if (share >= 0f) {
+                spinner.isIndeterminate = false
+                spinner.max = 1000
+                spinner.progress = (share * 1000).toInt()
+            } else spinner.isIndeterminate = true
+        }
+    }
+
+    private fun showNotice(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
+        notice.text = if (action != null) "$text    $action" else text
+        notice.setTextColor(Ui.TEXT)
+        if (action != null) {
+            val span = android.text.SpannableString(notice.text)
+            span.setSpan(android.text.style.ForegroundColorSpan(Ui.ACCENT), text.length, span.length, 0)
+            span.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), text.length, span.length, 0)
+            notice.text = span
+        }
+        notice.setOnClickListener {
+            notice.visibility = View.GONE
+            onAction?.invoke()
+        }
+        notice.isClickable = onAction != null
+        notice.visibility = View.VISIBLE
+        notice.alpha = 1f
+        notice.animate().cancel()
+        notice.animate().alpha(0f).setStartDelay(5000).setDuration(400).withEndAction { notice.visibility = View.GONE }
+    }
+
+    private fun showEnd() {
+        endShown = true
+        endCard.removeAllViews()
+        fun choice(icon: Icon, label: String, action: () -> Unit) = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18f), dp(10f), dp(18f), dp(10f))
+            background = Ui.pressable(0, dp(14f).toFloat())
+            isClickable = true
+            setOnClickListener { action() }
+            addView(ImageView(context).apply {
+                setImageDrawable(IconDrawable(icon, Ui.TEXT))
+                val pad = dp(14f)
+                setPadding(pad, pad, pad, pad)
+                background = Ui.rounded(0x33FFFFFF, dp(30f).toFloat())
+            }, LinearLayout.LayoutParams(dp(60f), dp(60f)))
+            addView(Ui.text(context, 13f, Ui.TEXT, Ui.MEDIUM, lines = 2).apply {
+                text = label
+                gravity = Gravity.CENTER
+                maxWidth = dp(180f)
+                setPadding(0, dp(8f), 0, 0)
+            })
+        }
+        endCard.addView(choice(Icon.REPLAY, "Watch again") {
+            seekSeconds(0.0)
+            play()
+        })
+        val current = lecture
+        val next = (current as? Lecture.Saved)?.let { Lectures.nextInSeries(this, it.entry) }
+        if (next != null) {
+            endCard.addView(choice(Icon.NEXT, "Up next: ${next.shortTitle}") {
+                Lectures.forget(this, lecture.key)
+                startActivity(intent(this, Lecture.Saved(next, File(Lectures.savedRoot(this), next.buildId)), false))
+                finish()
+            })
+        }
+        endCard.visibility = View.VISIBLE
+        setControls(false)
+    }
+
+    // ---- the clock ---------------------------------------------------------------------------------------------
+
+    /** Fifteen times a second: the timeline, the time, the chapter, buffering, the end. */
+    private fun sync() {
+        val playback = view.playback ?: return
+        // The network fell behind the narration: hold the picture with it, as a video buffers.
+        if (wantPlaying && !heldForNetwork && view.audioBuffering) {
+            heldForNetwork = true
+            view.pause()
+            loading(true, "Buffering…")
+        } else if (heldForNetwork && !view.audioBuffering) {
+            heldForNetwork = false
+            loading(false)
+            if (wantPlaying) view.play()
+        }
+
+        val frame = playback.currentFrame()
+        if (!scrubbing) {
+            timeline.played = frame.toFloat() / (frameCount - 1).coerceAtLeast(1)
+            showTime(frame.toFloat())
+        }
+        timeline.loaded = loadedFraction.coerceAtLeast(timeline.played)
+
+        val chapter = currentChapter(frame)
+        if (chapter != shownChapter) {
+            shownChapter = chapter
+            chapterLabel.text = chapters.getOrNull(chapter)?.let { "Chapter ${chapter + 1} · ${it.title}" }
+                ?: lecture.subtitle
+            for (i in 0 until chapterList.childCount) {
+                val row = chapterList.getChildAt(i)
+                row.background = if (row.tag == chapter) Ui.rounded(Ui.SURFACE_HIGH, dp(10f).toFloat())
+                else Ui.pressable(0, dp(10f).toFloat())
+            }
+        }
+
+        if (wantPlaying && !playback.playing && frame >= frameCount - 1 && !endShown) {
+            wantPlaying = false
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            playButton.setImageDrawable(IconDrawable(Icon.REPLAY, Ui.TEXT))
+            Lectures.forget(this, lecture.key)
+            showEnd()
+        }
+
+        val now = System.currentTimeMillis()
+        if (wantPlaying && now - lastSaved > 5000) remember()
+    }
+
+    private fun showTime(frame: Float) {
+        val total = frameCount.toDouble() / fps
+        timeLabel.text = "${Ui.clock(frame / fps.toDouble())} / ${Ui.clock(total)}"
+    }
+
+    /** Where the viewer got to, for the library's progress bar and for resuming. */
+    private fun remember() {
+        val playback = view.playback ?: return
+        if (frames == null || endShown) return
+        lastSaved = System.currentTimeMillis()
+        Lectures.remember(this, lecture.key, playback.currentFrame().toDouble() / fps, frameCount.toDouble() / fps)
+    }
+
+    // ---- audio focus ----------------------------------------------------------------------------------------------
+
+    private fun requestFocus() {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val request = focus ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setOnAudioFocusChangeListener { change ->
+                // A call, another app's sound: stop, and let the viewer start again.
+                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                    main.post { if (wantPlaying) pause() }
+                }
+            }
+            .build().also { focus = it }
+        manager.requestAudioFocus(request)
+    }
+
+    private fun abandonFocus() {
+        val request = focus ?: return
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocusRequest(request)
+    }
+
+    private fun dp(value: Float) = Ui.dp(this, value)
+
+    private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+    private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 }

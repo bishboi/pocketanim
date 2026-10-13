@@ -20,10 +20,22 @@ class SystemTimeSource(private val nanos: () -> Long = System::nanoTime) : TimeS
     private var origin: Long? = null
     private var accumulated = 0.0
 
+    /** Media seconds per wall-clock second: 1.5 plays a lecture half as fast again. */
+    var speed: Double = 1.0
+        set(value) {
+            // What has played so far at the old speed is kept; the new one counts from now.
+            origin?.let {
+                val now = nanos()
+                accumulated += (now - it) / 1e9 * field
+                origin = now
+            }
+            field = value
+        }
+
     fun start() { if (origin == null) origin = nanos() }
 
     fun pause() {
-        origin?.let { accumulated += (nanos() - it) / 1e9 }
+        origin?.let { accumulated += (nanos() - it) / 1e9 * speed }
         origin = null
     }
 
@@ -33,7 +45,7 @@ class SystemTimeSource(private val nanos: () -> Long = System::nanoTime) : TimeS
     }
 
     override fun positionSeconds(): Double =
-        accumulated + (origin?.let { (nanos() - it) / 1e9 } ?: 0.0)
+        accumulated + (origin?.let { (nanos() - it) / 1e9 * speed } ?: 0.0)
 }
 
 /**
@@ -66,6 +78,16 @@ class Playback(
 
     val frameCount: Int get() = scene.frameCount
     val durationSeconds: Double get() = scene.frameCount.toDouble() / scene.fps
+
+    /**
+     * How fast it plays (1.0 as made). The wall clock runs at it here; narration, when there is some, is sped up by
+     * its own player (pitch kept) and, being the master clock, carries the picture with it.
+     */
+    var speed: Double
+        get() = system.speed
+        set(value) {
+            system.speed = value.coerceIn(0.25, 3.0)
+        }
 
     fun play() {
         playing = true

@@ -17,7 +17,7 @@
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { packLibrary, zipLibrary } from "./pocketanim";
 
@@ -163,8 +163,11 @@ async function uploadLibrary(supabase: SupabaseClient, dir: string, buildId: str
   onFile: (filesDone: number, files: number, bytesDone: number, bytes: number) => void = () => {}) {
   const zipped = await zipLibrary(dir);
   if ("error" in zipped) throw new Error(`zipping the library: ${zipped.error}`);
-  return uploadFiles(supabase, { "library.zip": zipped.zip, "library.json": path.join(dir, "library.json") },
-    buildId, onFile);
+  // The narration on its own, beside the zip (which leaves it out): the phone streams it from here while it plays.
+  const sources: Record<string, string> = { "library.zip": zipped.zip, "library.json": path.join(dir, "library.json") };
+  const audio = path.join(dir, "audio");
+  for (const name of await readdir(audio).catch(() => [] as string[])) sources[`audio/${name}`] = path.join(audio, name);
+  return uploadFiles(supabase, sources, buildId, onFile);
 }
 
 /** The given files (published path -> file on disk) under builds/<build id>/, a few at a time. */

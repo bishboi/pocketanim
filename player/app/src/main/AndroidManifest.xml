@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Saved lectures are listed and downloaded from the harness's Supabase project (SavedLectures). -->
+    <!-- Saved lectures are listed, streamed and downloaded from the harness's Supabase project (SavedLectures). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -9,18 +9,18 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- The library: what there is to watch. -->
         <activity
-            android:name=".PlayerActivity"
+            android:name=".LibraryActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
             android:launchMode="singleTask"
-            android:screenOrientation="landscape">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- A lecture from the harness ("Download for the phone"), opened from the browser's downloads or a
-                 file manager: PlayerActivity imports it (LibraryImport) and plays it. -->
+                 file manager: imported (LibraryImport) and played. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -31,5 +31,13 @@
                 <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
         </activity>
+
+        <!-- The player. It turns with the phone without restarting (it lays itself out again), so a lecture never
+             stops or reloads on a rotation. -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:screenOrientation="unspecified" />
     </application>
 </manifest>

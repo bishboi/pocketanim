@@ -60,6 +60,21 @@ class AudioClock(
     fun play() = track.play()
     fun pause() = track.pause()
 
+    /**
+     * Play the narration faster or slower, its pitch kept (the platform's time stretch). Positions stay in media
+     * seconds: the head counts the narration's own frames, and the time since the last timestamp runs at [speed].
+     */
+    var speed: Float = 1f
+        set(value) {
+            try {
+                track.playbackParams = android.media.PlaybackParams().setSpeed(value).setPitch(1f)
+                field = value
+            } catch (_: IllegalArgumentException) {
+                // A speed this device's track cannot do: it stays as it was.
+            } catch (_: IllegalStateException) {
+            }
+        }
+
     /** Whether the track is running, as opposed to paused or stopped. */
     val playing: Boolean get() = track.playState == AudioTrack.PLAYSTATE_PLAYING
 
@@ -88,7 +103,7 @@ class AudioClock(
         // latency; getPlaybackHeadPosition does not, and on a device with a
         // deep buffer that difference is tens of milliseconds of lip-sync.
         if (track.getTimestamp(timestamp)) {
-            val elapsed = (System.nanoTime() - timestamp.nanoTime) / 1e9
+            val elapsed = (System.nanoTime() - timestamp.nanoTime) / 1e9 * speed
             return startOffsetSeconds + timestamp.framePosition / rate + elapsed
         }
         val head = track.playbackHeadPosition

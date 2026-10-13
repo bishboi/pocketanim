@@ -36,7 +36,19 @@ object SavedLectures {
         val libraryBytes: Long,
         val narrated: Boolean,
         val savedAt: String,
+        /** The video's length, when the catalog has it: frames at [fps]. */
+        val frameCount: Int = 0,
+        val fps: Int = 0,
+        val subject: String = "",
     ) {
+        /** Its length in seconds: from the frames when known, else the minutes the harness estimated. */
+        val seconds: Double?
+            get() = if (frameCount > 0 && fps > 0) frameCount.toDouble() / fps else minutes?.times(60)
+
+        /** The lecture's own title, without the series or "Lecture n:". */
+        val shortTitle: String
+            get() = title.replace(Regex("^Lecture \\d+:\\s*"), "").ifBlank { series }
+
         /** What the picker shows: "Forces · Lecture 2 of 3: Friction (24 min)". */
         val label: String
             get() = buildString {
@@ -70,6 +82,9 @@ object SavedLectures {
                 libraryBytes = row["library_bytes"]?.asLong ?: 0L,
                 narrated = row["narrated"]?.asBool ?: false,
                 savedAt = row["saved_at"]?.asString ?: "",
+                frameCount = row["frame_count"]?.asInt ?: 0,
+                fps = row["fps"]?.asInt ?: 0,
+                subject = row["subject"]?.asString ?: "",
             )
         }
         val newest = entries.groupBy { it.series + "|" + it.lectures }.values
@@ -189,11 +204,46 @@ object SavedLectures {
         }
     }
 
+    /**
+     * Where a saved lecture's narration can be streamed from: [path] is the scene's audio as its manifest names it
+     * (audio/<scene>.ogg). Save uploads it beside the lecture's zip, which leaves it out, so the picture starts as
+     * soon as the zip is down and the narration plays from here while [fetchNarration] keeps it for offline.
+     */
+    fun narrationUrl(project: Project, entry: Entry, path: String): String =
+        RemoteStorage(project, entry.libraryPath).url(path)
+
+    /**
+     * Download a saved lecture's narration into its folder ([dest]/[path]), for play without the network next time.
+     * Written beside it and renamed when whole, so a half download is never taken for the narration. False when it
+     * is not there to fetch (a lecture saved with its narration inside the zip has it already) or [cancelled] said
+     * stop.
+     */
+    fun fetchNarration(project: Project, entry: Entry, path: String, dest: File, cancelled: () -> Boolean = { false },
+                       progress: (Progress) -> Unit = {}): Boolean {
+        val target = File(dest, path)
+        if (target.isFile && target.length() > 0) return true
+        target.parentFile?.mkdirs()
+        val part = File(target.path + ".part")
+        try {
+            fetchTo(project, narrationUrl(project, entry, path), part, cancelled) { done, total ->
+                progress(Progress(done, total, "bytes"))
+            }
+            if (cancelled()) return false
+            if (!part.renameTo(target)) throw Unavailable("cannot keep the narration")
+            return true
+        } catch (e: Missing) {
+            return false
+        } finally {
+            part.delete()
+        }
+    }
+
     /** A Storage object that is not there (HTTP 400/404 from Supabase Storage). */
     class Missing(message: String) : IOException(message)
 
     /** A public Storage object downloaded into [file], in pieces. */
-    private fun fetchTo(project: Project, url: String, file: File, progress: (Long, Long) -> Unit = { _, _ -> }) {
+    private fun fetchTo(project: Project, url: String, file: File, cancelled: () -> Boolean = { false },
+                        progress: (Long, Long) -> Unit = { _, _ -> }) {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 15_000
@@ -211,7 +261,7 @@ object SavedLectures {
                     val buffer = ByteArray(64 * 1024)
                     var done = 0L
                     var told = 0L
-                    while (true) {
+                    while (!cancelled()) {
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)

@@ -102,13 +102,37 @@ class PanimView @JvmOverloads constructor(
      * reports a position, [AudioClock] returns null and [Playback] keeps using
      * the system clock, which is what covers the start-up gap.
      */
-    fun attachAudio(file: File, sampleRate: Int, channelCount: Int) {
+    fun attachAudio(file: File, sampleRate: Int, channelCount: Int) =
+        attachAudio(file.absolutePath, sampleRate, channelCount)
+
+    /**
+     * Attach narration from [source]: a file's path, or a URL it is streamed from. Starts where the picture is, at
+     * the picture's speed.
+     */
+    fun attachAudio(source: String, sampleRate: Int, channelCount: Int) {
         releaseAudio()
         val clock = AudioClock(sampleRate, channelCount)
+        clock.speed = (playback?.speed ?: 1.0).toFloat()
         audioClock = clock
-        audio = AudioPlayer(file, clock)
+        val player = AudioPlayer(source, clock)
+        audio = player
         playback?.audio = clock
+        val at = playback?.currentFrame() ?: 0
+        scene?.let { if (at > 0) player.seekTo(at.toDouble() / it.fps) }
+        if (playback?.playing == true) {
+            clock.play()
+            player.start()
+        }
     }
+
+    /** Whether the narration is waiting on the network for its next piece (a stream buffering). */
+    val audioBuffering: Boolean get() = audio?.buffering == true
+
+    /** Why the narration cannot play, when it cannot (the picture plays on silent). */
+    val audioProblem: String? get() = audio?.failed
+
+    /** Whether narration is attached. */
+    val hasAudio: Boolean get() = audio != null
 
     fun play() {
         playback?.play()
@@ -119,6 +143,12 @@ class PanimView @JvmOverloads constructor(
     fun pause() {
         playback?.pause()
         audioClock?.pause()
+    }
+
+    /** Play faster or slower (1.0 as made), the narration's pitch kept. */
+    fun setSpeed(speed: Double) {
+        playback?.speed = speed
+        audioClock?.speed = (playback?.speed ?: speed).toFloat()
     }
 
     fun seekToFrame(index: Int) {

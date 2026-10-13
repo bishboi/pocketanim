@@ -30,6 +30,9 @@ interface Storage {
     fun file(path: String): java.io.File? = null
 }
 
+/** One chapter of a lecture: its number, its title, and the frame it begins on. */
+class Chapter(val number: Int, val title: String, val frame: Int)
+
 /** A file the manifest names, with what it should be when it arrives. */
 class AssetRecord(val path: String, val bytes: Long, val digest: String?)
 
@@ -51,6 +54,8 @@ class SceneEntry(
     /** Everything that must be local before this scene plays offline. */
     val playableBytes: Long,
     val audio: String?,
+    /** Where each chapter begins, in order: the player's chapter list and the marks on its seek bar. */
+    val chapters: List<Chapter> = emptyList(),
 ) {
     /** Paths this scene cannot play without. Audio is deliberately not among them. */
     fun required(): List<String> = buildList {
@@ -158,6 +163,13 @@ class Library(
                     frames = entry["frames"]?.asInt ?: 0,
                     playableBytes = entry["playable_bytes"]?.asLong ?: 0L,
                     audio = entry["audio"]?.asString,
+                    chapters = entry["chapters"]?.asList.orEmpty().mapNotNull { c ->
+                        Chapter(
+                            number = c["number"]?.asInt ?: return@mapNotNull null,
+                            title = c["title"]?.asString ?: "",
+                            frame = c["frame"]?.asInt ?: return@mapNotNull null,
+                        )
+                    }.sortedBy { it.frame },
                 )
             }
 

@@ -313,6 +313,26 @@ def _export_parallel(scene_file: Path, scene_class: str, windows: list[tuple[int
     return joined
 
 
+def _chapter_frames(rec) -> list:
+    """[(number, title, frame)] where each chapter a build recorded begins (export_dsl's chapter_starts)."""
+    from dsl.export_dsl import PROGRAM_FPS
+    from dsl.interpret import parse, timeline_frames
+
+    return [(num, title, timeline_frames(parse("\n".join(rec.timeline[:at]))["timeline"], PROGRAM_FPS) if at else 0)
+            for num, title, at in getattr(rec, "chapters", [])]
+
+
+def _write_chapters(scene_class: str, chapters: list) -> None:
+    """The lecture's chapters beside its program, where tools/build_library puts them in the phone's library."""
+    seen, rows = set(), []
+    for num, title, frame in sorted(chapters, key=lambda c: (c[2], c[0])):
+        if num not in seen:
+            seen.add(num)
+            rows.append({"number": num, "title": title, "frame": int(frame)})
+    if rows:
+        Path(f"dsl/generated/{scene_class}.chapters.json").write_text(json.dumps(rows))
+
+
 def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
     """One program from the windows' programs, in order: their objects renamed so no two share a name, their
     sounds and pictures moved to where their window starts, their assets gathered (where two windows baked the
@@ -328,6 +348,7 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
     timeline: list[str] = []
     sounds: list = []
     images: list = []
+    chapters: list = []
     skipped: list[str] = []
     blockers: list[str] = []
     ai = {"count": 0, "usd": 0.0, "items": []}
@@ -356,6 +377,7 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
         offset = frames / PROGRAM_FPS
         sounds += [(at + offset, path, gain) for at, path, gain in result.get("sounds") or []]
         length = timeline_frames(parse("\n".join(result["timeline"]))["timeline"], PROGRAM_FPS)
+        chapters += [(num, title, frame + frames) for num, title, frame in result.get("chapters") or []]
         last = (out, result) == parts[-1]
         for image in result.get("images_track") or []:
             image = dict(image)
@@ -389,7 +411,8 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
                     shutil.copyfile(picture, generated / "images" / picture.name)
     program = "\n".join([header, *declarations, *timeline]) + "\n"
     return {"program": program, "sounds": sounds, "images_track": images, "skipped": skipped,
-            "blockers": blockers, "ai_images": ai, "simplified": simplified, "windows": len(parts)}
+            "blockers": blockers, "ai_images": ai, "simplified": simplified, "windows": len(parts),
+            "chapters": chapters}
 
 
 def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
@@ -440,6 +463,7 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
                 result.update(program=program, program_bytes=len(program))
             Path("dsl/generated").mkdir(parents=True, exist_ok=True)
             Path(f"dsl/generated/{scene_class}.panim").write_text(program)
+            _write_chapters(scene_class, joined["chapters"])
             sounds, images_track = joined["sounds"], joined["images_track"]
         else:
             rec = record_scene(str(scene_file), scene_class, window)
@@ -473,8 +497,9 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
             if window is not None:
                 # A window's build hands its parts to the build that joins them (_join); it mixes no narration.
                 result.update(declarations=rec.declarations, timeline=rec.timeline, sounds=rec.sounds,
-                              images_track=images_track or [])
+                              images_track=images_track or [], chapters=_chapter_frames(rec))
                 return result
+            _write_chapters(scene_class, _chapter_frames(rec))
         # Assets are what the program references; naming them here saves the
         # caller from having to know the exporter's layout.
         assets = sorted(p.name for p in Path("dsl/generated/assets").glob("*.panm")) \

@@ -23,9 +23,12 @@ import java.util.concurrent.atomic.AtomicLong
  * write would show up as dropped frames.
  */
 class AudioPlayer(
-    private val source: File,
+    /** A file's path, or an http(s) URL the narration is streamed from (a saved lecture not yet downloaded). */
+    private val source: String,
     private val clock: AudioClock,
 ) {
+    constructor(file: File, clock: AudioClock) : this(file.absolutePath, clock)
+
     private val running = AtomicBoolean(false)
     private val seekTargetUs = AtomicLong(-1L)
     private var thread: Thread? = null
@@ -33,6 +36,23 @@ class AudioPlayer(
     /** Set when the stream runs out, so the clock can stop being authoritative. */
     @Volatile var finished = false
         private set
+
+    /** Set when the narration could not be opened or read at all (no network, the file gone). */
+    @Volatile var failed: String? = null
+        private set
+
+    /** When the decoder started waiting on the source for its next piece (0: not waiting): a stream buffering. */
+    @Volatile private var readingSince = 0L
+
+    /**
+     * Whether the narration is waiting on its source -- a stream that has not got the next second yet -- for longer
+     * than a moment. Waiting because the track is full (paused) is not this: that blocks writing, not reading.
+     */
+    val buffering: Boolean
+        get() {
+            val since = readingSince
+            return since != 0L && System.nanoTime() - since > BUFFERING_NANOS
+        }
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
@@ -64,7 +84,12 @@ class AudioPlayer(
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
-            extractor.setDataSource(source.absolutePath)
+            readingSince = System.nanoTime()
+            try {
+                extractor.setDataSource(source)
+            } finally {
+                readingSince = 0L
+            }
 
             val track = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index)
@@ -105,7 +130,13 @@ class AudioPlayer(
                     val index = codec.dequeueInputBuffer(TIMEOUT_US)
                     if (index >= 0) {
                         val buffer = codec.getInputBuffer(index)!!
-                        val size = extractor.readSampleData(buffer, 0)
+                        // Over the network this is where a stream waits for its next piece.
+                        readingSince = System.nanoTime()
+                        val size = try {
+                            extractor.readSampleData(buffer, 0)
+                        } finally {
+                            readingSince = 0L
+                        }
                         if (size < 0) {
                             codec.queueInputBuffer(
                                 index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM,
@@ -145,6 +176,10 @@ class AudioPlayer(
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+        } catch (e: Exception) {
+            // A stream that cannot be reached or read: the picture plays on, silent, and the screen says why.
+            failed = e.message ?: e.javaClass.simpleName
+            finished = true
         } finally {
             try {
                 codec?.stop()
@@ -159,5 +194,6 @@ class AudioPlayer(
 
     private companion object {
         const val TIMEOUT_US = 10_000L
+        const val BUFFERING_NANOS = 350_000_000L
     }
 }

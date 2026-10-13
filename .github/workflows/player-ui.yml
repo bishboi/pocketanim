@@ -1,0 +1,82 @@
+name: player-ui
+
+# The phone player, run on an Android emulator: its library, a saved lecture streamed from a stand-in for the
+# Supabase project (tools/mock_saved_lectures.py serving player/fixtures/streamed-lecture), the controls, the whole
+# screen, chapters, speed, the end of a lecture, the samples. Screenshots, a screen recording and the log are kept
+# as the run's artifact, for a person to look at; the run fails if the app crashes or the picture does not move.
+#
+# The environment this project is developed in has no emulator (no KVM, no Android SDK); GitHub's runners have both.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "player/**"
+      - "tools/mock_saved_lectures.py"
+      - ".github/workflows/player-ui.yml"
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pack the sample scenes into the app
+        run: |
+          pip install numpy
+          python -m tools.build_library --out player/app/src/main/assets/library
+
+      - name: Point this build at the stand-in project
+        # The emulator reaches the runner at 10.0.2.2. Plain HTTP is allowed in this test build only.
+        run: |
+          printf '{"url": "http://10.0.2.2:8787", "anon_key": "test"}\n' > player/app/src/main/assets/supabase.json
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' player/app/src/main/AndroidManifest.xml
+
+      - name: Build
+        working-directory: player
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Serve the fixture as saved lectures
+        run: |
+          nohup python -m tools.mock_saved_lectures player/fixtures/streamed-lecture --port 8787 --audio-kbps 64 \
+            > mock-server.log 2>&1 &
+          sleep 2
+          curl -sf http://127.0.0.1:8787/rest/v1/phone_lectures | head -c 300
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the player on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          script: bash player/ui-test.sh player/app/build/outputs/apk/debug/app-debug.apk ui-out
+
+      - name: Keep the server's log with the rest
+        if: always()
+        run: cp mock-server.log ui-out/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: player-ui
+          path: ui-out
+          retention-days: 14

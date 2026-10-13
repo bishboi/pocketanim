@@ -1,0 +1,276 @@
+scene 2d fps=30 bg=#0E3A66
+geom A asset=9fdbcff88b z=-100
+geom B asset=ecea2ecd81 z=60
+text C asset=00301049ed z=40
+text D asset=0f1c1fc61f z=40
+geom E asset=7ff3f49e6c z=40
+geom F asset=6e0b7ad4ff z=49.5
+geom G asset=0de050e433 z=50
+geom H asset=032f121ba8 z=60
+text I asset=b36e139e9e z=40
+geom J asset=72b2f0b768 z=40
+text K asset=798d483e03 z=40
+geom L asset=e878bb43a0 z=40
+geom M asset=2f9774c1b8 z=60
+geom N asset=04035ae39d
+geom O asset=8ded7f8670
+geom P asset=a5f452c588
+geom Q asset=a9592ac4b0
+text R asset=9bab7ce12b
+clip S asset=c4c5e3d38e frames=1 loop=0
+geom T asset=93218e17cf z=60
+clip U asset=8dbe5a939a frames=36 z=21
+geom V asset=effd7469a4
+text W asset=9f45eb5a92 z=21
+geom X asset=2f9774c1b8 z=60
+clip Y asset=6e413021f5 frames=30
+geom Z asset=00c9e798e5
+clip A1 asset=a5c23c10a9 frames=30
+geom B1 asset=569ad21fa9
+clip C1 asset=857d25ebaa frames=30
+geom D1 asset=00c9e798e5
+text E1 asset=dca9650014
+clip F1 asset=c4c5e3d38e frames=1 loop=0
+geom G1 asset=93218e17cf z=60
+clip H1 asset=5176be0e3e frames=36 z=21
+geom I1 asset=f4f3328a27
+text J1 asset=ecd6fd9ec0 z=21
+geom K1 asset=2f9774c1b8 z=60
+clip L1 asset=7104b254b3 frames=30
+geom M1 asset=e41b4489b1
+geom N1 asset=c35d3f84da
+clip O1 asset=c4c5e3d38e frames=1 loop=0
+geom P1 asset=93218e17cf z=60
+clip Q1 asset=e2eef0dd60 frames=36 z=21
+geom R1 asset=0195a5fd18
+text S1 asset=5a9ffaf2c9 z=21
+geom T1 asset=6e0b7ad4ff z=49.5
+geom U1 asset=6d299f12d0 z=50
+geom V1 asset=9abd19c30c z=60
+text W1 asset=697f4249a2 z=40
+geom X1 asset=0d7aa70aa6 z=40
+text Y1 asset=b69a33784e z=40
+geom Z1 asset=866fd1fd1b z=40
+geom A2 asset=75f37e9ce5 z=60
+geom B2 asset=1d1b3848b6 z=60
+geom C2 asset=3ff81cf618 z=20
+text D2 asset=21b8aa0ab9 z=21
+geom E2 asset=6e0b7ad4ff z=49.5
+show A
+show B
+lag n=3 runs=1,1,1 ratio=0.35 t=3
+fade C t=1
+write D t=1
+wait t=1
+show C
+show D
+hide C
+hide D
+fadeout E t=0.8 shift=0,0.3
+hide C
+hide D
+show E
+hide E
+hide C
+hide D
+hide B
+xform F by_xy=15.4222,0 t=0.33
+show F
+xform F by_xy=15.4222,0 t=0.27
+hide F
+show G
+show H
+lag n=4 runs=1,1,1,1 ratio=0.3 t=2.2
+write I t=1
+create J t=1 rate=linear
+write K t=1
+wait t=1
+show I
+show J
+show K
+wait t=0.4
+hide I
+hide J
+hide K
+fadeout L t=0.8 shift=0,0.3
+hide I
+hide J
+hide K
+show L
+hide L
+hide I
+hide J
+hide K
+hide H
+show M
+par n=5 t=1
+create N t=1
+fade O t=1
+create P t=1
+create Q t=1
+write R t=1
+show N
+show O
+show P
+show Q
+show R
+run S t=2.08
+hide S
+hide M
+show T
+hide N
+hide O
+hide P
+hide Q
+hide R
+run U t=1.2
+hide U
+show V
+show W
+wait t=3.28
+par n=2 t=0.5
+fadeout W t=0.5
+xform V by=1 by_xy=3.475,0.78 t=0.5
+hide W
+hide T
+show X
+hide V
+run Y t=1
+hide Y
+show Z
+run A1 t=1
+hide A1
+show B1
+hide Z
+run C1 t=1
+hide C1
+show D1
+show E1
+run F1 t=0.08
+hide F1
+hide X
+show G1
+hide D1
+hide B1
+hide E1
+run H1 t=1.2
+hide H1
+show I1
+show J1
+wait t=3.28
+par n=2 t=0.5
+fadeout J1 t=0.5
+xform I1 by=1 by_xy=3.475,0.78 t=0.5
+hide J1
+hide G1
+show K1
+hide I1
+run L1 t=1
+hide L1
+show M1
+show N1
+run O1 t=2.08
+hide O1
+hide K1
+show P1
+hide M1
+hide N1
+run Q1 t=1.2
+hide Q1
+show R1
+show S1
+wait t=3.28
+hide P1
+xform T1 by_xy=15.4222,0 t=0.55
+show T1
+hide R1
+hide S1
+xform T1 by_xy=15.4222,0 t=0.45
+hide T1
+hide B
+hide C
+hide D
+hide E
+hide F
+hide H
+hide I
+hide J
+hide K
+hide L
+hide M
+hide N
+hide O
+hide P
+hide Q
+hide R
+hide S
+hide T
+hide U
+hide V
+hide W
+hide X
+hide Y
+hide Z
+hide A1
+hide B1
+hide C1
+hide D1
+hide E1
+hide F1
+hide G1
+hide H1
+hide I1
+hide J1
+hide K1
+hide L1
+hide M1
+hide N1
+hide O1
+hide P1
+hide Q1
+hide R1
+hide S1
+hide T1
+hide G
+show U1
+show V1
+lag n=4 runs=1,1,1,1 ratio=0.3 t=2.2
+write W1 t=1
+create X1 t=1 rate=linear
+write Y1 t=1
+wait t=1
+show W1
+show X1
+show Y1
+wait t=0.46
+hide W1
+hide X1
+hide Y1
+fadeout Z1 t=0.8 shift=0,0.3
+hide W1
+hide X1
+hide Y1
+show Z1
+hide Z1
+hide W1
+hide X1
+hide Y1
+hide V1
+show A2
+wait t=4.76
+hide A2
+show B2
+lag n=2 runs=1,2 ratio=0.8 t=1.2
+fade C2 t=1 from=1.02
+lag n=1 runs=1 ratio=0.6 t=1
+write D2 t=1
+show C2
+show D2
+wait t=2.86
+hide B2
+xform E2 by_xy=15.4222,0 t=0.55
+show E2
+hide C2
+hide D2
+xform E2 by_xy=15.4222,0 t=0.45
+hide E2

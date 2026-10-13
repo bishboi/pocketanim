@@ -45,6 +45,32 @@ adb shell am start -n com.pocketanim.player/.PlayerActivity
 
 Both APKs are built by `.github/workflows/apk.yml` and attached to the run.
 
+## The app
+
+Two screens, built in code (no resources, no libraries), dark like a video app:
+
+- **Library** (the launcher): tabs for *Saved* (lectures saved from the web app, listed from Supabase and kept as a
+  catalog for offline), *On this phone* (played or kept saved lectures, imported zips) and *Samples*. Each lecture is
+  a card with a still drawn from the lecture itself (Thumbnails, kept as a PNG), its length, how far it was watched,
+  and whether it is on the phone or streams. Hold a card to play from the start, keep it for offline, or remove it.
+- **Player**: the picture across the top with the lecture's details and chapters under it; turn the phone (or the
+  corner button) for the whole screen. Tap for the controls (they hide while it plays): back and on ten seconds, a
+  timeline with the chapters as gaps and a bubble while scrubbing, speed (0.5–2×, the narration's pitch kept),
+  chapters. Double-tap the left or right of the picture to go back or on ten seconds. It resumes where it was left,
+  holds with a spinner when the network falls behind the narration, pauses for a call or unplugged headphones, and
+  ends on "Watch again" and the series' next lecture.
+
+### Streaming
+
+A saved lecture is saved as its library without the narration (library.zip, a few MB) and the narration beside it
+(audio/<scene>.ogg). The player downloads the zip, opens the lecture and starts; the narration plays from its URL
+(MediaExtractor streams it, seeking with range reads) and is kept in the lecture's folder as it plays, so the next
+time it plays offline. The picture follows the narration's clock, and is held while the stream waits.
+
+Checked off-device with the phone's own code (`Verify <url> stream <key> <dir>`, against
+`python -m tools.mock_saved_lectures player/fixtures/streamed-lecture`), and on an emulator by the `player-ui`
+workflow (`player/ui-test.sh`), whose screenshots, screen recording and log are its artifact.
+
 ## Lectures from the harness
 
 A lecture made in the web app plays here as a program, like the samples. Under the preview, **Download for the

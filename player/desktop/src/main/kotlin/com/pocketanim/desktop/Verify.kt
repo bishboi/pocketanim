@@ -573,6 +573,54 @@ fun main(args: Array<String>) {
         return
     }
 
+    if (args[1] == "stream") {
+        // A saved lecture as the phone streams it: Verify <supabase url> stream <anon key> <dest>. The library comes
+        // down without its narration and opens; the narration is reachable at its own URL (a range read, as the
+        // decoder seeks); it is then kept beside the library; the chapters and the clock's speed are right.
+        val saved = com.pocketanim.core.SavedLectures
+        val project = com.pocketanim.core.SavedLectures.Project(args[0], args.getOrElse(2) { "" })
+        val entries = saved.catalog(project)
+        check(entries.isNotEmpty()) { "the catalog is empty" }
+        val entry = entries.first()
+        println("catalog: ${entries.size} lecture(s); first: ${entry.label}, ${entry.seconds?.toInt()} s")
+        val dest = File(File(args.getOrElse(3) { "streamed" }), entry.buildId)
+        dest.deleteRecursively()
+        val started = System.nanoTime()
+        val library = saved.download(project, entry, dest)
+        val scene = library.scenes.first()
+        val audio = scene.audio ?: error("the lecture has no narration to stream")
+        println("ready to play in %.2f s: %d chapter(s), narration %s on the phone: %s".format(java.util.Locale.ROOT,
+            (System.nanoTime() - started) / 1e9, scene.chapters.size, audio, File(dest, audio).isFile))
+        scene.chapters.forEach { println("  chapter ${it.number} at frame ${it.frame}: ${it.title}") }
+        check(scene.chapters.isNotEmpty()) { "no chapters in the library" }
+        val frames = library.open(scene.name)
+        println("opened: ${frames.frameCount} frames at ${frames.fps} fps")
+        val url = saved.narrationUrl(project, entry, audio)
+        val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+        connection.setRequestProperty("Range", "bytes=100-199")
+        val code = connection.responseCode
+        val got = connection.inputStream.use { it.readBytes() }.size
+        println("narration streams from $url: HTTP $code, $got bytes of a range read")
+        check(code == 206 && got == 100) { "the narration's URL does not answer a range read" }
+        check(saved.fetchNarration(project, entry, audio, dest)) { "the narration could not be kept" }
+        println("narration kept: ${File(dest, audio).length()} bytes")
+        val again = com.pocketanim.core.LibraryImport.DirStorage(dest)
+        check(com.pocketanim.core.Library.load(again).checkIntegrity(verifyDigests = true).isEmpty()) {
+            "the kept narration does not match the manifest"
+        }
+        var now = 0L
+        val clock = com.pocketanim.core.SystemTimeSource { now }
+        clock.start()
+        now += 2_000_000_000L
+        clock.speed = 1.5
+        now += 2_000_000_000L
+        val at = clock.positionSeconds()
+        println("clock: 2 s at 1x then 2 s at 1.5x = %.2f s of lecture".format(java.util.Locale.ROOT, at))
+        check(kotlin.math.abs(at - 5.0) < 1e-6) { "the clock's speed is wrong" }
+        println("OK")
+        return
+    }
+
     if (args[1] == "import") {
         // Import a phone-library zip exactly as the app does, then report it: Verify <zip> import <dest>
         val dest = File(args.getOrElse(2) { "imported" })

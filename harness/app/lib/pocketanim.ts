@@ -570,13 +570,27 @@ export async function packLibrary(
 /**
  * A packed library (packLibrary's folder) as one zip beside it, with the folder `library/` at its top as the phone's
  * import expects: what Save uploads, so the phone downloads a lecture in one request instead of hundreds.
+ *
+ * Without the narration (`audio/`), which Save uploads beside it as its own file: the phone starts playing as soon as
+ * this much is down and streams the narration from its URL, keeping it for offline play as it goes. In the zip, the
+ * narration was most of its size and nothing played until all of it had arrived.
  */
 export async function zipLibrary(dir: string): Promise<{ zip: string } | { error: string }> {
-  const zipped = await run(
-    ["-c", "import shutil, sys; print(shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'library'))",
-     `${dir}-upload`, path.dirname(dir)],
-    { timeoutMs: 120_000 },
-  );
+  const script = [
+    "import os, sys, zipfile",
+    "out, root = sys.argv[1] + '.zip', sys.argv[2]",
+    "base = os.path.dirname(root)",
+    "with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:",
+    "    for folder, _, files in os.walk(root):",
+    "        for name in sorted(files):",
+    "            full = os.path.join(folder, name)",
+    "            rel = os.path.relpath(full, base).replace(os.sep, '/')",
+    "            if rel.split('/')[1:2] == ['audio']:",
+    "                continue",
+    "            z.write(full, 'library/' + rel.split('/', 1)[1])",
+    "print(out)",
+  ].join("\n");
+  const zipped = await run(["-c", script, `${dir}-upload`, dir], { timeoutMs: 120_000 });
   const zip = zipped.stdout.toString().trim().split("\n").pop() ?? "";
   if (zipped.code !== 0 || !zip) return { error: zipped.stderr || "could not zip the library" };
   return { zip };

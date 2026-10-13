@@ -305,6 +305,9 @@ def probe_group(scene, group: dict, export_dsl) -> list[str]:
         for m in scene.mobjects:
             if id(m) in before or not len(m.get_family()):
                 continue
+            # A ValueTracker keeps its number in its points; it is never drawn (a tracker at 40 degrees is not ink).
+            if type(m).__name__ in ("ValueTracker", "ComplexValueTracker"):
+                continue
             try:
                 if not m.has_points() and not any(s.has_points() for s in m.get_family()):
                     continue

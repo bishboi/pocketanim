@@ -1366,6 +1366,11 @@ class BoardMixin:
                     back.append(_moving(mine.animate.scale(home[1] / mine.width).move_to(home[0])))
                 if going or back:
                     self.play(*going, *back, run_time=0.5)
+                # Home again, where its coordinates hold: what redraws itself (always_redraw, a tracker's sweep)
+                # goes on, frozen only while the figure was moved aside.
+                for x in (mine.get_family() if mine is not None else []):
+                    for u in x.__dict__.pop("panim_held_updaters", []):
+                        x.add_updater(u)
         wav, seconds = pl.narrate(text)
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         pl._progress_beat()
@@ -1397,11 +1402,19 @@ class BoardMixin:
             _ink(new, pl.P.CREAM)
         # Parts moved with the figure are inside a group on the scene now (a move plays on the group), not top level.
         here = {id(x) for m in self.mobjects for x in m.get_family()}
-        owned = [m for m in [*self._free_owned, *new] if id(m) in here and m is not self.cap]
+        previous = self._free_group
+        # A part swapped in a figure that was moved (ReplacementTransform(ray, new_ray), become) takes the old
+        # part's place inside the figure's group, not on the scene's top level: it is the figure's too, or the
+        # next move left it behind at full size, drawn over what came beside the figure.
+        grouped = [x for m in self.mobjects for x in m.get_family() if getattr(x, "free_key", None) == key]
+        swapped = [m for g in {id(g): g for g in grouped}.values() for m in g.submobjects]
+        owned = [m for m in [*self._free_owned, *new, *swapped] if id(m) in here and m is not self.cap]
         self._free_owned = list({id(m): m for m in owned}.values())
+        for m in swapped:
+            for x in m.get_family():
+                made[id(x)] = x
         # What else is on the stage and still showing (a working, a card beside a figure in the left half) stays
         # with it; the blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
-        previous = self._free_group
         kept = [m for m in self.stage_extra if m is not previous and any(id(x) in here for x in m.get_family())]
         self._free_group = Group(*self._free_owned) if self._free_owned else None
         self.stage_extra = ([self._free_group] if self._free_group is not None else []) + kept
@@ -1411,6 +1424,7 @@ class BoardMixin:
                 self._free_area = "full"
                 self._log("free_area", key=key, note="drawn past the left half; moved aside instead")
             self._free_group.free_area = self._free_area
+            self._free_group.free_key = key
         # The figure is the stage's drawing: a working, a question or a card that comes next goes beside it (the
         # figure moved into the left half) instead of over it, and the figure's next block moves it home first.
         self.stage_body = self._free_group

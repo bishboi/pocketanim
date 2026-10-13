@@ -234,6 +234,49 @@ def test_a_figure_that_redraws_itself_is_moved_aside_and_exported(tmp_path, monk
     assert result.get("tier") == 1, (result.get("error"), out.stderr[-1500:])
 
 
+def test_a_part_swapped_in_a_moved_figure_moves_with_it(tmp_path, monkeypatch):
+    # A ray turned into the next one (ReplacementTransform) after the figure had been moved aside and back: the new
+    # ray took the old one's place inside the figure's group, was not counted as the figure's, and the next working
+    # left it at full size across the shrunk figure and the equations beside it.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    first = ("water = Rectangle(width=9, height=2.5, fill_opacity=0.3, stroke_width=0).shift(LEFT + DOWN * 1.25)\n"
+             "src = Dot(LEFT * 4.5 + DOWN * 2.2)\nr = Arrow(src.get_center(), LEFT * 3 + UP * 1.5, buff=0)\n"
+             "self.play(FadeIn(water), FadeIn(src), GrowArrow(r))")
+    then = ("r2 = Arrow(src.get_center(), RIGHT * 1.5 + UP * 1.0, buff=0, color=PALETTE['ROSE'])\n"
+            "self.play(ReplacementTransform(r, r2))")
+    script = _script(first, then)
+    beats = script["chapters"][0]["beats"]
+    beats.insert(1, {"say": "The critical angle follows.", "do": [{"op": "work", "id": "w", "lines": ["x = 1"]}]})
+    beats.append({"say": "In terms of relative index.", "do": [{"op": "work", "id": "w2", "lines": ["y = 2"]}]})
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.json"
+    scene.write_text(cl.compile_script(script) + f'''
+
+class Seen(GeneratedScene):
+    def beat(self, *a, **kw):
+        out = super().beat(*a, **kw)
+        import json as _json
+        fig = getattr(self, "_free_group", None)
+        arrows = [m for m in self.get_mobject_family_members() if type(m).__name__ == "Arrow"]
+        if fig is None or not arrows:
+            return out
+        with open({str(seen)!r}, "w") as f:
+            f.write(_json.dumps({{"fig": [float(fig.get_left()[0]), float(fig.get_right()[0]),
+                                          float(fig.get_bottom()[1]), float(fig.get_top()[1])],
+                                 "arrows": [[float(m.get_left()[0]), float(m.get_right()[0]),
+                                             float(m.get_bottom()[1]), float(m.get_top()[1])] for m in arrows]}}))
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    found = json.loads(seen.read_text())
+    left, right, bottom, top = found["fig"]
+    for a in found["arrows"]:
+        assert left - 0.05 <= a[0] and a[1] <= right + 0.05 and bottom - 0.05 <= a[2] and a[3] <= top + 0.05, found
+
+
 def test_a_left_half_figure_is_explained_while_its_working_stays_beside_it(tmp_path, monkeypatch):
     # "area": "left": the figure is drawn in the left half, the working takes the right, and neither moves, so the
     # figure's later blocks point at it (an angle, a ray) while the derivation beside it goes on, line after line.

@@ -2651,6 +2651,11 @@ class Lecture(Scene):
         # changed its shape during the move, which the exporter could not write, and the whole build stopped.
         free = getattr(self, "_free_group", None)
         if free is not None:
+            # Kept first (a group's clear clears its parts too), so the figure's next block, moved home first, has
+            # its sweep or traced path going again.
+            for x in free.get_family():
+                if x.updaters:
+                    x.panim_held_updaters = list(x.updaters)
             for x in free.get_family():
                 x.clear_updaters()
         slides = []

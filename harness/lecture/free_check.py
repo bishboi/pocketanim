@@ -26,6 +26,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -147,6 +148,184 @@ def run_block(code: str, names: dict, label: str) -> None:
     exec(compile(code, label, "exec"), names)  # noqa: S102 -- checked above, restricted names
 
 
+# ---------------------------------------------------------------- the quick reading of a figure's code
+#
+# Two mistakes that break a block in the render, found by reading the code (no Manim runs, so it costs nothing and
+# stays on when the probe is switched off, PANIM_MANIM_CHECK=off): a name a later beat uses that no block of the
+# figure made where later beats can see it, and a keyword a Manim class does not take (Circle(width=2)). Only what
+# would surely fail is reported: anything the reading cannot be sure of is let through, for the render to find.
+
+# Errors reported for one block at most: the first few say what is wrong; the model mends the rest with them.
+MAX_STATIC = 3
+
+
+_NAMES: dict | None = None
+
+
+def _namespace_values() -> dict:
+    """The names a block runs with before it makes any of its own (namespace()), with the builtins it may use."""
+    global _NAMES
+    if _NAMES is None:
+        try:
+            _NAMES = {**namespace(None), **SAFE_BUILTINS}
+        except Exception:  # noqa: BLE001 -- without Manim nothing can be said of names: none are reported
+            _NAMES = {}
+    return _NAMES
+
+
+def _top_level_names(tree: ast.Module) -> set[str]:
+    """Names a block leaves for the beats after it: made at its top level (in an if or a for too), not inside a
+    function or a comprehension."""
+    made: set[str] = set()
+
+    def visit(body):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                made.add(node.name)
+                continue
+            for sub in _walk_outside_scopes(node):
+                if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                    made.add(sub.id)
+            for field in ("body", "orelse"):
+                inner = getattr(node, field, None)
+                if isinstance(inner, list):
+                    visit(inner)
+
+    visit(tree.body)
+    return made
+
+
+def _walk_outside_scopes(node):
+    """The node and what is under it, but not inside a function, a lambda or a comprehension (their own names)."""
+    yield node
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ListComp, ast.SetComp,
+                              ast.DictComp, ast.GeneratorExp, ast.stmt)):
+            continue
+        yield from _walk_outside_scopes(child)
+
+
+def _any_names(tree: ast.Module) -> set[str]:
+    """Every name the block binds anywhere: a variable, a function's parameter, a loop's or comprehension's."""
+    made: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            made.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            made.add(node.name)
+        elif isinstance(node, ast.arg):
+            made.add(node.arg)
+        elif isinstance(node, ast.alias):
+            made.add((node.asname or node.name).split(".")[0])
+    return made
+
+
+_KEYWORDS: dict = {}
+
+
+def _keywords_of(cls) -> set[str] | None:
+    """The keywords a Manim class takes, from its __init__ and those it hands its other keywords up to; None when
+    that cannot be known for sure (an __init__ that takes **kwargs and the chain ends without saying)."""
+    if cls in _KEYWORDS:
+        return _KEYWORDS[cls]
+    import inspect
+
+    taken: set[str] = set()
+    closed = False
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("__init__")
+        if init is None or klass is object:
+            continue
+        try:
+            params = inspect.signature(init).parameters.values()
+        except (TypeError, ValueError):
+            break
+        taken |= {p.name for p in params if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)}
+        try:
+            # A keyword an __init__ reads out of its **kwargs by name ("kwargs.pop('width')") is taken too.
+            source = inspect.getsource(init)
+            taken |= set(_QUOTED.findall(source))
+        except (OSError, TypeError):
+            pass
+        if not any(p.kind == p.VAR_KEYWORD for p in params):
+            closed = True
+            break
+    _KEYWORDS[cls] = taken if closed else None
+    return _KEYWORDS[cls]
+
+
+_QUOTED = re.compile(r"""["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+
+# What to write instead of a keyword a shape does not take, when it is one the model reaches for often.
+_INSTEAD = {"width": "make it, then .scale_to_fit_width(w) (or a size keyword the class takes)",
+            "height": "make it, then .scale_to_fit_height(h) (or a size keyword the class takes)",
+            "size": "make it, then .scale(k) or .scale_to_fit_width(w)",
+            "position": "make it, then .move_to([x, y, 0])", "pos": "make it, then .move_to([x, y, 0])",
+            "center": "make it, then .move_to([x, y, 0])", "opacity": "fill_opacity= or stroke_opacity=",
+            "fill": "fill_color= (with fill_opacity=)", "thickness": "stroke_width=", "line_width": "stroke_width=",
+            "text_color": "color=", "fontsize": "font_size=", "size_font": "font_size="}
+
+
+def static_problems(group: dict) -> list[str]:
+    """What surely breaks a figure's blocks, read from their code: a name used before any block of the figure made
+    it where it can be seen, and a keyword a Manim class does not take. Each: "<where>: the manim block ..."."""
+    names = _namespace_values()
+    if not names:
+        return []
+    import manim
+
+    seen: set[str] = set()                  # made at the top level of the figure's earlier blocks
+    hidden: dict[str, str] = {}             # made only inside a function or loop of an earlier block: where
+    problems: list[str] = []
+    for block in group["blocks"]:
+        try:
+            tree = ast.parse(block["code"])
+        except SyntaxError:
+            return problems                 # check_code says so
+        own = _any_names(tree)
+        found: list[str] = []
+        # A name inside a function is looked up when the function is called, perhaps after a later beat made it:
+        # only names read where the block runs them are sure to fail.
+        in_functions = {id(n) for f in ast.walk(tree) if isinstance(f, (ast.FunctionDef, ast.Lambda))
+                        for n in ast.walk(f)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and id(node) not in in_functions:
+                name = node.id
+                if name in names or name in seen or name in own or any(f" uses {name} " in f for f in found):
+                    continue
+                if name in hidden:
+                    found.append(f"{block['where']}: the manim block uses {name} (line {node.lineno}), but "
+                                 f"{hidden[name]} makes {name} only inside a function or a comprehension, where "
+                                 "later beats cannot see it (NameError): make it at the top level of that block "
+                                 "(or return it and assign the result), or make it again here before using it")
+                else:
+                    found.append(f"{block['where']}: the manim block uses {name} (line {node.lineno}), which no "
+                                 f"block of the figure {group['key']!r} made before (NameError): make it at the "
+                                 "top level of this block or an earlier beat's block of the same figure, or use a "
+                                 "name Manim has")
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.keywords:
+                cls = names.get(node.func.id)
+                if node.func.id in own or not isinstance(cls, type) or not issubclass(cls, manim.Mobject):
+                    continue
+                takes = _keywords_of(cls)
+                if takes is None:
+                    continue
+                for kw in node.keywords:
+                    if kw.arg is None or kw.arg in takes:
+                        continue
+                    advice = _INSTEAD.get(kw.arg)
+                    found.append(f"{block['where']}: the manim block calls {node.func.id}({kw.arg}=...) (line "
+                                 f"{node.lineno}), but {node.func.id} takes no keyword {kw.arg!r} (TypeError: "
+                                 "unexpected keyword argument)" + (f": {advice}" if advice else
+                                 f"; it takes {', '.join(sorted(k for k in takes if not k.startswith('_'))[:14])}"))
+        problems += found[:MAX_STATIC]
+        top = _top_level_names(tree)
+        seen |= top
+        for name in own - top - seen:
+            hidden.setdefault(name, block["where"].replace("chapter", "the block of chapter"))
+    return problems
+
+
 # ---------------------------------------------------------------- the check before a render
 
 def blocks_of(script: dict) -> list[dict]:
@@ -192,6 +371,10 @@ def verify(script: dict) -> list[str]:
         if not bad:
             runnable.append(group)
     if os.environ.get("PANIM_MANIM_CHECK") == "off":
+        # No probe: what surely breaks a block is read from its code instead (the probe, when it runs, finds the
+        # same in the run and says more).
+        for group in runnable:
+            errors += static_problems(group)
         return errors
     style = str(script.get("style") or "atlas")
     CACHE.mkdir(parents=True, exist_ok=True)

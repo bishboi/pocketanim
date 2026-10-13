@@ -17,6 +17,7 @@ from forge.util import REPO
 sys.path.insert(0, str(REPO / "harness" / "lecture"))
 
 import compile_lecture as cl  # noqa: E402
+import free_check  # noqa: E402
 
 APP = REPO / "harness" / "app"
 BUILD = "box = Square(side_length=1.2, color=INK)\nself.play(Create(box))"
@@ -35,7 +36,9 @@ def test_figures_that_fail_in_the_build_are_mended_after_it(tmp_path, monkeypatc
     tsc = APP / "node_modules" / ".bin" / "tsc"
     if not tsc.exists() or not shutil.which("node"):
         pytest.skip("no TypeScript compiler")
-    monkeypatch.setenv("PANIM_MANIM_CHECK", "off")      # as a block the check let through
+    # As blocks the checks before the render let through (these two the reading of the code would catch).
+    monkeypatch.setenv("PANIM_MANIM_CHECK", "off")
+    monkeypatch.setattr(free_check, "static_problems", lambda group: [])
     script = {"title": "Free", "style": "chalkboard", "teaching_rules": False, "auto_visuals": False,
               "place_figures": False, "chapters": [{"title": "One", "map": False, "beats": [
                   {"say": "We draw a box.", "do": [{"op": "manim", "id": "fig", "code": "def make():\n"

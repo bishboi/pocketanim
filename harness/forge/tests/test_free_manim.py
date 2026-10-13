@@ -493,3 +493,32 @@ def test_a_blocks_words_sit_on_a_patch_of_the_board_that_stays_out_of_their_way(
     assert not [f for f in free_check.layout_faults([left, right]) if "overlap" in f]
     assert free_check.layout_faults([eq, Line(eq.get_left() * 0 + eq.get_center() + [-3, 3, 0],
                                               eq.get_center() + [3, -3, 0])])   # a line through words still counts
+
+
+def test_what_surely_breaks_a_block_is_found_by_reading_it_with_the_probe_off(monkeypatch):
+    # The probe is slow and can be switched off; a name a later beat cannot see and a keyword a Manim class does not
+    # take are read from the code, and go back to the writer with what to do (a block that would fail in the build).
+    monkeypatch.setenv("PANIM_MANIM_CHECK", "off")
+    hidden = free_check.verify(_script("def make():\n    g = Square()\n    return g\nself.play(Create(make()))",
+                                       "self.play(Indicate(g))"))
+    assert len(hidden) == 1 and hidden[0].startswith("chapter 1 beat 2: the manim block uses g")
+    assert "only inside a function" in hidden[0] and "top level" in hidden[0]
+    never = free_check.verify(_script(BUILD, "self.play(Indicate(circle))"))
+    assert len(never) == 1 and "uses circle" in never[0] and "NameError" in never[0]
+    sized = free_check.verify(_script("self.play(Create(Circle(width=2, color=INK)))"))
+    assert len(sized) == 1 and "Circle(width=...)" in sized[0] and "scale_to_fit_width" in sized[0]
+    assert "color" not in sized[0]
+
+
+def test_reading_a_block_lets_through_what_it_cannot_be_sure_breaks(monkeypatch):
+    monkeypatch.setenv("PANIM_MANIM_CHECK", "off")
+    first = ("pts = [LEFT, RIGHT, UP]\ndots = VGroup(*[Dot(p, radius=0.08, color=PALETTE['GOLD']) for p in pts])\n"
+             "for i in range(3):\n    last = dots[i]\nif len(pts) > 2:\n    top = dots[2]\n"
+             "def label(m, text):\n    return MathTex(text, font_size=36).next_to(m, UP)\n"
+             "r = Rectangle(width=2, height=1, fill_opacity=0.3)\nax = Axes(x_range=[0, 5, 1], y_range=[0, 3, 1], "
+             "x_length=6, y_length=3)\nt = Text('hi', font_size=30, weight=BOLD)\n"
+             "self.play(FadeIn(dots), Create(r), Create(ax), Write(t), run_time=1)")
+    # Names made at the top level, in a loop or an if, and a function that reads a name made later: all fine.
+    then = ("def later_one():\n    return made_later\nmade_later = label(top, 'x')\n"
+            "self.play(Write(made_later), last.animate.shift(RIGHT), Indicate(later_one()))")
+    assert free_check.verify(_script(first, then)) == []

@@ -2618,6 +2618,10 @@ class Lecture(Scene):
         """Scale the stage's picture and parts by f about `centre` and move them to the box's centre. Parts
         already on screen slide there; parts this beat is still bringing in (a node being revealed, a picture
         not shown yet) are simply put there, since two animations on one part fight and it stayed behind."""
+        if getattr(self.stage_body, "free_area", None) == "left":
+            # A free-form figure drawn in the left half already: what comes beside it takes the right half, and the
+            # figure stays where its blocks draw (moved, their next parts would land beside it).
+            return None
         cx, cy = box[0], box[1]
         shift = np.array([cx, cy, 0]) - centre
         # The map's cover stays the size of the map: moved with the picture's card, it shrank and the map showed.

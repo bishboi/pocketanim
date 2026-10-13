@@ -71,7 +71,8 @@ function slotsOf(script: Record<string, unknown>): Map<string, Slot[]> {
 }
 
 const hasCode = (slot: Slot) => typeof slot.op.code === "string" && slot.op.code.trim() !== "";
-const memoKey = (id: string, slots: Slot[]) => JSON.stringify([id, slots.map((s) => [s.say, s.plan, s.figure ?? ""])]);
+const memoKey = (id: string, slots: Slot[]) =>
+  JSON.stringify([id, slots[0]?.op.area ?? "", slots.map((s) => [s.say, s.plan, s.figure ?? ""])]);
 
 /** Whether the script has any free-form Manim block. */
 export function hasManim(script: unknown): boolean {
@@ -108,8 +109,12 @@ export function manimReasoning(): { reasoning?: { effort: string } } {
 
 /** The blocks of one figure from the model: one code string a beat, or null when its reply will not do. */
 async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: { errors: string[] }): Promise<string[] | null> {
+  // "area": "left" (the figure's first beat decides): drawn in the left half, a working or a card beside it.
+  const left = slots[0]?.op.area === "left";
   const lines = [
     `The lecture's style: ${options.style ?? "atlas"}. The figure's id: ${id}. Its ${slots.length} beat${slots.length > 1 ? "s" : ""}:`,
+    ...(left ? ["Its area is the LEFT HALF of the board: keep everything within x from -6.9 to -0.4 (a working or a " +
+      "card fills the right half, beside it, while later beats point at the figure)."] : []),
     ...slots.map((s, k) => `Beat ${k + 1} says: "${s.say}"\n  Plan: ${s.plan || "(no plan: draw what the line says)"}`),
   ];
   if (fix) {

@@ -1316,12 +1316,13 @@ class BoardMixin:
         return drawn
 
     # ---------------- free-form Manim (free_check.py) ----------------
-    def free(self, key: str, text: str, code: str, pad: float | None = None) -> float:
+    def free(self, key: str, text: str, code: str, pad: float | None = None, area: str | None = None) -> float:
         """One beat drawn by a block of model-written Manim: the line is spoken, the block runs (its plays land
         while the line is said), and the rest of the line is held. Blocks with the same key share their names, so
         a figure built on one beat is moved, ringed or transformed on the next; the first block of a key clears
         the stage. What the blocks leave on the board goes with the stage, at the next picture or the chapter's
-        end."""
+        end. `area` "left" (its first block's): the figure is drawn in the board's left half, so a working, a
+        question or a card goes in the right half without moving it, and stays while later blocks explain it."""
         import free_check
         import numpy as np
         import pocket_lecture as pl
@@ -1339,12 +1340,17 @@ class BoardMixin:
             self._free_names = free_check.namespace(self)
             self._free_owned = []
             self._free_group = None
+            self._free_area = "left" if area == "left" else "full"
         else:
             # The figure goes on after something else took the stage (a question card, a definition): that goes,
             # and the figure's parts it faded come back, so the next block draws on its own figure, not over a card.
             mine = getattr(self, "_free_group", None)
             others = [m for m in [self.stage_items, *self.stage_extra]
                       if m is not mine and (len(m.get_family()) > 1 or len(m.points))]
+            if getattr(self, "_free_area", "full") == "left" and mine is not None and self.stage_body is mine:
+                # A figure in the left half: what sits wholly in the right half (the working, a question, a card)
+                # stays while this block explains the figure.
+                others = [m for m in others if m.get_left()[0] < self.STAGE[0] - 0.15]
             if others or (self.stage_body is not None and self.stage_body is not mine):
                 going = [a for a in self._stage_leaving() if a.mobject is not mine]
                 here = {id(x) for m in self.mobjects for x in m.get_family()}
@@ -1383,9 +1389,18 @@ class BoardMixin:
         here = {id(x) for m in self.mobjects for x in m.get_family()}
         owned = [m for m in [*self._free_owned, *new] if id(m) in here and m is not self.cap]
         self._free_owned = list({id(m): m for m in owned}.values())
-        # The blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
+        # What else is on the stage and still showing (a working, a card beside a figure in the left half) stays
+        # with it; the blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
+        previous = self._free_group
+        kept = [m for m in self.stage_extra if m is not previous and any(id(x) in here for x in m.get_family())]
         self._free_group = Group(*self._free_owned) if self._free_owned else None
-        self.stage_extra = [self._free_group] if self._free_group is not None else []
+        self.stage_extra = ([self._free_group] if self._free_group is not None else []) + kept
+        if self._free_group is not None:
+            if self._free_area == "left" and self._free_group.get_right()[0] > self.STAGE[0] + 0.3:
+                # Drawn past the left half after all: treated as a whole-board figure (moved aside for a working).
+                self._free_area = "full"
+                self._log("free_area", key=key, note="drawn past the left half; moved aside instead")
+            self._free_group.free_area = self._free_area
         # The figure is the stage's drawing: a working, a question or a card that comes next goes beside it (the
         # figure moved into the left half) instead of over it, and the figure's next block moves it home first.
         self.stage_body = self._free_group

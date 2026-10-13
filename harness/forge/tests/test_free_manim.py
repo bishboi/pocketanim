@@ -230,3 +230,56 @@ def test_a_figure_that_redraws_itself_is_moved_aside_and_exported(tmp_path, monk
                          env=env)
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert result.get("tier") == 1, (result.get("error"), out.stderr[-1500:])
+
+
+def test_a_left_half_figure_is_explained_while_its_working_stays_beside_it(tmp_path, monkeypatch):
+    # "area": "left": the figure is drawn in the left half, the working takes the right, and neither moves, so the
+    # figure's later blocks point at it (an angle, a ray) while the derivation beside it goes on, line after line.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script("axis = Line(LEFT * 6, LEFT * 1, color=INK)\nself.play(Create(axis))",
+                     "mark = Dot(LEFT * 3)\nself.play(FadeIn(mark))")
+    beats = script["chapters"][0]["beats"]
+    beats[0]["do"][0]["area"] = "left"
+    beats.insert(1, {"say": "Write the first line.", "do": [{"op": "work", "id": "w", "lines": ["a = b"]}]})
+    beats.append({"say": "And the second line.", "do": [{"op": "work", "id": "w", "lines": ["c = d"]}]})
+    assert cl.lint(script)[0] == []
+    source = cl.compile_script(script)
+    assert 'area="left"' in source
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.jsonl"
+    scene.write_text(source + f'''
+
+class Seen(GeneratedScene):
+    def _seen(self):
+        import json as _json
+        fig = getattr(self, "_free_group", None)
+        lines = [m for m in self.get_mobject_family_members() if type(m).__name__ == "MathTex"]
+        with open({str(seen)!r}, "a") as f:
+            f.write(_json.dumps({{"fig": [float(fig.get_left()[0]), float(fig.get_right()[0])] if fig else None,
+                                 "lines": len(lines)}}) + "\\n")
+
+    def free(self, *a, **kw):
+        out = super().free(*a, **kw)
+        self._seen()
+        return out
+
+    def beat(self, *a, **kw):
+        out = super().beat(*a, **kw)
+        self._seen()
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    rows = [json.loads(line) for line in seen.read_text().splitlines() if '"fig": null' not in line]
+    first, *rest = rows
+    assert all(r["fig"] == first["fig"] for r in rest)     # never moved
+    assert first["fig"][1] < 0                              # in the left half
+    assert [r["lines"] for r in rest][-2:] == [1, 2]       # the working stayed through the figure's next block
+
+
+def test_a_figure_area_is_left_or_full():
+    script = _script(BUILD)
+    script["chapters"][0]["beats"][0]["do"][0]["area"] = "right"
+    assert any("area" in e for e in cl.lint(script)[0])

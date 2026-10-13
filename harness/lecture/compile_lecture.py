@@ -822,6 +822,9 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                                       "or put the other ops on beats of their own")
                     if _map_chapter(chapter, has_map):
                         errors.append(f"{at}: a manim beat draws on the board; give its chapter \"map\": false")
+                    if op.get("area") not in (None, "full", "left"):
+                        errors.append(f"{at}: a manim op's area is \"left\" (the figure in the left half, a working "
+                                      "or card beside it) or \"full\" (the default)")
                     continue
                 if kind in BUILD_OPS | STEP_OPS | WORK_OPS:
                     problem = _build_problem(op, diagrams, script.get("figures") or {})
@@ -3332,8 +3335,11 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 pad = "PARAGRAPH_PAD" if bi in closing else "BEAT_PAD"
                 if _pause(beat):
                     pad = f"{pad} + {_pause(beat):g}"
+                # "left": the figure is drawn in the board's left half, so a working or a card stays beside it
+                # while later blocks explain it (stem.BoardMixin.free).
+                area = ', area="left"' if free.get("area") == "left" else ""
                 out.append(f"        self.free({_q(free_check.free_key(free, index))}, {_q(beat['say'])}, "
-                           f"{_q(free['code'])}, pad={pad})")
+                           f"{_q(free['code'])}, pad={pad}{area})")
                 staged = True
                 continue
             if bi < len(fills) and fills[bi]:

@@ -92,3 +92,59 @@ def classes(colour) -> dict:
     out = {name: backed(getattr(manim, name)) for name in ("Text", "MathTex", "Tex", "MarkupText")}
     out["TransformMatchingTex"] = TransformMatchingTex
     return out
+
+
+def _closed(mob) -> bool:
+    import numpy as np
+
+    pts = getattr(mob, "points", None)
+    return pts is not None and len(pts) >= 4 and bool(np.allclose(pts[0], pts[-1], atol=1e-3))
+
+
+def _bounds(points):
+    return points[:, 0].min(), points[:, 1].min(), points[:, 0].max(), points[:, 1].max()
+
+
+def settle(scene, arriving) -> None:
+    """Before words go on the board: words inside a closed shape (a table's cell, a node's circle, a labelled box)
+    already have that shape behind them, and the patch only showed as a dark box in a coloured cell. Their patch
+    goes. Words anywhere else keep theirs."""
+    import numpy as np
+
+    on_stage = {id(x) for top in scene.mobjects for x in top.get_family()}
+    mobs = list(arriving)
+    texts = [x for m in mobs for x in m.get_family()
+             if id(x) not in on_stage and any(isinstance(s, Backing) for s in x.submobjects)]
+    if not texts:
+        return
+    shapes = [x for top in [*scene.mobjects, *mobs] for x in top.get_family()
+              if not isinstance(x, Backing) and _closed(x)]
+    for text in texts:
+        words = [p.points for p in text.family_members_with_points() if not isinstance(p, Backing)]
+        if not words:
+            continue
+        x0, y0, x1, y1 = _bounds(np.concatenate(words))
+        area = max((x1 - x0) * (y1 - y0), 1e-4)
+        inside = set(map(id, text.get_family()))
+        for shape in shapes:
+            if id(shape) in inside:
+                continue
+            sx0, sy0, sx1, sy1 = _bounds(shape.points)
+            if sx0 <= x0 + 0.02 and sy0 <= y0 + 0.02 and sx1 >= x1 - 0.02 and sy1 >= y1 - 0.02:
+                filled = shape.get_fill_opacity() > 0.1
+                if filled or (sx1 - sx0) * (sy1 - sy0) <= 30 * area:
+                    text.remove(*[s for s in text.submobjects if isinstance(s, Backing)])
+                    break
+
+
+def arriving_in(animations) -> list:
+    """What a play may put on the board: each animation's object and the shape it becomes."""
+    out, todo = [], list(animations)
+    while todo:
+        anim = todo.pop(0)
+        todo.extend(getattr(anim, "animations", None) or [])
+        for attr in ("mobject", "target_mobject", "_panim_target"):
+            mob = getattr(anim, attr, None)
+            if mob is not None:
+                out.append(mob)
+    return out

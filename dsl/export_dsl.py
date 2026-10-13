@@ -124,6 +124,12 @@ class Recorder:
 
         from manim import Circle
 
+        if getattr(mob, "_panim_in_order", False):
+            # Re-shown in the video's draw order (a group drawn as its parts): a `circle`/`square`/`rect` takes its
+            # place in the players' draw order when it is first shown, after every baked picture whatever its
+            # declaration, so a cell filled later covered the words written on it. A baked shape keeps its place.
+            return False
+
         # Only ever called on a Circle, Square or Rectangle, all of which are
         # VMobjects; a bare Mobject has none of these accessors.
         # The declarations carry one opaque stroke and no fill.
@@ -576,7 +582,15 @@ def animate_verbs(methods, target: str, duration: float, mobject=None) -> list[s
         if name == "scale" and entry.args:
             parts.append(f"by={float(entry.args[0]):g}")
             if probe is not None:
-                probe.scale(float(entry.args[0]))
+                # Players scale about the object's own centre. Scaled about another point (about_point, about_edge:
+                # the stage's parts shrunk together beside a card), its centre moves as well, and that move is the
+                # by_xy: left out, each part shrank where it stood and the picture came apart beside the card.
+                kw = getattr(entry, "kwargs", None) or {}
+                before = np.asarray(probe.get_center(), dtype=float).reshape(3)
+                probe.scale(float(entry.args[0]), **{k: v for k, v in kw.items() if k in ("about_point", "about_edge")})
+                delta = np.asarray(probe.get_center(), dtype=float).reshape(3) - before
+                if np.linalg.norm(delta) > 1e-9:
+                    moved = delta if moved is None else moved + delta
         elif name == "set_opacity" and entry.args:
             # Manim's set_opacity sets fill and stroke opacity together. Only
             # the stroke used to move, so a filled shape never dimmed.
@@ -1195,6 +1209,8 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 continue
             for sub in mob.get_family():
                 rec.names.pop(id(sub), None)
+                split_state["broken"].discard(id(sub))
+                split_state["pieces"].pop(id(sub), None)
             name = rec.declare(mob)
             rec.flush()
             if name:
@@ -1227,6 +1243,11 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             else:
                 flat.append(anim)
         animations = tuple(flat)
+        if not state["in_camera_move"]:
+            # A part of a group drawn as one picture is drawn on its own before a play changes it; a group drawn as
+            # parts is one picture again before a play takes it whole. Ahead of the play's verbs and its `par`.
+            regroup(self, animations)
+            emitted_before = len(rec.timeline)
         for anim in animations:
             duration = run_time if run_time is not None else getattr(anim, "run_time", 1.0)
 
@@ -1698,10 +1719,136 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         for piece in pieces:
             if id(piece) in rec.containers or not piece.family_members_with_points():
                 continue
+            for sub in piece.get_family():
+                sub._panim_in_order = True
             name = rec.declare(piece)
             rec.flush()
             if name:
                 rec.timeline.append(f"show {name}")
+
+    # A group the program draws as one picture, and a part of it a play then changes on its own (a node's circle
+    # turned gold, a cell filled, an arrow of a figure moved): the verb went to a part the program never showed, and
+    # the group's picture kept the part as it was -- the highlight never appeared. The group is drawn as its parts
+    # instead (split), in the order the video draws them; and once a play takes the whole group again (it moves
+    # aside, it fades), it is one picture again first (merge) -- else its parts stayed where they were, over every
+    # later scene.
+    split_state: dict = {"broken": set(), "pieces": {}}
+
+    def path_to(node, target) -> list | None:
+        if node is target:
+            return [node]
+        for child in node.submobjects:
+            if target in child.get_family():
+                rest = path_to(child, target)
+                if rest:
+                    return [node, *rest]
+        return None
+
+    def drawn_whole(scene, node) -> bool:
+        """Whether the program draws `node` as one picture: a piece shown on its own, or a declared object that is
+        not a plain container of parts drawn by themselves (a stage's holder group) and was not split."""
+        if id(node) in split_state["pieces"]:
+            return True
+        if id(node) in rec.containers or id(node) in split_state["broken"]:
+            return False
+        name = rec.names.get(id(node))
+        return bool(name) and rec.declared(name)
+
+    def split_for(scene, mob) -> None:
+        path = None
+        for top in scene.mobjects:
+            if mob in top.get_family():
+                path = path_to(top, mob)
+                break
+        if not path:
+            return
+        # The outermost picture on the way down: what lies above it is containers (or groups already split).
+        holder = next((node for node in path if drawn_whole(scene, node)), None)
+        if holder is None or holder is mob:
+            return
+        hide_drawn(holder)
+        split_state["broken"].add(id(holder))
+        split_state["pieces"].pop(id(holder), None)
+        out: list = []
+
+        def walk(node) -> None:
+            for child in node.submobjects:
+                if child is mob or mob not in child.get_family():
+                    out.append(child)
+                else:
+                    split_state["broken"].add(id(child))
+                    walk(child)
+
+        walk(holder)
+        for piece in out:
+            if id(piece) in rec.containers or not piece.family_members_with_points():
+                continue
+            for sub in piece.get_family():
+                hide_drawn(sub)
+                rec.names.pop(id(sub), None)
+            show_pieces([piece])
+            split_state["pieces"][id(piece)] = piece
+        # The parts are declared now, so the players draw them over whatever was declared before -- including what
+        # the video draws over them (an equation written later on top of this one). What lies above them at the
+        # same depth is drawn again after them, in the video's order.
+        top = path[0]
+        depth = z_order(top)
+        later = False
+        for other in list(scene.mobjects):
+            if other is top:
+                later = True
+                continue
+            if not later or z_order(other) != depth:
+                continue
+            for node in outermost_drawn(scene, other):
+                for sub in node.get_family():
+                    hide_drawn(sub)
+                    rec.names.pop(id(sub), None)
+                show_pieces([node])
+                if not any(node is t for t in scene.mobjects):
+                    split_state["pieces"][id(node)] = node
+
+    def outermost_drawn(scene, node) -> list:
+        if drawn_whole(scene, node):
+            return [node]
+        return [found for child in node.submobjects for found in outermost_drawn(scene, child)]
+
+    def merge_for(scene, mob) -> None:
+        family = mob.get_family()
+        if not any(id(x) in split_state["broken"] for x in family):
+            return
+        for x in family:
+            if id(x) in split_state["pieces"] and x is not mob:
+                hide_drawn(x)
+                split_state["pieces"].pop(id(x), None)
+            split_state["broken"].discard(id(x))
+        hide_drawn(mob)
+        for x in family:
+            rec.names.pop(id(x), None)
+        name = rec.declare(mob)
+        rec.flush()
+        if name:
+            rec.timeline.append(f"show {name}")
+            if not any(mob is top for top in scene.mobjects):
+                split_state["pieces"][id(mob)] = mob
+
+    def parts_played(animations) -> list:
+        out, todo = [], list(animations)
+        while todo:
+            anim = todo.pop(0)
+            todo.extend(getattr(anim, "animations", None) or [])
+            for attr in ("mobject", "_panim_source"):
+                mob = getattr(anim, attr, None)
+                if mob is not None and all(mob is not m for m in out):
+                    out.append(mob)
+        return out
+
+    def regroup(scene, animations) -> None:
+        on_stage = {id(x) for top in scene.mobjects for x in top.get_family()}
+        for mob in parts_played(animations):
+            if id(mob) in on_stage:
+                split_for(scene, mob)
+                merge_for(scene, mob)
 
     def hide_drawn(mob) -> None:
         """`hide` for a mobject's own drawing, if it has one."""
@@ -1788,6 +1935,8 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     line = f"hide {name}"
                     if not rec.timeline or rec.timeline[-1] != line:
                         rec.timeline.append(line)
+                split_state["broken"].discard(id(sub))
+                split_state["pieces"].pop(id(sub), None)
         result = originals["remove"](self, *mobjects, **kw)
         broken_up(before_top, list(self.mobjects), gone)
         return result

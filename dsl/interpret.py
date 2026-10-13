@@ -744,7 +744,10 @@ def build_2d(scene: dict) -> DecodedIR:
                 for frame_index in range(total):
                     alpha = smooth((frame_index + 1) / total)
                     grown = []
-                    for aid, transform, fill, stroke, old_w in base:
+                    # The stroke only: a `fill` running beside it in the same `par` (set_color is both) changes the
+                    # fill of the same instances, and writing them back from this verb's own start undid it.
+                    now = obj["instances"] if len(obj["instances"]) == len(base) else base
+                    for (aid, transform, fill, stroke, old_w), current in zip(base, now):
                         rgb = stroke[:3] if color is None else tuple(
                             int(round(a + (b - a) * alpha)) for a, b in zip(stroke[:3], color)
                         )
@@ -752,7 +755,7 @@ def build_2d(scene: dict) -> DecodedIR:
                             stroke[3] + (opacity * 255 - stroke[3]) * alpha
                         ))
                         new_w = old_w if width is None else old_w + (width - old_w) * alpha
-                        grown.append((aid, transform, fill, (*rgb, channel), new_w))
+                        grown.append((current[0], current[1], current[2], (*rgb, channel), new_w))
                     obj["instances"] = grown
                     yield
         elif step[0] == "run":
@@ -1132,14 +1135,16 @@ def build_2d(scene: dict) -> DecodedIR:
                 for frame_index in range(total):
                     alpha = smooth((frame_index + 1) / total)
                     changed = []
-                    for aid, transform, fill, stroke, width in base:
+                    # The fill only: a `stroke` beside it in the same `par` changes the same instances' strokes.
+                    now = obj["instances"] if len(obj["instances"]) == len(base) else base
+                    for (aid, transform, fill, stroke, width), current in zip(base, now):
                         rgb = fill[:3] if color is None else tuple(
                             int(a + (b - a) * alpha + 0.5) for a, b in zip(fill[:3], color)
                         )
                         channel = fill[3] if opacity is None else int(
                             fill[3] + (opacity * 255 - fill[3]) * alpha + 0.5
                         )
-                        changed.append((aid, transform, (*rgb, channel), stroke, width))
+                        changed.append((current[0], current[1], (*rgb, channel), current[3], current[4]))
                     obj["instances"] = changed
                     yield
 
@@ -1214,7 +1219,8 @@ def build_2d(scene: dict) -> DecodedIR:
                         for aid, transform, fill, stroke, width in base_inst
                     ]
                     yield
-                obj["instances"] = base_inst
+                # It stays turned, as Manim leaves a Rotate's object: put back at its start, a ray turned to graze
+                # the surface sprang back the moment the turn ended.
 
         elif step[0] == "indicate":
             # A short there-and-back scale to 1.2 about the object's centre.

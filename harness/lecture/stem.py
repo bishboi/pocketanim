@@ -1387,8 +1387,24 @@ class BoardMixin:
         try:
             # A block that fails here (it passed the check before the render) leaves out the rest of its drawing;
             # the line is still spoken, and the reason is reported with the build.
+            # Words a block puts inside a cell, a node or a box need no patch of board behind them (backed_text).
+            import backed_text
+
+            plays, adds = type(self).play, type(self).add
+
+            def play(*animations, **kwargs):
+                backed_text.settle(self, backed_text.arriving_in(animations))
+                return plays(self, *animations, **kwargs)
+
+            def add(*mobjects):
+                backed_text.settle(self, mobjects)
+                return adds(self, *mobjects)
+
+            self.play, self.add = play, add
             self.safe(lambda: free_check.run_block(code, self._free_names, f"<{key}>"), f"manim block {key!r}")
         finally:
+            self.__dict__.pop("play", None)
+            self.__dict__.pop("add", None)
             self._free_ink = None
         spent = self.renderer.time - start
         new = [m for m in self.mobjects if id(m) not in before]

@@ -894,7 +894,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 val opacity = step.opacity ?: startAlpha
                 obj.alpha = startAlpha + (opacity - startAlpha) * alpha
             } else {
-                obj.instances = base!!.mapTo(ArrayList()) { inst ->
+                // The stroke only: a fill running beside it in the same par (set_color is both) changes the fill of
+                // the same instances, and writing them back from this runner's own start undid it.
+                val held = base!!
+                val now = if (obj.instances.size == held.size) obj.instances.toList() else held
+                obj.instances = held.indices.mapTo(ArrayList()) { n ->
+                    val inst = held[n]
+                    val current = now[n]
                     val rgb = IntArray(3) { i ->
                         val target = step.color?.let { (it shr (16 - 8 * i)) and 0xFF } ?: inst.stroke[i]
                         pyRound(inst.stroke[i] + (target - inst.stroke[i]) * alpha)
@@ -904,7 +910,7 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                     val width = if (step.width == null) inst.width
                     else inst.width + (step.width - inst.width) * alpha
                     Inst(
-                        inst.atlasId, inst.transform, inst.fill,
+                        current.atlasId, current.transform, current.fill,
                         intArrayOf(rgb[0], rgb[1], rgb[2], channel), width,
                     )
                 }
@@ -1374,14 +1380,18 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             if (held == null) {
                 obj.fill = IntArray(4) { (start[it] + (end[it] - start[it]) * alpha + 0.5).toInt() }
             } else {
-                obj.instances = held.mapTo(ArrayList()) { inst ->
+                // The fill only: a stroke beside it in the same par changes the same instances' strokes.
+                val now = if (obj.instances.size == held.size) obj.instances.toList() else held
+                obj.instances = held.indices.mapTo(ArrayList()) { n ->
+                    val inst = held[n]
+                    val current = now[n]
                     val rgb = IntArray(3) { i ->
                         val target = step.color?.let { (it shr (16 - 8 * i)) and 0xFF } ?: return@IntArray inst.fill[i]
                         (inst.fill[i] + (target - inst.fill[i]) * alpha + 0.5).toInt()
                     }
                     val channel = if (step.opacity == null) inst.fill[3]
                     else (inst.fill[3] + (step.opacity * 255 - inst.fill[3]) * alpha + 0.5).toInt()
-                    Inst(inst.atlasId, inst.transform, intArrayOf(rgb[0], rgb[1], rgb[2], channel), inst.stroke, inst.width)
+                    Inst(current.atlasId, current.transform, intArrayOf(rgb[0], rgb[1], rgb[2], channel), current.stroke, current.width)
                 }
             }
             emit()
@@ -1606,10 +1616,9 @@ internal class Builder(private val program: Program, private val loader: AssetLo
             emit()
         }
 
-        override fun exit() {
-            basePoints?.let { obj.points = it }
-            baseInst?.let { obj.instances = it.toMutableList() }
-        }
+        // It stays turned, as Manim leaves a Rotate's object: put back at its start, a ray turned to graze the
+        // surface sprang back the moment the turn ended.
+        override fun exit() {}
     }
 
     private fun indicateRunner(step: Step.Indicate) = object : Runner {

@@ -517,6 +517,25 @@ def thing_picture(name) -> str:
     return str(row["file"])
 
 
+def _families_zipped(self):
+    """Transform's parts paired with their start and end, as Manim does. Manim lines the three up before the play
+    starts, so they differ only when a part rebuilds itself during it -- a live readout writing its next number while
+    it fades in (a trace's slope) -- and Manim's strict pairing stopped the whole render there. Then the parts are
+    paired by place in the whole family, which a readout keeps (it refills or empties its pieces, and only adds new
+    ones at the end): each glyph with its own start and end, the pieces it added since left as they are."""
+    mobs = [self.mobject, self.starting_mobject, self.target_copy]
+    families = [mob.family_members_with_points() for mob in mobs]
+    if len({len(f) for f in families}) == 1:
+        return zip(*families)
+    # Shapes only: a plain Group in the family has nothing to fade.
+    return [parts for parts in zip(*(mob.get_family() for mob in mobs))
+            if all(hasattr(part, "fill_rgbas") for part in parts)]
+
+
+from manim.animation.transform import Transform as _Transform  # noqa: E402
+
+_Transform.get_all_families_zipped = _families_zipped
+
 # Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
 SKIPPED: list[str] = []
 # Called with (scene, chapter number) as each chapter begins, before anything of it is drawn.

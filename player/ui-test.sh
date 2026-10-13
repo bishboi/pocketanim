@@ -16,8 +16,24 @@ PKG=com.pocketanim.player
 mkdir -p "$OUT"
 FAILED=0
 
-log() { echo "== $*"; }
-fail() { echo "FAIL: $*"; FAILED=1; }
+REPORT=""
+log() { echo "== $*"; REPORT="$REPORT== $*"$'\n'; }
+fail() { echo "FAIL: $*"; REPORT="$REPORT FAIL: $*"$'\n'; FAILED=1; }
+report() {
+  log "done (failed=$FAILED)"
+  [ -f "$OUT/logcat.txt" ] || adb logcat -d > "$OUT/logcat.txt" 2>/dev/null || touch "$OUT/logcat.txt"
+  # As annotations too, which GitHub's API returns (the run's log and artifact are served from elsewhere): what each
+  # step found, the crash if there was one, and the app's own errors and warnings.
+  annotate() { python3 -c 'import sys; t=sys.stdin.read()[:60000]; print(t.replace("%","%25").replace("\r","").replace("\n","%0A"), end="")'; }
+  echo "::notice title=player-ui steps::$(printf '%s' "$REPORT" | annotate)"
+  if grep -q "FATAL EXCEPTION" "$OUT/logcat.txt"; then
+    echo "::error title=player-ui crash::$(grep -A 40 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -60 | annotate)"
+  fi
+  PID_LINES=$(grep -E " [EW] (AndroidRuntime|pocketanim|panim|PlayerActivity|LibraryActivity|MediaExtractor|AudioTrack|NuMediaExtractor)" "$OUT/logcat.txt" | tail -60)
+  [ -n "$PID_LINES" ] && echo "::notice title=player-ui log::$(printf '%s' "$PID_LINES" | annotate)"
+}
+trap report EXIT
+
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; log "screenshot $1"; }
 
 # The centre of the first view whose text or description contains $1, from a UI dump ("x y"), or nothing.
@@ -38,6 +54,29 @@ for node in root.iter("node"):
         print((x0 + x1) // 2, (y0 + y1) // 2)
         break
 PY
+}
+
+# What the screen says: its texts and descriptions, in reading order, into the report.
+screen_text() {
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui-$1.xml" > /dev/null 2>&1
+  local said
+  said=$(python3 - "$OUT/ui-$1.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    print("(no UI dump)")
+    sys.exit(0)
+bits = []
+for node in root.iter("node"):
+    t = node.get("text") or ""
+    d = node.get("content-desc") or ""
+    if t or d:
+        bits.append(t if t else "[" + d + "]")
+print(" | ".join(bits)[:1500])
+PY
+)
+  log "$1 shows: $said"
 }
 
 tap_view() {
@@ -73,6 +112,7 @@ log "the library"
 adb shell am start -W -n $PKG/.LibraryActivity
 sleep 8
 shot 01-library-saved
+screen_text 01-library-saved
 
 log "a saved lecture, streamed"
 tap_view "Part 1 of the series" || adb shell input tap $((W / 2)) $((H / 4))
@@ -80,6 +120,7 @@ sleep 1.5
 shot 02-player-opening
 sleep 5
 shot 03-player-playing
+screen_text 03-player-playing
 sleep 3
 shot 04-player-playing-later
 # The picture moved between the two: it is playing, not stuck on a frame.
@@ -93,6 +134,7 @@ log "the controls"
 adb shell input tap $((W / 2)) $((W * 9 / 32))
 sleep 0.8
 shot 05-player-controls
+screen_text 05-player-controls
 tap_view "Playback speed" && sleep 1 && shot 06-speed && { tap_view "1.5×" || adb shell input keyevent KEYCODE_BACK; }
 sleep 1
 adb shell input tap $((W / 2)) $((W * 9 / 32))
@@ -105,6 +147,7 @@ log "the whole screen"
 adb shell settings put system user_rotation 1
 sleep 3
 shot 09-landscape
+screen_text 09-landscape
 adb shell input tap $((H / 2)) $((W / 2))
 sleep 0.8
 shot 10-landscape-controls
@@ -116,6 +159,7 @@ shot 11-double-tap-back
 log "the end of the lecture"
 sleep 32
 shot 12-end-card
+screen_text 12-end-card
 adb shell settings put system user_rotation 0
 sleep 2
 shot 13-end-card-portrait
@@ -124,9 +168,12 @@ log "back to the library"
 adb shell input keyevent KEYCODE_BACK
 sleep 2
 shot 14-library-after
+screen_text 14-library-after
 tap_view "On this phone" && sleep 1.5 && shot 15-on-this-phone
 tap_view "Samples" && sleep 1.5 && shot 16-samples
+screen_text 16-samples
 tap_view "Hello Pocketanim" && sleep 4 && shot 17-sample-playing
+screen_text 17-sample-playing
 
 log "what the system says"
 adb shell dumpsys audio > "$OUT/dumpsys-audio.txt" 2>&1
@@ -141,5 +188,4 @@ if grep -q "FATAL EXCEPTION" "$OUT/logcat.txt"; then
 fi
 grep -iE "pocketanim|panim" "$OUT/logcat.txt" | tail -80 > "$OUT/logcat-app.txt" || true
 
-log "done (failed=$FAILED)"
 exit $FAILED

@@ -4043,9 +4043,9 @@ class Lecture(Scene):
         return going
 
     def spotlight(self, key: str, node: str):
-        """Draw the eye to one node of a diagram: a ring around it (the last ring goes), the rest of the diagram
-        dimmed under a veil of the board's colour while it is talked about, and, on a big diagram, the stage moved
-        in on it (the camera follows the explanation)."""
+        """Draw the eye to one node of a diagram: the rest of the diagram dimmed under a veil of the board's colour
+        while it is talked about, and, on a big diagram, the stage moved in on it (the camera follows the
+        explanation). No box is drawn around the node: the veil alone sets it apart."""
         d = self.diagrams.get(key)
         if not d or d.get("gone") or str(node) not in d["nodes"] or str(node) not in d["shown"]:
             # Its picture has left the stage: a ring now would circle an empty patch of whatever replaced it.
@@ -4053,7 +4053,6 @@ class Lecture(Scene):
         target = d["nodes"][str(node)]
         if not len(target.get_family()) or target.width < 1e-3 and target.height < 1e-3:
             return None
-        ring = SurroundingRectangle(target, buff=0.1, corner_radius=0.2, color=P.GOLD, stroke_width=6)
         anims = []
         if d["focus"] is not None:
             anims.append(FadeOut(d["focus"]))
@@ -4070,8 +4069,6 @@ class Lecture(Scene):
             if push is not None:
                 d["pushed"] = True
                 moved = self._zoom_place
-        if moved is not None:
-            moved(ring)
         # One focal point: every other part shown so far goes quiet under a veil; the arrows into and out of this one
         # stay clear.
         if not d.get("drawing"):
@@ -4087,8 +4084,9 @@ class Lecture(Scene):
                 veils.append(self._stage_add(veil))
             d["veils"] = veils
             anims += [FadeIn(v) for v in veils]
-        d["focus"] = self._stage_add(ring)
-        anims.append(Create(ring))
+        d["focus"] = None
+        if not anims:
+            return push
         lit = AnimationGroup(*anims, lag_ratio=0.2)
         return AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
 

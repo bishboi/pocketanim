@@ -443,21 +443,21 @@ def test_a_ring_is_not_drawn_on_a_picture_that_has_left():
 
 
 def test_a_second_picture_moves_the_firsts_revealed_parts_with_it():
-    """The beat's first picture shrinks to the left half beside the second; what it revealed and its ring go
-    with it, instead of staying over the second picture."""
+    """The beat's first picture shrinks to the left half beside the second; what it revealed goes with it,
+    instead of staying over the second picture."""
     scene = _board_scene()
     scene._beat_new = []
     scene.diagram("d", "flow", [{"id": "a", "label": "Manor"}, {"id": "b", "label": "Church"}], show=["a"])
     scene.reveal_nodes("d", ["b"])
     scene.spotlight("d", "b")
-    ring = scene.diagrams["d"]["focus"]
+    assert scene.diagrams["d"]["focus"] is None          # no box is drawn around a node in focus
     church = scene.diagrams["d"]["nodes"]["b"]
     from manim import Square
 
     scene._to_stage(pl_group(Square(1.0), Square(0.5)))
     left, right = scene._halves()
     edge = left[0] + left[2] / 2 + 0.05
-    assert church.get_right()[0] <= edge and ring.get_right()[0] <= edge + 0.2
+    assert church.get_right()[0] <= edge
 
 
 def pl_group(*mobs):

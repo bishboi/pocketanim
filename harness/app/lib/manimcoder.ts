@@ -108,7 +108,8 @@ export function manimReasoning(): { reasoning?: { effort: string } } {
 }
 
 /** The blocks of one figure from the model: one code string a beat, or null when its reply will not do. */
-async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: { errors: string[] }): Promise<string[] | null> {
+async function ask(id: string, slots: Slot[], options: ManimCoderOptions,
+  fix?: { errors: string[]; when?: string }): Promise<string[] | null> {
   // "area": "left" (the figure's first beat decides): drawn in the left half, a working or a card beside it.
   const left = slots[0]?.op.area === "left";
   const lines = [
@@ -118,7 +119,7 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: 
     ...slots.map((s, k) => `Beat ${k + 1} says: "${s.say}"\n  Plan: ${s.plan || "(no plan: draw what the line says)"}`),
   ];
   if (fix) {
-    lines.push("", "YOUR LAST CODE for these beats was refused by the compiler's run:",
+    lines.push("", `YOUR LAST CODE for these beats ${fix.when ?? "was refused by the compiler's run"}:`,
       ...slots.map((s, k) => `Beat ${k + 1}:\n${String(s.op.code ?? "")}`), "", "What was wrong:", ...fix.errors,
       "", "Fix exactly that and keep everything else.");
   }
@@ -145,7 +146,7 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions, fix?: 
     usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
   options.onCost?.(body.usage?.cost ?? 0, [began, Date.now()],
     { in: body.usage?.prompt_tokens ?? 0, out: body.usage?.completion_tokens ?? 0 },
-    { figure: id, beats: slots.length, repair: !!fix, model: options.model });
+    { figure: id, beats: slots.length, repair: !!fix, ...(fix?.when ? { after: "build" } : {}), model: options.model });
   const text = String(body.choices?.[0]?.message?.content ?? "");
   try {
     const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { blocks?: unknown };
@@ -249,6 +250,108 @@ export async function repairManim(script: Record<string, unknown>, errors: strin
     }
   });
   return fixed;
+}
+
+/** One `self.free("id", "line", "code", pad=...)` call of a compiled lecture (compile_lecture.py writes each on a
+ * line of its own, its strings as JSON literals). */
+type FreeCall = { line: number; key: string; say: string; code: string; head: string; tail: string };
+
+/** A JSON (and so Python) string literal starting at text[at]: its value and where it ends, or null. */
+function literalAt(text: string, at: number): { value: string; end: number } | null {
+  if (text[at] !== '"') return null;
+  for (let i = at + 1; i < text.length; i++) {
+    if (text[i] === "\\") i++;
+    else if (text[i] === '"') {
+      try {
+        return { value: JSON.parse(text.slice(at, i + 1)) as string, end: i + 1 };
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/** The free-form blocks of a compiled lecture, in order. */
+export function freeCalls(source: string): FreeCall[] {
+  const out: FreeCall[] = [];
+  source.split("\n").forEach((text, line) => {
+    const start = /^(\s*)self\.free\(/.exec(text);
+    if (!start) return;
+    const parts: string[] = [];
+    let at = start[0].length;
+    for (let k = 0; k < 3; k++) {
+      const lit = literalAt(text, at);
+      if (!lit) return;
+      parts.push(lit.value);
+      at = lit.end;
+      if (k < 2) {
+        if (text.slice(at, at + 2) !== ", ") return;
+        at += 2;
+      }
+    }
+    out.push({ line, key: parts[0], say: parts[1], code: parts[2], tail: text.slice(at),
+      head: text.slice(0, start[0].length) });
+  });
+  return out;
+}
+
+/** How many times the figures that failed in a build are sent back after it and the lecture built again
+ * (PANIM_MANIM_BUILD_REPAIRS, 2; 0 switches it off). Each time is a whole build more. */
+export function buildRepairs(): number {
+  const set = process.env.PANIM_MANIM_BUILD_REPAIRS?.trim();
+  const n = set ? Number(set) : 2;
+  return Number.isFinite(n) ? Math.max(0, Math.min(3, Math.floor(n))) : 2;
+}
+
+/** The build's reasons for the blocks it left out ("manim block 'fig5' beat 2: NameError: ..."), by figure. */
+export function failedFigures(skipped: string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const s of skipped) {
+    const m = /^manim block '([^']+)'(?: beat (\d+))?: ([\s\S]+)$/.exec(s);
+    if (!m) continue;
+    out.set(m[1], [...(out.get(m[1]) ?? []), `${m[2] ? `Beat ${m[2]}` : "A beat"}'s block: ${m[3]}`]);
+  }
+  return out;
+}
+
+/**
+ * After a build: the figures whose blocks failed while the video was drawn (they passed the compile's check, then
+ * failed in the real run), sent back to the Manim model with the build's reasons, all at once; the lecture's
+ * source with their blocks mended, and which figures were rewritten. The caller builds again with it.
+ */
+export async function repairBuiltManim(source: string, skipped: string[], options: ManimCoderOptions):
+  Promise<{ source: string; fixed: string[] }> {
+  const failed = failedFigures(skipped);
+  const calls = freeCalls(source);
+  const lines = source.split("\n");
+  const fixed: string[] = [];
+  await eachAtOnce([...failed], async ([id, why]) => {
+    const mine = calls.filter((c) => c.key === id);
+    if (!mine.length) return;
+    const slots: Slot[] = mine.map((c) => ({ op: { op: "manim", id, code: c.code,
+      ...(/area="left"/.test(c.tail) ? { area: "left" } : {}) }, beat: {}, where: "", say: c.say,
+      plan: planOf.get(c.code) ?? "" }));
+    const errors = [...why, ...(why.some((w) => /NameError/.test(w)) ? [
+      "(A NameError on a later beat can mean an earlier beat's block failed before it made that name, or that " +
+      "the name was only made inside a function or a loop: every name a later beat uses must be made at the top " +
+      "level of an earlier block.)"] : [])];
+    try {
+      const blocks = await ask(id, slots, options, { errors,
+        when: "passed the quick check but FAILED when the whole video was drawn, so the figure was left out" });
+      if (!blocks) return;
+      mine.forEach((c, k) => {
+        if (planOf.has(c.code)) planOf.set(blocks[k], planOf.get(c.code)!);
+        lines[c.line] = `${c.head}${JSON.stringify(c.key)}, ${JSON.stringify(c.say)}, ${JSON.stringify(blocks[k])}${c.tail}`;
+      });
+      fixed.push(id);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      options.onStatus?.(`Manim: figure ${id} could not be mended after the build: ${
+        String(error instanceof Error ? error.message : error).slice(0, 160)}`);
+    }
+  });
+  return { source: lines.join("\n"), fixed };
 }
 
 /** Map operations: a chapter with one is drawn over its map, where a free-form block (the board's) cannot go. */

@@ -1337,6 +1337,7 @@ class BoardMixin:
             if going:
                 self.play(*going, run_time=0.5)
             self._free_key = key
+            self._free_beat = 0
             self._free_names = free_check.namespace(self)
             self._free_owned = []
             self._free_group = None
@@ -1384,6 +1385,9 @@ class BoardMixin:
         before = {id(m) for m in self.mobjects}
         start = self.renderer.time
         self._free_ink = _light(pl.P.BG)
+        # Which of the figure's blocks this is, so a failure names it ("manim block 'fig5' beat 2") and the repair
+        # after the build (harness/app/lib/manimcoder.ts repairBuiltManim) knows which block to mend.
+        self._free_beat = getattr(self, "_free_beat", 0) + 1
         try:
             # A block that fails here (it passed the check before the render) leaves out the rest of its drawing;
             # the line is still spoken, and the reason is reported with the build.
@@ -1401,7 +1405,8 @@ class BoardMixin:
                 return adds(self, *mobjects)
 
             self.play, self.add = play, add
-            self.safe(lambda: free_check.run_block(code, self._free_names, f"<{key}>"), f"manim block {key!r}")
+            self.safe(lambda: free_check.run_block(code, self._free_names, f"<{key}>"),
+                      f"manim block {key!r} beat {self._free_beat}")
         finally:
             self.__dict__.pop("play", None)
             self.__dict__.pop("add", None)

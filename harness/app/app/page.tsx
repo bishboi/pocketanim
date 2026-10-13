@@ -43,6 +43,9 @@ type ExportState = {
   ai_images?: { count: number; usd: number; items?: { path: string; query: string; usd: number; model: string }[] };
   /** How long speaking the lines and building the program took (seconds). */
   timing?: { voiceSeconds: number; buildSeconds: number };
+  /** Figures that failed while the video was drawn, mended by the Manim model after the build (tried), those the
+   * build that followed drew (fixed), and what asking cost. */
+  manimRepair?: { tried: string[]; fixed: string[]; usd: number };
 };
 
 type TraceEvent = {
@@ -726,6 +729,9 @@ export default function Home() {
         if (state.phase === "voice" && state.total) {
           const share = Math.round((100 * (state.done ?? 0)) / state.total);
           setBusy(`Speaking the lecture: ${state.done} of ${state.total} lines (${share}%) · ${clock}`);
+        } else if (state.phase === "repair") {
+          setBusy(`The Manim model is mending ${state.total ?? ""} picture${state.total === 1 ? "" : "s"} the build ` +
+            `left out; the lecture is then built again · ${clock}`);
         } else if (state.phase === "render" && state.total) {
           const share = Math.round((100 * (state.done ?? 0)) / state.total);
           setBusy(`Drawing the lecture in Manim: beat ${state.done} of ${state.total} (${share}%) · ${clock}`);
@@ -742,6 +748,7 @@ export default function Home() {
       const cost = done.voiceCost;
       setVersions((all) => all.map((v, i) => i === index ? {
         ...v,
+        ...(done.manimRepair?.usd ? { costUsd: (v.costUsd ?? 0) + done.manimRepair.usd } : {}),
         ...(cost ? {
           voiceUsd: (v.voiceUsd ?? 0) + cost.usd,
           voiceLecture: { usd: cost.lecture_usd, lines: cost.lines, unknown: cost.unknown, engine: cost.engine },
@@ -1809,6 +1816,16 @@ export default function Home() {
                       <li key={`${i}:${b}`}>{b}</li>
                     ))}
                   </ul>
+                )}
+                {!!exported.manimRepair?.tried.length && (
+                  <div className="text-xs text-neutral-300" data-testid="manim-repair">
+                    {exported.manimRepair.fixed.length
+                      ? `${exported.manimRepair.fixed.length} picture${exported.manimRepair.fixed.length > 1 ? "s" : ""} ` +
+                        `that failed in the first build ${exported.manimRepair.fixed.length > 1 ? "were" : "was"} mended ` +
+                        `by the Manim model and drawn (${exported.manimRepair.fixed.join(", ")}).`
+                      : `The Manim model tried to mend ${exported.manimRepair.tried.join(", ")} after the build; ` +
+                        "it still fails."}
+                  </div>
                 )}
                 {!!exported.skipped?.length && (
                   <div className="text-xs text-amber-300">

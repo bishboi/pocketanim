@@ -9,6 +9,8 @@ import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
 import { once, resultOf, validJobId } from "@/lib/jobs";
 import { keepProgram } from "@/lib/media";
+import { buildRepairs, failedFigures, repairBuiltManim } from "@/lib/manimcoder";
+import { manimModel } from "@/lib/lecture";
 
 export const runtime = "nodejs";
 // An export speaks the lecture and runs Manim: a long lecture takes a while.
@@ -77,8 +79,13 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       logVoice(log, started, spoken.waitedAhead, spoken.voice);
     }
     const building = Date.now();
-    const { result, buildDir } = await exportScene(source, sceneClass, progress);
+    let { result, buildDir } = await exportScene(source, sceneClass, progress);
     log.span("build", building, Date.now(), { what: "Manim draws the lecture and the phone program is baked", tier: result.tier });
+    // Figures whose blocks failed while the video was drawn: mended by the Manim model after the build, and the
+    // lecture built again with them (lib/manimcoder.ts repairBuiltManim).
+    const repaired = await repairAfterBuild(source, sceneClass, progress, body, log, { result, buildDir });
+    ({ result, buildDir } = repaired);
+    const built = repaired.source;
     console.log(`[timing] build ${log.file}\n${log.summary().join("\n")}`);
     if (progress) await rm(progress, { force: true });
     // The video render (/api/video) counts its progress against this.
@@ -92,7 +99,7 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     // the user presses Save (/api/save, lib/store.ts).
     const program = path.join(buildDir, "dsl", "generated", `${result.scene || sceneClass}.panim`);
     if (result.tier === 1) {
-      void keepProgram(program, { source: String(body?.source ?? ""), sceneClass, tier: result.tier ?? undefined, frames,
+      void keepProgram(program, { source: built, sceneClass, tier: result.tier ?? undefined, frames,
         narrated: !!result.narration?.file, buildSeconds: timing.buildSeconds })
         .catch((error) => console.warn(`Keeping the program in Supabase failed: ${error instanceof Error ? error.message : error}`));
     }
@@ -115,7 +122,7 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     let voiceWarning: string | null = null;
     // When the build failed, its error already says why (Google's own message for the voice): no warning over it.
     const engine = voiceEngine();
-    if (!narrationUrl && !result.error && /pocket_lecture/.test(source) && (engine === "gemini" || engine === "chirp")) {
+    if (!narrationUrl && !result.error && /pocket_lecture/.test(built) && (engine === "gemini" || engine === "chirp")) {
       voiceWarning = `This lecture has no audio: ${voiceName()} did not speak its lines (check the key; the dev ` +
         "server log has Google's message).";
     }
@@ -123,13 +130,64 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     // What the visual check found at each beat, and what a model that reads images says of the frames it flagged.
     const checks = result.error ? null : await readVisualCheck(buildDir);
 
-    return reply({ ...result, buildDir, frames, source, narrationUrl, voiceWarning, voiceCost, timing, checks });
+    return reply({ ...result, buildDir, frames, source: built, narrationUrl, voiceWarning, voiceCost, timing, checks,
+      ...(repaired.tried.length ? { manimRepair: { tried: repaired.tried, fixed: repaired.fixed, usd: repaired.usd } } : {}) });
   } catch (error) {
     return reply(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 },
     );
   }
+}
+
+type Built = Awaited<ReturnType<typeof exportScene>>;
+
+/**
+ * The figures a build left out because their Manim failed in the real run, sent back to the Manim model with the
+ * build's reasons and the lecture built again, up to PANIM_MANIM_BUILD_REPAIRS times. A rebuild is kept only when
+ * it leaves out fewer pictures than the build before it; otherwise the earlier build stands.
+ */
+async function repairAfterBuild(source: string, sceneClass: string, progress: string | null,
+  body: Record<string, unknown> | null, log: TimingLog, first: Built):
+  Promise<Built & { source: string; tried: string[]; fixed: string[]; usd: number }> {
+  let best = first;
+  let current = source;
+  const tried = new Set<string>();
+  let usd = 0;
+  const key = process.env.OPENROUTER_API_KEY;
+  // The Manim model, or the model that wrote the lecture when the Manim was the writer's own.
+  const fallback = String(body?.model ?? "");
+  const model = manimModel() ?? (/^[\w.-]+\/[\w.:-]+$/.test(fallback) ? fallback : "");
+  const style = /LECTURE_STYLE", "([^"]+)"/.exec(source)?.[1];
+  const leftOut = (built: Built) => built.result.skipped?.length ?? 0;
+  for (let round = 0; round < buildRepairs() && key && model; round++) {
+    if (best.result.tier !== 1 || best.result.error) break;
+    const failed = (best.result.skipped ?? []).filter((s) => /^manim block '/.test(s));
+    if (!failed.length || !/pocket_lecture/.test(current)) break;
+    const asked = Date.now();
+    if (progress) {
+      await writeFile(progress, JSON.stringify({ phase: "repair", done: 0, total: failedFigures(failed).size }))
+        .catch(() => {});
+    }
+    const mended = await repairBuiltManim(current, failed, { key, model, style,
+      onCost: (cost) => { usd += cost; },
+      onStatus: (text) => console.warn(`[manim repair] ${text}`) });
+    log.span("manim-repair", asked, Date.now(), { what: "the Manim model mends the figures the build left out",
+      figures: failedFigures(failed).size, rewritten: mended.fixed.length });
+    if (!mended.fixed.length) break;
+    mended.fixed.forEach((id) => tried.add(id));
+    const rebuilding = Date.now();
+    const again = await exportScene(mended.source, sceneClass, progress);
+    log.span("rebuild", rebuilding, Date.now(), { what: "the lecture built again with the mended figures",
+      tier: again.result.tier, left_out: again.result.skipped?.length ?? 0 });
+    const better = again.result.tier === 1 && !again.result.error && leftOut(again) < leftOut(best);
+    await rm(better ? best.buildDir : again.buildDir, { recursive: true, force: true }).catch(() => {});
+    if (!better) break;
+    best = again;
+    current = mended.source;
+  }
+  const still = new Set(failedFigures(best.result.skipped ?? []).keys());
+  return { ...best, source: current, tried: [...tried], fixed: [...tried].filter((id) => !still.has(id)), usd };
 }
 
 /** The narration's steps in the build's timing log: the wait for speaking ahead, each batch, each request to the

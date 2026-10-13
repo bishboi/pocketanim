@@ -1902,6 +1902,11 @@ class Lecture(Scene):
 
             frames = traceback.extract_tb(error.__traceback__)
             where = f" (at {Path(frames[-1].filename).name}:{frames[-1].lineno})" if frames else ""
+            # An error deep in Manim names its own file; the line of the model's block that called it is the one
+            # to mend (a free block runs as "<id>").
+            own = [f for f in frames if f.filename.startswith("<") and f.filename != "<string>"]
+            if own and own[-1] is not frames[-1]:
+                where = f"{where[:-1]}, called from {own[-1].filename}:{own[-1].lineno})"
             message = f"{what}: {type(error).__name__}: {str(error)[:200]}{where}"
             skipped(message)
             print("picture skipped:", message, file=sys.stderr)

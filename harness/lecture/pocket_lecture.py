@@ -2629,6 +2629,12 @@ class Lecture(Scene):
         if hasattr(self, "_zoom_follow"):
             self._zoom_follow(f, np.array(centre, dtype=float), shift)
         arriving = {id(m) for m in [*self._beat_new, *self._beat_revealed]}
+        # A free-form figure moved aside is frozen first: a part that redraws itself (a TracedPath, always_redraw)
+        # changed its shape during the move, which the exporter could not write, and the whole build stopped.
+        free = getattr(self, "_free_group", None)
+        if free is not None:
+            for x in free.get_family():
+                x.clear_updaters()
         slides = []
         for m in [self.stage_items, *self.stage_extra]:
             if id(m) in arriving or (m is self.stage_items and id(self.stage_body) in arriving):

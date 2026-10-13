@@ -213,3 +213,20 @@ class Seen(GeneratedScene):
     assert run.returncode == 0, run.stderr[-2000:]
     found = json.loads(seen.read_text())
     assert found["fig_right"] < found["work_left"], found
+
+
+def test_a_figure_that_redraws_itself_is_moved_aside_and_exported(tmp_path, monkeypatch):
+    # A traced path redraws itself every frame: moved aside for a working, its shape changed during the move, the
+    # exporter could not write that, and the whole build stopped. It is frozen before it moves.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script("d = Dot(LEFT * 2)\ntr = TracedPath(d.get_center)\nself.add(tr, d)\nself.play(d.animate.shift(RIGHT * 3))")
+    script["chapters"][0]["beats"].append(
+        {"say": "Now the working.", "do": [{"op": "work", "id": "w", "title": "Working", "lines": ["x = 1"]}]})
+    scene = tmp_path / "lecture.py"
+    scene.write_text(cl.compile_script(script))
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PANIM_BUILD_WORKERS": "1"}
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
+                          "GeneratedScene", str(tmp_path / "build")], capture_output=True, text=True, timeout=900,
+                         env=env)
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result.get("tier") == 1, (result.get("error"), out.stderr[-1500:])

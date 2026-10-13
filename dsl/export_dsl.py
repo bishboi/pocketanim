@@ -1172,7 +1172,24 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         rec.flush(at=emitted_before)
         # Afterwards: the clip off, each member that stayed declared anew in its final state.
         rec.timeline.append(f"hide {clip}")
-        final = {id(m) for m in stage_entries(scene)}
+        entries = stage_entries(scene)
+        final = {id(m) for m in entries}
+        # Put on stage, or changed, only by the play's clean-up, after its last sampled frame: a swap's target
+        # (ReplacementTransform(ray, small) puts `small` up as it finishes) or the group it went into. Neither is
+        # in any frame, and left out the program never showed the new part, while the video did.
+        for mob in entries:
+            if id(mob) in member_ids:
+                continue
+            known = pre.get(id(mob))
+            if known is not None and known[1] == signature(mob):
+                continue
+            if known is not None:
+                for sub in mob.get_family():
+                    name = rec.names.get(id(sub))
+                    if name and rec.declared(name):
+                        rec.timeline.append(f"hide {name}")
+            member_ids.add(id(mob))
+            members.append(mob)
         for mob in members:
             if id(mob) not in final:
                 continue
@@ -1938,6 +1955,14 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                         if name and name not in hidden and rec.declared(name):
                             hidden.add(name)
                             rec.timeline.append(f"hide {name}")
+                # And whatever this window drew that the scene no longer holds but the program may still show (a
+                # part a swap or a regroup left behind): the windows are one program once joined, and such a part
+                # stayed over the next chapter's card and every chapter after it.
+                for line in rec.declarations:
+                    bits = line.split()
+                    if len(bits) > 1 and bits[1] not in hidden:
+                        hidden.add(bits[1])
+                        rec.timeline.append(f"hide {bits[1]}")
                 rec.recording = False
                 raise ChunkDone()
 
@@ -1945,6 +1970,22 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         hooks = getattr(lecture, "CHAPTER_HOOKS", None)
         if hooks is not None:
             hooks.append(at_chapter)
+
+    def stale_off(scene, num) -> None:
+        # A chapter starts: what the program still shows that the scene no longer holds (a part a swap or a regroup
+        # left behind) goes, or it stayed over this chapter's card and every chapter after it.
+        if not rec.recording or num <= 1:
+            return
+        here = {rec.names.get(id(sub)) for top in scene.mobjects for sub in top.get_family()}
+        for line in rec.declarations:
+            bits = line.split()
+            if len(bits) > 1 and bits[1] not in here:
+                rec.timeline.append(f"hide {bits[1]}")
+
+    lecture = sys.modules.get("pocket_lecture")
+    stale_hooks = getattr(lecture, "CHAPTER_HOOKS", None)
+    if stale_hooks is not None:
+        stale_hooks.insert(0, stale_off)
 
     try:
         with tempconfig(
@@ -1968,6 +2009,8 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
     finally:
         if hooks is not None:
             hooks.clear()
+        if stale_hooks is not None and stale_off in stale_hooks:
+            stale_hooks.remove(stale_off)
         CairoRenderer.play = original_cairo_play
         TransformMatchingAbstractBase.__init__ = matching_init
         Scene.play = originals["play"]

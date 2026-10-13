@@ -445,3 +445,29 @@ def test_an_equation_swapped_any_way_leaves_nothing_behind_in_the_program(tmp_pa
     swapped = _chapter_end_ink(tmp_path, "swapped", _swap_lecture(swaps), len(swaps))
     reference = _chapter_end_ink(tmp_path, "plain", _swap_lecture([plain] * len(swaps)), len(swaps))
     assert (abs(swapped - reference) <= reference * 0.15 + 20).all(), (swapped.tolist(), reference.tolist())
+
+
+def test_a_swap_while_a_part_redraws_itself_shows_its_target_in_the_program(tmp_path, monkeypatch):
+    # A ray that redraws itself (always_redraw) makes the exporter sample the whole play as a clip; a swap in that
+    # play (ReplacementTransform(out, small)) puts `small` on stage only as it finishes, after the last sample, and
+    # the program never showed it while the video did.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    first = ("ang = ValueTracker(0.4)\n"
+             "ray = always_redraw(lambda: Line(LEFT * 4, LEFT * 4 + 2 * np.array([np.sin(ang.get_value()), "
+             "np.cos(ang.get_value()), 0])))\n"
+             "out = Arrow(LEFT * 3 + DOWN * 2, LEFT * 1 + DOWN * 2, buff=0)\nself.play(Create(ray), GrowArrow(out))")
+
+    def lecture(swap):
+        then = "small = Arrow(RIGHT * 2.3 + DOWN * 0.5, RIGHT * 3.8 + UP * 0.5, buff=0)\n" + swap
+        return {"title": "T", "style": "blueprint", "teaching_rules": False, "auto_visuals": False,
+                "place_figures": False, "chapters": [
+                    {"title": "Swap", "map": False, "beats": [
+                        {"say": "Here is the ray.", "do": [{"op": "manim", "id": "s", "code": first}]},
+                        {"say": "It turns into the small one.", "do": [{"op": "manim", "id": "s", "code": then}]},
+                        {"say": "That is the result.", "do": [{"op": "manim", "id": "s", "code": "self.wait(0.5)"}]}]},
+                    {"title": "Next", "map": False, "beats": [{"say": "And on to the next idea.", "do": []}]}]}
+
+    swapped = _chapter_end_ink(tmp_path, "swapped", lecture("self.play(ReplacementTransform(out, small))"), 2)
+    reference = _chapter_end_ink(tmp_path, "plain", lecture("self.play(FadeOut(out), FadeIn(small))"), 2)
+    assert reference[0] > 100, reference.tolist()
+    assert abs(swapped[0] - reference[0]) <= reference[0] * 0.15 + 20, (swapped.tolist(), reference.tolist())

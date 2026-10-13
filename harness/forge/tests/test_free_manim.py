@@ -180,3 +180,36 @@ class Seen(GeneratedScene):
     assert first["squares"] == 1
     assert not any("Mustabodystop" in t or "keepsitsstate" in t for t in last["texts"]), last["texts"]  # no spaces
     assert last["squares"] == 2                       # the first box came back beside its copy
+
+
+def test_a_working_goes_beside_a_free_figure_not_over_it(tmp_path, monkeypatch):
+    # A ray diagram drawn in free-form Manim, then the working about it: the working was written over the figure.
+    # The figure is the stage's drawing now: it moves into the left half, the working takes the right.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script("axis = Line(LEFT * 5, RIGHT * 5, color=INK)\nself.play(Create(axis))")
+    beats = script["chapters"][0]["beats"]
+    beats.append({"say": "Look at two right triangles.",
+                  "do": [{"op": "work", "id": "w", "title": "Two right triangles", "lines": ["a = b"]}]})
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.json"
+    scene.write_text(cl.compile_script(script) + f'''
+
+class Seen(GeneratedScene):
+    def beat(self, *a, **kw):
+        out = super().beat(*a, **kw)
+        import json as _json
+        fig = getattr(self, "_free_group", None)
+        line = [m for m in self.get_mobject_family_members() if type(m).__name__ == "MathTex"]
+        if fig is None or not line:
+            return out
+        with open({str(seen)!r}, "w") as f:
+            f.write(_json.dumps({{"fig_right": float(fig.get_right()[0]),
+                                 "work_left": min(float(m.get_left()[0]) for m in line)}}))
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    found = json.loads(seen.read_text())
+    assert found["fig_right"] < found["work_left"], found

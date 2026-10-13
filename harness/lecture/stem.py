@@ -1323,6 +1323,7 @@ class BoardMixin:
         the stage. What the blocks leave on the board goes with the stage, at the next picture or the chapter's
         end."""
         import free_check
+        import numpy as np
         import pocket_lecture as pl
         from manim import FadeIn, FadeOut, Group
 
@@ -1344,10 +1345,15 @@ class BoardMixin:
             mine = getattr(self, "_free_group", None)
             others = [m for m in [self.stage_items, *self.stage_extra]
                       if m is not mine and (len(m.get_family()) > 1 or len(m.points))]
-            if others or self.stage_body is not None:
+            if others or (self.stage_body is not None and self.stage_body is not mine):
                 going = [a for a in self._stage_leaving() if a.mobject is not mine]
-                here = {id(m) for m in self.mobjects}
+                here = {id(x) for m in self.mobjects for x in m.get_family()}
                 back = [FadeIn(m) for m in self._free_owned if id(m) not in here]
+                # Moved aside for a working or a card beside it: home again, where its blocks draw.
+                home = getattr(self, "_free_home", None)
+                if mine is not None and home is not None and mine.width > 0.01 and \
+                        (abs(mine.width - home[1]) > 0.01 or np.linalg.norm(mine.get_center() - home[0]) > 0.01):
+                    back.append(_moving(mine.animate.scale(home[1] / mine.width).move_to(home[0])))
                 if going or back:
                     self.play(*going, *back, run_time=0.5)
         wav, seconds = pl.narrate(text)
@@ -1373,12 +1379,18 @@ class BoardMixin:
         new = [m for m in self.mobjects if id(m) not in before]
         if _light(pl.P.BG):
             _ink(new, pl.P.CREAM)
-        here = {id(m) for m in self.mobjects}
+        # Parts moved with the figure are inside a group on the scene now (a move plays on the group), not top level.
+        here = {id(x) for m in self.mobjects for x in m.get_family()}
         owned = [m for m in [*self._free_owned, *new] if id(m) in here and m is not self.cap]
         self._free_owned = list({id(m): m for m in owned}.values())
         # The blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
         self._free_group = Group(*self._free_owned) if self._free_owned else None
         self.stage_extra = [self._free_group] if self._free_group is not None else []
+        # The figure is the stage's drawing: a working, a question or a card that comes next goes beside it (the
+        # figure moved into the left half) instead of over it, and the figure's next block moves it home first.
+        self.stage_body = self._free_group
+        self._free_home = (self._free_group.get_center().copy(), self._free_group.width) \
+            if self._free_group is not None else None
         self._beat_new, self._beat_revealed, self._beat_asides, self._beat_added = [], [], [], []
         rest = seconds + pad - spent
         if rest > 0.02:

@@ -38,8 +38,12 @@ shot() { adb exec-out screencap -p > "$OUT/$1.png"; log "screenshot $1"; }
 
 # The centre of the first view whose text or description contains $1, from a UI dump ("x y"), or nothing.
 find_view() {
+  # A dump that fails (the screen never idle while the picture plays) must not leave the last one to be read.
+  rm -f "$OUT/ui.xml"
   for _ in 1 2 3; do
-    adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui.xml" > /dev/null 2>&1 && break
+    adb shell rm -f /sdcard/ui.xml
+    adb shell uiautomator dump /sdcard/ui.xml 2>&1 | grep -q "dumped to" && \
+      adb pull /sdcard/ui.xml "$OUT/ui.xml" > /dev/null 2>&1 && break
     sleep 1
   done
   python3 - "$OUT/ui.xml" "$1" <<'PY'
@@ -58,7 +62,10 @@ PY
 
 # What the screen says: its texts and descriptions, in reading order, into the report.
 screen_text() {
-  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui-$1.xml" > /dev/null 2>&1
+  rm -f "$OUT/ui-$1.xml"
+  adb shell rm -f /sdcard/ui.xml
+  adb shell uiautomator dump /sdcard/ui.xml 2>&1 | grep -q "dumped to" && \
+    adb pull /sdcard/ui.xml "$OUT/ui-$1.xml" > /dev/null 2>&1
   local said
   said=$(python3 - "$OUT/ui-$1.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
@@ -148,7 +155,7 @@ adb shell settings put system user_rotation 1
 sleep 3
 shot 09-landscape
 screen_text 09-landscape
-adb shell input tap $((H / 2)) $((W / 2))
+adb shell input tap $((H / 2)) $((W / 4))
 sleep 0.8
 shot 10-landscape-controls
 log "double tap to go back ten seconds"

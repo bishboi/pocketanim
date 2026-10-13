@@ -318,3 +318,37 @@ class Seen(GeneratedScene):
     found = json.loads(seen.read_text())
     assert found["line_top"] < found["body_bottom"], found      # the notes under the timeline
     assert found["body_width"] > 8, found                        # which keeps most of the board's width
+
+
+def test_a_figure_dropped_from_the_stage_list_still_goes_when_the_stage_clears(tmp_path, monkeypatch):
+    # Parts of a free-form figure that something had dropped from the stage's list stayed on screen for the rest of
+    # the chapter, and the problem, the working and every later figure were drawn over them. A clear of the stage
+    # now takes every part a block drew, wherever it is.
+    monkeypatch.setattr(free_check, "CACHE", tmp_path / "cache")
+    script = _script(BUILD)
+    script["chapters"][0]["beats"].append({"say": "Now a problem.", "do": [{"op": "problem", "id": "p1",
+                                           "text": "Find v.", "given": ["R = 15 cm"], "find": "v"}]})
+    scene = tmp_path / "lecture.py"
+    seen = tmp_path / "seen.json"
+    scene.write_text(cl.compile_script(script) + f'''
+
+class Seen(GeneratedScene):
+    def free(self, *a, **kw):
+        out = super().free(*a, **kw)
+        self.stage_extra = []                  # some path loses the figure from the stage's list
+        return out
+
+    def beat(self, *a, **kw):
+        out = super().beat(*a, **kw)
+        import json as _json
+        if self._problem is not None:
+            squares = [x for m in self.mobjects for x in m.get_family() if type(x).__name__ == "Square"]
+            with open({str(seen)!r}, "w") as f:
+                f.write(_json.dumps({{"squares": len(squares)}}))
+        return out
+''')
+    env = {**__import__("os").environ, "PANIM_VOICE": "silent", "PYTHONPATH": str(REPO / "harness" / "lecture")}
+    run = subprocess.run([sys.executable, "-m", "manim", "-ql", "--dry_run", str(scene), "Seen"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=600, env=env)
+    assert run.returncode == 0, run.stderr[-2000:]
+    assert json.loads(seen.read_text())["squares"] == 0

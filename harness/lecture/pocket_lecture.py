@@ -2467,6 +2467,20 @@ class Lecture(Scene):
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
         self._keep_cover()
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
+        # Whatever a free-form figure drew that is still on screen but no longer counted as the stage's (a path that
+        # rebuilt the stage's list without it, a group left on the scene by a move) goes too: such parts stayed for
+        # the rest of the chapter, and every later figure and card was drawn over them. Not the figure that goes on.
+        made = getattr(self, "_free_made", None)
+        if made:
+            keep = getattr(self, "_free_owned", []) if getattr(self, "_free_going_on", False) else []
+            current = {id(x) for m in keep for x in m.get_family()}
+            tracked = {id(x) for m in [self.stage_items, *self.stage_extra] for x in m.get_family()}
+            for top in list(self.mobjects):
+                leaves = [x for x in top.get_family() if len(x.points)]
+                if not leaves or id(top) in tracked or any(id(x) in current for x in leaves):
+                    continue
+                if all(id(x) in made for x in leaves):
+                    going.append(FadeOut(top))
         for key in getattr(self, "_stage_keys", ()):
             if key in self.diagrams:
                 self.diagrams[key]["gone"] = True

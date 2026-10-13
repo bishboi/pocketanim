@@ -1352,7 +1352,11 @@ class BoardMixin:
                 # stays while this block explains the figure.
                 others = [m for m in others if m.get_left()[0] < self.STAGE[0] - 0.15]
             if others or (self.stage_body is not None and self.stage_body is not mine):
-                going = [a for a in self._stage_leaving() if a.mobject is not mine]
+                self._free_going_on = True          # the figure that goes on keeps its parts
+                try:
+                    going = [a for a in self._stage_leaving() if a.mobject is not mine]
+                finally:
+                    self._free_going_on = False
                 here = {id(x) for m in self.mobjects for x in m.get_family()}
                 back = [FadeIn(m) for m in self._free_owned if id(m) not in here]
                 # Moved aside for a working or a card beside it: home again, where its blocks draw.
@@ -1383,6 +1387,12 @@ class BoardMixin:
             self._free_ink = None
         spent = self.renderer.time - start
         new = [m for m in self.mobjects if id(m) not in before]
+        # Every part a block draws is remembered for the chapter, so a clear of the stage finds it even if it was
+        # dropped from the stage's list (pocket_lecture._stage_leaving).
+        made = self.__dict__.setdefault("_free_made", {})
+        for m in new:
+            for x in m.get_family():
+                made[id(x)] = x
         if _light(pl.P.BG):
             _ink(new, pl.P.CREAM)
         # Parts moved with the figure are inside a group on the scene now (a move plays on the group), not top level.

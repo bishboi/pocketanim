@@ -170,6 +170,8 @@ export async function compileLecture(
     onImages?: (report: ImageReport) => void;
     /** Told when the compile ran, and when within it the image models were at work (for the lecture's timing). */
     onTime?: (span: [number, number], images: [number, number][], prefetch?: Compiled["prefetch"], more?: Compiled) => void;
+    /** Told when this compile gets its turn (PANIM_COMPILE_PARALLEL) and starts. */
+    onStart?: () => void;
     /** Checked without making its pictures (they are made apart, makePictures): a section's check does not wait
      * on the image models, nor hold its writing slot while they work. */
     withoutPictures?: boolean;
@@ -179,8 +181,8 @@ export async function compileLecture(
   const body = compileBody(script, options);
   const args = [compiler, "-", "--json"];
   const began = Date.now();
-  const { stdout, stderr } = await inCompileSlot(() => runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS,
-    options.withoutPictures ? { PANIM_IMAGES: "0" } : undefined));
+  const { stdout, stderr } = await inCompileSlot(() => (options.onStart?.(), runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS,
+    options.withoutPictures ? { PANIM_IMAGES: "0" } : undefined)));
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");

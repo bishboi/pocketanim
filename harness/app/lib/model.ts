@@ -1572,7 +1572,11 @@ async function viaOpenRouter(
     const TURNS = 8;          // replies in all, the picture searches among them
     const done = new Map<number, Record<string, unknown>>();
     const missing: number[] = [];
-    const live = new Map<number, { started: number; chars: number; attempt: number; thinking: boolean }>();
+    const live = new Map<number, { started: number; chars: number; attempt: number; thinking: boolean;
+      checking?: number }>();
+    // A section's tries, their checks among them, end after this long (PANIM_SECTION_MINUTES): the best one that
+    // compiled is kept, else the section is left out with a note, instead of the lecture waiting on it for hours.
+    const SECTION_MS = Math.max(5, Number(process.env.PANIM_SECTION_MINUTES) || 25) * 60_000;
     const sectionTools: ToolSpec[] = [LECTURE_TOOL];
     emit({ type: "message", role: "status", text: notes.size
       ? `Video: writing again the chapters of section${notes.size > 1 ? "s" : ""} ${[...notes.keys()].join(", ")}, ` +
@@ -1583,11 +1587,22 @@ async function viaOpenRouter(
       if (!live.size) return;
       const now = Date.now();
       const parts = [...live.entries()].sort((x, y) => x[0] - y[0]).map(([n, p]) =>
-        `${n} (${clock(now - p.started)}, ${p.chars ? size(p.chars) : p.thinking ? "thinking" : "waiting"}` +
+        `${n} (${clock(now - p.started)}, ${p.checking ? `checking for ${clock(now - p.checking)}: figures and compile`
+          : p.chars ? size(p.chars) : p.thinking ? "thinking" : "waiting"}` +
         `${p.attempt > 1 ? `, try ${p.attempt}` : ""})`);
       emit({ type: "message", role: "status",
         text: `Video: ${done.size} of ${total} sections' chapters written; writing ${parts.join(", ")}` });
     }, 10_000);
+
+    /** A try's check (its Manim figures written, then compiled), shown as checking rather than as the size it sent. */
+    const checking = async <T,>(state: { checking?: number }, run: () => Promise<T>): Promise<T> => {
+      state.checking = Date.now();
+      try {
+        return await run();
+      } finally {
+        state.checking = undefined;
+      }
+    };
 
     const one = async (section: WrittenSection, note?: string): Promise<Record<string, unknown> | null> => {
       const first = section.n === planned[0].n;
@@ -1633,9 +1648,17 @@ async function viaOpenRouter(
       // The longest try that compiles, kept when every try is refused, so one stubborn section does not lose the
       // lecture: the whole lecture's check names what it lacks, and that is fixed afterwards.
       let fallback: Record<string, unknown> | null = null;
+      const began = Date.now();
       for (let turn = 0; turn < TURNS && refused < TRIES; turn++) {
         if (stopped()) return null;
-        const state = { started: Date.now(), chars: 0, attempt: refused + 1, thinking: false };
+        if (turn > 0 && Date.now() - began > SECTION_MS) {
+          emit({ type: "message", role: "status", text: `Video: section ${section.n} has taken over ` +
+            `${Math.round(SECTION_MS / 60_000)} minutes (${refused} tries); ` +
+            (fallback ? "its best try that compiles is kept." : "it is left out, and the lecture goes on.") });
+          break;
+        }
+        const state: { started: number; chars: number; attempt: number; thinking: boolean; checking?: number } =
+          { started: Date.now(), chars: 0, attempt: refused + 1, thinking: false };
         live.set(section.n, state);
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -1681,7 +1704,7 @@ async function viaOpenRouter(
           // A script put in the reply text instead of the tool call is taken as if it had been sent with the tool.
           const typed = scriptFromText(result.message.content ?? "");
           if (typed) {
-            const checked = await checkSection(typed, section.n, opsRefused);
+            const checked = await checking(state, () => checkSection(typed, section.n, opsRefused));
             if (!checked.errors.length) return checked.script;
             if (checked.compiles) fallback = checked.script;
           }
@@ -1703,7 +1726,7 @@ async function viaOpenRouter(
               refused += 1;
               output = "write_lecture needs the script: {title, chapters: [...]}.";
             } else {
-              const checked = await checkSection(args.script as Record<string, unknown>, section.n, opsRefused);
+              const checked = await checking(state, () => checkSection(args.script as Record<string, unknown>, section.n, opsRefused));
               if (!checked.errors.length) {
                 saved = checked.script;
                 output = `Saved section ${section.n}'s ${chapterCount(checked.script)} chapter(s). Stop calling tools.`;

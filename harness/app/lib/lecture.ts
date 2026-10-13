@@ -9,6 +9,7 @@
  */
 
 import { spawn } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { REPO, python } from "./pocketanim";
 import type { Template } from "./templates";
@@ -103,6 +104,26 @@ export function targetMinutes(text: string, source = ""): number {
 /** How long one compile may run (PANIM_COMPILE_TIMEOUT_SECONDS): one that hangs is stopped and reported. */
 const COMPILE_TIMEOUT_MS = Math.max(60, Number(process.env.PANIM_COMPILE_TIMEOUT_SECONDS) || 600) * 1000;
 
+/**
+ * Compiles at once (PANIM_COMPILE_PARALLEL; default a quarter of the cores, at least 2). Each runs the script's Manim
+ * blocks in up to PANIM_MANIM_CHECK_PARALLEL (4) probe processes: ten sections checked at once ran forty Manim
+ * processes together, every compile slowed past its time limit, and the lecture seemed to hang. The rest wait.
+ */
+const COMPILE_PARALLEL = Math.max(1, Number(process.env.PANIM_COMPILE_PARALLEL) ||
+  Math.max(2, Math.floor((os.cpus()?.length || 4) / 4)));
+let compilesRunning = 0;
+const compileQueue: (() => void)[] = [];
+async function inCompileSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (compilesRunning >= COMPILE_PARALLEL) await new Promise<void>((resolve) => compileQueue.push(resolve));
+  compilesRunning += 1;
+  try {
+    return await run();
+  } finally {
+    compilesRunning -= 1;
+    compileQueue.shift()?.();
+  }
+}
+
 function runPython(args: string[], input?: string, timeoutMs?: number, env?: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(python(), args, { cwd: REPO, ...(env ? { env: { ...process.env, ...env } } : {}) });
@@ -158,8 +179,8 @@ export async function compileLecture(
   const body = compileBody(script, options);
   const args = [compiler, "-", "--json"];
   const began = Date.now();
-  const { stdout, stderr } = await runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS,
-    options.withoutPictures ? { PANIM_IMAGES: "0" } : undefined);
+  const { stdout, stderr } = await inCompileSlot(() => runPython(args, JSON.stringify(body), COMPILE_TIMEOUT_MS,
+    options.withoutPictures ? { PANIM_IMAGES: "0" } : undefined));
   try {
     const compiled = scriptJson<Compiled>(stdout);
     if (!compiled) throw new Error("no JSON");

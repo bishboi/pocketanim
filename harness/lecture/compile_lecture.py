@@ -115,7 +115,7 @@ PACES = {"slow": (1.0, 1.4, 2.8), "relaxed": (1.0, 0.9, 1.8), "brisk": (1.0, 0.4
 VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
 WORD_SECONDS = 0.42 / VOICE_SPEED     # about 143 words a minute at normal speed: pocket_lecture.estimate_seconds
 THINK_SECONDS = 7.0                   # a question's time to think (pocket_lecture.THINK_SECONDS)
-MAX_PAUSE = 8.0                       # a beat's "pause", at most
+MAX_PAUSE = 2.0                       # a beat's "pause", at most
 
 
 def _say_seconds(text: str) -> float:

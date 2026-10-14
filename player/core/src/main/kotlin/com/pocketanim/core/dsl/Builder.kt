@@ -53,7 +53,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         return out
     }
 
+    /** Where each drifting backdrop's instances are in the frame just built: name -> (first, end). */
+    var currentDrifting: Map<String, IntArray> = emptyMap()
+        private set
+
     fun frameInstances(): Array<Instance> = current
+
+    fun drift(name: String): Drift? = program.drifts[name]
     fun frameCamera(): FloatArray? = currentCamera
 
     /** The frame's objects in draw order as (z, instances drawn once it is done): where a picture goes in. */
@@ -237,10 +243,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         val frame = ArrayList<Instance>()
         // Stable: equal z keeps declaration order, which is every program
         // written before `z=` existed.
-        val staged = objects.values.filter { it.visible }.sortedBy { it.z }
+        val staged = objects.entries.filter { it.value.visible }.sortedBy { it.value.z }
         val zs = DoubleArray(staged.size)
         val ends = IntArray(staged.size)
-        for ((at, obj) in staged.withIndex()) {
+        val drifting = HashMap<String, IntArray>()
+        for ((at, entry) in staged.withIndex()) {
+            val obj = entry.value
+            val first = frame.size
             zs[at] = obj.z
             if (obj.kind == "asset") {
                 val normals = obj.normals
@@ -288,7 +297,9 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 )
             }
             ends[at] = frame.size
+            if (entry.key in program.drifts) drifting[entry.key] = intArrayOf(first, frame.size)
         }
+        currentDrifting = drifting
         emitEnd = shapes.size
         currentZ = zs
         currentEnds = ends

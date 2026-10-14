@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dsl.interpret import load_program
 from tools.crosscheck_decoders import compare
 
-CLASSES = Path("player/build/classes")
+CLASSES = Path(__file__).resolve().parent.parent / "player" / "build" / "classes"
 
 
 def kotlin_dump(program: Path, frame: int) -> list[str]:

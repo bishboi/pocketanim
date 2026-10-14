@@ -33,7 +33,7 @@ first time.
 You may ONLY:
 - add an audio tag in square brackets before (or, rarely, after) a part of the line, describing the voice's \
 delivery: [warm], [curious], [thoughtful], [gently], [reassuring], [encouraging], [intrigued], [serious], \
-[amazed], [emphatic], [matter-of-fact], [slowly], [short pause], [long pause], [inhales], [exhales] and similar \
+[amazed], [emphatic], [matter-of-fact], [short pause], [inhales], [exhales] and similar \
 delivery directions. At most 2 tags in a line; many lines need none. Vary them over the lecture; never the same \
 tag on every line.
 - write ONE key word of a line in CAPITALS for emphasis, only where a new idea or the answer is named, and only \

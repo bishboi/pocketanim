@@ -147,8 +147,7 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     if (result.synced) {
       console.log(`[sync] inside the beats: ${result.synced.on_words} pictures on their words, ${result.synced.pointed} ` +
         `things pointed at as named, ${result.synced.looked ?? 0} camera moves, over ${result.synced.beats} beats with word times; ` +
-        `layout: ${result.synced.moved ?? 0} moved, ${result.synced.cleared ?? 0} cleared, ${result.synced.clashes ?? 0} overlaps left` +
-        (result.synced.clashes ? " (PANIM_LAYOUT_LOG names them)" : ""));
+        `${result.synced.cleared ?? 0} leftovers cleared`);
     }
     return reply({ ...result, buildDir, frames, source: built, narrationUrl, voiceWarning, voiceCost, timing, checks,
       ...(repaired.tried.length ? { manimRepair: { tried: repaired.tried, fixed: repaired.fixed, usd: repaired.usd } } : {}) });

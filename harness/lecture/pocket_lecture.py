@@ -961,12 +961,11 @@ def speechify(text: str) -> str:
     return text.replace("–", " to ").replace("·", ",").replace("≈", "about ").replace("→", " to ")
 
 
-# The teaching pace, PANIM_PACE: (voice speed, the hold after each line, the hold at a paragraph's end).
-# "slow", the default, is a classroom pace for students meeting the idea for the first time: slower speech, a
-# pause after every line long enough to take it in, a longer one between paragraphs. "relaxed" is a little
-# quicker; "brisk" is the older, faster pace.
-PACES = {"slow": (1.0, 1.4, 2.8), "relaxed": (1.0, 0.9, 1.8), "brisk": (1.0, 0.45, 0.9)}
-VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "slow"), PACES["slow"])
+# The teaching pace, PANIM_PACE: (voice speed, the hold after each line, the hold at a paragraph's end). "natural",
+# the default: the voice at its own speed, one line running into the next as a teacher speaks, a short breath
+# between paragraphs. "relaxed" and "slow" leave longer holds after each line.
+PACES = {"natural": (1.0, 0.3, 0.8), "relaxed": (1.0, 0.7, 1.5), "slow": (1.0, 1.4, 2.8)}
+VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "natural"), PACES["natural"])
 THINK_SECONDS = 7.0      # the silence a question on the stage leaves for thinking
 
 
@@ -1152,7 +1151,7 @@ def narrate(text: str) -> tuple[str | None, float]:
     out = audio_file(mode, spoken)
     cached = _cached_seconds(out)
     if cached is not None:
-        return str(out), cached
+        return _tight(out)[::2]
     raw = _private(out, "raw")
     engine, voice = mode.split(":", 1)
     speaker = tts.engine(engine)
@@ -1173,7 +1172,49 @@ def narrate(text: str) -> tuple[str | None, float]:
         if said:
             words_file(out).write_text(json.dumps(said))
     _finish(raw, out)
-    return str(out), _wav_seconds(out)
+    return _tight(out)[::2]
+
+
+# A line's own silence at either end, cut to a breath: the voices leave a quarter second or more at each end, and
+# with the hold after each line it made long gaps between sentences.
+LEAD_KEPT, TAIL_KEPT = 0.04, 0.1
+
+
+def _tight(wav: Path) -> tuple[str, float, float]:
+    """(the line with its silence at either end trimmed, the seconds cut from its start, its length). Made once,
+    beside the line (the voice is not asked again); the line as it is when it cannot be read."""
+    wav = Path(wav)
+    out, meta = wav.with_name(f"{wav.stem}.tight.wav"), wav.with_name(f"{wav.stem}.tight.json")
+    try:
+        known = json.loads(meta.read_text())
+        if out.exists():
+            return str(out), float(known["lead"]), float(known["seconds"])
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        with wave.open(str(wav)) as w:
+            channels, width, rate = w.getnchannels(), w.getsampwidth(), w.getframerate()
+            raw = w.readframes(w.getnframes())
+        if width != 2:
+            raise ValueError("not 16-bit")
+        samples = np.frombuffer(raw, dtype="<i2").reshape(-1, channels)
+        loud = np.where(np.abs(samples).max(axis=1) > 32768 * 10 ** (-45 / 20))[0]
+        if not len(loud):
+            raise ValueError("silent")
+        first = max(0, loud[0] - int(LEAD_KEPT * rate))
+        last = min(len(samples), loud[-1] + 1 + int(TAIL_KEPT * rate))
+        part = out.with_name(f"{out.stem}.{os.getpid()}.{threading.get_ident()}.part.wav")
+        with wave.open(str(part), "wb") as w:
+            w.setnchannels(channels)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(samples[first:last].tobytes())
+        part.replace(out)
+        found = (first / rate, (last - first) / rate)
+    except (OSError, ValueError, wave.Error):
+        return str(wav), 0.0, _wav_seconds(wav)
+    meta.write_text(json.dumps({"lead": round(found[0], 4), "seconds": round(found[1], 4)}))
+    return str(out), found[0], found[1]
 
 
 def words_file(wav: Path) -> Path:
@@ -1192,18 +1233,24 @@ def line_words(text: str) -> list[dict] | None:
     wav = audio_file(mode, spoken)
     kept = words_file(wav)
     try:
-        return json.loads(kept.read_text())
+        words = json.loads(kept.read_text())
     except (OSError, ValueError):
-        pass
-    if _cached_seconds(wav) is None:
-        return None
-    import local_align
+        if _cached_seconds(wav) is None:
+            return None
+        import local_align
 
-    words = local_align.align(wav, spoken)
-    if words:
-        part = kept.with_suffix(f".{os.getpid()}.{threading.get_ident()}.part")
-        part.write_text(json.dumps(words, ensure_ascii=False))
-        part.replace(kept)
+        words = local_align.align(wav, spoken)
+        if words:
+            part = kept.with_suffix(f".{os.getpid()}.{threading.get_ident()}.part")
+            part.write_text(json.dumps(words, ensure_ascii=False))
+            part.replace(kept)
+    if not words:
+        return words
+    # Timed on the line as the voice made it: moved to the line as it is played, its leading silence cut (_tight).
+    lead = _tight(wav)[1]
+    if lead:
+        words = [{**w, "start": max(0.0, float(w["start"]) - lead), "end": max(0.0, float(w["end"]) - lead)}
+                 for w in words]
     return words
 
 
@@ -1215,7 +1262,10 @@ def delivery_file(mode: str, spoken: str) -> Path:
 def delivery(mode: str, spoken: str) -> str | None:
     """The line as the voice director marked it for delivery, or None (the line is said as written)."""
     try:
-        return delivery_file(mode, spoken).read_text(encoding="utf-8").strip() or None
+        marked = delivery_file(mode, spoken).read_text(encoding="utf-8").strip()
+        # Spoken at an even pace: a tag that slows the voice or stops it for long is left out (an older marking
+        # may carry one).
+        return re.sub(r"\s*\[(?:slowly|slow|long pause|pause|very slowly)\]\s*", " ", marked, flags=re.I).strip() or None
     except OSError:
         return None
 
@@ -2211,11 +2261,26 @@ def unicode_math(tex: str) -> str:
     return re.sub(r"\\([a-zA-Z]+)", r"\1", text)
 
 
-def backdrop() -> VGroup:
-    """The style's texture, as a few vector shapes baked into one asset."""
-    w, h = config.frame_width, config.frame_height
+# The backdrop drifts: a slow sway (a little across and up, a breath larger and smaller, a hair of a turn), each
+# part of it on its own long period, so it never visibly repeats. The phone's players move it by the same formula
+# from the program's `drift` line (export_dsl), so its motion costs the program nothing.
+DRIFT = {"period": 26.0, "amp": 0.3, "scale": 0.025, "turn": 0.012}
+
+
+def drift_at(t: float, period: float, amp: float, scale: float, turn: float) -> tuple[float, float, float, float]:
+    """(dx, dy, scale, turn) of a drifting backdrop t seconds in."""
+    w = 2 * math.pi * t / period
+    return (amp * math.sin(w), 0.6 * amp * math.sin(w / 1.3 + 1.1), 1 + scale * math.sin(w / 1.7 + 0.4),
+            turn * math.sin(w / 2.1 + 2.0))
+
+
+def backdrop() -> tuple[VGroup, VGroup]:
+    """The style's texture as (what drifts, what stays still): soft discs, paper fibres, a grid, dots, stars or
+    chalk dust that move slowly (drifting: they reach past the frame's edge, so its edge never shows), and a page's
+    ruled border or a board's frame, which stay where they are."""
+    w, h = config.frame_width + 2.0, config.frame_height + 2.0       # past the frame, by the drift's reach and more
     rng = np.random.default_rng(7)
-    parts = VGroup()
+    parts, still = VGroup(), VGroup()
     texture = TH["texture"]
     if texture == "vignette":
         # A soft glow left of centre: nested discs, each barely lighter.
@@ -2227,39 +2292,41 @@ def backdrop() -> VGroup:
             parts.add(Circle(radius=r, stroke_width=0, fill_color="#FFFFFF", fill_opacity=0.06 + 0.04 * i)
                       .move_to(LEFT * 1.5))
     elif texture == "kraft":
-        for _ in range(70):
+        for _ in range(90):
             x, y = rng.uniform(-w / 2, w / 2), rng.uniform(-h / 2, h / 2)
             length = rng.uniform(0.3, 1.4)
             parts.add(Line([x, y, 0], [x + length, y + rng.uniform(-0.02, 0.02), 0],
                            stroke_color="#7A5530", stroke_width=rng.uniform(0.6, 1.4), stroke_opacity=0.22))
     elif texture == "board":
-        parts.add(Rectangle(width=w - 0.12, height=h - 0.12, stroke_color="#C9C9C0", stroke_width=6, fill_opacity=0))
+        still.add(Rectangle(width=config.frame_width - 0.12, height=config.frame_height - 0.12,
+                            stroke_color="#C9C9C0", stroke_width=6, fill_opacity=0))
         for _ in range(6):
             parts.add(Circle(radius=rng.uniform(0.8, 2.2), stroke_width=0, fill_color="#E6E6DE", fill_opacity=0.35)
                       .stretch(0.4, 1).move_to([rng.uniform(-6, 6), rng.uniform(-3.5, 3.5), 0]))
     elif texture == "grid":
-        for x in np.arange(-7.0, 7.01, 0.5):
+        for x in np.arange(-8.0, 8.01, 0.5):
             major = abs(x / 2.5 - round(x / 2.5)) < 1e-6
             parts.add(Line([x, -h / 2, 0], [x, h / 2, 0], stroke_color="#3F74A8",
                            stroke_width=1.2 if major else 0.6, stroke_opacity=0.55 if major else 0.3))
-        for y in np.arange(-4.0, 4.01, 0.5):
+        for y in np.arange(-5.0, 5.01, 0.5):
             major = abs(y / 2.5 - round(y / 2.5)) < 1e-6
             parts.add(Line([-w / 2, y, 0], [w / 2, y, 0], stroke_color="#3F74A8",
                            stroke_width=1.2 if major else 0.6, stroke_opacity=0.55 if major else 0.3))
     elif texture == "parchment":
-        # Age spots and a ruled double frame, like a page from an old atlas.
+        # Age spots, and a ruled double frame like a page from an old atlas (the frame stays still).
         for _ in range(9):
             parts.add(Circle(radius=rng.uniform(0.8, 2.4), stroke_width=0, fill_color="#D9C39A",
                              fill_opacity=rng.uniform(0.05, 0.11)).stretch(rng.uniform(0.5, 0.9), 1)
                       .move_to([rng.uniform(-6.5, 6.5), rng.uniform(-3.6, 3.6), 0]))
-        parts.add(Rectangle(width=w - 0.25, height=h - 0.25, stroke_color="#8C6E45", stroke_width=2.5, fill_opacity=0))
-        parts.add(Rectangle(width=w - 0.45, height=h - 0.45, stroke_color="#8C6E45", stroke_width=0.8, fill_opacity=0))
+        fw, fh = config.frame_width, config.frame_height
+        still.add(Rectangle(width=fw - 0.25, height=fh - 0.25, stroke_color="#8C6E45", stroke_width=2.5, fill_opacity=0))
+        still.add(Rectangle(width=fw - 0.45, height=fh - 0.45, stroke_color="#8C6E45", stroke_width=0.8, fill_opacity=0))
     elif texture == "dots":
-        for x in np.arange(-7.0, 7.01, 0.5):
-            for y in np.arange(-4.0, 4.01, 0.5):
+        for x in np.arange(-8.0, 8.01, 0.5):
+            for y in np.arange(-5.0, 5.01, 0.5):
                 parts.add(Dot([x, y, 0], radius=0.012, color="#B8CCCC", fill_opacity=0.8))
     elif texture == "stars":
-        for _ in range(140):
+        for _ in range(170):
             parts.add(Dot([rng.uniform(-w / 2, w / 2), rng.uniform(-h / 2, h / 2), 0],
                           radius=rng.uniform(0.006, 0.022), color="#FFFFFF", fill_opacity=rng.uniform(0.25, 0.9)))
         for i, r in enumerate((5.5, 4.0)):
@@ -2269,8 +2336,41 @@ def backdrop() -> VGroup:
         for _ in range(8):
             parts.add(Circle(radius=rng.uniform(0.9, 2.6), stroke_width=0, fill_color="#2A5242", fill_opacity=0.35)
                       .stretch(0.35, 1).move_to([rng.uniform(-6, 6), rng.uniform(-3.5, 3.5), 0]))
-    parts.set_z_index(Z_BACK)
-    return parts
+    for group in (parts, still):
+        group.set_z_index(Z_BACK)
+        group.is_backdrop = True        # layout checks skip it: everything sits on it by design
+        group._panim_static = True      # no animation changes it: a bake need not look at it
+    if os.environ.get("PANIM_BACKDROP_DRIFT", "1") != "0" and len(parts):
+        for m in parts.get_family():
+            m._panim_drift = dict(DRIFT)
+        _drift(parts)
+    return parts, still
+
+
+def _drift(parts) -> None:
+    """Set the backdrop drifting (drift_at), from its place when it was made."""
+    home = [(m, m.points.copy()) for m in parts.get_family() if len(m.points)]
+    clock = {"t": 0.0}
+
+    def step(_mob, dt: float) -> None:
+        clock["t"] += dt
+        dx, dy, k, turn = drift_at(clock["t"], **DRIFT)
+        c, s_ = math.cos(turn), math.sin(turn)
+        linear = np.array([[k * c, -k * s_, 0], [k * s_, k * c, 0], [0, 0, 1]])
+        shift = np.array([dx, dy, 0])
+        for m, points in home:
+            m.points = points @ linear.T + shift
+
+    parts.add_updater(step)
+    parts._panim_drift_updater = step
+
+
+def _what(mob) -> str:
+    """A mobject named for a log: its first words, else its kind."""
+    for m in mob.get_family():
+        if isinstance(m, Text) and getattr(m, "original_text", ""):
+            return repr(m.original_text[:30])
+    return type(mob).__name__
 
 
 def hud_frame(width: float, height: float, color: str | None = None, stroke: float = 3.5, glow: bool = True):
@@ -2368,11 +2468,9 @@ class Lecture(Scene):
         self._next_keys: set = set()    # diagrams built for the picture about to go up
         self.panel_y = 2.35
         self.chrome = VGroup()
-        back = backdrop()
-        if len(back):
-            back.is_backdrop = True     # layout checks skip it: everything sits on it by design
-            back._panim_static = True   # nothing but an animation changes it: a bake need not look at it
-            self.add(back)
+        for back in backdrop():
+            if len(back):
+                self.add(back)
         self.section(self.SECTION)
 
     # ---------------- beat log ----------------
@@ -2574,8 +2672,7 @@ class Lecture(Scene):
         cap = self.caption(pieces[0])
         swaps = self._caption_swaps(text, pieces, seconds, words)
         self._coming = ()
-        if wav:
-            self.add_sound(wav)
+        self._speak(wav, seconds)
         if self.cap is not None:
             self.remove(self.cap)
         self.add(cap)
@@ -2586,17 +2683,9 @@ class Lecture(Scene):
         self._line_draws = bool(given)
         given = self._queued(given, words, seconds)
         given = self._on_words(given, words, seconds, text)
-        # Nothing over anything else: the line's new things checked against what is on the screen, and every
-        # clash settled before they are drawn (layout.py).
-        import layout
-
-        try:
-            given = layout.make_room(self, given, text)
-        except Exception as error:  # noqa: BLE001 -- a check: the line plays as it was rather than not at all
-            print(f"layout pass skipped: {type(error).__name__}: {error}", file=sys.stderr)
         anims = [a for a, _ in given]
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
-            anims += self._cover_changes()
+            anims += self._cover_changes(anims)
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
         plan = self._cue_plan(given, anims[len(given):], seconds, spent) if any(c for _, c in given) else None
@@ -2630,15 +2719,90 @@ class Lecture(Scene):
             self.play(*back, run_time=0.8)
             spent = self._swap_due(spent + 0.8, swaps)
         spent = self._wait_until(spent, seconds + pad, swaps)
+        self._voice_done(pad)
         self._sync_beat = self.__dict__.get("_sync_beat", 0) + 1
         return seconds
+
+    # ---------------- one voice at a time ----------------
+    # A line's own count of the time it took (its cue plan) can run ahead of the render's clock: a play that turned
+    # out empty, a hold cut short. The next line's voice then started under this one's. So each line's voice is
+    # placed by the render's clock, and nothing ends a line, or starts the next voice, before it has been said.
+
+    # ---------------- nothing left behind ----------------
+    # Each layout keeps track of what it put up (the stage its picture and parts, the panel its points, the board's
+    # strip its title, the map its places), and takes it away again. Whatever is on the screen that none of them
+    # holds is a stray -- a part some picture left behind -- and no later picture would ever take it away, so it
+    # would sit under everything after it. Strays are cleared as each line begins and whenever the stage changes.
+
+    def _held(self) -> set:
+        """Everything on the screen some layout holds: the backdrop, the chapter's heading, the caption, the panel,
+        the board's strip, the map while it is up, and the stage's picture and its parts."""
+        keep = [getattr(self, "chrome", None), getattr(self, "cap", None), getattr(self, "panel", None),
+                getattr(self, "panel_items", None), getattr(self, "panel_images", None),
+                getattr(self, "stage_items", None), *getattr(self, "stage_extra", []),
+                *getattr(self, "stage_pending", []), getattr(self, "_cover", None), getattr(self, "_inset", None),
+                getattr(self, "_map_mask", None), *(getattr(self, "strip", None) or {}).values(),
+                *(getattr(self, "_map_spot", None) or [])]
+        held = {id(x) for m in keep if m is not None for x in m.get_family()}
+        on_map = bool(getattr(self, "_map_on", False))
+        for top in self.mobjects:
+            if getattr(top, "is_backdrop", False) or getattr(top, "is_map_cover", False) or \
+                    (on_map and float(getattr(top, "z_index", 0) or 0) <= Z_MARK + 5):
+                held.update(id(x) for x in top.get_family())
+        return held
+
+    def strays(self) -> list:
+        """What is on the screen that no layout holds."""
+        held = self._held()
+        out = []
+        for top in self.mobjects:
+            drawn = [x for x in top.get_family() if len(getattr(x, "points", [])) or isinstance(x, ImageMobject)]
+            if drawn and not any(id(x) in held for x in drawn):
+                out.append(top)
+        return out
+
+    def _clear_strays(self, going=()) -> list:
+        """Fade-outs for the strays on the screen, counted in the chapter's report (SYNC "cleared"); not for those
+        the line's own animations (`going`) already take away."""
+        leaving = set()
+        todo = list(going)
+        while todo:
+            anim = todo.pop()
+            todo.extend(getattr(anim, "animations", None) or [])
+            if getattr(anim, "remover", False) and getattr(anim, "mobject", None) is not None:
+                leaving.update(id(x) for x in anim.mobject.get_family())
+        found = [m for m in self.strays() if id(m) not in leaving]
+        if found:
+            counts = SYNC.setdefault(self.__dict__.get("_chapter_no", 0), {"beats": 0, "on_words": 0, "pointed": 0})
+            counts["cleared"] = counts.get("cleared", 0) + len(found)
+            self._log("strays", count=len(found), what=[_what(m) for m in found][:8])
+        return [FadeOut(m) for m in found]
+
+    def _speak(self, wav, seconds: float) -> None:
+        """Start a line's voice: once the line before has finished on the render's clock, never over it."""
+        now = float(getattr(self.renderer, "time", 0.0) or 0.0)
+        still = self.__dict__.get("_voice_until", 0.0) - now
+        if still > 0.02:
+            self._log("voice_wait", seconds=round(still, 3))
+            self.wait(still)
+            now += still
+        self._voice_until = now + float(seconds or 0.0)
+        if wav:
+            self.add_sound(wav)
+
+    def _voice_done(self, pad: float = 0.0) -> None:
+        """Hold until the line's voice has been said (and its pause), by the render's clock."""
+        rest = self.__dict__.get("_voice_until", 0.0) + max(pad, 0.0) - float(getattr(self.renderer, "time", 0.0) or 0.0)
+        if rest > 0.02:
+            self._log("voice_hold", seconds=round(rest, 3))
+            self.wait(rest)
 
     def _queued(self, given: list, words, seconds: float) -> list:
         """The line's pictures with what their calls queued to come on by themselves (a labelled picture's labels,
         each on its part's words), and the camera drawn back out of a picture whose parts this line does not name.
         Without word times the labels follow the picture, one after another."""
         queue = self.__dict__.pop("_word_queue", [])
-        away = self._looks_away(words)
+        away = self._clear_strays([a for a, _ in given]) + self._looks_away(words)
         if words:
             return [*[(a, [0.0, 0.8]) for a in away], *given, *[(a, None) for a in queue]]
         out = [*[(a, c) for a, c in given], *[(a, None) for a in away]]
@@ -3250,11 +3414,19 @@ class Lecture(Scene):
             # Its picture never came up (replaced in the same beat): the next picture brings a cover of its own.
             self._cover = self._cover_holder = None
 
-    def _cover_changes(self) -> list:
+    def _cover_changes(self, going=()) -> list:
         """What the map shows above the cover goes and comes back with it: its labels and markers sit above the
         stage's own level (so they are read over the map's fills), and a cover under the pictures left them
-        showing through ("Madrid" under a diagram)."""
+        showing through ("Madrid" under a diagram). Only the map's own things: never a picture of the stage (one
+        the line takes away was kept as a map label, and came back over the map when the cover went)."""
         hidden = getattr(self, "_cover_hidden", [])
+        leaving = set()
+        todo = list(going)
+        while todo:
+            anim = todo.pop()
+            todo.extend(getattr(anim, "animations", None) or [])
+            if getattr(anim, "remover", False) and getattr(anim, "mobject", None) is not None:
+                leaving.update(id(x) for x in anim.mobject.get_family())
         if getattr(self, "_cover", None) is None:
             self._cover_hidden = []
             return [FadeIn(m) for m in hidden]
@@ -3264,7 +3436,8 @@ class Lecture(Scene):
         right = self._map_right() if hasattr(self, "_map_right") else self.STAGE[0] + self.STAGE[2] / 2
         out = []
         for m in list(self.mobjects):
-            if id(m) in keep or any(m is h for h in hidden):
+            if id(m) in keep or id(m) in leaving or any(m is h for h in hidden) or \
+                    any(getattr(x, "_panim_staged", False) for x in m.get_family()):
                 continue
             zs = [getattr(x, "z_index", 0) for x in m.get_family()]
             if not zs or max(zs) < Z_MARK + 10 or max(zs) >= Z_CARD or m.get_center()[0] > right:
@@ -3286,20 +3459,12 @@ class Lecture(Scene):
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
         self._keep_cover()
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
-        # Whatever a free-form figure drew that is still on screen but no longer counted as the stage's (a path that
-        # rebuilt the stage's list without it, a group left on the scene by a move) goes too: such parts stayed for
-        # the rest of the chapter, and every later figure and card was drawn over them. Not the figure that goes on.
-        made = getattr(self, "_free_made", None)
-        if made:
-            keep = getattr(self, "_free_owned", []) if getattr(self, "_free_going_on", False) else []
-            current = {id(x) for m in keep for x in m.get_family()}
-            tracked = {id(x) for m in [self.stage_items, *self.stage_extra] for x in m.get_family()}
-            for top in list(self.mobjects):
-                leaves = [x for x in top.get_family() if len(x.points)]
-                if not leaves or id(top) in tracked or any(id(x) in current for x in leaves):
-                    continue
-                if all(id(x) in made for x in leaves):
-                    going.append(FadeOut(top))
+        # And whatever else is on the screen that no layout holds (strays: a part a picture left behind, a free
+        # figure's piece dropped from the stage's list): the stage changes, so nothing of the old one stays.
+        # Not the parts of a free figure that goes on (stem.BoardMixin.free).
+        keep_on = {id(x) for m in (getattr(self, "_free_owned", []) if getattr(self, "_free_going_on", False) else [])
+                   for x in m.get_family()}
+        going += [a for a in self._clear_strays(going) if id(a.mobject) not in keep_on]
         for key in getattr(self, "_stage_keys", ()):
             if key in self.diagrams:
                 self.diagrams[key]["gone"] = True
@@ -3330,6 +3495,7 @@ class Lecture(Scene):
         going = self._stage_leaving()
         new = Group(self._stage_card(), group)
         new.set_z_index(Z_MARK + 10)
+        new._panim_staged = True
         lift_labels(new)
         self.stage_items = new
         self.stage_body = group
@@ -3499,6 +3665,7 @@ class Lecture(Scene):
         """A part added to the picture already on the stage; it leaves with it."""
         mob.set_z_index(Z_MARK + 11)
         lift_labels(mob)
+        mob._panim_staged = True
         self.stage_extra.append(mob)
         self._beat_added.append(mob)
         return mob

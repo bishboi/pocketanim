@@ -40,7 +40,33 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
 
     override fun instances(index: Int): Array<Instance> {
         position(index)
-        return builder.frameInstances()
+        val frame = builder.frameInstances()
+        val drifting = builder.currentDrifting
+        if (drifting.isEmpty()) return frame
+        // A drifting backdrop moves every frame, from the clock (Drift.at), not from the timeline.
+        val out = frame.copyOf()
+        val seconds = index.toDouble() / builder.fps
+        for ((name, span) in drifting) {
+            val outer = builder.drift(name)?.at(seconds) ?: continue
+            for (slot in span[0] until span[1]) out[slot] = moved(frame[slot], outer)
+        }
+        return out
+    }
+
+    private fun moved(inst: Instance, outer: DoubleArray): Instance {
+        val t = inst.transform
+        val out = FloatArray(12)
+        for (row in 0 until 3) {
+            for (col in 0 until 3) {
+                var sum = 0.0
+                for (k in 0 until 3) sum += outer[row * 4 + k] * t[k * 4 + col]
+                out[row * 4 + col] = sum.toFloat()
+            }
+            var tr = outer[row * 4 + 3]
+            for (k in 0 until 3) tr += outer[row * 4 + k] * t[k * 4 + 3]
+            out[row * 4 + 3] = tr.toFloat()
+        }
+        return Instance(inst.slot, inst.atlasId, inst.flags, out, inst.fill, inst.stroke, inst.strokeWidth, inst.normal)
     }
 
     /** Lower z first, declaration order between equals: then each goes in no earlier than the one before it. */
@@ -73,6 +99,8 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
     override fun contentKey(index: Int): Long {
         position(index)
         var key = builder.version
+        // A drifting backdrop changes the picture every frame.
+        if (builder.currentDrifting.isNotEmpty()) key = key * 31 + index
         val frame = index.coerceIn(0, maxOf(frameCount - 1, 0)).toDouble()
         for (spec in byZ) {
             val alpha = spec.at(frame, corners)

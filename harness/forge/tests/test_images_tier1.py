@@ -172,6 +172,7 @@ class S(MapLecture):
     assert result["tier"] == 1 and result["windows"] == 2, result
     scene = parse(result["program"])
     second = min(k[0] for k in scene["images"][-1]["keys"])
-    assert second > 300                                             # chapter 2's picture, after chapter 1's frames
+    first = max(k[0] for k in scene["images"][0]["keys"] if k[1] > 0)
+    assert second > first > 0                                       # chapter 2's picture, after chapter 1's
     for image in scene["images"][:-1]:
         assert image["keys"][-1][1] == 0 and image["keys"][-1][0] < second, image["keys"]

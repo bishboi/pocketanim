@@ -234,14 +234,13 @@ words, a chime for a question and its answer, a sweep between chapters. They are
 kept under the voice, and mixed into the phone's track as the voice is. `PANIM_SFX=0` turns them off;
 `PANIM_SFX_GAIN=-3` makes them all 3 dB quieter (or louder with a positive number). A silent build has none.
 
-### Nothing over anything else
+### Nothing left behind
 
-Before each line plays, a layout pass (`harness/lecture/layout.py`) checks what the line brings on against what is
-on the screen, by ink (words, pictures, filled shapes): a new thing is kept inside the frame and above the caption,
-a leftover of an earlier line that the new one would cover goes as the line begins, and a new thing of its own that
-lands on another is moved to the nearest clear place. What it cannot settle (two of the engine's own layouts on
-each other) is counted in the build report ("overlaps left") and written, line by line, to `layout.jsonl` in the
-build folder (`PANIM_LAYOUT_LOG`).
+Every layout keeps track of what it put on the screen (the stage its picture and parts, the panel its points, the
+board's strip its title, the map its places) and takes it away again. Anything on the screen that none of them holds
+is a stray -- a part some picture left behind -- and strays are cleared as each line begins and whenever the stage
+changes, so nothing from an earlier picture sits under a later one. The build report counts them ("leftovers of
+earlier pictures cleared"); the beat log (`PANIM_BEAT_LOG`) names them.
 
 ### Words on screen
 
@@ -277,7 +276,7 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_IMAGES=0` | Turn off internet photos and illustrations. |
 | `SMITHSONIAN_API_KEY` | A free api.data.gov key for Smithsonian pictures (history). Without it the rate-limited `DEMO_KEY` is used. |
 | `PANIM_ALLOW_NC=1` | Also use non-commercial collections (most OpenStax books). Only for non-commercial lectures. |
-| `PANIM_PACE` | The teaching pace. The voice speaks at its own (1×) speed in every pace; the pace is the pauses. `slow` (the default): 1.4 s after each line, 2.8 s between paragraphs, 7 s to think about a question. `relaxed`: shorter pauses. `brisk`: short pauses. |
+| `PANIM_PACE` | The teaching pace. The voice speaks at its own (1×) speed in every pace; the pace is the pauses. `natural` (the default): 0.3 s after each line, 0.8 s between paragraphs. `relaxed`: 0.7 s and 1.5 s. `slow`: 1.4 s and 2.8 s. A question always leaves 7 s to think. Each line's own silence at either end is trimmed to a breath. |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
 ### How a long lecture is made quickly

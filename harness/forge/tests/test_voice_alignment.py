@@ -178,9 +178,11 @@ def _probe():
         log.append((round(clock[0], 2), round(run_time, 2)))
         clock[0] += run_time
         real_play(*anims, run_time=0.05, **kw)
+        scene.renderer.time += run_time - 0.05          # the render's clock keeps the probe's time
 
     def wait(t=1.0, **kw):
         clock[0] += t
+        scene.renderer.time += t
 
     scene.play, scene.wait = play, wait
     return scene, log, clock
@@ -463,3 +465,22 @@ def test_the_compiler_builds_a_diagram_as_its_own_line_names_its_parts():
     assert "show=['roots']" in source
     assert 'said="Stem"' in source and 'said="Leaves"' in source
     assert source.index('said="Stem"') < source.index('said="Leaves"')
+
+
+def test_a_voice_never_starts_before_the_last_one_has_ended(monkeypatch, tmp_path):
+    """A line's own count of its time can run ahead of the render's clock (a play that turned out empty): the next
+    voice still waits for this one to finish, by the clock."""
+    wav = tmp_path / "line.wav"
+    wav.write_bytes(b"RIFF")
+    monkeypatch.setattr(pl, "narrate", lambda text: (str(wav), 3.0))
+    monkeypatch.setattr(pl, "voice_mode", lambda: "gemini:Achird")
+    monkeypatch.setattr(pl, "line_words", lambda text: None)
+    scene, log, clock = _probe()
+    voices = []
+    scene.add_sound = lambda path, gain=None, **k: voices.append(scene.renderer.time) if gain is None else None
+    nodes = [{"id": k, "label": k} for k in ("a", "b")]
+    # Plays that take no time on the render's clock (as an empty one does), though the line counts them.
+    scene.play = lambda *a, run_time=1.0, **k: log.append((clock[0], run_time))
+    scene.beat("First line.", scene.diagram("d", "flow", nodes, [["a", "b"]]), cues=[[0.0, 2.9]])
+    scene.beat("Second line.")
+    assert len(voices) == 2 and voices[1] - voices[0] >= 3.0 - 1e-6, voices

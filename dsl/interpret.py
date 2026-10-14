@@ -249,6 +249,9 @@ def parse(text: str) -> dict:
                 "name": positional[0], "src": args["src"], "width": width, "height": height,
                 "z": float(args.get("z", 0)), "keys": keys,
             })
+        elif verb == "drift":
+            # A backdrop that drifts slowly (pocket_lecture.drift_at), moved frame by frame from the clock.
+            scene.setdefault("drifts", {})[positional[0]] = {k: float(v) for k, v in args.items()}
         elif verb == "clip":
             scene["clips"][positional[0]] = args["asset"]
             if "loop" in args:
@@ -514,7 +517,10 @@ def build_2d(scene: dict) -> DecodedIR:
         zs = []
         staged = [obj for obj in objects.values() if obj.get("visible", True)]
         staged.sort(key=lambda obj: obj.get("z", 0.0))
+        drifting = {id(objects[n]): n for n in scene.get("drifts", {}) if n in objects}
+        starts = []                     # (object, where its instances start in the frame)
         for obj in staged:
+            starts.append((obj, len(frame)))
             if obj["kind"] == "asset":
                 # Position and glyph list are replaced, not edited, when they
                 # change. An object that sits still is the same picture every
@@ -589,6 +595,10 @@ def build_2d(scene: dict) -> DecodedIR:
                 zs.append(obj.get("z", 0.0))
         frame.groups = tuple(groups)
         frame.zs = tuple(zs)
+        # Where each drifting backdrop's instances are in this frame (_drift moves them).
+        ends = [start for _, start in starts[1:]] + [len(frame)]
+        frame.drifting = {drifting[id(obj)]: (start, end) for (obj, start), end in zip(starts, ends)
+                          if id(obj) in drifting}
         records.append((REC_SNAPSHOT, frame))
         if is_3d:
             cameras.append(camera_record())
@@ -1517,7 +1527,39 @@ def build(scene: dict) -> DecodedIR:
     animation quietly taking the wrong branch; a duplicate branch nobody runs
     is the same hazard waiting.
     """
-    return build_2d(scene)
+    ir = build_2d(scene)
+    if scene.get("drifts"):
+        _drift(ir, scene["drifts"])
+    return ir
+
+
+def drift_at(t: float, period: float, amp: float, scale: float, turn: float) -> tuple[float, float, float, float]:
+    """(dx, dy, scale, turn) of a drifting backdrop t seconds in: pocket_lecture.drift_at, which the video uses."""
+    w = 2 * math.pi * t / period
+    return (amp * math.sin(w), 0.6 * amp * math.sin(w / 1.3 + 1.1), 1 + scale * math.sin(w / 1.7 + 0.4),
+            turn * math.sin(w / 2.1 + 2.0))
+
+
+def _drift(ir: DecodedIR, drifts: dict) -> None:
+    """Move each drifting backdrop's instances, frame by frame, by drift_at at that frame's time."""
+    for index, (kind, frame) in enumerate(ir.records):
+        spans = getattr(frame, "drifting", None) or {}
+        if not spans:
+            continue
+        # A held frame is the same snapshot at several indices: each index gets its own copy, moved for its time.
+        moved = type(frame)(frame)
+        moved.__dict__.update(frame.__dict__)
+        frame = moved
+        ir.records[index] = (kind, frame)
+        for name, (start, end) in spans.items():
+            spec = drifts.get(name) or {}
+            dx, dy, k, turn = drift_at(index / ir.fps, spec.get("period", 26.0), spec.get("amp", 0.3),
+                                       spec.get("scale", 0.025), spec.get("turn", 0.012))
+            c, s = math.cos(turn), math.sin(turn)
+            outer = np.array([[k * c, -k * s, 0, dx], [k * s, k * c, 0, dy], [0, 0, 1, 0]], dtype=float)
+            for slot in range(start, end):
+                inst = frame[slot]
+                frame[slot] = replace(inst, transform=compose(outer, np.asarray(inst.transform, dtype=float)))
 
 
 def plane_normal(points: np.ndarray) -> np.ndarray:

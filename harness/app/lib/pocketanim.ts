@@ -123,8 +123,7 @@ export type ExportResult = {
   skipped?: string[];
   /** Inside the beats: pictures started on the words that name them, things pointed at as they are said, out of
    * the beats with word times (pocket_lecture.SYNC). */
-  synced?: { beats: number; on_words: number; pointed: number; looked?: number; moved?: number; cleared?: number;
-    clashes?: number };
+  synced?: { beats: number; on_words: number; pointed: number; looked?: number; cleared?: number };
   program?: string | null;
   program_bytes?: number;
   assets?: string[];
@@ -397,8 +396,6 @@ async function exportSceneNow(
       // Each beat checked as it is drawn (pocket_lecture _check_beat), the frames it could not mend kept for a look.
       ...(process.env.PANIM_CHECK === "0" ? {} : {
         PANIM_CHECK_LOG: path.join(buildDir, "checks.jsonl"), PANIM_CHECK_FRAMES: path.join(buildDir, "checks") }),
-      // The overlaps the layout pass (harness/lecture/layout.py) could not settle, line by line.
-      PANIM_LAYOUT_LOG: path.join(buildDir, "layout.jsonl"),
       ...(progress ? { PANIM_PROGRESS_FILE: progress } : {}) } },
   );
 

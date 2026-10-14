@@ -420,8 +420,7 @@ class BoardMixin:
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         pl._progress_beat()
         cap = self.caption(text)
-        if wav:
-            self.add_sound(wav)
+        self._speak(wav, seconds)
         if self.cap is not None:
             self.remove(self.cap)
         self.add(cap)
@@ -476,12 +475,6 @@ class BoardMixin:
             self._free_ink = None
         spent = self.renderer.time - start
         new = [m for m in self.mobjects if id(m) not in before]
-        # Every part a block draws is remembered for the chapter, so a clear of the stage finds it even if it was
-        # dropped from the stage's list (pocket_lecture._stage_leaving).
-        made = self.__dict__.setdefault("_free_made", {})
-        for m in new:
-            for x in m.get_family():
-                made[id(x)] = x
         if _light(pl.P.BG):
             _ink(new, pl.P.CREAM)
         # Parts moved with the figure are inside a group on the scene now (a move plays on the group), not top level.
@@ -494,9 +487,6 @@ class BoardMixin:
         swapped = [m for g in {id(g): g for g in grouped}.values() for m in g.submobjects]
         owned = [m for m in [*self._free_owned, *new, *swapped] if id(m) in here and m is not self.cap]
         self._free_owned = list({id(m): m for m in owned}.values())
-        for m in swapped:
-            for x in m.get_family():
-                made[id(x)] = x
         # What else is on the stage and still showing (a working, a card beside a figure in the left half) stays
         # with it; the blocks' drawing is the stage's now: the next picture, or the chapter's end, takes it away.
         kept = [m for m in self.stage_extra if m is not previous and any(id(x) in here for x in m.get_family())]
@@ -518,6 +508,7 @@ class BoardMixin:
         rest = seconds + pad - spent
         if rest > 0.02:
             self.wait(rest)
+        self._voice_done(pad)
         return seconds
 
     # ---------------- live pictures (live.py) ----------------

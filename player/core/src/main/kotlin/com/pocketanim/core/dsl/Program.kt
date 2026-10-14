@@ -182,6 +182,8 @@ class Program(
     val clipLoops: Map<String, Int> = emptyMap(),
     /** The raster pictures, in declaration order. */
     val images: List<ImageSpec> = emptyList(),
+    /** name -> how a backdrop drifts (`drift NAME period= amp= scale= turn=`): moved every frame by [Drift.at]. */
+    val drifts: Map<String, Drift> = emptyMap(),
 ) {
     val is3d: Boolean get() = mode == "3d"
 
@@ -201,6 +203,7 @@ class Program(
             val clips = LinkedHashMap<String, String>()
             val clipLoops = HashMap<String, Int>()
             val images = ArrayList<ImageSpec>()
+            val drifts = HashMap<String, Drift>()
 
             for (raw in text.lineSequence()) {
                 val line = raw.trim()
@@ -260,6 +263,12 @@ class Program(
                         )
                     }
                     "run" -> timeline.add(Step.Run(positional[0], t()))
+                    "drift" -> drifts[positional[0]] = Drift(
+                        period = (args["period"] ?: "26").toDouble(),
+                        amp = (args["amp"] ?: "0.3").toDouble(),
+                        scale = (args["scale"] ?: "0.025").toDouble(),
+                        turn = (args["turn"] ?: "0.012").toDouble(),
+                    )
                     "surface" -> surfaces.add(
                         SurfaceSpec(
                             name = positional.firstOrNull() ?: "S",
@@ -366,7 +375,7 @@ class Program(
             }
 
             return Program(fps, mode, phi, theta, zoom, shapes, assets, surfaces, timeline, z, background, clips,
-                clipLoops, images)
+                clipLoops, images, drifts)
         }
 
         private val DECLARATIONS = setOf("circle", "square", "rect", "text", "geom", "clip")
@@ -386,5 +395,24 @@ class Program(
             val hex = text.removePrefix("#")
             return hex.substring(0, 6).toInt(16)
         }
+    }
+}
+
+/**
+ * A backdrop's slow drift: a little across and up, a breath larger and smaller, a hair of a turn, each on its own
+ * long period. The same formula as the lecture engine's (harness/lecture/pocket_lecture.py drift_at), from the
+ * program's clock.
+ */
+class Drift(val period: Double, val amp: Double, val scale: Double, val turn: Double) {
+    /** The row-major 3x4 transform at [seconds]: scale and turn about the origin, then the shift. */
+    fun at(seconds: Double): DoubleArray {
+        val w = 2 * Math.PI * seconds / period
+        val dx = amp * Math.sin(w)
+        val dy = 0.6 * amp * Math.sin(w / 1.3 + 1.1)
+        val k = 1 + scale * Math.sin(w / 1.7 + 0.4)
+        val a = turn * Math.sin(w / 2.1 + 2.0)
+        val c = Math.cos(a) * k
+        val s = Math.sin(a) * k
+        return doubleArrayOf(c, -s, 0.0, dx, s, c, 0.0, dy, 0.0, 0.0, 1.0, 0.0)
     }
 }

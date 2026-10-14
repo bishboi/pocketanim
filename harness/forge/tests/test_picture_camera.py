@@ -32,9 +32,11 @@ def _probe():
         log.append((round(clock[0], 2), round(run_time, 2), anims))
         clock[0] += run_time
         real_play(*anims, run_time=0.05, **kw)
+        scene.renderer.time += run_time - 0.05          # the render's clock keeps the probe's time
 
     def wait(t=1.0, **kw):
         clock[0] += t
+        scene.renderer.time += t
 
     scene.play, scene.wait = play, wait
     return scene, log, clock

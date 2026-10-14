@@ -201,6 +201,11 @@ class Recorder:
             z = z_order(mob)
             if z:
                 self.declarations[-1] += f" z={z:g}"
+            drift = getattr(mob, "_panim_drift", None)
+            if drift:
+                # A backdrop that drifts (pocket_lecture.drift_at): the players move it by the same formula, from the
+                # program's clock, so its motion is one line here, not a clip of every frame.
+                self.declarations.append(f"drift {name} " + " ".join(f"{k}={float(v):g}" for k, v in drift.items()))
         if name:
             self.absorb(mob, name)
         return name
@@ -974,7 +979,10 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             if root is None:
                 continue
             for sub in root.get_family():
-                if getattr(sub, "updaters", None) and id(sub) not in held:
+                # A drifting backdrop's own updater is the players' to play (its `drift` line), not a bake's.
+                moving = [u for u in getattr(sub, "updaters", None) or []
+                          if u is not getattr(sub, "_panim_drift_updater", None)]
+                if moving and id(sub) not in held:
                     return True
         return False
 

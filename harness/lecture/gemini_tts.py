@@ -57,8 +57,8 @@ _REFUSES_INSTRUCTION = False
 _REFUSED_LANGUAGES: set[str] = set()      # codes the model said it does not speak: not sent again this run
 DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 # PANIM_TTS_STYLE=teacher sends this; any other text is sent as it is. Off by default (see synthesize).
-STYLE = ("Read this aloud as a warm, patient teacher explaining to a class: clearly, at an easy pace, with "
-         "natural pauses. Hindi words in Hindi, English terms in English, as an Indian teacher speaks.")
+STYLE = ("Read this aloud as a warm teacher explaining to a class: clearly, at a natural conversational pace. "
+         "Hindi words in Hindi, English terms in English, as an Indian teacher speaks.")
 
 
 def language_setting() -> str:

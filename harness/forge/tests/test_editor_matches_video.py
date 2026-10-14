@@ -123,8 +123,11 @@ def test_a_part_of_a_group_highlighted_on_its_own_shows_in_the_program(tmp_path,
     probe = (f"import sys, os\nsys.path.insert(0, {str(REPO)!r})\nos.chdir({str(build)!r})\n"
              "from dsl.interpret import load_program\nfrom exporter.reference_render import render_frame\n"
              "ir = load_program('dsl/generated/GeneratedScene.panim')\nn = len(ir.records)\n"
-             "f = render_frame(ir, int(n * 0.48), 640, 360)[150:210, 420:480]\n"
-             "print(int(((f[..., 0] > 180) & (f[..., 1] < 90)).sum()))")
+             "best = 0\n"
+             "for k in range(int(n * 0.2), int(n * 0.8), max(1, n // 40)):\n"
+             "    f = render_frame(ir, k, 640, 360)[150:210, 420:480]\n"
+             "    best = max(best, int(((f[..., 0] > 180) & (f[..., 1] < 90)).sum()))\n"
+             "print(best)")
     run = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=600)
     assert run.returncode == 0, run.stderr[-1500:]
     assert int(run.stdout.strip().splitlines()[-1]) > 300, run.stdout

@@ -698,7 +698,7 @@ export function lecturePrompt(
     '  "choice":"B"} marks one choice while it is talked about: a wrong one crossed out, the right one ringed.',
     "",
     "PAUSES. The video pauses after every line and longer at the end of each paragraph by itself. After a line that",
-    "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-3 (extra seconds).",
+    "needs a moment to sink in (a key definition, a surprising fact), add \"pause\": 1-2 (extra seconds), rarely.",
     "",
     "EVERY PICTURE IS MADE ONE OF THREE WAYS, and which way is your judgement, picture by picture, for the learning:",
     "  1. BUILT IN MANIM: diagrams, timelines, equations, molecules, the map, and free-form manim for every other",

@@ -24,7 +24,8 @@ type ExportState = {
   /** Pictures left out because they could not be drawn (the lecture still built), with their beats. */
   skipped?: string[];
   /** Inside the beats: pictures on their words, things pointed at as named, of the beats with word times. */
-  synced?: { beats: number; on_words: number; pointed: number };
+  synced?: { beats: number; on_words: number; pointed: number; looked?: number; moved?: number; cleared?: number;
+    clashes?: number };
   program?: string | null;
   source?: string;
   program_bytes?: number;
@@ -1841,7 +1842,12 @@ export default function Home() {
                         on the words that name {exported.synced.on_words === 1 ? "it" : "them"} (a place, a diagram part, a
                         term), {exported.synced.pointed} thing{exported.synced.pointed === 1 ? "" : "s"} on screen pointed
                         at as the voice said {exported.synced.pointed === 1 ? "it" : "them"}, over {exported.synced.beats} beats
-                        with word times.
+                        with word times; the camera moved in {exported.synced.looked ?? 0} time{exported.synced.looked === 1 ? "" : "s"} on
+                        a picture&apos;s part or a map&apos;s place as it was named. Layout: {exported.synced.moved ?? 0} moved clear,{" "}
+                        {exported.synced.cleared ?? 0} leftover{exported.synced.cleared === 1 ? "" : "s"} cleared,{" "}
+                        <span className={exported.synced.clashes ? "text-amber-300" : ""}>
+                          {exported.synced.clashes ?? 0} overlap{exported.synced.clashes === 1 ? "" : "s"} left
+                        </span>.
                       </span>
                     )}
                     {!!exported.voiceCost.align.errors?.length && (

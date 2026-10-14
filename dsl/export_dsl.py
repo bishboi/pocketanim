@@ -1579,7 +1579,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         where = {}
         for top in list(scene.mobjects):
             for mob in top.get_family():
-                if type(mob).__name__ in ("ImageMobject", "AbstractImageMobject") and id(mob) in images:
+                # Every picture, the ones this play brings on too (a camera's view of a part, growing out of its box):
+                # where it is on each frame, so it moves on the phone as in the video.
+                if type(mob).__name__ in ("ImageMobject", "AbstractImageMobject"):
                     where[id(mob)] = [round(float(v), 4) for i in range(3) for v in np.asarray(mob.points[i][:2])]
         mid_play["samples"].append((min(k / count, 1.0), where))
 
@@ -1631,6 +1633,11 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         def at(fraction: float):
             return (before, prefix, round(float(fraction), 4)) if before is not None else prefix
 
+        def sampled(key, fraction: float):
+            """Where a picture was at this point of the play: its sample nearest to it, or None."""
+            near = [(abs(f - fraction), where[key]) for f, where in samples if key in where]
+            return min(near, key=lambda n: n[0])[1] if near else None
+
         seen = set()
         for top in list(scene.mobjects):
             for mob in top.get_family():
@@ -1662,7 +1669,19 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     for fraction, where in samples:
                         if 0 < fraction < 1 and id(mob) in where:
                             entry["keys"].append((at(fraction), 1.0, where[id(mob)]))
-                if not entry["keys"] or entry["keys"][-1][1] == 0:
+                if (not entry["keys"] or entry["keys"][-1][1] == 0) and before is not None \
+                        and sampled(id(mob), 0.5) is not None:
+                    # Brought on during the play and moved while it played (a baked play's samples): it appears
+                    # where it was when its fade began and goes where it went.
+                    fade = timing.get(id(mob))
+                    f0, f1 = (fade[0], fade[1]) if fade and fade[2] == "in" else \
+                        (min(f for f, where in samples if id(mob) in where),) * 2
+                    entry["keys"].append((at(f0), 0.0, sampled(id(mob), f0)))
+                    entry["keys"].append((at(f1), 1.0, sampled(id(mob), f1)))
+                    for fraction, where in samples:
+                        if f1 < fraction < 1 and id(mob) in where:
+                            entry["keys"].append((at(fraction), 1.0, where[id(mob)]))
+                elif not entry["keys"] or entry["keys"][-1][1] == 0:
                     fade = timing.get(id(mob))
                     if fade and fade[2] == "in":
                         # Arrived by a FadeIn in the play that just ran: across that fade's own time.
@@ -1675,6 +1694,14 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             if key not in seen and entry["keys"] and entry["keys"][-1][1] > 0:
                 corners = entry["keys"][-1][2]
                 fade = timing.get(key)
+                if before is not None and samples and sampled(key, 0.0) is not None:
+                    # Moved before it went (a camera's view shrinking back into its part's box, then fading): where it
+                    # went on the way, up to its fade.
+                    end = fade[0] if fade and fade[2] == "out" else 1.0
+                    for fraction, where in samples:
+                        if 0 < fraction < end and key in where:
+                            entry["keys"].append((at(fraction), 1.0, where[key]))
+                    corners = sampled(key, end) or corners
                 if fade and fade[2] == "out":
                     entry["keys"].append((at(fade[0]), 1.0, corners))
                     entry["keys"].append((at(fade[1]), 0.0, corners))

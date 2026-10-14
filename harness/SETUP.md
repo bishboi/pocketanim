@@ -212,6 +212,27 @@ sets one for every style). A script's `emblem` ("a golden crown") is made once a
 chapter card and beside the chapter's name. A picture with `points` is laid out split: the picture on the left,
 those few lines on the right.
 
+### Following the voice: labels, the camera, maps
+
+Once the voice is made, every word's time is known (the voice's own times, or Whisper aligning them), and what is on
+screen follows it. A picture's `labels` each come on as the part is said: a box round the part (the label finder
+gives each part's box, not only a point), a line to its name beside the picture. Where the narration stays on a
+part (`LOOK_GAP`, 1.8 s), the camera moves in: a sharp crop of the part grows out of its box to fill the picture's
+frame, moves on to the next part named, and draws back out when the narration moves on; naming a part in a later
+line moves the camera back to it. On a map, a place or an area already drawn and named again is boxed, the rest of
+the map dims, an area's border is traced, a place's dot ripples, and on a line that draws nothing new the map moves
+in on it, back out by the line's end. All of it plays the same on the phone. The build report counts it ("the
+camera moved in N times").
+
+### Nothing over anything else
+
+Before each line plays, a layout pass (`harness/lecture/layout.py`) checks what the line brings on against what is
+on the screen, by ink (words, pictures, filled shapes): a new thing is kept inside the frame and above the caption,
+a leftover of an earlier line that the new one would cover goes as the line begins, and a new thing of its own that
+lands on another is moved to the nearest clear place. What it cannot settle (two of the engine's own layouts on
+each other) is counted in the build report ("overlaps left") and written, line by line, to `layout.jsonl` in the
+build folder (`PANIM_LAYOUT_LOG`).
+
 ### Words on screen
 
 No word is set below 15pt (a credit line may be). The subtitle colours the words of a label on screen that the line

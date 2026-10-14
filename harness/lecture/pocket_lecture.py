@@ -2189,13 +2189,15 @@ class Lecture(Scene):
             self._log("skipped", what=what, error=message)
             return None
 
-    def name_part(self, phrase, mob, shown=None) -> None:
+    def name_part(self, phrase, mob, shown=None, act=None) -> None:
         """Something on the screen with a name the narration may say again (a timeline's date, a map's place, a
-        card's heading): pointed at on its words (beat). `shown()`, when given, says whether it is drawn now."""
+        card's heading): pointed at on its words (beat). `shown()`, when given, says whether it is drawn now; `act()`,
+        when given, is what pointing at it does (the camera moving in on a picture's part), else it pulses."""
         if mob is None or not str(phrase or "").strip():
             return
         parts = self.__dict__.setdefault("_named_parts", [])
-        parts.append({"say": str(phrase), "mob": mob, "beat": self.__dict__.get("_sync_beat", 0), "shown": shown})
+        parts.append({"say": str(phrase), "mob": mob, "beat": self.__dict__.get("_sync_beat", 0), "shown": shown,
+                      "act": act})
 
     def _pointers(self, words, seconds: float, hinted: set) -> list:
         """[(the pointing animation, [start, seconds])] for the things on the screen this line names: each once,
@@ -2224,10 +2226,19 @@ class Lecture(Scene):
             if at is None or at > seconds - 0.4 or (fresh and at < 1.0):
                 continue
             used.add(id(mob))
-            out.append((at, mob))
+            out.append((at, mob, part.get("act")))
         out.sort(key=lambda r: r[0])
-        return [(ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7])
-                for at, mob in out[:POINT_MOST]]
+        made, last = [], -9.0
+        # Built in the order they are said: a camera move starts from where the one before it left the camera.
+        for at, mob, act in out[:POINT_MOST]:
+            anim = act() if act is not None and at - last >= self.LOOK_GAP * 0.6 else None
+            if anim is not None:
+                last = at
+                anim.panim_camera = True
+                made.append((anim, [max(0.0, at - SYNC_LEAD), self.LOOK_RUN]))
+            else:
+                made.append((ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7]))
+        return made
 
     def _log(self, kind: str, **fields) -> None:
         """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
@@ -2328,7 +2339,17 @@ class Lecture(Scene):
         spent = 0.0
         given = [(_playable(a), (cues[i] if cues and i < len(cues) else None)) for i, a in enumerate(anims)]
         given = [(a, c) for a, c in given if a is not None]
+        self._line_draws = bool(given)
+        given = self._queued(given, words, seconds)
         given = self._on_words(given, words, seconds, text)
+        # Nothing over anything else: the line's new things checked against what is on the screen, and every
+        # clash settled before they are drawn (layout.py).
+        import layout
+
+        try:
+            given = layout.make_room(self, given, text)
+        except Exception as error:  # noqa: BLE001 -- a check: the line plays as it was rather than not at all
+            print(f"layout pass skipped: {type(error).__name__}: {error}", file=sys.stderr)
         anims = [a for a, _ in given]
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
             anims += self._cover_changes()
@@ -2358,9 +2379,33 @@ class Lecture(Scene):
         self._beat_added = []
         self._check_beat(text)
         spent = self._swap_due(spent, swaps)
+        back = self._map_return()
+        if back:
+            # The map moves back out as the line ends, not over its words.
+            spent = self._wait_until(spent, max(spent, seconds - 0.4), swaps)
+            self.play(*back, run_time=0.8)
+            spent = self._swap_due(spent + 0.8, swaps)
         spent = self._wait_until(spent, seconds + pad, swaps)
         self._sync_beat = self.__dict__.get("_sync_beat", 0) + 1
         return seconds
+
+    def _queued(self, given: list, words, seconds: float) -> list:
+        """The line's pictures with what their calls queued to come on by themselves (a labelled picture's labels,
+        each on its part's words), and the camera drawn back out of a picture whose parts this line does not name.
+        Without word times the labels follow the picture, one after another."""
+        queue = self.__dict__.pop("_word_queue", [])
+        away = self._looks_away(words)
+        if words:
+            return [*[(a, [0.0, 0.8]) for a in away], *given, *[(a, None) for a in queue]]
+        out = [*[(a, c) for a, c in given], *[(a, None) for a in away]]
+        queue = [self._label_reveal(*holder.panim_look) for holder in queue]
+        if queue:
+            start = min(1.4, max(0.4, seconds * 0.35))
+            step = max(0.3, min(0.8, (seconds - start) / max(len(queue), 1)))
+            # Every picture of the line timed, so the labels are after the picture, not over its drawing-in.
+            out = [(a, c if isinstance(c, (list, tuple)) and c else [0.0, None]) for a, c in out]
+            out += [(a, [round(start + k * step, 3), 0.6]) for k, a in enumerate(queue)]
+        return out
 
     def _on_words(self, given: list, words, seconds: float, text: str) -> list:
         """The line's pictures with each one that names something started on its words, and pointers added for
@@ -2375,12 +2420,21 @@ class Lecture(Scene):
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
                 run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else 1.0
                 cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.5)]
+                if isinstance(anim, SimpleNamespace):
+                    anim.panim_heard = True
                 hinted.add(_norm(said))
                 timed += 1
             out.append((anim, cue))
+        # A label whose part this line does not say comes on after the picture is in, one after another.
+        late = [i for i, (a, c) in enumerate(out) if getattr(a, "panim_look", None) and not c]
+        begin = min(1.4, max(0.4, seconds * 0.35))
+        for k, i in enumerate(late):
+            out[i] = (out[i][0], [round(min(begin + 0.5 * k, max(0.0, seconds - 0.4)), 3), 0.6])
+        out = self._with_looks(out, seconds)
         pointers = self._pointers(words, seconds, hinted)
         out += pointers
-        if timed or pointers:
+        counts["looked"] = counts.get("looked", 0) + sum(1 for a, _ in out if getattr(a, "panim_camera", False))
+        if timed or pointers or late:
             start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
             out.sort(key=lambda g: start(g[1]))
             # Every picture with a time: one with none starts as the line begins.
@@ -2389,6 +2443,34 @@ class Lecture(Scene):
             counts["pointed"] += len(pointers)
             self._log("on_words", text=text, timed=timed, pointed=len(pointers))
         counts["beats"] += 1
+        return out
+
+    def _map_return(self) -> list:
+        return []
+
+    def _with_looks(self, given: list, seconds: float) -> list:
+        """A labelled picture's labels, each built now, in the order they come on: where the narration stays on a
+        part long enough (LOOK_GAP, to the next part said or the line's end), its label comes on and the camera
+        moves in on it; else the label alone."""
+        queued = sorted((float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0, i)
+                        for i, (a, c) in enumerate(given) if isinstance(a, SimpleNamespace))
+        if not queued:
+            return given
+        heard = [(at, i) for at, i in queued if given[i][0].panim_heard]
+        out = list(given)
+        for at, i in queued:
+            holder, cue = given[i]
+            view, name = holder.panim_look
+            look = None
+            if holder.panim_heard and not view.get("still") and self._view_on(view):
+                following = [t for t, j in heard if t > at and given[j][0].panim_look[0] is view]
+                if (following[0] if following else seconds) - at >= self.LOOK_GAP:
+                    look = self._look(view, name)
+            if look is not None:
+                look.panim_camera = True
+                out[i] = (look, [cue[0], self.LOOK_RUN])
+            else:
+                out[i] = (self._label_reveal(view, name), cue)
         return out
 
     # ---------------- animations timed to the words (cues) ----------------
@@ -3226,8 +3308,10 @@ class Lecture(Scene):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
         the problem, its figure and its working off the board mid-solution.
 
-        A picture the image model made is drawn in, shape by shape (cutout_strokes), and `labels` ([(text, x, y)],
-        x and y from 0 to 1 across and down the picture) are written beside it, each with a line to its part."""
+        A picture the image model made is drawn in, shape by shape (cutout_strokes). `labels` ([(text, x, y)] or
+        [(text, x, y, x0, y0, x1, y1)], x and y from 0 to 1 across and down the picture, x0..y1 the box round the
+        part) are each written beside it as the part is said, a box round the part and a line to it, and the camera
+        moves in on the part (_picture_view)."""
         if self.board_mode and self._solving() and not self._beat_new:
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
@@ -3238,38 +3322,35 @@ class Lecture(Scene):
         room = h - (line.height + 0.3 if line is not None else 0) - (0.3 if credit else 0)
         if is_cutout(path) and points:
             return self._split_picture(path, [str(p) for p in points if str(p).strip()][:5], caption, move)
-        if is_cutout(path):
+        labels = [tuple(x) for x in labels or () if isinstance(x, (list, tuple)) and len(x) >= 3]
+        cutout = is_cutout(path)
+        # With labels the picture leaves room beside it for their names.
+        if cutout:
             # A picture the image model made: a cutout, in vector shapes, no frame around it, drawn in.
-            labels = [tuple(x) for x in labels or ()]
             image = cutout_mob(path, w * (0.58 if labels else 1.0), room)
-            image.move_to([cx, cy + (h - room) / 2, 0])
-            tags = self._picture_labels(image, labels, w) if labels else []
-            parts = [image, *tags]
-            if line is not None:
-                parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
-            if credit:
-                parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
-            group = Group(*parts)
-            shift = np.array([cx, cy, 0]) - group.get_center()
-            group.shift(shift)
-            draw = [*cutout_strokes(image), *tags, *parts[1 + len(tags):]]
-            shown = self._to_stage(group, draw=draw)
-            if move:
-                self._move_picture(image, tags, move)
-            return shown
+            parts = [image]
         else:
             image = ImageMobject(path)
-            image.scale_to_fit_width(w)
+            image.scale_to_fit_width(w * (0.58 if labels else 1.0))
             if image.height > room:
                 image.scale_to_fit_height(room)
-            frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)
-            parts = [image, frame]
+            parts = [image, SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)]
         if line is not None:
             parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
         if credit:
             parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
-        group = Group(*parts).move_to([cx, cy, 0])
-        return self._to_stage(group)
+        group = Group(*parts)
+        group.shift(np.array([cx, cy, 0]) - group.get_center())
+        if cutout:
+            shown = self._to_stage(group, draw=[*cutout_strokes(image), *parts[1:]])
+        else:
+            shown = self._to_stage(group)
+        if labels:
+            # The labels come on as their parts are said (beat): not with the picture, all at once.
+            self._picture_view(image, labels, w, still=bool(move))
+        if move and cutout:
+            self._move_picture(image, [], move)
+        return shown
 
     def _split_picture(self, path: str, points: list[str], caption: str = "", move: str | None = None):
         """The split layout: the picture large on the left, the few words to take away from it on the right, each
@@ -3307,45 +3388,272 @@ class Lecture(Scene):
                                      fill_color=P.BG, fill_opacity=0.92)
         return VGroup(patch, words)
 
-    def _picture_labels(self, image, labels, width: float) -> list:
-        """Labels beside a picture, each a tag joined by a line to the point on its part: those on the picture's left
-        half go to its left, the rest to its right, in order down the picture, spread so no two touch."""
+    # ---------------- a labelled picture: each part named as it is said, the camera moving in on it ----------------
+    # A picture with labels is shown whole. Each label comes on as its part is said: a box round the part, a line
+    # from the box to the part's name beside the picture. Where the narration stays on a part a moment, the camera
+    # moves in on it: a sharp crop of the part grows out of its box to fill the picture's frame; it moves on to the
+    # next part named, and draws back out when the narration moves on. Only pictures move and fade, so the phone
+    # plays it as the video does.
+    LOOK_ZOOM = 2.6          # how far in the camera goes, at most
+    LOOK_RUN = 1.6           # seconds a move in takes: the part's label, then the camera
+    LOOK_GAP = 1.8           # seconds the narration stays on a part for the camera to move in on it
+    Z_LOOK = Z_LABEL - 0.2   # the camera's view of a part: over the picture and its pointers, under the names
+
+    def _picture_view(self, image, labels, width: float, still: bool = False) -> dict:
+        """Lay out a picture's labels (not yet shown), queue each to come on as its part is said (beat), and let a
+        later line that names a part move the camera back in on it (name_part)."""
+        view = {"image": image, "parts": {}, "revealed": set(), "visible": set(), "zoom": None, "lens": None,
+                "link": None, "still": still, "beat": self.__dict__.get("_sync_beat", 0)}
+        for piece in self._label_layout(image, labels, width):
+            view["parts"][piece["name"]] = piece
+        views = self.__dict__.setdefault("_views", [])
+        views.append(view)
+        queue = self.__dict__.setdefault("_word_queue", [])
+        for name, piece in view["parts"].items():
+            # Built when the line plays (_with_looks), in the order the parts are said: each label's coming on and
+            # each camera move starts from where the one before left the picture.
+            queue.append(SimpleNamespace(panim_said=name, panim_look=(view, name), panim_heard=False))
+            self.name_part(name, piece["tag"], shown=lambda v=view, n=name: n in v["revealed"] and self._view_on(v),
+                           act=lambda v=view, n=name: self._look(v, n))
+        return view
+
+    def _view_on(self, view) -> bool:
+        """Whether a labelled picture is still the one on the stage."""
+        body = getattr(self, "stage_body", None)
+        return body is not None and any(m is view["image"] for m in body.get_family())
+
+    def _part_rect(self, view, box) -> tuple:
+        """(x0, y0, x1, y1) on the screen of a box given across and down the picture (0 to 1)."""
+        lo, hi = view["image"].get_corner(DL), view["image"].get_corner(UR)
+        u0, v0, u1, v1 = box
+        return (lo[0] + u0 * (hi[0] - lo[0]), hi[1] - v1 * (hi[1] - lo[1]),
+                lo[0] + u1 * (hi[0] - lo[0]), hi[1] - v0 * (hi[1] - lo[1]))
+
+    def _label_layout(self, image, labels, width: float) -> list:
+        """Each label's pieces, placed: the tag beside the picture (left-half parts to its left, the rest to its
+        right, in order down the picture, spread so no two touch), the box round its part, the line from the box's
+        near side to the tag, a dot where they meet."""
         lo, hi = image.get_corner(DL), image.get_corner(UR)
+        iw, ih = hi[0] - lo[0], hi[1] - lo[1]
         room = max((width - image.width) / 2 - 0.35, 0.9)
         sides: dict[int, list] = {-1: [], 1: []}
-        for text, x, y in labels:
-            point = np.array([lo[0] + float(x) * (hi[0] - lo[0]), hi[1] - float(y) * (hi[1] - lo[1]), 0])
-            sides[-1 if float(x) < 0.5 else 1].append((str(text), point))
+        for entry in labels:
+            text, x, y = str(entry[0]), float(entry[1]), float(entry[2])
+            if len(entry) >= 7:
+                box = tuple(float(v) for v in entry[3:7])
+            else:
+                # No box from the label finder: a patch round its point.
+                rw, rh = min(0.09, 0.3 * ih / max(iw, 1e-6)) * max(1.0, ih / max(iw, 1e-6)), 0.09
+                box = (max(0.0, x - rw), max(0.0, y - rh), min(1.0, x + rw), min(1.0, y + rh))
+            point = np.array([lo[0] + x * iw, hi[1] - y * ih, 0])
+            sides[-1 if x < 0.5 else 1].append((text, point, box))
         out = []
         for side, items in sides.items():
             items.sort(key=lambda item: -item[1][1])
-            tags = [self._label_tag(text, room) for text, _ in items]
-            # Down the side in the order of their parts, at their parts' heights where there is room.
+            tags = [self._label_tag(text, room) for text, _, _ in items]
             ys, gap = [], 0.12
-            for tag, (_, point) in zip(tags, items):
+            for tag, (_, point, _) in zip(tags, items):
                 want = point[1]
                 if ys:
                     want = min(want, ys[-1][0] - ys[-1][1] / 2 - gap - tag.height / 2)
                 ys.append((want, tag.height))
-            # Pushed back up when the last ran off the bottom of the picture.
             bottom = lo[1] + ys[-1][1] / 2 if ys else 0
             if ys and ys[-1][0] < bottom:
                 lift = bottom - ys[-1][0]
                 ys = [(y + lift, height) for y, height in ys]
-            for tag, (_, point), (y, _) in zip(tags, items, ys):
+            for tag, (text, point, box), (y, _) in zip(tags, items, ys):
                 edge = lo[0] - 0.3 if side < 0 else hi[0] + 0.3
                 tag.move_to([edge + side * tag.width / 2, y, 0])
+                x0, y0 = lo[0] + box[0] * iw, hi[1] - box[3] * ih
+                x1, y1 = lo[0] + box[2] * iw, hi[1] - box[1] * ih
+                frame_halo = Rectangle(width=max(x1 - x0, 0.12), height=max(y1 - y0, 0.12), stroke_color=P.BG,
+                                       stroke_width=7, stroke_opacity=0.85, fill_opacity=0)
+                frame_line = Rectangle(width=max(x1 - x0, 0.12), height=max(y1 - y0, 0.12), stroke_color=P.GOLD,
+                                       stroke_width=3, fill_opacity=0)
+                frame = VGroup(frame_halo, frame_line).move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
+                # The line from the tag to the side of the box facing it, at the part's height (kept on the box).
                 start = tag.get_right() if side < 0 else tag.get_left()
-                # The line in the highlight colour over a halo of the board's colour, and the dot ringed the same
-                # way: it shows on a white picture as on a dark one.
-                halo = Line(start, point, color=P.BG, stroke_width=7, stroke_opacity=0.9)
-                pointer = Line(start, point, color=P.GOLD, stroke_width=3)
-                dot = Dot(point, radius=0.075, color=P.GOLD, stroke_color=P.BG, stroke_width=3)
-                label = VGroup(halo, pointer, dot, tag)
-                for part in label.get_family():
+                end = np.array([x0 if side < 0 else x1, min(max(point[1], y0 + 0.04), y1 - 0.04), 0])
+                halo = Line(start, end, color=P.BG, stroke_width=7, stroke_opacity=0.9)
+                pointer = Line(start, end, color=P.GOLD, stroke_width=3)
+                dot = Dot(end, radius=0.07, color=P.GOLD, stroke_color=P.BG, stroke_width=3)
+                for m in (frame, halo, pointer, dot):
+                    m.set_z_index(Z_LABEL - 0.5)
+                    for part in m.get_family():
+                        part._panim_above = True
+                tag.set_z_index(Z_LABEL)
+                for part in tag.get_family():
                     part._panim_above = True
-                label.set_z_index(Z_LABEL)
-                out.append(label)
+                out.append({"name": text, "box": box, "tag": tag, "frame": frame, "halo": halo, "line": pointer,
+                            "dot": dot})
+        return out
+
+    @staticmethod
+    def _pointer_pieces(piece) -> list:
+        return [piece["frame"], piece["halo"], piece["line"], piece["dot"]]
+
+    def _label_reveal(self, view, name: str, pointers: bool = True):
+        """A label coming on: the box drawn round its part, the line out to its name, the name. Without `pointers`
+        (the camera is about to move in on the part: its view grows out of the part's box) the name alone; the box
+        and the line come on when the camera draws back out."""
+        piece = view["parts"][name]
+        view["revealed"].add(name)
+        hidden = view["zoom"] is not None or not pointers
+        if not hidden:
+            view["visible"].add(name)
+        for m in [*self._pointer_pieces(piece), piece["tag"]]:
+            if all(m is not x for x in self.stage_extra):
+                self.stage_extra.append(m)
+        pointers = [] if hidden else [Create(piece["frame"]), AnimationGroup(Create(piece["halo"]),
+                                                                            Create(piece["line"])),
+                                      GrowFromCenter(piece["dot"])]
+        return LaggedStart(*pointers, FadeIn(piece["tag"], scale=0.9), lag_ratio=0.3)
+
+    def _look_region(self, view, name: str):
+        """The part of the picture the camera shows for a part: its box with a margin, the picture's shape, at most
+        LOOK_ZOOM in, kept on the picture; None when that would be hardly in at all."""
+        u0, v0, u1, v1 = view["parts"][name]["box"]
+        cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
+        # The box with a third more round it, made square across and down the picture (fractions of each), which on
+        # the screen is the picture's own shape: the view then fills its frame exactly.
+        bw, bh = (u1 - u0) * 1.35, (v1 - v0) * 1.35
+        bw, bh = max(bw, bh), max(bw, bh)
+        size = min(max(bw, bh, 1.0 / self.LOOK_ZOOM), 1.0)
+        if size > 0.8:
+            return None
+        u0, u1 = cu - size / 2, cu + size / 2
+        v0, v1 = cv - size / 2, cv + size / 2
+        du = -u0 if u0 < 0 else (1 - u1 if u1 > 1 else 0)
+        dv = -v0 if v0 < 0 else (1 - v1 if v1 > 1 else 0)
+        return (u0 + du, v0 + dv, u1 + du, v1 + dv)
+
+    def _lens(self, view, region):
+        """The camera's view of a region of the picture: the region's pixels (sharp: cut from the picture itself),
+        with a frame, at the region's place on the screen."""
+        image = view["image"]
+        pixels = np.asarray(image.get_pixel_array())
+        rows, cols = pixels.shape[0], pixels.shape[1]
+        u0, v0, u1, v1 = region
+        crop = pixels[int(v0 * rows):max(int(v1 * rows), int(v0 * rows) + 2),
+                      int(u0 * cols):max(int(u1 * cols), int(u0 * cols) + 2)].copy()
+        if crop.ndim == 3 and crop.shape[2] == 4:
+            # A cutout's clear parts on the board's colour, in the pixels themselves: a patch drawn under the view
+            # would be drawn over it on the phone (a moving clip draws at its highest part's depth).
+            alpha = crop[..., 3:4].astype(float) / 255.0
+            board = np.array(color_to_rgb(P.BG)) * 255.0
+            crop = np.concatenate([(crop[..., :3] * alpha + board * (1 - alpha)).astype(np.uint8),
+                                   np.full(crop.shape[:2] + (1,), 255, dtype=np.uint8)], axis=2)
+        x0, y0, x1, y1 = self._part_rect(view, region)
+        shot = ImageMobject(crop)
+        shot.stretch_to_fit_width(x1 - x0)
+        shot.stretch_to_fit_height(y1 - y0)
+        shot.move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
+        rim = Rectangle(width=x1 - x0, height=y1 - y0, stroke_color=P.GOLD, stroke_width=4, fill_opacity=0).move_to(shot)
+        lens = Group(shot, rim)
+        lens.set_z_index(self.Z_LOOK)
+        for part in lens.get_family():
+            part._panim_above = True
+            part._art_decorated = True
+        return lens
+
+    @staticmethod
+    def _glide(mob, start: tuple, end: tuple):
+        """Move and size a mobject from one screen box to another (x0, y0, x1, y1), smoothly, whatever it is doing
+        when the move is built (the moves of one line are built before any of them plays)."""
+        def step(m, alpha: float) -> None:
+            t = smooth(alpha)
+            x0, y0, x1, y1 = (a + (b - a) * t for a, b in zip(start, end))
+            m.stretch_to_fit_width(max(x1 - x0, 1e-3))
+            m.stretch_to_fit_height(max(y1 - y0, 1e-3))
+            m.move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
+
+        return UpdateFromAlphaFunc(mob, step)
+
+    def _look(self, view, name: str):
+        """Move the camera in on a part of a labelled picture (its label first if it is not on yet), from wherever
+        it is: out of the part it is on, then in on this one. None when it is on this part already, or cannot be."""
+        if not self._view_on(view) or name not in view["parts"] or view.get("still"):
+            return None
+        if view["zoom"] == name:
+            return None
+        region = self._look_region(view, name)
+        steps = []
+        if view["zoom"] is not None:
+            steps.append(self._look_out(view, restore=False))
+        if name not in view["revealed"]:
+            steps.append(self._label_reveal(view, name, pointers=region is None))
+        if region is None:
+            out = [s for s in steps if s is not None]
+            if view["zoom"] is None and view["visible"] != view["revealed"]:
+                out.append(self._show_pointers(view))
+            return self._baked(AnimationGroup(*out, lag_ratio=1.0)) if out else None
+        image = view["image"]
+        whole = (image.get_corner(DL)[0], image.get_corner(DL)[1], image.get_corner(UR)[0], image.get_corner(UR)[1])
+        start = self._part_rect(view, region)
+        lens = self._lens(view, region)
+        hide = [FadeOut(m) for n in sorted(view["visible"]) for m in self._pointer_pieces(view["parts"][n])]
+        view["visible"] = set()
+        # The name of the part the camera is on, joined to the frame of the view by a line.
+        tag = view["parts"][name]["tag"]
+        side = -1 if tag.get_center()[0] < image.get_center()[0] else 1
+        near = np.array([whole[0] if side < 0 else whole[2], min(max(tag.get_center()[1], whole[1] + 0.1),
+                                                                 whole[3] - 0.1), 0])
+        link = Line(tag.get_right() if side < 0 else tag.get_left(), near, color=P.GOLD, stroke_width=3)
+        link.set_z_index(Z_LABEL - 0.1)
+        view.update(zoom=name, lens=lens, link=link, region=start)
+        for m in (lens, link):
+            self.stage_extra.append(m)
+        grow = AnimationGroup(*hide, Succession(FadeIn(lens, run_time=0.3), self._glide(lens, start, whole)))
+        steps += [grow, Create(link)]
+        # One after another, each begun as the play starts (a group, not a Succession): what a later step draws in
+        # stays hidden until its turn, where a Succession put it on the screen whole from the start.
+        return self._baked(AnimationGroup(*[s for s in steps if s is not None], lag_ratio=1.0))
+
+    def _look_out(self, view, restore: bool = True):
+        """The camera back out of the part it is on: its view shrinks into the part's box and goes; with `restore`
+        the boxes and lines of the labels come back."""
+        lens, link, start = view.get("lens"), view.get("link"), view.get("region")
+        if lens is None:
+            return None
+        image = view["image"]
+        whole = (image.get_corner(DL)[0], image.get_corner(DL)[1], image.get_corner(UR)[0], image.get_corner(UR)[1])
+        view.update(zoom=None, lens=None, link=None)
+        for m in (lens, link):
+            if m is not None and any(m is x for x in self.stage_extra):
+                self.stage_extra.remove(m)
+        # The view's own moves in order (each fade taking the view as the move before left it), then the labels'
+        # boxes and lines drawn back in.
+        going = Succession(FadeOut(link, run_time=0.2), self._glide(lens, whole, start), FadeOut(lens, run_time=0.3))
+        back = self._show_pointers(view) if restore else None
+        return AnimationGroup(going, back, lag_ratio=1.0) if back is not None else going
+
+    def _show_pointers(self, view):
+        back = sorted(view["revealed"] - view["visible"])
+        view["visible"] |= set(back)
+        anims = [FadeIn(m) for n in back for m in self._pointer_pieces(view["parts"][n])]
+        return AnimationGroup(*anims) if anims else None
+
+    @staticmethod
+    def _baked(anim):
+        """Played on the phone as a clip of whole frames (export_dsl asks_to_bake): the camera's view grows by an
+        update each frame, which no verb describes."""
+        anim._panim_bake = True
+        return anim
+
+    def _looks_away(self, words) -> list:
+        """At a line's start: the camera out of a picture whose parts this line does not name."""
+        out = []
+        for view in self.__dict__.get("_views", []):
+            if view["zoom"] is None:
+                continue
+            if self._view_on(view) and words and any(said_at(words, n) is not None for n in view["parts"]):
+                continue
+            if not self._view_on(view):
+                view.update(zoom=None, lens=None, link=None)
+                continue
+            back = self._look_out(view)
+            if back is not None:
+                out.append(self._baked(back))
         return out
 
     def illustration(self, hero: str, items=(), title: str | None = None, color: str | None = None):
@@ -5357,6 +5665,7 @@ class MapLecture(BoardMixin, Lecture):
             self.panel = self.panel_bg()
             anims.append(FadeIn(self.panel))
         inset = self.locator()
+        self._inset = inset
         if inset is not None:
             anims.append(FadeIn(inset))
         self.play(*anims, run_time=run_time)
@@ -5390,7 +5699,7 @@ class MapLecture(BoardMixin, Lecture):
         inside = _valid(shape.intersection(self.focus))
         clip = None if not inside.is_empty and inside.area >= 0.5 * _valid(shape.intersection(window)).area else window
         m = self.region_fill(shape, color, opacity, clip=clip)
-        self.name_part(label or name, m)
+        self.name_part(label or name, m, act=lambda m=m: self._map_look(m, m.get_center(), area=True))
         # Shaded again (England in its own colour once the war begins): the new shading takes the old one's place,
         # its name written once.
         shaded = getattr(self, "_shaded", {})
@@ -5749,7 +6058,8 @@ class MapLecture(BoardMixin, Lecture):
             pic.next_to(text, DOWN, buff=0.06)
         group = group_of(halo, dot, tag, *([lead] if lead is not None else []))
         group.set_z_index(Z_MARK)
-        self.name_part(label or (where if isinstance(where, str) else ""), group)
+        self.name_part(label or (where if isinstance(where, str) else ""), group,
+                       act=lambda group=group, dot=dot: self._map_look(group, dot.get_center()))
         return group
 
     def reserve_places(self, places, gap: float = 0.13) -> None:
@@ -6015,6 +6325,129 @@ class MapLecture(BoardMixin, Lecture):
             group.add(tag)
         group.set_z_index(Z_MARK + 1)
         return LaggedStart(*[GrowFromCenter(m) for m in group], lag_ratio=0.2)
+
+    # ---------------- the map's camera: in on a place as the narration names it ----------------
+    # A place or an area already on the map, named again, is looked at: on a line that draws nothing new on the map
+    # the map moves in on it (MAP_PUSH times, the place brought toward the middle), the rest of the map dims round
+    # a box on it, an area's border is traced and a place's dot sends out a ripple; by the end of the line the map is
+    # back as it was, so the next line's places and labels are set on the map as it is.
+    MAP_PUSH = 1.4
+    MAP_VEIL = 0.5           # how dark the rest of the map goes while a place is looked at
+
+    def _map_showing(self) -> bool:
+        return bool(getattr(self, "_map_on", False)) and getattr(self, "stage_body", None) is None \
+            and not getattr(self, "board_mode", False)
+
+    def _map_region(self) -> tuple:
+        """(x0, y0, x1, y1) of the map's part of the frame."""
+        cx, cy = self.MAP_CENTER
+        right = self._map_right()
+        return (-config.frame_width / 2, cy - self.MAP_SIZE[0] / 2 - 0.2, right, cy + self.MAP_SIZE[0] / 2 + 0.2)
+
+    def _map_content(self) -> list:
+        """What on the screen is the map (its land, lines, fills, places and labels): what its camera moves."""
+        skip = {id(m) for m in [getattr(self, "cap", None), getattr(self, "chrome", None), getattr(self, "panel", None),
+                                getattr(self, "_inset", None), getattr(self, "_map_mask", None),
+                                *getattr(self, "panel_items", []), *getattr(self, "_map_spot", [])] if m is not None}
+        out = []
+        for m in self.mobjects:
+            z = float(getattr(m, "z_index", 0) or 0)
+            if id(m) in skip or z <= Z_BACK + 1 or z >= Z_PANEL or getattr(m, "is_map_cover", False):
+                continue
+            if not len(m.get_family()) or (m.width < 1e-3 and m.height < 1e-3):
+                continue
+            out.append(m)
+        return out
+
+    def _map_look(self, mob, point, area: bool = False):
+        """Look at a place or an area on the map (see above). None when the map is not what is on the screen."""
+        if not self._map_showing() or mob is None or not any(mob is m for top in self.mobjects
+                                                              for m in top.get_family()):
+            return None
+        if getattr(self, "_map_spot", None):
+            return None                          # one look a line: a second would draw over the first
+        import stem
+
+        point = np.array(point, dtype=float)
+        x0, y0, x1, y1 = self._map_region()
+        middle = np.array([*self.MAP_CENTER, 0.0])
+        push, moved = None, (lambda p: np.array(p, dtype=float))
+        if not getattr(self, "_line_draws", False):
+            f = self.MAP_PUSH
+            shift = (middle - point) * 0.6
+            moving = self._map_content()
+            if moving:
+                push = AnimationGroup(*[stem._moving(m.animate.scale(f, about_point=point).shift(shift))
+                                        for m in moving])
+                self._map_pushed = (f, point, shift, moving)
+                moved = lambda p, f=f, point=point, shift=shift: (np.array(p, dtype=float) - point) * f + point + shift  # noqa: E731
+                if getattr(self, "_map_mask", None) is None and not getattr(self, "_wide", False):
+                    # The panel's side of the frame, in the board's colour under the panel: the map moved in on
+                    # stays on its own side.
+                    mask = Rectangle(width=config.frame_width / 2 - x1 + 0.5, height=config.frame_height + 1,
+                                     fill_color=P.BG, fill_opacity=1, stroke_width=0)
+                    mask.move_to([(x1 + config.frame_width / 2 + 0.5) / 2, 0, 0]).set_z_index(Z_PANEL - 0.5)
+                    mask._art_decorated = True
+                    self._map_mask = mask
+                    self.add(mask)
+        lo, hi = moved(mob.get_corner(DL)), moved(mob.get_corner(UR))
+        pad = 0.25
+        bx0, by0 = max(lo[0] - pad, x0), max(lo[1] - pad, y0)
+        bx1, by1 = min(hi[0] + pad, x1), min(hi[1] + pad, y1)
+        if bx1 - bx0 < 0.3 or by1 - by0 < 0.3:
+            c = moved(point)
+            bx0, by0, bx1, by1 = c[0] - 0.5, c[1] - 0.5, c[0] + 0.5, c[1] + 0.5
+        # The rest of the map dimmed round a box on the place: four panels of the board's colour.
+        veil = VGroup(*[Rectangle(width=max(w, 0.01), height=max(h, 0.01), fill_color=P.BG, fill_opacity=self.MAP_VEIL,
+                                  stroke_width=0).move_to([cx, cy, 0])
+                        for w, h, cx, cy in ((bx0 - x0, y1 - y0, (x0 + bx0) / 2, (y0 + y1) / 2),
+                                             (x1 - bx1, y1 - y0, (bx1 + x1) / 2, (y0 + y1) / 2),
+                                             (bx1 - bx0, y1 - by1, (bx0 + bx1) / 2, (by1 + y1) / 2),
+                                             (bx1 - bx0, by0 - y0, (bx0 + bx1) / 2, (y0 + by0) / 2))
+                        if w > 0.01 and h > 0.01])
+        frame = RoundedRectangle(corner_radius=0.08, width=bx1 - bx0, height=by1 - by0, stroke_color=role("highlight"),
+                                 stroke_width=3.5, fill_opacity=0).move_to([(bx0 + bx1) / 2, (by0 + by1) / 2, 0])
+        veil.set_z_index(Z_MARK + 3)
+        frame.set_z_index(Z_MARK + 4)
+        for part in [*veil.get_family(), *frame.get_family()]:
+            part._art_decorated = True
+        shows = [FadeIn(veil), Create(frame)]
+        spot = [veil, frame]
+        if area:
+            # The area's border traced in the highlight colour.
+            edge = mob.copy().set_fill(opacity=0).set_stroke(role("highlight"), width=4.5, opacity=1)
+            for part in edge.get_family():
+                if isinstance(part, Text):
+                    part.set_opacity(0)
+            edge.scale(self._map_pushed[0] if push is not None else 1.0, about_point=point)
+            if push is not None:
+                edge.shift(self._map_pushed[2])
+            edge.set_z_index(Z_MARK + 4)
+            shows.append(Create(edge))
+            spot.append(edge)
+        else:
+            c = moved(point)
+            ring = Circle(radius=0.16, color=role("highlight"), stroke_width=4).move_to(c).set_z_index(Z_MARK + 4)
+            shows.append(Succession(Create(ring), FadeOut(ring, scale=2.6)))
+        self._map_spot = spot
+        lit = AnimationGroup(*shows, lag_ratio=0.15)
+        return AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
+
+    def _map_return(self) -> list:
+        """The map back as it was at the end of a line that looked at a place: the veil and box gone, the map moved
+        back out."""
+        anims = [FadeOut(m) for m in getattr(self, "_map_spot", None) or [] if any(m is x for x in self.mobjects)]
+        self._map_spot = []
+        pushed = getattr(self, "_map_pushed", None)
+        self._map_pushed = None
+        if pushed is not None:
+            import stem
+
+            f, point, shift, moving = pushed
+            on = {id(m) for m in self.mobjects}
+            anims += [stem._moving(m.animate.shift(-shift).scale(1 / f, about_point=point)) for m in moving
+                      if id(m) in on]
+        return anims
 
     def highlight(self, target):
         """Draw the eye: a unit or a marker pulses."""

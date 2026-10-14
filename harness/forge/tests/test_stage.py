@@ -253,7 +253,8 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
 
 
 def test_a_generated_picture_is_drawn_in_shape_by_shape_with_its_labels(generated):
-    """Not faded in: its shapes are written onto the board biggest first, then each label with its line."""
+    """Not faded in: its shapes are written onto the board; each label comes on by itself, with its line, as its part
+    is said (test_picture_camera.py)."""
     import genimage
     import pocket_lecture as pl
     from manim import Write
@@ -274,7 +275,9 @@ def test_a_generated_picture_is_drawn_in_shape_by_shape_with_its_labels(generate
             yield from every(b)
 
     writes = [a for a in every(anim) if isinstance(a, Write)]
-    assert len(writes) >= 3                                  # its shapes, then its two labels, each written in
+    assert len(writes) >= 1                                  # its shapes (and caption) written in
+    assert [q.panim_said for q in scene._word_queue] == ["antlers", "tail"] or \
+        sorted(q.panim_said for q in scene._word_queue) == ["antlers", "tail"]
     pieces = pl.cutout_strokes(pl.cutout_mob(row["file"], 4, 4))
     assert len(pieces) >= 1
 

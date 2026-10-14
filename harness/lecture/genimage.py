@@ -504,15 +504,39 @@ def label_model() -> str:
 
 
 def _spread(labels: list[str]) -> list[list]:
-    """Where labels go when nothing can look at the picture (offline, PANIM_IMAGE_FAKE): spaced down its middle."""
+    """Where labels go when nothing can look at the picture (offline, PANIM_IMAGE_FAKE): spaced down its middle,
+    each with a box round its point."""
     n = max(len(labels), 1)
-    return [[label, 0.35 if k % 2 == 0 else 0.65, (k + 0.5) / n] for k, label in enumerate(labels)]
+    out = []
+    for k, label in enumerate(labels):
+        x, y = 0.35 if k % 2 == 0 else 0.65, (k + 0.5) / n
+        h = min(0.5 / n, 0.2)
+        out.append([label, x, round(y, 3), round(x - 0.15, 3), round(y - h, 3), round(x + 0.15, 3), round(y + h, 3)])
+    return out
+
+
+def _part_box(point: dict, x: float, y: float) -> list[float] | None:
+    """A part's box from the label finder's answer ({"box": [x0, y0, x1, y1]}, 0 to 1 across and down), kept to the
+    picture and round its point; None when it gave none or one that does not hold the point."""
+    try:
+        x0, y0, x1, y1 = (min(max(float(v), 0.0), 1.0) for v in point.get("box"))
+    except (TypeError, ValueError):
+        return None
+    x0, x1 = min(x0, x1), max(x0, x1)
+    y0, y1 = min(y0, y1), max(y0, y1)
+    if x1 - x0 < 0.02 or y1 - y0 < 0.02 or not (x0 - 0.02 <= x <= x1 + 0.02 and y0 - 0.02 <= y <= y1 + 0.02):
+        return None
+    return [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)]
 
 
 def locate(png_path: str, labels) -> list[list] | None:
-    """Where each labelled part is in a picture: [[label, x, y], ...], x and y from 0 to 1 across and down the
-    picture (the cutout as the board shows it). A model that reads images is shown the picture
-    and asked; the answer is kept beside it. Parts it cannot see are left out; None when it cannot be asked."""
+    """Where each labelled part is in a picture: [[label, x, y, x0, y0, x1, y1], ...], x and y the point a label's
+    line goes to and x0..y1 the box round the part (the board draws it, and moves the camera in on it), all from 0
+    to 1 across and down the picture as the board shows it; a part given no box is [label, x, y]. A model that
+    reads images is shown the picture and asked; the answer is kept beside it. Parts it cannot see are left out;
+    None when it cannot be asked."""
+    import providers
+
     labels = [str(x).strip()[:40] for x in labels or [] if str(x).strip()][:8]
     path = Path(str(png_path))
     if not labels or not path.is_file():
@@ -522,7 +546,7 @@ def locate(png_path: str, labels) -> list[list] | None:
         if hit and int(hit.group(1)) < len(_COLLECT):
             _COLLECT[int(hit.group(1))]["labels"].append(labels)
         return _spread(labels)
-    key = hashlib.sha256(f"{label_model()}|{'|'.join(labels)}".encode()).hexdigest()[:12]
+    key = hashlib.sha256(f"{label_model()}|boxes|{'|'.join(labels)}".encode()).hexdigest()[:12]
     kept = path.with_name(f"{path.stem}.labels-{key}.json")
     if kept.exists():
         try:
@@ -531,14 +555,16 @@ def locate(png_path: str, labels) -> list[list] | None:
             pass
     if _fake():
         found = _spread(labels)
-    elif not os.environ.get("OPENROUTER_API_KEY"):
+    elif not (os.environ.get("OPENROUTER_API_KEY") or providers.direct(label_model())):
         return None
     else:
-        image = "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
+        kind = "jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "webp" if path.suffix.lower() == ".webp" else "png"
+        image = f"data:image/{kind};base64," + base64.b64encode(path.read_bytes()).decode()
         ask = ("This is a picture for a school lesson. For each part named below, give the point to draw a label's "
                "pointer to: on the part itself, as x and y from 0 to 1 (x from the left edge, y from the top edge "
-               "of the image). Reply with JSON only: {\"points\": [{\"label\": ..., \"x\": ..., \"y\": ...}]}. "
-               "Leave out a part that is not in the picture.\nParts: " + "; ".join(labels))
+               "of the image), and the box that tightly holds that part, as [x0, y0, x1, y1] in the same units. "
+               "Reply with JSON only: {\"points\": [{\"label\": ..., \"x\": ..., \"y\": ..., \"box\": [x0, y0, x1, "
+               "y1]}]}. Leave out a part that is not in the picture.\nParts: " + "; ".join(labels))
         try:
             reply = _post(_chat_url(), {"model": label_model(), "temperature": 0,
                                         "messages": [{"role": "user", "content": [
@@ -559,7 +585,8 @@ def locate(png_path: str, labels) -> list[list] | None:
             except (TypeError, ValueError, KeyError, AttributeError):
                 continue
             if name and 0 <= x <= 1 and 0 <= y <= 1 and all(f[0] != name for f in found):
-                found.append([name, round(x, 3), round(y, 3)])
+                box = _part_box(point, x, y)
+                found.append([name, round(x, 3), round(y, 3), *(box or [])])
     kept.write_text(json.dumps(found))
     return found
 

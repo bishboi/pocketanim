@@ -149,9 +149,12 @@ def test_each_beat_is_checked_and_what_can_be_mended_is(tmp_path, monkeypatch):
         Probe().render()
     rows = [json.loads(line) for line in log.read_text().splitlines()]
     assert len(rows) == 1 and rows[0]["say"] == "A beat with problems."
+    # Words off the frame and words over words are settled before the line plays (layout.py); the check after it
+    # mends what is left: the words too small to read.
     fixed = " ".join(rows[0]["fixed"])
-    assert "off the frame" in fixed and "grown to 13pt" in fixed and "moved apart" in fixed
+    assert "grown to 13pt" in fixed and "off the frame" not in fixed and "moved apart" not in fixed
     assert seen["edge"] <= pl.config.frame_width / 2 and seen["size"] >= 12.9 and seen["apart"] == 0
+    assert pl.sync_counts().get("moved", 0) >= 1
 
 
 def test_a_diagram_is_built_as_its_parts_are_spoken_of():

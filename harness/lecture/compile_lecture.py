@@ -816,6 +816,11 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if wrong_maker:
                     errors.append(f"{at}: {wrong_maker}")
                     continue
+                unsaid = _labels_unsaid(op, [say] + [str(b.get("say") or "") for b in beats_here[bi:bi + 2]])
+                if unsaid:
+                    warnings.append(f"{at}: the picture's labels {', '.join(repr(x) for x in unsaid)} are never said "
+                                    "while it is up; say each label's words in this line or the next two (each label "
+                                    "comes on, and the camera moves in on its part, as its name is said)")
                 # (`part`, not `where`: that is the chapter's name, and every later beat's warnings were put under
                 # the last picture's part -- "node 'fields' beat 23" for "chapter 4 beat 23".)
                 for part, spec in pictures_of(op):
@@ -980,11 +985,12 @@ def _labels_of(op: dict) -> list[str]:
 def _with_labels(row: dict | None, op: dict) -> dict | None:
     """The picture's row with where its labels go (genimage.locate), for a generated picture that names parts."""
     labels = _labels_of(op)
-    if not row or not labels or not row.get("png"):
+    picture = (row or {}).get("png") or (row or {}).get("file")
+    if not row or not labels or not picture or not re.search(r"\.(png|jpe?g|webp)$", str(picture), re.I):
         return row
     import genimage
 
-    found = genimage.locate(row["png"], labels)
+    found = genimage.locate(picture, labels)
     return {**row, "labels": found} if found else row
 
 
@@ -1187,8 +1193,10 @@ def _picture_found(spec) -> tuple | None:
 
 
 def _labels_arg(row: dict) -> str:
-    """stage_image's labels: [(text, x, y), ...] where the label finder put them."""
-    found = [(str(t), float(x), float(y)) for t, x, y in row.get("labels") or []]
+    """stage_image's labels: [(text, x, y), ...] where the label finder put them, each with its part's box
+    (text, x, y, x0, y0, x1, y1) when it gave one."""
+    found = [(str(r[0]), *(float(v) for v in r[1:7 if len(r) >= 7 else 3])) for r in row.get("labels") or []
+             if isinstance(r, (list, tuple)) and len(r) >= 3]
     return f", labels={found!r}" if found else ""
 
 
@@ -1347,6 +1355,23 @@ GRAPH_ASK = re.compile(
     r"\b(?:graph|plot(?:ted)?|axes|x[- ]axis|y[- ]axis|coordinate plane|number line|bar chart|histogram|"
     r"pie chart|line chart|scatter|curve of|function of x|velocity[- ]time|distance[- ]time|v-t|x-t)\b", re.I)
 _PICTURE_CALL = re.compile(r"""picture\(\s*(?:what\s*=\s*)?(['"])(?:(?!\1).)*\1""")
+
+
+def _labels_unsaid(op: dict, lines: list[str]) -> list[str]:
+    """A picture's labels ("labels" on a picture, draw or photo) that none of these lines says: their words in the
+    narration, a plural or a possessive taken as the word."""
+    if op.get("op") not in ("picture", "illustration", "photo", "draw") or not isinstance(op.get("labels"), list):
+        return []
+    def forms(word: str) -> set[str]:
+        return {word, word[:-1] if word.endswith("s") else word, word[:-2] if word.endswith("es") else word}
+
+    said = set().union(*[forms(w) for w in re.findall(r"\w+", " ".join(lines).lower())] or [set()])
+    out = []
+    for label in _labels_of(op):
+        words = [w for w in re.findall(r"\w+", label.lower()) if len(w) > 2] or re.findall(r"\w+", label.lower())
+        if words and not all(forms(w) & said for w in words):
+            out.append(label)
+    return out
 
 
 def _maker_problem(op: dict, genre: str | None) -> str | None:

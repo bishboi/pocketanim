@@ -190,6 +190,7 @@ def _probe():
 
 def test_a_beat_plays_each_animation_at_its_cue(monkeypatch):
     monkeypatch.setattr(pl, "narrate", lambda text: (None, 6.0))
+    monkeypatch.setenv("PANIM_DIAGRAM_STEPS", "0")          # the diagram whole, as the line begins
     scene, log, clock = _probe()
     nodes = [{"id": k, "label": k} for k in ("lord", "knight", "fief")]
     scene.beat("Here is how it worked, and here is the fief.",
@@ -213,7 +214,7 @@ def test_without_cues_a_beat_plays_as_before(monkeypatch):
     scene, log, clock = _probe()
     nodes = [{"id": k, "label": k} for k in ("a", "b")]
     scene.beat("One and two.", scene.diagram("d", "flow", nodes, [["a", "b"]]), scene.spotlight("d", "b"))
-    assert log == [(0.0, 2.2)]                               # 55% of the line, together
+    assert log == [(0.0, 1.4)]                               # a third of the line (quick), together
 
 
 def test_a_free_blocks_plays_start_at_their_cues(monkeypatch):

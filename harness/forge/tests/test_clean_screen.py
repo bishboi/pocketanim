@@ -79,13 +79,43 @@ def test_the_backdrop_drifts_and_the_phone_is_told_how(tmp_path):
     parts, still = pl.backdrop()
     if not len(parts):
         return
-    before = parts.get_center().copy()
-    for _ in range(90):
-        for u in parts.updaters:
-            u(parts, 1 / 30)
-    assert np.linalg.norm(parts.get_center() - before) > 0.01           # it moved, slowly
+    # Drawn where its drift has it (Lecture._drift_view), its points left alone; drawn afresh every frame.
+    m = pl.drift_matrix(parts._panim_drift, 3.0)
+    assert np.abs(m - np.array([[1, 0, 0], [0, 1, 0]])).max() > 0.01
+    assert parts.updaters and parts.updaters[0] is parts._panim_drift_updater
     assert all(getattr(m, "_panim_drift", None) for m in parts.get_family())
     assert not any(getattr(m, "_panim_drift", None) for m in still.get_family())
+
+
+def test_a_picture_drifts_from_where_it_came_on_and_its_labels_with_it():
+    spec = dict(pl.PICTURE_DRIFT, cx=1.0, cy=-0.5, t0=4.0)
+    assert np.allclose(pl.drift_matrix(spec, 4.0), [[1, 0, 0], [0, 1, 0]])          # still as it comes on
+    later = pl.drift_matrix(spec, 9.0)
+    assert np.abs(later - np.array([[1, 0, 0], [0, 1, 0]])).max() > 0.005           # then it moves
+    from dsl.interpret import drift_matrix
+
+    assert np.allclose(drift_matrix(spec, 9.0)[:2, [0, 1, 3]], later)              # the phone's is the same
+
+
+def test_the_camera_draws_a_drifting_part_moved_and_leaves_its_points_alone():
+    class Probe(pl.MapLecture):
+        def construct(self):
+            pass
+
+    scene = Probe()
+    scene.setup()
+    dot = pl.Dot([1.0, 0.0, 0.0])
+    pl.set_drift([dot], dict(pl.PICTURE_DRIFT, cx=0.0, cy=0.0, t0=0.0))
+    home = dot.points.copy()
+    seen = []
+    camera = scene.renderer.camera
+    camera.capture_mobjects = lambda mobjects, **kw: seen.append(dot.points.copy())
+    camera._panim_drifting = False
+    scene._drift_view()                                         # the hook round a draw that records what it sees
+    scene.renderer.time = 5.0
+    camera.capture_mobjects([dot])
+    assert seen and not np.allclose(seen[0], home)              # drawn moved
+    assert np.allclose(dot.points, home)                        # and put back
 
 
 def test_the_reference_player_moves_a_drifting_backdrop_by_the_clock():

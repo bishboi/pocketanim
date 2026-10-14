@@ -32,7 +32,7 @@ class SurfaceSpec(
 /**
  * A raster picture (`image NAME src=FILE px=W,H keys=... z=Z`): the PNG [src] beside the program (the library's
  * images/ folder), [keys] where it is and how visible through the program's frames, eight numbers a key --
- * frame, alpha, then the upper-left, upper-right and lower-left corners in scene units.
+ * frame, alpha, then the upper-left, upper-right and lower-left corners in scene units; [drift], how it drifts.
  */
 class ImageSpec(
     val name: String,
@@ -41,6 +41,8 @@ class ImageSpec(
     val height: Int,
     val z: Double,
     val keys: DoubleArray,
+    /** A picture that drifts slowly while it shows (`drift=...`), its labels with it. */
+    val drift: Drift? = null,
 ) {
     val keyCount: Int get() = keys.size / KEY
 
@@ -91,11 +93,11 @@ sealed class Step {
     class Hide(val name: String) : Step()
     class Fade(
         val name: String, val seconds: Double,
-        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0,
+        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0, val rate: String = "smooth",
     ) : Step()
     class FadeOut(
         val name: String, val seconds: Double,
-        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0,
+        val shift: DoubleArray = doubleArrayOf(0.0, 0.0), val from: Double = 1.0, val rate: String = "smooth",
     ) : Step()
     class Write(val name: String, val seconds: Double) : Step()
     /** Write run backwards, then the object leaves the stage. */
@@ -259,16 +261,12 @@ class Program(
                             ImageSpec(
                                 positional[0], args.getValue("src"), px[0].toInt(), px[1].toInt(),
                                 (args["z"] ?: "0").toDouble(), keys.toDoubleArray(),
+                                args["drift"]?.let { Drift.ofList(it) },
                             )
                         )
                     }
                     "run" -> timeline.add(Step.Run(positional[0], t()))
-                    "drift" -> drifts[positional[0]] = Drift(
-                        period = (args["period"] ?: "26").toDouble(),
-                        amp = (args["amp"] ?: "0.3").toDouble(),
-                        scale = (args["scale"] ?: "0.025").toDouble(),
-                        turn = (args["turn"] ?: "0.012").toDouble(),
-                    )
+                    "drift" -> drifts[positional[0]] = Drift.parse(args)
                     "surface" -> surfaces.add(
                         SurfaceSpec(
                             name = positional.firstOrNull() ?: "S",
@@ -301,8 +299,12 @@ class Program(
                     "morph" -> timeline.add(Step.Morph(positional[0], positional[1], t(), keep = args["keep"] == "1"))
                     "show" -> timeline.add(Step.Show(positional[0]))
                     "hide" -> timeline.add(Step.Hide(positional[0]))
-                    "fade" -> timeline.add(Step.Fade(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))
-                    "fadeout" -> timeline.add(Step.FadeOut(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0))
+                    "fade" -> timeline.add(
+                        Step.Fade(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0, rate())
+                    )
+                    "fadeout" -> timeline.add(
+                        Step.FadeOut(positional[0], t(), shiftOf(args), args["from"]?.toDouble() ?: 1.0, rate())
+                    )
                     "write" -> timeline.add(Step.Write(positional[0], t()))
                     "unwrite" -> timeline.add(Step.Unwrite(positional[0], t()))
                     "fill" -> timeline.add(
@@ -399,13 +401,16 @@ class Program(
 }
 
 /**
- * A backdrop's slow drift: a little across and up, a breath larger and smaller, a hair of a turn, each on its own
- * long period. The same formula as the lecture engine's (harness/lecture/pocket_lecture.py drift_at), from the
- * program's clock.
+ * A slow drift: a little across and up, a breath larger and smaller, a hair of a turn, each on its own long period.
+ * The same formula as the lecture engine's (harness/lecture/pocket_lecture.py drift_matrix), from the program's
+ * clock. A backdrop drifts about the origin from the program's start; a picture (`t0`, `cx`, `cy`) drifts about its
+ * centre from where it stood when it came on, so it starts still and its labels move with it.
  */
-class Drift(val period: Double, val amp: Double, val scale: Double, val turn: Double) {
-    /** The row-major 3x4 transform at [seconds]: scale and turn about the origin, then the shift. */
-    fun at(seconds: Double): DoubleArray {
+class Drift(
+    val period: Double, val amp: Double, val scale: Double, val turn: Double,
+    val t0: Double? = null, val cx: Double = 0.0, val cy: Double = 0.0,
+) {
+    private fun raw(seconds: Double): DoubleArray {
         val w = 2 * Math.PI * seconds / period
         val dx = amp * Math.sin(w)
         val dy = 0.6 * amp * Math.sin(w / 1.3 + 1.1)
@@ -413,6 +418,55 @@ class Drift(val period: Double, val amp: Double, val scale: Double, val turn: Do
         val a = turn * Math.sin(w / 2.1 + 2.0)
         val c = Math.cos(a) * k
         val s = Math.sin(a) * k
-        return doubleArrayOf(c, -s, 0.0, dx, s, c, 0.0, dy, 0.0, 0.0, 1.0, 0.0)
+        // x' = A (x - centre) + centre + d
+        return doubleArrayOf(c, -s, cx + dx - (c * cx - s * cy), s, c, cy + dy - (s * cx + c * cy))
+    }
+
+    /** The row-major 3x4 transform at [seconds]. */
+    fun at(seconds: Double): DoubleArray {
+        var m = raw(seconds)
+        val start = t0
+        if (start != null) {
+            // Relative to where it stood at t0: m * inverse(raw(t0)).
+            val o = raw(start)
+            val det = o[0] * o[4] - o[1] * o[3]
+            val i0 = o[4] / det; val i1 = -o[1] / det; val i3 = -o[3] / det; val i4 = o[0] / det
+            val i2 = -(i0 * o[2] + i1 * o[5]); val i5 = -(i3 * o[2] + i4 * o[5])
+            m = doubleArrayOf(
+                m[0] * i0 + m[1] * i3, m[0] * i1 + m[1] * i4, m[0] * i2 + m[1] * i5 + m[2],
+                m[3] * i0 + m[4] * i3, m[3] * i1 + m[4] * i4, m[3] * i2 + m[4] * i5 + m[5],
+            )
+        }
+        return doubleArrayOf(m[0], m[1], 0.0, m[2], m[3], m[4], 0.0, m[5], 0.0, 0.0, 1.0, 0.0)
+    }
+
+    /** Move a picture's three corners (ulx, uly, urx, ury, dlx, dly) to where the drift has them at [seconds]. */
+    fun move(corners: FloatArray, seconds: Double) {
+        val m = at(seconds)
+        for (i in 0 until 3) {
+            val x = corners[2 * i].toDouble()
+            val y = corners[2 * i + 1].toDouble()
+            corners[2 * i] = (m[0] * x + m[1] * y + m[3]).toFloat()
+            corners[2 * i + 1] = (m[4] * x + m[5] * y + m[7]).toFloat()
+        }
+    }
+
+    companion object {
+        fun parse(args: Map<String, String>) = Drift(
+            period = (args["period"] ?: "26").toDouble(),
+            amp = (args["amp"] ?: "0.3").toDouble(),
+            scale = (args["scale"] ?: "0.025").toDouble(),
+            turn = (args["turn"] ?: "0.012").toDouble(),
+            t0 = args["t0"]?.toDouble(),
+            cx = (args["cx"] ?: "0").toDouble(),
+            cy = (args["cy"] ?: "0").toDouble(),
+        )
+
+        /** An image line's `drift=period,amp,scale,turn,t0,cx,cy`. */
+        fun ofList(text: String): Drift {
+            val v = text.split(",").map { it.toDouble() }
+            require(v.size == 7) { "an image's drift needs seven numbers: $text" }
+            return Drift(v[0], v[1], v[2], v[3], v[4], v[5], v[6])
+        }
     }
 }

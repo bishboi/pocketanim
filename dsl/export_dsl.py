@@ -95,6 +95,26 @@ class Recorder:
         self.loops: dict = {}     # a looping clip's canonical content -> its asset, shared by every play of it
         # Off while a chapter window's build runs the chapters before it (record_scene's window).
         self.recording = True
+        # A drifting picture's start on the program's clock, by its drift (id -> (drift, seconds)), and how to read
+        # the clock (record_scene sets it).
+        self.drift_starts: dict[int, tuple] = {}
+        self.program_seconds = lambda: 0.0
+
+    def drift_start(self, drift: dict) -> None:
+        """Note when a picture's drift starts (pocket_lecture: it is still when first drawn): now, the first time."""
+        if "cx" in drift and id(drift) not in self.drift_starts:
+            self.drift_starts[id(drift)] = (drift, self.program_seconds())
+
+    def drift_text(self, drift: dict, sep: str, eq: str) -> str:
+        """A drift's numbers for the program: `period=.. amp=..` (sep " ", eq "=") or a picture's `17,0.14,...`."""
+        values = dict(drift)
+        if "cx" in drift:
+            self.drift_start(drift)
+            values["t0"] = self.drift_starts[id(drift)][1]
+        names = ("period", "amp", "scale", "turn", "t0", "cx", "cy")
+        if eq:
+            return sep.join(f"{k}={float(values[k]):g}" for k in names if k in values)
+        return sep.join(f"{float(values.get(k, 0.0)):g}" for k in names)
 
     def name_for(self, mob) -> str:
         """Unique short name. Wrapping at 26 silently aliased two objects onto
@@ -201,11 +221,11 @@ class Recorder:
             z = z_order(mob)
             if z:
                 self.declarations[-1] += f" z={z:g}"
-            drift = getattr(mob, "_panim_drift", None)
+            drift = drift_of(mob)
             if drift:
-                # A backdrop that drifts (pocket_lecture.drift_at): the players move it by the same formula, from the
-                # program's clock, so its motion is one line here, not a clip of every frame.
-                self.declarations.append(f"drift {name} " + " ".join(f"{k}={float(v):g}" for k, v in drift.items()))
+                # A backdrop or a picture that drifts (pocket_lecture.drift_matrix): the players move it by the same
+                # formula, from the program's clock, so its motion is one line here, not a clip of every frame.
+                self.declarations.append(f"drift {name} " + self.drift_text(drift, " ", "="))
         if name:
             self.absorb(mob, name)
         return name
@@ -385,6 +405,15 @@ class Recorder:
         return None
 
 
+def drift_of(mob) -> dict | None:
+    """The drift a mobject's drawn parts share (pocket_lecture.set_drift), or None."""
+    for sub in mob.get_family():
+        drift = sub.__dict__.get("_panim_drift")
+        if drift:
+            return drift
+    return None
+
+
 def _only_images(mob) -> bool:
     """A mobject whose drawable family is raster images and nothing else."""
     family = [sub for sub in mob.get_family() if getattr(sub, "points", None) is not None and len(sub.points) >= 4]
@@ -423,6 +452,11 @@ def _arc_extra(anim) -> str:
     return f" arc={float(arc):g}"
 
 
+# The rate functions the players have (dsl/interpret.RATE_FUNCS, the phone's Verbs.rate).
+RATES = ("smooth", "linear", "there_and_back", "rush_into", "rush_from", "slow_into", "double_smooth",
+         "ease_out_cubic", "ease_in_cubic", "ease_out_expo", "ease_out_back")
+
+
 def _fade_extra(anim) -> str:
     """Shift and scale that travel with a fade, or an empty string."""
     import numpy as np
@@ -436,6 +470,9 @@ def _fade_extra(anim) -> str:
     scale = getattr(anim, "scale_factor", None)
     if scale is not None and not np.isclose(float(scale), 1.0):
         bits.append(f"from={float(scale):g}")
+    rate = getattr(getattr(anim, "rate_func", None), "__name__", "smooth")
+    if rate != "smooth" and rate in RATES:
+        bits.append(f"rate={rate}")
     return (" " + " ".join(bits)) if bits else ""
 
 
@@ -1181,6 +1218,10 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         z = max((z_order(m) for m in members), default=0.0)
         rec.declarations.append(f"clip {clip} asset={digest} frames={len(frames)}" + (f" z={z:g}" if z else "")
                                 + (f" loop={phase}" if period else ""))
+        # A picture's labels moving (its camera moving in, a name coming on) drift with it as they play.
+        drift = next((d for d in (drift_of(m) for m in members) if d), None)
+        if drift:
+            rec.declarations.append(f"drift {clip} " + rec.drift_text(drift, " ", "="))
 
         # What was on stage and moves is drawn by the clip while it runs.
         lines = []
@@ -1286,10 +1327,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             # with no rate= at all, at tier 1 and with no blocker.
             rate = kwargs.get("rate_func") or getattr(anim, "rate_func", None)
             rate_name = rate.__name__ if rate is not None else "smooth"
-            if rate_name not in (
-                "smooth", "linear", "there_and_back", "rush_into", "rush_from",
-                "slow_into", "double_smooth",
-            ):
+            if rate_name not in RATES:
                 rec.blockers.append(f"non-default rate_func: {rate_name}")
             suffix = "" if rate_name == "smooth" else f" rate={rate_name}"
 
@@ -1617,12 +1655,48 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             else:
                 return
             mob = getattr(anim, "mobject", None)
+            # How the fade carries the picture (a rise, a slide, a pop): its shift, its size at the far end, the
+            # point it is sized about and its easing, so the phone moves the picture as the video does.
+            carry = None
+            shift = getattr(anim, "shift_vector", None)
+            scale = float(getattr(anim, "scale_factor", 1.0) or 1.0)
+            moved = shift is not None and any(abs(float(v)) > 1e-6 for v in list(shift)[:2])
+            if mob is not None and (moved or abs(scale - 1.0) > 1e-6):
+                vector = [float(v) for v in list(shift)[:2]] if moved else [0.0, 0.0]
+                centre = [float(v) for v in mob.get_center()[:2]]
+                carry = (vector, scale, centre, getattr(anim, "rate_func", None))
             for sub in (mob.get_family() if mob is not None else []):
                 if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
-                    out[id(sub)] = (t0, t1, kind)
+                    out[id(sub)] = (t0, t1, kind, carry)
 
         for anim, span in zip(animations, spans):
             walk(anim, 0.0, span / total)
+        return out
+
+    def fade_path(fade, corners) -> list:
+        """[(fraction of the play, alpha, corners)] along a picture's fade: two keys for a plain fade, or samples of a
+        fade that carries it (fade_timings) along its eased path."""
+        t0, t1, kind = fade[0], fade[1], fade[2]
+        carry = fade[3] if len(fade) > 3 else None
+        if carry is None:
+            return [(t0, 0.0 if kind == "in" else 1.0, corners), (t1, 1.0 if kind == "in" else 0.0, corners)]
+        (sx, sy), scale, (cx, cy), rate = carry
+        out = []
+        steps = 6
+        for k in range(steps + 1):
+            f = k / steps
+            try:
+                e = float(rate(f)) if rate is not None else f
+            except Exception:  # noqa: BLE001 -- an easing that fails is a straight line
+                e = f
+            # FadeIn comes from the shifted, sized copy; FadeOut goes to it.
+            away = 1.0 - e if kind == "in" else e
+            size = 1.0 + (scale - 1.0) * away
+            moved = [round(cx + (corners[i] - cx) * size + sx * (-away if kind == "in" else away), 4) if i % 2 == 0
+                     else round(cy + (corners[i] - cy) * size + sy * (-away if kind == "in" else away), 4)
+                     for i in range(6)]
+            alpha = min(max(e if kind == "in" else 1.0 - e, 0.0), 1.0)
+            out.append((t0 + (t1 - t0) * f, round(alpha, 4), moved))
         return out
 
     def image_snapshot(scene, prefix: int, timing: dict | None = None, before: int | None = None) -> None:
@@ -1667,6 +1741,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                         _Image.fromarray(pixels.astype("uint8"), mode).save(folder / name)
                     entry = {"asset": name, "width": int(pixels.shape[1]), "height": int(pixels.shape[0]),
                              "keys": [], "keep": mob}
+                    drift = mob.__dict__.get("_panim_drift")
+                    if drift:
+                        entry["drift"] = rec.drift_text(drift, ",", "")
                     images[id(mob)] = entry
                 ul, ur, dl = (np.asarray(mob.points[i][:2], dtype=float) for i in range(3))
                 entry["z"] = float(getattr(mob, "z_index", 0) or 0)
@@ -1692,9 +1769,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 elif not entry["keys"] or entry["keys"][-1][1] == 0:
                     fade = timing.get(id(mob))
                     if fade and fade[2] == "in":
-                        # Arrived by a FadeIn in the play that just ran: across that fade's own time.
-                        entry["keys"].append((at(fade[0]), 0.0, corners))
-                        entry["keys"].append((at(fade[1]), 1.0, corners))
+                        # Arrived by a FadeIn in the play that just ran: across that fade's own time, along its path.
+                        for fraction, alpha, placed in fade_path(fade, corners):
+                            entry["keys"].append((at(fraction), alpha, placed))
                     else:
                         entry["keys"].append((last_prefix["value"], 0.0, corners))
                 entry["keys"].append((prefix, 1.0, corners))
@@ -1711,8 +1788,8 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                             entry["keys"].append((at(fraction), 1.0, where[key]))
                     corners = sampled(key, end) or corners
                 if fade and fade[2] == "out":
-                    entry["keys"].append((at(fade[0]), 1.0, corners))
-                    entry["keys"].append((at(fade[1]), 0.0, corners))
+                    for fraction, alpha, placed in fade_path(fade, corners):
+                        entry["keys"].append((at(fraction), alpha, placed))
                 else:
                     entry["keys"].append((prefix, 0.0, corners))
         last_prefix["value"] = prefix
@@ -1724,6 +1801,12 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             # A chapter before this build's window: played to its end at once, nothing recorded.
             return originals["play"](self, *animations, **kwargs)
         before = len(rec.timeline)
+        # A picture this play brings on starts drifting as it starts (the video's: when it is first drawn).
+        for anim in animations:
+            for sub in (anim.mobject.get_family() if getattr(anim, "mobject", None) is not None else []):
+                drift = sub.__dict__.get("_panim_drift")
+                if drift:
+                    rec.drift_start(drift)
         image_snapshot(self, before)
         try:
             timing = fade_timings(animations, kwargs)
@@ -2076,6 +2159,12 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             # must not end the export.
             return None
 
+    def program_seconds() -> float:
+        from dsl.interpret import parse, timeline_frames
+
+        return timeline_frames(parse("\n".join(rec.timeline))["timeline"], PROGRAM_FPS) / PROGRAM_FPS
+
+    rec.program_seconds = program_seconds
     Scene.add_sound = patched_add_sound
     Scene.play = patched_play
     Scene.add = patched_add
@@ -2268,7 +2357,7 @@ def _image_track(rec: "Recorder", images: dict) -> list[dict]:
         if not any(k[1] > 0 for k in keys):
             continue
         out.append({"asset": entry["asset"], "width": entry["width"], "height": entry["height"],
-                    "z": entry.get("z", 0.0), "keys": keys})
+                    "z": entry.get("z", 0.0), "keys": keys, **({"drift": entry["drift"]} if entry.get("drift") else {})})
     return out
 
 
@@ -2305,6 +2394,8 @@ def image_lines(track: list[dict]) -> list[str]:
         line = f"image img{index} src={image['asset']} px={image['width']},{image['height']} keys={keys}"
         if image.get("z"):
             line += f" z={image['z']:g}"
+        if image.get("drift"):
+            line += f" drift={image['drift']}"
         lines.append(line)
     return lines
 

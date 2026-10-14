@@ -42,6 +42,16 @@ object Verbs {
     fun slowInto(t: Double) = kotlin.math.sqrt((1 - (1 - t) * (1 - t)).coerceAtLeast(0.0))
     fun doubleSmooth(t: Double) = if (t < 0.5) 0.5 * smooth(2 * t) else 0.5 * (1 + smooth(2 * t - 1))
 
+    // Manim's rate_functions easings, for the lecture engine's modern entrances.
+    fun easeOutCubic(t: Double) = 1 - Math.pow(1 - t, 3.0)
+    fun easeInCubic(t: Double) = t * t * t
+    fun easeOutExpo(t: Double) = if (t >= 1.0) 1.0 else 1 - Math.pow(2.0, -10 * t)
+    fun easeOutBack(t: Double): Double {
+        val c1 = 1.70158
+        val c3 = c1 + 1
+        return 1 + c3 * Math.pow(t - 1, 3.0) + c1 * Math.pow(t - 1, 2.0)
+    }
+
     fun rate(name: String): (Double) -> Double = when (name) {
         "linear" -> ::linear
         "there_and_back" -> ::thereAndBack
@@ -49,6 +59,10 @@ object Verbs {
         "rush_from" -> ::rushFrom
         "slow_into" -> ::slowInto
         "double_smooth" -> ::doubleSmooth
+        "ease_out_cubic" -> ::easeOutCubic
+        "ease_in_cubic" -> ::easeInCubic
+        "ease_out_expo" -> ::easeOutExpo
+        "ease_out_back" -> ::easeOutBack
         else -> { t -> smooth(t) }
     }
 

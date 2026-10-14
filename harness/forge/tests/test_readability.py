@@ -174,8 +174,10 @@ def test_a_diagram_is_built_as_its_parts_are_spoken_of():
     assert any("built as it is spoken of" in w for w in warnings)
 
 
-def test_a_spotlight_quiets_the_rest_and_moves_in_on_a_big_diagram():
+def test_a_spotlight_quiets_the_rest_and_moves_in_on_a_big_diagram(monkeypatch):
     import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_DIAGRAM_STEPS", "0")          # drawn whole: no line here to build it on
 
     class Probe(pl.MapLecture):
         def construct(self):

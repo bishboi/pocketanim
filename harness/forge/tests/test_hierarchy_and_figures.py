@@ -143,8 +143,8 @@ def test_a_book_with_many_figures_keeps_every_web_picture(monkeypatch):
     gallery = {"op": "gallery", "items": [{"subject": "Marie Curie"}, {"subject": "Pierre Curie"}]}
     script = _script(json.loads(json.dumps(gallery)), FIGS)
     warnings = cl.lint(script)[1]
-    op = script["chapters"][0]["beats"][0]["do"][0]                    # one scene with both of them in it
-    assert "Marie Curie" in op["query"] and "Pierre Curie" in op["query"]
+    op = script["chapters"][0]["beats"][0]["do"][0]                    # a gallery of both of them
+    assert op["op"] == "gallery" and [i["subject"] for i in op["items"]] == ["Marie Curie", "Pierre Curie"]
     assert not any("from the web" in w for w in warnings)
 
 
@@ -279,10 +279,12 @@ def test_without_an_image_model_the_book_figure_is_not_shown(figures_js, servers
     assert "generated" not in drawn and drawn["diagramError"]
 
 
-def test_a_hub_puts_the_parent_on_top_and_its_children_below():
+def test_a_hub_puts_the_parent_on_top_and_its_children_below(monkeypatch):
     """A hub ("Feudal Society" includes three things) was drawn with its centre in the middle and the rest around
     it; now the parent is on top and its children in a row below, with the words on the arrows kept."""
     import pocket_lecture as pl
+
+    monkeypatch.setenv("PANIM_DIAGRAM_STEPS", "0")          # drawn whole: no line here to build it on
 
     class Probe(pl.MapLecture):
         def construct(self):

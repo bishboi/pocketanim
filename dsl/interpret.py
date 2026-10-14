@@ -113,8 +113,29 @@ def double_smooth(t: float) -> float:
     return 0.5 * smooth(2 * t) if t < 0.5 else 0.5 * (1 + smooth(2 * t - 1))
 
 
+def ease_out_cubic(t: float) -> float:
+    return 1 - (1 - t) ** 3
+
+
+def ease_in_cubic(t: float) -> float:
+    return t ** 3
+
+
+def ease_out_expo(t: float) -> float:
+    return 1.0 if t >= 1 else 1 - 2 ** (-10 * t)
+
+
+def ease_out_back(t: float) -> float:
+    c1 = 1.70158
+    return 1 + (c1 + 1) * (t - 1) ** 3 + c1 * (t - 1) ** 2
+
+
 RATE_FUNCS = {
     "smooth": smooth,
+    "ease_out_cubic": ease_out_cubic,
+    "ease_in_cubic": ease_in_cubic,
+    "ease_out_expo": ease_out_expo,
+    "ease_out_back": ease_out_back,
     "linear": linear,
     "there_and_back": there_and_back,
     "rush_into": rush_into,
@@ -248,9 +269,11 @@ def parse(text: str) -> dict:
             scene.setdefault("images", []).append({
                 "name": positional[0], "src": args["src"], "width": width, "height": height,
                 "z": float(args.get("z", 0)), "keys": keys,
+                "drift": _drift_list(args["drift"]) if "drift" in args else None,
             })
         elif verb == "drift":
-            # A backdrop that drifts slowly (pocket_lecture.drift_at), moved frame by frame from the clock.
+            # A backdrop or a picture that drifts slowly (pocket_lecture.drift_matrix), moved frame by frame from the
+            # clock.
             scene.setdefault("drifts", {})[positional[0]] = {k: float(v) for k, v in args.items()}
         elif verb == "clip":
             scene["clips"][positional[0]] = args["asset"]
@@ -313,7 +336,8 @@ def parse(text: str) -> dict:
         elif verb in ("fade", "fadeout"):
             shift = [float(x) for x in args.get("shift", "0,0").split(",")]
             scene["timeline"].append(
-                (verb, positional[0], float(args["t"]), shift, float(args.get("from", 1.0)))
+                (verb, positional[0], float(args["t"]), shift, float(args.get("from", 1.0)),
+                 args.get("rate", "smooth"))
             )
         elif verb == "write":
             scene["timeline"].append(("write", positional[0], float(args["t"])))
@@ -1062,6 +1086,7 @@ def build_2d(scene: dict) -> DecodedIR:
                 objects[name] = new_shape(name, alpha=0.0)
             obj = objects[name]
             from_scale = float(rest[1]) if len(rest) > 1 else 1.0
+            fade_rate = RATE_FUNCS[rest[2] if len(rest) > 2 else "smooth"]
             # Manim's _Fade interpolates from a faded copy that FadeIn shifts
             # by -shift and FadeOut by +shift, scaled about its own centre.
             # Point by point that is c + (p - c)*scale + sign*shift*(1 - shown).
@@ -1081,10 +1106,13 @@ def build_2d(scene: dict) -> DecodedIR:
                 asset_centre = (stacked.min(axis=0) + stacked.max(axis=0)) / 2.0
             yield BEGUN
             for frame_index in range(play_frames(duration, fps)):
-                alpha = smooth((frame_index + 1) / max(play_frames(duration, fps), 1))
-                shown = alpha if fading_in else 1.0 - alpha
-                scale = from_scale + (1.0 - from_scale) * shown
-                offset = sign * shift * (1.0 - shown)
+                # An easing that overshoots (ease_out_back) carries the size and the travel past the end and back;
+                # the opacity stops at full.
+                alpha = fade_rate((frame_index + 1) / max(play_frames(duration, fps), 1))
+                travelled = alpha if fading_in else 1.0 - alpha
+                shown = min(max(travelled, 0.0), 1.0)
+                scale = from_scale + (1.0 - from_scale) * travelled
+                offset = sign * shift * (1.0 - travelled)
                 if base is None:
                     obj["alpha"] = shown
                     if rest_points is not None:
@@ -1534,14 +1562,37 @@ def build(scene: dict) -> DecodedIR:
 
 
 def drift_at(t: float, period: float, amp: float, scale: float, turn: float) -> tuple[float, float, float, float]:
-    """(dx, dy, scale, turn) of a drifting backdrop t seconds in: pocket_lecture.drift_at, which the video uses."""
+    """(dx, dy, scale, turn) of a drift t seconds in: pocket_lecture.drift_at, which the video uses."""
     w = 2 * math.pi * t / period
     return (amp * math.sin(w), 0.6 * amp * math.sin(w / 1.3 + 1.1), 1 + scale * math.sin(w / 1.7 + 0.4),
             turn * math.sin(w / 2.1 + 2.0))
 
 
+def _drift_list(text: str) -> dict:
+    """An image line's `drift=period,amp,scale,turn,t0,cx,cy`."""
+    values = [float(v) for v in text.split(",")]
+    return dict(zip(("period", "amp", "scale", "turn", "t0", "cx", "cy"), values))
+
+
+def drift_matrix(spec: dict, t: float) -> np.ndarray:
+    """The 3x4 transform of a drift at t seconds: pocket_lecture.drift_matrix (and the phone's Drift.at). About
+    (cx, cy); with t0, relative to where it stood then."""
+    cx, cy = spec.get("cx", 0.0), spec.get("cy", 0.0)
+
+    def raw(time: float) -> np.ndarray:
+        dx, dy, k, turn = drift_at(time, spec.get("period", 26.0), spec.get("amp", 0.3), spec.get("scale", 0.025),
+                                   spec.get("turn", 0.012))
+        c, s = k * math.cos(turn), k * math.sin(turn)
+        return np.array([[c, -s, cx + dx - (c * cx - s * cy)], [s, c, cy + dy - (s * cx + c * cy)], [0, 0, 1]])
+
+    m = raw(t)
+    if spec.get("t0") is not None:
+        m = m @ np.linalg.inv(raw(spec["t0"]))
+    return np.array([[m[0, 0], m[0, 1], 0, m[0, 2]], [m[1, 0], m[1, 1], 0, m[1, 2]], [0, 0, 1, 0]], dtype=float)
+
+
 def _drift(ir: DecodedIR, drifts: dict) -> None:
-    """Move each drifting backdrop's instances, frame by frame, by drift_at at that frame's time."""
+    """Move each drifting object's instances, frame by frame, by drift_matrix at that frame's time."""
     for index, (kind, frame) in enumerate(ir.records):
         spans = getattr(frame, "drifting", None) or {}
         if not spans:
@@ -1552,11 +1603,7 @@ def _drift(ir: DecodedIR, drifts: dict) -> None:
         frame = moved
         ir.records[index] = (kind, frame)
         for name, (start, end) in spans.items():
-            spec = drifts.get(name) or {}
-            dx, dy, k, turn = drift_at(index / ir.fps, spec.get("period", 26.0), spec.get("amp", 0.3),
-                                       spec.get("scale", 0.025), spec.get("turn", 0.012))
-            c, s = math.cos(turn), math.sin(turn)
-            outer = np.array([[k * c, -k * s, 0, dx], [k * s, k * c, 0, dy], [0, 0, 1, 0]], dtype=float)
+            outer = drift_matrix(drifts.get(name) or {}, index / ir.fps)
             for slot in range(start, end):
                 inst = frame[slot]
                 frame[slot] = replace(inst, transform=compose(outer, np.asarray(inst.transform, dtype=float)))
@@ -1596,6 +1643,18 @@ def image_at(keys: list, frame: float):
     return (alpha, corners) if alpha > 0.004 else None
 
 
+def image_placed(image: dict, index: int, fps: float):
+    """image_at, with a drifting picture (`drift=`) moved to where its drift has it at that frame (the phone's
+    ProgramFrames.images)."""
+    placed = image_at(image["keys"], index)
+    if placed is None or not image.get("drift"):
+        return placed
+    m = drift_matrix(image["drift"], index / fps)
+    corners = placed[1]
+    return placed[0], [v for i in range(3) for v in (m[0, 0] * corners[2 * i] + m[0, 1] * corners[2 * i + 1] + m[0, 3],
+                                                     m[1, 0] * corners[2 * i] + m[1, 1] * corners[2 * i + 1] + m[1, 3])]
+
+
 def images_in_frame(ir, index: int) -> list:
     """[(src, before, alpha, corners)] of the pictures showing in frame `index`, lowest z first: `before` is how many
     of the frame's instances are drawn ahead of it (every object at or below its z), as the phone's
@@ -1608,7 +1667,7 @@ def images_in_frame(ir, index: int) -> list:
     sizes = [len(g) for g in (getattr(snapshot, "groups", None) or ())]
     out = []
     for image in sorted(images, key=lambda i: i["z"]):
-        placed = image_at(image["keys"], index)
+        placed = image_placed(image, index, ir.fps)
         if placed is None:
             continue
         before = 0

@@ -229,9 +229,10 @@ def test_a_lecture_of_generated_pictures_plays_on_the_phone(generated, tmp_path)
                 {"id": "g", "label": "Grass", "entity": "grass"}, {"id": "r", "label": "Deer"}]}]}]}]}
     result = _compile(script, dict(os.environ))
     assert result["errors"] == [], result["errors"]
-    # deer, one scene with the fox and the rabbit in it (labelled), grass: each made once
-    assert len(result["generated"]) == 3
-    assert any("a fox" in m["prompt"] and "a rabbit" in m["prompt"] for m in result["generated"])
+    # deer, the fox and the rabbit of the gallery, grass: each made once
+    assert len(result["generated"]) == 4
+    assert any("a fox" in m["prompt"] for m in result["generated"]) and \
+        any("a rabbit" in m["prompt"] for m in result["generated"])
     # The deer is labelled where the label finder put its parts, and drawn in (not faded) on the stage.
     assert "labels=[('antlers', " in result["source"] and "('hooves', " in result["source"]
     assert any("antlers, hooves" in m["prompt"] for m in result["generated"])
@@ -344,12 +345,11 @@ def test_a_word_defined_beside_a_picture_is_a_strip_over_it_not_a_card_on_it():
     assert len(strips) == 1 and strips[0] is not strip                                # the next word takes its place
 
 
-def test_several_pictures_are_one_labelled_scene():
+def test_several_pictures_are_a_gallery():
     import compile_lecture as cl
 
     op = cl._picture_op({"op": "picture", "items": [{"generate": "a medieval bishop", "caption": "Priest"},
                                                     {"generate": "a hand holding soil", "caption": "Land"}]}, "p")
-    assert op["op"] == "illustration" and op["scene"] and op["labels"] == ["Priest", "Land"]
-    assert "a medieval bishop" in op["query"] and "a hand holding soil" in op["query"]
-    figure = cl._picture_op({"op": "picture", "items": [{"generate": "x"}, {"figure": "fig3", "caption": "Map"}]}, "p")
-    assert figure == {"op": "figure", "id": "fig3", "caption": "Map"}
+    assert op["op"] == "gallery"
+    items = cl._gallery_items(op)
+    assert [i["caption"] for i in items] == ["Priest", "Land"] and items[0]["query"] == "a medieval bishop"

@@ -43,7 +43,7 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
         val frame = builder.frameInstances()
         val drifting = builder.currentDrifting
         if (drifting.isEmpty()) return frame
-        // A drifting backdrop moves every frame, from the clock (Drift.at), not from the timeline.
+        // A drifting backdrop or picture moves every frame, from the clock (Drift.at), not from the timeline.
         val out = frame.copyOf()
         val seconds = index.toDouble() / builder.fps
         for ((name, span) in drifting) {
@@ -83,6 +83,7 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
             val corners = FloatArray(6)
             val alpha = spec.at(frame, corners)
             if (alpha <= 0f) continue
+            spec.drift?.move(corners, index.toDouble() / builder.fps)
             out.add(ImageDraw(spec.src, spec.width, spec.height, alpha, corners, builder.instancesAtOrBelow(spec.z)))
         }
         return out
@@ -99,11 +100,12 @@ class ProgramFrames internal constructor(private val builder: Builder) : Frames 
     override fun contentKey(index: Int): Long {
         position(index)
         var key = builder.version
-        // A drifting backdrop changes the picture every frame.
+        // A drifting backdrop or picture changes the picture every frame.
         if (builder.currentDrifting.isNotEmpty()) key = key * 31 + index
         val frame = index.coerceIn(0, maxOf(frameCount - 1, 0)).toDouble()
         for (spec in byZ) {
             val alpha = spec.at(frame, corners)
+            if (alpha > 0f && spec.drift != null) spec.drift.move(corners, index.toDouble() / builder.fps)
             key = key * 31 + alpha.toRawBits()
             if (alpha > 0f) for (c in corners) key = key * 31 + c.toRawBits()
         }

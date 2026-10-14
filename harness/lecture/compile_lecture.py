@@ -198,7 +198,7 @@ def _normalise_points(value) -> None:
 
 # ---------------- one form for each thing; mechanical fixes, made without the writer ----------------
 # One op for any picture: {"op": "picture", "subject" | "query" | "image" | "illustration" | "figure" | "draw" |
-# "items", caption?}. The older ops (photo, illustration, figure, draw, gallery) are the same thing and still read.
+# "items", caption?}; with items it is a gallery. The older ops (photo, illustration, figure, draw) still read.
 # Diagrams are a flow (a chain, a hierarchy or a flowchart, by its connections), a cycle or a hub; "steps": true
 # numbers a chain. The older kinds still read: flowchart, tree, hierarchy, categories, steps.
 DIAGRAM_ALIASES = {"flowchart": "flow", "tree": "flow", "hierarchy": "flow", "categories": "flow", "steps": "flow"}
@@ -206,10 +206,10 @@ FIXED = "fixed: "            # a warning that says what the compiler mended by i
 
 
 def _picture_op(op: dict, fallback_id: str) -> dict:
-    """The picture op as the op it amounts to (photo, illustration, figure, draw or gallery)."""
+    """The picture op as the op it amounts to (photo, illustration, figure, draw, or with items a gallery)."""
     rest = {k: v for k, v in op.items() if k != "op"}
     if rest.get("items"):
-        return _one_picture(rest)
+        return {**rest, "op": "gallery"}
     if rest.get("draw"):
         what = rest.pop("draw")
         return _drawn_picture({**rest, "op": "draw", "id": rest.get("id") or fallback_id, "what": what})
@@ -225,39 +225,6 @@ def _picture_op(op: dict, fallback_id: str) -> dict:
     if rest.get("subject") or rest.get("query") or rest.get("image"):
         return {**rest, "op": "photo"}
     return op
-
-
-def _one_picture(op: dict) -> dict:
-    """Several pictures for one beat (a gallery: 2-4 side by side) as ONE picture: a scene the image model draws
-    with all of them in it, each labelled where it is in the picture (genimage.locate), the items' captions the
-    labels. A gallery's small pictures, side by side, read as a slide of thumbnails and were drawn over what was on
-    the stage. A book figure among them is shown by itself (the book's own figure is never redrawn into a scene)."""
-    items = [i for i in op.get("items") or [] if isinstance(i, dict)][:6]
-    rest = {k: v for k, v in op.items() if k not in ("op", "items", "title")}
-    figure = next((i for i in items if i.get("figure")), None)
-    if figure is not None:
-        return {**rest, "op": "figure", "id": str(figure["figure"]),
-                "caption": figure.get("caption") or op.get("caption") or ""}
-    things, labels = [], []
-    for item in items:
-        what = str(item.get("generate") or item.get("illustration") or item.get("draw") or item.get("subject")
-                   or item.get("query") or item.get("image") or "").strip()
-        if not what:
-            continue
-        things.append(what)
-        label = str(item.get("caption") or item.get("subject") or "").strip()
-        if label and label.lower() not in (x.lower() for x in labels):
-            labels.append(label[:32])
-    if not things:
-        return {**rest, "op": "illustration", "query": str(op.get("title") or op.get("caption") or "")}
-    query = things[0] if len(things) == 1 else (
-        "one illustrated scene with all of these in it, each clearly visible and apart from the others: "
-        + "; ".join(things))
-    out = {**rest, "op": "illustration", "query": query, "scene": len(things) > 1,
-           "caption": op.get("caption") or op.get("title") or ""}
-    if len(labels) > 1:
-        out["labels"] = labels[:6]
-    return out
 
 
 def _part_words(parts) -> list[str]:
@@ -311,8 +278,6 @@ def canonical_ops(script: dict) -> None:
                     continue
                 if op.get("op") == "picture":
                     ops[k] = op = _picture_op(op, f"picture{c + 1}_{b + 1}_{k + 1}")
-                if op.get("op") == "gallery":
-                    ops[k] = op = _one_picture(op)
                 if op.get("op") == "draw":
                     ops[k] = op = _drawn_picture(op)
                 if op.get("_drawn"):
@@ -436,6 +401,20 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(v, (int, float)) for v in x))]
                     if len(op["stops"]) < 2:
                         missing.append("two stops")
+                for key, allowed in (("enter", MOTION_ENTER), ("text_in", MOTION_TEXT)):
+                    if op.get(key) is not None and op[key] not in allowed:
+                        notes.append(f"{FIXED}{at}: {key} is one of {', '.join(allowed)}; {op[key]!r} left out")
+                        op.pop(key)
+                if op.get("time") is not None:
+                    try:
+                        op["time"] = round(min(max(float(op["time"]), 0.25), 2.5), 2)
+                    except (TypeError, ValueError):
+                        notes.append(f"{FIXED}{at}: time is seconds; {op['time']!r} left out")
+                        op.pop("time")
+                if kind == "gallery" and op.get("layout") is not None and op["layout"] not in GALLERY_LAYOUTS:
+                    notes.append(f"{FIXED}{at}: a gallery's layout is one of {', '.join(GALLERY_LAYOUTS)}; "
+                                 f"{op['layout']!r} left out")
+                    op.pop("layout")
                 if kind in ("illustration", "photo") and op.get("move") is not None \
                         and op.get("move") not in PICTURE_MOVES:
                     notes.append(f"{FIXED}{at}: a picture's move is one of {', '.join(PICTURE_MOVES)}; "
@@ -1405,23 +1384,29 @@ def _maker_problem(op: dict, genre: str | None) -> str | None:
     return None
 
 
+GALLERY_MOST = 6
+GALLERY_LAYOUTS = ("spotlight", "grid")
+
+
 def _gallery_items(op: dict) -> list[dict]:
     """A gallery's items as fetchable operations: {op: photo, subject|image|query} or {op: illustration, query}
     or {op: figure, id}; each keeps its caption."""
     out = []
-    for item in list(op.get("items") or [])[:4]:
+    for item in list(op.get("items") or [])[:GALLERY_MOST]:
         if not isinstance(item, dict):
             continue
         caption = item.get("caption") or item.get("subject") or ""
+        say = str(item.get("say") or "")
         if item.get("draw") and not item.get("generate"):
             item = {**item, "generate": item["draw"]}           # a drawing in a gallery: made as a picture
         if item.get("figure"):
-            out.append({"op": "figure", "id": str(item["figure"]), "caption": caption})
+            out.append({"op": "figure", "id": str(item["figure"]), "caption": caption, "say": say})
         elif item.get("generate") or item.get("illustration"):
-            out.append({"op": "illustration", "query": item.get("generate") or item["illustration"], "caption": caption})
+            out.append({"op": "illustration", "query": item.get("generate") or item["illustration"], "caption": caption,
+                        "say": say})
         elif item.get("subject") or item.get("image") or item.get("query"):
             out.append({"op": "photo", **{k: item[k] for k in ("subject", "image", "query") if item.get(k)},
-                        "caption": caption})
+                        "caption": caption, "say": say})
     return out
 
 
@@ -1677,7 +1662,8 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "color", "fill", "figure", "image", "name", "place", "about", "where", "tone", "side", "dashed", "style",
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
-             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape"}
+             "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape",
+             "enter", "text_in", "layout"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -2788,6 +2774,25 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | None:
     return None
 
 
+MOTION_KEYS = ("enter", "text_in", "time")
+# The entrances the engine has (motion.py ENTER and TEXT; a test keeps them the same).
+MOTION_ENTER = ("fade", "rise", "drop", "from-left", "from-right", "pop", "zoom", "cascade")
+MOTION_TEXT = ("type", "words", "write", "fade", "rise")
+
+
+def _styled(op: dict, call: str | None) -> str | None:
+    """An op's call with the entrance its script chose (motion.py: `enter`, `text_in` for its words, `time`), if it
+    chose one."""
+    if not call:
+        return call
+    chosen = {k: op[k] for k in MOTION_KEYS if op.get(k) is not None}
+    if not chosen:
+        return call
+    bits = "".join(f", time={float(v):g}" if k == "time" else f", {'text' if k == 'text_in' else k}={_q(str(v))}"
+                   for k, v in chosen.items())
+    return f"self.styled(lambda: {call}{bits})"
+
+
 def _op_call(op: dict) -> str:
     kind = op["op"]
     if kind == "panel":
@@ -2897,18 +2902,19 @@ def _op_call(op: dict) -> str:
             if item["op"] == "figure":
                 figure = script_figures.get(item["id"])
                 if figure:
-                    shown.append((figure["file"], item.get("caption") or figure.get("caption", "")))
+                    shown.append((figure["file"], item.get("caption") or figure.get("caption", ""), item.get("say", "")))
                 continue
             row = script_photos.get(_photo_key(item))
             if row:
-                shown.append((row["file"], item.get("caption") or ""))
+                shown.append((row["file"], item.get("caption") or "", item.get("say", "")))
         if not shown:
             return None
         if len(shown) == 1:
             return f"self.stage_image({_q(shown[0][0])}, {_q(shown[0][1])})"
-        items = ", ".join(f"({_q(f)}, {_q(c)})" for f, c in shown)
+        items = ", ".join(f"({_q(f)}, {_q(c)}, {_q(w)})" for f, c, w in shown)
         title = f", title={_q(op['title'])}" if op.get("title") else ""
-        return f"self.gallery([{items}]{title})"
+        layout = f", layout={_q(op['layout'])}" if op.get("layout") in GALLERY_LAYOUTS else ""
+        return f"self.gallery([{items}]{title}{layout})"
     if kind == "diagram":
         _edges_as_lists(op)
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),
@@ -3325,7 +3331,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     parts_named[str(op.get("id"))] = _diagram_labels(op)
                 if op.get("op") == "question":
                     asked = [str(c) for c in op.get("choices") or []]
-                call = _op_call(op)
+                call = _styled(op, _op_call(op))
                 if call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
                     said = _op_said(op, parts_named, asked)

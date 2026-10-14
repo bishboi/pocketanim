@@ -277,11 +277,11 @@ def _pictures_at(ir, index: int) -> list:
     folder = getattr(ir, "image_dir", None)
     if not images or folder is None:
         return []
-    from dsl.interpret import image_at
+    from dsl.interpret import image_placed
 
     out = []
     for image in images:
-        placed = image_at(image["keys"], index)
+        placed = image_placed(image, index, ir.fps)
         path = os.path.join(str(folder), image["src"])
         if placed is not None and os.path.exists(path):
             out.append((image["z"], path, *placed))

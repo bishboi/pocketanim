@@ -372,9 +372,17 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
         def renamed(line: str) -> str:
             return " ".join(names.get(token, token) for token in line.split(" "))
 
-        declarations += [renamed(line) for line in result["declarations"]]
-        timeline += [renamed(line) for line in result["timeline"]]
         offset = frames / PROGRAM_FPS
+
+        def started(line: str) -> str:
+            # A picture's drift starts on its window's clock: on the joined program's, that much later.
+            if not line.startswith("drift ") or " t0=" not in line:
+                return line
+            return " ".join(f"t0={float(bit[3:]) + offset:g}" if bit.startswith("t0=") else bit
+                            for bit in line.split(" "))
+
+        declarations += [started(renamed(line)) for line in result["declarations"]]
+        timeline += [renamed(line) for line in result["timeline"]]
         sounds += [(at + offset, path, gain) for at, path, gain in result.get("sounds") or []]
         length = timeline_frames(parse("\n".join(result["timeline"]))["timeline"], PROGRAM_FPS)
         chapters += [(num, title, frame + frames) for num, title, frame in result.get("chapters") or []]
@@ -382,6 +390,10 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
         for image in result.get("images_track") or []:
             image = dict(image)
             image["keys"] = [[key[0] + frames, *key[1:]] for key in image["keys"]]
+            if image.get("drift"):
+                values = image["drift"].split(",")
+                values[4] = f"{float(values[4]) + offset:g}"
+                image["drift"] = ",".join(values)
             if not last and image["keys"] and image["keys"][-1][1] > 0:
                 # Still showing when this window ends: the next window keys it again from its own start (its
                 # build plays the chapters before it through), so this one's ends here -- a picture's last key is

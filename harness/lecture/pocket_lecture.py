@@ -69,6 +69,8 @@ HERE = Path(__file__).resolve().parent
 # Without LaTeX, MathTex, Tex and axis numbers in a scene are drawn from Pango text instead of failing with
 # "No such file or directory: 'latex'" (nolatex.py).
 import nolatex  # noqa: E402
+import motion  # noqa: E402
+from manim.utils.rate_functions import ease_out_cubic, ease_out_expo  # noqa: E402
 
 nolatex.install()
 
@@ -329,6 +331,11 @@ def use_style(name: str) -> dict:
             setattr(P, f"role_{key}", now)
             CONTRAST_FIXED.append(f"{key} {was}->{now}")
     config.background_color = TH["bg"]
+    # How words come on in this style (motion.py): a pen's stroke on a board, a typewriter on a blueprint, else a
+    # word at a time; a cardboard style drops its pictures in, the others rise.
+    motion.DEFAULTS.update(text={"write": "write", "type": "type"}.get(TH["anim"], "words"),
+                           title="type" if TH["anim"] == "type" else "words",
+                           picture="drop" if TH["anim"] == "drop" else "rise")
     # The art style draws the pictures; left to "auto" it is the one this template draws with (artstyle.py).
     import artstyle
 
@@ -512,6 +519,8 @@ def lift_labels(mob) -> None:
     for part in mob.get_family():
         if getattr(part, "_panim_above", False):
             part.set_z_index(Z_LABEL)
+        elif getattr(part, "_panim_z", None) is not None:
+            part.set_z_index(part._panim_z)     # a part with a depth of its own (a photo frame's overlay)
 
 
 _DARK_PAINT = re.compile(r'((?:fill|stroke)\s*[=:]\s*"?)(#[0-9a-fA-F]{3,6}|black)\b')
@@ -2262,16 +2271,58 @@ def unicode_math(tex: str) -> str:
 
 
 # The backdrop drifts: a slow sway (a little across and up, a breath larger and smaller, a hair of a turn), each
-# part of it on its own long period, so it never visibly repeats. The phone's players move it by the same formula
-# from the program's `drift` line (export_dsl), so its motion costs the program nothing.
+# part of it on its own long period, so it never visibly repeats. A picture on the stage drifts too, slower and
+# smaller (a camera easing over a photograph), about its own centre from where it stood when it came on, and its
+# labels, boxes and camera views with it. The drift is applied where things are drawn (Lecture._drift_view), never
+# to their points, so whatever else moves them (a fade, a label's line, the camera moving in) works as if nothing
+# drifted. The phone's players move them by the same formula from the program's `drift` lines (export_dsl), so
+# the motion costs the program nothing.
 DRIFT = {"period": 26.0, "amp": 0.3, "scale": 0.025, "turn": 0.012}
+PICTURE_DRIFT = {"period": 17.0, "amp": 0.14, "scale": 0.035, "turn": 0.0}
+DRIFT_NUMBERS = ("period", "amp", "scale", "turn", "t0", "cx", "cy")
 
 
 def drift_at(t: float, period: float, amp: float, scale: float, turn: float) -> tuple[float, float, float, float]:
-    """(dx, dy, scale, turn) of a drifting backdrop t seconds in."""
+    """(dx, dy, scale, turn) of a drift t seconds in."""
     w = 2 * math.pi * t / period
     return (amp * math.sin(w), 0.6 * amp * math.sin(w / 1.3 + 1.1), 1 + scale * math.sin(w / 1.7 + 0.4),
             turn * math.sin(w / 2.1 + 2.0))
+
+
+def drift_matrix(spec: dict, t: float) -> np.ndarray:
+    """A drift's 2x3 transform at t seconds: about (cx, cy) (the origin for a backdrop), and with t0 relative to
+    where it stood then (a picture starts still). dsl/interpret.drift_matrix and the phone's Drift.at are the same."""
+    cx, cy = float(spec.get("cx", 0.0)), float(spec.get("cy", 0.0))
+
+    def raw(time: float) -> np.ndarray:
+        dx, dy, k, turn = drift_at(time, *(float(spec.get(n, DRIFT[n])) for n in ("period", "amp", "scale", "turn")))
+        c, s = k * math.cos(turn), k * math.sin(turn)
+        return np.array([[c, -s, cx + dx - (c * cx - s * cy)], [s, c, cy + dy - (s * cx + c * cy)], [0, 0, 1.0]])
+
+    m = raw(t)
+    if spec.get("t0") is not None:
+        m = m @ np.linalg.inv(raw(float(spec["t0"])))
+    return m[:2]
+
+
+def drifts_on() -> bool:
+    return os.environ.get("PANIM_BACKDROP_DRIFT", "1") != "0"
+
+
+def set_drift(mobs, spec: dict | None) -> None:
+    """Give every part of these the drift `spec` (shared: they move as one), or none."""
+    for mob in mobs:
+        if mob is None:
+            continue
+        for part in mob.get_family():
+            if spec is None:
+                part.__dict__.pop("_panim_drift", None)
+            else:
+                part._panim_drift = spec
+
+
+def _still(_mob, dt: float) -> None:
+    """An updater that does nothing: something drifting is drawn afresh every frame (Manim caches what has none)."""
 
 
 def backdrop() -> tuple[VGroup, VGroup]:
@@ -2340,29 +2391,11 @@ def backdrop() -> tuple[VGroup, VGroup]:
         group.set_z_index(Z_BACK)
         group.is_backdrop = True        # layout checks skip it: everything sits on it by design
         group._panim_static = True      # no animation changes it: a bake need not look at it
-    if os.environ.get("PANIM_BACKDROP_DRIFT", "1") != "0" and len(parts):
-        for m in parts.get_family():
-            m._panim_drift = dict(DRIFT)
-        _drift(parts)
+    if drifts_on() and len(parts):
+        set_drift([parts], dict(DRIFT))
+        parts.add_updater(_still)
+        parts._panim_drift_updater = _still
     return parts, still
-
-
-def _drift(parts) -> None:
-    """Set the backdrop drifting (drift_at), from its place when it was made."""
-    home = [(m, m.points.copy()) for m in parts.get_family() if len(m.points)]
-    clock = {"t": 0.0}
-
-    def step(_mob, dt: float) -> None:
-        clock["t"] += dt
-        dx, dy, k, turn = drift_at(clock["t"], **DRIFT)
-        c, s_ = math.cos(turn), math.sin(turn)
-        linear = np.array([[k * c, -k * s_, 0], [k * s_, k * c, 0], [0, 0, 1]])
-        shift = np.array([dx, dy, 0])
-        for m, points in home:
-            m.points = points @ linear.T + shift
-
-    parts.add_updater(step)
-    parts._panim_drift_updater = step
 
 
 def _what(mob) -> str:
@@ -2397,9 +2430,9 @@ def hud_frame(width: float, height: float, color: str | None = None, stroke: flo
 
 
 def _modern_motion(animations, kwargs) -> None:
-    """The house motion: things arrive fast and settle (rush_from, an ease-out) and leave by gathering speed
-    (rush_into), instead of Manim's even ease both ways. Only where an animation keeps Manim's default and the play
-    sets none; both are rates the phone's players have."""
+    """The house motion: things arrive fast and settle (an ease-out: ease_out_cubic, rush_from) and leave by
+    gathering speed (rush_into), instead of Manim's even ease both ways. Only where an animation keeps Manim's
+    default and the play sets none; all are rates the phone's players have."""
     if kwargs.get("rate_func") is not None:
         return
     from manim import Create, DrawBorderThenFill, GrowFromEdge, SpinInFromNothing
@@ -2415,7 +2448,9 @@ def _modern_motion(animations, kwargs) -> None:
             continue
         if isinstance(anim, FadeOut):
             anim.rate_func = rush_into
-        elif isinstance(anim, (FadeIn, Create, GrowFromCenter, GrowFromEdge, DrawBorderThenFill, SpinInFromNothing)):
+        elif isinstance(anim, FadeIn):
+            anim.rate_func = ease_out_cubic
+        elif isinstance(anim, (Create, GrowFromCenter, GrowFromEdge, DrawBorderThenFill, SpinInFromNothing)):
             anim.rate_func = rush_from
 
 
@@ -2468,10 +2503,46 @@ class Lecture(Scene):
         self._next_keys: set = set()    # diagrams built for the picture about to go up
         self.panel_y = 2.35
         self.chrome = VGroup()
+        self._drift_view()
         for back in backdrop():
             if len(back):
                 self.add(back)
         self.section(self.SECTION)
+
+    def _drift_view(self) -> None:
+        """Draw what drifts (a backdrop, a picture and its labels) where its drift has it now (drift_matrix, from the
+        render clock), its points put back after each frame: nothing that reads or animates them sees the drift."""
+        camera = getattr(getattr(self, "renderer", None), "camera", None)
+        if camera is None or getattr(camera, "_panim_drifting", False):
+            return
+        draw = camera.capture_mobjects
+
+        def capture(mobjects, **kwargs):
+            now = float(getattr(self.renderer, "time", 0.0) or 0.0)
+            moved, made, seen = [], {}, set()
+            try:
+                for top in mobjects:
+                    for part in top.get_family():
+                        spec = part.__dict__.get("_panim_drift")
+                        if not spec or not len(part.points) or id(part) in seen:
+                            continue
+                        seen.add(id(part))
+                        if "t0" not in spec and "cx" in spec:
+                            spec["t0"] = now          # a picture starts still, from the frame it is first drawn on
+                        key = id(spec)
+                        if key not in made:
+                            made[key] = drift_matrix(spec, now)
+                        m = made[key]
+                        moved.append((part, part.points))
+                        part.points = part.points @ np.array([[m[0, 0], m[1, 0], 0], [m[0, 1], m[1, 1], 0],
+                                                              [0, 0, 1]]) + np.array([m[0, 2], m[1, 2], 0])
+                return draw(mobjects, **kwargs)
+            finally:
+                for part, points in reversed(moved):
+                    part.points = points
+
+        camera.capture_mobjects = capture
+        camera._panim_drifting = True
 
     # ---------------- beat log ----------------
     def safe(self, build, what: str = "", said: str | None = None):
@@ -2538,7 +2609,10 @@ class Lecture(Scene):
             if part["shown"] is not None and not part["shown"]():
                 continue
             fresh = part["beat"] == now
-            if not fresh and id(mob) not in on_screen:
+            # On the screen whole or by its parts (an entrance of a card's parts one after another puts the parts
+            # up, not the card's own group).
+            if not fresh and id(mob) not in on_screen and \
+                    not any(id(x) in on_screen for x in mob.family_members_with_points()):
                 continue
             at = said_at(words, part["say"])
             # A thing put up by this line is pointed at only once it has had time to arrive.
@@ -2554,7 +2628,7 @@ class Lecture(Scene):
             if anim is not None:
                 last = at
                 anim.panim_camera = True
-                made.append((anim, [max(0.0, at - SYNC_LEAD), self.LOOK_RUN]))
+                made.append((anim, [max(0.0, at - SYNC_LEAD), getattr(anim, "panim_run", None) or self.LOOK_RUN]))
             else:
                 made.append((ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7]))
         return made
@@ -2687,7 +2761,7 @@ class Lecture(Scene):
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
             anims += self._cover_changes(anims)
         if anims:
-            spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
+            spent = rt if rt is not None else self._quick(anims, seconds)
         plan = self._cue_plan(given, anims[len(given):], seconds, spent) if any(c for _, c in given) else None
         if plan:
             spent = max(start + run for start, run, _ in plan)
@@ -2722,6 +2796,15 @@ class Lecture(Scene):
         self._voice_done(pad)
         self._sync_beat = self.__dict__.get("_sync_beat", 0) + 1
         return seconds
+
+    @staticmethod
+    def _quick(anims, seconds: float) -> float:
+        """How long a line's animations take: an entrance its own quick time (motion.py, panim_run), anything else
+        (a diagram drawing itself, a map moving) a third of the line, 1 to 2.2 seconds."""
+        runs = [getattr(a, "panim_run", None) for a in anims]
+        if runs and all(r is not None for r in runs):
+            return max(float(r) for r in runs)
+        return min(max(1.0, seconds * 0.35), 2.2)
 
     # ---------------- one voice at a time ----------------
     # A line's own count of the time it took (its cue plan) can run ahead of the render's clock: a play that turned
@@ -2806,7 +2889,7 @@ class Lecture(Scene):
         if words:
             return [*[(a, [0.0, 0.8]) for a in away], *given, *[(a, None) for a in queue]]
         out = [*[(a, c) for a, c in given], *[(a, None) for a in away]]
-        queue = [self._label_reveal(*holder.panim_look) for holder in queue]
+        queue = [a for a in (self._from_queue(holder, False) for holder in queue) if a is not None]
         if queue:
             start = min(1.4, max(0.4, seconds * 0.35))
             step = max(0.3, min(0.8, (seconds - start) / max(len(queue), 1)))
@@ -2834,7 +2917,7 @@ class Lecture(Scene):
                 timed += 1
             out.append((anim, cue))
         # A label whose part this line does not say comes on after the picture is in, one after another.
-        late = [i for i, (a, c) in enumerate(out) if getattr(a, "panim_look", None) and not c]
+        late = [i for i, (a, c) in enumerate(out) if isinstance(a, SimpleNamespace) and not c]
         begin = min(1.4, max(0.4, seconds * 0.35))
         for k, i in enumerate(late):
             out[i] = (out[i][0], [round(min(begin + 0.5 * k, max(0.0, seconds - 0.4)), 3), 0.6])
@@ -2864,10 +2947,15 @@ class Lecture(Scene):
                         for i, (a, c) in enumerate(given) if isinstance(a, SimpleNamespace))
         if not queued:
             return given
-        heard = [(at, i) for at, i in queued if given[i][0].panim_heard]
+        heard = [(at, i) for at, i in queued if given[i][0].panim_heard and getattr(given[i][0], "panim_look", None)]
         out = list(given)
         for at, i in queued:
             holder, cue = given[i]
+            if getattr(holder, "panim_build", None) is not None:
+                # Anything else queued on its words (a gallery's next picture, a diagram's next step): built now,
+                # in the order they come, each from where the one before left it.
+                out[i] = (self._from_queue(holder, holder.panim_heard), cue)
+                continue
             view, name = holder.panim_look
             look = None
             if holder.panim_heard and not view.get("still") and self._view_on(view):
@@ -2880,6 +2968,20 @@ class Lecture(Scene):
             else:
                 out[i] = (self._label_reveal(view, name), cue)
         return out
+
+    def queue_on_words(self, say: str, build) -> None:
+        """Queue `build(heard)` to make what comes on when `say` is said in the line about to play (beat): heard is
+        False where the line does not say it and it simply comes on in turn."""
+        self.__dict__.setdefault("_word_queue", []).append(
+            SimpleNamespace(panim_said=str(say or ""), panim_build=build, panim_heard=False))
+
+    def _from_queue(self, holder, heard: bool):
+        """The animation a queued holder makes (a label's, or a build's), or a hold when it has none."""
+        if getattr(holder, "panim_build", None) is not None:
+            anim = holder.panim_build(heard)
+        else:
+            anim = self._label_reveal(*holder.panim_look)
+        return anim if anim is not None else Wait(0.05)
 
     # ---------------- animations timed to the words (cues) ----------------
     CUE_MIN, CUE_MAX = 0.3, 4.0          # seconds an animation may take when timed to the words
@@ -3211,14 +3313,26 @@ class Lecture(Scene):
         return anim
 
     def _entrance(self, group, text_part):
-        mode = TH["anim"]
-        if mode in ("write", "type") and text_part is not None:
-            rest = [m for m in group if m is not text_part]
-            return AnimationGroup(Write(text_part), *[FadeIn(m) for m in rest])
-        if mode == "drop":
+        """A panel point coming on (motion.appear): its words as the lecture's text motion has them."""
+        if TH["anim"] == "drop":
             group.rotate(float(np.random.default_rng(len(self.panel_items)).uniform(-0.025, 0.025)))
-            return FadeIn(group, shift=DOWN * 0.25, scale=1.08)
-        return FadeIn(group, shift=UP * 0.12)
+        return motion.appear(group, "point")
+
+    def styled(self, build, enter: str | None = None, text: str | None = None, time: float | None = None):
+        """An op built with the entrance the script chose for it (motion.py): `enter` for the picture or card, `text`
+        for its words, `time` the seconds it takes."""
+        motion.CHOSEN.clear()
+        motion.CHOSEN.update({k: v for k, v in (("enter", enter), ("text", text), ("time", time)) if v is not None})
+        try:
+            anim = build()
+        finally:
+            motion.CHOSEN.clear()
+        if anim is not None and time is not None:
+            try:
+                anim.panim_run = float(time)
+            except (AttributeError, TypeError, ValueError):
+                pass
+        return anim
 
     def panel_title(self, title: str, sub: str | None = None):
         """Clear the panel and head it. Returns the animation. On a board: the strip's title. On a wide map (no
@@ -3259,7 +3373,7 @@ class Lecture(Scene):
         self.panel_y = y - 0.05
         items.set_z_index(Z_PANEL_TEXT)
         self.panel_items = Group(items)
-        show = Write(items) if TH["anim"] == "write" else FadeIn(items, shift=RIGHT * 0.2)
+        show = motion.appear(items, "title")
         going = [FadeOut(old)] if len(old) else []
         if len(self.panel_images):
             going.append(FadeOut(self.panel_images))
@@ -3469,6 +3583,7 @@ class Lecture(Scene):
             if key in self.diagrams:
                 self.diagrams[key]["gone"] = True
         self._stage_keys = set()
+        self._gallery = None
         self.stage_items = Group()
         self.stage_extra = []
         self._question = None
@@ -3494,6 +3609,8 @@ class Lecture(Scene):
             return self._beside(group)
         going = self._stage_leaving()
         new = Group(self._stage_card(), group)
+        # A picture that drifts takes its card with it.
+        set_drift([new[0]], group.__dict__.get("_panim_drift"))
         new.set_z_index(Z_MARK + 10)
         new._panim_staged = True
         lift_labels(new)
@@ -3514,10 +3631,15 @@ class Lecture(Scene):
         elif draw:
             show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[write_in(m) for m in draw], lag_ratio=0.3))
         else:
-            show = FadeIn(new, scale=1.02)
+            show = motion.enter(new, kind="card" if not has_image(group) else "picture")
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
-        return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
+        if not going:
+            return show
+        both = AnimationGroup(AnimationGroup(*going, run_time=0.4), show, lag_ratio=1.0)
+        if getattr(show, "panim_run", None) is not None:
+            both.panim_run = 0.4 + show.panim_run
+        return both
 
     def _solving(self) -> bool:
         """A problem is on the board and its answer not boxed yet."""
@@ -3780,6 +3902,10 @@ class Lecture(Scene):
             # A photo, a scene, a book's figure: a modern frame (photo_frame); a cutout stays a sticker.
             depth, over = photo_frame(self, image)
             group = Group(depth, *parts, over)
+        if not move and drifts_on():
+            # It keeps moving, slowly, while it is on (PICTURE_DRIFT); its labels move with it (_picture_view).
+            centre = image.get_center()
+            set_drift([group], dict(PICTURE_DRIFT, cx=float(centre[0]), cy=float(centre[1])))
         if cutout:
             shown = self._to_stage(group, draw=[*([depth] if depth is not None else []), *cutout_strokes(image),
                                                 *parts[1:], *([over] if over is not None else [])])
@@ -3846,9 +3972,12 @@ class Lecture(Scene):
         """Lay out a picture's labels (not yet shown), queue each to come on as its part is said (beat), and let a
         later line that names a part move the camera back in on it (name_part)."""
         view = {"image": image, "parts": {}, "revealed": set(), "visible": set(), "zoom": None, "lens": None,
-                "link": None, "still": still, "beat": self.__dict__.get("_sync_beat", 0)}
+                "link": None, "still": still, "beat": self.__dict__.get("_sync_beat", 0),
+                "drift": image.__dict__.get("_panim_drift")}
         for piece in self._label_layout(image, labels, width):
             view["parts"][piece["name"]] = piece
+            # Each label drifts with its picture: its name, box and line stay on the part.
+            set_drift([piece["tag"], *self._pointer_pieces(piece)], view["drift"])
         views = self.__dict__.setdefault("_views", [])
         views.append(view)
         queue = self.__dict__.setdefault("_word_queue", [])
@@ -4049,6 +4178,7 @@ class Lecture(Scene):
                                                                  whole[3] - 0.1), 0])
         link = Line(tag.get_right() if side < 0 else tag.get_left(), near, color=P.GOLD, stroke_width=3)
         link.set_z_index(Z_LABEL - 0.1)
+        set_drift([lens, link], view.get("drift"))
         view.update(zoom=name, lens=lens, link=link, region=start)
         for m in (lens, link):
             self.stage_extra.append(m)
@@ -4387,74 +4517,222 @@ class Lecture(Scene):
         return self._to_stage(Group(parts), still=True)
 
     # ---------------- several pictures at once, and diagrams built on the stage ----------------
-    def gallery(self, items, title: str | None = None):
-        """Two to four pictures on the stage together (people, a community, places), each with its caption.
+    # ---------------- a gallery: several pictures, each brought forward as it is said ----------------
+    # Spotlight (the default): one picture large, every picture as a thumbnail in a strip beneath it, a ring on the
+    # one in the spotlight. As the narration names the next picture it slides into the spotlight (the one before
+    # slides out the other way), its caption is written under it and the ring glides along the strip; a later line
+    # that names one brings it back. Grid: the pictures side by side, each popping in as it is named, the ring on the
+    # one being talked about.
+    GALLERY_MOST = 6
 
-        items: [(path, caption)]. They arrive one after another."""
-        cx, cy, w, h = self.STAGE
-        items = [(str(p), str(c or "")) for p, c in list(items)[:4]]
+    def gallery(self, items, title: str | None = None, layout: str | None = None):
+        """items: [(path, caption)] or [(path, caption, say)], `say` the words that bring each forward (its caption
+        by default). layout: "spotlight" or "grid" (two to four pictures)."""
+        items = [(str(i[0]), str(i[1] or "") if len(i) > 1 else "", str(i[2] or "") if len(i) > 2 else "")
+                 for i in list(items)[:self.GALLERY_MOST] if i and i[0]]
         if not items:
             return None
-        n = len(items)
-        head = 0.6 if title else 0.0
-        rows, cols = self._gallery_grid([self._aspect(p) for p, _ in items], w, h - head)
-        cell_w = (w - 0.3 * (cols - 1)) / cols
-        cell_h = (h - head - 0.35 * (rows - 1)) / rows - 0.45       # room for the caption
-        cells = []
-        drawn: dict[int, object] = {}       # cell -> its cutout, drawn in shape by shape
-        for path, caption in items:
-            if is_cutout(path):
-                image = cutout_mob(path, cell_w, cell_h)          # the image model's picture: no frame
-                drawn[len(cells)] = image
-                parts = [image]
-            else:
-                image = ImageMobject(trimmed(path))
-                image.scale_to_fit_width(cell_w)
-                if image.height > cell_h:
-                    image.scale_to_fit_height(cell_h)
-                parts = [image]
-            if caption:
-                parts.append(fit(T(wrap(caption, 26), 14, P.CREAM, line_spacing=0.85), cell_w).next_to(image, DOWN, buff=0.1))
-            cells.append(Group(*parts))
-        grid = Group(*cells).arrange_in_grid(rows=rows, cols=cols, buff=(0.3, 0.35))
-        if n == 3 and rows == 2:
-            cells[2].set_x(grid.get_center()[0])       # the third one centred under the two
-        body = Group(grid)
+        if len(items) == 1:
+            return self.stage_image(items[0][0], items[0][1])
+        if self.board_mode and self._solving() and not self._beat_new:
+            self._log("skipped", what="gallery during a problem")
+            return None
+        layout = layout if layout in ("spotlight", "grid") else ("grid" if len(items) <= 2 else "spotlight")
+        if layout == "grid" and len(items) > 4:
+            layout = "spotlight"
+        g = {"items": items, "layout": layout, "at": 0, "shown": {0}, "beat": self.__dict__.get("_sync_beat", 0)}
+        cx, cy, w, h = self.STAGE
+        head = None
+        top = cy + h / 2
         if title:
-            body = Group(fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD),
-                             w - 0.4), grid).arrange(DOWN, buff=0.3)
-        if body.height > h - 0.1:
-            body.scale_to_fit_height(h - 0.1)
-        body.move_to([cx, cy, 0])
-        # Each photo in its frame (photo_frame), set where it ends up.
-        overs = []
-        for k, c in enumerate(cells):
-            if k not in drawn:
-                depth, over = photo_frame(self, c[0], radius=0.12)
-                c.add_to_back(depth)
-                c.add(over)
-                overs.append(over)
+            head = fit(T(title.upper() if TH["upper"] else title, 24, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4)
+            head.move_to([cx, top - head.height / 2 - 0.05, 0])
+            top = head.get_bottom()[1] - 0.25
+        bottom = cy - h / 2
+        if layout == "spotlight":
+            self._gallery_spotlight(g, top, bottom)
+        else:
+            self._gallery_grid_layout(g, top, bottom)
         going = self._stage_leaving()
         card = self._stage_card()
         card.set_z_index(Z_MARK + 10)
         self.stage_items = Group(card)
-        # Each picture (and the title) is its own stage part: what fades in one by one fades out the same way.
+        self.stage_body = card
+        self._beat_new.append(card)
+        self._gallery = g
+        veils = g.get("veils") or []
+        parts = [m for m in (head, *g["thumbs"], *veils[1:], g.get("ring")) if m is not None]
+        for m in parts:
+            self._stage_add(m)
+        first = self._gallery_piece(g, 0)
+        self._stage_add(first)
         arrivals = [FadeIn(card)]
-        if title:
-            arrivals.append(FadeIn(self._stage_add(body[0])))
-        for k, c in enumerate(cells):
-            self._stage_add(c)
-            if k in drawn:
-                # The image model's picture is drawn in, its big shapes first; then its caption is written.
-                pieces = [write_in(piece) for piece in cutout_strokes(drawn[k])]
-                pieces += [Write(m) for m in c[1:]]
-                arrivals.append(LaggedStart(*pieces, lag_ratio=0.5))
-            else:
-                arrivals.append(FadeIn(c, shift=UP * 0.15))
-        for over in overs:
-            over.set_z_index(Z_MARK + 11.5)
-        show = LaggedStart(*arrivals, lag_ratio=0.35)
-        return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
+        if head is not None:
+            arrivals.append(motion.appear(head, "title"))
+        if g["thumbs"]:
+            arrivals.append(LaggedStart(*[motion.enter(t, "pop", 0.4) for t in g["thumbs"]], lag_ratio=0.15))
+            arrivals.append(AnimationGroup(*[FadeIn(v) for v in veils[1:]]))
+        arrivals.append(motion.enter(first, motion.chosen_enter("picture") if layout == "spotlight" else "pop"))
+        if g.get("ring") is not None:
+            arrivals.append(motion.enter(g["ring"], "zoom", 0.4))
+        show = LaggedStart(*arrivals, lag_ratio=0.3)
+        show.run_time = 1.6
+        show.panim_run = 1.6
+        show.panim_sfx = "whoosh"
+        # Each other picture comes forward as it is said: in this line by the queue (each step built in the order
+        # they play, from where the one before left the gallery), in a later line by its name (name_part). One never
+        # said waits in the strip (in a grid, off until it is said).
+        for k in range(1, len(items)):
+            self.queue_on_words(self._gallery_say(g, k), lambda heard, k=k: self._gallery_step(g, k) if heard else None)
+        for k in range(len(items)):
+            self.name_part(self._gallery_say(g, k), g["thumbs"][k] if g["thumbs"] else g["cells"][k],
+                           shown=lambda k=k: self.__dict__.get("_gallery") is g and g["at"] != k
+                           and self.__dict__.get("_sync_beat", 0) != g["beat"],
+                           act=lambda k=k: self._gallery_step(g, k))
+        if not going:
+            return show
+        both = AnimationGroup(AnimationGroup(*going, run_time=0.4), show, lag_ratio=1.0)
+        both.panim_run = 2.0
+        return both
+
+    @staticmethod
+    def _gallery_say(g, k: int) -> str:
+        path, caption, say = g["items"][k]
+        return say or caption or Path(path).stem.replace("_", " ")
+
+    def _gallery_framed(self, path: str, width: float, height: float):
+        """A gallery's picture at most width x height: a photo in its frame (photo_frame), a cutout as it is."""
+        if is_cutout(path):
+            return Group(cutout_mob(path, width, height))
+        image = ImageMobject(trimmed(path))
+        image.scale_to_fit_height(height)
+        if image.width > width:
+            image.scale_to_fit_width(width)
+        depth, over = photo_frame(self, image, radius=0.12)
+        over.set_z_index(Z_MARK + 11.5)
+        for part in over.get_family():
+            part._panim_z = Z_MARK + 11.5
+        return Group(depth, image, over)
+
+    def _gallery_spotlight(self, g, top: float, bottom: float) -> None:
+        cx, cy, w, h = self.STAGE
+        n = len(g["items"])
+        strip_h = max(0.55, min(0.95, (top - bottom) * 0.17))
+        gap = 0.18
+        thumbs = []
+        for path, _, _ in g["items"]:
+            thumb = self._gallery_framed(path, strip_h * 1.8, strip_h)
+            thumbs.append(thumb)
+        row = Group(*thumbs).arrange(RIGHT, buff=gap)
+        if row.width > w - 0.4:
+            row.scale_to_fit_width(w - 0.4)
+        row.move_to([cx, bottom + row.height / 2 + 0.05, 0])
+        caption_room = 0.5
+        hero_top, hero_bottom = top, row.get_top()[1] + 0.3 + caption_room
+        g.update(thumbs=thumbs, hero_box=(cx, (hero_top + hero_bottom) / 2, w, hero_top - hero_bottom),
+                 caption_y=hero_bottom - caption_room / 2 - 0.05, heroes={}, captions={})
+        ring = hud_frame(thumbs[0].width + 0.16, thumbs[0].height + 0.16, P.GOLD, stroke=3.2).move_to(thumbs[0])
+        ring.set_z_index(Z_LABEL - 0.5)
+        g["ring"] = ring
+        # The strip's others dimmed a little under a veil of the board's colour (the phone draws a picture's
+        # opacity only as it fades in or out): the one in the spotlight is clear.
+        g["veils"] = []
+        for t in thumbs:
+            veil = _flat(RoundedRectangle(corner_radius=0.08, width=t.width, height=t.height, fill_color=P.BG,
+                                          fill_opacity=0.45, stroke_width=0)).move_to(t)
+            veil.set_z_index(Z_MARK + 11.8)
+            g["veils"].append(veil)
+
+    def _gallery_grid_layout(self, g, top: float, bottom: float) -> None:
+        cx, cy, w, h = self.STAGE
+        items = g["items"]
+        room = top - bottom
+        rows, cols = self._gallery_grid([self._aspect(p) for p, _, _ in items], w, room)
+        cell_w = (w - 0.3 * (cols - 1)) / cols
+        cell_h = (room - 0.35 * (rows - 1)) / rows - 0.45
+        cells = []
+        for path, caption, _ in items:
+            pic = self._gallery_framed(path, cell_w, cell_h)
+            parts = [pic]
+            if caption:
+                parts.append(fit(T(wrap(caption, 26), 15, P.CREAM, line_spacing=0.85), cell_w)
+                             .next_to(pic, DOWN, buff=0.12))
+            cells.append(Group(*parts))
+        grid = Group(*cells).arrange_in_grid(rows=rows, cols=cols, buff=(0.3, 0.35))
+        if len(cells) == 3 and rows == 2:
+            cells[2].set_x(grid.get_center()[0])
+        if grid.height > room:
+            grid.scale_to_fit_height(room)
+        grid.move_to([cx, (top + bottom) / 2, 0])
+        g.update(cells=cells, thumbs=[])
+        first = cells[0][0]
+        ring = hud_frame(first.width + 0.18, first.height + 0.18, P.GOLD, stroke=3.2).move_to(first)
+        ring.set_z_index(Z_LABEL - 0.5)
+        g["ring"] = ring
+
+    def _gallery_piece(self, g, k: int):
+        """What comes on for picture k: in the spotlight, the picture large with its caption under it (made once);
+        in a grid, its cell."""
+        if g["layout"] == "grid":
+            return g["cells"][k]
+        if k not in g["heroes"]:
+            path, caption, _ = g["items"][k]
+            hx, hy, hw, hh = g["hero_box"]
+            hero = self._gallery_framed(path, hw, hh)
+            hero.move_to([hx, hy, 0])
+            if drifts_on():
+                set_drift([hero], dict(PICTURE_DRIFT, cx=hx, cy=hy))
+            parts = [hero]
+            if caption:
+                chip = ui_chip(_short_caption(caption, 60), size=17)
+                chip.move_to([hx, g["caption_y"], 0])
+                for part in chip.get_family():
+                    part._panim_above = True
+                parts.append(chip)
+            g["heroes"][k] = Group(*parts)
+        return g["heroes"][k]
+
+    def _gallery_step(self, g, k: int):
+        """Bring picture k forward: the one in the spotlight slides out, k slides in (from the side it sits on in
+        the strip), the ring glides to it. In a grid: k pops in if it is not up yet, and the ring moves to it."""
+        if self.__dict__.get("_gallery") is not g or g["at"] == k:
+            return None
+        before, g["at"] = g["at"], k
+        g["shown"].add(k)
+        moves = []
+        ring = g.get("ring")
+        if g["layout"] == "grid":
+            cell = g["cells"][k]
+            if all(cell is not m for m in self.stage_extra):
+                self._stage_add(cell)
+                moves.append(motion.enter(cell, motion.CHOSEN.get("enter") or "pop", 0.55))
+            target = cell[0]
+        else:
+            way = RIGHT if k > before else LEFT
+            old = g["heroes"].get(before)
+            new = self._gallery_piece(g, k)
+            if old is not None and any(old is m for m in self.stage_extra):
+                self.stage_extra.remove(old)
+                moves.append(FadeOut(old, shift=-way * 1.2, rate_func=rush_into, run_time=0.45))
+            self._stage_add(new)
+            moves.append(FadeIn(new, shift=-way * 1.2, rate_func=ease_out_expo, run_time=0.6))
+            target = g["thumbs"][k]
+            # The strip: the one that was in the spotlight dims, this one clears.
+            veils = g["veils"]
+            if any(veils[k] is m for m in self.stage_extra):
+                self.stage_extra.remove(veils[k])
+                moves.append(FadeOut(veils[k], run_time=0.4))
+            if all(veils[before] is not m for m in self.stage_extra):
+                moves.append(FadeIn(self._stage_add(veils[before]), run_time=0.4))
+        if ring is not None:
+            import stem
+
+            moves.append(stem._moving(ring.animate(rate_func=ease_out_expo).move_to(target)))
+        anim = AnimationGroup(*moves)
+        anim.run_time = 0.7
+        anim.panim_run = 0.7
+        anim.panim_sfx = "whoosh"
+        return anim
 
     @staticmethod
     def _aspect(path: str) -> float:
@@ -4554,6 +4832,9 @@ class Lecture(Scene):
                 frame.move_to(drawing)
                 drawing = group_of(frame, drawing)
         items = [str(i) for i in (items or [])][:5]
+        if drawing is not None and picture and has_image(drawing) and not items and role != "person":
+            # A photograph in place of words: the picture large, its name on a chip over its foot.
+            return self._photo_card(drawing, label, tone, number)
         words_only = drawing is None
         size = (19 if small else 23) + (2 if words_only and not items else 0)
         text = marker(wrap(str(label), 14 if words_only else 12), size)
@@ -4597,6 +4878,23 @@ class Lecture(Scene):
             bar.align_to(box, LEFT)
             return group_of(box, bar, inner.move_to(box).shift(RIGHT * 0.08))
         return group_of(box, inner.move_to(box))
+
+    def _photo_card(self, picture, label: str, tone: str, number=None):
+        """A diagram's node that is a photograph: the picture with a rim of the node's colour, and its name (with its
+        step's number) on a chip of that colour over the picture's foot."""
+        rim = _flat(RoundedRectangle(corner_radius=0.1, width=picture.width + 0.1, height=picture.height + 0.1,
+                                     stroke_color=tone, stroke_width=3.5, fill_opacity=0)).move_to(picture)
+        words = f"{number}  {label}" if number is not None else str(label)
+        chip = ui_chip(_short_caption(words, 40), tone=tone, size=16)
+        if chip.width > picture.width + 0.6:
+            chip.scale_to_fit_width(picture.width + 0.6)
+        chip.move_to(picture.get_bottom())
+        # Over the picture (the phone draws a picture over the shapes level with it).
+        for part in [*rim.get_family(), *chip.get_family()]:
+            part._panim_above = True
+        node = group_of(picture, rim, chip)
+        node.is_photo = True
+        return node
 
     def diagram(self, key: str, kind: str, nodes, edges=(), title: str | None = None, show=None,
                 animate: bool = True, flow: bool | None = None, numbered: bool = False):
@@ -4850,6 +5148,14 @@ class Lecture(Scene):
         text = marker(wrap(str(label), 12 if shape == "decision" else 14), size)
         inner = text
         drawing = self._entity(entity, 0.75, motion) if entity else None
+        if drawing is None and picture and shape in ("process", "start", "end", "", None):
+            # A step that is a photograph: the picture, its name on a chip over its foot (the box's shape is for
+            # words).
+            photo = self._picture(picture, 1.5, 2.2, motion)
+            if photo is not None and has_image(photo):
+                node = self._photo_card(photo, label, tone)
+                node.flow_shape = shape
+                return node
         if drawing is None and picture:
             drawing = self._picture(picture, 0.9, 1.4, motion)
         if drawing is not None:
@@ -5166,7 +5472,10 @@ class Lecture(Scene):
             head.next_to(whole, UP, buff=0.3)
             if head.get_top()[1] > cy + h / 2:
                 head.move_to([cx, cy + h / 2 - head.height / 2, 0])
-        shown = set(ids if show is None else [str(x) for x in show])
+        # Built as it is told: the first part now, each of the others (and the arrows into it) as the narration
+        # says it, or one after another through the line where it does not (queue_on_words).
+        stepped = show is None and len(ids) >= 3 and os.environ.get("PANIM_DIAGRAM_STEPS", "1") != "0"
+        shown = {ids[0]} if stepped else set(ids if show is None else [str(x) for x in show])
         self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None, "write": True,
                               "_beat": self.__dict__.get("_sync_beat", 0)}
         self._diagram_moves(key, [mobs[i] for i in ids if i in shown]
@@ -5182,7 +5491,12 @@ class Lecture(Scene):
         for a, b, m in arrows:
             if a in shown and b in shown:
                 order.insert(max(order.index(mobs[a]), order.index(mobs[b])) + 1, m)
-        return self._to_stage(Group(body), draw=order)
+        shown_now = self._to_stage(Group(body), draw=order)
+        if stepped:
+            names = self.__dict__.get("_diagram_labels", {}).get(key) or {}
+            for i in ids[1:]:
+                self.queue_on_words(names.get(i, i), lambda heard, i=i: self.reveal_nodes(key, [i]))
+        return shown_now
 
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
@@ -5204,13 +5518,13 @@ class Lecture(Scene):
         self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
         self._beat_revealed.extend(drawn)
         # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
-        anims = [FadeIn(self._stage_add(d["nodes"][i])) if has_image(d["nodes"][i]) else
-                 Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
-                 Write(self._stage_add(d["nodes"][i])) if d.get("write") else
-                 FadeIn(self._stage_add(d["nodes"][i]), scale=0.9) for i in new]
-        for a, b, mob in d["edges"]:
-            if (a in new or b in new) and a in d["shown"] and b in d["shown"]:
-                anims.append(Create(self._stage_add(mob)))
+        # The arrow into a part is drawn first, then the part pops in at its tip (a picture, a card) or is written
+        # (a sketch's lines are drawn).
+        arrows = [Create(self._stage_add(mob), rate_func=ease_out_cubic) for a, b, mob in d["edges"]
+                  if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
+        anims = arrows + [motion.enter(self._stage_add(d["nodes"][i]), "pop", 0.55) if has_image(d["nodes"][i]) else
+                          Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
+                          motion.appear(self._stage_add(d["nodes"][i]), "card") for i in new]
         self._diagram_moves(key, drawn)
         if before:
             reveal = LaggedStart(*anims, lag_ratio=0.3) if anims else None

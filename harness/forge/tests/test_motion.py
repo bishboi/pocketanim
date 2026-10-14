@@ -66,10 +66,11 @@ def _lecture(beats):
             "chapters": [{"title": "Motion", "narration": "Chapter one.", "map": False, "beats": beats}]}
 
 
-def test_a_zoom_draws_the_picture_once(tmp_path):
+def test_a_zoom_draws_the_picture_once(tmp_path, monkeypatch):
     """A zoom on a diagram, compiled from a lecture script: tier 1, played from clips, both interpreters frame for
     frame the same. The zoom moved parts nested in the stage card; exported as verbs it drew a moved copy over the
     unmoved picture, so the frames after it held twice the shapes."""
+    monkeypatch.setenv("PANIM_DIAGRAM_STEPS", "0")          # the diagram whole, so what is held can be counted
     sys.path.insert(0, str(REPO))
     from dsl.interpret import build, fold_steps, parse, step_frames
 

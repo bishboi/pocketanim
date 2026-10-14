@@ -654,8 +654,8 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         is Step.Unwrite -> unwriteRunner(step)
         is Step.RevealSequence -> revealRunner(step.name, step.seconds, sequential = true, sequenceLag = step.lag)
         is Step.LaggedGrow -> laggedGrowRunner(step)
-        is Step.Fade -> fadeRunner(step.name, step.seconds, fadingIn = true, step.shift, step.from)
-        is Step.FadeOut -> fadeRunner(step.name, step.seconds, fadingIn = false, step.shift, step.from)
+        is Step.Fade -> fadeRunner(step.name, step.seconds, fadingIn = true, step.shift, step.from, step.rate)
+        is Step.FadeOut -> fadeRunner(step.name, step.seconds, fadingIn = false, step.shift, step.from, step.rate)
         is Step.Rotate -> rotateRunner(step)
         is Step.Indicate -> indicateRunner(step)
         is Step.Morph -> morphRunner(step)
@@ -1340,8 +1340,9 @@ internal class Builder(private val program: Program, private val loader: AssetLo
 
     private fun fadeRunner(
         name: String, seconds: Double, fadingIn: Boolean,
-        shift: DoubleArray, from: Double,
+        shift: DoubleArray, from: Double, rateName: String = "smooth",
     ) = object : Runner {
+        private val rate = Verbs.rate(rateName)
         override val frames = frames(seconds)
         private lateinit var obj: Obj
         private var base: List<Inst>? = null
@@ -1377,10 +1378,13 @@ internal class Builder(private val program: Program, private val loader: AssetLo
         }
 
         override fun render(k: Int) {
-            val progress = Verbs.smooth((k + 1).toDouble() / frames)
-            val alpha = if (fadingIn) progress else 1.0 - progress
-            val scale = from + (1.0 - from) * alpha
-            val travel = sign * (1.0 - alpha)
+            // An easing that overshoots (ease_out_back) carries the size and the travel past the end and back, as
+            // Manim's does; the opacity stops at full.
+            val progress = rate((k + 1).toDouble() / frames)
+            val shown = if (fadingIn) progress else 1.0 - progress
+            val alpha = shown.coerceIn(0.0, 1.0)
+            val scale = from + (1.0 - from) * shown
+            val travel = sign * (1.0 - shown)
             val held = base
             if (held == null) {
                 obj.alpha = alpha
@@ -1426,7 +1430,10 @@ internal class Builder(private val program: Program, private val loader: AssetLo
                 } else objects.remove(name)
             } else {
                 obj.xform = baseXform
-                obj.instances = if (fadingIn) held.toMutableList() else ArrayList()
+                // Faded out, an asset keeps its parts, hidden, as dsl/interpret.py does: faded in again (a veil
+                // that comes and goes), it shows them; emptied, it came back as nothing.
+                obj.instances = held.toMutableList()
+                if (!fadingIn) obj.visible = false
             }
         }
     }

@@ -241,7 +241,7 @@ def test_new_ops_compile_and_a_picture_a_sentence_is_flagged(tmp_path):
     assert any("a picture a sentence" in w for w in warnings)
     source = cl.compile_script(json.loads(json.dumps(script)))
     for call in ("self.diagram(", "self.reveal_nodes(", "self.spotlight(", "self.define(", "self.compare_cards(",
-                 "self.figure("):
+                 "self.gallery("):
         assert call in source, call
 
 

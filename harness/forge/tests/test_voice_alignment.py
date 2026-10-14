@@ -290,3 +290,51 @@ def test_a_lecture_is_spoken_then_timed_then_built(tmp_path, monkeypatch):
     assert any(t.startswith("[warm] ") for t in spoken)          # the director's marking is what was said
     assert "cues=[[0.0, 1.2], [2.6, 0.6]]" in out.read_text()
     assert result["tier"] == 1 and not result.get("skipped"), built.stderr[-1500:]
+
+
+def test_a_voice_that_does_not_time_its_words_is_aligned_here_once(tmp_path, monkeypatch):
+    # Gemini or Chirp: the line's words are aligned to its audio by the local model the first time they are asked
+    # for, and kept beside the line; asked again, they are read from there.
+    import wave
+
+    import local_align
+
+    monkeypatch.setenv("PANIM_AUDIO_DIR", str(tmp_path))
+    monkeypatch.setattr(pl, "voice_mode", lambda: "gemini:Achird")
+    line = "The king granted land."
+    wav = pl.audio_file("gemini:Achird", pl.speechify(line))
+    with wave.open(str(wav), "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x00" * 32000)
+    calls = []
+
+    def fake(path, text):
+        calls.append(text)
+        return [{"w": w, "start": i * 0.4, "end": i * 0.4 + 0.3} for i, w in enumerate(text.rstrip(".").split())]
+
+    monkeypatch.setattr(local_align, "align", fake)
+    first = pl.line_words(line)
+    again = pl.line_words(line)
+    assert [w["w"] for w in first] == ["The", "king", "granted", "land"] and again == first
+    assert calls == [line] and pl.words_file(wav).exists()
+
+
+def test_the_local_aligner_picks_the_language_and_cuts_a_long_line_at_a_pause():
+    import numpy as np
+
+    import local_align
+
+    assert local_align.language_of("अब हम feudal system समझते हैं।") == "hi"
+    assert local_align.language_of("The feudal system.") == "en"
+    # 70 s of "speech" with quiet stretches near 25 s and 52 s: cut there, never more than 28 s a piece.
+    rate = local_align.RATE
+    audio = np.full(70 * rate, 0.3, dtype=np.float32)
+    for at in (25.0, 52.0):
+        audio[int(at * rate):int((at + 0.4) * rate)] = 0.0
+    text = " ".join(f"w{i}" for i in range(140))
+    pieces = local_align._pieces(audio, text)
+    assert len(pieces) == 3 and all(end - start <= 28.5 for start, end, _ in pieces)
+    assert abs(pieces[0][1] - 25.2) < 0.3 and abs(pieces[1][1] - 52.2) < 0.3
+    assert " ".join(p[2] for p in pieces).split() == text.split()     # every word once, in order

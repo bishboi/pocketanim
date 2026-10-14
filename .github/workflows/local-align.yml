@@ -1,0 +1,48 @@
+name: local-align
+
+# The local word aligner (harness/lecture/local_align.py) on real speech, English, Hindi and Hinglish
+# (tools/check_local_align.py), with the real Whisper model: the environment this project is developed in cannot
+# download it. Each case's result is written as an annotation, so the run can be read without its log.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "harness/lecture/local_align.py"
+      - "tools/check_local_align.py"
+      - ".github/workflows/local-align.yml"
+
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [tiny, base]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          pip install -q "faster-whisper>=1.1"
+      - name: Align real speech
+        env:
+          PANIM_ALIGN_WHISPER: ${{ matrix.model }}
+          PANIM_ENV_FILE: ""
+        run: |
+          set +e
+          python -m tools.check_local_align out > result.txt 2>&1
+          code=$?
+          cat result.txt
+          while IFS= read -r line; do
+            case "$line" in
+              ok*) echo "::notice title=${{ matrix.model }}::$line" ;;
+              FAIL*) echo "::error title=${{ matrix.model }}::$line" ;;
+              "     "*) echo "::notice title=${{ matrix.model }} words::$line" ;;
+            esac
+          done < result.txt
+          exit $code

@@ -78,9 +78,9 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       voiceCost = spoken.voice;
       voiceSeconds = (Date.now() - started) / 1000;
       logVoice(log, started, spoken.waitedAhead, spoken.voice);
-      // The voice is made: the animations are timed to its words (a voice that times them, ElevenLabs), filling
-      // the scene's timing slots before Manim draws it.
-      if (voiceEngine() === "eleven") {
+      // The voice is made: the animations are timed to its words (as ElevenLabs timed them, or as a small local
+      // model aligns them to any other voice's audio), filling the scene's timing slots before Manim draws it.
+      if (voiceEngine() !== "silent") {
         const aligning = Date.now();
         if (progress) await writeFile(progress, JSON.stringify({ phase: "align", done: 0, total: beats })).catch(() => {});
         const aligned = await alignBeats(source);

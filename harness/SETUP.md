@@ -141,6 +141,14 @@ says when each word is spoken. A build then goes:
 
 `.venv/bin/python harness/lecture/eleven_tts.py --check` checks the key with a test line.
 
+**Other voices are timed too.** Gemini and Chirp return only audio, so each line's own words are aligned to it on
+this machine by Whisper tiny (about 75 MB, 99 languages including Hindi and Hinglish) through `faster-whisper`
+(`lecture/local_align.py`): it is given the words, not asked what was said, and gives each word's start and end.
+It runs the first time a line's timing is needed and is kept beside the line (`<line>.words.json`), so the
+animations are timed to the words for every voice. The model downloads on first use. `PANIM_ALIGN_WHISPER=base`
+(or `small`) is more accurate and larger; `PANIM_LOCAL_ALIGN=off` turns it off. Check it on real speech with
+`.venv/bin/python -m tools.check_local_align` (needs `espeak-ng`).
+
 ## 4. Pictures: Manim, or the image models
 
 There are no picture libraries, icons or emoji to download, nothing is searched for on the web, and nothing is

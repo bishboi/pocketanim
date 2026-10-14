@@ -14,3 +14,4 @@ google-auth   # Chirp 3 HD with OAuth credentials (a gcloud login or a service a
 requests
 youtube-transcript-api>=1.2
 scipy       # cutting a generated picture out of its background (lecture/genimage.py)
+faster-whisper>=1.1        # aligns each spoken line's words to its audio (lecture/local_align.py)

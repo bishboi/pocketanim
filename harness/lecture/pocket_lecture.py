@@ -917,14 +917,29 @@ def words_file(wav: Path) -> Path:
 
 
 def line_words(text: str) -> list[dict] | None:
-    """The words of a line as the voice said them, with their times, or None when the voice did not time them."""
+    """The words of a line as the voice said them, with their times: as the voice timed them (ElevenLabs), else
+    aligned to its audio here, once, by a small local model (local_align.py) and kept beside the line. None when
+    the line is not spoken yet or cannot be aligned."""
     mode = voice_mode()
     if mode == "silent":
         return None
+    spoken = speechify(text)
+    wav = audio_file(mode, spoken)
+    kept = words_file(wav)
     try:
-        return json.loads(words_file(audio_file(mode, speechify(text))).read_text())
+        return json.loads(kept.read_text())
     except (OSError, ValueError):
+        pass
+    if _cached_seconds(wav) is None:
         return None
+    import local_align
+
+    words = local_align.align(wav, spoken)
+    if words:
+        part = kept.with_suffix(f".{os.getpid()}.{threading.get_ident()}.part")
+        part.write_text(json.dumps(words, ensure_ascii=False))
+        part.replace(kept)
+    return words
 
 
 def delivery_file(mode: str, spoken: str) -> Path:

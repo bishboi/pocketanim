@@ -3,7 +3,8 @@
 The lecture is written and compiled with no times in it: a beat is a line and the animations that go with it
 (`self.beat("line", anim, anim, ...)`), a free-form block is a line and code with plays in it
 (`self.free(key, "line", code)`). Once the voice has said every line (scripts/prespeak.py) it is known when each
-word is said (ElevenLabs' timestamps, pocket_lecture.line_words). Here a chat model reads each beat's words with
+word is said (ElevenLabs' timestamps, or the line's words aligned to its audio by a small local model for any other
+voice: local_align.py, pocket_lecture.line_words). Here a chat model reads each beat's words with
 their times and the animations that go with it, and says when each animation starts and how long it takes, so a
 part lights up as its name is said and a reveal lands on the words that bring it. The times are checked
 (pocket_lecture.Lecture._cue_plan keeps them in order and inside the line) and written into the scene as
@@ -153,8 +154,11 @@ def align(source: str, words_of, seconds_of) -> tuple[str, dict]:
     `seconds_of(text)` say when each word of a line is said and how long it is (None when unknown)."""
     found = beats(source)
     todo = []
-    for beat in found:
-        said, seconds = words_of(beat["text"]), seconds_of(beat["text"])
+    # The words' times, several lines at once: a voice that does not time its words has them aligned here first
+    # (local_align.py), a fraction of a second a line.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        timed = list(pool.map(lambda b: (words_of(b["text"]), seconds_of(b["text"])), found))
+    for beat, (said, seconds) in zip(found, timed):
         if said and seconds:
             todo.append((beat, said, seconds))
     report = {"beats": len(found), "timed": len(todo), "aligned": 0, "usd": 0.0, "model": None}

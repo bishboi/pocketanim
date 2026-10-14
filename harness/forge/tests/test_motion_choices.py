@@ -104,3 +104,29 @@ def test_the_players_ease_a_fade_as_the_video_does():
         assert all(abs(RATE_FUNCS[name](t / 10) - fn(t / 10)) < 1e-9 for t in range(11))
     scene = parse("scene 2d fps=30\nfade A t=0.5 rate=ease_out_back\n")
     assert scene["timeline"][0][-1] == "ease_out_back"
+
+
+def test_gemini_lines_are_marked_with_a_teachers_vocal_events():
+    import voice_director as vd
+
+    line = "Scientists finally understood the shape of DNA."
+    assert vd.enabled("gemini") or vd._env("PANIM_VOICE_DIRECTOR") == "off"
+    assert vd.acceptable(line, "<breath> Scientists finally understood... the shape of DNA!", "gemini")
+    assert not vd.acceptable(line, "<long pause> Scientists finally understood the shape of DNA.", "gemini")
+    assert not vd.acceptable(line, "<scream> Scientists finally understood the shape of DNA.", "gemini")
+    assert not vd.acceptable(line, "<chuckle> Scientists understood the shape of DNA.", "gemini")    # a word gone
+    assert not vd.acceptable(line, "[warm] Scientists finally understood the shape of DNA.", "gemini")
+    assert "<chuckle>" in vd.GEMINI_SYSTEM and "<long pause>" not in vd.GEMINI_SYSTEM
+
+
+def test_a_thing_this_line_takes_away_is_not_pointed_at():
+    """A timeline's date said again in the line that replaces it with a comparison: a pulse on it put it back over
+    the comparison (a leftover cleared only at the next line)."""
+    scene = _probe()
+    scene.big_timeline([("1869", "DNA identified"), ("1950s", "Double helix understood")])
+    scene.add(*scene.stage_items, *scene.stage_extra)
+    scene._sync_beat, scene._beat_new = 5, []                      # the next line
+    scene.compare_cards([{"title": "Already known", "points": ["DNA"]},
+                         {"title": "1950s breakthrough", "points": ["Its structure"]}])
+    words = [{"w": w, "start": i * 0.4, "end": i * 0.4 + 0.3} for i, w in enumerate("the 1950s changed it all".split())]
+    assert scene._pointers(words, 4.0, set()) == []

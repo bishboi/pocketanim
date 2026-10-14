@@ -1274,7 +1274,8 @@ def delivery(mode: str, spoken: str) -> str | None:
         marked = delivery_file(mode, spoken).read_text(encoding="utf-8").strip()
         # Spoken at an even pace: a tag that slows the voice or stops it for long is left out (an older marking
         # may carry one).
-        return re.sub(r"\s*\[(?:slowly|slow|long pause|pause|very slowly)\]\s*", " ", marked, flags=re.I).strip() or None
+        return re.sub(r"\s*[\[<](?:slowly|slow|long pause|pause|very slowly)[\]>]\s*", " ", marked,
+                      flags=re.I).strip() or None
     except OSError:
         return None
 
@@ -1307,7 +1308,8 @@ def narrate_many(texts: list[str]) -> None:
     if many is not None and len(todo) > 1 and batching_works():
         failed = False
         try:
-            spoken = many([speechify(t) for t in todo], voice, VOICE_SPEED)
+            # Said as the voice director marked each line, as narrate() says it.
+            spoken = many([delivery(mode, speechify(t)) or speechify(t) for t in todo], voice, VOICE_SPEED)
         except Exception:  # noqa: BLE001 -- spoken one by one below, where the reason is reported
             spoken, failed = None, True
         with _BATCH_LOCK:
@@ -2594,6 +2596,9 @@ class Lecture(Scene):
         on its words, at most POINT_MOST; not one a picture of this line already shows on those words."""
         now = self.__dict__.get("_sync_beat", 0)
         on_screen = {id(m) for top in self.mobjects for m in top.get_family()}
+        # What stays up through this line: a thing this line's pictures take away (the timeline a comparison
+        # replaces) is on the screen until they play, and a pulse on it put it back, over the new picture.
+        held = self._held()
         candidates = list(self.__dict__.get("_named_parts", []))
         for key, d in getattr(self, "diagrams", {}).items():
             labels = self.__dict__.get("_diagram_labels", {}).get(key) or {}
@@ -2613,6 +2618,8 @@ class Lecture(Scene):
             # up, not the card's own group).
             if not fresh and id(mob) not in on_screen and \
                     not any(id(x) in on_screen for x in mob.family_members_with_points()):
+                continue
+            if not any(id(x) in held for x in mob.family_members_with_points()):
                 continue
             at = said_at(words, part["say"])
             # A thing put up by this line is pointed at only once it has had time to arrive.

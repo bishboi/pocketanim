@@ -114,7 +114,7 @@ def main() -> int:
     if left and voice_director.enabled(mode.split(":", 1)[0]):
         write(progress, phase="direct", done=done, total=len(unique), beats=len(lines))
         todo = [pl.speechify(line) for line in left if pl.delivery(mode, pl.speechify(line)) is None]
-        marked, director["usd"] = voice_director.mark(todo)
+        marked, director["usd"] = voice_director.mark(todo, mode.split(":", 1)[0])
         for spoken, said in marked.items():
             pl.delivery_file(mode, spoken).write_text(said, encoding="utf-8")
         director["lines"] = len(marked)

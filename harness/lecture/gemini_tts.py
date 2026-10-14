@@ -328,7 +328,8 @@ def split_lines(pcm: bytes, rate: int, texts: list[str]) -> list[bytes] | None:
     if n == 1:
         return [pcm]
     total = len(samples) / rate
-    weights = [max(1, len(t)) for t in texts]
+    # By the words said: a vocal event's tag ("<chuckle>") is a short sound, not its letters.
+    weights = [max(1, len(re.sub(r"<[^>]*>", " ", t).strip())) for t in texts]
     expected = list(np.cumsum(weights)[:-1] / sum(weights) * total)
     pauses = [p for p in _pauses(samples, rate) if p[1] >= 0.12]
     if len(pauses) < n - 1:

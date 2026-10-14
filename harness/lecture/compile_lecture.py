@@ -812,6 +812,10 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if drawn_map:
                     errors.append(f"{at}: {drawn_map}")
                     continue
+                wrong_maker = _maker_problem(op, script.get("genre"))
+                if wrong_maker:
+                    errors.append(f"{at}: {wrong_maker}")
+                    continue
                 # (`part`, not `where`: that is the chapter's name, and every later beat's warnings were put under
                 # the last picture's part -- "node 'fields' beat 23" for "chapter 4 beat 23".)
                 for part, spec in pictures_of(op):
@@ -1325,6 +1329,54 @@ def map_drawn_by(op: dict) -> str | None:
         text = " ".join(str(item.get(k) or "") for k in ("query", "image", "illustration", "draw"))
         if mapguard.is_map(text):
             return f"{text.strip()!r} is a map; {mapguard.MAP_ADVICE}"
+    return None
+
+
+# Which maker draws what (the writer's guide: app/lib/lecture.ts, CHOOSING THE VISUAL). Two mistakes are sent back:
+# a structure of living things drawn in Manim (a heart, a nephron, a flower in section: shapes Manim reduces to
+# blobs and boxes; the diagram model draws them as a textbook does), and a graph asked of the diagram model (an image
+# model draws axes and curves by eye; Manim plots them exactly).
+COMPLEX_LIFE = re.compile(
+    r"\b(?:heart|kidneys?|nephrons?|neurons?|brain|eyes?ball|human eye|ear|lungs?|alveol\w*|stomach|intestines?|"
+    r"liver|pancreas|skeleton|skull|teeth|tooth|skin|digestive system|respiratory system|circulatory system|"
+    r"nervous system|excretory system|reproductive system|flower|stamens?|pistil|carpel|anther|ovules?|"
+    r"leaf (?:in )?(?:cross[- ])?section|cross[- ]section of (?:a |the )?(?:leaf|stem|root)|root hair|stomata|"
+    r"chloroplasts?|mitochondri\w*|organelles?|(?:plant|animal|bacterial) cell|cell structure|villus|villi|"
+    r"embryo|foetus|fetus|uterus|placenta|sperm|ovum|bacteri(?:um|a) structure|virus structure)\b", re.I)
+GRAPH_ASK = re.compile(
+    r"\b(?:graph|plot(?:ted)?|axes|x[- ]axis|y[- ]axis|coordinate plane|number line|bar chart|histogram|"
+    r"pie chart|line chart|scatter|curve of|function of x|velocity[- ]time|distance[- ]time|v-t|x-t)\b", re.I)
+_PICTURE_CALL = re.compile(r"""picture\(\s*(?:what\s*=\s*)?(['"])(?:(?!\1).)*\1""")
+
+
+def _maker_problem(op: dict, genre: str | None) -> str | None:
+    """A picture given to the maker that draws it worst: in a biology lecture, a complex structure of a living thing
+    in Manim (the diagram model draws those); in any lecture, a graph asked of the diagram model (Manim plots it)."""
+    kind = op.get("op")
+    if kind == "manim" and genre == "biology":
+        # What the block or its plan says it draws; a picture it places (picture("...")) is the illustrator's.
+        text = _PICTURE_CALL.sub("", f"{op.get('plan') or ''} {op.get('code') or ''}")
+        found = COMPLEX_LIFE.search(text)
+        if found and not GRAPH_ASK.search(text):
+            return (f"the manim figure {op.get('id')!r} draws {found.group(0)!r}: a structure of a living thing is drawn "
+                    "by the diagram model, labelled as in a textbook: {\"op\":\"picture\",\"draw\":\"<it, in words>\","
+                    "\"labels\":[...]} -- keep manim for graphs, simple shapes that move (particles diffusing, a "
+                    "membrane, a cell dividing as circles) and working")
+    asked = []
+    if kind == "picture" and op.get("draw"):
+        asked.append(str(op["draw"]))
+    if kind == "illustration" and op.get("diagram"):              # a draw, as canonical_ops leaves it
+        asked.append(str(op.get("query") or ""))
+    if kind == "draw":
+        asked.append(f"{op.get('what') or ''} {op.get('title') or ''}")
+    if kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") == "draw":
+        asked.append(str(op["figure"].get("what") or ""))
+    asked += [str(spec.get("draw") or "") for _, spec in pictures_of(op) if isinstance(spec, dict) and spec.get("draw")]
+    for text in asked:
+        found = GRAPH_ASK.search(text)
+        if found:
+            return (f"{text.strip()[:80]!r} asks the diagram model for a {found.group(0)!r}: graphs, plots and number "
+                    "lines are drawn exactly in manim ({\"op\":\"manim\"}), the diagram model only draws structures")
     return None
 
 

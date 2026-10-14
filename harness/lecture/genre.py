@@ -121,29 +121,39 @@ FREE_GUIDANCE = {
                "velocities and lengths revealed one by one as the narration names them; graphs of how quantities "
                "vary (v against t and the area under it, x against t, P against V) drawn in manim too, and set "
                "moving where the narration describes motion (an orbit, a wave, a collision, a point riding a "
-               "graph). State each law as an equation. " + _THEORY,
+               "graph). A real instrument whose look matters (a telescope, the inside of a generator, a human eye "
+               "in section) is a detailed diagram by the diagram model; its working (the rays, the field lines) "
+               "is manim. State each law as an equation. " + _THEORY,
     "chemistry": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only where its "
                  "structure is what is being taught: its bonds, its shape, its functional groups, isomers, how it "
                  "reacts because of them; once, not again each time it is named, and never for a substance only "
-                 "mentioned. Write reactions with equation (reactants -> products, subscripts as H_2O). Apparatus "
-                 "(a beaker, a burette, a gas syringe), graphs of rates, concentrations and energy, and processes "
-                 "that happen (a titration's colour change, particles of a gas, an equation being balanced) are "
-                 "free-form manim drawings, built and set moving as they are said. " + _THEORY,
+                 "mentioned. Write reactions with equation (reactants -> products, subscripts as H_2O). Graphs of "
+                 "rates, concentrations and energy, simple apparatus as a diagram of shapes (a beaker, a burette, a "
+                 "gas syringe), and processes that happen (a titration's colour change, particles of a gas, an "
+                 "equation being balanced) are free-form manim drawings, built and set moving as they are said; a "
+                 "real set-up whose look matters (a distillation apparatus, an industrial plant, a blast furnace in "
+                 "section) is a detailed diagram by the diagram model. " + _THEORY,
     "mathematics": "Mathematics: every function discussed is graphed, every figure of geometry drawn (triangles and "
                    "circles with their angles and lengths labelled), a construction done step by step with ruler and "
                    "compass, all as free-form manim drawings, and set moving where the idea moves (the unit circle "
                    "tracing a sine wave, rectangles closing in on an area, a graph shifted and stretched); derive "
                    "and solve with work, one step per beat, each step said and justified. Young classes: hops on a "
                    "number line, fraction bars, place-value blocks, drawn in manim. " + _THEORY,
-    "biology": "Biology: a structure (a cell, a leaf, a flower, the heart, a neuron) is shown in its real shape with "
-               "its parts labelled (the book's figure, a detailed drawing, or free-form manim built part by part); "
-               "for processes, cycles, classifications, comparisons and things that move, use whichever visual "
-               "teaches it best. Hard terms: define. Pictures only of organisms, habitats and scientists the lecture "
+    "biology": "Biology: every structure of a living thing (a cell and its organelles, a leaf or a flower in section, "
+               "the heart, a nephron, a neuron, the eye, a body system) is the book's figure or a detailed diagram "
+               "by the diagram model, labelled as a textbook draws it -- never free-form manim, which reduces it to "
+               "blobs. Free-form manim is for graphs (growth, enzyme activity against temperature, populations), "
+               "Punnett squares and pedigrees, and processes of simple shapes that move (particles diffusing "
+               "through a membrane, chromosomes separating as a cell divides). A process, a cycle or a "
+               "classification whose connections are the lesson may be a diagram whose nodes carry pictures. Hard "
+               "terms: define. Pictures only of organisms, habitats and scientists the lecture "
                "names. A molecule's structural formula only where the lecture explains its structure; a summary "
                "reaction with equation. No map unless the topic is where life lives.",
     "geography": "Geography: the map carries the where (markers, rivers, states shaded) and movement (a journey: the "
-                 "monsoon winds, a trade route, a river's course); the stage carries how it works, with whichever "
-                 "visual teaches it best. The water cycle, the seasons and the Earth's or the soil's layers are free-form "
+                 "monsoon winds, a trade route, a river's course); the stage carries how it works. A landform or a "
+                 "section of the land whose look matters (a volcano, a river's meander, a delta, a fold mountain in "
+                 "section) is a detailed diagram by the diagram model. The water cycle, the seasons and the Earth's "
+                 "or the soil's layers are free-form "
                  "manim drawings, set moving as they are said; real figures (rainfall by month, a population "
                  "pyramid) are drawn in manim from the content's numbers only. The document's figures, and compare "
                  "for differences. Pictures only of people, communities and places.",
@@ -152,8 +162,9 @@ FREE_GUIDANCE = {
                "journeys on the map as they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); "
                "empires and kingdoms shaded on the map; differences between two systems or periods with compare; "
                "quote primary sources.",
-    "economics": "Economics: quantities as bars, and trends, supply and demand moving, money growing and data stories "
-                 "as free-form manim drawings, from real figures only; kinds side by side with compare; places on the "
+    "economics": "Economics: quantities as bars, and every graph (trends, supply and demand moving, money growing, "
+                 "data stories) as a free-form manim drawing, from real figures only; kinds side by side with "
+                 "compare; places on the "
                  "map only when trade or regions are the point.",
 }
 

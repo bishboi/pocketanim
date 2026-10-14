@@ -314,3 +314,31 @@ def test_subjects_are_told_of_free_manim():
         # No kind of visual is pushed on the writer: no subject tells it to make diagrams of its ideas.
         assert "as a hierarchy" not in told["guidance"] and "diagrams too" not in told["guidance"].lower()
         assert told["kit"][0] != "diagram"
+
+
+def _one_beat(op, subject):
+    return {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "genre": subject,
+            "chapters": [{"title": "c", "map": False, "beats": [{"say": "Look at this.", "do": [op]}]}]}
+
+
+def test_each_picture_goes_to_the_maker_that_draws_it_best(monkeypatch):
+    import free_check
+
+    monkeypatch.setattr(free_check, "verify", lambda script: [])
+    monkeypatch.setattr(cl, "_unfetched_photos", lambda *a, **k: [])
+    heart = {"op": "manim", "id": "h", "plan": "the human heart in section, its four chambers labelled"}
+    errors, _ = cl.lint(_one_beat(dict(heart), "biology"))
+    assert any("diagram model" in e and "heart" in e for e in errors)       # a living structure: not in Manim
+    # A graph of something living, a picture the block places, and other subjects' figures stay in Manim.
+    for op, subject in [({"op": "manim", "id": "g", "plan": "a graph of heart rate against time"}, "biology"),
+                        ({"op": "manim", "id": "p", "code": 'h = picture("a human heart")\nself.play(FadeIn(h))'},
+                         "biology"),
+                        (dict(heart), "physics")]:
+        assert not any("diagram model" in e for e in cl.lint(_one_beat(op, subject))[0]), op
+    graph = {"op": "picture", "draw": "a velocity-time graph of a ball thrown up", "labels": ["slope"]}
+    errors, _ = cl.lint(_one_beat(graph, "physics"))
+    assert any("drawn exactly in manim" in e for e in errors)                # a graph: not by the diagram model
+    nephron = {"op": "picture", "draw": "a nephron with its parts", "labels": ["glomerulus"]}
+    assert not any("manim" in e for e in cl.lint(_one_beat(nephron, "biology"))[0])
+    told = genre.profile("biology")["guidance"]
+    assert "diagram model" in told and "never free-form manim" in told

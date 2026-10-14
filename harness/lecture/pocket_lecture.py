@@ -538,6 +538,67 @@ _Transform.get_all_families_zipped = _families_zipped
 
 # Pictures a build left out because they could not be drawn (Lecture.safe), for export_scene.py to report.
 SKIPPED: list[str] = []
+
+# ---------------- what is shown, on the words that say it ----------------
+# Inside a beat each picture that names something (a marker's place, a diagram part revealed or focused, an area
+# shaded, a term defined) starts as its words are said, and a thing on the screen the line names again (a diagram's
+# part, a timeline's date, a map's place, a card's heading) is drawn attention to on its words: from the line's word
+# times (the voice's, or aligned here by Whisper: line_words). SYNC counts it for the build's report.
+SYNC: dict[int, dict] = {}      # chapter -> {"beats", "on_words", "pointed"}
+
+
+def sync_counts(chapters=None) -> dict:
+    """SYNC summed over these chapters (all when None): a build of a window of chapters counts its own."""
+    out = {"beats": 0, "on_words": 0, "pointed": 0}
+    for number, counts in SYNC.items():
+        if chapters is None or number in chapters:
+            for k, v in counts.items():
+                out[k] = out.get(k, 0) + v
+    return out
+SAY_STOP = {"the", "a", "an", "of", "and", "in", "on", "to", "at", "for", "is", "are", "its", "his", "her"}
+SYNC_LEAD = 0.2          # seconds a picture starts before its words: it is there as they are heard
+POINT_MOST = 4           # things pointed at in one line, at most
+
+
+def _say_tokens(text) -> list[str]:
+    import unicodedata
+
+    folded = "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not unicodedata.combining(c))
+    return re.findall(r"[^\W_]+", folded.lower())
+
+
+def _same_word(spoken: str, wanted: str) -> bool:
+    if spoken == wanted:
+        return True
+    return (len(spoken) >= 4 and len(wanted) >= 4 and abs(len(spoken) - len(wanted)) <= 3
+            and (spoken.startswith(wanted) or wanted.startswith(spoken)))
+
+
+def said_at(words, phrase) -> float | None:
+    """When a line's voice says a phrase (a label, a place, a term), in seconds into the line, from its word times
+    ([{"w", "start", "end"}]); None when it is not said. Its words in order, small words between them skipped
+    ("Gulf of Mannar" in "...across the gulf of Mannar..."), a plural or a possessive taken as the word."""
+    if not words or not phrase:
+        return None
+    flat = [(token, float(w.get("start") or 0)) for w in words for token in _say_tokens(w.get("w", ""))]
+    for variant in dict.fromkeys([str(phrase), speechify(str(phrase))]):
+        tokens = _say_tokens(variant)
+        wanted = [t for t in tokens if t not in SAY_STOP] or tokens
+        if not wanted or (len(wanted) == 1 and len(wanted[0]) < 3 and not wanted[0].isdigit()):
+            continue
+        for i, (token, start) in enumerate(flat):
+            if not _same_word(token, wanted[0]):
+                continue
+            j, found = i, True
+            for want in wanted[1:]:
+                k = next((k for k in range(j + 1, min(len(flat), j + 4)) if _same_word(flat[k][0], want)), None)
+                if k is None:
+                    found = False
+                    break
+                j = k
+            if found:
+                return start
+    return None
 # Called with (scene, chapter number) as each chapter begins, before anything of it is drawn.
 CHAPTER_HOOKS: list = []
 
@@ -2094,14 +2155,22 @@ class Lecture(Scene):
         self.section(self.SECTION)
 
     # ---------------- beat log ----------------
-    def safe(self, build, what: str = ""):
+    def safe(self, build, what: str = "", said: str | None = None):
         """One picture's call, run so that one which fails is left out with its reason, not the whole lecture.
 
         A diagram the model described in a way the engine cannot draw (a point list of the wrong shape, an
         expression with nothing to plot) stopped an hour-long render with a bare numpy error and no beat named.
-        The narration goes on; the reason, and the beat, are kept in SKIPPED for the build to report."""
+        The narration goes on; the reason, and the beat, are kept in SKIPPED for the build to report.
+
+        `said`: the words the picture shows (a place, a part's name): it starts as they are said (beat)."""
         try:
-            return build()
+            made = build()
+            if said and made is not None:
+                try:
+                    made.panim_said = str(said)
+                except AttributeError:
+                    pass
+            return made
         except VoiceUnavailable:
             raise
         except Exception as error:  # noqa: BLE001 -- the model's picture: its error is the message
@@ -2119,6 +2188,46 @@ class Lecture(Scene):
             print("picture skipped:", message, file=sys.stderr)
             self._log("skipped", what=what, error=message)
             return None
+
+    def name_part(self, phrase, mob, shown=None) -> None:
+        """Something on the screen with a name the narration may say again (a timeline's date, a map's place, a
+        card's heading): pointed at on its words (beat). `shown()`, when given, says whether it is drawn now."""
+        if mob is None or not str(phrase or "").strip():
+            return
+        parts = self.__dict__.setdefault("_named_parts", [])
+        parts.append({"say": str(phrase), "mob": mob, "beat": self.__dict__.get("_sync_beat", 0), "shown": shown})
+
+    def _pointers(self, words, seconds: float, hinted: set) -> list:
+        """[(the pointing animation, [start, seconds])] for the things on the screen this line names: each once,
+        on its words, at most POINT_MOST; not one a picture of this line already shows on those words."""
+        now = self.__dict__.get("_sync_beat", 0)
+        on_screen = {id(m) for top in self.mobjects for m in top.get_family()}
+        candidates = list(self.__dict__.get("_named_parts", []))
+        for key, d in getattr(self, "diagrams", {}).items():
+            labels = self.__dict__.get("_diagram_labels", {}).get(key) or {}
+            for node, mob in (d.get("nodes") or {}).items():
+                if node in labels:
+                    candidates.append({"say": labels[node], "mob": mob, "beat": d.get("_beat", -1),
+                                       "shown": lambda d=d, node=node: node in d["shown"] and not d.get("gone")})
+        out, used = [], set()
+        for part in candidates:
+            mob = part["mob"]
+            if id(mob) in used or _norm(part["say"]) in hinted:
+                continue
+            if part["shown"] is not None and not part["shown"]():
+                continue
+            fresh = part["beat"] == now
+            if not fresh and id(mob) not in on_screen:
+                continue
+            at = said_at(words, part["say"])
+            # A thing put up by this line is pointed at only once it has had time to arrive.
+            if at is None or at > seconds - 0.4 or (fresh and at < 1.0):
+                continue
+            used.add(id(mob))
+            out.append((at, mob))
+        out.sort(key=lambda r: r[0])
+        return [(ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7])
+                for at, mob in out[:POINT_MOST]]
 
     def _log(self, kind: str, **fields) -> None:
         """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
@@ -2200,10 +2309,15 @@ class Lecture(Scene):
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         _progress_beat()
         self._coming = anims
+        # When each word is said (the voice's times, or aligned here): the pictures go on their words.
+        try:
+            words = line_words(text) if voice_mode() != "silent" else None
+        except Exception:  # noqa: BLE001 -- no word times: the pictures play as the line begins
+            words = None
         # A line too long for two caption lines is captioned a piece at a time, each as its words are said.
         pieces = caption_pieces(text)
         cap = self.caption(pieces[0])
-        swaps = self._caption_swaps(text, pieces, seconds)
+        swaps = self._caption_swaps(text, pieces, seconds, words)
         self._coming = ()
         if wav:
             self.add_sound(wav)
@@ -2214,6 +2328,7 @@ class Lecture(Scene):
         spent = 0.0
         given = [(_playable(a), (cues[i] if cues and i < len(cues) else None)) for i, a in enumerate(anims)]
         given = [(a, c) for a, c in given if a is not None]
+        given = self._on_words(given, words, seconds, text)
         anims = [a for a, _ in given]
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
             anims += self._cover_changes()
@@ -2244,7 +2359,37 @@ class Lecture(Scene):
         self._check_beat(text)
         spent = self._swap_due(spent, swaps)
         spent = self._wait_until(spent, seconds + pad, swaps)
+        self._sync_beat = self.__dict__.get("_sync_beat", 0) + 1
         return seconds
+
+    def _on_words(self, given: list, words, seconds: float, text: str) -> list:
+        """The line's pictures with each one that names something started on its words, and pointers added for
+        the things on the screen the line names; in the order they start. Unchanged without word times."""
+        if not words:
+            return given
+        counts = SYNC.setdefault(self.__dict__.get("_chapter_no", 0), {"beats": 0, "on_words": 0, "pointed": 0})
+        out, hinted, timed = [], set(), 0
+        for anim, cue in given:
+            said = getattr(anim, "panim_said", None)
+            at = said_at(words, said) if said else None
+            if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
+                run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else 1.0
+                cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.5)]
+                hinted.add(_norm(said))
+                timed += 1
+            out.append((anim, cue))
+        pointers = self._pointers(words, seconds, hinted)
+        out += pointers
+        if timed or pointers:
+            start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+            out.sort(key=lambda g: start(g[1]))
+            # Every picture with a time: one with none starts as the line begins.
+            out = [(a, c if isinstance(c, (list, tuple)) and c else [0.0, None]) for a, c in out]
+            counts["on_words"] += timed
+            counts["pointed"] += len(pointers)
+            self._log("on_words", text=text, timed=timed, pointed=len(pointers))
+        counts["beats"] += 1
+        return out
 
     # ---------------- animations timed to the words (cues) ----------------
     CUE_MIN, CUE_MAX = 0.3, 4.0          # seconds an animation may take when timed to the words
@@ -2300,16 +2445,12 @@ class Lecture(Scene):
 
     # ---------------- a long line's caption, a piece at a time ----------------
 
-    def _caption_swaps(self, text: str, pieces: list[str], seconds: float) -> list:
+    def _caption_swaps(self, text: str, pieces: list[str], seconds: float, said=None) -> list:
         """[(seconds into the line, piece)] for each caption piece after the first: when its first word is said, from
         the line's word times when they are known (as the voice timed them, or as they were aligned), else by how
         far into the line its words are."""
         if len(pieces) < 2:
             return []
-        try:
-            said = line_words(text) if voice_mode() != "silent" else None
-        except Exception:  # noqa: BLE001 -- no word times: by the words' share of the line
-            said = None
         total = sum(len(p.split()) for p in pieces) or 1
         out, before = [], 0
         for piece in pieces[:-1]:
@@ -3468,6 +3609,9 @@ class Lecture(Scene):
             height *= 0.8
             marks = build(height)
         drawing = Group(line, *marks)
+        for (date, label, _picture), mark in zip(events, marks):
+            self.name_part(date, mark)
+            self.name_part(label, mark)
         parts = Group(drawing)
         if title:
             parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
@@ -3698,6 +3842,9 @@ class Lecture(Scene):
         cx, cy, w, h = self.STAGE
         nodes = [dict(n) for n in list(nodes)[:20]]
         ids = [str(n["id"]) for n in nodes]
+        # Its parts by their names, to point at as the narration says them (beat, _pointers).
+        self.__dict__.setdefault("_diagram_labels", {})[key] = {str(n["id"]): str(n.get("label") or n["id"])
+                                                                for n in nodes}
         edges = [list(e) for e in edges or []]
         import hierarchy as _hier
 
@@ -4241,7 +4388,8 @@ class Lecture(Scene):
             if head.get_top()[1] > cy + h / 2:
                 head.move_to([cx, cy + h / 2 - head.height / 2, 0])
         shown = set(ids if show is None else [str(x) for x in show])
-        self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None, "write": True}
+        self.diagrams[key] = {"nodes": mobs, "edges": arrows, "shown": shown, "focus": None, "write": True,
+                              "_beat": self.__dict__.get("_sync_beat", 0)}
         self._diagram_moves(key, [mobs[i] for i in ids if i in shown]
                             + [m for a, b, m in arrows if a in shown and b in shown])
         self._next_keys.add(key)
@@ -4494,6 +4642,8 @@ class Lecture(Scene):
             c[1].stretch_to_fit_height(top - 0.5).align_to(c[0], UP).shift(DOWN * 0.25)
             c[2].align_to(c[0], UP).shift(DOWN * 0.42)
         cards.arrange(RIGHT, buff=0.3, aligned_edge=UP)
+        for col, card in zip(columns, cards):
+            self.name_part(str(col.get("title", "")), card)
         parts = VGroup(cards)
         if title:
             parts = VGroup(fit(T(title.upper() if TH["upper"] else title, 30, P.TITLE, font=TH["serif"], weight=BOLD),
@@ -4761,6 +4911,7 @@ class Lecture(Scene):
         lecture, the last chapter's map and panel are cleared first rather
         than left under the card.
         """
+        self._chapter_no = int(num)        # the chapter its beats' counts go under (SYNC)
         # A build that records some chapters only (export_dsl's chapter window, chapters built side by side)
         # starts and stops recording here.
         # The title, for a hook that lists the chapters (the phone's chapter list: export_dsl).
@@ -5239,6 +5390,7 @@ class MapLecture(BoardMixin, Lecture):
         inside = _valid(shape.intersection(self.focus))
         clip = None if not inside.is_empty and inside.area >= 0.5 * _valid(shape.intersection(window)).area else window
         m = self.region_fill(shape, color, opacity, clip=clip)
+        self.name_part(label or name, m)
         # Shaded again (England in its own colour once the war begins): the new shading takes the old one's place,
         # its name written once.
         shaded = getattr(self, "_shaded", {})
@@ -5597,6 +5749,7 @@ class MapLecture(BoardMixin, Lecture):
             pic.next_to(text, DOWN, buff=0.06)
         group = group_of(halo, dot, tag, *([lead] if lead is not None else []))
         group.set_z_index(Z_MARK)
+        self.name_part(label or (where if isinstance(where, str) else ""), group)
         return group
 
     def reserve_places(self, places, gap: float = 0.13) -> None:

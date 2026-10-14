@@ -144,6 +144,10 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     // What the visual check found at each beat, and what a model that reads images says of the frames it flagged.
     const checks = result.error ? null : await readVisualCheck(buildDir);
 
+    if (result.synced) {
+      console.log(`[sync] inside the beats: ${result.synced.on_words} pictures on their words, ${result.synced.pointed} ` +
+        `things pointed at as named, over ${result.synced.beats} beats with word times`);
+    }
     return reply({ ...result, buildDir, frames, source: built, narrationUrl, voiceWarning, voiceCost, timing, checks,
       ...(repaired.tried.length ? { manimRepair: { tried: repaired.tried, fixed: repaired.fixed, usd: repaired.usd } } : {}) });
   } catch (error) {

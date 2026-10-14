@@ -119,6 +119,14 @@ The left half of the frame is the stage, and the fact panel is on the right.
 A chapter draws the map only if one of its beats points at it: a marker, a river, a state or an arrow.
 Otherwise the stage shows pictures.
 
+**Inside a line, on its words.** Once the voice is made, each line's word times are known (the voice's own, or
+aligned here by Whisper: `local_align.py`). The engine then plays, inside the beat, each picture that names something
+as its words are said: a marker's place, an area shaded, a diagram part revealed or focused, a term defined, a choice
+marked (the compiler passes the words as `self.safe(..., said="...")`). A diagram whose own line names several of its
+parts draws the first with it and brings each other in on its name. And anything already on screen that the line
+names again (a diagram's part, a timeline's date or event, a map's place, a compare card's heading) is pointed at on
+its words, a short swell, at most four a line. The build reports the counts ("Inside the beats: ...").
+
 **Places the map names.** A name is looked up in Natural Earth's towns, `data/places_extra.csv`, GeoNames,
 Natural Earth's seas, bays, gulfs, straits, peaks and ranges, then OpenStreetMap. What none of them knows (Adam's
 Bridge, Sri Lanka's Wet Zone, its Central Highlands) the **map agent** finds before the compile

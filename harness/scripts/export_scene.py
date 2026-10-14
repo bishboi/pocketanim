@@ -350,6 +350,7 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
     chapters: list = []
     skipped: list[str] = []
     blockers: list[str] = []
+    synced = {"beats": 0, "on_words": 0, "pointed": 0}
     ai = {"count": 0, "usd": 0.0, "items": []}
     detail: dict[str, float] = {}           # asset -> the zoom it was baked for
     counter = 0
@@ -389,6 +390,8 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
             images.append(image)
         frames += length
         skipped += [s for s in result.get("skipped") or [] if s not in skipped]
+        for k, v in (result.get("synced") or {}).items():
+            synced[k] = synced.get(k, 0) + v
         blockers += [b for b in result.get("blockers") or [] if b not in blockers]
         made = result.get("ai_images") or {}
         ai["count"] += made.get("count", 0)
@@ -409,7 +412,7 @@ def _join(parts: list[tuple[Path, dict]], scene_class: str) -> dict:
                 if not (generated / "images" / picture.name).exists():
                     shutil.copyfile(picture, generated / "images" / picture.name)
     program = "\n".join([header, *declarations, *timeline]) + "\n"
-    return {"program": program, "sounds": sounds, "images_track": images, "skipped": skipped,
+    return {"program": program, "sounds": sounds, "images_track": images, "skipped": skipped, "synced": synced,
             "blockers": blockers, "ai_images": ai, "simplified": simplified, "windows": len(parts),
             "chapters": chapters}
 
@@ -444,6 +447,7 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
             result = {
                 "scene": scene_class,
                 "skipped": joined["skipped"],
+                "synced": joined["synced"],
                 "ai_images": joined["ai_images"],
                 "tier": 3 if blockers else 1,
                 "blockers": blockers,
@@ -477,6 +481,10 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
                 "scene": scene_class,
                 # Pictures left out because they could not be drawn (pocket_lecture.Lecture.safe), with their beats.
                 "skipped": list(getattr(lecture, "SKIPPED", []) or []),
+                # Pictures started on the words that name them, and things pointed at as they are said
+                # (pocket_lecture.SYNC).
+                "synced": lecture.sync_counts(range(window[0], window[1] + 1) if window else None)
+                if lecture is not None and hasattr(lecture, "sync_counts") else {},
                 # Pictures the image model made during this build (genimage.py), and what they cost.
                 "ai_images": _made_pictures(),
                 "tier": 3 if blockers else 1,

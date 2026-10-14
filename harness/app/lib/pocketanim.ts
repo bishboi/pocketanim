@@ -121,6 +121,9 @@ export type ExportResult = {
   blockers?: string[];
   /** Pictures left out because the engine could not draw them, each with its beat and reason. */
   skipped?: string[];
+  /** Inside the beats: pictures started on the words that name them, things pointed at as they are said, out of
+   * the beats with word times (pocket_lecture.SYNC). */
+  synced?: { beats: number; on_words: number; pointed: number };
   program?: string | null;
   program_bytes?: number;
   assets?: string[];

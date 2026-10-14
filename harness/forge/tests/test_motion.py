@@ -111,3 +111,34 @@ def test_a_zoom_draws_the_picture_once(tmp_path):
     assert held, sorted(counts)
     assert max(counts) == max(held) + max(0, g1 - g0, g2 - g0), sorted(counts)
     _interpreters_agree(tmp_path, "GeneratedScene")
+
+
+SYNCED = '''
+import pocket_lecture as _pl
+from manim import *
+from pocket_lecture import *
+
+# A voice that says each word 0.4 s after the last, without speaking (the build has no voice here).
+_pl.narrate = lambda text: (None, 5.0)
+_pl.voice_mode = lambda: "gemini:test"
+_pl.line_words = lambda text: [{"w": w, "start": i * 0.4, "end": i * 0.4 + 0.35} for i, w in enumerate(text.split())]
+
+
+class Synced(MapLecture):
+    def construct(self):
+        self.board()
+        nodes = [{"id": k, "label": k} for k in ("roots", "stem", "leaves")]
+        self.beat("First come the roots, then the stem grows, and at last the leaves open.",
+                  self.diagram("p", "flow", nodes, [["roots", "stem"], ["stem", "leaves"]], show=["roots"],
+                               animate=False, flow=False),
+                  self.safe(lambda: self.reveal_nodes("p", ["stem"]), "reveal", said="stem"),
+                  self.safe(lambda: self.reveal_nodes("p", ["leaves"]), "reveal", said="leaves"))
+        self.beat("Water climbs from the roots to the leaves.")
+'''
+
+
+def test_parts_on_their_words_and_pointers_play_on_the_phone(tmp_path):
+    result = _export(tmp_path, SYNCED, "Synced")
+    assert result["tier"] == 1 and result["blockers"] == [] and not result.get("skipped"), result
+    assert result["synced"]["on_words"] == 2 and result["synced"]["pointed"] >= 3, result["synced"]
+    _interpreters_agree(tmp_path, "Synced")

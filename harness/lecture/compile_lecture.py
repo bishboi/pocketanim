@@ -675,6 +675,16 @@ _NEW_PICTURE = {"diagram", "draw", "figure", "picture", "photo", "illustration",
                 "timeline", "process", "quote", "problem", "manim", "equation"}
 
 
+def _named_pos(label: str, said: str) -> int:
+    """Where in a line a part is first named (its whole label, or the first of its longer words): to order them."""
+    low, said = label.lower().strip(), said.lower()
+    if low and low in said:
+        return said.index(low)
+    words = [w for w in re.findall(r"\w+", low) if len(w) > 3]
+    hits = [said.find(w) for w in words if w in said]
+    return min(hits) if hits else len(said)
+
+
 def _named_in(label: str, said: str) -> bool:
     """Whether a line names a diagram's part: its whole label, or every longer word of it."""
     label, said = label.lower().strip(), said.lower()
@@ -705,9 +715,15 @@ def _build_with_speech(script: dict) -> list[str]:
                 if len(nodes) < 3:
                     continue
                 label = {str(n["id"]): str(n.get("label") or n["id"]) for n in nodes}
-                first = [i_ for i_ in label if _named_in(label[i_], str(beat.get("say") or ""))] or [str(nodes[0]["id"])]
+                own = str(beat.get("say") or "")
+                # The parts its own line names, in the order it names them: the first is drawn with the diagram,
+                # each other arrives on its own words (a reveal of its own on this beat, timed by the engine).
+                here = sorted((i_ for i_ in label if _named_in(label[i_], own)),
+                              key=lambda i_: _named_pos(label[i_], own))
+                first = here[:1] or [str(nodes[0]["id"])]
+                now = here[1:]
                 later: dict[int, list[str]] = {}
-                placed = set(first)
+                placed = set(first) | set(now)
                 for j in range(i + 1, min(len(beats), i + 1 + SPEECH_REACH)):
                     ops = [o for o in beats[j].get("do") or [] if isinstance(o, dict)]
                     if any(o.get("op") in _NEW_PICTURE for o in ops):
@@ -717,14 +733,16 @@ def _build_with_speech(script: dict) -> list[str]:
                     if named:
                         later[j] = named
                         placed.update(named)
-                if sum(len(v) for v in later.values()) < 2:
+                if len(now) + sum(len(v) for v in later.values()) < 2:
                     continue
                 # What no line names is there from the start, so nothing is left off.
                 op["show"] = [n for n in label if n in first or n not in placed]
+                for n in now:
+                    beat.setdefault("do", []).append({"op": "reveal", "diagram": str(op["id"]), "nodes": [n]})
                 for j, named in later.items():
                     beats[j].setdefault("do", []).append({"op": "reveal", "diagram": str(op["id"]), "nodes": named})
                 notes.append(f"{FIXED}chapter {c + 1} beat {i + 1}: diagram {op['id']!r} built as it is spoken of "
-                             f"({len(placed) - len(first)} parts arrive on the lines that name them)")
+                             f"({len(placed) - len(first)} parts arrive on the words that name them)")
     return notes
 
 
@@ -2649,6 +2667,40 @@ def _unknown_places(places: list[tuple[str, str]], country: str | None, region: 
     return out
 
 
+def _diagram_labels(op: dict) -> dict:
+    """A diagram's (or a drawing's) part ids and the names written on them."""
+    if op.get("op") == "draw":
+        return {str(p): str(p).replace("_", " ") for p in op.get("parts") or []}
+    return {str(n.get("id")): str(n.get("label") or n.get("id")) for n in op.get("nodes") or []
+            if isinstance(n, dict) and n.get("id") is not None}
+
+
+def _op_said(op: dict, parts: dict, asked: list) -> str | None:
+    """The words a picture shows, so it starts as the narration says them: a marker's place, a shaded area's name,
+    a diagram part revealed or pointed at, a term defined, a choice marked. None for a picture the line is about as
+    a whole (a new diagram, a timeline, a photo), which starts with the line."""
+    kind = op.get("op")
+    if kind in ("marker", "state", "river", "empire"):
+        return str(op.get("label") or op.get("place") or op.get("name") or "") or None
+    if kind in ("arrow", "path", "graticule"):
+        return str(op.get("label") or "") or None
+    if kind == "relief":
+        names = op.get("names") if isinstance(op.get("names"), list) else []
+        return str(names[0]) if names else None
+    if kind == "reveal":
+        nodes = [str(n) for n in op.get("nodes") or []]
+        return (parts.get(str(op.get("diagram"))) or {}).get(nodes[0]) if nodes else None
+    if kind in ("focus", "zoom"):
+        node = op.get("node")
+        return (parts.get(str(op.get("diagram"))) or {}).get(str(node)) if node is not None else None
+    if kind == "define":
+        return str(op.get("term") or "") or None
+    if kind == "option":
+        index = _choice_index(asked, op.get("choice")) if asked else None
+        return asked[index] if index is not None else None
+    return None
+
+
 def _op_call(op: dict) -> str:
     kind = op["op"]
     if kind == "panel":
@@ -3143,6 +3195,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
         AUTO_PICTURES.extend((index, bi + 1, fill) for bi, fill in enumerate(fills) if fill)
         staged = False
+        parts_named: dict[str, dict] = {}       # a diagram's part ids -> their names, for the words that say them
+        asked: list[str] = []                   # the choices of the question up
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
         closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
@@ -3178,12 +3232,18 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 if op.get("op") == "unstage":
                     staged = False
             # Each picture is built through self.safe: one the engine cannot draw is left out with its reason and
-            # its beat, not the whole lecture stopped.
+            # its beat, not the whole lecture stopped. With it, the words it shows: it starts as they are said.
             for op in ops:
+                if op.get("op") in ("diagram", "draw"):
+                    parts_named[str(op.get("id"))] = _diagram_labels(op)
+                if op.get("op") == "question":
+                    asked = [str(c) for c in op.get("choices") or []]
                 call = _op_call(op)
                 if call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
-                    calls.append(f"self.safe(lambda: {call}, {_q(what)})")
+                    said = _op_said(op, parts_named, asked)
+                    said = f", said={_q(said)}" if said else ""
+                    calls.append(f"self.safe(lambda: {call}, {_q(what)}{said})")
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""
             pad = "PARAGRAPH_PAD" if bi in closing else ""

@@ -10,6 +10,8 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import pytest
+
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import align_cues  # noqa: E402
@@ -404,3 +406,60 @@ def test_a_long_line_is_captioned_a_piece_at_a_time(monkeypatch):
     assert times == sorted(times) and 0 < times[0] < 12.0    # each piece as its words come, inside the line
     assert [p for _, p in shown] == pieces[1:]
     assert clock[0] >= 12.0
+
+
+# ---------------- inside a beat: what is shown, on the words that say it ----------------
+
+def _timed(text: str, per_word: float = 0.4) -> list[dict]:
+    return [{"w": w, "start": round(i * per_word, 3), "end": round(i * per_word + 0.35, 3)}
+            for i, w in enumerate(text.split())]
+
+
+def test_a_phrase_is_found_where_the_voice_says_it():
+    words = _timed("Sri Lanka lies across the gulf of Mannar's warm waters, and the Rivers flow.")
+    assert pl.said_at(words, "Gulf of Mannar") == pytest.approx(2.0)      # small words and the 's skipped
+    assert pl.said_at(words, "river") == pytest.approx(4.8)               # a plural is the word
+    assert pl.said_at(words, "Palk Strait") is None
+    assert pl.said_at(words, "a") is None                                 # too short to be a name
+
+
+def test_a_diagrams_parts_arrive_on_the_words_that_name_them(monkeypatch):
+    line = "First come the roots, then the stem grows, and at last the leaves open."
+    monkeypatch.setattr(pl, "narrate", lambda text: (None, 6.0))
+    monkeypatch.setattr(pl, "voice_mode", lambda: "gemini:Achird")
+    monkeypatch.setattr(pl, "line_words", lambda text: _timed(text))
+    scene, log, clock = _probe()
+    nodes = [{"id": k, "label": k} for k in ("roots", "stem", "leaves")]
+    scene.beat(line, scene.diagram("p", "flow", nodes, [["roots", "stem"], ["stem", "leaves"]], show=["roots"]),
+               scene.safe(lambda: scene.reveal_nodes("p", ["stem"]), "reveal", said="stem"),
+               scene.safe(lambda: scene.reveal_nodes("p", ["leaves"]), "reveal", said="leaves"))
+    starts = [t for t, _ in log]
+    # The diagram as the line begins; "roots" (1.2 s), drawn with it, pointed at as it is said; "stem" (2.4 s) and
+    # "leaves" (4.8 s) each arriving 0.2 s before their words.
+    assert starts == [0.0, pytest.approx(1.1), pytest.approx(2.2), pytest.approx(4.6)], log
+    assert pl.sync_counts()["on_words"] >= 2
+
+
+def test_a_thing_on_the_screen_is_pointed_at_when_named_again(monkeypatch):
+    monkeypatch.setattr(pl, "narrate", lambda text: (None, 5.0))
+    monkeypatch.setattr(pl, "voice_mode", lambda: "gemini:Achird")
+    monkeypatch.setattr(pl, "line_words", lambda text: _timed(text))
+    scene, log, clock = _probe()
+    scene.beat("Three dates matter.", scene.big_timeline([("1526", "Panipat"), ("1556", "Akbar"), ("1857", "Revolt")]))
+    log.clear()
+    began = clock[0]
+    scene.beat("Then in 1857 came the great revolt.", None)
+    # "1857" is the 3rd word (0.8 s): pointed at from 0.7 s; "revolt" (2.4 s) names the same event, once only.
+    assert len(log) == 1 and log[0][0] - began == pytest.approx(0.7), log
+
+
+def test_the_compiler_builds_a_diagram_as_its_own_line_names_its_parts():
+    nodes = [{"id": k, "label": k.title()} for k in ("roots", "stem", "leaves")]
+    script = {"title": "Plants", "style": "chalkboard", "auto_visuals": False, "place_figures": False,
+              "chapters": [{"title": "Parts", "map": False, "beats": [
+                  {"say": "First the roots, then the stem, and at last the leaves.",
+                   "do": [{"op": "diagram", "id": "p", "kind": "flow", "nodes": nodes}]}]}]}
+    source = cl.compile_script(json.loads(json.dumps(script)))
+    assert "show=['roots']" in source
+    assert 'said="Stem"' in source and 'said="Leaves"' in source
+    assert source.index('said="Stem"') < source.index('said="Leaves"')

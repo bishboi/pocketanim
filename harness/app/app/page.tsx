@@ -23,6 +23,8 @@ type ExportState = {
   blockers?: string[];
   /** Pictures left out because they could not be drawn (the lecture still built), with their beats. */
   skipped?: string[];
+  /** Inside the beats: pictures on their words, things pointed at as named, of the beats with word times. */
+  synced?: { beats: number; on_words: number; pointed: number };
   program?: string | null;
   source?: string;
   program_bytes?: number;
@@ -1833,6 +1835,15 @@ export default function Home() {
                       `${exported.voiceCost.align.words["aligned here"]} aligned here, ${exported.voiceCost.align.words.none} none` +
                       ` — ${exported.voiceCost.align.words.aligner})`}
                     {exported.voiceCost.align.model && `; model ${exported.voiceCost.align.model}`}.
+                    {exported.synced && (
+                      <span className="block" data-testid="sync-report">
+                        Inside the beats: {exported.synced.on_words} picture{exported.synced.on_words === 1 ? "" : "s"} started
+                        on the words that name {exported.synced.on_words === 1 ? "it" : "them"} (a place, a diagram part, a
+                        term), {exported.synced.pointed} thing{exported.synced.pointed === 1 ? "" : "s"} on screen pointed
+                        at as the voice said {exported.synced.pointed === 1 ? "it" : "them"}, over {exported.synced.beats} beats
+                        with word times.
+                      </span>
+                    )}
                     {!!exported.voiceCost.align.errors?.length && (
                       <span className="block text-amber-300">Problems: {exported.voiceCost.align.errors.slice(0, 3).join(" | ")}</span>
                     )}

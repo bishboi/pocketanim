@@ -166,7 +166,9 @@ def test_a_diagram_is_built_as_its_parts_are_spoken_of():
     errors, warnings = cl.lint(script)
     assert not errors
     beats = script["chapters"][0]["beats"]
-    assert beats[0]["do"][0]["show"] == ["s", "c"]
+    # Society with the diagram; the clergy, named later in the same line, on its own words.
+    assert beats[0]["do"][0]["show"] == ["s"]
+    assert beats[0]["do"][1] == {"op": "reveal", "diagram": "d", "nodes": ["c"]}
     assert beats[1]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["n"]}]
     assert beats[2]["do"] == [{"op": "reveal", "diagram": "d", "nodes": ["p"]}]
     assert any("built as it is spoken of" in w for w in warnings)

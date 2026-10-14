@@ -2113,6 +2113,67 @@ def backdrop() -> VGroup:
     return parts
 
 
+def hud_frame(width: float, height: float, color: str | None = None, stroke: float = 3.5, glow: bool = True):
+    """The house frame for something looked at (a picture's part, the camera's view, a place on the map): four
+    corner brackets over a faint full rim, with a soft glow under the brackets, in the manner of a modern
+    interface's focus ring. Centred on the origin; move it where it goes."""
+    color = color or role("highlight")
+    w, h = max(width, 0.12), max(height, 0.12)
+    arm = max(0.08, min(0.38, 0.22 * min(w, h)))
+    rim = Rectangle(width=w, height=h, stroke_color=color, stroke_width=1.2, stroke_opacity=0.45, fill_opacity=0)
+    corners = []
+    for sx, sy in ((-1, 1), (1, 1), (1, -1), (-1, -1)):
+        corner = np.array([sx * w / 2, sy * h / 2, 0])
+        corners.append(VMobject().set_points_as_corners([corner + np.array([0, -sy * arm, 0]), corner,
+                                                         corner + np.array([-sx * arm, 0, 0])]))
+    brackets = VGroup(*corners).set_stroke(color, width=stroke, opacity=1).set_fill(opacity=0)
+    parts = [rim]
+    if glow:
+        parts.append(brackets.copy().set_stroke(color, width=stroke * 3.2, opacity=0.18))
+    parts.append(brackets)
+    frame = VGroup(*parts)
+    frame.brackets = brackets
+    return frame
+
+
+def _modern_motion(animations, kwargs) -> None:
+    """The house motion: things arrive fast and settle (rush_from, an ease-out) and leave by gathering speed
+    (rush_into), instead of Manim's even ease both ways. Only where an animation keeps Manim's default and the play
+    sets none; both are rates the phone's players have."""
+    if kwargs.get("rate_func") is not None:
+        return
+    from manim import Create, DrawBorderThenFill, GrowFromEdge, SpinInFromNothing
+
+    todo = list(animations)
+    while todo:
+        anim = todo.pop()
+        subs = getattr(anim, "animations", None)
+        if subs:
+            todo.extend(subs)
+            continue
+        if getattr(anim, "rate_func", None) is not smooth or getattr(anim, "_panim_bake", False):
+            continue
+        if isinstance(anim, FadeOut):
+            anim.rate_func = rush_into
+        elif isinstance(anim, (FadeIn, Create, GrowFromCenter, GrowFromEdge, DrawBorderThenFill, SpinInFromNothing)):
+            anim.rate_func = rush_from
+
+
+def _with_sound(method, kind: str):
+    """A picture method whose animation makes this sound effect (sfx.py) when it plays."""
+    def wrapped(self, *args, **kwargs):
+        anim = method(self, *args, **kwargs)
+        if anim is not None:
+            try:
+                anim.panim_sfx = kind
+            except AttributeError:
+                pass
+        return anim
+
+    wrapped.__name__, wrapped.__doc__ = method.__name__, method.__doc__
+    return wrapped
+
+
 class Lecture(Scene):
     """Beats, captions, a fact panel and chapter cards, in the current style."""
 
@@ -2295,7 +2356,30 @@ class Lecture(Scene):
 
             stem.ink_animations(animations, P.CREAM)     # a free block's white, on a light board
         if animations:
+            _modern_motion(animations, kwargs)
+            self._sound_for(animations, kwargs)
             super().play(*animations, **kwargs)
+
+    SFX_GAP = 0.18           # seconds between two sound effects, at least: a run of quick plays is not a rattle
+
+    def _sound_for(self, animations, kwargs) -> None:
+        """The play's sound effect (sfx.py: a pop, a tick, a whoosh, the camera's zoom...), started with it."""
+        import sfx
+
+        if not sfx.enabled() or getattr(self, "_free_ink", None):
+            return
+        if voice_mode() == "silent" and os.environ.get("PANIM_SFX") != "1":
+            return                                          # a silent build (a preview, a test) stays silent
+        kind, _ = sfx.classify(animations)
+        if kind is None:
+            return
+        now = float(getattr(getattr(self, "renderer", None), "time", 0.0) or 0.0)
+        if now - self.__dict__.get("_last_sfx", -9.0) < self.SFX_GAP and kind not in ("chapter", "intro", "answer"):
+            return
+        wav = sfx.path(kind)
+        if wav:
+            self._last_sfx = now
+            self.add_sound(wav, gain=sfx.gain(kind))
 
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
              cues: list | None = None) -> float:
@@ -3466,16 +3550,17 @@ class Lecture(Scene):
                 tag.move_to([edge + side * tag.width / 2, y, 0])
                 x0, y0 = lo[0] + box[0] * iw, hi[1] - box[3] * ih
                 x1, y1 = lo[0] + box[2] * iw, hi[1] - box[1] * ih
-                frame_halo = Rectangle(width=max(x1 - x0, 0.12), height=max(y1 - y0, 0.12), stroke_color=P.BG,
-                                       stroke_width=7, stroke_opacity=0.85, fill_opacity=0)
-                frame_line = Rectangle(width=max(x1 - x0, 0.12), height=max(y1 - y0, 0.12), stroke_color=P.GOLD,
-                                       stroke_width=3, fill_opacity=0)
-                frame = VGroup(frame_halo, frame_line).move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
+                # Corner brackets round the part (hud_frame), over a dark halo so they read on any picture.
+                halo_frame = hud_frame(x1 - x0, y1 - y0, P.BG, stroke=7, glow=False)
+                halo_frame[0].set_stroke(opacity=0)
+                halo_frame.brackets.set_stroke(opacity=0.8)
+                frame = VGroup(halo_frame, hud_frame(x1 - x0, y1 - y0, P.GOLD, stroke=3.2))
+                frame.move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
                 # The line from the tag to the side of the box facing it, at the part's height (kept on the box).
                 start = tag.get_right() if side < 0 else tag.get_left()
                 end = np.array([x0 if side < 0 else x1, min(max(point[1], y0 + 0.04), y1 - 0.04), 0])
-                halo = Line(start, end, color=P.BG, stroke_width=7, stroke_opacity=0.9)
-                pointer = Line(start, end, color=P.GOLD, stroke_width=3)
+                halo = Line(end, start, color=P.BG, stroke_width=7, stroke_opacity=0.9)
+                pointer = Line(end, start, color=P.GOLD, stroke_width=3)
                 dot = Dot(end, radius=0.07, color=P.GOLD, stroke_color=P.BG, stroke_width=3)
                 for m in (frame, halo, pointer, dot):
                     m.set_z_index(Z_LABEL - 0.5)
@@ -3504,10 +3589,12 @@ class Lecture(Scene):
         for m in [*self._pointer_pieces(piece), piece["tag"]]:
             if all(m is not x for x in self.stage_extra):
                 self.stage_extra.append(m)
-        pointers = [] if hidden else [Create(piece["frame"]), AnimationGroup(Create(piece["halo"]),
-                                                                            Create(piece["line"])),
-                                      GrowFromCenter(piece["dot"])]
-        return LaggedStart(*pointers, FadeIn(piece["tag"], scale=0.9), lag_ratio=0.3)
+        # The box locks on to the part (in from a little larger), the dot appears on it, the line runs out from
+        # the part to the name, and the name slides in from the picture's side.
+        side = 1 if piece["tag"].get_center()[0] > piece["dot"].get_center()[0] else -1
+        pointers = [] if hidden else [FadeIn(piece["frame"], scale=1.25), GrowFromCenter(piece["dot"]),
+                                      AnimationGroup(Create(piece["halo"]), Create(piece["line"]))]
+        return LaggedStart(*pointers, FadeIn(piece["tag"], shift=RIGHT * side * 0.25), lag_ratio=0.3)
 
     def _look_region(self, view, name: str):
         """The part of the picture the camera shows for a part: its box with a margin, the picture's shape, at most
@@ -3548,7 +3635,7 @@ class Lecture(Scene):
         shot.stretch_to_fit_width(x1 - x0)
         shot.stretch_to_fit_height(y1 - y0)
         shot.move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
-        rim = Rectangle(width=x1 - x0, height=y1 - y0, stroke_color=P.GOLD, stroke_width=4, fill_opacity=0).move_to(shot)
+        rim = hud_frame(x1 - x0, y1 - y0, P.GOLD, stroke=4).move_to(shot)
         lens = Group(shot, rim)
         lens.set_z_index(self.Z_LOOK)
         for part in lens.get_family():
@@ -3561,13 +3648,16 @@ class Lecture(Scene):
         """Move and size a mobject from one screen box to another (x0, y0, x1, y1), smoothly, whatever it is doing
         when the move is built (the moves of one line are built before any of them plays)."""
         def step(m, alpha: float) -> None:
-            t = smooth(alpha)
-            x0, y0, x1, y1 = (a + (b - a) * t for a, b in zip(start, end))
+            # A camera's move: slow away, quick through the middle, a long soft landing (an exponential ease).
+            a = min(max(alpha, 0.0), 1.0)
+            t = 0.5 * 2 ** (20 * a - 10) if a < 0.5 else 1 - 0.5 * 2 ** (-20 * a + 10)
+            t = 0.0 if a <= 0 else 1.0 if a >= 1 else t
+            x0, y0, x1, y1 = (a0 + (b0 - a0) * t for a0, b0 in zip(start, end))
             m.stretch_to_fit_width(max(x1 - x0, 1e-3))
             m.stretch_to_fit_height(max(y1 - y0, 1e-3))
             m.move_to([(x0 + x1) / 2, (y0 + y1) / 2, 0])
 
-        return UpdateFromAlphaFunc(mob, step)
+        return UpdateFromAlphaFunc(mob, step, rate_func=linear)
 
     def _look(self, view, name: str):
         """Move the camera in on a part of a labelled picture (its label first if it is not on yet), from wherever
@@ -5247,6 +5337,7 @@ class Lecture(Scene):
                 mark.shift(DOWN * (mark.get_top()[1] - config.frame_height / 2 + 0.7))
             intro = AnimationGroup(intro, FadeIn(mark, scale=0.8))
             card = Group(*card, mark)
+        intro.panim_sfx = "chapter"
         self.beat(narration, intro, rt=2.2)
         self.play(FadeOut(card, shift=UP * 0.3), run_time=0.8)
 
@@ -5260,9 +5351,10 @@ class Lecture(Scene):
         group = Group(*([mark] if mark is not None else []), label, head, line).arrange(DOWN, buff=0.28)
         group.move_to(UP * 0.4)
         group.set_z_index(Z_CARD)
-        self.beat(narration or f"{title}. {sub}", LaggedStart(*([FadeIn(mark, scale=0.8)] if mark is not None else []),
-                                                             FadeIn(label), Write(head), FadeIn(line, shift=UP * 0.2),
-                                                             lag_ratio=0.35), rt=3.0)
+        opening = LaggedStart(*([FadeIn(mark, scale=0.8)] if mark is not None else []), FadeIn(label), Write(head),
+                              FadeIn(line, shift=UP * 0.2), lag_ratio=0.35)
+        opening.panim_sfx = "intro"
+        self.beat(narration or f"{title}. {sub}", opening, rt=3.0)
         self.play(FadeOut(group, shift=UP * 0.3), run_time=0.8)
 
     def recap(self, points, narration=None) -> None:
@@ -5469,6 +5561,11 @@ class Lecture(Scene):
 
 
 from stem import BoardMixin  # noqa: E402 -- the board layout and the STEM drawings
+
+
+# A question for the class sounds a two-note call; its answer, a brighter chime (sfx.py).
+Lecture.question = _with_sound(Lecture.question, "question")
+Lecture.answer = _with_sound(Lecture.answer, "answer")
 
 
 class MapLecture(BoardMixin, Lecture):
@@ -6405,13 +6502,13 @@ class MapLecture(BoardMixin, Lecture):
                                              (bx1 - bx0, y1 - by1, (bx0 + bx1) / 2, (by1 + y1) / 2),
                                              (bx1 - bx0, by0 - y0, (bx0 + bx1) / 2, (y0 + by0) / 2))
                         if w > 0.01 and h > 0.01])
-        frame = RoundedRectangle(corner_radius=0.08, width=bx1 - bx0, height=by1 - by0, stroke_color=role("highlight"),
-                                 stroke_width=3.5, fill_opacity=0).move_to([(bx0 + bx1) / 2, (by0 + by1) / 2, 0])
+        frame = hud_frame(bx1 - bx0, by1 - by0).move_to([(bx0 + bx1) / 2, (by0 + by1) / 2, 0])
         veil.set_z_index(Z_MARK + 3)
         frame.set_z_index(Z_MARK + 4)
         for part in [*veil.get_family(), *frame.get_family()]:
             part._art_decorated = True
-        shows = [FadeIn(veil), Create(frame)]
+        # The veil comes down and the frame locks on to the place, in from larger.
+        shows = [FadeIn(veil), FadeIn(frame, scale=1.35)]
         spot = [veil, frame]
         if area:
             # The area's border traced in the highlight colour.
@@ -6427,11 +6524,17 @@ class MapLecture(BoardMixin, Lecture):
             spot.append(edge)
         else:
             c = moved(point)
-            ring = Circle(radius=0.16, color=role("highlight"), stroke_width=4).move_to(c).set_z_index(Z_MARK + 4)
-            shows.append(Succession(Create(ring), FadeOut(ring, scale=2.6)))
+            # Two rings ripple out from the place, one after the other.
+            for k in range(2):
+                ring = Circle(radius=0.16, color=role("highlight"), stroke_width=4 - k).move_to(c).set_z_index(Z_MARK + 4)
+                shows.append(Succession(GrowFromCenter(ring, run_time=0.3), FadeOut(ring, scale=2.8 + k)))
         self._map_spot = spot
         lit = AnimationGroup(*shows, lag_ratio=0.15)
-        return AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
+        lit.panim_sfx = "ping"
+        both = AnimationGroup(push, lit, lag_ratio=1.0) if push is not None else lit
+        if push is not None:
+            both.panim_sfx = "zoom"
+        return both
 
     def _map_return(self) -> list:
         """The map back as it was at the end of a line that looked at a place: the veil and box gone, the map moved

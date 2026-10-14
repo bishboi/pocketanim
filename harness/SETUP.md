@@ -224,6 +224,16 @@ the map dims, an area's border is traced, a place's dot ripples, and on a line t
 in on it, back out by the line's end. All of it plays the same on the phone. The build report counts it ("the
 camera moved in N times").
 
+### Motion and sound
+
+Things arrive fast and settle (an ease-out) and leave by gathering speed; the camera's moves ease in and out
+exponentially. What is looked at (a picture's part, the camera's view, a place on the map) is framed by corner
+brackets that lock on to it. Most animations make a quiet sound (`harness/lecture/sfx.py`): a pop as a thing comes
+on, a tick as it is pointed at, a whoosh for a picture, a rising zoom for the camera, a pen's swish, light keys for
+words, a chime for a question and its answer, a sweep between chapters. They are made in code (nothing downloaded),
+kept under the voice, and mixed into the phone's track as the voice is. `PANIM_SFX=0` turns them off;
+`PANIM_SFX_GAIN=-3` makes them all 3 dB quieter (or louder with a positive number). A silent build has none.
+
 ### Nothing over anything else
 
 Before each line plays, a layout pass (`harness/lecture/layout.py`) checks what the line brings on against what is

@@ -84,56 +84,27 @@ PROFILES = {
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["diagram", "molecule", "equation", "problem", "work", "define", "compare", "draw", "manim"],
+        "kit": ["molecule", "equation", "problem", "work", "define", "compare", "draw", "manim"],
     },
     "physics": {
         "label": "Physics", "style": "blueprint", "map": "never",
-        "kit": ["diagram", "problem", "work", "equation", "define", "zoom", "draw", "manim"],
+        "kit": ["problem", "work", "equation", "define", "zoom", "draw", "manim"],
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["diagram", "work", "problem", "equation", "define", "manim"],
+        "kit": ["work", "problem", "equation", "define", "manim"],
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
-        "kit": ["diagram", "bars", "compare", "define", "stat", "marker", "manim"],
+        "kit": ["bars", "compare", "define", "stat", "marker", "manim", "diagram"],
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
-        "kit": ["diagram", "figure", "picture", "define", "compare", "timeline", "bars"],
-        "guidance": "Give each paragraph one visual that explains it: a diagram built from drawings, the "
-                    "document's figures, a comparison, a timeline; pictures only of people and places; the map only "
-                    "for where.",
+        "kit": ["figure", "picture", "define", "compare", "timeline", "bars", "diagram"],
+        "guidance": "Give each paragraph the visual that explains it best, of any kind; pictures only of people, "
+                    "places and things the class should see; the map only for where.",
     },
 }
-
-# Where each subject's ideas become diagrams of boxes and arrows (diagram ops: flow, cycle, hub, pyramid), whichever
-# way the drawings are made: a process, a sequence, causes and effects, kinds of something are diagrams, not cards.
-_DIAGRAM_HINTS = {
-    "physics": "Diagrams too: a procedure or a method of solving (drawing a free-body diagram, applying a law) as a "
-               "numbered flow (\"steps\": true); kinds of something (forces, energy, motion, waves) as a hierarchy; "
-               "energy changing form, or a chain of cause and effect (heating -> expansion -> pressure), as a flow; "
-               "a big idea and what it connects to as a hub.",
-    "chemistry": "Diagrams too: a lab procedure or an industrial process (the steps of a titration, the Haber "
-                 "process, extracting a metal) as a numbered flow; classifications (matter, reactions, elements, "
-                 "compounds) as a hierarchy; a cycle (the carbon or nitrogen cycle) as a cycle; what decides a "
-                 "property or a rate as a hub.",
-    "mathematics": "Diagrams too: a method in steps (completing the square, a proof's chain of reasons, an "
-                   "algorithm) as a numbered flow; kinds of numbers, shapes or functions as a hierarchy; a decision "
-                   "(which method to use) as a flowchart.",
-    "economics": "Diagrams: how one change leads to the next (a rise in demand, prices, wages) as a flow whose "
-                 "arrows say why; who pays whom (households, firms, the government, banks) as a cycle or flowchart "
-                 "with lanes; kinds (of markets, taxes, sectors) as a hierarchy.",
-    "geography": "Diagrams: a process (how a delta forms, how the monsoon arrives) as a numbered flow with a drawing "
-                 "in each node; kinds (of soil, rock, forest, climate) as a hierarchy; what a crop or a region "
-                 "depends on as a hub; causes and effects (deforestation -> erosion -> floods) as a chain.",
-    "history": "Diagrams: causes and consequences as a chain whose arrows say why; who held power over whom as a "
-               "pyramid or a hierarchy; how a system worked (land given for service, taxes paid upward) as a flow "
-               "with arrows saying what passes; a movement and the groups in it as a hub.",
-    "general": "A process, a sequence, causes and effects, parts of a whole or kinds of something is a diagram "
-               "(flow, cycle, hub, hierarchy or pyramid), built across the paragraph.",
-}
-PROFILES["general"]["guidance"] += " " + _DIAGRAM_HINTS["general"]
 
 # Free-form Manim draws every maths, science and moving drawing: the presets, sketches, graphs and sims there once
 # were are gone (app/lib/lecture.ts FREE_DRAWN_OPS), so a subject's kit never offers them.
@@ -164,37 +135,28 @@ FREE_GUIDANCE = {
                    "tracing a sine wave, rectangles closing in on an area, a graph shifted and stretched); derive "
                    "and solve with work, one step per beat, each step said and justified. Young classes: hops on a "
                    "number line, fraction bars, place-value blocks, drawn in manim. " + _THEORY,
-    "biology": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
-               "heart, a neuron, a nephron): the book's figure or a detailed drawing (draw) with its parts labelled; "
-               "when its parts are named one by one, a free-form manim drawing built part by part. A PROCESS "
-               "(digestion, photosynthesis, blood flow, a reflex, protein synthesis): a flow diagram (\"steps\": "
-               "true to number it) with a drawing in each node, a stage at a time; a CYCLE (cell cycle, life cycles, "
-               "the cardiac cycle, the nitrogen cycle): diagram kind cycle. A HIERARCHY or CLASSIFICATION (cell, "
-               "tissue, organ, system; kingdoms, phyla): a flow diagram whose edges go from each whole to its kinds. "
-               "Two things side by side (mitosis and meiosis, plant and animal cells): compare. Something that MOVES "
-               "(diffusion and osmosis, chromosomes separating, a heart beating, an impulse along a neuron) or a "
-               "measurement graphed (growth, enzyme activity against temperature): free-form manim, set moving as "
-               "it is said. Hard terms: define. Pictures only of organisms, habitats and scientists the lecture "
+    "biology": "Biology: a structure (a cell, a leaf, a flower, the heart, a neuron) is shown in its real shape with "
+               "its parts labelled (the book's figure, a detailed drawing, or free-form manim built part by part); "
+               "for processes, cycles, classifications, comparisons and things that move, use whichever visual "
+               "teaches it best. Hard terms: define. Pictures only of organisms, habitats and scientists the lecture "
                "names. A molecule's structural formula only where the lecture explains its structure; a summary "
                "reaction with equation. No map unless the topic is where life lives.",
     "geography": "Geography: the map carries the where (markers, rivers, states shaded) and movement (a journey: the "
-                 "monsoon winds, a trade route, a river's course); the stage carries how it works, as diagrams built "
-                 "from drawings. The water cycle, the seasons and the Earth's or the soil's layers are free-form "
+                 "monsoon winds, a trade route, a river's course); the stage carries how it works, with whichever "
+                 "visual teaches it best. The water cycle, the seasons and the Earth's or the soil's layers are free-form "
                  "manim drawings, set moving as they are said; real figures (rainfall by month, a population "
                  "pyramid) are drawn in manim from the content's numbers only. The document's figures, and compare "
-                 "for differences. Pictures only of people, communities and places. " + _DIAGRAM_HINTS["geography"],
-    "history": "History: open each era with a timeline on the stage (its dates, events and pictures of the people "
+                 "for differences. Pictures only of people, communities and places.",
+    "history": "History: where dates matter, a timeline on the stage (its dates, events and pictures of the people "
                "and places); a paragraph about several people or places is one scene picture with each labelled; "
                "journeys on the map as they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); "
                "empires and kingdoms shaded on the map; differences between two systems or periods with compare; "
-               "quote primary sources. " + _DIAGRAM_HINTS["history"],
+               "quote primary sources.",
     "economics": "Economics: quantities as bars, and trends, supply and demand moving, money growing and data stories "
                  "as free-form manim drawings, from real figures only; kinds side by side with compare; places on the "
-                 "map only when trade or regions are the point. " + _DIAGRAM_HINTS["economics"],
+                 "map only when trade or regions are the point.",
 }
 
-for _genre in ("physics", "chemistry", "mathematics"):
-    FREE_GUIDANCE[_genre] += " " + _DIAGRAM_HINTS[_genre]
 for _genre, _text in FREE_GUIDANCE.items():
     PROFILES[_genre]["guidance"] = _text
 

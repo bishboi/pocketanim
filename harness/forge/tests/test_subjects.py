@@ -305,10 +305,12 @@ def test_a_generated_picture_says_what_it_cost(monkeypatch, tmp_path):
 def test_subjects_are_told_of_free_manim():
     # The presets, sketches, graphs and sims are gone: a subject's guidance and kit must not ask for them.
     physics = genre.profile("physics")
-    assert not set(physics["kit"]) & genre.FREE_DRAWN and "manim" in physics["kit"] and "diagram" in physics["kit"]
+    assert not set(physics["kit"]) & genre.FREE_DRAWN and "manim" in physics["kit"]
     assert "incline, pulley" not in physics["guidance"] and "free-form manim" in physics["guidance"]
     for name in genre.PROFILES:
         told = genre.profile(name)
         assert not set(told["kit"]) & genre.FREE_DRAWN
         assert "sim " not in told["guidance"] and "(sim" not in told["guidance"]
-        assert "diagram" in told["guidance"].lower()
+        # No kind of visual is pushed on the writer: no subject tells it to make diagrams of its ideas.
+        assert "as a hierarchy" not in told["guidance"] and "diagrams too" not in told["guidance"].lower()
+        assert told["kit"][0] != "diagram"

@@ -113,6 +113,44 @@ def check_code(code: str) -> list[str]:
     return list(dict.fromkeys(problems))[:6]
 
 
+def picture(what: str, height: float = 2.0, width: float | None = None):
+    """A picture of a real thing for a block (`picture("a steam locomotive, side view", height=2)`): the cutout the
+    illustration model made in the lecture's style -- the same one a diagram's node or a map's label would show --
+    at most `height` tall and `width` wide. The compiler has it made before the block runs (pictures_in). Where it
+    could not be made, a labelled frame of the same size stands in, so the figure still reads."""
+    import manim
+
+    width = float(width) if width else float(height) * 1.8
+    try:
+        import pocket_lecture as pl
+
+        mob = pl.cutout_mob(pl.thing_picture(str(what)), width, float(height))
+    except Exception:  # noqa: BLE001 -- not made (no image model, refused, offline): a stand-in, not a crash
+        frame = manim.RoundedRectangle(corner_radius=0.1, width=width * 0.8, height=float(height) * 0.8,
+                                       stroke_opacity=0.6, stroke_width=2)
+        words = manim.Text(str(what)[:40], font_size=20)
+        if words.width > frame.width - 0.2:
+            words.scale_to_fit_width(frame.width - 0.2)
+        mob = manim.VGroup(frame, words)
+    mob.panim_picture = str(what)
+    return mob
+
+
+def pictures_in(code: str | None) -> list[str]:
+    """The pictures a block asks for (`picture("...")` with the description written out), to be made first."""
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return []
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "picture":
+            arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "what"), None)
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.strip():
+                out.append(arg.value.strip())
+    return list(dict.fromkeys(out))
+
+
 def namespace(scene) -> dict:
     """The names a block runs with: Manim's, numpy as np, the board's bounds, the style's colours, the scene."""
     import manim
@@ -133,6 +171,7 @@ def namespace(scene) -> dict:
     import backed_text
 
     names.update(backed_text.classes(bg))
+    names["picture"] = picture
     names.update(np=np, self=scene, INK=ink, MUTED_INK=muted, BACKGROUND=bg, PALETTE=colours,
                  BOARD_LEFT=AREA[0], BOARD_RIGHT=AREA[1], BOARD_BOTTOM=AREA[2], BOARD_TOP=AREA[3])
     names["__builtins__"] = dict(SAFE_BUILTINS)

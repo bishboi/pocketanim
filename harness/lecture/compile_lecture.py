@@ -825,6 +825,16 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if kind == "manim":
                     if not isinstance(op.get("code"), str) or not op["code"].strip():
                         errors.append(f"{at}: a manim op needs its code: the Python that draws this beat")
+                    import free_check
+                    import mapguard
+
+                    # The pictures its code asks for (picture("...")), made now like an icon's, so the block finds
+                    # them made; a picture of a map is refused, as anywhere.
+                    for what in free_check.pictures_in(op.get("code")):
+                        if mapguard.is_map(what):
+                            errors.append(f"{at}: picture({what!r}) asks for a map; {mapguard.MAP_ADVICE}")
+                        else:
+                            icon_names.append((at, what))
                     if len(ops) > 1:
                         errors.append(f"{at}: a manim beat carries only its manim op; draw the rest in its code, "
                                       "or put the other ops on beats of their own")

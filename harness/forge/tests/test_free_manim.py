@@ -522,3 +522,59 @@ def test_reading_a_block_lets_through_what_it_cannot_be_sure_breaks(monkeypatch)
     then = ("def later_one():\n    return made_later\nmade_later = label(top, 'x')\n"
             "self.play(Write(made_later), last.animate.shift(RIGHT), Indicate(later_one()))")
     assert free_check.verify(_script(first, then)) == []
+
+
+def test_a_block_asks_for_pictures_and_the_compiler_has_them_made(monkeypatch):
+    code = 'loco = picture("a steam locomotive, side view", height=2)\nself.play(FadeIn(loco))\n' \
+           'm = picture(what="India, a map")'
+    assert free_check.pictures_in(code) == ["a steam locomotive, side view", "India, a map"]
+    asked = []
+    monkeypatch.setattr(cl, "_unfetched_photos", lambda photos, *a, **k: asked.extend(photos) or [])
+    monkeypatch.setattr(free_check, "verify", lambda script: [])
+    script = {"title": "Steam", "style": "chalkboard", "auto_visuals": False, "place_figures": False,
+              "chapters": [{"title": "Rail", "map": False, "beats": [
+                  {"say": "The locomotive arrives.", "do": [{"op": "manim", "id": "rail", "code": code}]}]}]}
+    errors, _ = cl.lint(script)
+    assert any("map" in e for e in errors)                              # a map is never a picture
+    script["chapters"][0]["beats"][0]["do"][0]["code"] = code.split("\nm = ")[0]
+    asked.clear()
+    errors, _ = cl.lint(script)
+    assert not errors
+    assert [op["query"] for _, op in asked if op.get("op") == "illustration"] == ["a steam locomotive, side view"]
+
+
+PICTURED = '''
+import pocket_lecture as _pl
+from manim import *
+from pocket_lecture import *
+
+_pl.thing_picture = lambda name: {png!r}
+
+
+class Pictured(MapLecture):
+    def construct(self):
+        self.board()
+        self.free("rail", "The locomotive pulls its wagons.",
+                  "loco = picture('a steam locomotive, side view', height=2).shift(LEFT * 3)\\n"
+                  "tag = Text('boiler', font_size=24).next_to(loco, UP)\\n"
+                  "self.play(FadeIn(loco))\\nself.play(Write(tag), loco.animate.shift(RIGHT * 4))")
+        self.free("rail", "And without one, a frame stands in.",
+                  "gone = picture('nothing to see', height=1).shift(DOWN)\\nself.play(FadeIn(gone))")
+'''
+
+
+def test_a_block_with_a_picture_plays_on_the_phone(tmp_path):
+    from PIL import Image
+
+    png = tmp_path / "loco.png"
+    Image.new("RGBA", (200, 100), (180, 60, 40, 255)).save(png)
+    scene = tmp_path / "scene.py"
+    scene.write_text(PICTURED.format(png=str(png)).replace(
+        "_pl.thing_picture = lambda name: " + repr(str(png)),
+        "_pl.thing_picture = lambda name: " + repr(str(png)) + " if 'locomotive' in name else (_ for _ in ()).throw(KeyError(name))"))
+    out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene), "Pictured",
+                          str(tmp_path / "build")], capture_output=True, text=True, timeout=900,
+                         env={**__import__("os").environ, "PANIM_VOICE": "silent"})
+    result = json.loads(out.stdout.strip().splitlines()[-1])
+    assert result["tier"] == 1 and result["blockers"] == [] and not result.get("skipped"), result
+    assert any(line.startswith("image ") for line in result["program"].splitlines())

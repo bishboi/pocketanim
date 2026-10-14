@@ -338,3 +338,21 @@ def test_the_local_aligner_picks_the_language_and_cuts_a_long_line_at_a_pause():
     assert len(pieces) == 3 and all(end - start <= 28.5 for start, end, _ in pieces)
     assert abs(pieces[0][1] - 25.2) < 0.3 and abs(pieces[1][1] - 52.2) < 0.3
     assert " ".join(p[2] for p in pieces).split() == text.split()     # every word once, in order
+
+
+def test_aligned_words_are_moved_out_of_the_pauses():
+    # The model runs the word before a pause on until the next word, and can start the next one inside the pause:
+    # both are moved to where the sound is.
+    import numpy as np
+
+    import local_align
+
+    rate = local_align.RATE
+    audio = np.zeros(int(5.0 * rate), dtype=np.float32)
+    audio[: int(2.0 * rate)] = 0.3                       # speech to 2.0 s
+    audio[int(3.5 * rate):] = 0.3                        # silence, then speech again from 3.5 s
+    assert [(round(a, 2), round(b, 2)) for a, b in local_align.pauses(audio)] == [(2.0, 3.5)]
+    words = [{"w": "one", "start": 1.2, "end": 3.4}, {"w": "two", "start": 2.9, "end": 4.0},
+             {"w": "three", "start": 4.0, "end": 4.6}]
+    out = local_align.snap_to_speech(words, audio)
+    assert out[0]["end"] == 2.0 and out[1]["start"] == 3.5 and out[2] == {"w": "three", "start": 4.0, "end": 4.6}

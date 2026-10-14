@@ -116,6 +116,48 @@ def _pieces(audio, text: str) -> list[tuple[float, float, str]]:
     return [p for p in out if p[2]]
 
 
+FRAME = 0.02               # seconds a loudness frame
+PAUSE = 0.2                # a quiet stretch this long is a pause between words, not a consonant's closure
+
+
+def pauses(audio) -> list[tuple[float, float]]:
+    """The pauses in a line's audio, (start, end) in seconds: stretches of PAUSE or more far quieter than its
+    speech."""
+    import numpy as np
+
+    n = int(FRAME * RATE)
+    if len(audio) < n:
+        return []
+    frames = audio[: len(audio) // n * n].reshape(-1, n)
+    loud = np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
+    speech = float(np.percentile(loud, 90)) if len(loud) else 0.0
+    quiet = loud < max(speech * 0.08, 1e-4)
+    out, begin = [], None
+    for i, q in enumerate(list(quiet) + [False]):
+        if q and begin is None:
+            begin = i
+        elif not q and begin is not None:
+            if (i - begin) * FRAME >= PAUSE:
+                out.append((begin * FRAME, i * FRAME))
+            begin = None
+    return out
+
+
+def snap_to_speech(words: list[dict], audio) -> list[dict]:
+    """Words moved out of the pauses: the model's times run each word on until the next one begins, through any
+    silence between them, and can start the word after a pause inside it. A word ending in a pause ends where the
+    pause begins; a word starting in one starts where it ends."""
+    gaps = pauses(audio)
+    for w in words:
+        for a, b in gaps:
+            if a < w["start"] < b:
+                w["start"] = round(min(b, max(w["end"], b)), 3)
+            if a < w["end"] < b + 0.01 and w["start"] < a:
+                w["end"] = round(a, 3)
+        w["end"] = max(w["end"], w["start"])
+    return words
+
+
 def align(wav: str | Path, text: str) -> list[dict] | None:
     """The line's words as said, [{"w", "start", "end"}] in seconds into its audio; None when it cannot be done."""
     if not enabled() or not text.strip():
@@ -147,6 +189,7 @@ def align(wav: str | Path, text: str) -> list[dict] | None:
             if word:
                 out.append({"w": word, "start": round(start + float(item["start"]), 3),
                             "end": round(start + float(item["end"]), 3)})
+    out = snap_to_speech(out, audio)
     # In order and inside the line, as a later step expects.
     total = len(audio) / RATE
     floor = 0.0

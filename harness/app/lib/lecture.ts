@@ -399,7 +399,7 @@ export const LECTURE_TOOL = {
   function: {
     name: "write_lecture",
     description:
-      "Write the whole lecture as a beat script. It is compiled into the Manim scene; errors and layout warnings come back and you call again with a fixed script. Prefer this over write_scene for a lecture template.",
+      "Write the whole lecture as a beat script. It is compiled into the Manim scene; errors and layout warnings come back and you call again with a fixed script.",
     parameters: {
       type: "object",
       properties: {

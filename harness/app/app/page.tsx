@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ART_STYLES, artFor, artPreview } from "@/lib/artstyles";
-import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES } from "@/lib/templates";
+import { LENGTH_CHOICES, SUBJECT_CHOICES, TEMPLATES, templateById } from "@/lib/templates";
 import { TemplateCard } from "@/components/template-card";
 import { Player } from "@/components/player";
 import { CostBreakdown, versionTotal } from "@/components/cost-breakdown";
@@ -410,7 +410,7 @@ export default function Home() {
       if (!alive) return;
       if (saved) {
         setContent(saved.content ?? "");
-        if (saved.templateId) setTemplateId(saved.templateId);
+        if (saved.templateId) setTemplateId(templateById(saved.templateId).id);
         setArt(saved.art ?? "auto");
         setMinutes(saved.minutes ?? null);
         setSubject(saved.subject ?? "auto");
@@ -844,16 +844,16 @@ export default function Home() {
         body: JSON.stringify({
           content,
           templateId: styleId,
-          art: template.kind === "lecture" ? art : undefined,
+          art,
           previousSource: edit ? version?.source : undefined,
           instruction: edit ? instruction : undefined,
           documentId: doc.id,
-          minutes: template.kind === "lecture" && minutes ? minutes : undefined,
-          subject: template.kind === "lecture" ? subject : undefined,
-          language: template.kind === "lecture" ? language : undefined,
-          transcriptModel: template.kind === "lecture" && writer.trim() ? writer.trim() : undefined,
-          referenceId: template.kind === "lecture" ? reference.id : undefined,
-          preview: template.kind === "lecture" && preview && !edit ? true : undefined,
+          minutes: minutes || undefined,
+          subject,
+          language,
+          transcriptModel: writer.trim() ? writer.trim() : undefined,
+          referenceId: reference.id,
+          preview: preview && !edit ? true : undefined,
         }),
       });
       if (!response.ok || !response.body) {

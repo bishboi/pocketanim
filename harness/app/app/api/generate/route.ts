@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   }
   const job: GenerateRequest = {
     content: String(body.content ?? ""),
-    templateId: String(body.templateId ?? "manim"),
+    templateId: String(body.templateId ?? "lecture-auto"),
     previousSource: body.previousSource
       ? String(body.previousSource)
       : undefined,

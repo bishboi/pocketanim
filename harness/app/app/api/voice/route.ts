@@ -9,7 +9,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (!body?.source) return NextResponse.json({ error: "source is required" }, { status: 400 });
-  const result = await speak(String(body.source), String(body.templateId ?? "manim"));
+  const result = await speak(String(body.source), String(body.templateId ?? "lecture-auto"));
   const audioUrl =
     result.ok && result.audioPath
       ? `/api/audio?file=${encodeURIComponent(path.relative(path.join(REPO, "harness", "app", ".voice"), result.audioPath))}`

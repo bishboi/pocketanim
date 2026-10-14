@@ -729,6 +729,10 @@ export default function Home() {
         if (state.phase === "voice" && state.total) {
           const share = Math.round((100 * (state.done ?? 0)) / state.total);
           setBusy(`Speaking the lecture: ${state.done} of ${state.total} lines (${share}%) · ${clock}`);
+        } else if (state.phase === "direct") {
+          setBusy(`Directing the voice: marking how each line is said · ${clock}`);
+        } else if (state.phase === "align") {
+          setBusy(`Timing the animations to the spoken words · ${clock}`);
         } else if (state.phase === "repair") {
           setBusy(`The Manim model is mending ${state.total ?? ""} picture${state.total === 1 ? "" : "s"} the build ` +
             `left out; the lecture is then built again · ${clock}`);

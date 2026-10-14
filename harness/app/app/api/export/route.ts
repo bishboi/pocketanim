@@ -3,7 +3,7 @@ import { TimingLog } from "@/lib/timing";
 import { NextRequest, NextResponse } from "next/server";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { REPO, exportScene, frameCount, prespeak, progressFile, type VoiceCost } from "@/lib/pocketanim";
+import { REPO, alignBeats, exportScene, frameCount, prespeak, progressFile, type VoiceCost } from "@/lib/pocketanim";
 import { rm, writeFile } from "node:fs/promises";
 import { exposeMapProject, sanitizeScene } from "@/lib/model";
 import { voiceEngine, voiceName, voiceProblem } from "@/lib/version";
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
 async function build(body: Record<string, unknown> | null): Promise<Reply> {
   try {
-    const source = exposeMapProject(sanitizeScene(String(body?.source ?? "")));
+    let source = exposeMapProject(sanitizeScene(String(body?.source ?? "")));
     if (!source.trim()) {
       return reply({ error: "no source to export" }, { status: 400 });
     }
@@ -77,6 +77,19 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
       voiceCost = spoken.voice;
       voiceSeconds = (Date.now() - started) / 1000;
       logVoice(log, started, spoken.waitedAhead, spoken.voice);
+      // The voice is made: the animations are timed to its words (a voice that times them, ElevenLabs), filling
+      // the scene's timing slots before Manim draws it.
+      if (voiceEngine() === "eleven") {
+        const aligning = Date.now();
+        if (progress) await writeFile(progress, JSON.stringify({ phase: "align", done: 0, total: beats })).catch(() => {});
+        const aligned = await alignBeats(source);
+        source = aligned.source;
+        if (aligned.report && voiceCost) {
+          voiceCost = { ...voiceCost, usd: voiceCost.usd + aligned.report.usd, align: aligned.report };
+        }
+        log.span("align", aligning, Date.now(), { what: "the animations timed to the spoken words",
+          ...(aligned.report ?? { failed: true }) });
+      }
     }
     const building = Date.now();
     let { result, buildDir } = await exportScene(source, sceneClass, progress);
@@ -122,7 +135,7 @@ async function build(body: Record<string, unknown> | null): Promise<Reply> {
     let voiceWarning: string | null = null;
     // When the build failed, its error already says why (Google's own message for the voice): no warning over it.
     const engine = voiceEngine();
-    if (!narrationUrl && !result.error && /pocket_lecture/.test(built) && (engine === "gemini" || engine === "chirp")) {
+    if (!narrationUrl && !result.error && /pocket_lecture/.test(built) && (engine === "gemini" || engine === "chirp" || engine === "eleven")) {
       voiceWarning = `This lecture has no audio: ${voiceName()} did not speak its lines (check the key; the dev ` +
         "server log has Google's message).";
     }

@@ -44,7 +44,8 @@ def _arg(call: ast.Call, index: int, name: str):
 
 def beat_lines(source: str) -> list[str]:
     """Every line the scene will speak, in order (a line said twice is listed twice): self.beat("...") and the
-    helpers that speak through it (pocket_lecture: title_slide, chapter, recap), as they build their lines."""
+    helpers that speak through it (pocket_lecture: title_slide, chapter, recap), as they build their lines, and
+    the line of each free-form block (self.free)."""
     out: list[str] = []
     calls = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
     for call in sorted(calls, key=lambda n: (n.lineno, n.col_offset)):
@@ -52,6 +53,8 @@ def beat_lines(source: str) -> list[str]:
         if name == "beat":
             line = _arg(call, 0, "text")
             lines = [line]
+        elif name == "free":
+            lines = [_arg(call, 1, "text")]
         elif name == "title_slide":
             title, sub = _arg(call, 0, "title"), _arg(call, 1, "sub") or ""
             lines = [_arg(call, 3, "narration") or (f"{title}. {sub}" if isinstance(title, str) else None)]
@@ -104,6 +107,17 @@ def main() -> int:
     left = [line for line in unique
             if pl._cached_seconds(pl.audio_file(mode, pl.speechify(line))) is None]
     done = len(unique) - len(left)
+    # How the lines still to be spoken are said, marked for an expressive voice first (voice_director.py).
+    import voice_director
+
+    director = {"lines": 0, "usd": 0.0}
+    if left and voice_director.enabled(mode.split(":", 1)[0]):
+        write(progress, phase="direct", done=done, total=len(unique), beats=len(lines))
+        todo = [pl.speechify(line) for line in left if pl.delivery(mode, pl.speechify(line)) is None]
+        marked, director["usd"] = voice_director.mark(todo)
+        for spoken, said in marked.items():
+            pl.delivery_file(mode, spoken).write_text(said, encoding="utf-8")
+        director["lines"] = len(marked)
     lock = threading.Lock()
     write(progress, phase="voice", done=done, total=len(unique), beats=len(lines))
     threads = max(1, int(os.environ.get("PANIM_TTS_THREADS", "8")))
@@ -160,6 +174,8 @@ def main() -> int:
              "spoken": len(left), "lines": len(unique), "unknown": sum(c is None for c in whole),
              "engine": mode.split(":", 1)[0]}
     voice["batches"] = dict(pl.BATCHES)
+    voice["director"] = {"lines": director["lines"], "usd": round(director["usd"], 6)}
+    voice["usd"] = round(voice["usd"] + director["usd"], 6)
     try:
         import tts
 

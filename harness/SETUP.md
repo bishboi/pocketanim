@@ -115,6 +115,32 @@ Cloud Text-to-Speech API. It needs that API enabled in a Google Cloud project an
 YOUR_PROJECT_ID`), a service account (`GOOGLE_APPLICATION_CREDENTIALS=/path/key.json`), or an API key
 (`GOOGLE_TTS_API_KEY`) where the project allows keys. `.venv/bin/python harness/lecture/chirp.py --check` checks it.
 
+**ElevenLabs, with the animations timed to the words.** `PANIM_TTS=eleven` and `ELEVENLABS_API_KEY=<key>` in
+`harness/app/.env.local` speak the lecture with ElevenLabs (Eleven v4 Turbo by default), through its own API, which
+says when each word is spoken. A build then goes:
+
+1. **The voice director** (`lecture/voice_director.py`) reads the lines in order and marks how each is said: a
+   delivery tag (`[curious]`, `[thoughtful]`, `[short pause]`), a capitalised key word, an ellipsis before a
+   reveal. A marking that changes any word is thrown away. The captions stay the plain lines.
+2. **The voice** speaks every line, keeping each word's time beside the line's audio (`<line>.words.json`).
+3. **The aligner** (`lecture/align_cues.py`) gives a model each beat's words with their times and the animations
+   that go with it, and writes when each animation starts and how long it takes into the scene as `cues=`: a part
+   lights up as its name is said, a reveal lands on the words that bring it, a free-form block's plays on theirs.
+   A beat it cannot time plays as before, its animations together as the line begins.
+4. **Manim** draws the lecture with those times; the video, the editor and the phone all play them.
+
+| Setting | What it does |
+|---|---|
+| `PANIM_ELEVEN_MODEL` | The model id (`eleven_v4_turbo`; `eleven_v4` for the slower, most expressive one). |
+| `PANIM_ELEVEN_VOICE` | The voice id (a premade voice, or one from your Voice Library). |
+| `PANIM_ELEVEN_LANGUAGE` | A language code (`en`, `hi`) to force the language; unset, the model detects it. |
+| `PANIM_ELEVEN_STABILITY` | 0 to 1: lower is more expressive and varied. |
+| `PANIM_ELEVEN_PRICE` | US dollars per million characters, for the cost on the page (unset: not priced). |
+| `PANIM_VOICE_DIRECTOR` / `PANIM_VOICE_DIRECTOR_MODEL` | `off` turns the director off; the model it uses (else `OPENROUTER_MODEL`). |
+| `PANIM_ALIGN` / `PANIM_ALIGN_MODEL` | `off` turns the aligner off; the model it uses (else `OPENROUTER_MODEL`). |
+
+`.venv/bin/python harness/lecture/eleven_tts.py --check` checks the key with a test line.
+
 ## 4. Pictures: Manim, or the image models
 
 There are no picture libraries, icons or emoji to download, nothing is searched for on the web, and nothing is

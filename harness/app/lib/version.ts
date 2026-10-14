@@ -54,14 +54,21 @@ export function geminiConfigured(): boolean {
  * with PANIM_TTS=chirp), "silent" when PANIM_VOICE=silent asks for no narration, "none" when the chosen voice is
  * not set up (a lecture build then stops).
  */
-export function voiceEngine(): "gemini" | "chirp" | "silent" | "none" {
+export function voiceEngine(): "gemini" | "chirp" | "eleven" | "silent" | "none" {
   if (process.env.PANIM_VOICE === "silent") return "silent";
+  if ((process.env.PANIM_TTS ?? "").toLowerCase() === "eleven") {
+    return process.env.ELEVENLABS_API_KEY || process.env.XI_API_KEY ? "eleven" : "none";
+  }
   if ((process.env.PANIM_TTS ?? "").toLowerCase() === "chirp") return chirpConfigured() ? "chirp" : "none";
   return geminiConfigured() ? "gemini" : "none";
 }
 
 /** The voice's name, for the page. */
 export function voiceName(): string {
+  if ((process.env.PANIM_TTS ?? "").toLowerCase() === "eleven") {
+    const model = process.env.PANIM_ELEVEN_MODEL || "eleven_v4_turbo";
+    return model === "eleven_v4_turbo" ? "ElevenLabs Eleven v4 Turbo" : `ElevenLabs ${model}`;
+  }
   return (process.env.PANIM_TTS ?? "").toLowerCase() === "chirp" ? "Google Chirp 3 HD"
     : ({ "gemini-3.8-flash-lite-tts": "Gemini 3.8 Flash-Lite TTS", "gemini-3.8-flash-tts": "Gemini 3.8 Flash TTS" } as
         Record<string, string>)[process.env.PANIM_TTS_MODEL || "gemini-3.8-flash-lite-tts"] ?? process.env.PANIM_TTS_MODEL!;
@@ -70,6 +77,11 @@ export function voiceName(): string {
 /** Why a lecture cannot be narrated here, or null when it can. */
 export function voiceProblem(): string | null {
   if (voiceEngine() !== "none") return null;
+  if ((process.env.PANIM_TTS ?? "").toLowerCase() === "eleven") {
+    return "Narration is spoken by ElevenLabs (PANIM_TTS=eleven), and no ElevenLabs API key is set. Put " +
+      "ELEVENLABS_API_KEY=<key> in harness/app/.env.local and restart the app. PANIM_VOICE=silent builds without " +
+      "narration.";
+  }
   return (process.env.PANIM_TTS ?? "").toLowerCase() === "chirp"
     ? "Narration is spoken by Google Chirp 3 HD (PANIM_TTS=chirp), and no Google credentials are set. Sign in with " +
       "`gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_TTS_API_KEY " +

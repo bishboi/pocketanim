@@ -892,7 +892,9 @@ def narrate(text: str) -> tuple[str | None, float]:
     engine, voice = mode.split(":", 1)
     speaker = tts.engine(engine)
     try:
-        raw.write_bytes(speaker.speak(spoken, voice, VOICE_SPEED))
+        # Said as the voice director marked it, when it did (voice_director.py: delivery tags and emphasis); the
+        # line is cached under its plain words all the same.
+        raw.write_bytes(speaker.speak(delivery(mode, spoken) or spoken, voice, VOICE_SPEED))
     except RuntimeError as error:
         raw.unlink(missing_ok=True)
         raise VoiceUnavailable(f"{speaker.NAME} could not speak {text[:60]!r}: {error}") from None
@@ -900,8 +902,42 @@ def narrate(text: str) -> tuple[str | None, float]:
     # for once, when it was spoken.
     spent = speaker.last_cost() if hasattr(speaker, "last_cost") else {}
     cost_file(out).write_text(json.dumps({**spent, "engine": engine}))
+    # When each word is said, from a voice that says (ElevenLabs): the animations are timed to it (align_cues.py).
+    if hasattr(speaker, "last_words"):
+        said = speaker.last_words()
+        if said:
+            words_file(out).write_text(json.dumps(said))
     _finish(raw, out)
     return str(out), _wav_seconds(out)
+
+
+def words_file(wav: Path) -> Path:
+    """Where a spoken line's words and their times are kept, beside its wav: [{"w", "start", "end"}] (seconds)."""
+    return wav.with_suffix(".words.json")
+
+
+def line_words(text: str) -> list[dict] | None:
+    """The words of a line as the voice said them, with their times, or None when the voice did not time them."""
+    mode = voice_mode()
+    if mode == "silent":
+        return None
+    try:
+        return json.loads(words_file(audio_file(mode, speechify(text))).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def delivery_file(mode: str, spoken: str) -> Path:
+    """Where the voice director's marked-up version of a line is kept (voice_director.py), beside the lines."""
+    return audio_file(mode, spoken).with_suffix(".say.txt")
+
+
+def delivery(mode: str, spoken: str) -> str | None:
+    """The line as the voice director marked it for delivery, or None (the line is said as written)."""
+    try:
+        return delivery_file(mode, spoken).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 # How batching went this run (narrate_many): batches cut cleanly, batches whose audio could not be cut, batches that
@@ -1970,12 +2006,17 @@ class Lecture(Scene):
         if animations:
             super().play(*animations, **kwargs)
 
-    def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None) -> float:
+    def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
+             cues: list | None = None) -> float:
         """One narration line and the animations that go with it.
 
         The line is spoken first and measured; the animations take 55% of it
         (1.2 to 3.2 s) so motion lands while the sentence is still going, and
         the rest of the line plus a pause (`pad`, BEAT_PAD by default) is a hold.
+
+        `cues`, filled in after the voice is made (align_cues.py): one [start, seconds] a animation, in the order
+        given, timing each to the words it goes with; the animations then play one after another at those times
+        instead of all together as the line begins.
         """
         pad = BEAT_PAD if pad is None else pad
         # Live pictures (stem.py: sims, traces, sweeps, continuous motions) stop at the next line unless kept.
@@ -1997,14 +2038,21 @@ class Lecture(Scene):
         self.add(cap)
         self.cap = cap
         spent = 0.0
-        anims = [a for a in (_playable(a) for a in anims) if a is not None]
+        given = [(_playable(a), (cues[i] if cues and i < len(cues) else None)) for i, a in enumerate(anims)]
+        given = [(a, c) for a, c in given if a is not None]
+        anims = [a for a, _ in given]
         if getattr(self, "_cover", None) is not None or getattr(self, "_cover_hidden", None):
             anims += self._cover_changes()
         if anims:
             spent = rt if rt is not None else min(max(1.2, seconds * 0.55), 3.2)
+        plan = self._cue_plan(given, anims[len(given):], seconds, spent) if any(c for _, c in given) else None
+        if plan:
+            spent = max(start + run for start, run, _ in plan)
         # A live process (a titration, cell division) runs from when its picture is in to the end of the line.
         self._beat_span = max(0.6, seconds + pad - spent)
-        if anims:
+        if plan:
+            spent = self._play_cued(plan)
+        elif anims:
             head = [a for a in anims if getattr(a, "panel_head", False)]
             items = [a for a in anims if getattr(a, "panel_item", False)]
             if head and items:
@@ -2024,6 +2072,59 @@ class Lecture(Scene):
         if rest > 0.02:
             self.wait(rest)
         return seconds
+
+    # ---------------- animations timed to the words (cues) ----------------
+    CUE_MIN, CUE_MAX = 0.3, 4.0          # seconds an animation may take when timed to the words
+
+    def _cue_plan(self, given: list, extra: list, seconds: float, default: float) -> list:
+        """[(start, seconds, [animations])] in order: each animation at its cue, never before the one given before
+        it, each finished before the next starts (or cut to fit). An animation with no cue starts with the line."""
+        timed = []
+        floor = 0.0
+        for anim, cue in given:
+            start, run = 0.0, default
+            if isinstance(cue, (list, tuple)) and cue:
+                try:
+                    start = float(cue[0])
+                    run = float(cue[1]) if len(cue) > 1 and cue[1] is not None else default
+                except (TypeError, ValueError):
+                    start, run = 0.0, default
+            start = min(max(start, floor, 0.0), max(0.0, seconds - self.CUE_MIN))
+            floor = start
+            timed.append([start, min(max(run, self.CUE_MIN), self.CUE_MAX), anim])
+        # A new panel clears the old one before its facts arrive (as an untimed beat does).
+        head = [t for t in timed if getattr(t[2], "panel_head", False)]
+        if head:
+            after = head[0][0] + head[0][1] * 0.5
+            for t in timed:
+                if getattr(t[2], "panel_item", False):
+                    t[0] = max(t[0], after)
+        if extra:
+            timed.append([0.0, default, None])
+        groups: list = []
+        for start, run, anim in sorted(timed, key=lambda t: t[0]):
+            if groups and start - groups[-1][0] < 0.05:
+                groups[-1][1] = max(groups[-1][1], run)
+            else:
+                groups.append([start, run, []])
+            if anim is not None:
+                groups[-1][2].append(anim)
+            else:
+                groups[-1][2].extend(extra)
+        for i in range(len(groups) - 1):
+            groups[i][1] = max(self.CUE_MIN, min(groups[i][1], groups[i + 1][0] - groups[i][0]))
+        return [(start, run, anims) for start, run, anims in groups if anims]
+
+    def _play_cued(self, plan: list) -> float:
+        """Play a cue plan from the line's start: a hold until each group's time, then the group. Seconds taken."""
+        elapsed = 0.0
+        for start, run, anims in plan:
+            if start > elapsed + 0.02:
+                self.wait(start - elapsed)
+                elapsed = start
+            self.play(*anims, run_time=run)
+            elapsed += run
+        return elapsed
 
     # ---------------- the visual check ----------------
     # After each beat's animations, what is on screen is checked the way a viewer would see it: words too small to

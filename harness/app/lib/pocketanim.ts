@@ -212,6 +212,10 @@ export type VoiceCost = {
   /** Lines spoken before costs were kept: not in lecture_usd. */
   unknown: number;
   engine: string;
+  /** The voice director's marking of the lines for an expressive voice (lecture/voice_director.py). */
+  director?: { lines: number; usd: number };
+  /** The animations timed to the spoken words after the voice was made (lecture/align_cues.py). */
+  align?: { beats: number; timed: number; aligned: number; usd: number; model: string | null };
   /** How batching went: batches cut cleanly, not cut (spoken line by line), failed. */
   batches?: { ok: number; uncut: number; failed: number };
   /** For the build's timing log: each batch of lines, and each request to the voice (its tries and waits). */
@@ -272,6 +276,35 @@ async function speak(source: string, progress: string | null): Promise<{ error: 
     // The render speaks what is left itself: a pre-pass that could not run is no reason to stop.
     console.warn("prespeak:", stderr.trim().split("\n").slice(-4).join("\n"));
     return { error: null, beats: 0 };
+  }
+}
+
+/**
+ * The scene's animations timed to its narration, once the voice has said every line (scripts/align_beats.py,
+ * lecture/align_cues.py): its timing slots (`cues=`) filled in by a model that reads when each word is said. The
+ * scene as it was when there is nothing to time (a voice that does not time its words) or the step fails.
+ */
+export async function alignBeats(source: string): Promise<{ source: string; report: VoiceCost["align"] | null }> {
+  const dir = await mkdtemp(path.join(tmpdir(), BUILD_PREFIX));
+  try {
+    const scenePath = path.join(dir, "scene.py");
+    const outPath = path.join(dir, "aligned.py");
+    await writeFile(scenePath, source, "utf8");
+    const { stdout, stderr } = await run([path.join(REPO, "harness", "scripts", "align_beats.py"), scenePath, outPath],
+      { timeoutMs: 3600_000 });
+    const line = stdout.toString().trim().split("\n").pop() ?? "";
+    try {
+      const data = JSON.parse(line) as { ok?: boolean } & NonNullable<VoiceCost["align"]>;
+      if (!data.ok) return { source, report: null };
+      const aligned = await readFile(outPath, "utf8");
+      return { source: aligned.trim() ? aligned : source,
+        report: { beats: data.beats, timed: data.timed, aligned: data.aligned, usd: data.usd, model: data.model } };
+    } catch {
+      console.warn("align:", stderr.trim().split("\n").slice(-4).join("\n"));
+      return { source, report: null };
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

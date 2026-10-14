@@ -1316,7 +1316,8 @@ class BoardMixin:
         return drawn
 
     # ---------------- free-form Manim (free_check.py) ----------------
-    def free(self, key: str, text: str, code: str, pad: float | None = None, area: str | None = None) -> float:
+    def free(self, key: str, text: str, code: str, pad: float | None = None, area: str | None = None,
+             cues: list | None = None) -> float:
         """One beat drawn by a block of model-written Manim: the line is spoken, the block runs (its plays land
         while the line is said), and the rest of the line is held. Blocks with the same key share their names, so
         a figure built on one beat is moved, ringed or transformed on the next; the first block of a key clears
@@ -1396,7 +1397,26 @@ class BoardMixin:
 
             plays, adds = type(self).play, type(self).add
 
+            played = [0]
+            waiting = [False]
+
             def play(*animations, **kwargs):
+                if waiting[0]:
+                    return plays(self, *animations, **kwargs)        # the hold a cue asks for (Scene.wait)
+                # `cues` (align_cues.py, after the voice is made): when each of the block's plays starts, in
+                # seconds into the line, so it lands on the words it goes with; a play the block reaches later
+                # than its cue starts at once.
+                index = played[0]
+                played[0] += 1
+                cue = cues[index] if cues and index < len(cues) else None
+                if isinstance(cue, (int, float)):
+                    gap = start + float(cue) - self.renderer.time
+                    if gap > 0.02:
+                        waiting[0] = True
+                        try:
+                            type(self).wait(self, gap)
+                        finally:
+                            waiting[0] = False
                 backed_text.settle(self, backed_text.arriving_in(animations))
                 return plays(self, *animations, **kwargs)
 

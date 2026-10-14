@@ -363,3 +363,16 @@ def test_aligned_words_are_moved_out_of_the_pauses():
     # Run on through the pause and into the next word's sound: ended where the pause begins all the same.
     past = local_align.snap_to_speech([{"w": "one", "start": 1.2, "end": 3.8}], audio)
     assert past[0]["end"] == 2.0
+
+
+def test_a_warning_names_its_chapter_and_beat_after_a_diagram_with_pictures():
+    # A diagram node's picture once renamed the chapter in every later warning ("node 'fields' beat 23").
+    long = "word " * 50
+    script = {"title": "T", "style": "vox", "teaching_rules": False, "auto_visuals": False, "place_figures": False,
+              "chapters": [{"title": "A", "map": False, "beats": [
+                  {"say": "Short.", "do": [{"op": "diagram", "id": "d", "kind": "flow", "nodes": [
+                      {"id": "a", "label": "A", "picture": {"query": "a tree"}}, {"id": "b", "label": "B"}],
+                      "edges": [["a", "b"]]}]},
+                  {"say": long}]}]}
+    _, warnings = cl.lint(script)
+    assert any(w.startswith("chapter 1 beat 2: the caption runs past") for w in warnings), warnings

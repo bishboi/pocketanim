@@ -806,10 +806,12 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 if drawn_map:
                     errors.append(f"{at}: {drawn_map}")
                     continue
-                for where, spec in pictures_of(op):
+                # (`part`, not `where`: that is the chapter's name, and every later beat's warnings were put under
+                # the last picture's part -- "node 'fields' beat 23" for "chapter 4 beat 23".)
+                for part, spec in pictures_of(op):
                     problem = _picture_problem(spec, script.get("figures") or {})
                     if problem:
-                        errors.append(f"{at}: {where}: {problem}")
+                        errors.append(f"{at}: {part}: {problem}")
                     elif _picture_fetch(spec):
                         fetch = _picture_fetch(spec)
                         fetch["_beside"] = _beside_words(op, spec)

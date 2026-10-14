@@ -150,19 +150,35 @@ def check(beat: dict, entry: dict, seconds: float) -> list | None:
 
 
 def align(source: str, words_of, seconds_of) -> tuple[str, dict]:
-    """(the scene with cues written in, a report {"beats", "aligned", "usd", "model"}). `words_of(text)` and
-    `seconds_of(text)` say when each word of a line is said and how long it is (None when unknown)."""
+    """(the scene with cues written in, a report). `words_of(text)` and `seconds_of(text)` say when each word of a
+    line is said and how long it is (None when unknown).
+
+    The report says what happened, for the build's log and the page: {"beats" (that could be timed), "timed"
+    (with their words known), "aligned" (given cues), "usd", "model", "errors" (the model's failures, as said),
+    "untimed" (a few lines with no words, and why), "lines" (every beat: its line, its parts, its first words
+    with their times, and the cues it got or why not)}."""
     found = beats(source)
     todo = []
     # The words' times, several lines at once: a voice that does not time its words has them aligned here first
     # (local_align.py), a fraction of a second a line.
     with ThreadPoolExecutor(max_workers=4) as pool:
         timed = list(pool.map(lambda b: (words_of(b["text"]), seconds_of(b["text"])), found))
+    lines: list[dict] = []
     for beat, (said, seconds) in zip(found, timed):
+        record = {"kind": beat["kind"], "line": beat["text"][:120], "parts": beat["parts"],
+                  "seconds": seconds, "words": [f"{w['start']:.2f}:{w['w']}" for w in (said or [])[:12]]}
+        lines.append(record)
+        beat["record"] = record
         if said and seconds:
             todo.append((beat, said, seconds))
-    report = {"beats": len(found), "timed": len(todo), "aligned": 0, "usd": 0.0, "model": None}
-    if not todo or not llm.configured():
+        else:
+            record["why"] = "the line is not spoken yet" if not seconds else "no word times for the line"
+    report = {"beats": len(found), "timed": len(todo), "aligned": 0, "usd": 0.0, "model": None, "errors": [],
+              "lines": lines}
+    if not todo:
+        return source, report
+    if not llm.configured():
+        report["errors"].append("no key for the timing model (OPENROUTER_API_KEY or OPENAI_API_KEY)")
         return source, report
     model = llm.model("PANIM_ALIGN_MODEL")
     report["model"] = model
@@ -172,8 +188,10 @@ def align(source: str, words_of, seconds_of) -> tuple[str, dict]:
         user = "\n\n".join(_item(k, beat, said, seconds) for k, (beat, said, seconds) in enumerate(chunk))
         try:
             reply, usd = llm.chat_json(model, SYSTEM, user)
-        except RuntimeError:
-            return [], 0.0
+        except RuntimeError as error:
+            for beat, _, _ in chunk:
+                beat["record"]["why"] = f"the timing model failed: {str(error)[:160]}"
+            return [], 0.0, str(error)
         timed = []
         for entry in reply.get("beats") or []:
             try:
@@ -184,13 +202,21 @@ def align(source: str, words_of, seconds_of) -> tuple[str, dict]:
                 cues = check(chunk[k][0], entry, chunk[k][2])
                 if cues is not None:
                     timed.append((chunk[k][0], cues))
-        return timed, usd
+                    chunk[k][0]["record"]["cues"] = cues
+                else:
+                    chunk[k][0]["record"]["why"] = f"the model's times did not fit: {json.dumps(entry)[:160]}"
+        for beat, _, _ in chunk:
+            if "cues" not in beat["record"]:
+                beat["record"].setdefault("why", "the model gave this beat no times")
+        return timed, usd, None
 
     edits = []
     with ThreadPoolExecutor(max_workers=min(PARALLEL, len(chunks))) as pool:
-        for timed, usd in pool.map(ask, chunks):
+        for timed, usd, error in pool.map(ask, chunks):
             report["usd"] += usd
             edits.extend(timed)
+            if error and error not in report["errors"]:
+                report["errors"].append(error)
     report["aligned"] = len(edits)
     report["usd"] = round(report["usd"], 6)
     return write_cues(source, edits), report

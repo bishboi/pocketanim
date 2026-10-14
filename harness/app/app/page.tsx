@@ -37,7 +37,10 @@ type ExportState = {
   checks?: { beats: { beat: number; say: string; issues: string[]; fixed: string[]; review?: string }[];
     fixed: number; flagged: number; reviewed: number; model?: string } | null;
   /** What the narration voice cost (scripts/prespeak.py): lines spoken for this build, and the whole lecture. */
-  voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string };
+  voiceCost?: { usd: number; lecture_usd: number; spoken: number; lines: number; unknown: number; engine: string;
+    /** The animations timed to the spoken words (lecture/align_cues.py). */
+    align?: { beats: number; timed: number; aligned: number; model: string | null; errors?: string[];
+      words?: { voice: number; "aligned here": number; none: number; aligner: string }; seconds?: number; log?: string } };
   narrationUrl?: string | null;
   /** Illustrations an image model drew during the build, and what they cost. */
   ai_images?: { count: number; usd: number; items?: { path: string; query: string; usd: number; model: string }[] };
@@ -1820,6 +1823,21 @@ export default function Home() {
                       <li key={`${i}:${b}`}>{b}</li>
                     ))}
                   </ul>
+                )}
+                {exported.voiceCost?.align && (
+                  <div className={`text-xs ${exported.voiceCost.align.aligned ? "text-neutral-300" : "text-amber-300"}`}
+                    data-testid="align-report">
+                    Timing: {exported.voiceCost.align.aligned} of {exported.voiceCost.align.beats} beats have their
+                    animations timed to the spoken words
+                    {exported.voiceCost.align.words && ` (word times: ${exported.voiceCost.align.words.voice} from the voice, ` +
+                      `${exported.voiceCost.align.words["aligned here"]} aligned here, ${exported.voiceCost.align.words.none} none` +
+                      ` — ${exported.voiceCost.align.words.aligner})`}
+                    {exported.voiceCost.align.model && `; model ${exported.voiceCost.align.model}`}.
+                    {!!exported.voiceCost.align.errors?.length && (
+                      <span className="block text-amber-300">Problems: {exported.voiceCost.align.errors.slice(0, 3).join(" | ")}</span>
+                    )}
+                    {exported.voiceCost.align.log && <span className="block text-neutral-500">Log: {exported.voiceCost.align.log}</span>}
+                  </div>
                 )}
                 {!!exported.manimRepair?.tried.length && (
                   <div className="text-xs text-neutral-300" data-testid="manim-repair">

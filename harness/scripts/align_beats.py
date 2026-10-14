@@ -40,12 +40,36 @@ def main() -> int:
         print(json.dumps({"ok": True, "beats": 0, "timed": 0, "aligned": 0, "usd": 0.0, "model": None}))
         return 0
 
+    import threading
+    import time
+
+    import local_align
+
     def seconds_of(text: str):
         return pl._cached_seconds(pl.audio_file(mode, pl.speechify(text)))
 
-    aligned, report = align_cues.align(source, pl.line_words, seconds_of)
+    # Where each line's word times come from: the voice (ElevenLabs), the local aligner now, or nowhere.
+    sources = {"voice": 0, "aligned here": 0, "none": 0}
+    lock = threading.Lock()
+    began = time.time()
+
+    def words_of(text: str):
+        kept = pl.words_file(pl.audio_file(mode, pl.speechify(text))).exists()
+        said = pl.line_words(text)
+        with lock:
+            sources["voice" if kept and said else "aligned here" if said else "none"] += 1
+        return said
+
+    aligned, report = align_cues.align(source, words_of, seconds_of)
     Path(sys.argv[2]).write_text(aligned, encoding="utf-8")
-    print(json.dumps({"ok": True, **report}))
+    report["words"] = {**sources, "aligner": (local_align.problem() or
+                                              f"Whisper {(local_align._env('PANIM_ALIGN_WHISPER') or 'tiny')} "
+                                              "through faster-whisper")}
+    report["seconds"] = round(time.time() - began, 1)
+    # The whole report beside the scene, for the build's log; the summary on stdout.
+    Path(sys.argv[2] + ".log.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    summary = {k: v for k, v in report.items() if k != "lines"}
+    print(json.dumps({"ok": True, **summary}, ensure_ascii=False))
     return 0
 
 

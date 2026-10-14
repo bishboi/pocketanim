@@ -283,6 +283,10 @@ def test_a_lecture_is_spoken_then_timed_then_built(tmp_path, monkeypatch):
         aligned = run(REPO / "harness/scripts/align_beats.py", scene, out)
         report = json.loads(aligned.stdout.strip().splitlines()[-1])
         assert report["aligned"] == 2, (report, aligned.stderr[-800:], scene.read_text()[-1500:])
+        # What happened is said: where the word times came from, and every beat's cues, in a log beside the scene.
+        assert report["words"]["voice"] >= 2 and report["words"]["none"] == 0 and report["errors"] == []
+        log = json.loads((tmp_path / "aligned.py.log.json").read_text())
+        assert sum(1 for line in log["lines"] if line.get("cues")) == 2
         built = run(REPO / "harness/scripts/export_scene.py", out, "GeneratedScene", tmp_path / "build")
         result = json.loads(built.stdout.strip().splitlines()[-1])
     finally:

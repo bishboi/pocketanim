@@ -215,7 +215,16 @@ export type VoiceCost = {
   /** The voice director's marking of the lines for an expressive voice (lecture/voice_director.py). */
   director?: { lines: number; usd: number };
   /** The animations timed to the spoken words after the voice was made (lecture/align_cues.py). */
-  align?: { beats: number; timed: number; aligned: number; usd: number; model: string | null };
+  align?: {
+    beats: number; timed: number; aligned: number; usd: number; model: string | null;
+    /** The timing model's failures, as it said them. */
+    errors?: string[];
+    /** Where the lines' word times came from: the voice, the local aligner now, nowhere; and the aligner used. */
+    words?: { voice: number; "aligned here": number; none: number; aligner: string };
+    seconds?: number;
+    /** The full report, every beat's words and cues: harness/app/.logs/align-*.json. */
+    log?: string;
+  };
   /** How batching went: batches cut cleanly, not cut (spoken line by line), failed. */
   batches?: { ok: number; uncut: number; failed: number };
   /** For the build's timing log: each batch of lines, and each request to the voice (its tries and waits). */
@@ -294,18 +303,46 @@ export async function alignBeats(source: string): Promise<{ source: string; repo
       { timeoutMs: 3600_000 });
     const line = stdout.toString().trim().split("\n").pop() ?? "";
     try {
-      const data = JSON.parse(line) as { ok?: boolean } & NonNullable<VoiceCost["align"]>;
-      if (!data.ok) return { source, report: null };
+      const data = JSON.parse(line) as { ok?: boolean; error?: string } & NonNullable<VoiceCost["align"]>;
+      if (!data.ok) {
+        console.warn(`[align] not run: ${data.error ?? "unknown"}`);
+        return { source, report: { beats: 0, timed: 0, aligned: 0, usd: 0, model: null, errors: [data.error ?? "not run"] } };
+      }
       const aligned = await readFile(outPath, "utf8");
-      return { source: aligned.trim() ? aligned : source,
-        report: { beats: data.beats, timed: data.timed, aligned: data.aligned, usd: data.usd, model: data.model } };
+      // The whole report (every beat's words and cues) kept with the app's logs, to look at after the build.
+      let log: string | undefined;
+      try {
+        const logs = path.join(REPO, "harness", "app", ".logs");
+        await mkdir(logs, { recursive: true });
+        log = path.join(logs, `align-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+        await writeFile(log, await readFile(`${outPath}.log.json`, "utf8"));
+      } catch {
+        log = undefined;
+      }
+      const report = { beats: data.beats, timed: data.timed, aligned: data.aligned, usd: data.usd, model: data.model,
+        errors: data.errors ?? [], words: data.words, seconds: data.seconds, log };
+      console.log(`[align] ${alignSummary(report)}${log ? ` (${log})` : ""}`);
+      return { source: aligned.trim() ? aligned : source, report };
     } catch {
-      console.warn("align:", stderr.trim().split("\n").slice(-4).join("\n"));
-      return { source, report: null };
+      const tail = stderr.trim().split("\n").slice(-6).join("\n");
+      console.warn("[align] failed:", tail);
+      return { source, report: { beats: 0, timed: 0, aligned: 0, usd: 0, model: null, errors: [tail.slice(-400) || "the timing step failed"] } };
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/** The timing step's result in a sentence, for the server's log and the page. */
+export function alignSummary(r: NonNullable<VoiceCost["align"]>): string {
+  const words = r.words
+    ? ` Word times: ${r.words.voice} from the voice, ${r.words["aligned here"]} aligned here, ${r.words.none} none` +
+      ` (${r.words.aligner}).`
+    : "";
+  const errors = r.errors?.length ? ` Problems: ${r.errors.slice(0, 3).join(" | ")}` : "";
+  return `${r.aligned} of ${r.beats} beats with animations timed to the spoken words ` +
+    `(${r.timed} had word times${r.model ? `; model ${r.model}` : ""}${r.seconds != null ? `; ${r.seconds} s` : ""}).` +
+    words + errors;
 }
 
 /** Builds running now: a lecture's chapters are built side by side (export_scene.py), and builds that run at

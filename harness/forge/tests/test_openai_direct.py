@@ -5,6 +5,7 @@ key, stays on OpenRouter."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -178,7 +179,8 @@ console.log(JSON.stringify({{ r, plain: plain.url, other: other.url, deltas, usa
     assert out["deltas"][1]["tool_calls"][0] == {"index": 0, "id": "call_9",
                                                  "function": {"name": "write_section", "arguments": ""}}
     assert "".join(d["tool_calls"][0]["function"]["arguments"] for d in out["deltas"][2:]) == '{"n":1}'
-    assert out["usage"] == {"prompt_tokens": 100, "completion_tokens": 40} and out["finish"] == "tool_calls"
+    assert out["usage"] == {"prompt_tokens": 100, "completion_tokens": 40, "prompt_tokens_details": {"cached_tokens": 0}}
+    assert out["finish"] == "tool_calls"
     assert out["failed"] == {"error": "nope"}
 
 
@@ -187,3 +189,85 @@ def test_forge_sends_no_reasoning_setting_with_tools(monkeypatch):
     _, _, sent = providers.chat({"model": "openai/gpt-6-luna", "reasoning": {"effort": "low"},
                                  "tools": [{"type": "function", "function": {"name": "x"}}], "messages": []})
     assert "reasoning_effort" not in sent and sent["tools"]
+
+
+LIST = {"data": [
+    {"id": "openai/gpt-6-luna", "pricing": {"prompt": "0.000002", "completion": "0.000016", "input_cache_read": "0.0000002"}},
+    {"id": "openai/gpt-image-2", "pricing": {"prompt": "0.000005", "completion": "0.00004"}},
+    {"id": "google/gemini-2.5-flash", "pricing": {"prompt": "0.0000003", "completion": "0.0000025"}}]}
+
+
+def _serve_list():
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    hits = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            hits.append(self.path)
+            data = json.dumps(LIST).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_port}/api/v1/models", hits, server
+
+
+def test_an_openai_reply_is_priced_from_the_model_list(tmp_path, monkeypatch):
+    url, hits, server = _serve_list()
+    monkeypatch.setenv("PANIM_PRICE_LIST_URL", url)
+    monkeypatch.setenv("PANIM_PRICE_CACHE", str(tmp_path / "prices.json"))
+    monkeypatch.delenv("PANIM_OPENAI_PRICES", raising=False)
+    monkeypatch.setattr(providers, "_listed", None)
+    try:
+        usage = {"prompt_tokens": 10_000, "completion_tokens": 2_000, "prompt_tokens_details": {"cached_tokens": 4_000}}
+        # 6,000 fresh input at $2/M, 4,000 cached at $0.20/M, 2,000 output at $16/M.
+        assert providers.cost("openai/gpt-6-luna", usage) == pytest.approx(0.012 + 0.0008 + 0.032)
+        assert providers.cost("openai/gpt-6-luna-2026-09-01", {"prompt_tokens": 1_000_000}) == pytest.approx(2.0)
+        assert providers.cost("openai/unknown-model", usage) == 0.0
+        assert providers.cost("openai/gpt-6-luna", {"cost": 0.25}) == 0.25          # OpenRouter's own figure kept
+        assert len(hits) == 1 and json.loads((tmp_path / "prices.json").read_text())["models"]["gpt-6-luna"]["in"] == 2.0
+        monkeypatch.setattr(providers, "_listed", None)                             # a new process: from the cache
+        assert providers.cost("openai/gpt-6-luna", {"completion_tokens": 1_000_000}) == pytest.approx(16.0)
+        assert len(hits) == 1
+        monkeypatch.setenv("PANIM_OPENAI_PRICES", json.dumps({"gpt-6-luna": [1, 2, 0.5]}))   # one's own wins
+        assert providers.cost("openai/gpt-6-luna", usage) == pytest.approx((6000 * 1 + 4000 * 0.5 + 2000 * 2) / 1e6)
+    finally:
+        server.shutdown()
+
+
+def test_the_web_app_prices_openai_replies_from_the_model_list(tmp_path):
+    tsc = APP / "node_modules" / ".bin" / "tsc"
+    if not tsc.exists() or not shutil.which("node"):
+        pytest.skip("no TypeScript compiler")
+    built = subprocess.run([str(tsc), "lib/providers.ts", "--outDir", str(tmp_path), "--module", "commonjs",
+                            "--target", "es2022", "--skipLibCheck"], cwd=APP, capture_output=True, text=True)
+    assert built.returncode == 0, built.stdout + built.stderr
+    url, hits, server = _serve_list()
+    script = f"""
+const p = require({json.dumps(str(tmp_path / 'providers.js'))});
+(async () => {{
+  await p.ensurePrices();
+  const usage = {{ prompt_tokens: 10000, completion_tokens: 2000, prompt_tokens_details: {{ cached_tokens: 4000 }} }};
+  console.log(JSON.stringify({{ cost: p.replyCost("openai/gpt-6-luna", usage),
+    none: p.replyCost("openai/unknown-model", usage) }}));
+}})();
+"""
+    env = {**os.environ, "PANIM_PRICE_LIST_URL": url, "PANIM_PRICE_CACHE": str(tmp_path / "prices.json")}
+    env.pop("PANIM_OPENAI_PRICES", None)
+    try:
+        done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60, env=env)
+    finally:
+        server.shutdown()
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout.strip().splitlines()[-1])
+    assert out["cost"] == pytest.approx(0.0448) and out["none"] == 0
+    assert hits and (tmp_path / "prices.json").exists()

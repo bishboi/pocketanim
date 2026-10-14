@@ -9,7 +9,7 @@
  * tested with no network and no key.
  */
 
-import { ProviderAuthError, ResponsesStream, describeProviders, modelRequest, providerError, providerName, withCost } from "./providers";
+import { ProviderAuthError, ResponsesStream, describeProviders, ensurePrices, modelRequest, providerError, providerName, withCost } from "./providers";
 import { sanitizeScene } from "./scenefix";
 export { sanitizeScene };
 import { spawn } from "node:child_process";
@@ -2656,6 +2656,7 @@ export async function generate(
   emit: (event: AgentEvent) => void = () => {},
   stopped: () => boolean = () => false,
 ): Promise<Generated> {
+  await ensurePrices();             // OpenAI's prices, so its requests are costed (providers.ts)
   const media = new MediaLog(request.generationId ?? `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     (text) => emit({ type: "message", role: "status", text }));
   media.describe({

@@ -6,11 +6,17 @@
  * OpenRouter): the prefix comes off and the request is put in OpenAI's form -- OpenRouter's own fields out (usage,
  * provider, plugins, transforms), its reasoning setting as OpenAI's reasoning_effort, max_tokens as
  * max_completion_tokens, no temperature for a reasoning model, the usage asked for when streaming. OpenAI does not
- * say what a request cost: it is priced from its tokens with PANIM_OPENAI_PRICES ({"gpt-5.1": [in, out]}, US
- * dollars per million tokens), else counted as 0. The Python steps do the same (harness/lecture/providers.py).
+ * say what a request cost: it is priced from its tokens -- cached input at its own lower rate -- at the model's list
+ * prices, read from OpenRouter's model list (openrouter.ai/api/v1/models, no key needed; kept a day in
+ * harness/lecture/.cache/model_prices.json, which the Python steps read too: harness/lecture/providers.py).
+ * PANIM_OPENAI_PRICES ({"gpt-5.1": [in, out]} or [in, out, cached in], US dollars per million tokens) sets a model's
+ * own; a model priced by neither counts as 0, and the server's log says so once.
  *
  * OPENAI_BASE_URL points at another OpenAI-compatible endpoint (a test's mock, Azure's).
  */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 
 const OPENROUTER_CHAT = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -115,22 +121,109 @@ export function providerName(model: string | undefined): string {
   return openaiDirect(model) ? "OpenAI" : "OpenRouter";
 }
 
-/** What a reply cost: OpenRouter's own figure, else (an OpenAI reply) its tokens at PANIM_OPENAI_PRICES. */
-export function replyCost(model: string | undefined, usage: { cost?: number; prompt_tokens?: number; completion_tokens?: number } | undefined): number {
-  if (usage?.cost != null) return Number(usage.cost) || 0;
-  let prices: Record<string, [number, number]> = {};
-  try {
-    prices = JSON.parse(process.env.PANIM_OPENAI_PRICES || "{}");
-  } catch {
-    prices = {};
+/** A model's list prices, US dollars per million tokens: input, output, and cached input. */
+export type Price = { in: number; out: number; cachedIn?: number };
+
+const PRICE_LIST = "https://openrouter.ai/api/v1/models";
+const PRICE_DAYS = 1;
+let listed: Record<string, Price> | null = null;
+let listing: Promise<void> | null = null;
+const unpriced = new Set<string>();
+
+function priceFile(): string {
+  if (process.env.PANIM_PRICE_CACHE) return process.env.PANIM_PRICE_CACHE;
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(path.join(dir, "harness", "lecture"))) return path.join(dir, "harness", "lecture", ".cache", "model_prices.json");
+    dir = path.dirname(dir);
   }
-  const price = prices[String(model ?? "").replace(/^openai\//, "")];
-  if (!price || !usage) return 0;
-  return ((usage.prompt_tokens ?? 0) * price[0] + (usage.completion_tokens ?? 0) * price[1]) / 1e6;
+  return path.join(process.cwd(), ".model_prices.json");
+}
+
+/** The cached price list: {fetched (ms), models: {id without "openai/": Price}}, or null. */
+function readPrices(): { fetched: number; models: Record<string, Price> } | null {
+  try {
+    const kept = JSON.parse(readFileSync(priceFile(), "utf8"));
+    return kept && typeof kept.models === "object" ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
+/** OpenAI's models' prices from OpenRouter's model list (per token there; per million here). */
+export function pricesFromList(data: { data?: { id?: string; pricing?: Record<string, string | number> }[] }): Record<string, Price> {
+  const out: Record<string, Price> = {};
+  for (const m of data?.data ?? []) {
+    const id = String(m?.id ?? "");
+    if (!id.startsWith("openai/") || !m.pricing) continue;
+    const per = (k: string) => (m.pricing?.[k] != null && m.pricing[k] !== "" ? Number(m.pricing[k]) * 1e6 : undefined);
+    const input = per("prompt"), output = per("completion");
+    if (input == null || output == null || !Number.isFinite(input) || !Number.isFinite(output)) continue;
+    out[id.replace(/^openai\//, "")] = { in: input, out: output, ...(per("input_cache_read") != null ? { cachedIn: per("input_cache_read") } : {}) };
+  }
+  return out;
+}
+
+/** The price list ready (from the cache, or fetched when it is a day old): call before a generation's requests.
+ * Never throws: without the list, a model priced nowhere counts as 0. */
+export function ensurePrices(): Promise<void> {
+  if (listing) return listing;
+  const kept = readPrices();
+  if (kept) listed = kept.models;
+  if (kept && Date.now() - kept.fetched < PRICE_DAYS * 86_400_000) return (listing = Promise.resolve());
+  listing = (async () => {
+    try {
+      const reply = await fetch(process.env.PANIM_PRICE_LIST_URL || PRICE_LIST, { signal: AbortSignal.timeout(15_000) });
+      if (!reply.ok) throw new Error(`HTTP ${reply.status}`);
+      const models = pricesFromList(await reply.json());
+      if (!Object.keys(models).length) throw new Error("no OpenAI models listed");
+      listed = models;
+      mkdirSync(path.dirname(priceFile()), { recursive: true });
+      writeFileSync(priceFile(), JSON.stringify({ fetched: Date.now(), models }, null, 1));
+    } catch (error) {
+      console.warn(`[cost] OpenAI's prices could not be read from ${PRICE_LIST} (${(error as Error).message}); ` +
+        (listed ? "using the last list kept." : "OpenAI requests count as $0 unless PANIM_OPENAI_PRICES sets them."));
+    }
+  })();
+  return listing;
+}
+void ensurePrices();
+
+/** A model's price: PANIM_OPENAI_PRICES's, else the list's; undefined when neither has it. */
+export function modelPrice(model: string | undefined): Price | undefined {
+  const id = String(model ?? "").replace(/^openai\//, "");
+  try {
+    const set = JSON.parse(process.env.PANIM_OPENAI_PRICES || "{}")[id];
+    if (Array.isArray(set) && set.length >= 2) return { in: Number(set[0]), out: Number(set[1]), ...(set[2] != null ? { cachedIn: Number(set[2]) } : {}) };
+  } catch {}
+  if (!listed) listed = readPrices()?.models ?? null;
+  return listed?.[id] ?? listed?.[id.replace(/-\d{4}-\d{2}-\d{2}$/, "")];
+}
+
+type Usage = { cost?: number; prompt_tokens?: number; completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number } };
+
+/** What a reply cost: OpenRouter's own figure, else (an OpenAI reply) its tokens at the model's prices, its cached
+ * input at the cached rate. */
+export function replyCost(model: string | undefined, usage: Usage | undefined): number {
+  if (usage?.cost != null) return Number(usage.cost) || 0;
+  if (!usage) return 0;
+  const price = modelPrice(model);
+  if (!price) {
+    const id = String(model ?? "");
+    if (id && !unpriced.has(id)) {
+      unpriced.add(id);
+      console.warn(`[cost] no price for ${id}: its requests count as $0 (set PANIM_OPENAI_PRICES to price it).`);
+    }
+    return 0;
+  }
+  const cached = Math.min(usage.prompt_tokens_details?.cached_tokens ?? 0, usage.prompt_tokens ?? 0);
+  return (((usage.prompt_tokens ?? 0) - cached) * price.in + cached * (price.cachedIn ?? price.in)
+    + (usage.completion_tokens ?? 0) * price.out) / 1e6;
 }
 
 /** The usage of a reply with its cost filled in (an OpenAI reply has none of its own). */
-export function withCost<U extends { cost?: number; prompt_tokens?: number; completion_tokens?: number }>(model: string | undefined, usage: U | undefined): U | undefined {
+export function withCost<U extends Usage>(model: string | undefined, usage: U | undefined): U | undefined {
   if (!usage || usage.cost != null) return usage;
   return { ...usage, cost: replyCost(model, usage) };
 }
@@ -225,7 +318,7 @@ type ChatDelta = {
 /** A Responses API stream read as a chat stream: one event in, the chat delta (and the end) it amounts to. */
 export class ResponsesStream {
   private calls = new Map<string, number>();
-  usage?: { prompt_tokens: number; completion_tokens: number };
+  usage?: { prompt_tokens: number; completion_tokens: number; prompt_tokens_details?: { cached_tokens?: number } };
   finishReason = "";
 
   handle(event: Record<string, unknown>): { delta?: ChatDelta; error?: string } {
@@ -252,9 +345,10 @@ export class ResponsesStream {
       }
       case "response.completed":
       case "response.incomplete": {
-        const response = event.response as { usage?: { input_tokens?: number; output_tokens?: number };
-          incomplete_details?: { reason?: string } } | undefined;
-        this.usage = { prompt_tokens: response?.usage?.input_tokens ?? 0, completion_tokens: response?.usage?.output_tokens ?? 0 };
+        const response = event.response as { usage?: { input_tokens?: number; output_tokens?: number;
+          input_tokens_details?: { cached_tokens?: number } }; incomplete_details?: { reason?: string } } | undefined;
+        this.usage = { prompt_tokens: response?.usage?.input_tokens ?? 0, completion_tokens: response?.usage?.output_tokens ?? 0,
+          prompt_tokens_details: { cached_tokens: response?.usage?.input_tokens_details?.cached_tokens ?? 0 } };
         this.finishReason = type === "response.incomplete"
           ? (response?.incomplete_details?.reason === "max_output_tokens" ? "length" : String(response?.incomplete_details?.reason ?? "incomplete"))
           : (this.calls.size ? "tool_calls" : "stop");

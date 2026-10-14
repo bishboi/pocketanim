@@ -13,6 +13,10 @@ os.environ.setdefault("PANIM_VOICE", "silent")
 os.environ.setdefault("FORGE_VOICE", "silent")
 # Settings from harness/app/.env.local stay out of tests (chirp._env reads it for terminal commands).
 os.environ.setdefault("PANIM_ENV_FILE", "")
+# OpenAI's prices: never the live list in tests (its numbers would change what a test expects); a test that needs
+# one serves it.
+os.environ.setdefault("PANIM_PRICE_LIST_URL", "http://127.0.0.1:9/no-price-list")
+os.environ.setdefault("PANIM_PRICE_CACHE", str(Path(__import__("tempfile").mkdtemp()) / "model_prices.json"))
 
 
 # The slowest tests: whole lectures rendered and played on the phone renderer (10-40 s each). `scripts/check.sh

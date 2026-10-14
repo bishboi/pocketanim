@@ -5,8 +5,10 @@ openai/... is asked of OpenAI directly when OPENAI_API_KEY is set (PANIM_OPENAI_
 the prefix comes off, and the request is put in OpenAI's form -- OpenRouter's own fields out (usage, provider,
 plugins, transforms), its reasoning setting as OpenAI's reasoning_effort, max_tokens as max_completion_tokens, no
 temperature for a reasoning model, the usage asked for when streaming. OpenAI does not say what a request cost:
-it is priced from its tokens with PANIM_OPENAI_PRICES ({"gpt-5.1": [in, out]}, US dollars per million tokens),
-else counted as 0. The web app does the same (harness/app/lib/providers.ts).
+it is priced from its tokens -- cached input at its lower rate -- at the model's list prices, read from
+OpenRouter's model list (openrouter.ai/api/v1/models, no key needed) and kept a day in .cache/model_prices.json
+(shared with the web app, harness/app/lib/providers.ts). PANIM_OPENAI_PRICES ({"gpt-5.1": [in, out]} or
+[in, out, cached in], US dollars per million tokens) sets a model's own; a model priced by neither counts as 0.
 
 OPENAI_BASE_URL points at another OpenAI-compatible endpoint (a test's mock, Azure's).
 """
@@ -15,6 +17,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import time
+from pathlib import Path
 
 from chirp import _env
 
@@ -80,23 +85,92 @@ def images(body: dict) -> tuple[str, dict, dict]:
                                            "Content-Type": "application/json"}, out)
 
 
-def _prices() -> dict:
+PRICE_LIST = "https://openrouter.ai/api/v1/models"
+PRICE_DAYS = 1
+_listed: dict | None = None
+_unpriced: set = set()
+
+
+def _price_file() -> Path:
+    return Path(_env("PANIM_PRICE_CACHE") or Path(__file__).resolve().parent / ".cache" / "model_prices.json")
+
+
+def prices_from_list(data: dict) -> dict:
+    """OpenAI's models' prices from OpenRouter's model list (per token there): {id: {"in", "out", "cachedIn"?}} in
+    US dollars per million tokens."""
+    out = {}
+    for m in (data or {}).get("data") or []:
+        mid, pricing = str(m.get("id") or ""), m.get("pricing") or {}
+        if not mid.startswith("openai/"):
+            continue
+        try:
+            price = {"in": float(pricing["prompt"]) * 1e6, "out": float(pricing["completion"]) * 1e6}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pricing.get("input_cache_read") not in (None, ""):
+            price["cachedIn"] = float(pricing["input_cache_read"]) * 1e6
+        out[mid.removeprefix("openai/")] = price
+    return out
+
+
+def _price_list() -> dict:
+    """The list prices, from the cache when it is under a day old, else fetched (once a process; on failure the
+    last list kept, or none)."""
+    global _listed
+    if _listed is not None:
+        return _listed
     try:
-        return json.loads(_env("PANIM_OPENAI_PRICES") or "{}")
-    except ValueError:
-        return {}
+        kept = json.loads(_price_file().read_text())
+    except (OSError, ValueError):
+        kept = None
+    _listed = (kept or {}).get("models") or {}
+    if kept and time.time() * 1000 - float(kept.get("fetched") or 0) < PRICE_DAYS * 86_400_000:
+        return _listed
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(_env("PANIM_PRICE_LIST_URL") or PRICE_LIST, timeout=15) as reply:
+            models = prices_from_list(json.loads(reply.read()))
+        if models:
+            _listed = models
+            _price_file().parent.mkdir(parents=True, exist_ok=True)
+            _price_file().write_text(json.dumps({"fetched": time.time() * 1000, "models": models}, indent=1))
+    except Exception as error:  # noqa: BLE001 -- no list: the kept one, or $0 with a note
+        print(f"[cost] OpenAI's prices could not be read ({error}); "
+              + ("using the last list kept." if _listed else "OpenAI requests count as $0."), file=sys.stderr)
+    return _listed
+
+
+def price(model: str | None) -> dict | None:
+    """A model's price (US dollars per million tokens): PANIM_OPENAI_PRICES's, else the list's; None for neither."""
+    mid = str(model or "").removeprefix("openai/")
+    try:
+        own = json.loads(_env("PANIM_OPENAI_PRICES") or "{}").get(mid)
+    except (ValueError, AttributeError):
+        own = None
+    if isinstance(own, (list, tuple)) and len(own) >= 2:
+        return {"in": float(own[0]), "out": float(own[1]), **({"cachedIn": float(own[2])} if len(own) > 2 else {})}
+    listed = _price_list()
+    return listed.get(mid) or listed.get(re.sub(r"-\d{4}-\d{2}-\d{2}$", "", mid))
 
 
 def cost(model: str | None, usage: dict | None) -> float:
-    """What a reply cost: OpenRouter's own figure, else (an OpenAI reply) its tokens at PANIM_OPENAI_PRICES."""
+    """What a reply cost: OpenRouter's own figure, else (an OpenAI reply) its tokens at the model's prices, cached
+    input at the cached rate."""
     usage = usage or {}
     if usage.get("cost") is not None:
         return float(usage["cost"])
-    price = _prices().get(str(model or "").removeprefix("openai/"))
-    if not price:
+    rate = price(model)
+    if not rate:
+        if model and model not in _unpriced:
+            _unpriced.add(model)
+            print(f"[cost] no price for {model}: its requests count as $0 (PANIM_OPENAI_PRICES prices it).",
+                  file=sys.stderr)
         return 0.0
-    return (float(usage.get("prompt_tokens") or 0) * float(price[0])
-            + float(usage.get("completion_tokens") or 0) * float(price[1])) / 1e6
+    prompt = float(usage.get("prompt_tokens") or 0)
+    cached = min(float((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0), prompt)
+    return ((prompt - cached) * rate["in"] + cached * rate.get("cachedIn", rate["in"])
+            + float(usage.get("completion_tokens") or 0) * rate["out"]) / 1e6
 
 
 def auth_hint(model: str | None) -> str:

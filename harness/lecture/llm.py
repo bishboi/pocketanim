@@ -134,7 +134,8 @@ def _agent_responses(model_id, system, user, tools, handle, done, turns, log):
             return words, spent, error
         usage = reply.get("usage") or {}
         spent += providers.cost(model_id, {"prompt_tokens": usage.get("input_tokens"),
-                                           "completion_tokens": usage.get("output_tokens")})
+                                           "completion_tokens": usage.get("output_tokens"),
+                                           "prompt_tokens_details": usage.get("input_tokens_details") or {}})
         output = reply.get("output") or []
         items += output
         calls = [o for o in output if o.get("type") == "function_call"]

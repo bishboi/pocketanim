@@ -420,6 +420,8 @@ def _ask_images(prompt: str, reference: bytes | None = None) -> tuple[bytes, flo
     """The Image API (/api/v1/images): {model, prompt} in, the picture in data[0].b64_json (or .url) out. The way
     image-only models (meta/muse-image and the like) are asked. `reference`: a picture sent with the words in
     input_references (image to image), e.g. the book's figure to redraw."""
+    import providers
+
     body: dict = {"model": model(), "prompt": prompt}
     if reference:
         url = "data:image/png;base64," + base64.b64encode(reference).decode()
@@ -429,7 +431,10 @@ def _ask_images(prompt: str, reference: bytes | None = None) -> tuple[bytes, flo
     first = items[0] if items else {}
     ref = (first.get("b64_json") or first.get("url") or (first.get("image_url") or {}).get("url") or "") \
         if isinstance(first, dict) else str(first or "")
-    usd = float((reply.get("usage") or {}).get("cost") or 0.0)
+    usage = reply.get("usage") or {}
+    # OpenAI's own Image API says its tokens, not its cost: priced at the model's list prices (providers.cost).
+    usd = float(usage["cost"]) if usage.get("cost") is not None else providers.cost(model(), {
+        "prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens")}) if usage else 0.0
     if not ref:
         raise RuntimeError(f"{model()} returned no image from the Image API: {json.dumps(reply)[:200]}")
     return _image_bytes(ref), usd

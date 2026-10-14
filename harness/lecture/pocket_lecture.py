@@ -422,6 +422,34 @@ def _tint_on_bg(colour: str, amount: float) -> ManimColor:
     return interpolate_color(ManimColor(P.BG), ManimColor(colour), amount)
 
 
+def _flat(*mobs):
+    """Interface pieces (cards, chips, tracks) the art style leaves as they are: no sheen, hatching or wobble on a
+    card; its look is the house's, clean and flat."""
+    for mob in mobs:
+        for part in mob.get_family():
+            part._art_none = True
+    return mobs[0] if len(mobs) == 1 else mobs
+
+
+def ui_chip(text: str, tone: str | None = None, size: float = 17, ink: str | None = None):
+    """A pill with a few words or a number in it (a date, a step's number, a choice's letter): the tone's solid
+    colour, the words in the board's own colour on it."""
+    tone = tone or P.SAND
+    words = T(str(text), size, ink or P.BG, weight=BOLD)
+    pill = RoundedRectangle(corner_radius=(words.height + 0.2) / 2, width=max(words.width + 0.38, words.height + 0.2),
+                            height=words.height + 0.2, fill_color=tone, fill_opacity=1, stroke_width=0)
+    words.move_to(pill)
+    return VGroup(_flat(pill), words)
+
+
+def ui_surface(width: float, height: float, tone: str | None = None, radius: float = 0.22, wash: float = 0.10):
+    """A card's face: a soft wash of the tone over the board, a hairline edge in the tone."""
+    tone = tone or P.SAND
+    return _flat(RoundedRectangle(corner_radius=min(radius, height / 2, width / 2), width=width, height=height,
+                                  fill_color=_tint_on_bg(tone, wash), fill_opacity=1,
+                                  stroke_color=_tint_on_bg(tone, 0.5), stroke_width=1.4))
+
+
 # A drawing's outline weight at full size.
 OUTLINE = 4.5
 
@@ -2966,10 +2994,15 @@ class Lecture(Scene):
         """A large number with a small label under it."""
         if self.board_mode:
             return self.board_stat(value, label, color)
-        v = fit(T(value, tok("stat_size", 44), color or P.GOLD, font=TH["serif"], weight=BOLD), 5.1)
-        lab = fit(T(wrap(label, 40), 17, P.MUTED), TEXT_W)
+        v = fit(T(value, tok("stat_size", 44), color or P.GOLD, font=TH["serif"], weight=BOLD), 4.9)
+        lab = fit(T(wrap(label, 40), 17, P.MUTED), TEXT_W - 0.25)
         lab.next_to(v, DOWN, aligned_edge=LEFT, buff=0.08)
-        group = self._stack(VGroup(v, lab), 0.3)
+        words = VGroup(v, lab)
+        # A slim bar of the number's colour down its left: a figure that stands out from the points round it.
+        bar = _flat(RoundedRectangle(corner_radius=0.03, width=0.06, height=words.height, fill_color=color or P.GOLD,
+                                     fill_opacity=1, stroke_width=0))
+        bar.next_to(words, LEFT, buff=0.18)
+        group = self._stack(VGroup(bar, words), 0.3)
         return self.reveal(group, v)
 
     def panel_icon(self, name: str, label: str = "", color: str | None = None):
@@ -3148,13 +3181,14 @@ class Lecture(Scene):
         self._problem = None
         return going
 
-    def _to_stage(self, group, draw=None, still: bool = False):
+    def _to_stage(self, group, draw=None, still: bool = False, entrance=None):
         """Put a picture on the stage, over the map; the one there before fades.
 
         A second picture for the same beat (a figure and its equation, say) goes beside the first rather
         than replacing it before it was ever seen: the stage splits in two. `draw`: the picture's parts, to be
         written in one after another (outlines, then their colours, as on a whiteboard) instead of faded in.
-        `still`: the picture simply appears (a timeline: nothing about it moves or is drawn in)."""
+        `still`: the picture simply appears (nothing about it moves or is drawn in). `entrance`: how the picture
+        comes on, built by its maker (a timeline drawing itself in), in place of a fade."""
         # Drawn in the lecture's art style (artstyle.py): the picture, and its parts still to be revealed.
         for picture in [group, *self._next_pending]:
             _art(picture)
@@ -3177,7 +3211,9 @@ class Lecture(Scene):
                 self.play(*going, run_time=0.4)
             self.add(new)
             return None
-        if draw:
+        if entrance is not None:
+            show = AnimationGroup(FadeIn(new[0]), entrance)
+        elif draw:
             show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[write_in(m) for m in draw], lag_ratio=0.3))
         else:
             show = FadeIn(new, scale=1.02)
@@ -3967,10 +4003,11 @@ class Lecture(Scene):
         return exit_point(a, 1), exit_point(b, -1)
 
     def big_timeline(self, events, title: str | None = None):
-        """A timeline across the stage: dates large, labels alternating above and below, each event's picture (a
-        photo, a figure, a drawing: (date, label, picture)) beyond its words. Events on the same side are two slots
-        apart, so each one's words and picture are kept narrower than that, and shrunk until no two touch. It is
-        still: it appears whole, and its pictures do not move."""
+        """A timeline across the stage: a track, a ringed node on it for each event, the date in a pill on a short
+        stem, the event's words beyond it, alternately above and below, each event's picture (a photo, a figure, a
+        drawing: (date, label, picture)) beyond its words. Events on the same side are two slots apart, so each
+        one's words and picture are kept narrower than that, and shrunk until no two touch. It is still: it appears
+        whole, and its pictures do not move."""
         cx, cy, w, h = self.STAGE
         events = [tuple(e) + (None,) * (3 - len(e)) for e in list(events)[:7]]
         n = max(len(events), 1)
@@ -3978,20 +4015,28 @@ class Lecture(Scene):
         slot = width / n
         room = (2 * slot if n > 1 else width) - 0.3        # what one event may take across, clear of its neighbours
         pictured = any(e[2] for e in events)
-        line = Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=4)
+        tone = P.SAND
+        track = _flat(Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=9, stroke_opacity=0.35))
+        lit = _flat(Line(LEFT * width / 2, RIGHT * width / 2, color=tone, stroke_width=3, stroke_opacity=0.9))
 
         def build(picture_height):
             marks = []
             for i, (date, label, picture) in enumerate(events):
                 x = -width / 2 + slot * (i + 0.5)
-                dot = Dot([x, 0, 0], radius=0.1, color=P.SAND)
-                d = T(str(date), 24, P.SAND, font=TH["serif"], weight=BOLD)
-                lab = fit(T(wrap(str(label), 16 if pictured else 14), 15, P.CREAM, line_spacing=0.85), room)
-                pic = self._picture(picture, picture_height, room, motion="none") if picture else None
                 up = i % 2 == 0
-                d.next_to(dot, UP if up else DOWN, buff=0.15)
-                lab.next_to(d, UP if up else DOWN, buff=0.08)
-                parts = [dot, d, lab]
+                sign = 1 if up else -1
+                ring = Circle(radius=0.17, stroke_color=tone, stroke_width=4, fill_color=P.BG, fill_opacity=1)
+                node = _flat(VGroup(ring, Dot(radius=0.075, color=tone)).move_to([x, 0, 0]))
+                stem = _flat(Line([x, sign * 0.19, 0], [x, sign * 0.45, 0], color=tone, stroke_width=2.5,
+                                  stroke_opacity=0.7))
+                chip = ui_chip(str(date), tone, 23)
+                fit(chip, room)
+                chip.next_to(stem, UP if up else DOWN, buff=0.04)
+                lab = fit(T(wrap(str(label), 16 if pictured else 16), 20, P.CREAM, weight=BOLD, line_spacing=0.85),
+                          room)
+                lab.next_to(chip, UP if up else DOWN, buff=0.12)
+                parts = [node, stem, chip, lab]
+                pic = self._picture(picture, picture_height, room, motion="none") if picture else None
                 if pic is not None:
                     pic.next_to(lab, UP if up else DOWN, buff=0.12).set_x(x)
                     parts.append(pic)
@@ -4002,19 +4047,20 @@ class Lecture(Scene):
         marks = build(height)
         for _ in range(6):
             # Two events on the same side that touch (a wide picture, a long label): smaller pictures.
-            if not pictured or not _touching([m[1:] for m in marks]):
+            if not pictured or not _touching([m[2:] for m in marks]):
                 break
             height *= 0.8
             marks = build(height)
-        drawing = Group(line, *marks)
+        drawing = Group(track, lit, *marks)
         for (date, label, _picture), mark in zip(events, marks):
             self.name_part(date, mark)
             self.name_part(label, mark)
         parts = Group(drawing)
         if title:
-            parts.add(fit(T(title.upper() if TH["upper"] else title, 26, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
+            parts.add(fit(T(title.upper() if TH["upper"] else title, 32, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.5)
-        self._fit_stage(parts)
+        self._fit_stage(parts, grow=1.25)
+        # Still: it is simply there, whole (b189db3: an entrance handed to the beat is stretched over the line).
         return self._to_stage(Group(parts), still=True)
 
     # ---------------- several pictures at once, and diagrams built on the stage ----------------
@@ -4931,13 +4977,12 @@ class Lecture(Scene):
 
     @staticmethod
     def _card(inner, tone: str, pad: float = 0.42, width: float | None = None):
-        """A text card: the words on a soft wash of the tone, a thin outline and an accent bar down the left, so a
-        card reads as one thing on any board instead of words floating on the background."""
-        box = RoundedRectangle(corner_radius=0.24, width=width or inner.width + 2 * pad + 0.2,
-                               height=inner.height + 2 * pad, fill_color=_tint_on_bg(tone, 0.11), fill_opacity=1,
-                               stroke_color=_tint_on_bg(tone, 0.6), stroke_width=2.5)
-        bar = RoundedRectangle(corner_radius=0.05, width=0.11, height=max(box.height - 0.5, 0.2), fill_color=tone,
-                               fill_opacity=1, stroke_width=0).align_to(box, LEFT).shift(RIGHT * 0.2)
+        """A text card: the words on a soft wash of the tone with a hairline edge (ui_surface), and a slim pill of
+        the tone down the left, so a card reads as one thing on any board instead of words floating on it."""
+        box = ui_surface(width or inner.width + 2 * pad + 0.2, inner.height + 2 * pad, tone)
+        bar = _flat(RoundedRectangle(corner_radius=0.035, width=0.07, height=max(box.height - 0.56, 0.2),
+                                     fill_color=tone, fill_opacity=1, stroke_width=0))
+        bar.align_to(box, LEFT).shift(RIGHT * 0.22)
         inner.move_to(box).shift(RIGHT * 0.1)
         return VGroup(box, bar, inner)
 
@@ -5074,12 +5119,10 @@ class Lecture(Scene):
         parts = VGroup(head, track, body)
         options = VGroup()
         for k, choice in enumerate(list(choices)[:4]):
-            letter = VGroup(Circle(radius=0.22, stroke_color=P.SAND, stroke_width=2.5),
-                            T("ABCD"[k], 18, P.SAND, weight=BOLD))
-            words = fit(T(wrap(str(choice), 30), 20, P.CREAM, line_spacing=0.9), w - 1.5)
+            letter = ui_chip("ABCD"[k], P.SAND, 17)
+            words = fit(T(wrap(str(choice), 30), 21, P.CREAM, line_spacing=0.9), w - 1.5)
             row = VGroup(letter, words).arrange(RIGHT, buff=0.25)
-            box = RoundedRectangle(corner_radius=0.14, width=w - 0.6, height=row.height + 0.3, stroke_color=P.MUTED,
-                                   stroke_width=1.5, fill_color=_tint_on_bg(P.SAND, 0.06), fill_opacity=1)
+            box = ui_surface(w - 0.6, row.height + 0.34, P.SAND, radius=0.18, wash=0.07)
             options.add(VGroup(box, row.move_to(box).align_to(box, LEFT).shift(RIGHT * 0.2)))
         if len(options):
             parts.add(options.arrange(DOWN, buff=0.16))
@@ -5258,8 +5301,9 @@ class Lecture(Scene):
         n = T(f"{num:02d}", 96, P.TITLE if TH.get("highlight") else P.SAND, font=TH["serif"], weight=BOLD)
         t = fit(T(title.upper() if TH["upper"] else title, 54, P.CREAM, font=TH["serif"], weight=BOLD), 12)
         s = fit(T(sub, 22, P.MUTED), 12)
-        rule = Line(LEFT * 1.6, RIGHT * 1.6, color=TH.get("highlight", P.SAND),
-                    stroke_width=6 if TH.get("highlight") else 2)
+        # A short, solid rule of the accent between the number and the name: a pill, not a hairline.
+        rule = _flat(RoundedRectangle(corner_radius=0.04, width=1.4, height=0.08 if not TH.get("highlight") else 0.12,
+                                      fill_color=TH.get("highlight", P.SAND), fill_opacity=1, stroke_width=0))
         card = VGroup(n, rule, t, s).arrange(DOWN, buff=0.28).move_to(UP * 0.35)
         if STYLE == "cardboard":
             paper = Rectangle(width=max(card.width + 1.4, 7), height=card.height + 1.0, fill_color=P.PANEL,
@@ -5363,15 +5407,16 @@ class Lecture(Scene):
         cards = VGroup()
         for i, (head, body) in enumerate(points[:8]):
             color = palette[i % len(palette)]
-            tt = fit(T(head, 24, color, font=TH["serif"], weight=BOLD), 2.95)
-            ss = fit(T(wrap(body, 30), 16, P.CREAM, line_spacing=0.9), 2.95)
-            words = VGroup(tt, ss).arrange(DOWN, buff=0.14)
-            box = RoundedRectangle(corner_radius=0.14, width=3.25, height=max(1.7, words.height + 0.4),
-                                   stroke_color=color, stroke_width=2,
-                                   fill_color=P.PANEL if STYLE == "cardboard" else color,
-                                   fill_opacity=1 if STYLE == "cardboard" else 0.08)
-            words.move_to(box)
-            cards.add(VGroup(box, tt, ss))
+            # A numbered card: the number in a pill of the card's colour, the idea bold, a line of what it means.
+            chip = ui_chip(f"{i + 1:02d}", color, 17)
+            tt = fit(T(head, 28, P.CREAM, font=TH["serif"], weight=BOLD), 3.2)
+            ss = fit(T(wrap(body, 28), 19, P.MUTED, line_spacing=0.9), 3.2)
+            words = VGroup(chip, tt, ss).arrange(DOWN, buff=0.18, aligned_edge=LEFT)
+            box = ui_surface(3.65, max(2.2, words.height + 0.6), color, wash=0.12)
+            if STYLE == "cardboard":
+                box.set_fill(P.PANEL, 1)
+            words.move_to(box).align_to(box, LEFT).shift(RIGHT * 0.25)
+            cards.add(VGroup(box, words))
         # One height for the row, the tallest card's, so the words never cross a card's edge.
         tallest = max((c[0].height for c in cards), default=1.7)
         for c in cards:
@@ -5385,7 +5430,8 @@ class Lecture(Scene):
         cards.set_z_index(Z_PANEL_TEXT)
         lines = narration or [f"{h}. {b}." for h, b in points[:8]]
         for card, line in zip(cards, lines):
-            self.beat(line, FadeIn(card, shift=UP * 0.2, scale=0.95), rt=1.0)
+            self.beat(line, LaggedStart(FadeIn(card[0], shift=UP * 0.2, scale=0.95),
+                                        FadeIn(card[1], shift=UP * 0.12), lag_ratio=0.3), rt=1.0)
         self.play(FadeOut(cards, shift=UP * 0.3), run_time=1.0)
         self.clear_caption()
 

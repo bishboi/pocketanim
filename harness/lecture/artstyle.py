@@ -425,6 +425,12 @@ def _recipes(m, live: bool) -> list:
         out.append(maker)
 
     if ART == "detailed":
+        from manim import RoundedRectangle
+
+        if isinstance(m, RoundedRectangle):
+            # A box with words in it (a diagram's node, a card): flat and clean, as a modern interface draws one;
+            # a glossy band across it read as dated.
+            return out
         if filled and closed and _simple(m):
             add(lambda p: (_shape_part(p.points, (0.92, 0.92), (0.04, -0.05)),
                            mix(p.get_fill_color().to_hex(), "#000000", 0.35), min(0.35, p.get_fill_opacity() * 0.45),

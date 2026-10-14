@@ -269,23 +269,38 @@ class BoardMixin:
 
     def board_title(self, title: str, sub: str | None = None):
         import pocket_lecture as pl
-        from manim import BOLD, VGroup, RIGHT
+        from manim import BOLD, LEFT, VGroup, RIGHT
+
+        from manim import RoundedRectangle
 
         text = title.upper() if pl.TH["upper"] else title
         head = VGroup(pl.T(text, 32, pl.P.TITLE, font=pl.TH["serif"], weight=BOLD))
         if sub:
             head.add(pl.T(sub, 21, pl.P.MUTED))
             head.arrange(RIGHT, buff=0.25, aligned_edge=[0, -1, 0])
-        pl.fit(head, 7.5)
-        return self._strip(title=head)
+        pl.fit(head, 7.3)
+        # A slim pill of the accent before the topic's name.
+        mark = pl._flat(RoundedRectangle(corner_radius=0.035, width=0.07, height=head[0].height * 1.1,
+                                         fill_color=pl.P.SAND, fill_opacity=1, stroke_width=0))
+        mark.next_to(head, LEFT, buff=0.18).align_to(head[0], [0, 0, 0]).set_y(head[0].get_center()[1])
+        return self._strip(title=VGroup(mark, head))
 
     def board_point(self, text: str, color: str | None = None):
         import pocket_lecture as pl
         from manim import Dot, VGroup, RIGHT
 
+        from manim import RoundedRectangle
+
+        # The key point in a soft pill: a dot of the accent, then the words.
         dot = Dot(radius=0.07, color=color or pl.P.SAND)
         line = pl.T(str(text), 23, color or pl.P.CREAM)
-        return self._strip(point=VGroup(dot, line).arrange(RIGHT, buff=0.18))
+        words = VGroup(dot, line).arrange(RIGHT, buff=0.18)
+        pill = pl._flat(RoundedRectangle(corner_radius=(words.height + 0.24) / 2, width=words.width + 0.5,
+                                         height=words.height + 0.24, fill_color=pl._tint_on_bg(color or pl.P.SAND, 0.12),
+                                         fill_opacity=1, stroke_color=pl._tint_on_bg(color or pl.P.SAND, 0.45),
+                                         stroke_width=1.2))
+        words.move_to(pill)
+        return self._strip(point=VGroup(pill, words))
 
     def board_stat(self, value: str, label: str, color: str | None = None):
         import pocket_lecture as pl
@@ -296,30 +311,43 @@ class BoardMixin:
         return self._strip(point=group)
 
     def board_bars(self, items, color: str | None = None, unit: str = ""):
-        """A bar chart across the board."""
+        """A bar chart across the board: each bar a rounded bar on a faint track of the full length, its value in
+        bold at its end; the bars grow out from the left one after another."""
         import pocket_lecture as pl
-        from manim import Rectangle, VGroup, LEFT, RIGHT, Group
+        from manim import (BOLD, AnimationGroup, FadeIn, GrowFromEdge, LaggedStart, LEFT, RIGHT, Group,
+                           RoundedRectangle, VGroup)
 
         cx, cy, w, h = self.STAGE
         items = list(items)[:8]
         top = max((float(v) for _, v in items), default=1.0) or 1.0
+        tone = color or pl.P.SAND
+        full, thick = 7.0, 0.44
         rows = VGroup()
         for name, value in items:
-            label = pl.fit(pl.T(str(name), 20, pl.P.CREAM), 3.0)
-            bar = Rectangle(width=max(0.05, 7.0 * float(value) / top), height=0.42, fill_color=color or pl.P.SAND,
-                            fill_opacity=0.9, stroke_width=0)
-            num = pl.T(f"{float(value):g}{unit}", 18, pl.P.MUTED)
-            rows.add(VGroup(label, bar, num))
+            label = pl.fit(pl.T(str(name), 20, pl.P.CREAM, weight=BOLD), 3.0)
+            track = pl._flat(RoundedRectangle(corner_radius=thick / 2, width=full, height=thick,
+                                              fill_color=pl._tint_on_bg(tone, 0.12), fill_opacity=1, stroke_width=0))
+            length = max(thick, full * float(value) / top)
+            bar = pl._flat(RoundedRectangle(corner_radius=thick / 2, width=length, height=thick, fill_color=tone,
+                                            fill_opacity=1, stroke_width=0))
+            num = pl.T(f"{float(value):g}{unit}", 19, pl.P.CREAM, weight=BOLD)
+            rows.add(VGroup(label, track, bar, num))
         width = max((r[0].width for r in rows), default=1.0)
         for i, r in enumerate(rows):
-            r[0].move_to([-width, -i * 0.65, 0], aligned_edge=RIGHT)
-            r[1].move_to([0.2, -i * 0.65, 0], aligned_edge=LEFT)
-            r[2].next_to(r[1], RIGHT, buff=0.15)
+            y = -i * 0.72
+            r[0].move_to([-width, y, 0], aligned_edge=RIGHT)
+            r[1].move_to([0.2, y, 0], aligned_edge=LEFT)
+            r[2].move_to([0.2, y, 0], aligned_edge=LEFT)
+            r[3].next_to(r[2], RIGHT, buff=0.18)
+            if r[3].get_right()[0] > r[1].get_right()[0] + 0.05 and r[2].width > r[3].width + 0.5:
+                # A bar near full length: its value inside its end, in the board's colour.
+                r[3].set_color(pl.P.BG).next_to(r[2].get_right(), LEFT, buff=0.18)
         self._fit_stage(rows, grow=1.2)
-        return self._to_stage(Group(rows))
+        entrance = LaggedStart(*[AnimationGroup(FadeIn(r[0], shift=RIGHT * 0.15), FadeIn(r[1]),
+                                                GrowFromEdge(r[2], LEFT), FadeIn(r[3], shift=LEFT * 0.1))
+                                 for r in rows], lag_ratio=0.25)
+        return self._to_stage(Group(rows), entrance=entrance)
 
-    # ---------------- geometry helpers ----------------
-    @staticmethod
     def _colour(name, default):
         import pocket_lecture as pl
 

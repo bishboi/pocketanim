@@ -701,10 +701,142 @@ def is_cutout(path) -> bool:
     return Path(str(path)).name.startswith("gen-")
 
 
+_TRIMS: dict[str, tuple] = {}
+
+
+def trim_box(path) -> tuple[str, tuple]:
+    """A picture without the empty margin round it, and where in the original it was cut from ((u0, v0, u1, v1),
+    0 to 1 across and down): a cutout's transparent edges, or a flat white or black border round a photo or a book's
+    figure. Kept beside the original; the original itself when there is nothing to cut."""
+    key = str(path)
+    if key in _TRIMS:
+        return _TRIMS[key]
+    whole = (key, (0.0, 0.0, 1.0, 1.0))
+    p = Path(key)
+    try:
+        from PIL import Image
+
+        with Image.open(p) as img:
+            rgba = np.asarray(img.convert("RGBA"))
+    except Exception:  # noqa: BLE001 -- a picture PIL cannot open is shown as it is
+        _TRIMS[key] = whole
+        return whole
+    rows, cols = rgba.shape[0], rgba.shape[1]
+    alpha = rgba[..., 3]
+    if (alpha < 250).mean() > 0.01:
+        keep = alpha > 12
+    else:
+        corners = np.array([rgba[0, 0, :3], rgba[0, -1, :3], rgba[-1, 0, :3], rgba[-1, -1, :3]], dtype=float)
+        flat = corners.max(axis=0) - corners.min(axis=0)
+        level = corners.mean()
+        if flat.max() > 24 or 40 < level < 215:
+            # The corners differ, or are a colour of the picture (a sky, a field): no border to cut.
+            _TRIMS[key] = whole
+            return whole
+        keep = np.abs(rgba[..., :3].astype(float) - corners.mean(axis=0)).max(axis=2) > 20
+    found_r, found_c = np.where(keep.any(axis=1))[0], np.where(keep.any(axis=0))[0]
+    if not len(found_r) or not len(found_c):
+        _TRIMS[key] = whole
+        return whole
+    pad = 2
+    r0, r1 = max(0, found_r[0] - pad), min(rows, found_r[-1] + 1 + pad)
+    c0, c1 = max(0, found_c[0] - pad), min(cols, found_c[-1] + 1 + pad)
+    if (r1 - r0) * (c1 - c0) > 0.97 * rows * cols:
+        _TRIMS[key] = whole
+        return whole
+    out = p.with_name(f"{p.stem}.trim.png")
+    if not out.exists() or out.stat().st_mtime < p.stat().st_mtime:
+        from PIL import Image
+
+        part = out.with_suffix(f".{os.getpid()}.part.png")
+        Image.fromarray(rgba[r0:r1, c0:c1]).save(part)
+        os.replace(part, out)
+    found = (str(out), (c0 / cols, r0 / rows, c1 / cols, r1 / rows))
+    _TRIMS[key] = found
+    return found
+
+
+def trimmed(path) -> str:
+    return trim_box(path)[0]
+
+
+def has_alpha(path) -> bool:
+    """Whether a picture is a cutout with clear parts (a sticker on the board: no frame round it)."""
+    try:
+        from PIL import Image
+
+        with Image.open(str(path)) as img:
+            if "A" not in img.getbands():
+                return False
+            return bool((np.asarray(img.getchannel("A")) < 250).mean() > 0.02)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def board_colour_at(scene, point) -> str:
+    """The board's colour at a point: the background with the backdrop's soft discs over it (the vignette, the
+    paper's light), so a patch laid there in it cannot be told from the board."""
+    colour = np.array(color_to_rgb(P.BG), dtype=float)
+    for top in getattr(scene, "mobjects", []):
+        if not getattr(top, "is_backdrop", False):
+            continue
+        for m in top.get_family():
+            if not isinstance(m, Circle):
+                continue
+            try:
+                opacity = float(m.get_fill_opacity())
+            except Exception:  # noqa: BLE001
+                continue
+            if opacity <= 0:
+                continue
+            c = m.get_center()
+            a, b = m.width / 2, m.height / 2
+            if ((point[0] - c[0]) / max(a, 1e-6)) ** 2 + ((point[1] - c[1]) / max(b, 1e-6)) ** 2 <= 1:
+                colour = colour * (1 - opacity) + np.array(color_to_rgb(m.get_fill_color()), dtype=float) * opacity
+    return rgb_to_hex(np.clip(colour, 0, 1))
+
+
+def photo_frame(scene, image, radius: float = 0.16):
+    """A modern frame for a picture with edges (a photo, a scene, a book's figure): its corners rounded (four small
+    patches of the board's colour over them), a hairline edge, and depth -- a soft shadow on a light board, a faint
+    glow on a dark one. (behind, over): what goes under the picture, and what over it."""
+    import artstyle
+
+    lo, hi = image.get_corner(DL), image.get_corner(UR)
+    w, h = hi[0] - lo[0], hi[1] - lo[1]
+    r = min(radius, w / 6, h / 6)
+    edge = RoundedRectangle(corner_radius=r, width=w, height=h, stroke_color=_tint_on_bg(P.CREAM, 0.35),
+                            stroke_width=1.6, fill_opacity=0).move_to(image)
+    corners = VGroup()
+    for sx, sy in ((-1, 1), (1, 1), (1, -1), (-1, -1)):
+        corner = np.array([lo[0] if sx < 0 else hi[0], hi[1] if sy > 0 else lo[1], 0])
+        centre = corner + np.array([-sx * r, -sy * r, 0])
+        # The quarter circle on the corner's side, from the edge across to the edge up or down.
+        start = 0.0 if sx > 0 else PI
+        arc = [centre + r * np.array([np.cos(t), np.sin(t), 0])
+               for t in np.linspace(start, start + sx * sy * PI / 2, 9)]
+        patch = VMobject().set_points_as_corners([corner, *arc, corner])
+        patch.set_fill(board_colour_at(scene, corner), 1).set_stroke(width=0)
+        corners.add(patch)
+    if artstyle.dark_board():
+        depth = RoundedRectangle(corner_radius=r + 0.04, width=w + 0.08, height=h + 0.08, fill_opacity=0,
+                                 stroke_color=_tint_on_bg(P.SAND, 0.5), stroke_width=7, stroke_opacity=0.12)
+        depth.move_to(image)
+    else:
+        depth = RoundedRectangle(corner_radius=r, width=w, height=h, fill_color="#000000", fill_opacity=0.18,
+                                 stroke_width=0)
+        depth.move_to(image).shift(RIGHT * 0.05 + DOWN * 0.08)
+    over = VGroup(corners, edge)
+    for part in [*over.get_family(), *depth.get_family()]:
+        part._art_none = True
+    return depth, over
+
+
 def cutout_mob(path, width: float, height: float):
     """A picture an image model made, as the board shows it: the cutout PNG in its own colours, no frame, at most
-    width x height. The phone draws the same PNG (the program's `image` lines)."""
-    mob = ImageMobject(str(path))
+    width x height, its empty margin cut away (trim_box). The phone draws the same PNG (the program's `image`
+    lines)."""
+    mob = ImageMobject(trimmed(path))
     mob.scale_to_fit_height(height)
     if mob.width > width:
         mob.scale_to_fit_width(width)
@@ -3444,27 +3576,51 @@ class Lecture(Scene):
             return self._split_picture(path, [str(p) for p in points if str(p).strip()][:5], caption, move)
         labels = [tuple(x) for x in labels or () if isinstance(x, (list, tuple)) and len(x) >= 3]
         cutout = is_cutout(path)
-        # With labels the picture leaves room beside it for their names.
-        if cutout:
-            # A picture the image model made: a cutout, in vector shapes, no frame around it, drawn in.
-            image = cutout_mob(path, w * (0.58 if labels else 1.0), room)
-            parts = [image]
-        else:
-            image = ImageMobject(path)
-            image.scale_to_fit_width(w * (0.58 if labels else 1.0))
-            if image.height > room:
-                image.scale_to_fit_height(room)
-            parts = [image, SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.5)]
+        # The picture without its empty margin, its labels moved to match.
+        src, (u0, v0, u1, v1) = trim_box(path)
+        if labels and (u0, v0, u1, v1) != (0.0, 0.0, 1.0, 1.0):
+            su, sv = max(u1 - u0, 1e-6), max(v1 - v0, 1e-6)
+
+            def across(v):
+                return min(max((float(v) - u0) / su, 0.0), 1.0)
+
+            def down(v):
+                return min(max((float(v) - v0) / sv, 0.0), 1.0)
+
+            labels = [(t[0], across(t[1]), down(t[2]),
+                       *((across(t[3]), down(t[4]), across(t[5]), down(t[6])) if len(t) >= 7 else ())) for t in labels]
+        # As large as the stage allows: the full height, and the full width but for the room its labels' names
+        # take on either side.
+        side = 0.0
+        if labels:
+            widest = max(fit(marker(str(t[0]), 17), w * 0.24).width for t in labels)
+            side = min(widest + 0.7, w * 0.26)
+        image = cutout_mob(src, w - 2 * side, room) if cutout else ImageMobject(src)
+        if not cutout:
+            image.scale_to_fit_height(room)
+            if image.width > w - 2 * side:
+                image.scale_to_fit_width(w - 2 * side)
+        parts = [image]
         if line is not None:
             parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
         if credit:
             parts.append(fit(T(credit, TYPE["fine"], P.MUTED, fine=True), w).next_to(parts[-1], DOWN, buff=0.06))
         group = Group(*parts)
         group.shift(np.array([cx, cy, 0]) - group.get_center())
+        framed = not has_alpha(src)
+        depth = over = None
+        if framed:
+            # A photo, a scene, a book's figure: a modern frame (photo_frame); a cutout stays a sticker.
+            depth, over = photo_frame(self, image)
+            group = Group(depth, *parts, over)
         if cutout:
-            shown = self._to_stage(group, draw=[*cutout_strokes(image), *parts[1:]])
+            shown = self._to_stage(group, draw=[*([depth] if depth is not None else []), *cutout_strokes(image),
+                                                *parts[1:], *([over] if over is not None else [])])
         else:
             shown = self._to_stage(group)
+        if over is not None:
+            # Over the picture, under the camera's view of a part and the labels' lines.
+            over.set_z_index(Z_MARK + 10.5)
         if labels:
             # The labels come on as their parts are said (beat): not with the picture, all at once.
             self._picture_view(image, labels, w, still=bool(move))
@@ -4085,12 +4241,11 @@ class Lecture(Scene):
                 drawn[len(cells)] = image
                 parts = [image]
             else:
-                image = ImageMobject(path)
+                image = ImageMobject(trimmed(path))
                 image.scale_to_fit_width(cell_w)
                 if image.height > cell_h:
                     image.scale_to_fit_height(cell_h)
-                frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
-                parts = [image, frame]
+                parts = [image]
             if caption:
                 parts.append(fit(T(wrap(caption, 26), 14, P.CREAM, line_spacing=0.85), cell_w).next_to(image, DOWN, buff=0.1))
             cells.append(Group(*parts))
@@ -4104,6 +4259,14 @@ class Lecture(Scene):
         if body.height > h - 0.1:
             body.scale_to_fit_height(h - 0.1)
         body.move_to([cx, cy, 0])
+        # Each photo in its frame (photo_frame), set where it ends up.
+        overs = []
+        for k, c in enumerate(cells):
+            if k not in drawn:
+                depth, over = photo_frame(self, c[0], radius=0.12)
+                c.add_to_back(depth)
+                c.add(over)
+                overs.append(over)
         going = self._stage_leaving()
         card = self._stage_card()
         card.set_z_index(Z_MARK + 10)
@@ -4121,6 +4284,8 @@ class Lecture(Scene):
                 arrivals.append(LaggedStart(*pieces, lag_ratio=0.5))
             else:
                 arrivals.append(FadeIn(c, shift=UP * 0.15))
+        for over in overs:
+            over.set_z_index(Z_MARK + 11.5)
         show = LaggedStart(*arrivals, lag_ratio=0.35)
         return AnimationGroup(AnimationGroup(*going, run_time=0.5), show, lag_ratio=1.0) if going else show
 
@@ -4173,12 +4338,15 @@ class Lecture(Scene):
             if kind == "cutout" or (kind == "image" and is_cutout(value)):
                 return cutout_mob(str(value), width, height)
             if kind == "image":
-                image = ImageMobject(str(value))
+                image = ImageMobject(trimmed(str(value)))
                 image.scale_to_fit_height(height)
                 if image.width > width:
                     image.scale_to_fit_width(width)
-                frame = SurroundingRectangle(image, buff=0.0, color=P.MUTED, stroke_width=1.2)
-                return Group(image, frame)
+                # A hairline, softly rounded edge (it may sit on a card, so its corners are not masked).
+                edge = _flat(RoundedRectangle(corner_radius=min(0.08, image.height / 6), width=image.width,
+                                              height=image.height, stroke_color=_tint_on_bg(P.CREAM, 0.4),
+                                              stroke_width=1.4, fill_opacity=0).move_to(image))
+                return Group(image, edge)
         except Exception as error:  # noqa: BLE001 -- a picture that will not draw leaves its words alone
             skipped(f"a picture {value!r} left out: {type(error).__name__}: {error}"[:300])
         return None

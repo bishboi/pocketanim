@@ -54,4 +54,4 @@ harness/lecture/data/drawlib/
 harness/lecture/data/historical/
 
 # Narration and sound effects made by a lecture run without PANIM_AUDIO_DIR
-harness/lecture/build_audio/
+build_audio/

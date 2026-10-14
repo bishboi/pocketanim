@@ -537,12 +537,13 @@ export const FREE_DRAWN_OPS = ["incline", "pulley", "piston", "spring", "pendulu
 
 /** The writer's section on drawings: free-form Manim draws them all. */
 const FREE_DRAWINGS_HEAD: string[] = [
-  "EVERY MATHS, SCIENCE OR MOVING DRAWING IS FREE-FORM MANIM (below): a graph, a free-body diagram, apparatus, a",
-  "circuit, a ray diagram, a construction, a wave, an orbit, a collision, a titration, a cell dividing, a Punnett",
-  "square, a number line, a balance, a population pyramid -- anything with its own geometry, or that moves. There",
-  "are no presets, sketches, graph or sim ops: plan (or write) the drawing yourself, built over the beats that",
-  "explain it, every part labelled, and moving where the narration describes motion. Diagrams of boxes and arrows",
-  "(flow, cycle, hub, pyramid), timelines, maps and pictures stay what they are.",
+  "ANY FIGURE YOU DESIGN YOURSELF, IN ANY SUBJECT, IS FREE-FORM MANIM (below): a graph, a free-body diagram,",
+  "apparatus, a circuit, a construction, a wave, a titration, a cell dividing, a Punnett square -- and as much a",
+  "history, geography, economics or language figure: tribute flowing up the feudal ranks, a river's long profile,",
+  "a population pyramid changing over decades, a trade balance tipping, prices chasing wages, a story's plot arc,",
+  "a sentence taken apart into its parts. Anything with its own geometry, or that moves. Plan (or write) it",
+  "yourself, built over the beats that explain it, every part labelled, moving where the narration describes",
+  "motion. Whether a paragraph is a manim figure, a diagram, a timeline, a map or a picture is your choice.",
   "",
   "WORKED SOLUTIONS AND PROBLEMS:",
   '  {"op":"work","id":"w","title"?:"Along the slope","lines":["N = mg\\cos\\theta"],"box"?:true}   A WORKED SOLUTION:',
@@ -559,9 +560,9 @@ const FREE_DRAWINGS_HEAD: string[] = [
 
 /** How free-form Manim is written: the writer's own rules, or the Manim model's (lib/manimcoder.ts). */
 export const MANIM_RULES: string[] = [
-    'FREE-FORM MANIM, for a picture the operations above cannot draw well (a banked road with a car, a block on a',
-    "wedge tied over a pulley to a hanging mass, a free-body diagram beside its system, a ray diagram, a derivation",
-    "whose terms move into the next line):",
+    'FREE-FORM MANIM, in any subject: a figure you design yourself, whenever it teaches better than the other kinds',
+    "(a banked road with a car, a ray diagram, a derivation whose terms move into the next line; equally a feudal",
+    "pyramid with tribute flowing up, a river's long profile, a supply and demand shift, a story's plot arc):",
     '  {"op":"manim","id":"pulley1","code":"wedge = Polygon(...)\\nself.play(Create(wedge))"}   the ONLY op on its beat.',
     "   Never a map in it (no outline of a place, no lon/lat): maps are the map operations'.",
     '   "area": "left" on a figure (its first beat decides) when it is explained ALONGSIDE something: a derivation',
@@ -632,9 +633,10 @@ export const MANIM_RULES: string[] = [
 
 /** The writer's part when another model writes the Manim (PANIM_MANIM_MODEL): what to draw, not the code. */
 export const MANIM_PLAN: string[] = [
-  'FREE-FORM MANIM, for a picture the operations above cannot draw well (a banked road with a car, a block on a',
-  "wedge tied over a pulley to a hanging mass, a free-body diagram beside its system, a ray diagram, a derivation",
-  "whose terms move into the next line, a Venn diagram, a Punnett square, a supply and demand shift...):",
+  'FREE-FORM MANIM, in any subject: a figure you design yourself, whenever it teaches better than the other kinds',
+  "(a banked road with a car, a ray diagram, a derivation whose terms move into the next line, a Venn diagram, a",
+  "Punnett square; equally a feudal pyramid with tribute flowing up, a river's long profile, a supply and demand",
+  "shift, a story's plot arc, a sentence taken apart into its parts...):",
   '  {"op":"manim","id":"pulley1","plan":"..."}   the ONLY op on its beat. A Manim specialist writes the code from',
   "   your plan, so the plan is precise: on this beat, what is drawn or moved, where on the board (left, right,",
   "   centre), its sizes, angles and values, every label's words, colours with meaning (forces, motion,",
@@ -830,8 +832,8 @@ export function lecturePrompt(
     "  every part of a series.",
     "  THE DOCUMENT'S OWN FIGURES come first whenever one shows what the paragraph explains:",
     '  {"op":"picture","figure":"fig2"} (one figure a beat).',
-    "  SCIENCE AND MATHEMATICS -> molecule and equation, and FREE-FORM MANIM (below) for every drawing, graph,",
-    "  apparatus, construction and moving process; HISTORY -> timeline (see below).",
+    "  A FIGURE OF YOUR OWN DESIGN, in any subject -> FREE-FORM MANIM (below); a molecule or a law -> molecule or",
+    "  equation; dates -> a timeline (below).",
     "  A TEXTBOOK DIAGRAM you cannot build exactly (the parts of a cell, a cross-section) -> a detailed diagram made",
     "  by the diagram model (DETAILED DIAGRAMS, below).",
     "EXPLAINED SIDE BY SIDE, in any subject: whenever the class should keep looking at a picture while it is",
@@ -870,7 +872,7 @@ export function lecturePrompt(
     "",
     ...(manimModel() ? MANIM_PLAN : MANIM_RULES),
     "",
-    "DETAILED DIAGRAMS, ONLY WHEN THE MANIM OPS ABOVE CANNOT BUILD IT EXACTLY: a detailed structure or real object",
+    "DETAILED DIAGRAMS, for a detailed structure or real object",
     "that Manim would reduce to boxes and lines -- a cell and its organelles, an organ (the",
     "heart, a nephron, the eye, a neuron, a flower in section), a cross-section, real lab apparatus or a machine",
     "(a distillation set-up, an electric motor, a generator). It is made for you by the diagram",

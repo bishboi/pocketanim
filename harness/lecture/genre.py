@@ -100,7 +100,7 @@ PROFILES = {
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
-        "kit": ["figure", "picture", "define", "compare", "timeline", "bars", "diagram"],
+        "kit": ["figure", "picture", "define", "compare", "timeline", "bars", "diagram", "manim"],
         "guidance": "Give each paragraph the visual that explains it best, of any kind; pictures only of people, "
                     "places and things the class should see; the map only for where.",
     },

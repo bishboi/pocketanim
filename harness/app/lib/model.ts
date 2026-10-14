@@ -9,7 +9,7 @@
  * tested with no network and no key.
  */
 
-import { ProviderAuthError, chatRequest, describeProviders, providerError, providerName, withCost } from "./providers";
+import { ProviderAuthError, ResponsesStream, describeProviders, modelRequest, providerError, providerName, withCost } from "./providers";
 import { sanitizeScene } from "./scenefix";
 export { sanitizeScene };
 import { spawn } from "node:child_process";
@@ -514,7 +514,7 @@ async function streamCompletion(
   withReasoning: boolean | string = true,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
   // An openai/... model goes to OpenAI itself when OPENAI_API_KEY is set (lib/providers.ts).
-  const request = chatRequest({
+  const request = modelRequest({
     model,
     messages: withCachedSystem(messages, model),
     tools,
@@ -531,6 +531,8 @@ async function streamCompletion(
     body: JSON.stringify(request.body),
   });
   if (!response.ok) throw providerError(model, response.status, await response.text());
+  // A request with tools to an OpenAI model went to its Responses API: its events are read as chat deltas.
+  const responses = request.responses ? new ResponsesStream() : null;
   if (!response.body) throw new Error(`${providerName(model)} returned no stream`);
 
   const reader = response.body.getReader();
@@ -603,6 +605,14 @@ async function streamCompletion(
     try {
       parsed = JSON.parse(data);
     } catch {
+      return;
+    }
+    if (responses) {
+      const got = responses.handle(parsed as Record<string, unknown>);
+      if (got.error) throw new Error(`OpenAI: ${got.error}`);
+      if (got.delta) takeDelta(got.delta);
+      if (responses.usage) usage = responses.usage;
+      if (responses.finishReason) finishReason = responses.finishReason;
       return;
     }
     if (parsed.error?.message) throw new Error(parsed.error.message);

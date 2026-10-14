@@ -123,3 +123,67 @@ console.log(JSON.stringify({{ a, b, cost: p.replyCost("openai/gpt-5.1", {{ promp
     assert "openrouter.ai" in out["b"]["url"] and out["b"]["headers"]["Authorization"] == "Bearer or-key"
     assert out["b"]["body"]["model"] == "anthropic/claude-sonnet-4.5"
     assert out["cost"] == pytest.approx(0.007) and out["kept"] == 0.3
+
+
+def test_a_request_with_tools_goes_to_openais_responses_api(tmp_path):
+    # OpenAI refuses function tools with a reasoning setting on chat completions: such a request is sent to
+    # /v1/responses in that API's form, and its stream read back as chat deltas (a tool call's name and arguments).
+    tsc = APP / "node_modules" / ".bin" / "tsc"
+    if not tsc.exists() or not shutil.which("node"):
+        pytest.skip("no TypeScript compiler")
+    built = subprocess.run([str(tsc), "lib/providers.ts", "--outDir", str(tmp_path), "--module", "commonjs",
+                            "--target", "es2022", "--skipLibCheck"], cwd=APP, capture_output=True, text=True)
+    assert built.returncode == 0, built.stdout + built.stderr
+    script = f"""
+process.env.OPENAI_API_KEY = "sk-openai";
+const p = require({json.dumps(str(tmp_path / 'providers.js'))});
+const tool = {{ type: "function", function: {{ name: "write_section", description: "d", parameters: {{ type: "object" }} }} }};
+const r = p.modelRequest({{ model: "openai/gpt-6-luna", stream: true, tool_choice: "required", usage: {{ include: true }},
+  reasoning: {{ effort: "medium" }}, tools: [tool], messages: [
+    {{ role: "system", content: "sys" }},
+    {{ role: "user", content: [{{ type: "text", text: "look" }}, {{ type: "image_url", image_url: {{ url: "data:x" }} }}] }},
+    {{ role: "assistant", content: null, tool_calls: [{{ id: "c1", type: "function", function: {{ name: "write_section", arguments: "{{}}" }} }}] }},
+    {{ role: "tool", tool_call_id: "c1", content: "saved" }} ] }}, "or-key");
+const plain = p.modelRequest({{ model: "openai/gpt-6-luna", messages: [] }}, "or-key");
+const other = p.modelRequest({{ model: "google/gemini-2.5-flash", tools: [tool], messages: [] }}, "or-key");
+const s = new p.ResponsesStream();
+const deltas = [
+  {{ type: "response.output_item.added", item: {{ type: "reasoning", id: "r1" }} }},
+  {{ type: "response.output_text.delta", delta: "Here " }},
+  {{ type: "response.output_item.added", item: {{ type: "function_call", id: "fc1", call_id: "call_9", name: "write_section", arguments: "" }} }},
+  {{ type: "response.function_call_arguments.delta", item_id: "fc1", delta: "{{\\"n\\":" }},
+  {{ type: "response.function_call_arguments.delta", item_id: "fc1", delta: "1}}" }},
+  {{ type: "response.completed", response: {{ usage: {{ input_tokens: 100, output_tokens: 40 }} }} }},
+].map((e) => s.handle(e).delta).filter(Boolean);
+const failed = new p.ResponsesStream().handle({{ type: "response.failed", response: {{ error: {{ message: "nope" }} }} }});
+console.log(JSON.stringify({{ r, plain: plain.url, other: other.url, deltas, usage: s.usage, finish: s.finishReason, failed }}));
+"""
+    done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    r = out["r"]
+    assert r["responses"] and r["url"] == "https://api.openai.com/v1/responses"
+    assert r["body"]["model"] == "gpt-6-luna" and r["body"]["reasoning"] == {"effort": "medium"}
+    assert r["body"]["tools"] == [{"type": "function", "name": "write_section", "description": "d",
+                                   "parameters": {"type": "object"}}]
+    assert r["body"]["tool_choice"] == "required" and r["body"]["stream"] and r["body"]["store"] is False
+    assert "usage" not in r["body"] and "messages" not in r["body"]
+    assert r["body"]["input"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": [{"type": "input_text", "text": "look"}, {"type": "input_image", "image_url": "data:x"}]},
+        {"type": "function_call", "call_id": "c1", "name": "write_section", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "c1", "output": "saved"}]
+    assert out["plain"].endswith("/chat/completions") and "openrouter.ai" in out["other"]
+    assert out["deltas"][0] == {"content": "Here "}
+    assert out["deltas"][1]["tool_calls"][0] == {"index": 0, "id": "call_9",
+                                                 "function": {"name": "write_section", "arguments": ""}}
+    assert "".join(d["tool_calls"][0]["function"]["arguments"] for d in out["deltas"][2:]) == '{"n":1}'
+    assert out["usage"] == {"prompt_tokens": 100, "completion_tokens": 40} and out["finish"] == "tool_calls"
+    assert out["failed"] == {"error": "nope"}
+
+
+def test_forge_sends_no_reasoning_setting_with_tools(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    _, _, sent = providers.chat({"model": "openai/gpt-6-luna", "reasoning": {"effort": "low"},
+                                 "tools": [{"type": "function", "function": {"name": "x"}}], "messages": []})
+    assert "reasoning_effort" not in sent and sent["tools"]

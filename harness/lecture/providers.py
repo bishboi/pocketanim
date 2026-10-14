@@ -48,7 +48,8 @@ def openai_body(body: dict) -> dict:
     reasoning = out.pop("reasoning", None)
     effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
     if reasoning_model(model_id):
-        if effort:
+        # Not with function tools: OpenAI's newer models refuse the two together on chat completions.
+        if effort and not out.get("tools"):
             out["reasoning_effort"] = effort
         out.pop("temperature", None)
         out.pop("top_p", None)

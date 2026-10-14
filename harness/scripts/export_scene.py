@@ -254,9 +254,8 @@ def _windows(source: str, workers: int) -> list[tuple[int, int]]:
         end = marks[k + 1].start() if k + 1 < len(marks) else len(source)
         # A moving picture is baked frame by frame and costs several plain beats; a diagram or drawing a couple.
         weights.append(1 + source.count("self.beat(", mark.start(), end)
-                       + 4 * source.count("self.sim(", mark.start(), end)
                        + 2 * sum(source.count(f"self.{op}(", mark.start(), end)
-                                 for op in ("diagram", "journey", "trace", "counter")))
+                                 for op in ("diagram", "journey", "free")))
     count = min(workers, len(numbers))
     total = sum(weights)
     windows, start, acc = [], 1, 0.0

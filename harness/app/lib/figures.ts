@@ -22,7 +22,6 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { builtDrawings } from "./lecture";
 
 /** Bumped when the prompt or the routes change: older decisions are made again (8: graphs and the like to Manim;
  * 10: maps to the map ops, and the model says how close to the book each redraw stays). */
@@ -309,13 +308,13 @@ export function drawnLine(figure: FigureInfo, drawn?: Drawn): string {
   if (drawn?.generated) return `${head} — redrawn as a picture with its labels: ` +
     `{"op":"figure","id":"${figure.id}","photo":true,"where":"stage"} (no parts to reveal)`;
   if (drawn?.manim) return `${head} — BUILD IT IN MANIM in full detail, exactly as the book's figure (shown to you): ` +
-    `every value, label, line and axis (${builtDrawings() ? "graph, plot, sketch, preset, diagram, or a manim op" : "a manim op, or a diagram for boxes and arrows"}), marked ` +
+    `every value, label, line and axis (a manim op, or a diagram for boxes and arrows), marked ` +
     `"from_figure":"${figure.id}".${note}`;
   if (drawn?.map) return `${head} — A MAP: BUILD IT ON THE LECTURE'S MAP with the map ops (marker, state, river, ` +
     `path, arrow, journey, empire), every place, border, route and label of the book's map, marked ` +
     `"from_figure":"${figure.id}" (with no map in this lecture, build it with a manim op instead).${note}`;
   return `${head} — not available as a picture: build it on the board in full detail, every value and label of ` +
-    `the book's figure (${builtDrawings() ? "sketch, preset, graph, diagram, or a manim op" : "a manim op, or a diagram for boxes and arrows"}), marked "from_figure":"${figure.id}"`;
+    `the book's figure (a manim op, or a diagram for boxes and arrows), marked "from_figure":"${figure.id}"`;
 }
 
 /** How long stage 2 waits for the book's figures, from when their drawing began (PANIM_FIGURE_WAIT_SECONDS). */

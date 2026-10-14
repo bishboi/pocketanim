@@ -70,22 +70,6 @@ def test_a_turned_part_stays_turned(tmp_path):
     assert np.ptp(rows) > np.ptp(cols), (np.ptp(rows), np.ptp(cols))        # upright, not lying along the x axis
 
 
-def test_a_live_readout_can_fade_in_while_it_changes():
-    # A trace's slope readout writes its next number every frame; fading in, its glyphs no longer paired with the
-    # fade's start and end, and Manim's strict pairing stopped the whole render.
-    import live as lv
-    import pocket_lecture  # noqa: F401 -- the engine relaxes Transform's pairing
-    from manim import Dot, FadeIn, VGroup
-
-    read, put = lv._readout("1", 22)
-    anim = FadeIn(VGroup(Dot(), read))
-    anim.begin()
-    put("slope -12.75")
-    anim.interpolate(0.5)
-    put("0")
-    anim.interpolate(0.9)
-
-
 def test_words_inside_a_cell_or_a_node_need_no_patch():
     # The patch of board behind a block's words (backed_text) showed as a dark box in a coloured table cell or a
     # highlighted node; words inside a closed shape drop it, words in the open keep it.

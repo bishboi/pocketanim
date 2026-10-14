@@ -176,7 +176,8 @@ def test_a_problem_is_solved_from_the_basics_in_many_small_steps():
 
 
 def test_a_problems_diagram_is_walked_through_while_it_is_solved():
-    figure = {"op": "incline", "angle": 30, "show": ["ground", "wedge", "theta", "block"]}
+    figure = {"op": "draw", "what": "a block on a smooth 30 degree wedge, the angle theta marked",
+              "parts": ["wedge", "theta", "block"]}
     problem = {"op": "problem", "id": "p1", "title": "Problem 1", "text": "A block slides down a smooth 30° incline. Find a.",
                "given": ["\\theta = 30°"], "find": "a", "figure": figure}
     work = [_beat(f"Step {i}.", {"op": "work", "id": "p1", "lines": [f"x_{i} = {i}"]}) for i in range(6)]
@@ -186,45 +187,16 @@ def test_a_problems_diagram_is_walked_through_while_it_is_solved():
     pointing = [_beat("This angle is theta.", {"op": "focus", "diagram": "p1_figure", "node": "theta"}),
                 _beat("This is the block.", {"op": "focus", "diagram": "p1_figure", "node": "block"}),
                 _beat("Its weight acts down.", {"op": "focus", "diagram": "p1_figure", "node": "wedge"}),
-                _beat("Watch it slide down.", {"op": "motion", "diagram": "p1_figure"})]
+                _beat("Here it slides down.", {"op": "focus", "diagram": "p1_figure", "node": "block"})]
     assert cl._problem_depth(_lecture([_beat("Problem one.", problem)] + pointing + work)) == ([], [])
     named = {**problem, "figure": {**figure, "id": "slope"}}           # a figure with its own id is pointed at by it
     pointing = [_beat(b["say"], {**b["do"][0], "diagram": "slope"}) for b in pointing]
     assert cl._problem_depth(_lecture([_beat("Problem one.", named)] + pointing + work)) == ([], [])
 
 
-def test_a_diagram_that_can_move_is_set_moving_and_its_moving_parts_drawn_apart():
-    incline = {"op": "incline", "id": "ramp", "angle": 30, "forces": ["mg", "N"]}
-    beats = [_beat("A block on a wedge.", incline), _beat("It slides down.", {"op": "motion", "diagram": "ramp"})]
-    assert cl._unneeded_motions(_lecture(beats)) == []
-    asked: dict = {}
-    assert cl._build_problem(incline, asked, {}) is None
-    assert cl._build_problem({"op": "motion", "diagram": "ramp"}, asked, {}) is None
-    assert "for a pendulum" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "swing"}, asked, {})
-    assert "needs by" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "move", "parts": ["block"]},
-                                           asked, {})
-    assert "no part" in cl._build_problem({"op": "motion", "diagram": "ramp", "kind": "pulse", "parts": ["moon"]},
-                                          asked, {})
-    source = cl.compile_script(json.loads(json.dumps(_lecture(beats))))
-    # The block and the forces on it are drawn as parts of their own, so they move without leaving a copy.
-    assert "movable=['N', 'block', 'mg']" in source and 'self.motion("ramp", {})' in source
-
-
-def test_a_diagram_moves_only_where_the_narration_says_it_moves():
-    incline = {"op": "incline", "id": "ramp", "angle": 30, "forces": ["mg", "N"]}
-    move = {"op": "motion", "diagram": "ramp"}
-    beats = [_beat("A block on a wedge.", incline),
-             _beat("N equals m g cos theta.", move),                     # a formula: no animation
-             _beat("Watch: the block slides down the slope.", move),
-             _beat("ब्लॉक ढलान पर नीचे फिसलता है।", move),
-             _beat("Again it slides down.", move),                      # a third time: left out
-             _beat("This force is F.", {"op": "motion", "diagram": "ramp", "kind": "pulse", "parts": ["N"]})]
-    script = _lecture(beats)
-    notes = cl._unneeded_motions(script)
-    assert [n.split(":")[0] for n in notes] == ["chapter 1 beat 2", "chapter 1 beat 5"]
-    cl._unneeded_motions(script, drop=True)
-    kept = [[op.get("op") for op in b["do"]] for b in script["chapters"][0]["beats"]]
-    assert kept == [["incline"], [], ["motion"], ["motion"], [], ["motion"]]
+RAMP = {"op": "diagram", "id": "r", "kind": "flow", "nodes": [{"id": "block", "label": "Block"},
+                                                            {"id": "slope", "label": "Slope"}],
+        "edges": [["block", "slope"]]}
 
 
 def test_a_picture_stays_up_while_it_is_explained_and_a_chapter_opens_with_one():
@@ -232,13 +204,13 @@ def test_a_picture_stays_up_while_it_is_explained_and_a_chapter_opens_with_one()
 
     talk = [{"say": f"More about the slope, point {k}."} for k in range(8)]
     script = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
-        {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30}]}, *talk]}]}
+        {"say": "A block rests on a slope.", "do": [RAMP]}, *talk]}]}
     # Eight beats explaining the same picture: it is not taken down halfway (the board went blank).
     assert clx.auto_visuals(script["chapters"][0], genre="physics") == [None] * 9
     assert "unstage" not in clx.compile_script(json.loads(json.dumps(script)))
     # Three beats with nothing on the board at a chapter's start: sent back.
     bare = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
-        *talk[:3], {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30}]}]}]}
+        *talk[:3], {"say": "A block rests on a slope.", "do": [RAMP]}]}]}
     assert any("first 3 beats show nothing" in e for e in clx.lint(bare)[0])
     bare["chapters"][0]["beats"] = bare["chapters"][0]["beats"][1:]
     assert not any("show nothing" in e for e in clx.lint(bare)[0])
@@ -248,8 +220,11 @@ def test_a_part_never_revealed_is_brought_in_with_the_last_reveal():
     import compile_lecture as clx
 
     script = {"title": "Slopes", "genre": "physics", "chapters": [{"title": "On a slope", "beats": [
-        {"say": "A block rests on a slope.", "do": [{"op": "incline", "id": "r", "angle": 30, "forces": ["mg", "N"],
-                                                     "show": ["ground", "wedge", "theta", "block"]}]},
+        {"say": "A block rests on a slope.", "do": [{"op": "diagram", "id": "r", "kind": "flow",
+                                                     "nodes": [{"id": k, "label": k} for k in
+                                                               ("wedge", "block", "mg", "N")],
+                                                     "edges": [["wedge", "block"], ["block", "mg"], ["block", "N"]],
+                                                     "show": ["wedge", "block"]}]},
         {"say": "Its weight pulls it down.", "do": [{"op": "reveal", "diagram": "r", "nodes": ["mg"]}]},
         {"say": "A chain of who eats whom.", "do": [{"op": "diagram", "id": "d", "kind": "flow", "show": ["a"],
                                                      "nodes": [{"id": "a", "label": "Grass"}, {"id": "b", "label": "Deer"}]}]},

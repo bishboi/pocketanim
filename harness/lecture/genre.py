@@ -70,107 +70,33 @@ VOCAB_HI = {
 PROFILES = {
     "geography": {
         "label": "Geography", "style": "vox", "map": "often",
-        "kit": ["marker", "river", "state", "journey", "relief", "diagram", "figure", "picture", "compare", "bars", "sim"],
-        "guidance": "Geography: the map carries the where (markers, rivers, states) and movement (a journey: the "
-                    "monsoon winds, a trade route, a river's course); the stage carries how it works: diagrams built "
-                    "from drawings (how rivers feed a delta, what a crop needs), the water cycle and the seasons as "
-                    "sims (water_cycle, seasons), the Earth's or the soil's layers peeled (sim layers), real figures "
-                    "as data stories (sim columns: rainfall by month; pyramid; trend), the document's figures, "
-                    "comparisons and differences (sim differences). Photos only for people, communities and historic "
-                    "places.",
+        "kit": ["marker", "river", "state", "journey", "relief", "diagram", "figure", "picture", "compare", "bars",
+                "manim"],
     },
     "history": {
         "label": "History", "style": "parchment", "map": "sometimes",
         "kit": ["timeline", "picture", "diagram", "figure", "marker", "journey", "arrow", "empire", "quote", "compare",
-                "sim"],
-        "guidance": "History: open each era with a timeline on the stage (a still one: its dates, events and "
-                    "pictures of the people and places); show the people, communities and places of a "
-                    "paragraph together (one picture op with items, each generated: portraits, monuments, scenes); build causes and consequences "
-                    "as a chain (diagram kind flow, edges saying why) revealed step by step; journeys on the map as "
-                    "they happened (journey: the Dandi March, Vasco da Gama, the Silk Road); differences between two "
-                    "systems or periods as flip cards (sim differences); quote primary sources; the map for where "
-                    "events happened, routes and empires.",
+                "manim"],
     },
     "biology": {
         "label": "Biology", "style": "lab", "map": "rarely",
-        "kit": ["figure", "picture", "diagram", "sketch", "compare", "define", "manim", "graph", "equation", "sim",
-                "draw"],
-        "guidance": "Biology: pick the format from what the paragraph is. A STRUCTURE (a cell, a leaf, a flower, the "
-                    "heart, a neuron, a nephron): the book's figure, a drawing (draw) or a generated picture, "
-                    "and when its parts are named one by one, a labelled sketch (or manim) built part by part with "
-                    "each label revealed as it is said. A PROCESS (digestion, photosynthesis, blood flow, a reflex, "
-                    "protein synthesis): a flow diagram (\"steps\": true to number it) with a drawing in each node, a stage at a time; a "
-                    "CYCLE (cell cycle, life cycles, the cardiac cycle, nitrogen cycle): diagram kind cycle. A "
-                    "HIERARCHY or CLASSIFICATION (cell, tissue, organ, system; kingdoms, phyla): a flow diagram whose "
-                    "edges go from each whole to its kinds. A detailed structure no sketch can show well (a nephron, a neuron, an eye, a flower in section): "
-                    "draw it (draw). Two things side by side (mitosis and meiosis, plant and animal cells, arteries and "
-                    "veins): compare. Something that MOVES (diffusion and osmosis, chromosomes separating, a heart "
-                    "beating, a muscle contracting, an impulse along a neuron): manim, set moving as it is said. "
-                    "Measurements (growth, enzyme activity against temperature, populations): graph. Hard terms: "
-                    "define. Photos only of organisms, habitats and scientists the lecture names. A molecule's "
-                    "structural formula only where the lecture explains its structure (DNA's base pairs, ATP's "
-                    "phosphates), never for every substance named; a summary reaction with equation. No map unless "
-                    "the topic is where life lives.",
+        "kit": ["figure", "picture", "diagram", "compare", "define", "manim", "equation", "draw"],
     },
     "chemistry": {
         "label": "Chemistry", "style": "lab", "map": "never",
-        "kit": ["molecule", "equation", "graph", "sketch", "piston", "problem", "work", "define", "compare", "sim",
-                "counter", "draw"],
-        "guidance": "Chemistry: show a molecule's structural formula (molecule: name, formula or SMILES) only "
-                    "where its structure is what is being taught: its bonds, its shape, its functional groups, "
-                    "isomers, how it reacts because of them; once, not again each time it is named, and never for a "
-                    "substance only mentioned (water, air, salt in passing). Write "
-                    "reactions with equation (reactants -> products, subscripts as H_2O), plot rates, concentrations "
-                    "and energy profiles with graph, draw apparatus (a beaker, a gas syringe, a burette) with sketch and "
-                    "gases with piston. Numerical problems (moles, concentration, gas laws, equilibrium) are solved "
-                    "with problem and work. "
-                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
-                    "long problems on it (problem op: the full question, its figure, given and find), each "
-                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no generated pictures except of a scientist the lecture names.",
+        "kit": ["diagram", "molecule", "equation", "problem", "work", "define", "compare", "draw", "manim"],
     },
     "physics": {
         "label": "Physics", "style": "blueprint", "map": "never",
-        "kit": ["incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
-                "sketch", "graph", "problem", "work", "equation", "define", "sim", "counter", "trace", "zoom", "draw"],
-        "guidance": "Physics: draw every situation as a labelled diagram (the presets incline, pulley, piston, spring, "
-                    "pendulum, projectile, circuit, lever, lens, or a sketch for anything else), then reveal its "
-                    "forces, velocities and lengths one by one as the narration names them; graph how quantities "
-                    "vary (v against t, and the area under it, x against t, P against V); state each law as an "
-                    "equation; show a process happening with a sim (orbit, wave, collision, field, refraction) and a moving "
-                    "graph with trace. "
-                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
-                    "long problems on it (problem op: the full question, its figure, given and find), each "
-                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no generated pictures except of a scientist the lecture names.",
+        "kit": ["diagram", "problem", "work", "equation", "define", "zoom", "draw", "manim"],
     },
     "mathematics": {
         "label": "Mathematics", "style": "chalkboard", "map": "never",
-        "kit": ["graph", "sketch", "work", "problem", "equation", "define", "trace", "sweep", "sim"],
-        "guidance": "Mathematics: graph every function you discuss (curves, points, tangents, areas, roots marked); "
-                    "draw geometry with sketch (triangles and circles with their angles and lengths labelled), and a "
-                    "construction step by step with ruler and compass (sim construction); derive and solve with work, "
-                    "one step per beat, each step said and justified; an equation solved on a balance (sim balance). "
-                    "Young classes: numbers as hops on a number line, fraction bars, place-value blocks (sims "
-                    "numberline, fractions, placevalue). Ideas that move: the unit circle and the sine wave "
-                    "(unit_circle), area under a curve (area_fill), chance (probability), moving a graph "
-                    "(transform_graph). "
-                    "THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
-                    "long problems on it (problem op: the full question, its figure, given and find), each "
-                    "solved in detail over many beats (work op: one step a beat, every step explained, the answer "
-                    "boxed). Label everything. Build pictures in Manim (draw only what the Manim ops cannot show "
-                    "well); no generated pictures except of a scientist the lecture names.",
+        "kit": ["diagram", "work", "problem", "equation", "define", "manim"],
     },
     "economics": {
         "label": "Economics", "style": "atlas", "map": "sometimes",
-        "kit": ["diagram", "bars", "plot", "compare", "define", "stat", "marker", "sim"],
-        "guidance": "Economics: show quantities as bars and trends as plot, or as a data story with real figures (sims "
-                    "bar_race, trend, columns, pyramid), supply and demand moving (sim supply_demand), money growing "
-                    "(sim compound_interest), mechanisms (how inflation spreads) as a chain of causes revealed step by "
-                    "step, kinds side by side with compare or flip cards (sim differences), and places on the map only "
-                    "when trade or regions are the point.",
+        "kit": ["diagram", "bars", "compare", "define", "stat", "marker", "manim"],
     },
     "general": {
         "label": "General", "style": "vox", "map": "sometimes",
@@ -180,20 +106,6 @@ PROFILES = {
                     "for where.",
     },
 }
-
-# The sims each science has for what moves or builds up (live.py, sims_more.py), added to its guidance.
-_SIM_HINTS = {
-    "physics": "Sims for what moves: pendulum_period, projectile_angle, circuit_brightness (series against parallel), "
-               "magnetic_wire, lens_image (the object walks in, the image follows), sound (compressions), as well as "
-               "orbit, wave, collision, field and refraction.",
-    "chemistry": "Sims: balance_equation (atoms counted each side as it is balanced), ph_scale, electrolysis, states "
-                 "(solid to liquid to gas as it is heated), rusting, titration, gas, decay.",
-    "biology": "Sims: digestion (food down the gut), double_circulation, photosynthesis, punnett (Mendel's cross), "
-               "food_web (take a species away), mitosis, heart; a structure peeled from the outside in (draw with a "
-               "part per layer, or sim layers); differences as flip cards (sim differences).",
-}
-for _genre, _hint in _SIM_HINTS.items():
-    PROFILES[_genre]["guidance"] += " " + _hint
 
 # Where each subject's ideas become diagrams of boxes and arrows (diagram ops: flow, cycle, hub, pyramid), whichever
 # way the drawings are made: a process, a sequence, causes and effects, kinds of something are diagrams, not cards.
@@ -221,13 +133,10 @@ _DIAGRAM_HINTS = {
     "general": "A process, a sequence, causes and effects, parts of a whole or kinds of something is a diagram "
                "(flow, cycle, hub, hierarchy or pyramid), built across the paragraph.",
 }
-for _genre, _hint in _DIAGRAM_HINTS.items():
-    if _genre in PROFILES:
-        PROFILES[_genre]["guidance"] += " " + _hint
+PROFILES["general"]["guidance"] += " " + _DIAGRAM_HINTS["general"]
 
-# Free-form Manim draws every maths, science and moving drawing unless PANIM_BUILT_DRAWINGS=1 brings back the
-# presets, sketches, graphs and sims (app/lib/lecture.ts builtDrawings, FREE_DRAWN_OPS): the subjects are then told
-# so, rather than to use ops the compiler turns into Manim plans anyway.
+# Free-form Manim draws every maths, science and moving drawing: the presets, sketches, graphs and sims there once
+# were are gone (app/lib/lecture.ts FREE_DRAWN_OPS), so a subject's kit never offers them.
 FREE_DRAWN = {"incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
               "sketch", "graph", "plot", "motion", "trace", "sweep", "sim", "counter"}
 _THEORY = ("THEORY, THEN PROBLEMS: for each concept, first the theory, built on the board a piece at a time; then 2-3 "
@@ -286,25 +195,15 @@ FREE_GUIDANCE = {
 
 for _genre in ("physics", "chemistry", "mathematics"):
     FREE_GUIDANCE[_genre] += " " + _DIAGRAM_HINTS[_genre]
-
-
-def built_drawings() -> bool:
-    import os
-
-    return os.environ.get("PANIM_BUILT_DRAWINGS") == "1"
+for _genre, _text in FREE_GUIDANCE.items():
+    PROFILES[_genre]["guidance"] = _text
 
 
 def _as_told(genre: str) -> dict:
-    """A subject's profile as the writer is told it: with free-form Manim, no presets, sketches, graphs or sims."""
-    base = PROFILES[genre]
-    if built_drawings():
-        return dict(base)
-    kit = [k for k in base["kit"] if k not in FREE_DRAWN]
-    if any(k in FREE_DRAWN for k in base["kit"]) and "manim" not in kit:
-        kit.append("manim")
-    if "diagram" not in kit:
-        kit.insert(0, "diagram")
-    return {**base, "kit": kit, "guidance": FREE_GUIDANCE.get(genre, base["guidance"])}
+    """A subject's profile as the writer is told it."""
+    return dict(PROFILES[genre])
+
+
 # English terms as YouTube's Hindi captions spell them (फोर्स for force): a Hinglish lecture's captions have few
 # NCERT Hindi words, and without these its only clue was a date or two (Newton, 1642-1727) and it read as history.
 VOCAB_TRANSLIT = {

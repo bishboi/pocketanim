@@ -7,7 +7,6 @@
  */
 
 import { drawnLine, type Drawn } from "./figures";
-import { builtDrawings } from "./lecture";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -228,8 +227,8 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
       "figure REDRAWN by the diagram model (the same diagram, every label kept) is shown whole on",
       'the stage; walk the class through it, naming each labelled part ({"op":"figure","id":"fig3","photo":true,',
       '"where":"stage"}). A figure listed "BUILD IT IN MANIM" (a graph, a chart, a circuit...; its picture is',
-      `attached) or "not available as a picture" is rebuilt in Manim (${builtDrawings() ? "graph, plot, sketch, preset, diagram, or a manim" : "a manim op, or a diagram for boxes and"}`,
-      `${builtDrawings() ? "op" : "arrows"}) with "from_figure", in full detail: the same parts, labels, arrows, values, axes and geometry as the book's.`,
+      'attached) or "not available as a picture" is rebuilt in Manim (a manim op, or a diagram for boxes and',
+      'arrows) with "from_figure", in full detail: the same parts, labels, arrows, values, axes and geometry as the book\'s.',
       'A figure listed "A MAP" is built on the lecture\'s map with the map ops, marked "from_figure". A line\'s',
       '"Note on it" is the figure model\'s own advice on that figure: follow it.',
       "The book's own pictures are never shown. Every redrawn figure is shown (the compiler",
@@ -242,13 +241,9 @@ export function figurePrompt(doc: DocumentManifest, drawn?: Record<string, Drawn
     `FIGURES from the book (${figures.length}). Do NOT show the book's diagrams as they are: BUILD each one in Manim, where`,
     "the text explains it, from what the figure shows (its pictures are attached when the model reads images; else",
     "its caption and the text around it): the same parts, labels, arrows and numbers, drawn clearly on the board and",
-    builtDrawings()
-      ? "revealed a part a beat as you talk about it. Use the op that fits: sketch or preset (apparatus, forces, a set-up),"
-      : "revealed a part a beat as you talk about it. Use the op that fits: a manim op (apparatus, forces, a set-up,",
-    builtDrawings()
-      ? "graph (a plotted relation), diagram (a process, a cycle, a classification), compare, a map sequence (a map)."
-      : "a graph, a chart), diagram (a process, a cycle, a classification), compare, a map sequence (a map).",
-    'Mark the op with the figure it rebuilds: {"op":"sketch","id":"fbd",...,"figure":"fig3"}. Every figure is rebuilt',
+    "revealed a part a beat as you talk about it. Use the op that fits: a manim op (apparatus, forces, a set-up,",
+    "a graph, a chart), diagram (a process, a cycle, a classification), compare, a map sequence (a map).",
+    'Mark the op with the figure it rebuilds: {"op":"manim","id":"fbd",...,"from_figure":"fig3"}. Every figure is rebuilt',
     "this way (the compiler checks). The book's own pictures are never shown, photographs included: a photograph",
     'is shown as a picture the image model makes of the same thing ({"op":"picture","generate":"..."}). The text',
     "marks where each figure sits as [FIGURE figN: caption].",

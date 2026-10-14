@@ -5,6 +5,7 @@ in Robinson when it spans the world, and checked by the compiler so a wrong one 
 
 from __future__ import annotations
 
+from pathlib import Path
 import json
 import os
 import subprocess
@@ -17,7 +18,7 @@ from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 import compile_lecture as cl  # noqa: E402
 import pocket_lecture as pl  # noqa: E402
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize("region,kind", [

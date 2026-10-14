@@ -4,6 +4,7 @@ over it (compile_lecture.pictures_used, in the --json output)."""
 
 from __future__ import annotations
 
+from pathlib import Path
 import json
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import compile_lecture as cl  # noqa: E402
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 
 def test_the_compiler_reports_each_picture_with_its_context(tmp_path, monkeypatch):

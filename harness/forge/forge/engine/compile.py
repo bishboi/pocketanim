@@ -375,10 +375,8 @@ def points_at_map(op: dict) -> bool:
     return op.get("op") in MAP_OPS or (op.get("op") == "icon" and bool(op.get("places")))
 
 
-STAGE_OPS = {"photo", "illustration", "molecule", "equation", "plot", "process", "quote", "gallery", "diagram", "define",
-             "question",
-             "sketch", "graph", "problem", "work", "incline", "pulley", "piston", "spring", "pendulum",
-             "projectile", "circuit", "lever", "lens", "sim", "counter"}
+STAGE_OPS = {"photo", "illustration", "molecule", "equation", "process", "quote", "gallery", "diagram", "define",
+             "question", "problem", "work"}
 
 
 def chapter_source(job, template: dict, style: dict, outline: dict, chapter: dict, script: dict,

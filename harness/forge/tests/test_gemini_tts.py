@@ -180,7 +180,7 @@ class S(MapLecture):
     def construct(self):
         self.title_slide("Laws of Motion", "Newton's laws", narration="आज हम Newton के laws समझेंगे।")
         self.chapter(1, "Force", "push", "Chapter one. Force.")
-        self.beat("A block on a table.", self.sketch("s", []))
+        self.beat("A block on a table.", self.diagram("s", "flow", [], []))
         self.beat(text="The same line.")
         self.recap([("Force", "A push or a pull"), ("Mass", "How much matter")])
 '''

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 sys.path.insert(0, str(REPO / "harness" / "scripts"))
 sys.path.insert(0, str(REPO))

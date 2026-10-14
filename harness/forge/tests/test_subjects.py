@@ -93,8 +93,6 @@ def test_kit_ops_lint():
     pytest.importorskip("rdkit")
     assert cl._kit_problem({"op": "molecule", "name": "glucose"}) is None
     assert "no molecule" in cl._kit_problem({"op": "molecule", "name": "unobtainium-xyz"})
-    assert cl._kit_problem({"op": "plot", "expr": "x^2 - 3*x", "x": [0, 5]}) is None
-    assert "unknown name" in cl._kit_problem({"op": "plot", "expr": "__import__('os')", "x": [0, 5]})
     assert cl._kit_problem({"op": "process", "steps": ["one"]})
 
 
@@ -304,9 +302,8 @@ def test_a_generated_picture_says_what_it_cost(monkeypatch, tmp_path):
     again = genimage.generate("a leaf in cross section")        # made already: from the cache, free
     assert again and "usd" not in again and again["paid"] == 0.039 and len(genimage.MADE) == 1
 
-def test_subjects_are_told_of_free_manim_unless_the_built_drawings_are_on(monkeypatch):
-    # With the presets, sketches, graphs and sims off, a subject's guidance and kit must not ask for them.
-    monkeypatch.delenv("PANIM_BUILT_DRAWINGS", raising=False)
+def test_subjects_are_told_of_free_manim():
+    # The presets, sketches, graphs and sims are gone: a subject's guidance and kit must not ask for them.
     physics = genre.profile("physics")
     assert not set(physics["kit"]) & genre.FREE_DRAWN and "manim" in physics["kit"] and "diagram" in physics["kit"]
     assert "incline, pulley" not in physics["guidance"] and "free-form manim" in physics["guidance"]
@@ -315,5 +312,3 @@ def test_subjects_are_told_of_free_manim_unless_the_built_drawings_are_on(monkey
         assert not set(told["kit"]) & genre.FREE_DRAWN
         assert "sim " not in told["guidance"] and "(sim" not in told["guidance"]
         assert "diagram" in told["guidance"].lower()
-    monkeypatch.setenv("PANIM_BUILT_DRAWINGS", "1")
-    assert "incline" in genre.profile("physics")["kit"]

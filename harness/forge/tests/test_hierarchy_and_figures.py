@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from forge.util import LECTURE
+from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import compile_lecture as cl  # noqa: E402
 import hierarchy as hi  # noqa: E402
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 
 APP = REPO / "harness" / "app"

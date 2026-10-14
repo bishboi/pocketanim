@@ -18,7 +18,7 @@ import { CostLedger, type AiPicture } from "./costs";
 import { Template, explainWith, filmBrief, isLecture, layoutContract, templateById } from "./templates";
 import { shownSoFar, taughtNotes } from "./continuity";
 import { picturesStatus, type Compiled, type Prefetch, type GeneratedPicture, type ImageReport } from "./lecture";
-import { ADD_CHAPTERS_TOOL, builtDrawings, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, type Language, type Subject } from "./lecture";
+import { ADD_CHAPTERS_TOOL, LANGUAGES, LECTURE_TOOL, PARTS_OVER_MINUTES, classifySubject, compileLecture, fixtureScript, makePictures, manimModel, languagePrompt, lecturePrompt, referencePrompt, resolveRegion, targetMinutes, type Language, type Subject } from "./lecture";
 import { figureCaptions, figurePictures, figurePrompt, loadDocument, scriptFigures, teachingFigures, type DocumentManifest } from "./document";
 import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { TimingLog } from "./timing";
@@ -1451,13 +1451,13 @@ async function viaOpenRouter(
       return compileLecture(scriptNow, { ...options, onStart: () => phase("compiling") });
     };
     if (!options?.withoutPictures) await picturesOf(script);
-    // The small built drawings (presets, sketch, graph, sims...) are switched off: any the writer still used is
-    // drawn as free-form Manim instead, by the Manim model (lecture.ts builtDrawings).
-    if (coder && script && typeof script === "object" && !builtDrawings()) {
+    // The small built drawings (presets, sketch, graph, sims...) are gone: any the writer still used is
+    // drawn as free-form Manim instead, by the Manim model (lecture.ts FREE_DRAWN_OPS).
+    if (coder && script && typeof script === "object") {
       const turned = freeDrawings(script as Record<string, unknown>);
       if (turned) {
         emit({ type: "message", role: "status", text: `Manim: ${turned} built drawing${turned > 1 ? "s" : ""} ` +
-          "turned into free-form Manim (the built ones are switched off)." });
+          "turned into free-form Manim (the built ones are gone)." });
       }
     }
     if (!coder || !script || typeof script !== "object" || !needsManim(script) && !hasManim(script)) {

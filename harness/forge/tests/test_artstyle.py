@@ -4,6 +4,7 @@ alone, and is chosen by the script's "art" (or by its template when "auto")."""
 
 from __future__ import annotations
 
+from pathlib import Path
 import json
 import re
 
@@ -13,9 +14,8 @@ from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import artstyle  # noqa: E402
 import compile_lecture as cl  # noqa: E402
-import live  # noqa: E402
 
-from test_sims_more import BOX, REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 STYLES = list(artstyle.ART_STYLES)
 
@@ -46,33 +46,6 @@ def test_painting_again_never_compounds(art):
         widths.add((round(dot.get_stroke_width(), 3), round(line.get_stroke_width(), 3)))
     assert len(widths) == 1, widths
     assert max(widths.pop()) < 6
-
-
-@pytest.mark.parametrize("art", STYLES)
-def test_a_sim_dressed_and_stepped_stays_whole(art):
-    """Every style draws a moving sim: its parts painted every step, its extras kept on it, nothing off the board,
-    and a loop that comes back to the same frame comes back to the same drawing."""
-    import numpy as np
-
-    artstyle.use(art)
-    made = live.BUILDERS["double_circulation"]({}, BOX)
-    artstyle.mark_live(made.body)
-    artstyle.dress(made.body)
-
-    def frame(t):
-        made.step(t, 0.0)
-        artstyle.live_paint(made.body)
-        pts = [m.points for m in made.body.family_members_with_points()]
-        widths = [m.get_stroke_width() for m in made.body.family_members_with_points()]
-        return np.concatenate(pts), np.array(widths)
-
-    first = frame(1.0)
-    for t in (1.5, 2.0, 2.5):
-        frame(t)
-    again = frame(1.0)
-    assert first[0].shape == again[0].shape
-    assert np.allclose(first[0], again[0]) and np.allclose(first[1], again[1])
-    assert np.abs(first[0][:, :2]).max() < 9
 
 
 @pytest.mark.parametrize("art", ["detailed", "neon", "chalk", "watercolour"])

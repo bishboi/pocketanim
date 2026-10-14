@@ -1,4 +1,5 @@
-"""STEM boards: presets, sketches, graphs, worked solutions and problems -- lint, compile and the engine's build."""
+"""STEM boards: worked solutions and problems -- lint, compile and the engine's build; the retired built drawings
+left out."""
 
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ import pytest
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import compile_lecture as cl  # noqa: E402
-import stem  # noqa: E402
 
 
 def _lecture(beats, **extra):
@@ -18,41 +18,50 @@ def _lecture(beats, **extra):
             "chapters": [{"title": "Slopes", "narration": "Chapter one.", "beats": beats}]}
 
 
-@pytest.mark.parametrize("kind", stem.PRESETS)
-def test_every_preset_names_its_parts(kind):
-    elements = stem.preset_elements(kind, {})
-    ids = stem.element_ids(elements)
-    assert ids and len(ids) == len(set(ids))
-    assert all(e["type"] in stem.PRIMITIVES | {"group"} for e in elements)
+NODES = [{"id": k, "label": k} for k in ("wedge", "block", "mg")]
 
 
 def test_lint_checks_parts_and_reveals():
-    ok = _lecture([{"say": "A block on a ramp.", "do": [{"op": "incline", "id": "r", "show": ["wedge", "block"]}]},
+    ok = _lecture([{"say": "A block on a ramp.", "do": [{"op": "diagram", "id": "r", "nodes": NODES,
+                                                         "edges": [["wedge", "block"]], "show": ["wedge", "block"]}]},
                    {"say": "Its weight.", "do": [{"op": "reveal", "diagram": "r", "nodes": ["mg"]}]},
                    {"say": "Write it down.", "do": [{"op": "work", "id": "w", "lines": ["F = ma"]}]}])
     assert cl.lint(ok)[0] == []
-    bad = _lecture([{"say": "A block.", "do": [{"op": "incline", "id": "r", "show": ["wedgie"]}]}])
-    assert any("fixed:" in w and "no part 'wedgie'" in w for w in cl.lint(bad)[1])
-    wrong = _lecture([{"say": "A block.", "do": [{"op": "incline", "id": "r"}]},
+    wrong = _lecture([{"say": "A block.", "do": [{"op": "diagram", "id": "r", "nodes": NODES, "edges": []}]},
                       {"say": "Its weight.", "do": [{"op": "reveal", "diagram": "r", "nodes": ["weight"]}]}])
     errors, warnings = cl.lint(wrong)                   # a reveal of nothing it has is left out
     assert not errors and any("left out 'reveal'" in w for w in warnings) and wrong["chapters"][0]["beats"][1]["do"] == []
-    graph = _lecture([{"say": "A graph.", "do": [{"op": "graph", "id": "g", "items": [{"kind": "curve", "expr": "y+"}]}]}])
-    assert cl.lint(graph)[0]
-    problem = _lecture([{"say": "A problem.", "do": [{"op": "problem", "id": "p", "text": "Find a.",
-                                                     "figure": {"op": "pulley", "show": ["pulley"]}}]},
-                        {"say": "Forces.", "do": [{"op": "reveal", "diagram": "p_figure", "nodes": ["T1"]}]},
+    problem = _lecture([{"say": "A problem.", "do": [{"op": "problem", "id": "p", "text": "Find a."}]},
                         {"say": "Solve.", "do": [{"op": "work", "id": "p", "lines": ["a = 2"], "box": True}]}])
     assert cl.lint(problem)[0] == []
 
 
+@pytest.mark.parametrize("kind", ["incline", "sketch", "graph", "plot", "sim", "counter", "motion", "trace"])
+def test_a_retired_built_drawing_is_left_out_with_a_note(kind):
+    script = _lecture([{"say": "A drawing.", "do": [{"op": kind, "id": "x", "diagram": "x"}]},
+                       {"say": "Solve.", "do": [{"op": "work", "id": "w", "lines": ["a = 2"]}]}])
+    errors, warnings = cl.lint(script)
+    assert not errors
+    assert any(f"left out {kind!r}" in w and "manim op" in w for w in warnings)
+    assert script["chapters"][0]["beats"][0]["do"] == []
+
+
+def test_a_problem_with_a_retired_figure_keeps_its_question():
+    script = _lecture([{"say": "A problem.", "do": [{"op": "problem", "id": "p", "text": "Find a.",
+                                                     "figure": {"op": "pulley"}}]}])
+    errors, warnings = cl.lint(script)
+    assert not errors and any("figure" in w and "no longer built" in w for w in warnings)
+    assert "figure" not in script["chapters"][0]["beats"][0]["do"][0]
+
+
 def test_every_chapter_without_a_map_is_a_board_and_steps_stay_in_their_paragraph():
-    beats = [{"say": "A ramp.", "paragraph": True, "do": [{"op": "incline", "id": "r"}]}] + \
+    beats = [{"say": "A ramp.", "paragraph": True, "do": [{"op": "diagram", "id": "r", "nodes": NODES,
+                                                          "edges": [["wedge", "block"]]}]}] + \
             [{"say": f"Step {n}.", "do": [{"op": "work", "id": "w", "lines": [f"x = {n}"]}]} for n in range(8)]
     source = cl.compile_script(json.loads(json.dumps(_lecture(beats))))
     assert "self.board()" in source and "self.add_panel()" not in source
     assert "self.clear_stage()" not in source          # a long build is never cut into paragraphs
-    assert "self.preset(" in source and source.count("self.work(") == 8
+    assert "self.diagram(" in source and source.count("self.work(") == 8
     panel = cl.compile_script(json.loads(json.dumps(_lecture(
         [{"say": "Hello.", "do": [{"op": "fact", "text": "a point"}]}], layout="panel"))))
     assert "self.add_panel()" in panel
@@ -85,18 +94,12 @@ def test_the_engine_builds_boards(tmp_path, monkeypatch):
     scene = Board()
     scene.setup()
     scene.board()
-    for kind in stem.PRESETS:
-        assert scene.preset(kind, kind, {}) is not None
-    scene.graph("g", {"x": [0, 4], "items": [{"id": "c", "kind": "curve", "expr": "x^2"},
-                                             {"id": "p", "kind": "point", "at": [2, 4]},
-                                             {"id": "a", "kind": "area", "expr": "x^2", "x": [0, 2]},
-                                             {"id": "t", "kind": "tangent", "expr": "x^2", "at": 1}], "show": ["c"]})
-    assert scene.reveal_nodes("g", ["p", "a"]) is not None
-    assert scene.work("w", ["v = u + at", "Put in the numbers"], title="Solution") is not None   # moves the graph aside
+    scene.diagram("g", "flow", NODES, [["wedge", "block"]], show=["wedge"])
+    assert scene.reveal_nodes("g", ["block", "mg"]) is not None
+    assert scene.work("w", ["v = u + at", "Put in the numbers"], title="Solution") is not None   # moves the diagram aside
     assert scene.work("w", ["v = 12"], box=True) is not None
     assert scene.problem("p", "A ball is thrown at 20 m/s at 30 degrees. Find its range.", given=["u = 20 m/s"],
-                         find="R", figure={"op": "projectile", "angle": 30, "show": ["ground", "path"]}) is not None
-    assert scene.reveal_nodes("p_figure", ["u", "R"]) is not None
+                         find="R") is not None
     assert scene.work("p", ["R = \\frac{u^2 \\sin 2\\theta}{g}"]) is not None
 
 

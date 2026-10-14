@@ -5,6 +5,7 @@ placed where no label, picture or marker is (pocket_lecture.place_label)."""
 
 from __future__ import annotations
 
+from pathlib import Path
 import json
 import os
 import subprocess
@@ -19,7 +20,7 @@ from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 import compile_lecture as cl  # noqa: E402
 import pocket_lecture as pl  # noqa: E402
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 FIXTURES = REPO / "harness" / "forge" / "tests" / "fixtures" / "figures"
 

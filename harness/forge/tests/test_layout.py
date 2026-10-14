@@ -64,14 +64,6 @@ def test_maths_with_unit_names_is_not_prose():
     assert BoardMixin._is_prose("first find the net force")
 
 
-def test_a_rope_comes_with_its_pulley_parts():
-    from stem import _with_companions
-
-    ids = ["table", "leg", "pulley", "rope", "rope2", "m1", "m2", "T1"]
-    shown = _with_companions(["table", "pulley", "rope", "m1", "m2"], ids)
-    assert "rope2" in shown and "leg" in shown and "T1" not in shown
-
-
 def test_ops_in_a_beat_clear_then_draw_then_add():
     from compile_lecture import beat_order
 
@@ -92,28 +84,15 @@ def _board_scene():
     return scene
 
 
-def test_label_moves_off_a_line_it_sat_on():
-    scene = _board_scene()
-    items = [{"id": "bat", "type": "rect", "at": [2, 0], "w": 0.4, "h": 3},
-             {"id": "u", "type": "arrow", "from": [-3, 1], "to": [0, 1], "label": "comes in: 12 m/s"}]
-    scene._build_sketch("k", items, (-3.4, -1, 6.45, 3.5))
-    bat = scene.diagrams["k"]["nodes"]["bat"][0]
-    label = scene.diagrams["k"]["nodes"]["u"][-1]
-    left, right = label.get_left()[0], label.get_right()[0]
-    assert right < bat.get_left()[0] or left > bat.get_right()[0] or label.get_bottom()[1] > bat.get_top()[1]
-
-
-def test_a_sketch_and_its_labels_fit_its_box():
-    scene = _board_scene()
-    items = [{"id": "a", "type": "arrow", "from": [0, 0], "to": [9, 0], "label": "a very long label at the tip"}]
-    box = (0.0, 0.0, 4.0, 3.0)
-    body = scene._build_sketch("k", items, box)
-    assert body.get_left()[0] >= -2.0 - 1e-6 and body.get_right()[0] <= 2.0 + 1e-6
+def _drawing(scene, key="s", show=None):
+    """A drawing on the board: a diagram of a block and the force on it."""
+    return scene.diagram(key, "flow", [{"id": "b", "label": "m"}, {"id": "F", "label": "F"}], [["b", "F"]],
+                         show=show)
 
 
 def test_two_pictures_in_one_beat_sit_side_by_side():
     scene = _board_scene()
-    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1, "label": "m"}])
+    _drawing(scene)
     scene.equation(r"F = ma")
     picture, card = scene.stage_body, scene.stage_extra[-1]
     assert picture.get_right()[0] < card.get_left()[0]          # the drawing left, the equation right
@@ -121,7 +100,7 @@ def test_two_pictures_in_one_beat_sit_side_by_side():
 
 def test_a_definition_goes_over_the_drawing_it_explains_as_a_strip():
     scene = _board_scene()
-    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}])
+    _drawing(scene)
     scene._beat_new = []                                         # the drawing's beat has played
     scene.define("velocity", "speed and direction")
     # A strip across the top of the stage; the drawing moves down under it (an animation, not played here).
@@ -132,8 +111,7 @@ def test_a_definition_goes_over_the_drawing_it_explains_as_a_strip():
 
 def test_equation_during_a_problem_joins_its_working():
     scene = _board_scene()
-    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a",
-                  figure={"op": "sketch", "items": [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}]})
+    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a")
     scene._beat_new = []
     scene.equation(r"a = F/m")
     assert scene._problem is not None and scene.works      # the problem stays; the equation is a working line
@@ -148,8 +126,7 @@ class AuditProbe(MapLecture):
     def construct(self):
         self.board()
         self.beat("A block and its law.",
-                  self.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1, "label": "m"},
-                                    {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}]),
+                  self.diagram("s", "flow", [{"id": "b", "label": "m"}, {"id": "F", "label": "F"}], [["b", "F"]]),
                   self.equation(r"F = ma"))
         self.beat("What it means.", self.define("force", "a push or a pull"))
         self.beat("Which force pushes the block up?", self.question("Which force pushes the block up?",
@@ -182,8 +159,7 @@ def test_work_line_is_typeset(line, monkeypatch, tmp_path):
 
 def test_an_equation_goes_beside_the_drawing_whose_parts_it_reveals():
     scene = _board_scene()
-    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
-                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}], show=["b"])
+    _drawing(scene, show=["b"])
     scene._beat_new = []
     scene.equation(r"F = ma")
     assert scene.reveal_nodes("s", ["F"]) is not None
@@ -194,18 +170,16 @@ def test_an_equation_goes_beside_the_drawing_whose_parts_it_reveals():
 
 def test_parts_of_a_diagram_that_left_the_stage_are_not_drawn():
     scene = _board_scene()
-    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
-                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0]}], show=["b"])
+    _drawing(scene, show=["b"])
     scene._beat_new = []
-    scene.sketch("t", [{"id": "c", "type": "circle", "at": [0, 0], "r": 1}])
+    scene.diagram("t", "flow", [{"id": "c", "label": "c"}], [])
     scene._beat_new = []
     assert scene.reveal_nodes("s", ["F"]) is None
 
 
 def test_a_question_about_the_drawing_keeps_it_on_the_board():
     scene = _board_scene()
-    scene.sketch("s", [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1},
-                       {"id": "F", "type": "arrow", "from": [1, 0], "to": [3, 0], "label": "F"}])
+    _drawing(scene)
     scene._beat_new = []                                         # the drawing's beat has played
     drawing = scene.stage_body
     scene.question("इस diagram में सोचो, कौन सा force लग रहा है?", answer="Normal reaction, N")
@@ -221,8 +195,7 @@ def test_a_figure_does_not_take_a_problem_off_the_board(tmp_path):
 
     Image.new("RGB", (64, 40), "white").save(tmp_path / "f.png")
     scene = _board_scene()
-    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a",
-                  figure={"op": "sketch", "items": [{"id": "b", "type": "rect", "at": [0, 0], "w": 2, "h": 1}]})
+    scene.problem("p", "A 2 kg block is pulled.", given=["m = 2 kg"], find="a")
     scene._beat_new = []
     assert scene.figure(str(tmp_path / "f.png"), "a figure", where="stage") is None
     assert scene._problem is not None

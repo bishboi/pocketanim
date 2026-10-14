@@ -4,6 +4,7 @@ style's font."""
 
 from __future__ import annotations
 
+from pathlib import Path
 import pytest
 
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
@@ -12,7 +13,7 @@ import artstyle  # noqa: E402
 import compile_lecture as cl  # noqa: E402
 import flowchart as fc  # noqa: E402
 
-from test_sims_more import REPO  # noqa: E402
+REPO = Path(__file__).resolve().parents[3]
 
 LAW = ["intro", "debate", "pass", "rs", "rs_pass", "joint", "president", "law", "lapse"]
 LAW_EDGES = [("intro", "debate"), ("debate", "pass"), ("pass", "rs"), ("pass", "lapse"), ("rs", "rs_pass"),

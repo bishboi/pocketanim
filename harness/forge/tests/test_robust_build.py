@@ -10,7 +10,6 @@ import os
 import subprocess
 import sys
 
-import numpy as np
 
 from forge.util import REPO
 
@@ -27,23 +26,16 @@ def test_point_lists_are_put_in_the_shape_the_engine_draws_from():
     assert op["items"][0]["points"] == [[1, 2], [3, 4]]
     assert op["figure"]["items"][0]["points"] == [[0, 0], [2, 0], [1, 1]]
     assert op["figure"]["items"][0]["at"] == [1, 2]
-    assert cl._point_problems({"op": "sketch", "items": [{"id": "c", "type": "curve", "points": [[1, 1]]}]})
-    assert not cl._point_problems({"op": "sketch", "items": [{"type": "curve", "points": [[1, 1], [2, 2]]}]})
-
-
-def test_a_constant_expression_has_a_value_for_every_x():
-    f = pl.safe_function("4")
-    xs = np.linspace(0, 1, 5)
-    assert f(xs).shape == xs.shape and float(f(2.0)) == 4.0
 
 
 def test_a_picture_that_cannot_be_drawn_is_left_out_and_reported(tmp_path):
     script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False,
               "chapters": [{"title": "c", "beats": [
-                  {"say": "Look.", "do": [{"op": "sketch", "id": "s",
-                                           "items": [{"id": "c", "type": "curve", "points": [[0, 0], [1, 1]]}]}]},
+                  {"say": "Look.", "do": [{"op": "diagram", "id": "s", "kind": "flow",
+                                           "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+                                           "edges": [["a", "b"]]}]},
                   {"say": "And on.", "do": [{"op": "fact", "text": "still here"}]}]}]}
-    source = cl.compile_script(script).replace("[[0, 0], [1, 1]]", "[]")     # past the checks, as if unforeseen
+    source = cl.compile_script(script).replace("[['a', 'b']]", "[['a', 'b'], 7]")   # past the checks, as if unforeseen
     scene = tmp_path / "lecture.py"
     scene.write_text(source)
     out = subprocess.run([sys.executable, str(REPO / "harness" / "scripts" / "export_scene.py"), str(scene),
@@ -51,7 +43,7 @@ def test_a_picture_that_cannot_be_drawn_is_left_out_and_reported(tmp_path):
                          env={**os.environ, "PANIM_VOICE": "silent"})
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert result["tier"] == 1 and not result.get("error")
-    assert len(result["skipped"]) == 1 and result["skipped"][0].startswith("chapter 1 beat 1 sketch:")
+    assert len(result["skipped"]) == 1 and result["skipped"][0].startswith("chapter 1 beat 1 diagram:")
 
 
 def test_an_export_error_names_where_it_happened(tmp_path):
@@ -90,3 +82,12 @@ def test_a_half_written_narration_is_spoken_again(tmp_path):
     cut.write_bytes(whole.read_bytes()[:30] + b"\x00" * 30)
     assert pl._cached_seconds(cut) is None and not cut.exists()
     assert pl._cached_seconds(tmp_path / "missing.wav") is None
+
+
+def test_a_lecture_compiled_after_another_does_not_carry_its_pictures():
+    # The pictures found for a script were kept for the process: the next lecture compiled in it got the last one's
+    # photo credits (an end card it should not have).
+    script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False,
+              "chapters": [{"title": "c", "map": False, "beats": [{"say": "Hello.", "do": [{"op": "fact", "text": "x"}]}]}]}
+    cl.script_photos["photo|left over"] = {"file": "/nowhere.png", "credit": "Someone, CC BY"}
+    assert "self.credits(" not in cl.compile_script(json.loads(json.dumps(script)))

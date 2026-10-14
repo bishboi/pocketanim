@@ -687,6 +687,21 @@ def _respell(text: str, table: dict) -> str:
     return text
 
 
+def _show(mob, on: bool, opacity: float = 1.0) -> None:
+    """Show or hide a part without taking it off the picture (a clip keeps the same members every frame). Shown
+    again, each piece gets back its own opacity (a translucent fill stays translucent), times `opacity`."""
+    for part in mob.get_family():
+        kept = getattr(part, "_panim_alpha", None)
+        if kept is None:
+            try:
+                kept = (float(part.get_fill_opacity()), float(part.get_stroke_opacity()))
+            except Exception:  # noqa: BLE001 -- a part without colours
+                continue
+            part._panim_alpha = kept
+        part.set_fill(opacity=kept[0] * opacity if on else 0.0, family=False)
+        part.set_stroke(opacity=kept[1] * opacity if on else 0.0, family=False)
+
+
 CAPTION_MAX = 184        # characters two caption lines hold at a readable size
 
 
@@ -1829,38 +1844,6 @@ def unicode_math(tex: str) -> str:
                   text)
     text = text.replace("<=>", "⇌").replace("->", "→").replace("*", "·").replace("{", "").replace("}", "")
     return re.sub(r"\\([a-zA-Z]+)", r"\1", text)
-
-
-_SAFE = {name: getattr(np, name) for name in ("sin", "cos", "tan", "exp", "log", "log10", "log2", "sqrt", "abs",
-                                               "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "floor", "ceil")}
-_SAFE.update(pi=np.pi, e=np.e, ln=np.log)
-
-
-def safe_function(expr: str, params: tuple = ()):
-    """f(x) from an expression like "x^2 - 3*x" or "sin(x)*exp(-x/5)": numpy names only, nothing else. `params`
-    are further names the expression may use ("a" in "a*x^2"), given to f as keywords: f(x, a=2)."""
-    import ast as _ast
-
-    source = str(expr).replace("^", "**").strip()
-    tree = _ast.parse(source, mode="eval")
-    for node in _ast.walk(tree):
-        if isinstance(node, _ast.Name) and node.id != "x" and node.id not in _SAFE and node.id not in params:
-            raise ValueError(f"unknown name {node.id!r} in {expr!r}")
-        if isinstance(node, (_ast.Attribute, _ast.Subscript, _ast.Lambda, _ast.Call)) and not (
-                isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name)):
-            raise ValueError(f"not a plain expression: {expr!r}")
-    code = compile(tree, "<plot>", "eval")
-
-    def f(x, **values):
-        with np.errstate(all="ignore"):
-            out = eval(code, {"__builtins__": {}}, {**_SAFE, **values, "x": x})  # noqa: S307 -- names checked above
-        # A constant ("5", a horizontal line) is one number whatever x is: as many values as x has, so a plot
-        # over 200 points does not get a single one and fail to concatenate it with the others.
-        if np.ndim(x) > 0 and np.ndim(out) == 0:
-            return np.full(np.shape(x), float(out))
-        return out
-
-    return f
 
 
 def backdrop() -> VGroup:
@@ -3185,41 +3168,6 @@ class Lecture(Scene):
         card = Group(parts)
         card.is_text_card = True
         return self._to_stage(card)
-
-    def plot(self, exprs, x_range=(-5.0, 5.0), label: str | None = None, x_label: str = "x", y_label: str = "y",
-             names=()):
-        """Graphs of one or more functions of x on labelled axes (no LaTeX needed)."""
-        cx, cy, w, h = self.STAGE
-        exprs = [exprs] if isinstance(exprs, str) else list(exprs)
-        fns = [safe_function(e) for e in exprs]
-        xs = np.linspace(float(x_range[0]), float(x_range[1]), 200)
-        ys = np.concatenate([np.asarray(f(xs), dtype=float) for f in fns])
-        ys = ys[np.isfinite(ys)]
-        lo, hi = (float(ys.min()), float(ys.max())) if ys.size else (-1.0, 1.0)
-        if hi - lo < 1e-9:
-            lo, hi = lo - 1, hi + 1
-        pad = (hi - lo) * 0.1
-        axes = Axes(x_range=[float(x_range[0]), float(x_range[1]), (float(x_range[1]) - float(x_range[0])) / 10],
-                    y_range=[lo - pad, hi + pad, (hi - lo + 2 * pad) / 8], x_length=w - 1.0, y_length=h - 2.0,
-                    tips=False, axis_config={"color": P.MUTED, "include_numbers": False, "stroke_width": 2})
-        tones = [P.SAND, P.ROSE, P.RIVER, P.GREEN]
-        curves = VGroup(*[axes.plot(f, color=tones[i % 4], stroke_width=5, use_smoothing=False,
-                                    discontinuities=None) for i, f in enumerate(fns)])
-        labels = VGroup(T(x_label, 18, P.MUTED).next_to(axes.x_axis, RIGHT, buff=0.1).shift(LEFT * 0.4 + DOWN * 0.3),
-                        T(y_label, 18, P.MUTED).next_to(axes.y_axis, UP, buff=0.1))
-        keys = VGroup(*[T(names[i] if i < len(names) else exprs[i], 16, tones[i % 4]) for i in range(len(fns))])
-        keys.arrange(RIGHT, buff=0.4)
-        body = VGroup(axes, curves, labels)
-        parts = VGroup(body, keys)
-        if label:
-            parts.add(fit(T(label, 22, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
-        parts.arrange(DOWN, buff=0.25)
-        self._fit_stage(parts)
-        new = Group(parts)
-        anim = self._to_stage(Group(VGroup(axes, labels, keys, *parts[2:])))
-        # The curves draw after the axes appear.
-        self._stage_add(curves)
-        return AnimationGroup(anim, Create(curves, lag_ratio=0.2), lag_ratio=0.6)
 
     def process(self, steps, title: str | None = None, cycle: bool = False):
         """Steps joined by arrows: a chain (snaking into rows) or a cycle."""
@@ -5201,8 +5149,6 @@ class MapLecture(BoardMixin, Lecture):
         """A journey on the map, drawn as it happens: a traveller moves from stop to stop over the line, the route
         drawn behind it, each stop marked and named as it is reached (the Dandi March, Vasco da Gama's voyage, the
         Silk Road, the monsoon winds). `stops` are place names or (lon, lat); `labels` rename them."""
-        import sims_more
-
         color = color or P.GOLD
         stops = list(stops)
         names = list(labels or [])
@@ -5238,7 +5184,7 @@ class MapLecture(BoardMixin, Lecture):
             route.set_points_as_corners(corners)
             traveller.move_to(at)
             for marker, needed in zip(markers, reach):
-                sims_more._show(marker, f >= needed - 1e-6)
+                _show(marker, f >= needed - 1e-6)
 
         step(0.0, 0.0)
         self._live_start(body, step, "process")

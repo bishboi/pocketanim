@@ -10,7 +10,6 @@ pocket_lecture.py    the engine: styles, beats, captions, panel, cards, maps
 compile_lecture.py   beat script (JSON) -> Manim on the engine, with a linter
 resolve_region.py    the country or state a piece of content is about
 examples/india.json  the reference India lecture, condensed
-examples/motion.json  every moving picture: trace, sweep, live motion, the ten sims, counters, zoom
 examples/animated-diagrams.json  diagrams whose pictures move and whose arrows flow
 examples/manim-diagrams.json  38 kinds of diagram free Manim builds (manim_catalog.py writes it)
 manim_catalog.py     the diagrams free Manim builds that no other op draws, each a worked, checked example
@@ -124,8 +123,8 @@ Otherwise the stage shows pictures.
 
 Every picture a lecture shows is made one of three ways. Which way is the writer's judgement, picture by picture:
 
-1. **Built in Manim**, in full detail: diagrams, graphs, sketches, the physics presets, equations, molecules,
-   timelines, the map, free Manim.
+1. **Built in Manim**, in full detail: diagrams, equations, molecules, timelines, the map, and free-form Manim for
+   every other drawing (graphs, apparatus, forces, anything that moves).
 2. **A detailed diagram by the diagram model**: `{"op":"picture","draw":"<the picture in words>","labels"?}` (or
    `{"op":"draw","what","labels"?}`), a labelled textbook drawing (a cell, a cross-section, a machine) made by
    `PANIM_DIAGRAM_MODEL` and shown whole, its labels written beside it by the board.
@@ -232,18 +231,15 @@ one key point (`fact` or `stat`; each replaces the last). A chapter with a map k
 most 3 short points (under 70 characters) under its title; the compiler rejects more in a model-written
 lecture. Set `"layout": "panel"` on a script for the old side panel everywhere.
 
-**Drawn in Manim** (`stem.py`), each with an `id`, its parts revealed by `reveal` and ringed by `focus` as the
-narration names them, and `show` for the parts drawn first:
+**On the board** (`stem.py`): every graph, apparatus, maths or science drawing is free-form Manim (`manim`, below).
+The small built drawings there once were (the physics presets, `sketch`, `graph`, `plot`, `motion`, `trace`,
+`sweep`, `sim`, `counter`) are gone: the app turns any the writer still uses into a `manim` op
+(`manimcoder.ts freeDrawings`), and the compiler leaves out what is left, with a note.
 
 | Operation | What it builds |
 |---|---|
-| `{"op":"incline","id","angle","friction"?,"components"?,"forces"?:["mg","N"],"applied"?}` | A block on a wedge. Parts: ground, wedge, theta, block, mg, N, f, F, mg_sin, mg_cos. |
-| `{"op":"pulley","id","kind":"atwood"\|"table","friction"?,"accel"?}` | Masses over a pulley. Parts: ceiling or table, pulley, rope, m1, m2, T1, T2, W1, W2, N, f, a1, a2. |
-| `piston`, `spring`, `pendulum`, `projectile`, `circuit` (series or parallel), `lever`, `lens` | The other physics presets. `stem.preset_elements(kind, {})` lists their parts. |
-| `{"op":"sketch","id","items":[...]}` | Any other labelled diagram, from primitives in a 10 × 6 box (y up): `line`, `arrow`, `rect`, `circle`, `polygon`, `spring`, `ground` (hatched), `angle` (an arc with its label), `dim` (a dimension line), `dot`, `text`, `curve`. |
-| `{"op":"graph","id","x","y"?,"x_label","y_label","items":[...]}` | Axes with numbers, and items `curve`, `point` (with guides), `vline`, `hline`, `area`, `tangent`, `segment`, `data`, `label`. |
 | `{"op":"work","id","lines":[TeX...],"title"?,"box"?}` | A worked solution. The same id adds lines under the last; `box` rings the answer. With a picture on the stage, it moves left and the working opens beside it. When the working reaches the bottom, it scrolls up. |
-| `{"op":"problem","id","text","given"?,"find"?,"figure"?,"think"?}` | A long question: its statement across the top, its figure (a preset, sketch or graph; reveal it as `<id>_figure`) on the left, and its solution (`work` with the same id) on the right. |
+| `{"op":"problem","id","text","given"?,"find"?,"figure"?,"think"?}` | A long question: its statement across the top, its figure (a `draw` op, made by the diagram model) on the left, and its solution (`work` with the same id) on the right. |
 
 Maths in `work` lines and `equation` is typeset by LaTeX (`harness/scripts/fetch_latex.py` installs it), Hindi
 inside it (`\text{...}`) by XeLaTeX, and drawn as Unicode text only when LaTeX is missing or a line will not
@@ -257,11 +253,10 @@ compile (`nolatex.py`).
 - A `define` beside a drawing goes into the right half, and the drawing moves left; the next definition takes
   its place. A `work` then takes that half.
 - An `equation` while a problem is being solved is the next line of its working, not a new picture that wipes
-  the problem; a new sketch, preset or graph during a problem replaces only the problem's figure.
+  the problem.
 - A `figure` with `where: "full"` is a stage figure on the board, below the title strip.
 - A diagram's labels move off the lines and other labels they would sit on, and the whole diagram, labels
-  included, is fitted to its box. A part's own pieces come with it (`rope2` with `rope`, the leg with the
-  `table`), so a block never hangs without its rope.
+  included, is fitted to its box.
 - In each beat the compiler puts `unstage` first, then what goes up on the stage, then what adds to it (`work`,
   `reveal`, `focus`, `answer`), whatever order the model wrote them in.
 
@@ -335,16 +330,10 @@ explains it.
 |---|---|
 | `{"op":"question","text","choices"?:[2-5],"answer"?,"think"?:5,"title"?,"from_book"?}` | The question card. `answer` is the right choice's letter (`"B"`), its number from 1, or its text. For an open question with no choices, it is the answer in words. The heading reads "Think about it", or "सोचिए" in Hindi. `from_book` names a question of the uploaded PDF (`"q3"`, questions.ts): the compiler then wants all its choices shown and every one explained with `option`. |
 | `{"op":"option","choice":"A","right"?}` | One choice of the question up, on the beat that explains it: a wrong one crossed out in red and faded, the right one ringed in green (the answer, shown now). `right` decides for a question given without its answer. |
-| `{"op":"motion","diagram","kind"?,"parts"?,"by"?,"angle"?,"about"?,"distance"?,"back"?}` | A diagram set moving on the beat that says what moves (stem.motion_plan): a preset moves as in life (incline slide, pendulum swing, projectile flight, spring oscillation, pulley pull, lever tilt, piston press), the forces on a body riding with it, and back to where it was unless `back` is false. On any sketch: `move` parts `by` [dx, dy], `turn` parts by `angle` about a point, or `pulse` them. The compiler draws the moving parts as objects of their own so the program moves them without leaving a copy, used only when needed: the compiler leaves out a motion on a beat whose narration describes nothing moving, and any after a diagram's second. |
-| `{"op":"motion","diagram","live":true,"period"?}` and sketch kinds `orbit` (`parts`, `about`, `trail`?), `spin`, `vibrate` (`by`), `follow` (`through`, `loop`?), `flow` (`along` or `from`/`to`, `dots`?) | Continuous motion for the whole line (stem._live_motion, stem._live_steps): an updater on a part on stage, baked into a clip by the exporter. `keep` leaves it running into the next line. |
-| `{"op":"trace","diagram","curve","from","to","tangent"?,"area"?,"readout"?}` | A point riding a graph's curve over the line, with its turning tangent, the area filling behind it and a live value, slope or area readout (stem.trace). |
-| `{"op":"sweep","diagram","expr","param"?,"from","to"}` | The curve redrawn as one number in its equation changes, the number shown live (stem.sweep). |
-| `{"op":"sim","id","kind",...settings,"title"?,"keep"?}` | A simulation for the line (live.py): `orbit`, `wave`, `collision`, `field`, `refraction`, `titration`, `mitosis`, `heart`, `gas`, `decay`. Each kind's settings are in `live.SIM_PARAMS`; `live.sim_problem` lints them. |
-| `{"op":"counter","id","from","to","label"?,"unit"?,"style"?:"bar\|dial\|number","max"?}` | A value counting from one number to the other over the line. |
 | `{"op":"zoom","diagram","node"?,"scale"?}` | Moves in on one part of the picture on the stage (scaled about it and brought to the middle); without `node`, back out. Played as a baked clip, so the phone moves the picture and does not draw a copy over it. |
 | diagram `"flow"`, node `"anim"` | A node's `anim` (`bob`, `sway`, `breathe`, `drift`, and the older `spin`, `pulse`, `shake`, `flicker`, `hop`, read as the nearest of those) sets its picture moving while the diagram is up; `none` or nothing keeps it still. `flow` runs dots along the arrows (on for flow and cycle). Every motion repeats within 4 s, so the exporter stores one period per line and the phone plays it round (`clip ... loop=`); a moving picture is keyed on its `image` line. |
 | `{"op":"figure","id","photo":true,"where"?}` on a book figure | Every figure of the book (a diagram, a graph, an apparatus, a photograph) is redrawn by the diagram model from the figure itself (harness/app/lib/figures.ts, genimage.redraw) as an exact copy in the lecture's style: the same layout, parts, arrows, numbers and labels letter for letter, watermarks, logos, QR codes, figure numbers, captions and scan marks left out; checked label by label, the closest try kept. It is shown whole on the stage. The book's own picture is never shown: a figure that cannot be redrawn is left out of the figures table and rebuilt in Manim (`from_figure`). |
-| `{"op":"draw","id","what","labels"?,"caption"?}` | ONLY FOR WHAT THE MANIM OPS CANNOT BUILD EXACTLY (a cell, an organ, a cross-section, real apparatus or a machine beyond the presets). The compiler makes it a picture op for the diagram model (compile_lecture._drawn_picture): `what` is what it is asked to draw, `labels` (or the older `parts`, read as words) up to 6 parts the board labels beside it (genimage.locate). It is shown whole on the stage: reveals and focuses of its parts are left out. In a problem, its figure box shows it. |
+| `{"op":"draw","id","what","labels"?,"caption"?}` | ONLY FOR WHAT THE MANIM OPS CANNOT BUILD EXACTLY (a cell, an organ, a cross-section, real apparatus or a machine). The compiler makes it a picture op for the diagram model (compile_lecture._drawn_picture): `what` is what it is asked to draw, `labels` (or the older `parts`, read as words) up to 6 parts the board labels beside it (genimage.locate). It is shown whole on the stage: reveals and focuses of its parts are left out. In a problem, its figure box shows it. |
 | `{"op":"manim","id","code"}` | Free-form Manim for a picture the menu cannot draw (`free_check.py`, `stem.BoardMixin.free`): `code` is the body of `construct()` for its beat, the only op on that beat. Beats with the same `id` share their variables, so a figure built on one beat is indicated, copied into a free-body diagram or transformed on the next. The beat's line is spoken while the block plays, then held. The block runs in a sandbox (no imports, dunders, files or exec; of the scene only `play`, `wait`, `add`, `remove`) with Manim's names, `np`, `INK`, `MUTED_INK`, `PALETTE` and the board's bounds; Manim's default white is drawn in the style's ink on a light board. Before a script is accepted each id's blocks run in a probe scene under the exporter: one that raises, draws off the board (x -6.9..6.9, y -3.05..2.85), runs far longer than its line, or uses an animation the phone cannot play is refused with the reason. Verdicts are cached in `.cache/free/` by the code. A figure is the stage's drawing: a working, a question or a card that follows goes beside it (the figure moved into the left half until its next block, which moves it home and clears them). With `"area": "left"` on its first block the figure is drawn in the left half from the start and never moves: what comes beside it takes the right half and stays while later blocks explain the figure (a derivation beside its ray diagram, the angle ringed as the line using it is written). |
 | `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
 
@@ -420,7 +409,7 @@ video's captions (hand-made ones first, then automatic; Hindi and English prefer
 parts of about two and a half minutes. The lecture remakes the video: the same topics in the same order (every
 chapter names the part it teaches with `from_part`, and a part no chapter teaches is an error), its examples,
 questions and solved numericals (same numbers, step by step), and every figure it draws or describes built as a
-diagram, sketch, preset or graph. Its sentences are never copied (the copy check reads the transcript too).
+diagram or in free-form Manim. Its sentences are never copied (the copy check reads the transcript too).
 Without a chosen length, the lecture runs as long as the video. A PDF can be used as well: the PDF is the
 content and its figures; the video gives the structure.
 

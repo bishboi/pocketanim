@@ -364,11 +364,11 @@ const STEP_OPS = new Set(["reveal", "focus", "zoom", "motion", "trace", "sweep"]
 const FOLDED_OPS = new Set(["panel", "fact", "stat", "clear", "define", "equation", "work", "question", "answer", "option"]);
 
 /**
- * The small built drawings the writer used although they are switched off (lecture.ts builtDrawings: presets,
+ * The small built drawings the writer used although they are gone (lecture.ts FREE_DRAWN_OPS: presets,
  * sketch, graph, plot, motion, trace, sweep, sims, counter), turned into free-form Manim planned from what the op
  * said, for the Manim model to write: the first beat draws it, the later beats of the same id (a focus, a motion)
- * carry on with the same figure. A figure is left built where it cannot be free-form: in a chapter over a map, or
- * on a beat with a picture, a diagram or a timeline beside it. A problem's built figure is left out (its statement and
+ * carry on with the same figure. A figure that cannot be free-form (in a chapter over a map, or on a beat with a
+ * picture, a diagram or a timeline beside it) is left as it is, and the compiler leaves it out with a note. A problem's built figure is left out (its statement and
  * working stay). Returns how many figures were turned.
  */
 export function freeDrawings(script: Record<string, unknown>): number {

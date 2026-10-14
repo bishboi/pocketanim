@@ -180,7 +180,7 @@ POINT_KEYS = ("from", "to", "at", "about", "by")
 
 
 def _normalise_points(value) -> None:
-    """Every point list and point in an op, at any depth (a sketch's items, a graph's items, a problem's figure),
+    """Every point list and point in an op, at any depth (a map path, a problem's figure),
     in the shapes the engine draws from (_pairs)."""
     if isinstance(value, dict):
         for key, item in list(value.items()):
@@ -194,22 +194,6 @@ def _normalise_points(value) -> None:
     elif isinstance(value, list):
         for item in value:
             _normalise_points(item)
-
-
-def _point_problems(op: dict) -> list[str]:
-    """A curve or polygon with fewer than two points, at any depth: nothing to draw (Manim cannot)."""
-    out = []
-    stack = [op]
-    while stack:
-        item = stack.pop()
-        if isinstance(item, dict):
-            if item.get("type") in ("curve", "polygon") and len([p for p in item.get("points") or []
-                                                                  if isinstance(p, list) and len(p) == 2]) < 2:
-                out.append(f"its {item.get('type')} {item.get('id') or ''} needs at least two points, as [[x, y], ...]")
-            stack.extend(item.values())
-        elif isinstance(item, list):
-            stack.extend(item)
-    return out
 
 
 # ---------------- one form for each thing; mechanical fixes, made without the writer ----------------
@@ -406,6 +390,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     one missing what it draws, a picture whose kind is not one of the picture keys. Each is left out (a broken
     picture beside a label is dropped and the label stays), with a note."""
     notes: list[str] = []
+    _still_timelines(script)
     figures = script.get("figures") or {}
     known = {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo", "illustration"} \
         | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS
@@ -423,6 +408,9 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                 kind = op.get("op")
                 if kind in ("reveal", "focus", "zoom") and str(op.get("diagram")) in pictured:
                     _drop(op, at, f"{op.get('diagram')!r} is shown whole as a picture, with no parts", notes)
+                    continue
+                if kind in RETIRED_OPS:
+                    _drop(op, at, "it is no longer built: free-form Manim draws it (a manim op)", notes)
                     continue
                 if kind not in known:
                     _drop(op, at, "no such op", notes)
@@ -599,13 +587,13 @@ def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
     _keep_known(op, "show", ids, at, notes)
 
 
-STEP_DIAGRAM_OPS = {"reveal", "focus", "zoom", "trace", "sweep", "motion"}
+STEP_DIAGRAM_OPS = {"reveal", "focus", "zoom"}
 # The ops that put up a picture a later step can name by its id.
-PICTURE_HOLDERS = {"diagram", "draw", "figure", "graph", "sketch", "sim", "counter", "problem"}
+PICTURE_HOLDERS = {"diagram", "draw", "figure", "problem"}
 
 
 def _fix_steps(script: dict) -> list[str]:
-    """Steps that point at what is not there, mended: a reveal, focus, zoom, trace, sweep or motion of no picture
+    """Steps that point at what is not there, mended: a reveal, focus or zoom of no picture
     drawn earlier in its chapter is left out; a reveal's unknown parts are left out (and the reveal, if none is
     left); a focus on no part is left out; a zoom on no part zooms on the whole; an answer or option with no
     question before it is left out; a picture's "show" of no part leaves that name out."""
@@ -648,15 +636,17 @@ def _fix_steps(script: dict) -> list[str]:
                 if kind == "question":
                     choices = op.get("choices") if isinstance(op.get("choices"), list) else []
                     continue
-                if (kind in ("draw", "graph", "sketch") or kind in PRESETS) and op.get("show"):
+                if kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") in RETIRED_OPS:
+                    notes.append(f"{FIXED}{at}: left out the problem's {op['figure'].get('op')!r} figure: it is no "
+                                 "longer built (draw it with a manim op on the beats before)")
+                    op.pop("figure")
+                if kind == "draw" and op.get("show"):
                     parts = _diagram_parts(op, figures)
                     if parts is not None:
                         _keep_known(op, "show", parts, at, notes)
-                if op.get("id") and kind in PICTURE_HOLDERS | set(PRESETS):
+                if op.get("id") and kind in PICTURE_HOLDERS:
                     key = str(op["id"])
-                    if kind in ("sim", "counter"):
-                        known[key] = None                 # its parts are the sim's own
-                    elif kind == "problem":
+                    if kind == "problem":
                         known[key] = []
                         if isinstance(op.get("figure"), dict):
                             known[f"{key}_figure"] = _diagram_parts(op["figure"], figures)
@@ -681,8 +671,8 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
 # A picture that stays up this many beats at most is built along them (_build_with_speech).
 SPEECH_REACH = 6
 # Ops that put a new picture on the stage: the diagram before is gone, so it is built no further.
-_NEW_PICTURE = {"diagram", "draw", "figure", "picture", "photo", "illustration", "gallery", "sketch", "graph",
-                "compare", "define", "timeline", "process", "quote", "problem", "sim", "manim", "equation", "plot"}
+_NEW_PICTURE = {"diagram", "draw", "figure", "picture", "photo", "illustration", "gallery", "compare", "define",
+                "timeline", "process", "quote", "problem", "manim", "equation"}
 
 
 def _named_in(label: str, said: str) -> bool:
@@ -795,9 +785,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 warnings.append(f"{at}: the caption runs past two lines ({len(say)} characters); split the beat")
             ops = beat.get("do") or []
             _normalise_points(ops)
-            for op in ops:
-                if isinstance(op, dict):
-                    errors.extend(f"{at}: {kind_problem}" for kind_problem in _point_problems(op))
             if len(ops) > 5:
                 warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
@@ -1241,7 +1228,7 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
             continue
         elif not images.enabled():
             out.append(f"{at}: pictures cannot be made here (no image model: OPENROUTER_API_KEY, or PANIM_IMAGES=0); "
-                       "build it in Manim instead (a sketch, a preset, a graph, a diagram or a manim op)")
+                       "build it in Manim instead (a diagram or a manim op)")
         else:
             what = op.get("subject") or op.get("query") or op.get("image")
             out.append(f"{at}: the image model made no picture of {what!r} (refused, or offline); describe it "
@@ -1249,23 +1236,23 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
     return out
 
 
-KIT_OPS = {"molecule", "equation", "plot", "process", "timeline", "quote"}
+KIT_OPS = {"molecule", "equation", "process", "timeline", "quote"}
 # Built on the stage: several pictures at once, diagrams with pictures, a word and its meaning, a comparison,
-# a question for the class; and for mathematics and the sciences (stem.py): labelled sketches, the physics
-# presets (incline, pulley...), graphs and long problems.
-from stem import PRESETS  # noqa: E402
-
-STEM_OPS = {"draw", "sketch", "graph", "problem"} | set(PRESETS)
-# Live pictures (live.py): a simulation that moves while its line is said, a counting number.
-LIVE_OPS = {"sim", "counter"}
-BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS | LIVE_OPS
+# a question for the class; and for mathematics and the sciences (stem.py): a drawing made from its description
+# and long problems.
+STEM_OPS = {"draw", "problem"}
+BUILD_OPS = {"gallery", "diagram", "define", "compare", "question"} | STEM_OPS
+# The small built drawings there were once (physics presets, sketches, graphs, plots, motions, sims, counters):
+# free-form Manim draws all of these now (a manim op). A script that still uses one has it left out, with a note.
+RETIRED_OPS = {"incline", "pulley", "piston", "spring", "pendulum", "projectile", "circuit", "lever", "lens",
+               "sketch", "graph", "plot", "motion", "trace", "sweep", "sim", "counter"}
 # A worked solution: lines added beside the figure on the stage (or on a problem's solution side).
 WORK_OPS = {"work"}
 # Subjects taught on the board (no side panel) unless the script says otherwise.
 BOARD_GENRES = {"physics", "chemistry", "mathematics"}
 # The next step of what is already on the stage: more of a diagram, a ring around one of its nodes, the answer
-# to the question, one of its choices marked right or wrong while it is explained, a diagram set moving.
-STEP_OPS = {"reveal", "focus", "answer", "option", "motion", "trace", "sweep", "zoom"}
+# to the question, one of its choices marked right or wrong while it is explained, the camera closer on a part.
+STEP_OPS = {"reveal", "focus", "answer", "option", "zoom"}
 QUESTION = "?question"       # the key a chapter's question goes under among its diagrams, for lint
 DIAGRAM_KINDS = {"flow", "cycle", "hub", "pyramid"}          # (the older kinds are read as these: DIAGRAM_ALIASES)
 # A flowchart's step shapes (pocket_lecture._flow_node) and the edge styles it draws.
@@ -1393,8 +1380,6 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         diagrams[key] = ids
     if kind in STEM_OPS | WORK_OPS:
         return _stem_problem(op, diagrams)
-    if kind in LIVE_OPS:
-        return _live_problem(op, diagrams)
     if kind == "question":
         choices = op.get("choices") or []
         if not str(op.get("text") or "").strip():
@@ -1420,8 +1405,6 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         key = str(op.get("diagram") or "")
         if key not in diagrams:
             return f"'{kind}' needs diagram: the id of a diagram drawn earlier in this chapter"
-        if kind in ("trace", "sweep"):
-            return _graph_step_problem(op, key, diagrams)
         if kind == "zoom":
             node = op.get("node")
             if node is not None and str(node) not in diagrams[key]:
@@ -1429,10 +1412,6 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
             if op.get("scale") is not None and not 1.1 <= float(op["scale"]) <= 3:
                 return "zoom scale is between 1.1 and 3 (how much closer)"
             return None
-        if kind == "motion":
-            import stem
-
-            return stem.motion_problem(diagrams.get(f"?kind:{key}"), list(diagrams[key]), op)
         wanted = [str(x) for x in (op.get("nodes") or [])] if kind == "reveal" else [str(op.get("node") or "")]
         if not wanted or any(w not in diagrams[key] for w in wanted):
             return f"{kind}: nodes must be ids of diagram {key!r} ({', '.join(diagrams[key])})"
@@ -1442,58 +1421,6 @@ def _build_problem(op: dict, diagrams: dict, figures: dict) -> str | None:
         columns = op.get("columns") or []
         if not 2 <= len(columns) <= 3 or not all(isinstance(c, dict) and c.get("title") for c in columns):
             return "'compare' needs 2-3 columns, each {title, entity?, points: [up to 4 short lines]}"
-    return None
-
-
-def _graph_step_problem(op: dict, key: str, diagrams: dict) -> str | None:
-    """A trace (a point riding a curve) or a sweep (a curve redrawn as a parameter changes) on a graph."""
-    import pocket_lecture as pl
-
-    kind = op["op"]
-    if diagrams.get(f"?kind:{key}") != "graph":
-        return f"'{kind}' works on a graph: {key!r} is not one drawn in this chapter"
-    if kind == "trace":
-        curve = op.get("curve")
-        if curve is not None and str(curve) not in diagrams.get(f"?curves:{key}", []):
-            return (f"trace curve: {curve!r} is not a curve of {key!r} "
-                    f"({', '.join(diagrams.get(f'?curves:{key}', [])) or 'give its curve an id'})")
-        if not diagrams.get(f"?curves:{key}"):
-            return f"trace needs a curve on {key!r} (an item {{\"kind\": \"curve\", \"id\": ...}})"
-        if op.get("readout") not in (None, "value", "slope", "area"):
-            return "trace readout is value, slope or area"
-        return None
-    param = str(op.get("param") or "a")
-    if not re.fullmatch(r"[a-zA-Z]\w{0,7}", param) or param == "x":
-        return "sweep param is a short name other than x (\"a\", \"k\")"
-    try:
-        f = pl.safe_function(str(op.get("expr") or ""), (param,))
-        f(1.0, **{param: 1.0})
-    except Exception as error:  # noqa: BLE001 -- the reason goes back to the model
-        return f"sweep expr must be an expression in x and {param} (\"{param}*x^2\"): {error}"
-    for end in ("from", "to"):
-        if not isinstance(op.get(end, 0), (int, float)):
-            return f"sweep {end} must be a number"
-    return None
-
-
-def _live_problem(op: dict, diagrams: dict) -> str | None:
-    import live
-
-    key = str(op.get("id") or "")
-    if not key:
-        return f"'{op['op']}' needs an id"
-    if op["op"] == "sim":
-        problem = live.sim_problem(op)
-        if problem:
-            return problem
-    else:
-        for end in ("from", "to"):
-            if not isinstance(op.get(end), (int, float)):
-                return f"counter needs {end}: a number (it counts from one to the other over the line)"
-        if op.get("style", "bar") not in ("bar", "dial", "number"):
-            return "counter style is bar, dial or number"
-    diagrams[key] = []
-    diagrams[f"?kind:{key}"] = op["op"]
     return None
 
 
@@ -1524,9 +1451,7 @@ def _draw_problem(op: dict) -> str | None:
 
 
 def _stem_problem(op: dict, diagrams: dict) -> str | None:
-    """What stops a sketch, preset, graph, worked solution or problem; records the parts reveal can show."""
-    import stem
-
+    """What stops a drawing, worked solution or problem; records the parts reveal can show."""
     kind = op["op"]
     if kind == "work":
         if not op.get("id"):
@@ -1539,46 +1464,23 @@ def _stem_problem(op: dict, diagrams: dict) -> str | None:
     if not key:
         return f"'{kind}' needs an id (reveal and focus refer to it)"
     if kind == "draw":
-        if not key:
-            return "'draw' needs an id (reveal and focus refer to it)"
         problem = _draw_problem(op)
         if problem:
             return problem
         diagrams[key] = [str(p) for p in op["parts"]]
         diagrams[f"?kind:{key}"] = "draw"
         return None
-    if kind == "problem":
-        if not str(op.get("text") or "").strip():
-            return "'problem' needs text: the question, in full"
-        figure = op.get("figure")
-        if figure is not None:
-            if not isinstance(figure, dict) or figure.get("op") not in {"draw", "sketch", "graph"} | set(stem.PRESETS):
-                return ("a problem's figure is a sketch, a graph or a preset: {\"op\":\"incline\",\"angle\":30,...} "
-                        "(or a draw op, only for what those cannot show)")
-            inner = _stem_problem({**figure, "id": figure.get("id") or f"{key}_figure"}, diagrams)
-            if inner:
-                return f"problem figure: {inner}"
-        diagrams[key] = []
-        return None
-    if kind == "graph":
-        problem = stem.graph_problem(op)
-        if problem:
-            return problem
-        ids = [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
-        diagrams[f"?kind:{key}"] = "graph"
-        diagrams[f"?curves:{key}"] = [str(i.get("id")) for i in op.get("items") or []
-                                      if i.get("id") and i.get("kind") == "curve"]
-    else:
-        problem = stem.sketch_problem(op)
-        if problem:
-            return problem
-        ids = stem.element_ids(stem.op_elements(op))
-        if kind in stem.PRESETS:
-            diagrams[f"?kind:{key}"] = kind          # what a motion on it can do (stem.MOTIONS)
-    unknown = [str(x) for x in op.get("show") or [] if str(x) not in ids]
-    if unknown:
-        return f"{kind} {key} show: no part {unknown[0]!r} (its parts: {', '.join(ids) or 'none named'})"
-    diagrams[key] = ids
+    if not str(op.get("text") or "").strip():
+        return "'problem' needs text: the question, in full"
+    figure = op.get("figure")
+    if figure is not None:
+        if not isinstance(figure, dict) or figure.get("op") != "draw":
+            return ("a problem's figure is a draw op ({\"op\":\"draw\",\"what\":...,\"parts\":[...]}), or leave it "
+                    "out and draw the figure with a manim op on the beats before")
+        inner = _stem_problem({**figure, "id": figure.get("id") or f"{key}_figure"}, diagrams)
+        if inner:
+            return f"problem figure: {inner}"
+    diagrams[key] = []
     return None
 
 
@@ -1622,21 +1524,6 @@ def _kit_problem(op: dict) -> str | None:
             return "molecules need RDKit: .venv/bin/pip install rdkit"
     if kind == "equation" and not str(op.get("tex") or "").strip():
         return "'equation' needs tex (E = mc^2)"
-    if kind == "plot":
-        exprs = op.get("exprs") or ([op["expr"]] if op.get("expr") else [])
-        if not exprs:
-            return "'plot' needs expr (a function of x, e.g. x^2 - 3*x) or exprs"
-        x = op.get("x") or [-5, 5]
-        if len(x) != 2 or float(x[0]) >= float(x[1]):
-            return "'plot' x must be [min, max]"
-        import numpy as np
-        from pocket_lecture import safe_function
-
-        for e in exprs:
-            try:
-                safe_function(str(e))(np.linspace(float(x[0]), float(x[1]), 5))
-            except Exception as error:  # noqa: BLE001
-                return f"plot: {error}"
     if kind == "process" and not 2 <= len(op.get("steps") or []) <= 8:
         return "'process' needs 2 to 8 steps"
     if kind == "timeline" and len(op.get("events") or []) < 2:
@@ -1650,8 +1537,8 @@ def _kit_problem(op: dict) -> str | None:
 COPY_RUN = 8            # this many words in a row, word for word from the source, is reading the book aloud
 LONG_SENTENCE = 26      # words; a spoken sentence longer than this loses a listener
 TEXT_OPS = {"process", "quote"}
-PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "plot", "bars", "gallery", "diagram",
-               "define", "compare", "reveal", "focus", "work", "trace", "sweep", "motion"} | STEM_OPS | LIVE_OPS
+PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "bars", "gallery", "diagram",
+               "define", "compare", "reveal", "focus", "work"} | STEM_OPS
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
@@ -1879,56 +1766,6 @@ MIN_FIGURE_STEPS = 3
 
 
 
-# Narration that tells of something moving: a motion op plays only on such a beat. Set going on a beat that is about
-# a formula or a force balance, a still diagram jumping about looked forced, not explained.
-MOVING_SAYS = re.compile(
-    r"\b(slid|slide|slip|mov(?:e|es|ed|ing)\b|motion|fall|fell|drop|swing|swung|oscillat|vibrat|roll|accelerat|"
-    r"decelerat|throw|thrown|fl(?:y|ies|ew|ying)\b|launch|land(?:s|ed|ing)?\b|rotat|spin|tip(?:s|ped|ping)?\b|"
-    r"tilt|push|pull|compress|stretch|expand|ris(?:e|es|ing)\b|goes (?:up|down|round|around)|speeds? up|slow|bounc|"
-    r"collid|travel|turn(?:s|ed|ing)? (?:round|around|about)|watch|flow|stream|current|orbit|revolv|circl|"
-    r"pump|beat(?:s|ing)?\b|drift|spread|diffus|wave|ripple|swirl|circulat)"
-    r"|फिसल|गिर|लुढ़क|झूल|दोलन|घूम|उछ|फेंक|उड़|टकरा|धकेल|धक्का|खींच|खिंच|दब|फैल|सिकुड़|हिल|मुड़|ऊपर जा|नीचे जा|"
-    r"चलती|चलता|चलने|गति कर|देखो|बह|परिक्रमा|धड़क|फैल",
-    re.IGNORECASE)
-# How often one diagram is set moving in a lecture: once to show what happens, once more when the solution uses it.
-MAX_MOTIONS = 2
-
-
-def _unneeded_motions(script: dict, drop: bool = False) -> list[str]:
-    """The motion ops that are not needed: on a beat whose narration tells of nothing moving, or a diagram set
-    moving more than MAX_MOTIONS times. A pulse (a part glowing as it is named) is not a motion. With `drop`, they
-    are taken out of the script, so the video animates only where the narration describes motion."""
-    notes: list[str] = []
-    moved: dict[str, int] = {}
-    for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        for bi, beat in enumerate(chapter.get("beats") or [], 1):
-            ops = beat.get("do")
-            if not isinstance(ops, list):
-                continue
-            keep = []
-            for op in ops:
-                if not (isinstance(op, dict) and op.get("op") == "motion") or op.get("kind") == "pulse":
-                    keep.append(op)
-                    continue
-                key = str(op.get("diagram"))
-                why = None
-                if not MOVING_SAYS.search(str(beat.get("say") or "")):
-                    why = "its narration does not describe anything moving"
-                elif moved.get(key, 0) >= MAX_MOTIONS:
-                    why = f"{key!r} has already moved {MAX_MOTIONS} times"
-                if why:
-                    notes.append(f"chapter {ci} beat {bi}: the motion of {key!r} is left out: {why}. Animate a diagram "
-                                 "only on the beat that says what moves, and how.")
-                    if drop:
-                        continue
-                else:
-                    moved[key] = moved.get(key, 0) + 1
-                keep.append(op)
-            if drop:
-                beat["do"] = keep
-    return notes
-
-
 def _problem_depth(script: dict) -> tuple[list[str], list[str]]:
     """Each long problem solved from the very basics: at least MIN_WORK_LINES lines of working between it and the
     next problem (its own solution, the work ops with its id or after it in its chapter), and a problem with a
@@ -2146,8 +1983,8 @@ def _bare_stretches(script: dict) -> tuple[list[str], list[str]]:
             op.get("op") in STEM_OPS | WORK_OPS for b in beats for op in b.get("do") or [])
         if opening >= BARE_OPENING and drawn_here:
             errors.append(f"chapter {ci} ({chapter.get('title', '')!r}): its first {opening} beats show nothing on "
-                          "the stage. Put up the chapter's first picture on its first beat (a diagram, a preset, a "
-                          "sketch, a graph, a figure, a define card), and build on it as the narration goes on")
+                          "the stage. Put up the chapter's first picture on its first beat (a diagram, a "
+                          "manim drawing, a figure, a define card), and build on it as the narration goes on")
         run = 0
         for bi, beat in enumerate(beats, 1):
             # Revealing more of a drawing, or adding to a worked solution, keeps the picture going.
@@ -2837,13 +2674,6 @@ def _op_call(op: dict) -> str:
     if kind == "equation":
         label = f", {_q(op['label'])}" if op.get("label") else ""
         return f"self.equation({_q(op['tex'])}{label})"
-    if kind == "plot":
-        exprs = op.get("exprs") or [op["expr"]]
-        x = op.get("x") or [-5, 5]
-        names = op.get("names") or []
-        return (f"self.plot([{', '.join(_q(e) for e in exprs)}], ({float(x[0])}, {float(x[1])}), "
-                f"{_q(op['label']) if op.get('label') else 'None'}, {_q(op.get('x_label', 'x'))}, "
-                f"{_q(op.get('y_label', 'y'))}, [{', '.join(_q(n) for n in names)}])")
     if kind == "process":
         title = f", {_q(op['title'])}" if op.get("title") else ", None"
         return f"self.process([{', '.join(_q(x) for x in op['steps'])}]{title}, cycle={bool(op.get('cycle'))})"
@@ -2922,25 +2752,9 @@ def _op_call(op: dict) -> str:
         return f"self.question({_q(op['text'])}{extra}{title})"
     if kind == "answer":
         return "self.answer()"
-    if kind == "motion":
-        spec = _clean({k: v for k, v in op.items() if k not in ("op", "diagram")})
-        return f"self.motion({_q(str(op['diagram']))}, {spec!r})"
-    if kind in ("trace", "sweep"):
-        spec = _clean({k: v for k, v in op.items() if k not in ("op", "diagram")})
-        return f"self.{kind}({_q(str(op['diagram']))}, {spec!r})"
     if kind == "zoom":
         node = _q(str(op["node"])) if op.get("node") is not None else "None"
         return f"self.zoom({_q(str(op['diagram']))}, {node}, {float(op.get('scale') or 1.8)!r})"
-    if kind == "sim":
-        params = _clean({**(op.get("params") or {}),
-                         **{k: v for k, v in op.items() if k not in ("op", "id", "kind", "title", "keep", "params")}})
-        title = f", title={_q(op['title'])}" if op.get("title") else ""
-        keep = ", keep=True" if op.get("keep") else ""
-        return f"self.sim({_q(str(op['id']))}, {_q(str(op['kind']))}, {params!r}{title}{keep})"
-    if kind == "counter":
-        spec = _clean({k: v for k, v in op.items() if k not in ("op", "id", "title")})
-        title = f", title={_q(op['title'])}" if op.get("title") else ""
-        return f"self.counter({_q(str(op['id']))}, {spec!r}{title})"
     if kind == "option":
         return f"self.option({op.get('_index', 0)!r}" + (
             f", right={bool(op['right'])!r})" if op.get("right") is not None else ")")
@@ -2997,46 +2811,27 @@ def _diagram_motion(op: dict) -> str:
     return out
 
 
-def _stem_call(op: dict) -> str:
-    import stem
-
+def _stem_call(op: dict) -> str | None:
     kind = op["op"]
     key = str(op.get("id") or "")
     title = f", title={_q(op['title'])}" if op.get("title") else ""
-    show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
     if kind == "work":
         box = ", box=True" if op.get("box") else ""
         return f"self.work({_q(key)}, {_clean(op['lines'])!r}{title}{box})"
-    movable = f", movable={op['_movable']!r}" if op.get("_movable") else ""
     if kind == "draw":
-        # (canonical_ops makes every draw op a picture; one met here had no picture: its parts as labelled boxes.)
-        import stem
-
-        return f"self.sketch({_q(key)}, {stem._parts_as_cards(op)!r}{show}{title})"
-    if kind == "sketch":
-        return f"self.sketch({_q(key)}, {_clean(op['items'])!r}{show}{title}{movable})"
-    if kind == "graph":
-        spec = _clean({k: v for k, v in op.items() if k not in ("op", "id", "title")})
-        return f"self.graph({_q(key)}, {spec!r}{title})"
-    if kind == "problem":
-        extra = ""
-        if op.get("given"):
-            extra += f", given={[str(g) for g in op['given']]!r}"
-        if op.get("find"):
-            extra += f", find={_q(op['find'])}"
-        if op.get("figure"):
-            figure = {**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"}
-            if figure.get("op") == "draw":
-                # Its picture, made by the diagram model (lint asked for it); without one, its parts as boxes.
-                row = script_photos.get(_photo_key(_drawn_picture(figure)))
-                if row and row.get("file"):
-                    figure["file"] = str(row["file"])
-            figure = _clean(figure)
-            extra += f", figure={figure!r}"
-        return f"self.problem({_q(key)}, {_q(op['text'])}{title}{extra})"
-    params = _clean({k: v for k, v in op.items() if k not in ("op", "id", "show", "title", "_movable")})
-    assert kind in stem.PRESETS
-    return f"self.preset({_q(key)}, {_q(kind)}, {params!r}{show}{title}{movable})"
+        return None        # canonical_ops makes every draw op a picture; one met here had none made: left out
+    extra = ""
+    if op.get("given"):
+        extra += f", given={[str(g) for g in op['given']]!r}"
+    if op.get("find"):
+        extra += f", find={_q(op['find'])}"
+    if op.get("figure"):
+        figure = {**op["figure"], "id": op["figure"].get("id") or f"{key}_figure"}
+        # Its picture, made by the diagram model (lint asked for it); without one, the problem has no figure.
+        row = script_photos.get(_photo_key(_drawn_picture(figure)))
+        if row and row.get("file"):
+            extra += f", figure={_clean({**figure, 'file': str(row['file'])})!r}"
+    return f"self.problem({_q(key)}, {_q(op['text'])}{title}{extra})"
 
 
 def board_chapter(script: dict, chapter: dict) -> bool:
@@ -3046,35 +2841,9 @@ def board_chapter(script: dict, chapter: dict) -> bool:
     if _map_chapter(chapter, bool(script.get("region"))):
         return False
     if script.get("layout") == "panel":
-        return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS | LIVE_OPS for b in chapter.get("beats") or []
+        return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS for b in chapter.get("beats") or []
                    for op in b.get("do") or [])
     return True
-
-
-def _resolve_motion(script: dict) -> None:
-    """The parts each diagram's motions move, on the op that draws it (`_movable` on a sketch or preset, `movable`
-    on a problem's figure): the engine draws those as objects of their own, so they move without leaving a copy."""
-    import stem
-
-    for chapter in script.get("chapters") or []:
-        drawn: dict[str, tuple] = {}          # diagram id -> (the dict that draws it, its field, preset kind, elements)
-        for beat in chapter.get("beats") or []:
-            for op in beat.get("do") or []:
-                kind = op.get("op")
-                if kind in stem.PRESETS or kind == "sketch":
-                    drawn[str(op.get("id"))] = (op, "_movable", kind if kind in stem.PRESETS else None,
-                                                stem.op_elements(op))
-                elif kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") not in ("graph", "draw"):
-                    figure = op["figure"]
-                    fkind = figure.get("op") if figure.get("op") in stem.PRESETS else None
-                    drawn[str(figure.get("id") or f"{op.get('id')}_figure")] = (figure, "movable", fkind,
-                                                                                 stem.op_elements(figure))
-                elif kind == "motion" and str(op.get("diagram")) in drawn:
-                    owner, field, preset, elements = drawn[str(op.get("diagram"))]
-                    steps, _ = stem.motion_plan(preset, owner, elements, op)
-                    ids = {i for step in steps for i in [*step.get("move", []), *step.get("turn", []),
-                                                         *([step["stretch"]] if "stretch" in step else [])]}
-                    owner[field] = sorted(set(owner.get(field) or []) | ids)
 
 
 def _still_timelines(script: dict) -> int:
@@ -3109,8 +2878,6 @@ def _resolve_options(script: dict) -> None:
 
 def _diagram_parts(op: dict, figures: dict | None = None) -> list[str] | None:
     """The part ids of a picture an op puts up that "show" and reveal can name, or None when it has none."""
-    import stem
-
     kind = op.get("op")
     try:
         if kind == "diagram":
@@ -3120,10 +2887,6 @@ def _diagram_parts(op: dict, figures: dict | None = None) -> list[str] | None:
         if kind == "figure":
             return [str(p) for p in ((script_figures if figures is None else figures).get(str(op.get("id")))
                                      or {}).get("parts") or []]
-        if kind == "graph":
-            return [str(i.get("id")) for i in op.get("items") or [] if i.get("id")]
-        if kind == "sketch" or kind in stem.PRESETS:
-            return list(stem.element_ids(stem.op_elements(op)))
     except Exception:  # noqa: BLE001 -- a picture whose parts cannot be read is left as it is
         return None
     return None
@@ -3251,10 +3014,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     STYLE_NOW["style"] = script.get("style")
     STYLE_NOW["auto_illustrations"] = bool(script.get("auto_illustrations"))
     _resolve_options(script)
-    _still_timelines(script)
-    _unneeded_motions(script, drop=True)
     _unneeded_molecules(script, drop=True)
-    _resolve_motion(script)
     _complete_reveals(script)
     # With rebuild_figures the book's diagrams are drawn in Manim, never dropped in as pictures.
     if script.get("place_figures", True) and not script.get("rebuild_figures"):
@@ -3387,11 +3147,15 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     # The web's photos shown in place of the book's own (figures.lookalike) are credited with the others.
     web_figures = [{"title": f.get("caption") or fid, "credit": f["credit"]} for fid, f in script_figures.items()
                    if f.get("web") and f.get("credit")]
-    if script.get("credits") or uses_icons or script_photos or web_figures:
+    # Only the pictures this lecture shows (their files are in its source): the table of pictures found lives as long
+    # as the process, and a lecture compiled after another got the last one's credits.
+    drawn = "\n".join(out)
+    shown = [row for row in script_photos.values() if row.get("file") and str(row["file"]) in drawn]
+    if script.get("credits") or uses_icons or shown or web_figures:
         import images
 
         line = script.get("credits") or ("Map data: Natural Earth · Animation: Manim" if region else "Animation: Manim")
-        photos = images.credit([*script_photos.values(), *web_figures])
+        photos = images.credit([*shown, *web_figures])
         out.append(f"        self.credits({_q(line)}" + (f", extra={_q(photos)}" if photos else "") + ")")
     source = "\n".join(out) + "\n"
     try:

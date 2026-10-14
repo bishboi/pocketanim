@@ -17,6 +17,7 @@
  * does not ask again. A figure decided under an older version (DRAWING_VERSION) is made again.
  */
 
+import { chatRequest, providerName, replyCost } from "./providers";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -90,19 +91,16 @@ export const CLASSIFY_PROMPT = [
 
 /** One chat completion (not streamed): the reply's text, and what it cost. */
 async function ask(key: string, model: string, content: Part[], signal?: AbortSignal): Promise<{ text: string; cost: number }> {
-  const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    signal,
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: 160, usage: { include: true },
-      messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content }] }),
-  });
-  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  const request = chatRequest({ model, max_tokens: 160, usage: { include: true },
+    messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content }] }, key);
+  const response = await fetch(request.url, { method: "POST", signal, headers: request.headers,
+    body: JSON.stringify(request.body) });
+  if (!response.ok) throw new Error(`${providerName(model)} ${response.status}: ${(await response.text()).slice(0, 200)}`);
   const body = (await response.json()) as { choices?: { message?: { content?: string | { text?: string }[] } }[];
-    usage?: { cost?: number } };
+    usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
   const reply = body.choices?.[0]?.message?.content;
   return { text: typeof reply === "string" ? reply : (reply ?? []).map((c) => c.text ?? "").join(""),
-    cost: body.usage?.cost ?? 0 };
+    cost: replyCost(model, body.usage) };
 }
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };

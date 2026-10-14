@@ -9,6 +9,7 @@
  * tested with no network and no key.
  */
 
+import { chatRequest, providerName, withCost } from "./providers";
 import { sanitizeScene } from "./scenefix";
 export { sanitizeScene };
 import { spawn } from "node:child_process";
@@ -512,28 +513,27 @@ async function streamCompletion(
   toolChoice: "auto" | "required" = "auto",
   withReasoning: boolean | string = true,
 ): Promise<{ message: ChatMessage; usage?: Usage; finishReason: string }> {
-  const response = await undiciFetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
+  // An openai/... model goes to OpenAI itself when OPENAI_API_KEY is set (lib/providers.ts).
+  const request = chatRequest({
+    model,
+    messages: withCachedSystem(messages, model),
+    tools,
+    tool_choice: toolChoice,
+    stream: true,
+    usage: { include: true },
+    ...(withReasoning ? reasoningOption(typeof withReasoning === "string" ? withReasoning : undefined) : {}),
+  }, key);
+  const response = await undiciFetch(request.url, {
     method: "POST",
     signal,
     dispatcher: OPENROUTER_AGENT,
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: withCachedSystem(messages, model),
-      tools,
-      tool_choice: toolChoice,
-      stream: true,
-      usage: { include: true },
-      ...(withReasoning ? reasoningOption(typeof withReasoning === "string" ? withReasoning : undefined) : {}),
-    }),
+    headers: request.headers,
+    body: JSON.stringify(request.body),
   });
   if (!response.ok) {
-    throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 400)}`);
+    throw new Error(`${providerName(model)} ${response.status}: ${(await response.text()).slice(0, 400)}`);
   }
-  if (!response.body) throw new Error("OpenRouter returned no stream");
+  if (!response.body) throw new Error(`${providerName(model)} returned no stream`);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -643,7 +643,7 @@ async function streamCompletion(
     const parsed = messageFromBody(body);
     const text = parsed.message.content?.trim() ?? "";
     if (text) onDelta("assistant", text);
-    return { ...parsed, finishReason: "" };
+    return { ...parsed, usage: withCost(model, parsed.usage), finishReason: "" };
   }
 
   const tool_calls = toolCallsFrom(calls);
@@ -653,7 +653,7 @@ async function streamCompletion(
       content: content || null,
       tool_calls: tool_calls.length ? tool_calls : undefined,
     },
-    usage,
+    usage: withCost(model, usage),
     finishReason,
   };
 }

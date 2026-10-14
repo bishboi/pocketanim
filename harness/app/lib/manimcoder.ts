@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { FREE_DRAWN_OPS, MANIM_RULES } from "./lecture";
+import { chatRequest, providerName, replyCost } from "./providers";
 
 type Op = Record<string, unknown>;
 type Slot = { op: Op; beat: Record<string, unknown>; where: string; say: string; plan: string; figure?: string };
@@ -133,18 +134,21 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions,
   }
   const began = Date.now();
   const limit = AbortSignal.timeout(TIMEOUT_MS);
-  const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
+  const request = chatRequest({ model: options.model, usage: { include: true }, response_format: { type: "json_object" },
+    ...manimReasoning(),
+    messages: [{ role: "system", content: SYSTEM }, { role: "user", content }] }, options.key);
+  const response = await fetch(request.url, {
     method: "POST",
     signal: options.signal ? AbortSignal.any([options.signal, limit]) : limit,
-    headers: { Authorization: `Bearer ${options.key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: options.model, usage: { include: true }, response_format: { type: "json_object" },
-      ...manimReasoning(),
-      messages: [{ role: "system", content: SYSTEM }, { role: "user", content }] }),
+    headers: request.headers,
+    body: JSON.stringify(request.body),
   });
-  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  if (!response.ok) {
+    throw new Error(`${providerName(options.model)} ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  }
   const body = (await response.json()) as { choices?: { message?: { content?: string } }[];
     usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
-  options.onCost?.(body.usage?.cost ?? 0, [began, Date.now()],
+  options.onCost?.(replyCost(options.model, body.usage), [began, Date.now()],
     { in: body.usage?.prompt_tokens ?? 0, out: body.usage?.completion_tokens ?? 0 },
     { figure: id, beats: slots.length, repair: !!fix, ...(fix?.when ? { after: "build" } : {}), model: options.model });
   const text = String(body.choices?.[0]?.message?.content ?? "");

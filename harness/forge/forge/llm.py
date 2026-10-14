@@ -17,12 +17,15 @@ import re
 import urllib.request
 
 from forge import tools
+from forge import util  # noqa: F401 -- puts harness/lecture on the path, for providers
+
+import providers  # noqa: E402
 
 URL = os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
 
 
 def available() -> bool:
-    return bool(os.environ.get("OPENROUTER_API_KEY"))
+    return bool(os.environ.get("OPENROUTER_API_KEY")) or providers.direct(model_name())
 
 
 def model_name() -> str:
@@ -44,8 +47,9 @@ def _tool_specs() -> list[dict]:
 
 
 def _post(body: dict) -> dict:
-    request = urllib.request.Request(URL, data=json.dumps(body).encode(), method="POST", headers={
-        "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
+    # An openai/... model goes to OpenAI itself when OPENAI_API_KEY is set (harness/lecture/providers.py).
+    url, headers, sent = providers.chat(body, URL)
+    request = urllib.request.Request(url, data=json.dumps(sent).encode(), method="POST", headers=headers)
     with urllib.request.urlopen(request, timeout=300) as response:
         return json.loads(response.read().decode())
 
@@ -78,7 +82,7 @@ def ask(job, system: str, task: str, max_turns: int = 8, check=None) -> dict:
         body = _post({"model": model_name(), "messages": messages, "tools": _tool_specs(),
                       "tool_choice": "auto", "usage": {"include": True}, **reasoning_option()})
         usage = body.get("usage") or {}
-        job.spend(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), float(usage.get("cost") or 0))
+        job.spend(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), providers.cost(model_name(), usage))
         message = (body.get("choices") or [{}])[0].get("message") or {}
         calls = message.get("tool_calls") or []
         if calls:

@@ -367,8 +367,16 @@ def _post_now(url: str, body: dict, proxied: bool = True, who: str | None = None
     import urllib.error
     import urllib.request
 
-    request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
-        "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
+    import providers
+
+    if providers.direct(body.get("model")):
+        # An OpenAI model, with an OpenAI key: asked of OpenAI itself (providers.py). Its pictures come from its
+        # image generation (no reference picture: that is an edit, which this does not send).
+        url, headers, body = providers.images(body) if url.rstrip("/").endswith("/images") else providers.chat(body)
+    else:
+        headers = {"Authorization": f"Bearer {os.environ.get('OPENROUTER_API_KEY', '')}",
+                   "Content-Type": "application/json"}
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
     try:
         with _open(request, 180, proxied) as response:
             reply = json.loads(response.read())
@@ -462,6 +470,10 @@ def _ask(prompt: str, reference: bytes | None = None) -> tuple[bytes, float]:
     forced = os.environ.get("PANIM_IMAGE_API", "").strip().lower()
     if forced in ROUTES:
         return _ask_route(forced, prompt, reference)
+    import providers
+
+    if providers.direct(model()):
+        return _ask_route("images", prompt, reference)          # OpenAI makes pictures only by image generation
     known = _ROUTE.get(model())
     order = [known] + [r for r in ROUTES if r != known] if known else list(ROUTES)
     last: RuntimeError | None = None

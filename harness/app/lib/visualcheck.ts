@@ -6,6 +6,7 @@
  * the video, so a problem is seen before the video is watched.
  */
 
+import { chatRequest } from "./providers";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -32,17 +33,18 @@ const QUESTION =
 async function review(frame: string, say: string, key: string, model: string): Promise<string | null> {
   try {
     const image = `data:image/png;base64,${(await readFile(frame)).toString("base64")}`;
-    const response = await fetch(process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/completions", {
+    const request = chatRequest({
+      model, temperature: 0, max_tokens: 160,
+      messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: image } },
+        { type: "text", text: `${QUESTION}\nThe line: "${say}"` },
+      ] }],
+    }, key);
+    const response = await fetch(request.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: request.headers,
       signal: AbortSignal.timeout(60_000),
-      body: JSON.stringify({
-        model, temperature: 0, max_tokens: 160,
-        messages: [{ role: "user", content: [
-          { type: "image_url", image_url: { url: image } },
-          { type: "text", text: `${QUESTION}\nThe line: "${say}"` },
-        ] }],
-      }),
+      body: JSON.stringify(request.body),
     });
     if (!response.ok) return null;
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };

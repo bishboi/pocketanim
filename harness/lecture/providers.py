@@ -30,8 +30,14 @@ def direct(model: str | None) -> bool:
 
 
 def reasoning_model(model_id: str) -> bool:
-    """OpenAI's reasoning models: they take reasoning_effort, and refuse a temperature and max_tokens."""
-    return bool(re.match(r"^(o\d|gpt-5)", model_id))
+    """OpenAI's reasoning models (o1..., gpt-5 and every gpt after it): they take reasoning_effort, refuse a
+    temperature, and spend part of their output on thinking."""
+    gpt = re.match(r"^gpt-(\d+)", model_id)
+    return bool(re.match(r"^o\d", model_id)) or (gpt is not None and int(gpt.group(1)) >= 5)
+
+
+# A reasoning model's output includes its thinking: a cap smaller than this leaves it nothing to answer with.
+THINKING_ROOM = 4000
 
 
 def openai_body(body: dict) -> dict:
@@ -47,7 +53,8 @@ def openai_body(body: dict) -> dict:
         out.pop("temperature", None)
         out.pop("top_p", None)
     if "max_tokens" in out:
-        out["max_completion_tokens"] = out.pop("max_tokens")
+        cap = int(out.pop("max_tokens"))
+        out["max_completion_tokens"] = max(cap, THINKING_ROOM) if reasoning_model(model_id) else cap
     if out.get("stream"):
         out["stream_options"] = {"include_usage": True}
     return out
@@ -89,3 +96,14 @@ def cost(model: str | None, usage: dict | None) -> float:
         return 0.0
     return (float(usage.get("prompt_tokens") or 0) * float(price[0])
             + float(usage.get("completion_tokens") or 0) * float(price[1])) / 1e6
+
+
+def auth_hint(model: str | None) -> str:
+    """What to do when a provider refuses a request's key (401, 403)."""
+    model = str(model or "")
+    if direct(model):
+        return "OpenAI refused the key: check OPENAI_API_KEY in harness/app/.env.local."
+    if model.startswith("openai/"):
+        return (f"{model} went through OpenRouter because OPENAI_API_KEY is not set: set it in "
+                "harness/app/.env.local to ask OpenAI directly (or set a working OPENROUTER_API_KEY).")
+    return f"{model} is asked through OpenRouter: it needs a working OPENROUTER_API_KEY in harness/app/.env.local."

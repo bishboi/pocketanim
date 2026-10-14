@@ -6,7 +6,7 @@
  * the video, so a problem is seen before the video is watched.
  */
 
-import { chatRequest } from "./providers";
+import { chatRequest, openaiDirect } from "./providers";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -75,11 +75,11 @@ export async function readVisualCheck(buildDir: string, most = Number(process.en
     }
   });
   if (!beats.length) return null;
-  const key = process.env.OPENROUTER_API_KEY;
+  const key = process.env.OPENROUTER_API_KEY ?? "";
   const flagged = beats.filter((b) => b.issues.length && b.frame);
   let reviewed = 0;
   const model = reviewModel();
-  if (key && process.env.PANIM_CHECK_REVIEW !== "0") {
+  if ((key || openaiDirect(model)) && process.env.PANIM_CHECK_REVIEW !== "0") {
     await Promise.all(flagged.slice(0, most).map(async (b) => {
       const said = await review(b.frame!, b.say, key, model);
       if (said) {

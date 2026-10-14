@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { FREE_DRAWN_OPS, MANIM_RULES } from "./lecture";
-import { chatRequest, providerName, replyCost } from "./providers";
+import { chatRequest, providerError, replyCost } from "./providers";
 
 type Op = Record<string, unknown>;
 type Slot = { op: Op; beat: Record<string, unknown>; where: string; say: string; plan: string; figure?: string };
@@ -143,9 +143,7 @@ async function ask(id: string, slots: Slot[], options: ManimCoderOptions,
     headers: request.headers,
     body: JSON.stringify(request.body),
   });
-  if (!response.ok) {
-    throw new Error(`${providerName(options.model)} ${response.status}: ${(await response.text()).slice(0, 200)}`);
-  }
+  if (!response.ok) throw providerError(options.model, response.status, await response.text());
   const body = (await response.json()) as { choices?: { message?: { content?: string } }[];
     usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
   options.onCost?.(replyCost(options.model, body.usage), [began, Date.now()],

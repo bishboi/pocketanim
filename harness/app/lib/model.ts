@@ -9,7 +9,7 @@
  * tested with no network and no key.
  */
 
-import { chatRequest, providerName, withCost } from "./providers";
+import { ProviderAuthError, chatRequest, describeProviders, providerError, providerName, withCost } from "./providers";
 import { sanitizeScene } from "./scenefix";
 export { sanitizeScene };
 import { spawn } from "node:child_process";
@@ -530,9 +530,7 @@ async function streamCompletion(
     headers: request.headers,
     body: JSON.stringify(request.body),
   });
-  if (!response.ok) {
-    throw new Error(`${providerName(model)} ${response.status}: ${(await response.text()).slice(0, 400)}`);
-  }
+  if (!response.ok) throw providerError(model, response.status, await response.text());
   if (!response.body) throw new Error(`${providerName(model)} returned no stream`);
 
   const reader = response.body.getReader();
@@ -750,7 +748,7 @@ async function viaOpenRouter(
   stopped: () => boolean = () => false,
   kept: Kept = {},
 ): Promise<Generated> {
-  const key = process.env.OPENROUTER_API_KEY!;
+  const key = process.env.OPENROUTER_API_KEY ?? "";
   // How long each stage took, from the start of the run, in the status stream.
   const startedAt = Date.now();
   // Reading the source (the document, a reference video) and choosing the subject: the "planning" row.
@@ -948,7 +946,8 @@ async function viaOpenRouter(
     emit({ type: "input", role: "system", text: prompt });
     const writer = transcriptModel(request.transcriptModel);
     emit({ type: "message", role: "status",
-      text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}.` });
+      text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}. ` +
+        describeProviders({ transcript: writer, video: model, ...(manimModel() ? { Manim: manimModel()! } : {}) }) });
     const TRIES = 4;
     // A few sections at once (each its own request): one after another, a book chapter took most of an hour.
     const PARALLEL = Math.max(1, Math.min(16, Number(process.env.PANIM_TRANSCRIPT_PARALLEL) || 10));
@@ -999,6 +998,7 @@ async function viaOpenRouter(
             else state.words += (text.match(/\s+/g) ?? []).length;
           }, [SECTION_TOOL], abort.signal, "required");
         } catch (error) {
+          if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
           if (stopped()) return null;
           lostTry(state.started, { step: "transcript", section: section.n, why: why ?? String(error).slice(0, 120) });
           // A reply that stalled, or failed after its own retries, is one failed try, not the end of the lecture.
@@ -1110,6 +1110,7 @@ async function viaOpenRouter(
         }
         return { last: last.n, closing: words.closing, first: first.n, opening: words.opening };
       } catch (error) {
+        if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
         if (stopped()) return null;
         emit({ type: "message", role: "status", text: `The words between videos ${index} and ${index + 1} could not be ` +
           `written (${error instanceof Error ? error.message.slice(0, 120) : String(error)}); they meet as the sections do.` });
@@ -1708,6 +1709,7 @@ async function viaOpenRouter(
             else state.chars += text.length;
           }, sectionTools, abort.signal, "required", silent ? "low" : videoEffort());
         } catch (error) {
+          if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
           if (stopped()) return null;
           lostTry(state.started, { step: "chapters", section: section.n, why: why ?? String(error).slice(0, 120) });
           refused += 1;
@@ -2119,6 +2121,7 @@ async function viaOpenRouter(
       }, tools, abort.signal, requireTool ? "required" : "auto");
       quietTries = 0;
     } catch (error) {
+      if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
       if (gaveUp && !stopped()) {
         // A turn that went silent or stalled is asked again, not the end of the lecture.
         quietTries += 1;
@@ -2615,7 +2618,7 @@ function syntaxError(source: string): Promise<string | null> {
 }
 
 export function usingFixture(): boolean {
-  return !process.env.OPENROUTER_API_KEY;
+  return !process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY;
 }
 
 /**
@@ -2752,7 +2755,7 @@ async function generateOnce(
     const broken = await syntaxError(result.source);
     if (broken) {
       emit({ type: "message", role: "status", text: "The scene did not parse. Asking the model to fix it." });
-      const key = process.env.OPENROUTER_API_KEY!;
+      const key = process.env.OPENROUTER_API_KEY ?? "";
       const model = videoModel();
       const repair = [
         "This file is not valid Python. Reply with the corrected file only, starting with `from manim import *`.",

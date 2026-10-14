@@ -17,7 +17,7 @@
  * does not ask again. A figure decided under an older version (DRAWING_VERSION) is made again.
  */
 
-import { chatRequest, providerName, replyCost } from "./providers";
+import { chatRequest, openaiDirect, providerError, replyCost } from "./providers";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -95,7 +95,7 @@ async function ask(key: string, model: string, content: Part[], signal?: AbortSi
     messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content }] }, key);
   const response = await fetch(request.url, { method: "POST", signal, headers: request.headers,
     body: JSON.stringify(request.body) });
-  if (!response.ok) throw new Error(`${providerName(model)} ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  if (!response.ok) throw providerError(model, response.status, await response.text());
   const body = (await response.json()) as { choices?: { message?: { content?: string | { text?: string }[] } }[];
     usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
   const reply = body.choices?.[0]?.message?.content;
@@ -134,11 +134,11 @@ export function readWay(text: string): FigureWay {
 
 async function chooseWay(figure: FigureInfo, context: string, key: string | undefined, model: string | undefined,
   signal: AbortSignal | undefined, onCost: (usd: number) => void): Promise<FigureWay> {
-  if (!key || !model) return { kind: "exact" };
+  if (!model || !(key || openaiDirect(model))) return { kind: "exact" };
   const image = await picture(figure.file);
   if (!image) return { kind: "exact" };
   try {
-    const said = await ask(key, model, [{ type: "text", text: `Figure ${figure.id}: ${figure.caption || "(no caption)"}` +
+    const said = await ask(key ?? "", model, [{ type: "text", text: `Figure ${figure.id}: ${figure.caption || "(no caption)"}` +
       (context ? `\n\nThe book around it:\n${context.slice(0, 900)}` : "") }, { type: "image_url", image_url: { url: image } }],
     signal);
     onCost(said.cost);

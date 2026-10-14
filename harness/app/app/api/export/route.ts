@@ -11,6 +11,7 @@ import { once, resultOf, validJobId } from "@/lib/jobs";
 import { keepProgram } from "@/lib/media";
 import { buildRepairs, failedFigures, repairBuiltManim } from "@/lib/manimcoder";
 import { manimModel } from "@/lib/lecture";
+import { openaiDirect } from "@/lib/providers";
 
 export const runtime = "nodejs";
 // An export speaks the lecture and runs Manim: a long lecture takes a while.
@@ -173,7 +174,7 @@ async function repairAfterBuild(source: string, sceneClass: string, progress: st
   const model = manimModel() ?? (/^[\w.-]+\/[\w.:-]+$/.test(fallback) ? fallback : "");
   const style = /LECTURE_STYLE", "([^"]+)"/.exec(source)?.[1];
   const leftOut = (built: Built) => built.result.skipped?.length ?? 0;
-  for (let round = 0; round < buildRepairs() && key && model; round++) {
+  for (let round = 0; round < buildRepairs() && (key || openaiDirect(model)) && model; round++) {
     if (best.result.tier !== 1 || best.result.error) break;
     const failed = (best.result.skipped ?? []).filter((s) => /^manim block '/.test(s));
     if (!failed.length || !/pocket_lecture/.test(current)) break;
@@ -182,7 +183,7 @@ async function repairAfterBuild(source: string, sceneClass: string, progress: st
       await writeFile(progress, JSON.stringify({ phase: "repair", done: 0, total: failedFigures(failed).size }))
         .catch(() => {});
     }
-    const mended = await repairBuiltManim(current, failed, { key, model, style,
+    const mended = await repairBuiltManim(current, failed, { key: key ?? "", model, style,
       onCost: (cost) => { usd += cost; },
       onStatus: (text) => console.warn(`[manim repair] ${text}`) });
     log.span("manim-repair", asked, Date.now(), { what: "the Manim model mends the figures the build left out",

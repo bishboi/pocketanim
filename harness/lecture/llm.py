@@ -44,7 +44,10 @@ def chat_json(model_id: str, system: str, user: str, tries: int = 3) -> tuple[di
             with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
                 reply = json.loads(response.read())
         except urllib.error.HTTPError as error:
-            last = f"OpenRouter {error.code}: {error.read().decode('utf-8', 'replace')[:200]}"
+            who = "OpenAI" if providers.direct(model_id) else "OpenRouter"
+            last = f"{who} {error.code}: {error.read().decode('utf-8', 'replace')[:200]}"
+            if error.code in (401, 403):
+                last += " " + providers.auth_hint(model_id)
             if error.code not in (408, 429, 500, 502, 503, 504):
                 break
             time.sleep(2 * (attempt + 1))

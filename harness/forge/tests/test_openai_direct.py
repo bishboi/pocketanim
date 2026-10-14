@@ -53,12 +53,16 @@ def test_an_openai_model_is_asked_of_openai_in_its_form(monkeypatch):
             "messages": [{"role": "user", "content": "hi"}]}
     url, headers, sent = providers.chat(body)
     assert url == "https://api.openai.com/v1/chat/completions" and headers["Authorization"] == "Bearer sk-openai"
-    assert sent == {"model": "gpt-5.1", "reasoning_effort": "medium", "max_completion_tokens": 160, "stream": True,
+    # A reasoning model's small cap is raised: its thinking counts in it.
+    assert sent == {"model": "gpt-5.1", "reasoning_effort": "medium", "max_completion_tokens": 4000, "stream": True,
                     "stream_options": {"include_usage": True}, "messages": [{"role": "user", "content": "hi"}]}
     # Not a reasoning model: its temperature stays, and no reasoning setting is sent.
     _, _, older = providers.chat({"model": "openai/gpt-4.1", "temperature": 0, "reasoning": {"effort": "low"},
                                   "messages": []})
     assert older == {"model": "gpt-4.1", "temperature": 0, "messages": []}
+    # Every gpt from 5 on is a reasoning model (gpt-6-luna too): no temperature.
+    _, _, newer = providers.chat({"model": "openai/gpt-6-luna", "temperature": 0, "max_tokens": 9000, "messages": []})
+    assert newer == {"model": "gpt-6-luna", "max_completion_tokens": 9000, "messages": []}
     # Other models, and OpenAI's without the key or with it switched off, stay on OpenRouter as they were.
     for model, env in (("google/gemini-2.5-flash", {}), ("openai/gpt-5.1", {"PANIM_OPENAI_DIRECT": "off"})):
         for k, v in env.items():
@@ -114,7 +118,7 @@ console.log(JSON.stringify({{ a, b, cost: p.replyCost("openai/gpt-5.1", {{ promp
     out = json.loads(done.stdout)
     assert out["a"]["url"] == "https://api.openai.com/v1/chat/completions"
     assert out["a"]["headers"]["Authorization"] == "Bearer sk-openai"
-    assert out["a"]["body"] == {"model": "gpt-5.1", "reasoning_effort": "low", "max_completion_tokens": 50,
+    assert out["a"]["body"] == {"model": "gpt-5.1", "reasoning_effort": "low", "max_completion_tokens": 4000,
                                 "stream": True, "stream_options": {"include_usage": True}, "messages": []}
     assert "openrouter.ai" in out["b"]["url"] and out["b"]["headers"]["Authorization"] == "Bearer or-key"
     assert out["b"]["body"]["model"] == "anthropic/claude-sonnet-4.5"

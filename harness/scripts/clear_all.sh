@@ -8,14 +8,15 @@
 #   harness/scripts/clear_all.sh --yes           # do not ask
 #
 # On this machine it removes: pictures made by the image models, the book figures' decisions and any SVG drawings
-# an older version made, PDF and YouTube sources, geocoded places, icons (harness/lecture/.cache); the SVG drawing
+# an older version made, PDF and YouTube sources, geocoded places, the map agent's places, the model prices,
+# icons (harness/lecture/.cache, all but the Whisper model); the SVG drawing
 # libraries older versions downloaded and no longer use (harness/lecture/data/drawlib, data/bioicons); Manim's text
 # and LaTeX renders (harness/.cache);
 # Forge jobs and its cache; the web app's finished builds (.jobs), narration (.voice), timing logs (.logs) and Next.js build cache
 # (.next); rendered videos (media/, corpus/renders); Python bytecode and pytest caches.
 #
 # It keeps what was downloaded once and is not history: the Python venv, node_modules, voice weights
-# (harness/models), the gazetteer, icon and illustration libraries, TinyTeX, and .env files.
+# (harness/models), the Whisper model of the voice aligner (harness/lecture/.cache/whisper), the gazetteer, icon and illustration libraries, TinyTeX, and .env files.
 #
 # The web page's own history (lecture versions and settings kept in the browser) is cleared by opening
 # http://localhost:3000/reset in that browser.
@@ -73,7 +74,12 @@ if [ "$YES" != 1 ]; then
 fi
 
 for t in "${found[@]}"; do
-  rm -rf -- "${REPO:?}/$t"
+  if [ "$t" = "harness/lecture/.cache" ]; then
+    # Everything in it but the Whisper model the voice aligner downloaded (a download, not history).
+    find "${REPO:?}/$t" -mindepth 1 -maxdepth 1 ! -name whisper -exec rm -rf -- {} +
+  else
+    rm -rf -- "${REPO:?}/$t"
+  fi
 done
 find "$REPO" \( -name node_modules -o -name .venv -o -name .git \) -prune -o \
   \( -name __pycache__ -o -name .pytest_cache \) -type d -print0 2>/dev/null | xargs -0 rm -rf --

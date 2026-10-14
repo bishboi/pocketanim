@@ -324,7 +324,7 @@ and one file a few seconds.
 
 `harness/scripts/clear_all.sh` clears every cache and all history on this machine: generated pictures,
 drawings, Manim renders, Forge jobs, finished builds, narration and the Next.js build cache. It keeps downloads
-(venv, node_modules, voice weights, gazetteer, TinyTeX) and `.env` files. It asks before removing anything.
+(venv, node_modules, voice weights, the Whisper aligner model, gazetteer, TinyTeX) and `.env` files. It asks before removing anything.
 
 - `--supabase` also clears the generation history kept in Supabase.
 - `--saved` also clears the saved lectures the phone lists. This cannot be undone.

@@ -145,15 +145,15 @@ def pauses(audio) -> list[tuple[float, float]]:
 
 def snap_to_speech(words: list[dict], audio) -> list[dict]:
     """Words moved out of the pauses: the model's times run each word on until the next one begins, through any
-    silence between them, and can start the word after a pause inside it. A word ending in a pause ends where the
-    pause begins; a word starting in one starts where it ends."""
+    silence between them (and sometimes past it), and can start the word after a pause inside it. A word a pause
+    begins inside ends where the pause begins; a word starting in one starts where it ends."""
     gaps = pauses(audio)
     for w in words:
         for a, b in gaps:
             if a < w["start"] < b:
                 w["start"] = round(min(b, max(w["end"], b)), 3)
-            if a < w["end"] < b + 0.01 and w["start"] < a:
-                w["end"] = round(a, 3)
+            if w["start"] < a < w["end"]:
+                w["end"] = round(a, 3)            # a pause that begins inside a word ends it
         w["end"] = max(w["end"], w["start"])
     return words
 

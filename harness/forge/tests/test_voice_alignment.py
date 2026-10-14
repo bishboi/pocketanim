@@ -356,3 +356,6 @@ def test_aligned_words_are_moved_out_of_the_pauses():
              {"w": "three", "start": 4.0, "end": 4.6}]
     out = local_align.snap_to_speech(words, audio)
     assert out[0]["end"] == 2.0 and out[1]["start"] == 3.5 and out[2] == {"w": "three", "start": 4.0, "end": 4.6}
+    # Run on through the pause and into the next word's sound: ended where the pause begins all the same.
+    past = local_align.snap_to_speech([{"w": "one", "start": 1.2, "end": 3.8}], audio)
+    assert past[0]["end"] == 2.0

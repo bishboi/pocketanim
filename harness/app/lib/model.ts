@@ -24,6 +24,7 @@ import { drawFigures, figuresWithin, type Drawn } from "./figures";
 import { TimingLog } from "./timing";
 import { dropRepeats, sameParagraph } from "./repeats";
 import { fillManim, freeDrawings, hasManim, needsManim, repairManim, type ManimCoderOptions } from "./manimcoder";
+import { resolvePlaces } from "./mapagent";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
@@ -1458,6 +1459,21 @@ async function viaOpenRouter(
       if (turned) {
         emit({ type: "message", role: "status", text: `Manim: ${turned} built drawing${turned > 1 ? "s" : ""} ` +
           "turned into free-form Manim (the built ones are gone)." });
+      }
+    }
+    // The map's places the gazetteers do not know, found by the map agent (lib/mapagent.ts) before the compile
+    // checks them: a strait's shoals, a climate zone, a country's own name for its highlands.
+    if (script && typeof script === "object") {
+      phase("finding the map's places");
+      const started = Date.now();
+      const map = await resolvePlaces(script as Record<string, unknown>);
+      if (map && (map.asked.length || map.errors.length)) {
+        if (map.usd) {
+          costUsd = ledger.bill("map", map.usd, { items: Object.keys(map.resolved).length, span: [started, Date.now()],
+            detail: { model: map.model, asked: map.asked } });
+          sendCosts(`the map's places found by ${map.model}: $${map.usd.toFixed(4)}`);
+        }
+        emit({ type: "message", role: "status", text: `Map: ${map.summary ?? map.errors.join(" | ")}` });
       }
     }
     if (!coder || !script || typeof script !== "object" || !needsManim(script) && !hasManim(script)) {

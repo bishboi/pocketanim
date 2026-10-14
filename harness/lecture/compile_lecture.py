@@ -750,6 +750,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         script = {**script, "region": None}
     region_notes = _fix_region(script)
     warnings += region_notes
+    warnings += _use_places(script)
     has_map = bool(script.get("region"))
     # What needs no new words is mended here (and said in the warnings, "fixed: ..."); the rest are errors.
     warnings += mechanical_fixes(script, has_map)
@@ -2390,6 +2391,8 @@ def _areas_shaded(script: dict, pl, home, bounds) -> list[str]:
                         and not op.get("lonlat") and not op.get("picture")):
                     continue
                 name = op["place"]
+                if pl.is_water(name):
+                    continue                     # a sea or a strait is named on the water, not filled in
                 try:
                     shape = pl.area_shape(name, home)
                 except Exception:  # noqa: BLE001 -- not an area: a town or a site, a dot
@@ -2406,6 +2409,55 @@ def _areas_shaded(script: dict, pl, home, bounds) -> list[str]:
                           **({"color": op["color"]} if op.get("color") else {}),
                           **({k2: op[k2] for k2 in ("at",) if op.get(k2)})}
                 notes.append(f"{FIXED}chapter {ci} beat {bi}: {name!r} is an area: shaded on the map, not a dot")
+    return notes
+
+
+def _clean_places(script: dict) -> tuple[dict, list[str]]:
+    """The script's own places (filled by the map agent, harness/scripts/map_agent.py) that can be drawn, and a note
+    for each that cannot: a point is [lon, lat]; an area names provinces ("states") or gives an outline of at least
+    three [lon, lat] points."""
+    places = script.get("places")
+    if not places:
+        return {}, []
+    if not isinstance(places, dict):
+        return {}, [f"{FIXED}places: not an object of name -> place; left out"]
+    kept, notes = {}, []
+
+    def pair(p):
+        return isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(v, (int, float)) for v in p) \
+            and -180 <= p[0] <= 180 and -90 <= p[1] <= 90
+
+    for name, spec in places.items():
+        if not isinstance(spec, dict):
+            notes.append(f"{FIXED}places: {name!r} is not an object; left out")
+            continue
+        point = spec.get("lonlat")
+        outline = spec.get("outline")
+        states = spec.get("states")
+        ok_point = point is not None and pair(point)
+        ok_outline = isinstance(outline, list) and len(outline) >= 3 and all(pair(p) for p in outline)
+        ok_states = isinstance(states, list) and states and all(isinstance(x, str) for x in states)
+        if not (ok_point or ok_outline or ok_states):
+            notes.append(f"{FIXED}places: {name!r} has no [lon, lat], outline or provinces it can be drawn from; "
+                         "left out")
+            continue
+        kept[str(name)] = {k: v for k, v in spec.items()
+                           if k not in ("lonlat", "outline", "states") or
+                           (k == "lonlat" and ok_point) or (k == "outline" and ok_outline) or (k == "states" and ok_states)}
+    return kept, notes
+
+
+def _use_places(script: dict) -> list[str]:
+    """The script's own places, for every lookup from here on (pocket_lecture.set_places)."""
+    kept, notes = _clean_places(script)
+    if script.get("places") is not None:
+        script["places"] = kept
+    try:
+        import pocket_lecture as pl
+    except Exception:  # noqa: BLE001 -- no engine here (a lint-only install)
+        return notes
+    region = script.get("region") if isinstance(script.get("region"), dict) else {}
+    pl.set_places(kept, region.get("country"))
     return notes
 
 
@@ -3049,6 +3101,12 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     out += [
         "from manim import *  # noqa: E402,F403",
         "from pocket_lecture import *  # noqa: E402,F403",
+    ]
+    if script.get("places"):
+        # The lecture's own places (the map agent's), for every place, area and range the scene looks up.
+        home = (region or {}).get("country")
+        out.append(f"set_places({_clean(script['places'])!r}, {_q(home) if home else 'None'})")
+    out += [
         "",
         "",
         f"class {scene_class}({base}):",

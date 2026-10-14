@@ -144,7 +144,7 @@ function quietStderr(stderr: string): string {
     .trim();
 }
 
-function run(
+export function run(
   args: string[],
   options: { cwd?: string; binary?: string; timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ code: number; stdout: Buffer; stderr: string }> {

@@ -1320,10 +1320,140 @@ def _state_group(name: str, country_name: str | None = None):
     return _valid(unary_union(parts))
 
 
+# ---------------- places a lecture names that no gazetteer has: its own ("places") ----------------
+# A script may carry "places": {name: spec}, filled by the map agent (harness/scripts/map_agent.py) for what the
+# lookups below cannot find (a chain of shoals, a climate zone, a country's own name for its highlands):
+#   {"lonlat": [lon, lat]}                       a point
+#   {"states": [province, ...]}                   an area: those first-level divisions of the map's country, joined
+#   {"outline": [[lon, lat], ...]}                an area drawn round, cut to the land (unless "sea": true)
+#   an area with "kind": "mountains"              a range: relief draws it
+# The compiler hands them to the scene with set_places(); place(), area_shape() and relief() look there first.
+PLACES: dict = {}
+
+
+def set_places(places: dict | None, country_name: str | None = None) -> None:
+    """The lecture's own places (see PLACES), by their normalised names."""
+    PLACES.clear()
+    for name, spec in (places or {}).items():
+        if isinstance(spec, dict) and _norm(name):
+            PLACES[_norm(name)] = {**spec, "_name": str(name), "_country": spec.get("country") or country_name}
+    _own_shape.cache_clear()
+
+
+def own_place(name: str) -> dict | None:
+    return PLACES.get(_norm(name))
+
+
+@lru_cache(None)
+def _own_shape(key: str):
+    """The shape of one of the lecture's own areas, or None (a point, or a spec that draws nothing)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    spec = PLACES.get(key) or {}
+    home = spec.get("_country")
+    parts = []
+    for province in spec.get("states") or []:
+        try:
+            parts.append(state(str(province), home))
+        except KeyError:
+            continue
+    outline = spec.get("outline") or []
+    if len(outline) >= 3:
+        try:
+            ring = _valid(Polygon([(float(p[0]), float(p[1])) for p in outline]))
+            if home and not spec.get("sea"):
+                try:
+                    ring = _valid(ring.intersection(country(home)))
+                except KeyError:
+                    pass
+            if not ring.is_empty:
+                parts.append(ring)
+        except (TypeError, ValueError, IndexError):
+            pass
+    return _valid(unary_union(parts)) if parts else None
+
+
+def _own_point(name: str, bounds=None):
+    spec = own_place(name)
+    if not spec:
+        return None
+    if isinstance(spec.get("lonlat"), (list, tuple)) and len(spec["lonlat"]) == 2:
+        return float(spec["lonlat"][0]), float(spec["lonlat"][1])
+    shape = _own_shape(_norm(name))
+    return _shape_point(shape, bounds) if shape is not None else None
+
+
+def _shape_point(shape, bounds=None):
+    """Where a name on an area goes: inside the part of it on the map (the Bay of Bengal's label in the bay on a
+    map of Sri Lanka, not 600 km north of it)."""
+    if bounds:
+        on_map = shape.intersection(_box(bounds))
+        if not on_map.is_empty:
+            shape = on_map
+    point = shape.representative_point()
+    return round(point.x, 4), round(point.y, 4)
+
+
+# Natural Earth's physical names: seas, bays, gulfs and straits; peaks; capes; deserts, ranges and plateaus.
+PHYSICAL_LAYERS = (("geography_marine_polys", "name"), ("geography_regions_elevation_points", "name"),
+                   ("geography_regions_points", "name"), ("geography_regions_polys", "NAME"))
+
+
+@lru_cache(None)
+def _physical_by_name() -> dict:
+    """Natural Earth's physical features by each of their names (normalised): [(layer, attributes, shape)]. A layer
+    that cannot be had (not downloaded, and no network) is left out."""
+    out: dict = {}
+    for layer, field in PHYSICAL_LAYERS:
+        try:
+            records = _records(layer, "physical", "10m")
+        except Exception:  # noqa: BLE001 -- the other lookups still work
+            continue
+        for attrs, geom in records:
+            if geom is None:
+                continue
+            names = {attrs.get(field), attrs.get("name_en"), attrs.get("NAME_EN")}
+            for alt in str(attrs.get("namealt") or attrs.get("NAMEALT") or attrs.get("name_alt") or "").split("|"):
+                names.add(alt)
+            for key in {_norm(n) for n in names if n} - {""}:
+                out.setdefault(key, []).append((layer, attrs, geom))
+    return out
+
+
+def physical_feature(name: str, bounds=None):
+    """A sea, bay, gulf, strait, peak, cape, range or plateau by name: (its shape, its kind), one on the map first;
+    None when Natural Earth has none so named."""
+    wanted = _norm(name)
+    rows = _physical_by_name().get(wanted) or _physical_by_name().get(re.sub(r"^the ", "", wanted))
+    if not rows:
+        return None
+    on_map = [r for r in rows if not bounds or r[2].intersects(_box(bounds))]
+    layer, attrs, geom = (on_map or rows)[0]
+    shape = geom if geom.geom_type in ("Point", "MultiPoint") else _valid(geom)
+    return shape, str(attrs.get("featurecla") or attrs.get("FEATURECLA") or layer)
+
+
+def is_water(name: str) -> bool:
+    """A sea, bay, gulf or strait (Natural Earth's marine names, or the lecture's own with "sea": true): named on
+    the water, not shaded like a country."""
+    own = own_place(name)
+    if own:
+        return bool(own.get("sea"))
+    rows = _physical_by_name().get(_norm(name)) or []
+    return bool(rows) and all(layer == "geography_marine_polys" for layer, _a, _g in rows)
+
+
 def area_shape(name: str, country_name: str | None = None):
     """The land a name stands for on a map, when it is an area rather than a point: a state or province (of the
     map's country first), a country, or a wider area (a continent, "Western Europe"). Raises KeyError when the
-    name is none of them (a town, a site)."""
+    name is none of them (a town, a site). The lecture's own places first; Natural Earth's seas, bays and ranges
+    last."""
+    if own_place(name):
+        shape = _own_shape(_norm(name))
+        if shape is None:
+            raise KeyError(f"{name!r} is a point of this lecture's own, not an area")
+        return shape
     if country_name:
         try:
             return state(name, country_name)
@@ -1342,7 +1472,13 @@ def area_shape(name: str, country_name: str | None = None):
             return _state_group(name, scope)
         except KeyError:
             pass
-    return area(name)
+    try:
+        return area(name)
+    except KeyError:
+        feature = physical_feature(name)
+        if feature is None or feature[0].geom_type in ("Point", "MultiPoint"):
+            raise
+        return feature[0]
 
 
 def states_of(country_name: str) -> list[tuple[str, object]]:
@@ -1575,12 +1711,16 @@ def _geocode(name: str, country_name: str | None, bounds=None):
 def place(name: str, country_name: str | None = None, bounds=None) -> tuple[float, float]:
     """(lon, lat) of a place.
 
-    From, in order: Natural Earth's populated places (the most populous match), under the name or its renamed
-    form; data/places_extra.csv (historic and teaching sites); the GeoNames gazetteer when fetch_gazetteer.py has
-    downloaded it; then OpenStreetMap, cached. First in `country_name`, then anywhere (Harappa on a map of India
+    From, in order: the lecture's own places (set_places); Natural Earth's populated places (the most populous
+    match), under the name or its renamed form; data/places_extra.csv (historic and teaching sites); the GeoNames
+    gazetteer when fetch_gazetteer.py has downloaded it; Natural Earth's seas, gulfs, straits and peaks; then
+    OpenStreetMap, cached. First in `country_name`, then anywhere (Harappa on a map of India
     is in Pakistan). With the map's `bounds`, a place on the map wins over one of the same name off it (two towns
     called Aurangabad); one off it is kept only if nothing on it matches. Raises KeyError when none knows it.
     """
+    own = _own_point(name, bounds)
+    if own is not None:
+        return own
     names = [name]
     for old, new in PLACE_ALIASES.items():
         if _norm(name) == _norm(old):
@@ -1597,6 +1737,10 @@ def place(name: str, country_name: str | None = None, bounds=None) -> tuple[floa
             row = extra.get(_norm(candidate))
             found.append((row[0], row[1]) if row and (not scope or row[2] == scope) else None)
             found.append(_geonames_place(candidate, scope_name, bounds))
+        if scope_name is None:
+            # A sea, a gulf, a strait, a peak (Natural Earth's physical names): in no country.
+            feature = physical_feature(name, bounds)
+            found.append(_shape_point(feature[0], bounds) if feature else None)
         found.append(_geocode(name, scope_name, bounds))
         for point in found:
             if point and _inside(point, bounds):
@@ -5312,6 +5456,12 @@ class MapLecture(BoardMixin, Lecture):
             if wanted and not any(w and (w in _norm(name) or _norm(name) in w) for w in wanted):
                 continue
             ranges.append((name, _valid(geom).intersection(bounds), attrs.get("FEATURECLA")))
+        # A range Natural Earth does not have (Sri Lanka's Central Highlands): the lecture's own (set_places).
+        for name in names or []:
+            shape = _own_shape(_norm(name)) if own_place(name) else None
+            if shape is not None and shape.intersects(bounds):
+                ranges = [r for r in ranges if _norm(r[0]) != _norm(name)]
+                ranges.append((own_place(name)["_name"], shape.intersection(bounds), "Range/mtn"))
         if not ranges:
             SKIPPED.append(f"no mountains to draw here{' named ' + ', '.join(names) if names else ''}")
             return None

@@ -119,6 +119,22 @@ The left half of the frame is the stage, and the fact panel is on the right.
 A chapter draws the map only if one of its beats points at it: a marker, a river, a state or an arrow.
 Otherwise the stage shows pictures.
 
+**Places the map names.** A name is looked up in Natural Earth's towns, `data/places_extra.csv`, GeoNames,
+Natural Earth's seas, bays, gulfs, straits, peaks and ranges, then OpenStreetMap. What none of them knows (Adam's
+Bridge, Sri Lanka's Wet Zone, its Central Highlands) the **map agent** finds before the compile
+(`map_agent.py`, run by the app's `lib/mapagent.ts`): a model with web search, OpenStreetMap and Wikidata lookups
+and the map country's provinces sets each one as a point, an area (provinces joined, or an outline cut to the
+land) or a range, checked on the map, into the script's `"places"`:
+
+```json
+"places": {"Adam's Bridge": {"lonlat": [79.55, 9.12], "source": "Wikidata"},
+           "Wet Zone": {"states": ["Colombo", "Gampaha", "Kalutara", "Galle", "Matara", "Ratnapura", "Kegalle"]},
+           "Central Highlands": {"outline": [[80.4, 7.5], [81.0, 7.5], [81.1, 6.8], [80.5, 6.6]], "kind": "mountains"}}
+```
+
+The compiler passes them to the scene (`set_places`); markers, `state`, `relief` and journeys find them there
+first. A sea or strait named by a marker is labelled on the water, not shaded.
+
 ### Pictures: three ways, the writer's choice
 
 Every picture a lecture shows is made one of three ways. Which way is the writer's judgement, picture by picture:

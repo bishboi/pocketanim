@@ -687,6 +687,35 @@ def _respell(text: str, table: dict) -> str:
     return text
 
 
+CAPTION_MAX = 184        # characters two caption lines hold at a readable size
+
+
+def caption_pieces(text: str, most: int = CAPTION_MAX) -> list[str]:
+    """A line's caption in pieces that each fit two lines: whole sentences together while they fit, a sentence too
+    long for two lines cut at a comma or a dash, else between words near its middle. A short line is one piece."""
+    text = " ".join(str(text).split())
+    if len(text) <= most:
+        return [text]
+    sentences = re.split(r"(?<=[.!?।])\s+", text)
+    parts: list[str] = []
+    for sentence in sentences:
+        while len(sentence) > most:
+            cut = max((m.end() for m in re.finditer(r"[,;:—–]\s", sentence[:most])), default=0)
+            if cut < most * 0.4:
+                cut = sentence.rfind(" ", 0, most) + 1 or most
+            parts.append(sentence[:cut].strip())
+            sentence = sentence[cut:].strip()
+        if sentence:
+            parts.append(sentence)
+    out: list[str] = []
+    for part in parts:
+        if out and len(out[-1]) + 1 + len(part) <= most:
+            out[-1] += " " + part
+        else:
+            out.append(part)
+    return out or [text]
+
+
 def speechify(text: str) -> str:
     """Rewrite a caption into something a voice can say, on word boundaries (a Hindi line's units in Hindi)."""
     if spoken_lang(text) == "hi":
@@ -2044,7 +2073,10 @@ class Lecture(Scene):
         self._log("beat", text=text, seconds=round(seconds, 3), wav=wav)
         _progress_beat()
         self._coming = anims
-        cap = self.caption(text)
+        # A line too long for two caption lines is captioned a piece at a time, each as its words are said.
+        pieces = caption_pieces(text)
+        cap = self.caption(pieces[0])
+        swaps = self._caption_swaps(text, pieces, seconds)
         self._coming = ()
         if wav:
             self.add_sound(wav)
@@ -2066,7 +2098,7 @@ class Lecture(Scene):
         # A live process (a titration, cell division) runs from when its picture is in to the end of the line.
         self._beat_span = max(0.6, seconds + pad - spent)
         if plan:
-            spent = self._play_cued(plan)
+            spent = self._play_cued(plan, swaps)
         elif anims:
             head = [a for a in anims if getattr(a, "panel_head", False)]
             items = [a for a in anims if getattr(a, "panel_item", False)]
@@ -2083,9 +2115,8 @@ class Lecture(Scene):
         self._beat_asides = []
         self._beat_added = []
         self._check_beat(text)
-        rest = seconds + pad - spent
-        if rest > 0.02:
-            self.wait(rest)
+        spent = self._swap_due(spent, swaps)
+        spent = self._wait_until(spent, seconds + pad, swaps)
         return seconds
 
     # ---------------- animations timed to the words (cues) ----------------
@@ -2130,15 +2161,64 @@ class Lecture(Scene):
             groups[i][1] = max(self.CUE_MIN, min(groups[i][1], groups[i + 1][0] - groups[i][0]))
         return [(start, run, anims) for start, run, anims in groups if anims]
 
-    def _play_cued(self, plan: list) -> float:
+    def _play_cued(self, plan: list, swaps: list | None = None) -> float:
         """Play a cue plan from the line's start: a hold until each group's time, then the group. Seconds taken."""
+        swaps = swaps if swaps is not None else []
         elapsed = 0.0
         for start, run, anims in plan:
-            if start > elapsed + 0.02:
-                self.wait(start - elapsed)
-                elapsed = start
+            elapsed = self._wait_until(elapsed, start, swaps)
             self.play(*anims, run_time=run)
-            elapsed += run
+            elapsed = self._swap_due(elapsed + run, swaps)
+        return elapsed
+
+    # ---------------- a long line's caption, a piece at a time ----------------
+
+    def _caption_swaps(self, text: str, pieces: list[str], seconds: float) -> list:
+        """[(seconds into the line, piece)] for each caption piece after the first: when its first word is said, from
+        the line's word times when they are known (as the voice timed them, or as they were aligned), else by how
+        far into the line its words are."""
+        if len(pieces) < 2:
+            return []
+        try:
+            said = line_words(text) if voice_mode() != "silent" else None
+        except Exception:  # noqa: BLE001 -- no word times: by the words' share of the line
+            said = None
+        total = sum(len(p.split()) for p in pieces) or 1
+        out, before = [], 0
+        for piece in pieces[:-1]:
+            before += len(piece.split())
+            share = before / total
+            if said:
+                at = float(said[min(len(said) - 1, int(round(share * len(said))))]["start"])
+            else:
+                at = share * seconds
+            out.append((max(0.3, min(at, seconds - 0.3)), pieces[len(out) + 1]))
+        return out
+
+    def _swap_caption(self, piece: str) -> None:
+        cap = self.caption(piece)
+        if self.cap is not None:
+            self.remove(self.cap)
+        self.add(cap)
+        self.cap = cap
+
+    def _swap_due(self, elapsed: float, swaps: list) -> float:
+        """The caption pieces whose time has come, put up now (after an animation that ran over their time)."""
+        while swaps and swaps[0][0] <= elapsed + 1e-6:
+            self._swap_caption(swaps.pop(0)[1])
+        return elapsed
+
+    def _wait_until(self, elapsed: float, target: float, swaps: list) -> float:
+        """Hold from `elapsed` to `target` seconds into the line, putting up each caption piece on its time."""
+        while swaps and swaps[0][0] <= target:
+            at, piece = swaps.pop(0)
+            if at > elapsed + 0.02:
+                self.wait(at - elapsed)
+                elapsed = at
+            self._swap_caption(piece)
+        if target > elapsed + 0.02:
+            self.wait(target - elapsed)
+            elapsed = target
         return elapsed
 
     # ---------------- the visual check ----------------

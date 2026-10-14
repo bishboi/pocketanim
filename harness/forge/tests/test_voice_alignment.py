@@ -376,3 +376,31 @@ def test_a_warning_names_its_chapter_and_beat_after_a_diagram_with_pictures():
                   {"say": long}]}]}
     _, warnings = cl.lint(script)
     assert any(w.startswith("chapter 1 beat 2: the caption runs past") for w in warnings), warnings
+
+
+def test_a_long_line_is_captioned_a_piece_at_a_time(monkeypatch):
+    long = ("Sri Lanka sits just off the southern tip of India, across the shallow Palk Strait, and its centre rises "
+            "into the Central Highlands. The rains of the south-west monsoon fall on the western slopes, so the "
+            "south-west is the Wet Zone, while the north and east, in the rain shadow, form the much drier Dry Zone.")
+    pieces = pl.caption_pieces(long)
+    assert len(pieces) >= 2 and all(len(p) <= pl.CAPTION_MAX for p in pieces)
+    assert " ".join(pieces) == " ".join(long.split())       # no word lost
+    assert pl.caption_pieces("A short line.") == ["A short line."]
+
+    monkeypatch.setattr(pl, "narrate", lambda text: (None, 12.0))
+    monkeypatch.setattr(pl, "voice_mode", lambda: "silent")
+    scene, log, clock = _probe()
+    shown = []
+    real = scene._swap_caption
+
+    def swap(piece):
+        shown.append((round(clock[0], 2), piece))
+        real(piece)
+
+    scene._swap_caption = swap
+    scene.beat(long)
+    assert len(shown) == len(pieces) - 1
+    times = [t for t, _ in shown]
+    assert times == sorted(times) and 0 < times[0] < 12.0    # each piece as its words come, inside the line
+    assert [p for _, p in shown] == pieces[1:]
+    assert clock[0] >= 12.0

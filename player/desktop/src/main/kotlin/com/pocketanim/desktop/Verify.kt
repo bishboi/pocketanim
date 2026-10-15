@@ -485,7 +485,13 @@ private fun libraryReport(root: File): Boolean {
                 // A picture the program draws must be one the library holds and an image reader can open.
                 for (image in frames.images(i)) {
                     val bytes = frames.imageBytes(image.src) ?: error("picture ${image.src} is not in the library")
-                    ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: error("picture ${image.src} does not decode")
+                    // WebP (the library's pictures) has no Java ImageIO reader: its header is checked; Android
+                    // decodes it.
+                    val webp = bytes.size > 12 && String(bytes, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+                        String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP"
+                    if (!webp) {
+                        ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: error("picture ${image.src} does not decode")
+                    }
                 }
             }
             println(String.format("%-22s %5d %7d %8d %9d  ok", entry.name, entry.tier,

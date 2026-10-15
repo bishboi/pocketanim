@@ -129,6 +129,7 @@ class Scene(
             if (flags and Panm.FLAG_CAMERA != 0) {
                 cameras = Array(recordCount) { FloatArray(Panm.CAMERA_FLOATS) { buf.float } }
             }
+            if (version == 2) return parseCompact(buf, flags, fps, recordCount, atlasCount, lo, hi, span, cameras)
 
             // Atlas geometry is quantised to uint16 over the scene bounding box.
             val atlas = Array(atlasCount) {
@@ -173,6 +174,81 @@ class Scene(
             }
 
             if (version != 1) System.err.println("warning: unexpected IR version $version")
+            return Scene(fps, atlas, cameras, records, lo, hi)
+        }
+
+        private fun varint(buf: ByteBuffer): Int {
+            var value = 0
+            var shift = 0
+            while (true) {
+                val b = buf.get().toInt() and 0xFF
+                value = value or ((b and 0x7F) shl shift)
+                if (b and 0x80 == 0) return value
+                shift += 7
+            }
+        }
+
+        /**
+         * Version 2 (tools/panm_compact.py): points delta-coded as zigzag varints (z left out of a flat scene,
+         * low bits rounded away as the header's flags say), and each instance stored as what changed since its
+         * slot's previous one. Decodes to what exporter/decode.py does.
+         */
+        private fun parseCompact(
+            buf: ByteBuffer, flags: Int, fps: Int, recordCount: Int, atlasCount: Int,
+            lo: FloatArray, hi: FloatArray, span: FloatArray, cameras: Array<FloatArray>?,
+        ): Scene {
+            val axes = if (flags and 2 != 0) 2 else 3
+            val shift = (flags shr 4) and 0xF
+            val atlas = Array(atlasCount) {
+                val pointCount = varint(buf)
+                val points = FloatArray(pointCount * 3)
+                val prev = IntArray(3)
+                for (p in 0 until pointCount) {
+                    for (axis in 0 until 3) {
+                        if (axis < axes) {
+                            val z = varint(buf)
+                            prev[axis] += (z ushr 1) xor -(z and 1)
+                        }
+                        points[p * 3 + axis] = lo[axis] + ((prev[axis] shl shift) / 65535.0f) * span[axis]
+                    }
+                }
+                points
+            }
+
+            val last = HashMap<Int, Instance>()
+            // A slot's last normal, kept while it is drawn unshaded (its normal is null then) for when it is shaded
+            // again with the same normal, which is not written twice.
+            val lastNormal = HashMap<Int, FloatArray>()
+            val records = Array(recordCount) {
+                val kind = buf.get().toInt() and 0xFF
+                val instanceCount = varint(buf)
+                val instances = Array(instanceCount) {
+                    val slot = varint(buf)
+                    val mask = buf.get().toInt() and 0xFF
+                    val before = last[slot]
+                    val atlasId = if (mask and 1 != 0) varint(buf) else before?.atlasId ?: 0
+                    val instFlags = if (mask and 2 != 0) buf.get().toInt() and 0xFF else before?.flags ?: 0
+                    val transform = before?.transform?.copyOf() ?: FloatArray(12)
+                    if (mask and 4 != 0) {
+                        for (k in 0 until 9) transform[(k / 3) * 4 + (k % 3)] = halfToFloat(buf.short.toInt() and 0xFFFF)
+                    }
+                    if (mask and 8 != 0) {
+                        for (row in 0 until 3) transform[row * 4 + 3] = buf.float
+                    }
+                    val fill = if (mask and 16 != 0) readColor(buf) else before?.fill ?: 0
+                    val stroke = if (mask and 32 != 0) readColor(buf) else before?.stroke ?: 0
+                    val strokeWidth = if (mask and 64 != 0) (buf.short.toInt() and 0xFFFF) / 64.0f
+                    else before?.strokeWidth ?: 0f
+                    var normal = if (mask and 128 != 0) FloatArray(3) { halfToFloat(buf.short.toInt() and 0xFFFF) }
+                    else before?.normal ?: lastNormal[slot]
+                    if (normal != null) lastNormal[slot] = normal
+                    if (instFlags and Panm.SHADE_IN_3D == 0) normal = null
+                    val inst = Instance(slot, atlasId, instFlags, transform, fill, stroke, strokeWidth, normal)
+                    last[slot] = inst
+                    inst
+                }
+                Record(kind, instances)
+            }
             return Scene(fps, atlas, cameras, records, lo, hi)
         }
 

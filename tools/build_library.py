@@ -14,9 +14,10 @@ not a protocol.
       scenes/<name>.json    one scene's manifest (with its chapters: [{number, title, frame}])
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
-      assets/<digest>.panm  baked geometry, shared
-      images/<digest>.png   raster pictures a program's `image` lines draw, shared
-      audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 24 kbit/s
+      assets/<digest>.panm  baked geometry, shared: the compact version 2 container (tools/panm_compact.py)
+      images/<digest>.webp  raster pictures a program's `image` lines draw, shared: WebP, at most 1024x576
+                            (PANIM_IMAGE_HEIGHT, PANIM_IMAGE_QUALITY); the program's lines point at them
+      audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 16 kbit/s
                             (audio/<name>.wav when ffmpeg cannot encode it)
 
 Usage:
@@ -56,14 +57,15 @@ SKIA_GPU_VERB_LIMIT = 16_384
 
 
 def compress_narration(source: Path, stem: Path) -> Path:
-    """The narration as the phone gets it: Opus in Ogg, mono, PANIM_NARRATION_KBPS (24) kbit/s.
+    """The narration as the phone gets it: Opus in Ogg, mono, PANIM_NARRATION_KBPS (16) kbit/s.
 
     The exporter mixes it as WAV, which is 300 MB for an hour of speech; Opus at 24 kbit/s is about 11 MB, and
     speech at that rate is clear. Android plays Ogg Opus from version 10, the player's minimum, through the same
     MediaExtractor/MediaCodec path it used for the WAV, and the decoder drops Opus's pre-skip, so the voice stays
     on its frames. Without an ffmpeg that has an Opus encoder the WAV is shipped as before.
     """
-    kbps = os.environ.get("PANIM_NARRATION_KBPS", "24")
+    # Speech in Opus is clear at 16 kbit/s (its wideband voice mode); 24 was a third more for no audible gain.
+    kbps = os.environ.get("PANIM_NARRATION_KBPS", "16")
     target = stem.with_suffix(".ogg")
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg:
@@ -79,6 +81,53 @@ def compress_narration(source: Path, stem: Path) -> Path:
     plain = stem.with_suffix(".wav")
     shutil.copy(source, plain)
     return plain
+
+
+def phone_picture(source: Path, out_dir: Path) -> tuple[str, int, int]:
+    """A picture as the phone gets it: WebP (PANIM_IMAGE_QUALITY, 80), no taller than PANIM_IMAGE_HEIGHT (576) nor
+    wider than its 16:9 width (1024), alpha kept. The exporter writes its pictures as plain PNG from their pixels
+    -- a 1344x756 photo was 2.6 MB, near its raw size -- and the zip cannot shrink a PNG. Returns (file name,
+    width, height). A picture PIL cannot read is copied as it is."""
+    from PIL import Image
+
+    height = int(os.environ.get("PANIM_IMAGE_HEIGHT", "576"))
+    quality = int(os.environ.get("PANIM_IMAGE_QUALITY", "80"))
+    try:
+        with Image.open(source) as img:
+            img.load()
+            mode = "RGBA" if "A" in img.getbands() or img.info.get("transparency") is not None else "RGB"
+            picture = img.convert(mode)
+    except Exception:  # noqa: BLE001
+        shutil.copy(source, out_dir / source.name)
+        with Image.open(source) as img:
+            return source.name, img.width, img.height
+    scale = min(1.0, height / max(picture.height, 1), (height * 16 / 9) / max(picture.width, 1))
+    if scale < 1.0:
+        picture = picture.resize((max(1, round(picture.width * scale)), max(1, round(picture.height * scale))),
+                                 Image.LANCZOS)
+    if mode == "RGBA" and picture.getchannel("A").getextrema()[0] == 255:
+        picture = picture.convert("RGB")          # an alpha channel with nothing see-through in it
+    name = f"{source.stem}.webp"
+    picture.save(out_dir / name, "WEBP", quality=quality, method=6)
+    return name, picture.width, picture.height
+
+
+def phone_program(text: str, out_dir: Path, done: dict) -> str:
+    """The program with its `image` lines pointing at the phone's pictures (phone_picture), made once each."""
+
+    def swap(found: re.Match) -> str:
+        line = found.group(0)
+        src = re.search(r"\bsrc=(\S+)", line).group(1)
+        if src not in done:
+            source = PROGRAMS / "images" / src
+            done[src] = phone_picture(source, out_dir) if source.exists() else (src, None, None)
+        name, width, height = done[src]
+        line = re.sub(r"\bsrc=\S+", f"src={name}", line)
+        if width:
+            line = re.sub(r"\bpx=\d+,\d+", f"px={width},{height}", line)
+        return line
+
+    return re.sub(r"^image\s.*$", swap, text, flags=re.M)
 
 
 def verb_count(points_len: int) -> int:
@@ -156,10 +205,15 @@ def scene_manifest(name: str, program: Path | None, container: Path | None) -> d
     return entry
 
 
+PACKED: Path | None = None     # the library being written: its pictures are the phone's (phone_picture)
+
+
 def _source_of(ref: str) -> Path:
-    """Where a manifest path (assets/<id>.panm, images/<name>.png) is in the export being packed."""
+    """Where a manifest path (assets/<id>.panm, images/<name>) is: a picture in the library being written (made for
+    the phone), an asset in the export being packed."""
     if ref.startswith("images/"):
-        return PROGRAMS / "images" / Path(ref).name
+        made = PACKED / ref if PACKED is not None else None
+        return made if made is not None and made.exists() else PROGRAMS / "images" / Path(ref).name
     return ASSETS / Path(ref).name
 
 
@@ -201,6 +255,9 @@ def main() -> int:
     out = Path(args.out)
     for sub in ("scenes", "assets", "images", "audio"):
         (out / sub).mkdir(parents=True, exist_ok=True)
+    global PACKED
+    PACKED = out
+    pictures: dict = {}
 
     names = sorted({p.stem for p in PROGRAMS.glob("*.panim")} |
                    {p.stem for p in CONTAINERS.glob("*.panm")})
@@ -227,9 +284,13 @@ def main() -> int:
             skipped.append(name)
             continue
 
+        if program:
+            # The phone's copy of the program, its pictures made for the phone; the manifest describes that copy.
+            packed = out / "scenes" / f"{name}.panim"
+            packed.write_text(phone_program(program.read_text(), out / "images", pictures))
+            program = packed
         entry = scene_manifest(name, program, container)
         if program:
-            shutil.copy(program, out / "scenes" / f"{name}.panim")
             wanted_assets.update(entry["assets"])
         if container:
             shutil.copy(container, out / "scenes" / f"{name}.panm")
@@ -251,15 +312,37 @@ def main() -> int:
     # Only the assets something actually references. The exporter leaves behind
     # assets from superseded runs, and shipping those would quietly inflate
     # every device's cache.
+    from tools.panm_compact import encode
+
+    compact = os.environ.get("PANIM_COMPACT_ASSETS", "1") != "0"
     asset_records = []
     for asset in sorted(wanted_assets):
         source = _source_of(asset)
-        shutil.copy(source, out / asset)
+        target = out / asset
+        if asset.startswith("assets/") and compact:
+            # The compact container (version 2): the same shapes in about half the bytes, zipped.
+            data = source.read_bytes()
+            try:
+                small = encode(data)
+            except Exception as error:  # noqa: BLE001 -- an asset it cannot read ships as it is
+                print(f"{asset}: kept as version 1 ({type(error).__name__}: {error})", file=sys.stderr)
+                small = data
+            target.write_bytes(small if len(small) < len(data) else data)
+        elif source.resolve() != target.resolve():
+            shutil.copy(source, target)
         asset_records.append({
             "path": asset,
-            "bytes": source.stat().st_size,
-            "sha256_16": digest_of(source),
+            "bytes": target.stat().st_size,
+            "sha256_16": digest_of(target),
         })
+
+    # What each scene needs before it plays, counted again from the files as packed (compact assets, the phone's
+    # pictures), and its manifest written again with it.
+    for entry in scenes:
+        payload = entry.get("program_bytes", 0) if entry.get("program") else entry.get("container_bytes", 0)
+        payload += sum((out / ref).stat().st_size for ref in entry.get("assets", []) if (out / ref).exists())
+        entry["playable_bytes"] = payload
+        (out / "scenes" / f"{entry['name']}.json").write_text(json.dumps(entry, indent=2) + "\n")
 
     # Being close to the cliff matters as much as crossing it: a path just
     # under the limit crosses it with one more zoom level of detail, and the

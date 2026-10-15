@@ -64,12 +64,17 @@ class SceneEntry(
     }
 }
 
+/** Every shape of a library in one file (assets.pack), each at an offset: [index] is id to (offset, length). */
+class AssetPack(val path: String, val index: Map<String, Pair<Int, Int>>)
+
 class Library(
     private val storage: Storage,
     val scenes: List<SceneEntry>,
     val glyphAtlas: String?,
     /** Every content-addressed file the manifest names, including the atlas. */
     val assets: List<AssetRecord> = emptyList(),
+    /** The shapes' pack, when the library keeps them in one file (tools/build_library.py); else one file each. */
+    val pack: AssetPack? = null,
 ) {
 
     /**
@@ -129,7 +134,7 @@ class Library(
         if (program != null && storage.exists(program)) {
             return Interpreter.open(
                 Program.parse(String(storage.read(program), Charsets.UTF_8)),
-                ManifestAssets(storage, glyphAtlas),
+                ManifestAssets(storage, glyphAtlas, pack),
             )
         }
         val container = scene.container ?: error("scene '$name' has neither program nor container")
@@ -139,8 +144,19 @@ class Library(
     private class ManifestAssets(
         private val storage: Storage,
         private val glyphAtlas: String?,
+        private val pack: AssetPack?,
     ) : AssetLoader {
-        override fun asset(id: String) = storage.read("assets/$id.panm")
+        // The pack, read once when the first shape is asked for.
+        private val packed: ByteArray? by lazy { pack?.let { storage.read(it.path) } }
+
+        override fun asset(id: String): ByteArray {
+            val at = pack?.index?.get(id) ?: return storage.read("assets/$id.panm")
+            val bytes = packed ?: error("the library's shape pack ${pack.path} could not be read")
+            require(at.first >= 0 && at.first + at.second <= bytes.size) {
+                "shape $id lies outside ${pack.path} (${at.first}+${at.second} of ${bytes.size} bytes)"
+            }
+            return bytes.copyOfRange(at.first, at.first + at.second)
+        }
         override fun glyphLibrary() =
             storage.read(glyphAtlas ?: error("scene needs the glyph atlas but the library has none"))
         override fun image(src: String): ByteArray? =
@@ -184,7 +200,17 @@ class Library(
                 }
             }
 
-            return Library(storage, scenes, root["glyph_atlas"]?.get("path")?.asString, assets)
+            val pack = root["asset_pack"]?.let { node ->
+                val path = node["path"]?.asString ?: return@let null
+                val index = HashMap<String, Pair<Int, Int>>()
+                (node["index"] as? Json.Obj)?.fields?.forEach { (id, at) ->
+                    val pair = at.asList
+                    if (pair.size == 2) index[id] = Pair(pair[0].asInt ?: 0, pair[1].asInt ?: 0)
+                }
+                AssetPack(path, index)
+            }
+
+            return Library(storage, scenes, root["glyph_atlas"]?.get("path")?.asString, assets, pack)
         }
 
         /**

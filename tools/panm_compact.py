@@ -30,6 +30,11 @@ import sys
 HEADER = "<4sHHHII6f"
 FLAG_CAMERA = 1
 FLAG_FLAT = 2
+# Points left out where the reader can make them (flat scenes): a cubic's start that is the previous cubic's end,
+# and the two handles of a straight segment (at a third and two thirds of the way). Per shape whose point count is
+# a multiple of four, before its deltas: two bits a cubic, four cubics a byte -- bit 1 start left out, bit 2
+# handles left out.
+FLAG_ELIDED = 8
 CAMERA_FLOATS = 17
 SHADE_IN_3D = 1
 
@@ -63,6 +68,29 @@ def _shift_for(span: float) -> int:
     return shift
 
 
+def _elide(points: list) -> tuple[list, list]:
+    """Per cubic of a shape (four points each): its code (bit 1: its start is the previous cubic's end; bit 2: it
+    is straight, its handles at a third and two thirds within a step) and the points still to be written."""
+    codes, kept = [], []
+    end = None
+    for k in range(len(points) // 4):
+        a, h1, h2, b = points[4 * k:4 * k + 4]
+        code = 0
+        if a == end:
+            code |= 1
+        if all(abs(h1[i] - (a[i] + (b[i] - a[i]) / 3)) <= 1 and abs(h2[i] - (a[i] + 2 * (b[i] - a[i]) / 3)) <= 1
+               for i in range(len(a))):
+            code |= 2
+        codes.append(code)
+        if not code & 1:
+            kept.append(a)
+        if not code & 2:
+            kept += [h1, h2]
+        kept.append(b)
+        end = b
+    return codes, kept
+
+
 def encode(blob: bytes, lossless: bool = False) -> bytes:
     """A version 1 container as version 2. A container that is not version 1 is returned as it is. Unless
     `lossless`, points are rounded to POINT_STEP (flags bits 4-7 hold how many low bits were dropped)."""
@@ -87,20 +115,30 @@ def encode(blob: bytes, lossless: bool = False) -> bytes:
     # One rounding for all axes, from the widest: a scene is drawn at one scale.
     shift = 0 if lossless or (flags & FLAG_CAMERA) else _shift_for(max(bounds[3] - bounds[0], bounds[4] - bounds[1]))
 
-    out = bytearray(struct.pack(HEADER, magic, 2, flags | (FLAG_FLAT if flat else 0) | (shift << 4), fps,
-                                n_records, n_atlas, *bounds))
+    elide = flat and not lossless
+    out = bytearray(struct.pack(HEADER, magic, 2, flags | (FLAG_FLAT if flat else 0) | (FLAG_ELIDED if elide else 0)
+                                | (shift << 4), fps, n_records, n_atlas, *bounds))
     out += cameras
     axes = 2 if flat else 3
     half = (1 << shift) >> 1
+    top = 65535 >> shift
     for pts in shapes:
         count = len(pts) // 3
         _varint(count, out)
+        points = [tuple(min((pts[p * 3 + axis] + half) >> shift, top) for axis in range(axes)) for p in range(count)]
+        if elide and count % 4 == 0:
+            codes, kept = _elide(points)
+            for i in range(0, len(codes), 4):
+                byte = 0
+                for j, code in enumerate(codes[i:i + 4]):
+                    byte |= code << (2 * j)
+                out.append(byte)
+            points = kept
         prev = [0, 0, 0]
-        for p in range(count):
+        for point in points:
             for axis in range(axes):
-                value = min((pts[p * 3 + axis] + half) >> shift, 65535 >> shift)
-                _varint(_zigzag(value - prev[axis]), out)
-                prev[axis] = value
+                _varint(_zigzag(point[axis] - prev[axis]), out)
+                prev[axis] = point[axis]
 
     last: dict[int, tuple] = {}
     for _ in range(n_records):
@@ -162,8 +200,8 @@ def main(argv: list[str]) -> int:
         v2 = encode(v1)
         a, b = load(v1), load(encode(v1, lossless=True))
         worst = max((float(np.abs(x - y).max()) for x, y in zip(a.shapes, load(v2).shapes) if len(x)), default=0.0)
-        if worst > POINT_STEP:
-            print(f"{path}: rounding moved a point {worst:.4f} units, more than {POINT_STEP}")
+        if worst > 2 * POINT_STEP:
+            print(f"{path}: rounding moved a point {worst:.4f} units, more than {2 * POINT_STEP}")
             return 1
         same = len(a.shapes) == len(b.shapes) and all(np.array_equal(x, y) for x, y in zip(a.shapes, b.shapes)) \
             and len(a.records) == len(b.records)

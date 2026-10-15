@@ -14,7 +14,9 @@ not a protocol.
       scenes/<name>.json    one scene's manifest (with its chapters: [{number, title, frame}])
       scenes/<name>.panim   the program            (tier 1)
       scenes/<name>.panm    sampled frames         (tier 3 fallback)
-      assets/<digest>.panm  baked geometry, shared: the compact version 2 container (tools/panm_compact.py)
+      assets.pack           baked geometry: every shape, the compact version 2 container (tools/panm_compact.py),
+                            one after another, indexed by id in library.json's "asset_pack" (PANIM_ASSET_PACK=0:
+                            assets/<digest>.panm, one file each)
       images/<digest>.webp  raster pictures a program's `image` lines draw, shared: WebP, at most 1024x576
                             (PANIM_IMAGE_HEIGHT, PANIM_IMAGE_QUALITY); the program's lines point at them
       audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 16 kbit/s
@@ -84,14 +86,14 @@ def compress_narration(source: Path, stem: Path) -> Path:
 
 
 def phone_picture(source: Path, out_dir: Path) -> tuple[str, int, int]:
-    """A picture as the phone gets it: WebP (PANIM_IMAGE_QUALITY, 80), no taller than PANIM_IMAGE_HEIGHT (576) nor
+    """A picture as the phone gets it: WebP (PANIM_IMAGE_QUALITY, 65), no taller than PANIM_IMAGE_HEIGHT (576) nor
     wider than its 16:9 width (1024), alpha kept. The exporter writes its pictures as plain PNG from their pixels
     -- a 1344x756 photo was 2.6 MB, near its raw size -- and the zip cannot shrink a PNG. Returns (file name,
     width, height). A picture PIL cannot read is copied as it is."""
     from PIL import Image
 
     height = int(os.environ.get("PANIM_IMAGE_HEIGHT", "576"))
-    quality = int(os.environ.get("PANIM_IMAGE_QUALITY", "80"))
+    quality = int(os.environ.get("PANIM_IMAGE_QUALITY", "65"))
     try:
         with Image.open(source) as img:
             img.load()
@@ -336,6 +338,38 @@ def main() -> int:
             "sha256_16": digest_of(target),
         })
 
+    # All the scenes' shapes in one file (assets.pack) with an index, in the order the programs first use them:
+    # zipped file by file, each of hundreds of small shapes was compressed alone; in one stream, shapes that repeat
+    # each other (a label's glyph run, a map's coast at another zoom) compress against one another. The phone reads
+    # a shape as its slice of the pack (Library.kt).
+    pack = None
+    if os.environ.get("PANIM_ASSET_PACK", "1") != "0":
+        order: list[str] = []
+        for entry in scenes:
+            program = out / entry["program"] if entry.get("program") else None
+            for ident in (ASSET_REF.findall(program.read_text()) if program and program.exists() else []):
+                ref = f"assets/{ident}.panm"
+                if ref in wanted_assets and ref not in order:
+                    order.append(ref)
+        order += sorted(a for a in wanted_assets if a.startswith("assets/") and a not in order)
+        if order:
+            blob, index = bytearray(), {}
+            for ref in order:
+                data = (out / ref).read_bytes()
+                index[Path(ref).stem] = [len(blob), len(data)]
+                blob += data
+            (out / "assets.pack").write_bytes(bytes(blob))
+            for ref in order:
+                (out / ref).unlink()
+            pack = {"path": "assets.pack", "bytes": len(blob), "sha256_16": digest_of(out / "assets.pack"),
+                    "index": index}
+            asset_records = [r for r in asset_records if not r["path"].startswith("assets/")]
+            asset_records.append({k: pack[k] for k in ("path", "bytes", "sha256_16")})
+            for entry in scenes:
+                refs = entry.get("assets", [])
+                if any(r.startswith("assets/") for r in refs):
+                    entry["assets"] = ["assets.pack"] + [r for r in refs if not r.startswith("assets/")]
+
     # What each scene needs before it plays, counted again from the files as packed (compact assets, the phone's
     # pictures), and its manifest written again with it.
     for entry in scenes:
@@ -367,6 +401,8 @@ def main() -> int:
         "assets": asset_records,
         "scenes": scenes,
     }
+    if pack is not None:
+        manifest["asset_pack"] = pack
     (out / "library.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     shared = sum(a["bytes"] for a in asset_records)

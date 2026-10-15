@@ -98,15 +98,52 @@ def _load_v2(blob: bytes, size: int, flags: int, fps: int, n_records: int, n_atl
     axes = 2 if flags & 2 else 3
     shift = (flags >> 4) & 0xF
     shapes: list[np.ndarray] = []
+    elided = bool(flags & 8)
+
+    def point(at: int, prev: list) -> tuple[list, int]:
+        for axis in range(axes):
+            z, at = _varint(blob, at)
+            prev[axis] += (z >> 1) ^ -(z & 1)
+        return [prev[0] << shift, prev[1] << shift, prev[2] << shift], at
+
     for _ in range(n_atlas):
         count, offset = _varint(blob, offset)
-        raw = np.zeros((count, 3), dtype=np.float64)
         prev = [0, 0, 0]
+        if elided and count % 4 == 0 and count:
+            cubics = count // 4
+            codes_at, offset = offset, offset + (cubics + 3) // 4
+            raw = np.zeros((count, 3), dtype=np.float64)
+            straight = []
+            end = None
+            for k in range(cubics):
+                code = (blob[codes_at + k // 4] >> (2 * (k % 4))) & 3
+                if code & 1:
+                    a = end
+                else:
+                    a, offset = point(offset, prev)
+                if code & 2:
+                    h1 = h2 = None
+                else:
+                    h1, offset = point(offset, prev)
+                    h2, offset = point(offset, prev)
+                b, offset = point(offset, prev)
+                raw[4 * k] = a
+                raw[4 * k + 3] = b
+                if code & 2:
+                    straight.append(k)
+                else:
+                    raw[4 * k + 1], raw[4 * k + 2] = h1, h2
+                end = b
+            pts = raw / 65535.0 * span + lo
+            for k in straight:
+                a, b = pts[4 * k], pts[4 * k + 3]
+                pts[4 * k + 1] = a + (b - a) / 3.0
+                pts[4 * k + 2] = a + 2.0 * (b - a) / 3.0
+            shapes.append(pts)
+            continue
+        raw = np.zeros((count, 3), dtype=np.float64)
         for p in range(count):
-            for axis in range(axes):
-                z, offset = _varint(blob, offset)
-                prev[axis] += (z >> 1) ^ -(z & 1)
-                raw[p, axis] = prev[axis] << shift
+            raw[p], offset = point(offset, prev)
         shapes.append(raw / 65535.0 * span + lo)
     records: list[tuple[int, list[DecodedInstance]]] = []
     last: dict[int, list] = {}

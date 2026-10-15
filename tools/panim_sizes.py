@@ -117,7 +117,7 @@ def kind_of(rel: str) -> str:
         return "narration"
     if rel.startswith("images/"):
         return "images"
-    if rel.startswith("assets/") and rel.endswith(".panm"):
+    if rel == "assets.pack" or rel.startswith("assets/") and rel.endswith(".panm"):
         return "geometry"
     if rel.endswith(".panim"):
         return "program"
@@ -267,9 +267,19 @@ def measure(lib: Library) -> dict:
         row["bytes"] += len(data)
         row["deflated"] += _deflated(data)
         if kind == "geometry":
-            for part, value in geometry_parts(data).items():
-                geometry[part] += value
-            no_z = len(data) - geometry_parts(data)["points z"]
+            # The pack (assets.pack): its shapes are the slices its index in library.json names.
+            pieces = [data]
+            if rel == "assets.pack":
+                try:
+                    index = json.loads(lib.files["library.json"])["asset_pack"]["index"]
+                    pieces = [data[at:at + length] for at, length in index.values()]
+                except (KeyError, ValueError, TypeError):
+                    pass
+            for piece in pieces:
+                parts = geometry_parts(piece)
+                for part, value in parts.items():
+                    geometry[part] += value
+            no_z = len(data) - sum(geometry_parts(piece)["points z"] for piece in pieces)
             geometry["deflated without z"] += _deflated(data) * no_z // max(len(data), 1)
         elif kind == "program":
             for verb, value in program_parts(data.decode("utf-8", "ignore")).items():

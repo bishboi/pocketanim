@@ -199,11 +199,13 @@ class Scene(
         ): Scene {
             val axes = if (flags and 2 != 0) 2 else 3
             val shift = (flags shr 4) and 0xF
+            val elided = flags and 8 != 0
             val atlas = Array(atlasCount) {
                 val pointCount = varint(buf)
                 val points = FloatArray(pointCount * 3)
                 val prev = IntArray(3)
-                for (p in 0 until pointCount) {
+                // The next written point, delta-decoded, into points[p].
+                fun read(p: Int) {
                     for (axis in 0 until 3) {
                         if (axis < axes) {
                             val z = varint(buf)
@@ -211,6 +213,34 @@ class Scene(
                         }
                         points[p * 3 + axis] = lo[axis] + ((prev[axis] shl shift) / 65535.0f) * span[axis]
                     }
+                }
+                if (elided && pointCount % 4 == 0 && pointCount > 0) {
+                    // Per cubic two bits (tools/panm_compact.py): 1, its start is the previous end; 2, it is
+                    // straight and its handles sit at a third and two thirds of the way.
+                    val cubics = pointCount / 4
+                    val codes = ByteArray((cubics + 3) / 4).also { buf.get(it) }
+                    for (k in 0 until cubics) {
+                        val code = (codes[k / 4].toInt() shr (2 * (k % 4))) and 3
+                        val a = 4 * k
+                        if (code and 1 != 0) {
+                            for (axis in 0 until 3) points[a * 3 + axis] = points[(a - 1) * 3 + axis]
+                        } else read(a)
+                        if (code and 2 == 0) {
+                            read(a + 1)
+                            read(a + 2)
+                        }
+                        read(a + 3)
+                        if (code and 2 != 0) {
+                            for (axis in 0 until 3) {
+                                val start = points[a * 3 + axis]
+                                val end = points[(a + 3) * 3 + axis]
+                                points[(a + 1) * 3 + axis] = start + (end - start) / 3f
+                                points[(a + 2) * 3 + axis] = start + 2f * (end - start) / 3f
+                            }
+                        }
+                    }
+                } else {
+                    for (p in 0 until pointCount) read(p)
                 }
                 points
             }

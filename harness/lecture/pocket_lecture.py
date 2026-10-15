@@ -2210,6 +2210,30 @@ def map_bounds(region: dict) -> tuple | None:
     return _padded(focus.bounds, PLACE_MARGIN[kind])
 
 
+def _on_globe(geom, least: float = 2.0):
+    """A map's focus as it can be projected: cut to the globe (a box padded past a pole or the date line went off
+    it), and at least `least` degrees each way (one place, a line of latitude: a map of nothing across)."""
+    from shapely.geometry import box
+
+    world = box(-180.0, -85.0, 180.0, 85.0)
+    try:
+        inside = geom if world.contains(geom) else _valid(geom).intersection(world)
+    except Exception:  # noqa: BLE001 -- a shape that cannot be cut: its bounds
+        inside = box(*geom.bounds)
+    if inside.is_empty:
+        lon0, lat0, lon1, lat1 = geom.bounds
+        lon0, lon1 = sorted((min(max(lon0, -180.0), 180.0), min(max(lon1, -180.0), 180.0)))
+        lat0, lat1 = sorted((min(max(lat0, -85.0), 85.0), min(max(lat1, -85.0), 85.0)))
+        inside = box(lon0, lat0, lon1, lat1)
+    lon0, lat0, lon1, lat1 = inside.bounds
+    if lon1 - lon0 >= least and lat1 - lat0 >= least:
+        return inside
+    cx, cy = (lon0 + lon1) / 2, (lat0 + lat1) / 2
+    half_w, half_h = max(lon1 - lon0, least) / 2, max(lat1 - lat0, least) / 2
+    cx, cy = min(max(cx, -180.0 + half_w), 180.0 - half_w), min(max(cy, -85.0 + half_h), 85.0 - half_h)
+    return box(cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+
+
 def _cut_at(geom, lon: float, gap: float = 1e-4):
     """A shape cut along a meridian into its parts either side (none of them crosses it)."""
     from shapely.geometry import box
@@ -2235,6 +2259,7 @@ class MapFrame:
     def __init__(self, focus, center=(-3.0, 0.2), height=6.3, width=6.5, crs=None, clip=True):
         import cartopy.crs as ccrs
 
+        focus = _on_globe(focus)
         lon0, lat0, lon1, lat1 = focus.bounds
         # What is drawn is cut to a window round the map first: a conic projection sends what lies far from it (the
         # far side of Russia on a map of Europe) to infinity. Robinson can draw anything: no window.
@@ -2265,6 +2290,12 @@ class MapFrame:
         self.crs = crs
         self.pc = ccrs.PlateCarree()
         x0, y0, x1, y1 = self.project_geom(focus, scale=False).bounds
+        if not all(np.isfinite([x0, y0, x1, y1])) or x1 - x0 <= 1e-9 or y1 - y0 <= 1e-9:
+            # Nothing measurable came out of the projection (a shape it sends to a point or to infinity): the box
+            # round it, on the world's own projection, rather than a map that cannot be scaled.
+            self.window, self.seam = None, None
+            self.crs = ccrs.Robinson(central_longitude=0.0)
+            x0, y0, x1, y1 = self.project_geom(_box(focus.bounds), scale=False).bounds
         self.c = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
         self.s = min(height / (y1 - y0), width / (x1 - x0))
         self.center = np.array(center, dtype=float)

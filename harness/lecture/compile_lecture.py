@@ -1147,6 +1147,9 @@ def _chapter_frame(chapter: dict, region: dict | None) -> tuple | None:
     b0, b1, b2, b3 = bounds
     if (lon1 - lon0) > ZOOM_WHEN_UNDER * (b2 - b0) and (lat1 - lat0) > ZOOM_WHEN_UNDER * (b3 - b1):
         return None
+    # On the globe: room padded past a pole or the date line is a map no projection can draw.
+    lon0, lon1 = max(lon0, -180.0), min(lon1, 180.0)
+    lat0, lat1 = max(lat0, -85.0), min(lat1, 85.0)
     return (round(lon0, 2), round(lat0, 2), round(lon1, 2), round(lat1, 2))
 
 

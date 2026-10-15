@@ -149,3 +149,14 @@ def test_a_world_map_turned_from_greenwich_has_no_lines_across_it():
     assert max(p.bounds[2] - p.bounds[0] for p in land.geoms) < 12
     coast = frame.project_geom(LineString([(100, 60), (179, 62)]))
     assert coast.geom_type == "MultiLineString"
+
+
+def test_a_map_frame_is_made_for_any_focus():
+    # One place, a line, a box padded past a pole or the date line: the map is still made (it divided by zero, or
+    # asked the projection for a parallel past 90 degrees).
+    from shapely.geometry import LineString, Point
+
+    for focus in (Point(10, 50), LineString([(0, 20), (40, 20)]), pl._box((5, 20, 5, 20)),
+                  pl._box((-20, 70, 40, 100)), pl._box((170, -20, 195, 10)), pl._box((0, -10, 360, 60))):
+        frame = pl.MapFrame(focus)
+        assert np.isfinite(frame.s) and frame.s > 0

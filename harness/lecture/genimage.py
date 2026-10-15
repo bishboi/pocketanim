@@ -332,6 +332,10 @@ def cutout(data: bytes, tolerance: int = 28, whole: bool = False) -> bytes:
         # edge. The subject is its strokes closed into one shape with its holes filled: the paper inside stays.
         inside = ndimage.binary_closing(~outside, iterations=max(2, min(h, w) // 90))
         outside = ~ndimage.binary_fill_holes(inside)
+    if (~outside).mean() < 0.04:
+        # Next to nothing left (a pale subject on a near-white ground, read as all background): the picture whole,
+        # rather than an invisible one.
+        outside = np.zeros_like(outside)
     alpha = np.where(outside, 0, 255).astype(np.uint8)
     # A soft edge: the subject's outermost pixels half transparent, so it does not look cut with scissors.
     grown = ndimage.binary_dilation(alpha == 0, iterations=1) & (alpha == 255)

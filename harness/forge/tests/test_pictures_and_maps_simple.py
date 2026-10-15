@@ -109,3 +109,43 @@ def test_a_pictures_labels_move_and_shrink_with_it(tmp_path, monkeypatch):
     scene._move_stage(0.5, whole.get_center(), (-3.4, 0.0, 6.5, 5.0))
     assert on_part()
     assert piece["tag"].get_right()[0] < image.get_left()[0]                  # still beside the picture's edge
+
+
+def test_a_question_about_a_picture_goes_in_the_panel(tmp_path, monkeypatch):
+    # With a panel up, a question set with a picture is written in the panel under its points; the picture keeps
+    # the stage whole (no two narrow columns beside the panel), and the answer is written in the panel too.
+    from PIL import Image
+
+    monkeypatch.setenv("PANIM_FULL_SCREEN", "0")
+    path = tmp_path / "wide.png"
+    Image.new("RGB", (1600, 900), (90, 140, 190)).save(path)
+    scene = _probe()
+    scene.panel = scene.panel_bg()
+    scene.add(scene.panel)
+    scene.panel_title("What changed?")
+    scene.fact("1442: trade begins")
+    scene.stage_image(str(path), "x", labels=[("ships", 0.7, 0.5, 0.6, 0.3, 0.8, 0.7)])
+    image = scene._views[-1]["image"]
+    before = image.get_center().copy()
+    scene.question("What changed with these contacts?", answer="Trade in people began")
+    card = scene.panel_items[-1]
+    assert getattr(card, "is_in_panel", False)
+    assert card.get_left()[0] >= scene.TEXT_LEFT - 1e-3 and card.width <= pl.TEXT_W + 1e-3
+    assert np.allclose(image.get_center(), before)                            # the picture did not move aside
+    assert scene._question["in_panel"]
+    scene.answer()
+    assert scene.panel_items[-1].get_left()[0] >= pl.PANEL_X
+
+
+def test_a_world_map_turned_from_greenwich_has_no_lines_across_it():
+    # Robinson centred on the Atlantic: a coast running across the map's back meridian is cut there, not joined by a
+    # line straight across the map.
+    from shapely.geometry import LineString, Polygon, box
+
+    frame = pl.MapFrame(box(-100, -10, 30, 70), center=(0, 0), height=7.5, width=13.5, clip=False)
+    assert frame.seam is not None
+    land = frame.project_geom(Polygon([(30, 50), (179, 50), (179, 70), (30, 70)]))
+    assert land.geom_type == "MultiPolygon"
+    assert max(p.bounds[2] - p.bounds[0] for p in land.geoms) < 12
+    coast = frame.project_geom(LineString([(100, 60), (179, 62)]))
+    assert coast.geom_type == "MultiLineString"

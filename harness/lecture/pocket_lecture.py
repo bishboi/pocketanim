@@ -2210,6 +2210,20 @@ def map_bounds(region: dict) -> tuple | None:
     return _padded(focus.bounds, PLACE_MARGIN[kind])
 
 
+def _cut_at(geom, lon: float, gap: float = 1e-4):
+    """A shape cut along a meridian into its parts either side (none of them crosses it)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    west, east = box(-180.0, -90.0, lon - gap, 90.0), box(lon + gap, -90.0, 180.0, 90.0)
+    lo, hi = geom.bounds[0], geom.bounds[2]
+    if hi < lon - gap or lo > lon + gap:
+        return geom
+    whole = _valid(geom) if geom.geom_type in ("Polygon", "MultiPolygon") else geom
+    parts = [g for g in (whole.intersection(west), whole.intersection(east)) if not g.is_empty]
+    return unary_union(parts) if parts else geom
+
+
 class MapFrame:
     """One projection and one linear map into scene units, for every layer.
 
@@ -2225,9 +2239,17 @@ class MapFrame:
         # What is drawn is cut to a window round the map first: a conic projection sends what lies far from it (the
         # far side of Russia on a map of Europe) to infinity. Robinson can draw anything: no window.
         self.window = None
+        self.seam = None
         if crs is None and lon1 - lon0 > 100:
             # The world, or most of a hemisphere: a conic projection tears; Robinson draws it as an atlas does.
-            crs = ccrs.Robinson(central_longitude=0.0 if lon1 - lon0 > 300 else (lon0 + lon1) / 2)
+            middle = 0.0 if lon1 - lon0 > 300 else (lon0 + lon1) / 2
+            crs = ccrs.Robinson(central_longitude=middle)
+            # Turned from Greenwich, the map's back edge is a meridian Natural Earth's shapes run across (they are
+            # cut at 180 only): a coast on both sides of it was joined by a line straight across the map. Shapes are
+            # cut there before they are drawn.
+            back = (middle + 180.0 + 180.0) % 360.0 - 180.0
+            if abs(abs(back) - 180.0) > 1e-6:
+                self.seam = back
         elif crs is None:
             from shapely.geometry import box as _shape_box
 
@@ -2267,6 +2289,8 @@ class MapFrame:
 
         if self.window is not None and not self.window.contains(geom):
             geom = geom.intersection(self.window)
+        if self.seam is not None:
+            geom = _cut_at(geom, self.seam)
 
         def f(x, y, z=None):
             p = self.crs.transform_points(self.pc, np.asarray(x, float), np.asarray(y, float))
@@ -3498,6 +3522,8 @@ class Lecture(Scene):
                     return AnimationGroup(*going, *([head] if head is not None else []))
             return head
         old = self.panel_items
+        if (getattr(self, "_question", None) or {}).get("in_panel"):
+            self._question = None       # its card leaves with the panel's words: no answer after it is gone
         t = T(title.upper() if TH["upper"] else title, tok("panel_title_size", 34), P.TITLE, font=TH["serif"], weight=BOLD)
         t.move_to(RIGHT * self.TEXT_LEFT + UP * 3.05, aligned_edge=LEFT)
         if t.width > 5.2:
@@ -3621,6 +3647,8 @@ class Lecture(Scene):
         self.panel_items = Group()
         self.panel_images = Group()
         self.panel_y = 2.35
+        if (getattr(self, "_question", None) or {}).get("in_panel"):
+            self._question = None
         return AnimationGroup(*[FadeOut(m) for m in old]) if old else None
 
     # ---------------- the stage: pictures where the map would be ----------------
@@ -3721,6 +3749,16 @@ class Lecture(Scene):
         """Fade-outs for everything on the stage: the picture and any parts revealed on it since."""
         self._keep_cover()
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
+        # A labelled picture's shade (and a heading it moved aside) goes with it, wherever its list put it: a shade
+        # left up sat over the next diagram.
+        listed = {id(m) for m in [self.stage_items, *self.stage_extra]}
+        on_screen = {id(m) for m in self.mobjects}
+        for view in self.__dict__.get("_views", []):
+            lens, hidden = view.get("lens"), view.get("hidden") or []
+            if lens is not None and id(lens) not in listed and id(lens) in on_screen:
+                going.append(FadeOut(lens))
+            going += [FadeIn(m) for m in hidden if id(m) not in on_screen]
+            view.update(zoom=None, lens=None, hidden=[])
         # And whatever else is on the screen that no layout holds (strays: a part a picture left behind, a free
         # figure's piece dropped from the stage's list): the stage changes, so nothing of the old one stays.
         # Not the parts of a free figure that goes on (stem.BoardMixin.free).
@@ -3734,7 +3772,8 @@ class Lecture(Scene):
         self._gallery = None
         self.stage_items = Group()
         self.stage_extra = []
-        self._question = None
+        if not (getattr(self, "_question", None) or {}).get("in_panel"):
+            self._question = None      # a question in the panel stays there, with its answer to come
         self.stage_body = None
         self.stage_pending = []
         self.works = {}
@@ -3752,6 +3791,14 @@ class Lecture(Scene):
         # Drawn in the lecture's art style (artstyle.py): the picture, and its parts still to be revealed.
         for picture in [group, *self._next_pending]:
             _art(picture)
+        body = self.stage_body
+        if self._panel_up() and getattr(group, "is_text_card", False) and body is not None \
+                and not getattr(body, "is_text_card", False) and len(body.get_family()) > 1:
+            # Words about the picture up (a question, a definition) go in the panel: the picture keeps the stage,
+            # instead of the stage splitting into two narrow columns beside the panel.
+            pending, self._next_pending = self._next_pending, []
+            self._next_keys = set()
+            return self._card_to_panel(group, pending)
         if len(self._beat_new) == 1 and self.stage_body is self._beat_new[0] and len(group.get_family()) > 1 \
                 and len(self.stage_body.get_family()) > 1:
             return self._beside(group)
@@ -3809,6 +3856,19 @@ class Lecture(Scene):
         equation, a question) the right. Neither is on screen yet, so the two are simply laid out again."""
         left, right = self._halves()
         first = self.stage_body
+        if self._panel_up() and getattr(first, "is_text_card", False) and not getattr(group, "is_text_card", False):
+            # The card came first and a panel is up: the card goes in the panel, the drawing takes the stage whole.
+            self.stage_items.remove(first)
+            self.stage_items.add(group)
+            group.set_z_index(Z_MARK + 10)
+            lift_labels(group)
+            moved = self._card_to_panel(first, self.stage_pending)
+            self.stage_body = group
+            self.stage_pending, self._next_pending = self._next_pending, []
+            self._stage_keys |= self._next_keys
+            self._next_keys = set()
+            self._beat_new = [m for m in self._beat_new if m is not first] + [group]
+            return moved
         if getattr(first, "is_text_card", False) and not getattr(group, "is_text_card", False):
             # The card came first: the drawing takes its place in the stage group, the card goes beside it.
             self.stage_items.remove(first)
@@ -3841,6 +3901,42 @@ class Lecture(Scene):
         self._beat_new.append(group)
         self._stage_add(card)
         return FadeIn(card, scale=1.02)
+
+    def _panel_up(self) -> bool:
+        """A side panel of text is on the screen (a panel chapter, a map with its panel)."""
+        panel = getattr(self, "panel", None)
+        return not self.board_mode and panel is not None and any(panel is m for m in self.mobjects) \
+            and not getattr(self, "_wide", False)
+
+    def _card_to_panel(self, card, extras=()):
+        """A card (a question, a definition, an equation) written in the panel under what is there, at the panel's
+        width; `extras` (its answer, still to come) move with it and are the panel's too. When the panel has no
+        room left, its points go first (its title stays)."""
+        going = []
+        bottom = CAPTION_Y + 0.55
+
+        def scale_for() -> float:
+            return min(1.0, TEXT_W / max(card.width, 0.01), max(self.panel_y - bottom, 0.3) / max(card.height, 0.01))
+
+        if scale_for() < 0.6 and len(self.panel_items) > 1:
+            head, rest = self.panel_items[0], list(self.panel_items[1:])
+            going = [FadeOut(m) for m in rest]
+            self.panel_items = Group(head)
+            self.panel_y = head.get_bottom()[1] - 0.3
+        f = scale_for()
+        centre = card.get_center().copy()
+        for m in [card, *extras]:
+            m.scale(f, about_point=centre)
+        shift = np.array([self.TEXT_LEFT, self.panel_y, 0]) - card.get_corner(UL)
+        for m in [card, *extras]:
+            m.shift(shift)
+            m.set_z_index(Z_PANEL_TEXT)
+            m._panim_panel = True
+        self.panel_y = card.get_bottom()[1] - 0.25
+        card.is_in_panel = True
+        self.panel_items.add(card)
+        show = FadeIn(card, shift=RIGHT * 0.2)
+        return AnimationGroup(AnimationGroup(*going), show, lag_ratio=1.0) if going else show
 
     def _aside(self, mob, grow: float = 1.3):
         """Put `mob` (a definition, an equation) in the right half of the board, beside the drawing on the stage
@@ -4184,9 +4280,12 @@ class Lecture(Scene):
         return view
 
     def _view_on(self, view) -> bool:
-        """Whether a labelled picture is still the one on the stage."""
+        """Whether a labelled picture is still the one on the stage (and on the screen)."""
         body = getattr(self, "stage_body", None)
-        return body is not None and any(m is view["image"] for m in body.get_family())
+        if body is None or not any(m is view["image"] for m in body.get_family()):
+            return False
+        return any(m is view["image"] for top in self.mobjects for m in top.get_family()) or \
+            any(m is body for m in self._beat_new)
 
     def _part_rect(self, view, box) -> tuple:
         """(x0, y0, x1, y1) on the screen of a box given across and down the picture (0 to 1)."""
@@ -4399,9 +4498,11 @@ class Lecture(Scene):
             if self._view_on(view) and words and any(said_at(words, n) is not None for n in view["parts"]):
                 continue
             if not self._view_on(view):
-                hidden = view.get("hidden") or []
+                hidden, lens = view.get("hidden") or [], view.get("lens")
                 view.update(zoom=None, lens=None, hidden=[])
                 out += [FadeIn(m) for m in hidden if m not in self.mobjects]
+                if lens is not None and lens in self.mobjects:
+                    out.append(FadeOut(lens))
                 continue
             back = self._look_out(view)
             if back is not None:
@@ -5834,7 +5935,7 @@ class Lecture(Scene):
         parts = group_of(*([drawing] if drawing is not None else []), card).arrange(DOWN, buff=0.3)
         # On the board, beside the drawing being explained rather than in place of it.
         parts.is_text_card = True
-        strip = self._term_strip(term, meaning) if drawing is None else None
+        strip = self._term_strip(term, meaning) if drawing is None and not self._panel_up() else None
         if strip is not None:
             return strip
         beside = self._aside(parts, grow=1.2) if not self._beat_new else None
@@ -5986,7 +6087,8 @@ class Lecture(Scene):
                 .align_to(ring, RIGHT).shift(LEFT * 0.25)
             shown = VGroup(ring, tick)
         self._question = {"track": track, "answer": shown, "options": options,
-                          "right": answer if isinstance(answer, int) else None}
+                          "right": answer if isinstance(answer, int) else None,
+                          "in_panel": bool(getattr(card, "is_in_panel", False))}
         return anim
 
     def _drawing_up(self) -> bool:
@@ -6071,7 +6173,12 @@ class Lecture(Scene):
         if shown is None:
             return None
         self._question["answer"] = None
-        self._stage_add(shown)
+        if self._question.get("in_panel"):
+            # The question is in the panel: its answer is written there too.
+            shown.set_z_index(Z_PANEL_TEXT)
+            self.panel_items.add(shown)
+        else:
+            self._stage_add(shown)
         return FadeIn(shown, scale=1.05)
 
     def quote(self, text: str, who: str = ""):

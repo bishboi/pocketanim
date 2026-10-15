@@ -85,8 +85,8 @@ def test_a_map_shows_only_its_last_few_place_names():
 
 
 def test_a_pictures_labels_move_and_shrink_with_it(tmp_path, monkeypatch):
-    # A labelled picture beside its names, then the stage shrinks it (a card set beside it): every label not yet
-    # shown keeps its place on the part, and the picture is held to its share of the stage, not the whole of it.
+    # A labelled picture takes the stage's width with its names on it; then the stage shrinks it (a card set beside
+    # it): every label not yet shown keeps its place on the part and stays on the picture.
     from PIL import Image
 
     monkeypatch.setenv("PANIM_FULL_SCREEN", "0")
@@ -98,7 +98,7 @@ def test_a_pictures_labels_move_and_shrink_with_it(tmp_path, monkeypatch):
     view = scene._views[-1]
     image, piece = view["image"], view["parts"]["tower"]
     cx, cy, w, h = scene.STAGE
-    assert image.width <= w * 0.58 + 1e-6
+    assert image.width <= w + 1e-6 and (image.width > w * 0.9 or image.height > h * 0.85)
 
     def on_part():
         x0, y0, x1, y1 = scene._part_rect(view, piece["box"])
@@ -108,7 +108,8 @@ def test_a_pictures_labels_move_and_shrink_with_it(tmp_path, monkeypatch):
     whole = pl.Group(scene.stage_body, *scene.stage_extra, *scene.stage_pending)
     scene._move_stage(0.5, whole.get_center(), (-3.4, 0.0, 6.5, 5.0))
     assert on_part()
-    assert piece["tag"].get_right()[0] < image.get_left()[0]                  # still beside the picture's edge
+    tag = piece["tag"]
+    assert image.get_left()[0] - 1e-3 <= tag.get_left()[0] and tag.get_right()[0] <= image.get_right()[0] + 1e-3
 
 
 def test_a_question_about_a_picture_goes_in_the_panel(tmp_path, monkeypatch):

@@ -3782,6 +3782,7 @@ class Lecture(Scene):
         going = [FadeOut(m) for m in [self.stage_items, *self.stage_extra] if len(m.get_family()) > 1 or len(m.points)]
         # A labelled picture's shade (and a heading it moved aside) goes with it, wherever its list put it: a shade
         # left up sat over the next diagram.
+        self.__dict__.pop("_full_bands", None)
         listed = {id(m) for m in [self.stage_items, *self.stage_extra]}
         on_screen = {id(m) for m in self.mobjects}
         for view in self.__dict__.get("_views", []):
@@ -3887,6 +3888,7 @@ class Lecture(Scene):
         equation, a question) the right. Neither is on screen yet, so the two are simply laid out again."""
         left, right = self._halves()
         first = self.stage_body
+        self._leave_full_screen(shown=False)
         if self._panel_up() and getattr(first, "is_text_card", False) and not getattr(group, "is_text_card", False):
             # The card came first and a panel is up: the card goes in the panel, the drawing takes the stage whole.
             self.stage_items.remove(first)
@@ -3932,6 +3934,26 @@ class Lecture(Scene):
         self._beat_new.append(group)
         self._stage_add(card)
         return FadeIn(card, scale=1.02)
+
+    def _leave_full_screen(self, shown: bool = True) -> list:
+        """A full-screen picture made smaller (a card set beside it): what only a full-screen picture has goes
+        first -- the shade round a part (the heading it moved aside comes back) and the soft bands under the heading
+        and the caption, which shrunk with it became a dim box. Fade-outs (`shown`), or simply taken away."""
+        out = []
+        for view in self.__dict__.get("_views", []):
+            if view.get("lens") is not None and self._view_on(view):
+                back = self._look_out(view)
+                if back is not None and shown:
+                    out.append(back)
+        holder, bands = self.__dict__.pop("_full_bands", (None, []))
+        body = getattr(self, "stage_body", None)
+        if holder is not None and body is not None and any(holder is m for m in body.get_family()):
+            for band in bands:
+                if any(band is m for m in holder.submobjects):
+                    holder.remove(band)
+                if shown and any(band is m for top in self.mobjects for m in top.get_family()):
+                    out.append(FadeOut(band, run_time=0.4))
+        return out
 
     def _panel_up(self) -> bool:
         """A side panel of text is on the screen (a panel chapter, a map with its panel)."""
@@ -4017,6 +4039,7 @@ class Lecture(Scene):
             # A free-form figure drawn in the left half already: what comes beside it takes the right half, and the
             # figure stays where its blocks draw (moved, their next parts would land beside it).
             return None
+        leaving = self._leave_full_screen()
         cx, cy = box[0], box[1]
         shift = np.array([cx, cy, 0]) - centre
         # The map's cover stays the size of the map: moved with the picture's card, it shrank and the map showed.
@@ -4053,6 +4076,7 @@ class Lecture(Scene):
         for m in self.stage_pending:
             m.scale(f, about_point=centre).shift(shift)
         follow_drift([self.stage_items, *self.stage_extra, *self.stage_pending], f, np.array(centre, dtype=float), shift)
+        slides = leaving + slides
         return AnimationGroup(*slides) if slides else None
 
     def _stage_add(self, mob):
@@ -4142,11 +4166,11 @@ class Lecture(Scene):
         labels = remap_labels(labels, box)
         if self._full_screen():
             return self._full_picture(src, labels, cutout, move)
-        # With labels the picture leaves room beside it for their names.
-        across = w * (0.58 if labels else 1.0)
-        image = cutout_mob(src, across, room) if cutout else ImageMobject(src)
+        # The stage's whole width (and no more: never under the panel), its labels written on it, as on a
+        # full-screen picture.
+        image = cutout_mob(src, w, room) if cutout else ImageMobject(src)
         if not cutout:
-            image.scale_to_fit_width(across)
+            image.scale_to_fit_width(w)
             if image.height > room:
                 image.scale_to_fit_height(room)
         parts = [image]
@@ -4175,8 +4199,9 @@ class Lecture(Scene):
             # Over the picture, under the camera's view of a part and the labels' lines.
             over.set_z_index(Z_MARK + 10.5)
         if labels:
-            # The labels come on as their parts are said (beat): not with the picture, all at once.
-            self._picture_view(image, labels, w, still=bool(move))
+            # The labels come on as their parts are said (beat): not with the picture, all at once; each on the
+            # picture beside its part.
+            self._picture_view(image, labels, w, still=bool(move), inside=True)
         if move and cutout:
             self._move_picture(image, [], move)
         return shown
@@ -4234,6 +4259,7 @@ class Lecture(Scene):
         for band in parts[1:]:
             band.set_z_index(Z_MARK + 10.5)
             band._panim_z = Z_MARK + 10.5
+        self._full_bands = (group, parts[1:])
         if labels:
             self._picture_view(image, labels, fw, still=bool(move), inside=True)
         if move and cutout:
@@ -4392,6 +4418,9 @@ class Lecture(Scene):
         iw, ih = hi[0] - lo[0], hi[1] - lo[1]
         fw, fh = config.frame_width, config.frame_height
         x_lo, x_hi, y_lo, y_hi = -fw / 2 + 0.3, fw / 2 - 0.3, -fh / 2 + 1.25, fh / 2 - 1.15
+        # A picture smaller than the screen keeps its names on itself.
+        x_lo, x_hi = max(x_lo, lo[0] + 0.08), min(x_hi, hi[0] - 0.08)
+        y_lo, y_hi = max(y_lo, lo[1] + 0.08), min(y_hi, hi[1] - 0.08)
         placed: list = []
         out = []
         for entry in labels:
@@ -4400,7 +4429,7 @@ class Lecture(Scene):
                 (max(0.0, x - 0.06), max(0.0, y - 0.06), min(1.0, x + 0.06), min(1.0, y + 0.06))
             x0, y0 = lo[0] + box[0] * iw, hi[1] - box[3] * ih
             x1, y1 = lo[0] + box[2] * iw, hi[1] - box[1] * ih
-            tag = self._label_tag(text, 4.0, 21)
+            tag = self._label_tag(text, min(4.0, max(x_hi - x_lo, 1.0)), 21 if iw > 9 else 18)
             tw, th = tag.width, tag.height
             cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
             spots = [(cx, y1 + 0.12 + th / 2), (cx, y0 - 0.12 - th / 2), (x1 + 0.15 + tw / 2, cy),

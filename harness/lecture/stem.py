@@ -762,6 +762,13 @@ class BoardMixin:
         from manim import (AnimationGroup, Create, FadeIn, FadeOut, Group, LaggedStart, SurroundingRectangle, Write,
                            LEFT, RIGHT)
 
+        if not self.board_mode and self._problem is None and getattr(self, "_panel_up", lambda: False)():
+            # A chapter with its panel: the lines are the panel's points, under what is there; across the stage
+            # they were written over the picture or diagram up.
+            shown = [self.fact(str(line), pl.P.GOLD if box and k == len(lines) - 1 else None)
+                     for k, line in enumerate(lines or [])]
+            shown = [a for a in shown if a is not None]
+            return AnimationGroup(*shown, lag_ratio=0.4) if shown else None
         anims = []
         w = self.works.get(key)
         if w is None and self.works:

@@ -1653,6 +1653,13 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             elif isinstance(anim, _FadeIn) or getattr(anim, "introducer", False):
                 kind = "in"
             else:
+                # A move (a picture slid and shrunk aside for a card): when it runs and how it eases, so the picture
+                # keeps step with its labels and shade, which the players ease the same way.
+                mob = getattr(anim, "mobject", None)
+                rate = getattr(anim, "rate_func", None)
+                for sub in (mob.get_family() if mob is not None else []):
+                    if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
+                        out.setdefault(id(sub), (t0, t1, "move", rate))
                 return
             mob = getattr(anim, "mobject", None)
             # How the fade carries the picture (a rise, a slide, a pop): its shift, its size at the far end, the
@@ -1748,6 +1755,24 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 ul, ur, dl = (np.asarray(mob.points[i][:2], dtype=float) for i in range(3))
                 entry["z"] = float(getattr(mob, "z_index", 0) or 0)
                 corners = [round(float(v), 4) for v in (*ul, *ur, *dl)]
+                move = timing.get(id(mob))
+                if entry["keys"] and entry["keys"][-1][1] > 0 and before is not None and not samples \
+                        and move and move[2] == "move" and entry["keys"][-1][2] != corners:
+                    # Moved by the play, on stage throughout: along the move's own easing, not a straight line
+                    # between its ends (it ran ahead of, or behind, the shapes moving with it).
+                    start, (t0, t1, _, rate) = entry["keys"][-1][2], move
+                    entry["keys"].append((at(t0), 1.0, start))
+                    steps = 8
+                    for k in range(1, steps):
+                        f = k / steps
+                        try:
+                            e = float(rate(f)) if rate is not None else f
+                        except Exception:  # noqa: BLE001 -- an easing that fails is a straight line
+                            e = f
+                        entry["keys"].append((at(t0 + (t1 - t0) * f), 1.0,
+                                              [round(a + (b - a) * e, 4) for a, b in zip(start, corners)]))
+                    if t1 < 1:
+                        entry["keys"].append((at(t1), 1.0, corners))
                 if entry["keys"] and entry["keys"][-1][1] > 0 and before is not None and samples:
                     # On stage across the play: where it went on the way, wherever that differs from a straight
                     # line between the keys either side (_thin keeps only those).

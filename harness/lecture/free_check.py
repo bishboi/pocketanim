@@ -113,7 +113,34 @@ def check_code(code: str) -> list[str]:
     return list(dict.fromkeys(problems))[:6]
 
 
-def picture(what: str, height: float = 2.0, width: float | None = None):
+def _named_parts(mob, path: str, labels) -> list:
+    """Name tags for a picture's parts, each on the part where the label finder saw it (genimage.locate), drawn over
+    the picture; none when the finder cannot be asked."""
+    import manim
+
+    try:
+        import genimage
+        import pocket_lecture as pl
+
+        found = genimage.locate(path, [str(x) for x in labels]) or []
+    except Exception:  # noqa: BLE001 -- no label finder: the picture without names, rather than guessed ones
+        return []
+    lo, hi = mob.get_corner(manim.DL), mob.get_corner(manim.UR)
+    tags = []
+    for entry in found:
+        if len(entry) < 3:
+            continue
+        name, x, y = str(entry[0]), float(entry[1]), float(entry[2])
+        point = [lo[0] + x * (hi[0] - lo[0]), hi[1] - y * (hi[1] - lo[1]), 0]
+        tag = pl.Lecture._label_tag(None, name, 3.2, 18)
+        tag.move_to(point)
+        tag.shift(manim.UP * min(0.3, max(0.0, hi[1] - tag.get_top()[1])))
+        tag.set_z_index(1)
+        tags.append(tag)
+    return tags
+
+
+def picture(what: str, height: float = 2.0, width: float | None = None, labels=None):
     """A picture of a real thing for a block (`picture("a steam locomotive, side view", height=2)`): the cutout the
     illustration model made in the lecture's style -- the same one a diagram's node or a map's label would show --
     at most `height` tall and `width` wide. The compiler has it made before the block runs (pictures_in). Where it
@@ -124,7 +151,15 @@ def picture(what: str, height: float = 2.0, width: float | None = None):
     try:
         import pocket_lecture as pl
 
-        mob = pl.cutout_mob(pl.thing_picture(str(what)), width, float(height))
+        path = pl.thing_picture(str(what))
+        mob = pl.cutout_mob(path, width, float(height))
+        # Under the block's own lines and words: drawn after them, it hid the lines pointing at it.
+        mob.set_z_index(-0.5)
+        tags = _named_parts(mob, path, labels) if labels else []
+        if tags:
+            named = manim.Group(mob, *tags)
+            named.panim_picture = str(what)
+            return named
     except Exception:  # noqa: BLE001 -- not made (no image model, refused, offline): a stand-in, not a crash
         frame = manim.RoundedRectangle(corner_radius=0.1, width=width * 0.8, height=float(height) * 0.8,
                                        stroke_opacity=0.6, stroke_width=2)

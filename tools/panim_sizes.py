@@ -130,17 +130,57 @@ def kind_of(rel: str) -> str:
     return "other"
 
 
+def _compact_parts(blob: bytes, offset: int, flags: int, n_records: int, n_atlas: int, out: dict) -> dict:
+    """geometry_parts for the compact container (tools/panm_compact.py): its points are varints, x/y (and z when
+    the scene is not flat) interleaved, so their bytes are counted together under "points xy" (or "points z" for
+    the share of a 3D scene's z)."""
+    axes = 2 if flags & 2 else 3
+
+    def varint(at: int) -> int:
+        while blob[at] & 0x80:
+            at += 1
+        return at + 1
+
+    def count_at(at: int) -> tuple[int, int]:
+        value = shift = 0
+        while True:
+            byte = blob[at]
+            at += 1
+            value |= (byte & 0x7F) << shift
+            if not byte & 0x80:
+                return value, at
+            shift += 7
+
+    for _ in range(n_atlas):
+        count, start = count_at(offset)
+        out["headers"] += start - offset
+        at = start
+        for _ in range(count * axes):
+            at = varint(at)
+        spent = at - start
+        out["points xy"] += spent * 2 // axes if axes == 3 else spent
+        out["points z"] += spent - spent * 2 // axes if axes == 3 else 0
+        out["points"] += count
+        offset = at
+    out["shapes"] = n_atlas
+    out["frames"] = n_records
+    out["instances"] = max(len(blob) - offset, 0)
+    return out
+
+
 def geometry_parts(blob: bytes) -> dict:
     """A baked asset's bytes by part: x/y points, z points, frame instances, headers (the container's layout,
     exporter/decode.py)."""
     out = {"points xy": 0, "points z": 0, "instances": 0, "headers": 0, "points": 0, "shapes": 0, "frames": 0}
     try:
         size = struct.calcsize(HEADER)
-        _magic, _version, flags, _fps, n_records, n_atlas, *_ = struct.unpack(HEADER, blob[:size])
+        _magic, version, flags, _fps, n_records, n_atlas, *_ = struct.unpack(HEADER, blob[:size])
         offset = size
         out["headers"] += size
         if flags & 1:
-            offset += n_records * 4 * 16
+            offset += n_records * 4 * 17
+        if version == 2:
+            return _compact_parts(blob, offset, flags, n_records, n_atlas, out)
         for _ in range(n_atlas):
             (count,) = struct.unpack_from("<I", blob, offset)
             offset += 4 + count * 6

@@ -4216,7 +4216,9 @@ class Lecture(Scene):
 
     def _full_screen(self) -> bool:
         """Whether a picture going up now has the screen to itself."""
-        return (not len(self.panel_items) and not self._beat_new and not self._solving()
+        # Not while a side panel is up, even an empty one: drawn over it, the picture lay under the panel's words
+        # when they came, and the map's cover hid its left part.
+        return (not len(self.panel_items) and not self._beat_new and not self._solving() and not self._panel_up()
                 and os.environ.get("PANIM_FULL_SCREEN", "1") != "0")
 
     def _bands(self) -> list:

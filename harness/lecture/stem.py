@@ -403,6 +403,15 @@ class BoardMixin:
                 finally:
                     self._free_going_on = False
                 here = {id(x) for m in self.mobjects for x in m.get_family()}
+                # Its parts come back only from under a card (a question, a definition, an equation) that was set
+                # over or beside it. A picture, a diagram or a timeline that took the stage ended the figure: its old
+                # words brought back landed over the next block's (a block draws again what it needs).
+                carded = all(any(getattr(x, flag, False) for x in m.get_family()
+                                 for flag in ("is_text_card", "is_aside", "is_term_strip")) for m in others)
+                if not carded:
+                    self._free_owned = [m for m in self._free_owned if id(m) in here]
+                    mine = self._free_group = Group(*self._free_owned) if self._free_owned else None
+                    self._free_home = None
                 back = [FadeIn(m) for m in self._free_owned if id(m) not in here]
                 # Moved aside for a working or a card beside it: home again, where its blocks draw.
                 home = getattr(self, "_free_home", None)

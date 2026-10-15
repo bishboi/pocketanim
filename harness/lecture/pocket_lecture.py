@@ -2460,6 +2460,20 @@ def set_drift(mobs, spec: dict | None) -> None:
                 part._panim_drift = spec
 
 
+def follow_drift(mobs, f: float, centre, shift) -> None:
+    """These were scaled by f about `centre` and moved by `shift`: the drifts they carry turn about the same point
+    of the picture as before (a stale centre swung a moved picture and its labels apart)."""
+    seen = set()
+    for mob in mobs:
+        for part in (mob.get_family() if mob is not None else []):
+            spec = part.__dict__.get("_panim_drift")
+            if spec is None or id(spec) in seen or "cx" not in spec:
+                continue
+            seen.add(id(spec))
+            spec["cx"] = float(centre[0] + f * (float(spec["cx"]) - centre[0]) + shift[0])
+            spec["cy"] = float(centre[1] + f * (float(spec.get("cy", 0.0)) - centre[1]) + shift[1])
+
+
 def _still(_mob, dt: float) -> None:
     """An updater that does nothing: something drifting is drawn afresh every frame (Manim caches what has none)."""
 
@@ -3787,6 +3801,7 @@ class Lecture(Scene):
         centre = whole.get_center()
         for m in mobs:
             m.scale(f, about_point=centre).shift(np.array([cx, cy, 0]) - centre)
+        follow_drift(mobs, f, centre, np.array([cx, cy, 0]) - centre)
         return f, np.array(centre, dtype=float), np.array([cx, cy, 0]) - centre
 
     def _beside(self, group):
@@ -3910,6 +3925,7 @@ class Lecture(Scene):
                 slides.append(stem._moving(m.animate.scale(f, about_point=centre).shift(shift)))
         for m in self.stage_pending:
             m.scale(f, about_point=centre).shift(shift)
+        follow_drift([self.stage_items, *self.stage_extra, *self.stage_pending], f, np.array(centre, dtype=float), shift)
         return AnimationGroup(*slides) if slides else None
 
     def _stage_add(self, mob):
@@ -3999,17 +4015,13 @@ class Lecture(Scene):
         labels = remap_labels(labels, box)
         if self._full_screen():
             return self._full_picture(src, labels, cutout, move)
-        # As large as the stage allows: the full height, and the full width but for the room its labels' names
-        # take on either side.
-        side = 0.0
-        if labels:
-            widest = max(fit(marker(str(t[0]), 17), w * 0.24).width for t in labels)
-            side = min(widest + 0.7, w * 0.26)
-        image = cutout_mob(src, w - 2 * side, room) if cutout else ImageMobject(src)
+        # With labels the picture leaves room beside it for their names.
+        across = w * (0.58 if labels else 1.0)
+        image = cutout_mob(src, across, room) if cutout else ImageMobject(src)
         if not cutout:
-            image.scale_to_fit_height(room)
-            if image.width > w - 2 * side:
-                image.scale_to_fit_width(w - 2 * side)
+            image.scale_to_fit_width(across)
+            if image.height > room:
+                image.scale_to_fit_height(room)
         parts = [image]
         if line is not None:
             parts.append(fit(line, max(image.width, 4.0)).next_to(image, DOWN, buff=0.14))
@@ -4157,6 +4169,9 @@ class Lecture(Scene):
             view["parts"][piece["name"]] = piece
             # Each label drifts with its picture: its name, box and line stay on the part.
             set_drift([piece["tag"], *self._pointer_pieces(piece)], view["drift"])
+            # Not shown yet, it is still the picture's: when the stage moves or shrinks the picture (a card set
+            # beside it, a word's strip over it) the label moves and shrinks with it, not left where it was laid out.
+            self.stage_pending.extend([*self._pointer_pieces(piece), piece["tag"]])
         views = self.__dict__.setdefault("_views", [])
         views.append(view)
         queue = self.__dict__.setdefault("_word_queue", [])
@@ -4296,6 +4311,7 @@ class Lecture(Scene):
         piece = view["parts"][name]
         view["revealed"].add(name)
         for m in [*self._pointer_pieces(piece), piece["tag"]]:
+            self.stage_pending = [x for x in self.stage_pending if x is not m]
             if all(m is not x for x in self.stage_extra):
                 self.stage_extra.append(m)
         # The box locks on to the part (in from a little larger), the line runs out from the part to the name, and

@@ -82,3 +82,30 @@ def test_a_map_shows_only_its_last_few_place_names():
         scene.marker(city, city)
     assert len(scene._map_names) == scene.MAP_NAMES
     assert len(scene._map_tidy) == 2                                        # Paris's and London's names go
+
+
+def test_a_pictures_labels_move_and_shrink_with_it(tmp_path, monkeypatch):
+    # A labelled picture beside its names, then the stage shrinks it (a card set beside it): every label not yet
+    # shown keeps its place on the part, and the picture is held to its share of the stage, not the whole of it.
+    from PIL import Image
+
+    monkeypatch.setenv("PANIM_FULL_SCREEN", "0")
+    path = tmp_path / "square.png"
+    Image.new("RGB", (800, 800), (200, 120, 90)).save(path)
+    scene = _probe()
+    scene.board()
+    scene.stage_image(str(path), "x", labels=[("tower", 0.25, 0.4, 0.2, 0.1, 0.3, 0.7)])
+    view = scene._views[-1]
+    image, piece = view["image"], view["parts"]["tower"]
+    cx, cy, w, h = scene.STAGE
+    assert image.width <= w * 0.58 + 1e-6
+
+    def on_part():
+        x0, y0, x1, y1 = scene._part_rect(view, piece["box"])
+        return np.allclose(piece["frame"].get_center()[:2], [(x0 + x1) / 2, (y0 + y1) / 2], atol=1e-3)
+
+    assert on_part()
+    whole = pl.Group(scene.stage_body, *scene.stage_extra, *scene.stage_pending)
+    scene._move_stage(0.5, whole.get_center(), (-3.4, 0.0, 6.5, 5.0))
+    assert on_part()
+    assert piece["tag"].get_right()[0] < image.get_left()[0]                  # still beside the picture's edge

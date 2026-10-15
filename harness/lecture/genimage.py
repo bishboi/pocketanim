@@ -230,11 +230,16 @@ def _stand_in(what: str) -> bytes:
 
 # A small picture (a diagram's step, a card's, a timeline's, the emblem, an icon) is drawn as a child draws: the
 # board draws it on, outline first (pocket_lecture.draw_on). A picture with the screen to itself is a whole scene.
-CHILD_LOOK = ("drawn like a bright, charming children's drawing: bold dark crayon or marker outlines with a slight "
-              "hand wobble, simple flat bright colours filled a little outside the lines, simple friendly shapes, "
-              "no shading, no texture")
-CHILD_DIAGRAM = ("a neat, charming hand-drawn diagram in a child's school notebook: bold dark marker outlines with "
-                 "a slight hand wobble, simple flat bright colours, every part still clear and true")
+CHILD_LOOK = ("drawn exactly like a young child's (6 or 7 years old) wax-crayon drawing on white paper: thin, "
+              "wobbly, uneven crayon lines in the crayons' own colours (not black ink), coloured in with loose "
+              "scribbled back-and-forth crayon strokes that leave white paper showing between them, simple naive "
+              "shapes and proportions, people as simple figures with round faces, dot eyes and a curved smile, a "
+              "sun with straight ray lines, trees as a brown trunk with a scribbled green cloud; no shading, no "
+              "gradients, no outlines in black marker, nothing neat or digital-looking")
+CHILD_DIAGRAM = ("a young child's wax-crayon drawing of the diagram on white paper: thin wobbly crayon lines in the "
+                 "crayons' own colours, parts coloured in with loose scribbled strokes leaving white showing, naive "
+                 "simple shapes, the labels written in neat but childlike handwriting, every part still clear and "
+                 "true")
 ASPECTS = {"16:9": "a wide 16:9 landscape picture", "4:3": "a 4:3 picture", "1:1": "a square picture",
            "3:4": "a tall 3:4 picture"}
 # How the Image API is asked for a shape (the sizes it makes).
@@ -295,7 +300,16 @@ def flat_background(data: bytes, tolerance: int = 28) -> bool:
     return bool((np.abs(corners - np.median(corners, axis=0)).max(axis=1) <= tolerance).all())
 
 
-def cutout(data: bytes, tolerance: int = 28) -> bytes:
+# Kept with each child's drawing (its cache key and record): a new look for the drawings is a new tag, so
+# drawings made in an older look are not reused.
+CHILD_TAG = "child-crayon"
+
+
+def _look_tag(look: str | None) -> str | None:
+    return CHILD_TAG if look == "child" else look
+
+
+def cutout(data: bytes, tolerance: int = 28, whole: bool = False) -> bytes:
     """The picture with the plain background around its subject made transparent and the rest trimmed away: the
     pixels near the corners' colour that are connected to the edge go (white inside the subject stays), with a
     soft one-pixel edge. PNG bytes."""
@@ -313,6 +327,11 @@ def cutout(data: bytes, tolerance: int = 28) -> bytes:
     labels, _ = ndimage.label(near)
     edge = set(np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))) - {0}
     outside = np.isin(labels, list(edge)) if edge else np.zeros_like(near)
+    if whole:
+        # A crayon drawing: its scribbled colouring leaves paper showing between the strokes, often open to the
+        # edge. The subject is its strokes closed into one shape with its holes filled: the paper inside stays.
+        inside = ndimage.binary_closing(~outside, iterations=max(2, min(h, w) // 90))
+        outside = ~ndimage.binary_fill_holes(inside)
     alpha = np.where(outside, 0, 255).astype(np.uint8)
     # A soft edge: the subject's outermost pixels half transparent, so it does not look cut with scissors.
     grown = ndimage.binary_dilation(alpha == 0, iterations=1) & (alpha == 255)
@@ -692,7 +711,7 @@ def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool 
     for row in _made_pictures():
         if row.get("model") != model() or (row.get("style") or None) != (style or None) \
                 or bool(row.get("realistic")) != bool(realistic) or bool(row.get("scene")) != bool(scene) \
-                or (row.get("aspect") or None) != (aspect or None) or (row.get("look") or None) != (look or None):
+                or (row.get("aspect") or None) != (aspect or None) or (row.get("look") or None) != _look_tag(look):
             continue
         if not wanted <= {str(p).strip().lower() for p in row.get("parts") or []}:
             continue
@@ -712,7 +731,7 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
     found = [row for row in _made_pictures()
              if row.get("model") == model() and (row.get("style") or None) == (style or None)
              and bool(row.get("realistic")) == bool(realistic) and names & _names(str(row["what"]))
-             and (row.get("look") or None) == (_LOCAL.__dict__.get("look") or None)]
+             and (row.get("look") or None) == _look_tag(_LOCAL.__dict__.get("look"))]
     if not found:
         return None
     found.sort(key=lambda row: (bool(row.get("scene")), row["png"].stat().st_mtime))
@@ -876,7 +895,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     named = sorted({str(p).strip().lower() for p in parts or [] if str(p).strip()})
     key = hashlib.sha256(f"{model()}|{style or ''}|{bool(realistic)}|{' '.join(sorted(_words(what)))}|"
                          f"{','.join(named)}{'|scene' if scene else ''}{'|' + aspect if aspect else ''}"
-                         f"{'|' + look if look else ''}".encode()).hexdigest()[:20]
+                         f"{'|' + _look_tag(look) if look else ''}".encode()).hexdigest()[:20]
     # A child's drawing is named so the board knows to draw it on (pocket_lecture.draw_on).
     target = CACHE / (f"gen-child-{key}.png" if look == "child" else f"gen-{key}.png")
     if not target.exists():
@@ -954,7 +973,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
         row.update(model=used, artist=used, credit=f"made with {used} (fallback)")
     try:
         # A scene keeps its setting; anything else is cut out of its plain background.
-        data = data if scene else cutout(data)
+        data = data if scene else cutout(data, whole=look == "child")
     except Exception:  # noqa: BLE001 -- an image the cutout cannot read is kept as the model made it
         pass
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -962,7 +981,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": used, "style": style,
                                                        "realistic": realistic, "parts": named, "usd": usd,
                                                        "scene": bool(scene), "like": row.get("like"),
-                                                       "aspect": aspect, "look": look}))
+                                                       "aspect": aspect, "look": _look_tag(look)}))
     MADE.append({"path": str(target), "png": str(target), "what": what, "prompt": prompt, "model": used, "usd": usd,
                  "made": True})
     return {**row, "file": str(target), "path": str(target), "usd": usd, "made": True}

@@ -340,11 +340,11 @@ def test_a_book_diagram_is_redrawn_from_itself_and_its_labels_checked(two_models
     first, second = (_text_of(d) for d in draws)
     assert draws[0]["messages"][0]["content"][0]["type"] == "image_url"    # the book's figure, sent with it
     assert "EVERY LABEL" in first and "LAST TRY WAS WRONG" not in first
-    # Drawn as a child draws a diagram in a notebook, in the template's ink and colours, with no background of
+    # Drawn as a child draws a diagram in wax crayon on white paper, in the template's colours, with no background of
     # its own: the board's colour it is drawn on is cut away.
     import pocket_lecture as pl
 
-    assert "child's school notebook" in first and "NO BACKGROUND" in first
+    assert "wax-crayon drawing of the diagram" in first and "NO BACKGROUND" in first
     assert pl.THEMES["parchment"]["bg"] in first and pl.THEMES["parchment"]["pal"]["CREAM"] in first
     from PIL import Image
 

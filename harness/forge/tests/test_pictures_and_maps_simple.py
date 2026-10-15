@@ -43,7 +43,7 @@ def test_the_image_model_is_asked_for_the_shape(monkeypatch):
     assert sent[0]["image_config"] == {"aspect_ratio": "16:9"}
     assert "16:9" in genimage.prompt_for("a village", scene=True, aspect="16:9")
     child = genimage.prompt_for("a cow", look="child", aspect="1:1")
-    assert "children's drawing" in child and "CUTOUT" in child
+    assert "wax-crayon drawing" in child and "CUTOUT" in child
 
 
 def test_a_picture_alone_fills_the_screen_and_its_labels_sit_on_it(tmp_path):

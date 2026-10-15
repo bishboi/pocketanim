@@ -930,9 +930,10 @@ def cutout_mob(path, width: float, height: float):
     return mob
 
 
-def sketch_lines(image, most_paths: int = 70, most_points: int = 1800) -> VGroup:
-    """The outlines of a child's drawing as pen strokes over it: the dark lines of its picture traced (contourpy)
-    into paths where the picture is on the screen, longest first."""
+def sketch_lines(image, most_paths: int = 60, most_points: int = 1800) -> VGroup:
+    """The outlines of a child's drawing as crayon strokes over it: the shapes its colours make (blurred a little,
+    so a scribbled fill reads as one shape) traced (contourpy) where the picture is on the screen, longest first,
+    each drawn in the colour of the crayon under it."""
     import contourpy
     from PIL import Image
     from scipy import ndimage
@@ -944,14 +945,15 @@ def sketch_lines(image, most_paths: int = 70, most_points: int = 1800) -> VGroup
             img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))))
         rgba = np.asarray(img).astype(float)
     rows, cols = rgba.shape[:2]
-    lum = rgba[..., :3] @ np.array([0.299, 0.587, 0.114])
-    ink = (lum < 95) & (rgba[..., 3] > 128)
-    if ink.mean() < 0.01:
-        ink = rgba[..., 3] > 128                     # no dark outline drawn: its edge is the outline
-    field = ndimage.gaussian_filter(np.pad(ink.astype(float), 1), 0.7)
-    lines = [np.asarray(line) for line in contourpy.contour_generator(z=field).lines(0.5) if len(line) >= 8]
+    # Where a crayon went: not paper (far from white) and not clear.
+    drawn = (np.abs(rgba[..., :3] - 255.0).max(axis=2) > 60) & (rgba[..., 3] > 128)
+    if drawn.mean() < 0.005:
+        drawn = rgba[..., 3] > 128
+    field = ndimage.gaussian_filter(np.pad(drawn.astype(float), 2), 1.4)
+    lines = [np.asarray(line) for line in contourpy.contour_generator(z=field).lines(0.5) if len(line) >= 10]
     lines.sort(key=len, reverse=True)
     lo, hi = image.get_corner(DL), image.get_corner(UR)
+    colours = rgba[..., :3]
     out, used = VGroup(), 0
     for line in lines[:most_paths]:
         step = 2 if len(line) > 40 else 1
@@ -959,12 +961,15 @@ def sketch_lines(image, most_paths: int = 70, most_points: int = 1800) -> VGroup
         if used + len(pts) > most_points:
             break
         used += len(pts)
-        xs = lo[0] + (pts[:, 0] - 1) / max(cols - 1, 1) * (hi[0] - lo[0])
-        ys = hi[1] - (pts[:, 1] - 1) / max(rows - 1, 1) * (hi[1] - lo[1])
-        path = VMobject(stroke_color=P.CREAM, stroke_width=2.4, fill_opacity=0)
+        cs = np.clip((pts[:, 0] - 2).round().astype(int), 0, cols - 1)
+        rs = np.clip((pts[:, 1] - 2).round().astype(int), 0, rows - 1)
+        under = colours[rs, cs][drawn[rs, cs]]
+        colour = rgb_to_hex(np.median(under, axis=0) / 255.0) if len(under) else P.CREAM
+        xs = lo[0] + (pts[:, 0] - 2) / max(cols - 1, 1) * (hi[0] - lo[0])
+        ys = hi[1] - (pts[:, 1] - 2) / max(rows - 1, 1) * (hi[1] - lo[1])
+        path = VMobject(stroke_color=colour, stroke_width=2.6, fill_opacity=0)
         path.set_points_as_corners(np.column_stack([xs, ys, np.zeros(len(xs))]))
         out.add(path)
-    out._art_none = True
     for part in out.get_family():
         part._art_none = True
     return out

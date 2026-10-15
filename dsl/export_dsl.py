@@ -2426,11 +2426,13 @@ def image_lines(track: list[dict]) -> list[str]:
 
 
 # What the decimation is aimed at. A phone's long edge at the top of the range
-# the player targets, and a pixel of error there at the tightest zoom the
+# the player targets, and two pixels of error there at the tightest zoom the
 # program reaches -- so anywhere else in the animation the error is smaller.
-# Exported artwork is decimated against these; nothing else is touched.
+# (One pixel was a fifth more geometry for curves no one sees the difference
+# in at phone size.) Exported artwork is decimated against these; nothing
+# else is touched.
 REFERENCE_WIDTH_PX = 2400
-ERROR_PX = 1.0
+ERROR_PX = 2.0
 
 
 def program_max_scale(program: str) -> float:

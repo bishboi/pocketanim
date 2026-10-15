@@ -19,7 +19,7 @@ not a protocol.
                             assets/<digest>.panm, one file each)
       images/<digest>.webp  raster pictures a program's `image` lines draw, shared: WebP, at most 1024x576
                             (PANIM_IMAGE_HEIGHT, PANIM_IMAGE_QUALITY); the program's lines point at them
-      audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 16 kbit/s
+      audio/<name>.ogg      narration, fetched on demand (§5.3): Opus, mono, 8 kbit/s
                             (audio/<name>.wav when ffmpeg cannot encode it)
 
 Usage:
@@ -59,15 +59,16 @@ SKIA_GPU_VERB_LIMIT = 16_384
 
 
 def compress_narration(source: Path, stem: Path) -> Path:
-    """The narration as the phone gets it: Opus in Ogg, mono, PANIM_NARRATION_KBPS (16) kbit/s.
+    """The narration as the phone gets it: Opus in Ogg, mono, PANIM_NARRATION_KBPS (8) kbit/s.
 
     The exporter mixes it as WAV, which is 300 MB for an hour of speech; Opus at 24 kbit/s is about 11 MB, and
     speech at that rate is clear. Android plays Ogg Opus from version 10, the player's minimum, through the same
     MediaExtractor/MediaCodec path it used for the WAV, and the decoder drops Opus's pre-skip, so the voice stays
     on its frames. Without an ffmpeg that has an Opus encoder the WAV is shipped as before.
     """
-    # Speech in Opus is clear at 16 kbit/s (its wideband voice mode); 24 was a third more for no audible gain.
-    kbps = os.environ.get("PANIM_NARRATION_KBPS", "16")
+    # Speech in Opus stays intelligible at 8 kbit/s (its narrowband voice mode): a lecture's voice is the
+    # biggest asset, and half of 16 is worth the duller sound. PANIM_NARRATION_KBPS=16 for the clearer one.
+    kbps = os.environ.get("PANIM_NARRATION_KBPS", "8")
     target = stem.with_suffix(".ogg")
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg:

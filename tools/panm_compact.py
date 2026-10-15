@@ -2,12 +2,12 @@
 
 Version 1 (exporter/ir.py) stores every point as three uint16 (x, y, z) and every instance of every frame in full
 (49 bytes: slot, atlas id, flags, a float16 3x3, a float32 translation, two colours, a width). Version 2 keeps
-the same instances bit for bit and the same points to within a quarter of a pixel at 1080p (bit for bit with
+the same instances bit for bit and the same points to within half a pixel at 1080p (bit for bit with
 lossless=True), and stores them leaner:
 
     header      as v1 (<4sHHHII6f), version 2; flag 2 (FLAT) when every point's z is the same (a 2D scene);
-                flags bits 4-7: how many low bits of each coordinate were rounded away (POINT_STEP: a quarter of
-                a pixel at 1080p; 0 for a lossless file and for a 3D scene)
+                flags bits 4-7: how many low bits of each coordinate were rounded away (POINT_STEP: half a
+                pixel at 1080p; 0 for a lossless file and for a 3D scene)
     cameras     as v1, when flag 1 (CAMERA)
     atlas       per shape: varint point count, then per point and axis (x, y, and z unless FLAT) the zigzag varint
                 of its quantised value minus the previous point's (the first against 0): neighbouring points of an
@@ -54,9 +54,9 @@ def _zigzag(value: int) -> int:
     return (value << 1) ^ (value >> 63)
 
 
-# How fine a point needs to be: a quarter of a pixel on a 1080p screen (the frame is 14.22 units across 1920
-# pixels), still under half a pixel with the stage pushed in 1.8x. Points finer than that are rounded to it.
-POINT_STEP = 0.0018
+# How fine a point needs to be: half a pixel on a 1080p screen (the frame is 14.22 units across 1920 pixels),
+# under a pixel with the stage pushed in 1.8x. Points finer than that are rounded to it.
+POINT_STEP = 0.0037
 
 
 def _shift_for(span: float) -> int:

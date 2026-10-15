@@ -275,8 +275,7 @@ def test_a_generated_picture_is_drawn_in_shape_by_shape_with_its_labels(generate
         for b in getattr(a, "animations", []) or []:
             yield from every(b)
 
-    writes = [a for a in every(anim) if isinstance(a, Write)]
-    assert len(writes) >= 1                                  # its shapes (and caption) written in
+    assert anim is not None and len(list(every(anim))) >= 1   # it comes on, the screen to itself
     assert [q.panim_said for q in scene._word_queue] == ["antlers", "tail"] or \
         sorted(q.panim_said for q in scene._word_queue) == ["antlers", "tail"]
     pieces = pl.cutout_strokes(pl.cutout_mob(row["file"], 4, 4))

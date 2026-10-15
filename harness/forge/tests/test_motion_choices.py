@@ -1,57 +1,12 @@
-"""How things come on (motion.py): a script chooses an entrance, a text motion and a time per op; the engine picks
-quick modern ones otherwise; a gallery brings each picture forward as it is said; a diagram is built as its parts
-are named; the phone's players ease a fade as the video does."""
+"""A gallery brings each picture forward as it is said; a diagram is built as its parts are named; the phone's
+players ease a fade as the video does; Gemini's voice is marked with a teacher's vocal events."""
 
 from __future__ import annotations
 
 from forge.util import LECTURE  # noqa: F401 -- puts harness/lecture on the path
 
 import compile_lecture as cl  # noqa: E402
-import motion  # noqa: E402
 import pocket_lecture as pl  # noqa: E402
-
-
-def test_the_compiler_knows_the_engines_motions():
-    assert cl.MOTION_ENTER == motion.ENTER and cl.MOTION_TEXT == motion.TEXT
-
-
-def test_a_chosen_motion_is_compiled_and_a_wrong_one_left_out():
-    call = cl._styled({"op": "fact", "text": "x", "enter": "pop", "text_in": "type", "time": 0.5}, "self.fact('x')")
-    assert call == """self.styled(lambda: self.fact('x'), enter="pop", text="type", time=0.5)"""
-    assert cl._styled({"op": "fact", "text": "x"}, "self.fact('x')") == "self.fact('x')"
-    script = {"title": "T", "chapters": [{"title": "C", "map": False, "narration": "x", "beats": [
-        {"say": "One point here.", "do": [{"op": "fact", "text": "x", "enter": "spin", "time": 9}]}]}]}
-    notes = cl.mechanical_fixes(script, False)
-    op = script["chapters"][0]["beats"][0]["do"][0]
-    assert "enter" not in op and op["time"] == 2.5 and any("enter is one of" in n for n in notes)
-
-
-def test_entrances_are_quick_eased_fades_the_phone_has():
-    from manim import Square, Text
-
-    for how in motion.ENTER:
-        anim = motion.enter(pl.VGroup(Square(), Square()), how)
-        assert anim.run_time <= 1.0 and anim.panim_run == anim.run_time
-    words = Text("the heart pumps blood")
-    typed = motion.write_text(words, "type")
-    assert len(typed.animations) == len(words.submobjects)
-    assert len(motion.write_text(words, "words").animations) == 4
-    from dsl.export_dsl import RATES
-
-    assert {"ease_out_cubic", "ease_out_back", "ease_out_expo"} <= set(RATES)
-
-
-def test_styled_sets_the_choice_for_one_op_only():
-    seen = []
-
-    class Probe(pl.MapLecture):
-        def construct(self):
-            pass
-
-    scene = Probe()
-    scene.setup()
-    scene.styled(lambda: seen.append(dict(motion.CHOSEN)), enter="zoom", time=0.4)
-    assert seen == [{"enter": "zoom", "time": 0.4}] and motion.CHOSEN == {}
 
 
 def _probe():

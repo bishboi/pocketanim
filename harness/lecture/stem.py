@@ -238,9 +238,8 @@ class BoardMixin:
 
     def _strip(self, title=None, point=None, clear=False):
         """Put a title and/or a key point in the strip over the board; the old ones fade."""
-        import motion
         import pocket_lecture as pl
-        from manim import AnimationGroup, FadeOut, LEFT
+        from manim import AnimationGroup, FadeIn, FadeOut, LEFT, RIGHT
 
         going, coming = [], []
         if clear or title is not None:
@@ -255,14 +254,14 @@ class BoardMixin:
         if title is not None:
             self.strip["title"] = title.move_to([left, STRIP_Y, 0], aligned_edge=LEFT)
             title.set_z_index(pl.Z_PANEL_TEXT)
-            coming.append(motion.appear(title, "title"))
+            coming.append(FadeIn(title, shift=RIGHT * 0.15))
         if point is not None:
             head = self.strip.get("title")
             x = head.get_right()[0] + 0.45 if head is not None else left
             pl.fit(point, 6.7 - x)
             self.strip["point"] = point.move_to([x, STRIP_Y, 0], aligned_edge=LEFT)
             point.set_z_index(pl.Z_PANEL_TEXT)
-            coming.append(motion.appear(point, "point"))
+            coming.append(FadeIn(point, shift=RIGHT * 0.15))
         if not going and not coming:
             return None
         return AnimationGroup(AnimationGroup(*going), AnimationGroup(*coming), lag_ratio=0.5) if going else \

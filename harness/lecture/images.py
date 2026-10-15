@@ -49,19 +49,23 @@ def is_map_row(row: dict | None) -> bool:
 def fetch(image: str | None = None, query: str | None = None, subject: str | None = None,
           illustration: str | None = None, avoid: set | None = None, genre: str | None = None,
           style: str | None = None, realistic: bool = False, parts=None, context: str | None = None,
-          scene: bool = False, match: bool = True, kind: str | None = None) -> dict | None:
+          scene: bool = False, match: bool = True, kind: str | None = None, aspect: str | None = None,
+          look: str | None = None) -> dict | None:
     """The picture a script asks for, made by the image model as a cutout (genimage.py). What it shows is the
     subject, the illustration's words, the query, or an old script's Commons title's words. Returns its row with
     `file` set, or None when it cannot be made (no key, refused, a map). `avoid` and `genre` are an old caller's:
     a picture made for given words is the same picture each time. `parts`: what it will label, shown clearly.
     `context`: what the picture is for (the lesson, the chapter, the lines said over it), told to the model.
-    `kind` "diagram": made by the diagram model (a detailed, exact picture), as a picture with labels is."""
+    `kind` "diagram": made by the diagram model (a detailed, exact picture), as a picture with labels is.
+    `aspect` ("16:9", "4:3", "1:1"): the shape it is made in; `look` "child": drawn as a child draws (a small
+    picture the board draws on)."""
     import genimage
 
     title = re.sub(r"\.(jpe?g|png|svg|webp|gif|tiff?)$", "", re.sub(r"^File:", "", str(image or ""), flags=re.I), flags=re.I)
     what = subject or illustration or query or title.replace("_", " ")
     row = genimage.generate(str(what or ""), style=style or os.environ.get("LECTURE_STYLE"), realistic=realistic,
-                            parts=parts, context=context, scene=scene, match=match, kind=kind)
+                            parts=parts, context=context, scene=scene, match=match, kind=kind, aspect=aspect,
+                            look=look)
     if row and is_map_row(row):
         return None
     return row

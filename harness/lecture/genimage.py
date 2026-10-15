@@ -42,6 +42,11 @@ SPANS: list[list[float]] = []
 CALLS: list[dict] = []
 
 
+def _shape() -> str | None:
+    """The shape the picture being asked for now is to have (generate's `aspect`), or None."""
+    return getattr(_LOCAL, "aspect", None)
+
+
 def _about() -> str:
     return getattr(_LOCAL, "about", "") or ""
 
@@ -223,6 +228,18 @@ def _stand_in(what: str) -> bytes:
     return buffer.getvalue()
 
 
+# A small picture (a diagram's step, a card's, a timeline's, the emblem, an icon) is drawn as a child draws: the
+# board draws it on, outline first (pocket_lecture.draw_on). A picture with the screen to itself is a whole scene.
+CHILD_LOOK = ("drawn like a bright, charming children's drawing: bold dark crayon or marker outlines with a slight "
+              "hand wobble, simple flat bright colours filled a little outside the lines, simple friendly shapes, "
+              "no shading, no texture")
+CHILD_DIAGRAM = ("a neat, charming hand-drawn diagram in a child's school notebook: bold dark marker outlines with "
+                 "a slight hand wobble, simple flat bright colours, every part still clear and true")
+ASPECTS = {"16:9": "a wide 16:9 landscape picture", "4:3": "a 4:3 picture", "1:1": "a square picture",
+           "3:4": "a tall 3:4 picture"}
+# How the Image API is asked for a shape (the sizes it makes).
+SIZES = {"16:9": "1536x1024", "4:3": "1536x1024", "1:1": "1024x1024", "3:4": "1024x1536"}
+
 SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a wide 16:9 landscape composition (the "
                "place, its ground and sky, the people in it doing what the lesson tells of), a clear main subject near "
                "the centre, few small details at the edges. No border or frame. No words, letters, numbers or labels "
@@ -230,10 +247,12 @@ SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a
 
 
 def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None,
-               context: str | None = None, scene: bool = False, like: str | None = None) -> str:
+               context: str | None = None, scene: bool = False, like: str | None = None,
+               aspect: str | None = None, look: str | None = None) -> str:
     """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
     the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
     shown clearly where it can be pointed at."""
+    child = look == "child" and not realistic and not scene
     look = ("as a realistic photograph-like image" if realistic
             else LOOKS.get(style or "", "in a clean, colourful educational illustration style"))
     named = [str(p).strip() for p in parts or [] if str(p).strip()]
@@ -248,12 +267,17 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
     same = (f" THE REFERENCE IMAGE shows {like.strip()} as already drawn in this lesson: draw the SAME one (the same "
             "face, hair, beard, build, clothing and colours, in the same art style), only as this picture asks."
             if like else "")
+    shape = f" Make it {ASPECTS[aspect]}." if aspect in ASPECTS else ""
+    if child:
+        return (f"{what.strip()}, {CHILD_LOOK}.{purpose}{same}{show}{shape} One subject only, whole and centred, "
+                "isolated as a CUTOUT on a plain, flat, pure white background: no border, no frame, no background "
+                "scene, no floor. No words, letters, numbers or labels anywhere in the image. For a school lesson.")
     if scene:
         return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a painted plate in a good "
-                f"textbook.{show} {SCENE_FRAME}")
+                f"textbook.{show}{shape} {SCENE_FRAME}")
     return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
             "materials, textures and small features a student should notice, with clean outlines and clear areas of "
-            f"colour.{show} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
+            f"colour.{show}{shape} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
             "pure white background: no border, no frame, no rounded card, no drop shadow box, no background scene, "
             "no floor or horizon. No words, letters, numbers or labels anywhere in the image. "
             "For a school lesson. If it is a real person, an illustrated portrait, not a photograph.")
@@ -423,6 +447,8 @@ def _ask_images(prompt: str, reference: bytes | None = None) -> tuple[bytes, flo
     import providers
 
     body: dict = {"model": model(), "prompt": prompt}
+    if _shape() in SIZES:
+        body["size"] = SIZES[_shape()]
     if reference:
         url = "data:image/png;base64," + base64.b64encode(reference).decode()
         body["input_references"] = [{"type": "image_url", "image_url": {"url": url}}]
@@ -448,8 +474,11 @@ def _ask_chat(prompt: str, outputs=("image", "text"), reference: bytes | None = 
     if reference:
         url = "data:image/png;base64," + base64.b64encode(reference).decode()
         content = [{"type": "image_url", "image_url": {"url": url}}, {"type": "text", "text": prompt}]
-    reply = _post(_chat_url(), {"model": model(), "modalities": list(outputs), "usage": {"include": True},
-                                "messages": [{"role": "user", "content": content}]})
+    body = {"model": model(), "modalities": list(outputs), "usage": {"include": True},
+            "messages": [{"role": "user", "content": content}]}
+    if _shape():
+        body["image_config"] = {"aspect_ratio": _shape()}
+    reply = _post(_chat_url(), body)
     message = ((reply.get("choices") or [{}])[0]).get("message") or {}
     data_url = next((((i.get("image_url") or {}).get("url")) for i in message.get("images") or []
                      if ((i.get("image_url") or {}).get("url") or "")), None)
@@ -653,7 +682,8 @@ def _made_pictures() -> list[dict]:
     return out
 
 
-def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool = False) -> Path | None:
+def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool = False,
+              aspect: str | None = None, look: str | None = None) -> Path | None:
     """A picture already made of the same thing, in the same style by the same model, showing every part this one
     must label: the best match, or None. So a person, a building or an animal is one picture all through a lecture
     (and the lectures after it), however the script words it each time."""
@@ -661,7 +691,8 @@ def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool 
     best = None
     for row in _made_pictures():
         if row.get("model") != model() or (row.get("style") or None) != (style or None) \
-                or bool(row.get("realistic")) != bool(realistic) or bool(row.get("scene")) != bool(scene):
+                or bool(row.get("realistic")) != bool(realistic) or bool(row.get("scene")) != bool(scene) \
+                or (row.get("aspect") or None) != (aspect or None) or (row.get("look") or None) != (look or None):
             continue
         if not wanted <= {str(p).strip().lower() for p in row.get("parts") or []}:
             continue
@@ -680,7 +711,8 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
         return None
     found = [row for row in _made_pictures()
              if row.get("model") == model() and (row.get("style") or None) == (style or None)
-             and bool(row.get("realistic")) == bool(realistic) and names & _names(str(row["what"]))]
+             and bool(row.get("realistic")) == bool(realistic) and names & _names(str(row["what"]))
+             and (row.get("look") or None) == (_LOCAL.__dict__.get("look") or None)]
     if not found:
         return None
     found.sort(key=lambda row: (bool(row.get("scene")), row["png"].stat().st_mtime))
@@ -688,15 +720,21 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
 
 
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
-             context: str | None = None, scene: bool = False, match: bool = True, kind: str | None = None) -> dict | None:
+             context: str | None = None, scene: bool = False, match: bool = True, kind: str | None = None,
+             aspect: str | None = None, look: str | None = None) -> dict | None:
     """A picture of `what` (see _generate), by the illustration model, or by the diagram model when it names parts
     to label (or kind="diagram"): a labelled picture's parts must be there and right."""
     kind = kind or ("diagram" if any(str(p).strip() for p in parts or []) else "illustration")
     if _COLLECT is not None:
         return _collected(dict(what=what, style=style, realistic=realistic, parts=parts, context=context,
-                               scene=scene, match=match, kind=kind))
-    with using(kind), about(what):
-        return _generate(what, style, realistic, parts, context, scene, match)
+                               scene=scene, match=match, kind=kind, aspect=aspect, look=look))
+    before = getattr(_LOCAL, "aspect", None)
+    _LOCAL.aspect = aspect if aspect in ASPECTS else None
+    try:
+        with using(kind), about(what):
+            return _generate(what, style, realistic, parts, context, scene, match, look)
+    finally:
+        _LOCAL.aspect = before
 
 
 # ---------------- making a compile's pictures at once ----------------
@@ -765,7 +803,8 @@ def prefetch(requests: list[dict]) -> None:
     seen, todo = set(), []
     for request in requests:
         key = (str(request["what"]).strip().lower(), request.get("style"), bool(request.get("realistic")),
-               tuple(request.get("parts") or []), bool(request.get("scene")), request.get("kind"))
+               tuple(request.get("parts") or []), bool(request.get("scene")), request.get("kind"),
+               request.get("aspect"), request.get("look"))
         if key not in seen:
             seen.add(key)
             todo.append(request)
@@ -816,7 +855,8 @@ def prefetch(requests: list[dict]) -> None:
 
 
 def _generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
-              context: str | None = None, scene: bool = False, match: bool = True) -> dict | None:
+              context: str | None = None, scene: bool = False, match: bool = True,
+              look: str | None = None) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -827,18 +867,23 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
 
     if mapguard.is_map(what):
         return None              # a map is drawn on the map (Cartopy), never imagined by a model
-    prompt = prompt_for(what, style, realistic, parts, context, scene)
+    aspect = _shape()
+    look = "child" if look == "child" and not scene and not realistic else None
+    _LOCAL.look = look
+    prompt = prompt_for(what, style, realistic, parts, context, scene, aspect=aspect, look=look)
     # Kept by what it shows (not by the lines said over it, which the prompt also carries): the same thing asked
     # for again, in the same words or others, is the picture already made.
     named = sorted({str(p).strip().lower() for p in parts or [] if str(p).strip()})
     key = hashlib.sha256(f"{model()}|{style or ''}|{bool(realistic)}|{' '.join(sorted(_words(what)))}|"
-                         f"{','.join(named)}{'|scene' if scene else ''}".encode()).hexdigest()[:20]
-    target = CACHE / f"gen-{key}.png"
+                         f"{','.join(named)}{'|scene' if scene else ''}{'|' + aspect if aspect else ''}"
+                         f"{'|' + look if look else ''}".encode()).hexdigest()[:20]
+    # A child's drawing is named so the board knows to draw it on (pocket_lecture.draw_on).
+    target = CACHE / (f"gen-child-{key}.png" if look == "child" else f"gen-{key}.png")
     if not target.exists():
-        same = _reusable(what, style, realistic, parts, scene)
+        same = _reusable(what, style, realistic, parts, scene, aspect, look)
         if same is not None:
             target = same
-            key = same.stem[len("gen-"):]
+            key = same.stem.split("-", 1)[1]
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",
            "license": "generated", "artist": model(), "credit": f"made with {model()}", "prompt": prompt,
            "model": model(), "png": str(target)}
@@ -864,7 +909,8 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     if like is not None:
         try:
             reference = like["png"].read_bytes()
-            prompt = prompt_for(what, style, realistic, parts, context, scene, like=str(like["what"]))
+            prompt = prompt_for(what, style, realistic, parts, context, scene, like=str(like["what"]), aspect=aspect,
+                                look=look)
             row["prompt"] = prompt
             row["like"] = str(like["what"])
         except OSError:
@@ -915,14 +961,15 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     target.write_bytes(data)
     target.with_suffix(".json").write_text(json.dumps({"what": what, "prompt": prompt, "model": used, "style": style,
                                                        "realistic": realistic, "parts": named, "usd": usd,
-                                                       "scene": bool(scene), "like": row.get("like")}))
+                                                       "scene": bool(scene), "like": row.get("like"),
+                                                       "aspect": aspect, "look": look}))
     MADE.append({"path": str(target), "png": str(target), "what": what, "prompt": prompt, "model": used, "usd": usd,
                  "made": True})
     return {**row, "file": str(target), "path": str(target), "usd": usd, "made": True}
 
 
 # ---------------- the book's diagrams, redrawn by the diagram model ----------------
-DIAGRAM_VERSION = 3
+DIAGRAM_VERSION = 4
 
 # How each art style (artstyle.py) is told to the diagram model, so a redrawn figure looks like the rest of the
 # lecture's pictures.
@@ -1003,7 +1050,10 @@ def redraw_prompt(caption: str, style: str | None, context: str | None = None, f
             + (f" YOUR LAST TRY WAS WRONG: {fix.strip()[:600]} Fix exactly that, and keep everything else the same."
                if fix and fix.strip() else "")
         )
-    drawn = ART_LOOKS.get(look["art"], ART_LOOKS["clean"])
+    # A book's diagram redrawn is drawn as a child draws a diagram in a good notebook (CHILD_DIAGRAM), unless
+    # PANIM_REDRAW_LOOK=art asks for the template's art style.
+    drawn = ART_LOOKS.get(look["art"], ART_LOOKS["clean"]) if os.environ.get("PANIM_REDRAW_LOOK") == "art" \
+        else CHILD_DIAGRAM
     what = (caption.strip() or "a diagram")[:160]
     if plain:
         return (f"An educational diagram for a school science lesson: {what}. Make a new, clean illustration of the "
@@ -1015,7 +1065,7 @@ def redraw_prompt(caption: str, style: str | None, context: str | None = None, f
                  else "in a large, plain, clear font")
     return (
         "Make a new, clean EDUCATIONAL ILLUSTRATION for a video lesson from the attached REFERENCE IMAGE (a sketch of "
-        f"a diagram), drawn BEAUTIFULLY as {drawn}: polished, professional, crisp and well made. What it shows: "
+        f"a diagram), drawn as {drawn}: clear and well made. What it shows: "
         f"{what}."
         + (f" WHAT IT IS FOR: {context.strip()[:500]}" if context and context.strip() else "") + note
         + " KEEP THE DIAGRAM FAITHFUL to the reference: the same layout, the same parts in the same places and "

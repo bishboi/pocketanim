@@ -278,8 +278,9 @@ Put your keys in `.env.local`. All of them are optional.
 | `PANIM_ALLOW_NC=1` | Also use non-commercial collections (most OpenStax books). Only for non-commercial lectures. |
 | `PANIM_PACE` | The teaching pace. The voice speaks at its own (1×) speed in every pace; the pace is the pauses. `natural` (the default): 0.3 s after each line, 0.8 s between paragraphs. `relaxed`: 0.7 s and 1.5 s. `slow`: 1.4 s and 2.8 s. A question always leaves 7 s to think. Each line's own silence at either end is trimmed to a breath. |
 | `PANIM_BACKDROP_DRIFT` | `0` stills every drift: the style's background and the slow camera-like drift of a picture on the stage (its labels, boxes and close-ups drift with it). On by default; the phone plays both from the program's `drift` lines. |
-| `PANIM_MOTION_SPEED` | Scales how long every entrance takes (motion.py): `0.5` twice as fast, `2` half as fast. A script can also choose per op: `"enter"` (fade, rise, drop, from-left, from-right, pop, zoom, cascade), `"text_in"` (type, words, write, fade, rise) and `"time"` (seconds). |
 | `PANIM_DIAGRAM_STEPS` | `0` draws a diagram whole as its line begins. By default it starts with its first part and each other part (and the arrow into it) comes on as the line names it. |
+| `PANIM_FULL_SCREEN` | `0` keeps a line's only picture on the stage. By default it fills the screen (made in 16:9; the heading and caption lie over it on soft bands), its labels written on it, and a part named is lit with the rest of the picture shaded. |
+| `PANIM_REDRAW_LOOK` | `art` redraws a book's diagram in the template's art style. By default it is redrawn as a neat child's notebook drawing and drawn on, outline first, as are the small pictures (a diagram's steps, a timeline's events, icons, the emblem). |
 | `PANIM_AI_ILLUSTRATIONS=0` | No AI illustrations. With `OPENROUTER_API_KEY` set, an image model draws one when no library has a picture; `PANIM_IMAGE_MODEL` picks the model and `PANIM_AI_MAX` (6) caps them per lecture. |
 
 ### How a long lecture is made quickly

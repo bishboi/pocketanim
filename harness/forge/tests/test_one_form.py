@@ -114,7 +114,8 @@ def test_only_three_ways_to_a_picture():
     assert "entity" not in beats[1]["do"][0] and "entity" not in beats[1]["do"][1]["columns"][0]
     assert beats[2]["do"][0] == {"op": "illustration", "query": "a red deer in a meadow, side view", "caption": "Deer"}
     assert beats[3]["do"][0]["events"][0][2] == {"generate": "sword"}
-    assert cl._picture_fetch({"generate": "deer"}) == {"op": "illustration", "query": "deer", "optional": True}
+    assert cl._picture_fetch({"generate": "deer"}) == {"op": "illustration", "query": "deer", "optional": True,
+                                                       "aspect": "1:1", "look": "child"}
 
 
 def test_a_timeline_of_one_event_is_a_card_and_of_none_is_left_out():

@@ -340,7 +340,8 @@ def _emblem_op(script: dict) -> dict:
     """The picture op that makes a lecture's emblem: one simple motif for the whole series."""
     what = str(script["emblem"]).strip()[:120]
     # Not drawn to match another picture: an emblem is a motif, not a person already shown.
-    return {"op": "illustration", "query": f"{what}, a simple bold emblem", "optional": True, "_emblem": True}
+    return {"op": "illustration", "query": f"{what}, a simple bold emblem", "optional": True, "_emblem": True,
+            **SMALL_PICTURE}
 
 
 def _emblem_file(script: dict) -> str | None:
@@ -401,16 +402,6 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(v, (int, float)) for v in x))]
                     if len(op["stops"]) < 2:
                         missing.append("two stops")
-                for key, allowed in (("enter", MOTION_ENTER), ("text_in", MOTION_TEXT)):
-                    if op.get(key) is not None and op[key] not in allowed:
-                        notes.append(f"{FIXED}{at}: {key} is one of {', '.join(allowed)}; {op[key]!r} left out")
-                        op.pop(key)
-                if op.get("time") is not None:
-                    try:
-                        op["time"] = round(min(max(float(op["time"]), 0.25), 2.5), 2)
-                    except (TypeError, ValueError):
-                        notes.append(f"{FIXED}{at}: time is seconds; {op['time']!r} left out")
-                        op.pop("time")
                 if kind == "gallery" and op.get("layout") is not None and op["layout"] not in GALLERY_LAYOUTS:
                     notes.append(f"{FIXED}{at}: a gallery's layout is one of {', '.join(GALLERY_LAYOUTS)}; "
                                  f"{op['layout']!r} left out")
@@ -857,6 +848,12 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     if problem:
                         errors.append(f"{at}: {problem}")
                 if kind == "illustration":
+                    if not any(o is not op and isinstance(o, dict) and o.get("op") in STAGE_PICTURES for o in ops):
+                        # The line's only picture: it has the screen to itself (pocket_lecture._full_picture), so it
+                        # is made in the screen's shape, a whole scene unless it is a labelled diagram.
+                        op.setdefault("aspect", "16:9")
+                        if not op.get("diagram") and not _labels_of(op) and not op.get("_emblem"):
+                            op.setdefault("scene", True)
                     photos.append((at, op))
                 if kind == "problem" and isinstance(op.get("figure"), dict) and op["figure"].get("op") == "draw":
                     # A problem's figure described in words: made by the diagram model like any detailed picture.
@@ -951,7 +948,8 @@ def _photo_key(op: dict) -> str:
     if op.get("op") == "illustration":
         scene = "|scene" if op.get("scene") else ""
         diagram = "|diagram" if op.get("diagram") else ""
-        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}{scene}{diagram}"
+        shape = "".join(f"|{op[k]}" for k in ("aspect", "look") if op.get(k))
+        return f"illustration|{op.get('image') or ''}|{op.get('query') or ''}{labelled}{scene}{diagram}{shape}"
     return f"{op.get('image') or ''}|{op.get('query') or ''}|{op.get('subject') or ''}{labelled}"
 
 
@@ -1034,7 +1032,8 @@ def _picture_fetch(spec: dict) -> dict | None:
     if spec.get("query"):
         return {"op": "photo", "query": str(spec["query"]), "optional": True}
     if spec.get("illustration") or spec.get("generate"):
-        return {"op": "illustration", "query": str(spec.get("generate") or spec["illustration"]), "optional": True}
+        return {"op": "illustration", "query": str(spec.get("generate") or spec["illustration"]), "optional": True,
+                **SMALL_PICTURE}
     return None
 
 
@@ -1234,7 +1233,8 @@ def _unfetched_photos(photos: list[tuple[str, dict]], genre: str | None = None, 
         if op.get("op") == "illustration":
             row = images.fetch(op.get("image"), illustration=op.get("query"), genre=genre, style=style,
                                parts=_labels_of(op), context=context, scene=bool(op.get("scene")),
-                               match=not op.get("_emblem"), kind="diagram" if op.get("diagram") else None) \
+                               match=not op.get("_emblem"), kind="diagram" if op.get("diagram") else None,
+                               aspect=op.get("aspect"), look=op.get("look")) \
                 if images.enabled() else None
             if row:
                 script_photos[key] = _with_labels(row, op)
@@ -1385,6 +1385,12 @@ def _maker_problem(op: dict, genre: str | None) -> str | None:
 
 
 GALLERY_MOST = 6
+# The shape and look of a small picture (a diagram's step, a timeline's event, a map's label, an icon, the emblem): a
+# square child's drawing the board draws on, outline first.
+SMALL_PICTURE = {"aspect": "1:1", "look": "child"}
+# What else, on a line, shares the screen with a picture.
+STAGE_PICTURES = {"illustration", "photo", "figure", "gallery", "diagram", "define", "compare", "question", "draw",
+                  "problem", "work", "manim", "molecule", "equation", "timeline", "process", "quote"}
 GALLERY_LAYOUTS = ("spotlight", "grid")
 
 
@@ -1402,8 +1408,9 @@ def _gallery_items(op: dict) -> list[dict]:
         if item.get("figure"):
             out.append({"op": "figure", "id": str(item["figure"]), "caption": caption, "say": say})
         elif item.get("generate") or item.get("illustration"):
+            # Several to a screen: each made in a smaller, squarer shape than a picture alone.
             out.append({"op": "illustration", "query": item.get("generate") or item["illustration"], "caption": caption,
-                        "say": say})
+                        "say": say, "aspect": "4:3", "scene": True})
         elif item.get("subject") or item.get("image") or item.get("query"):
             out.append({"op": "photo", **{k: item[k] for k in ("subject", "image", "query") if item.get(k)},
                         "caption": caption, "say": say})
@@ -1663,7 +1670,7 @@ NOT_SHOWN = {"op", "id", "type", "kind", "diagram", "node", "nodes", "show", "en
              "region", "view", "country", "state", "say", "narration", "intro", "source_text", "figures", "genre",
              "language", "credits", "from_figure", "from_book", "choice", "book_questions", "_index", "_movable", "movable", "parts", "by",
              "about", "heavier", "distance", "back", "anim", "what", "moves", "svg", "_draw_error", "art", "shape",
-             "enter", "text_in", "layout"}
+             "layout"}
 
 
 def _shown_strings(value, key: str = "") -> list[str]:
@@ -2447,7 +2454,7 @@ def _thing_op(name: str) -> dict:
 
     text = _re.sub(r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*):(?=\S)", "", str(name or "").strip())
     text = _re.sub(r"[-_]+", " ", _re.sub(r"^\d+[-_]", "", text)).strip()
-    return {"op": "illustration", "query": text, "optional": True}
+    return {"op": "illustration", "query": text, "optional": True, **SMALL_PICTURE}
 
 
 def _km(a, b) -> float:
@@ -2772,25 +2779,6 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | None:
         index = _choice_index(asked, op.get("choice")) if asked else None
         return asked[index] if index is not None else None
     return None
-
-
-MOTION_KEYS = ("enter", "text_in", "time")
-# The entrances the engine has (motion.py ENTER and TEXT; a test keeps them the same).
-MOTION_ENTER = ("fade", "rise", "drop", "from-left", "from-right", "pop", "zoom", "cascade")
-MOTION_TEXT = ("type", "words", "write", "fade", "rise")
-
-
-def _styled(op: dict, call: str | None) -> str | None:
-    """An op's call with the entrance its script chose (motion.py: `enter`, `text_in` for its words, `time`), if it
-    chose one."""
-    if not call:
-        return call
-    chosen = {k: op[k] for k in MOTION_KEYS if op.get(k) is not None}
-    if not chosen:
-        return call
-    bits = "".join(f", time={float(v):g}" if k == "time" else f", {'text' if k == 'text_in' else k}={_q(str(v))}"
-                   for k, v in chosen.items())
-    return f"self.styled(lambda: {call}{bits})"
 
 
 def _op_call(op: dict) -> str:
@@ -3331,7 +3319,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     parts_named[str(op.get("id"))] = _diagram_labels(op)
                 if op.get("op") == "question":
                     asked = [str(c) for c in op.get("choices") or []]
-                call = _styled(op, _op_call(op))
+                call = _op_call(op)
                 if call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
                     said = _op_said(op, parts_named, asked)

@@ -27,7 +27,7 @@ def test_the_compiler_reports_each_picture_with_its_context(tmp_path, monkeypatc
     cl.script_photos[cl._photo_key({"op": "photo", "subject": "Mahatma Gandhi"})] = {
         "file": str(photo), "title": "File:Gandhi.jpg", "credit": "X, CC BY 4.0, via Wikimedia Commons",
         "license": "CC BY 4.0", "url": "https://commons.wikimedia.org/x"}
-    cl.script_photos[cl._photo_key({"op": "illustration", "query": "leaf cross section"})] = {
+    cl.script_photos[cl._photo_key({"op": "illustration", "query": "leaf cross section", **cl.SMALL_PICTURE})] = {
         "file": str(leaf), "title": "Leaf cross section", "source": "OpenStax", "license": "CC BY 4.0",
         "credit": "OpenStax, CC BY 4.0"}
     script = {"title": "T", "style": "chalkboard", "auto_visuals": False, "place_figures": False, "chapters": [

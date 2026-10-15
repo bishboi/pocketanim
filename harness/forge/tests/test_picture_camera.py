@@ -72,7 +72,7 @@ def _on(scene, mob) -> bool:
     return any(mob is m for top in scene.mobjects for m in top.get_family())
 
 
-def test_labels_come_on_their_words_and_the_camera_moves_in(monkeypatch, photo):
+def test_labels_come_on_their_words_and_the_rest_is_shaded(monkeypatch, photo):
     monkeypatch.setattr(pl, "voice_mode", lambda: "gemini:Achird")
     monkeypatch.setattr(pl, "line_words", lambda text: _timed(text))
     line = "Blood comes into the left atrium first, and much later it leaves through the great aorta at the top."
@@ -81,18 +81,20 @@ def test_labels_come_on_their_words_and_the_camera_moves_in(monkeypatch, photo):
     scene.beat(line, scene.stage_image(photo, "The heart", labels=LABELS))
     starts = [t for t, _, _ in log]
     # The picture as the line begins; "left atrium" (word 5, 1.6 s) and "aorta" (word 15, 6.0 s) on their words,
-    # each with the camera moving in (a baked clip on the phone); the unsaid "right ventricle" after the picture.
+    # each with the rest of the picture shaded round it; the unsaid "right ventricle" after the picture.
     assert starts[0] == 0.0
-    timed = {round(t, 1) for t, _, anims in log if any(_baked(a) for a in anims)}
-    assert 1.4 in timed and 5.8 in timed, log
+    assert {1.4, 5.8} <= {round(t, 1) for t in starts}, log
     view = scene._views[-1]
     assert view["zoom"] == "aorta" and view["revealed"] == {"left atrium", "aorta", "right ventricle"}
-    lens = view["lens"]
-    # The camera's view fills the picture's frame, and only the part it is on is named by a line to it.
+    # The shade: dark panels over the picture all round the aorta's box, none over the part itself; nothing baked.
+    shade = view["lens"]
     image = view["image"]
-    assert lens.width == pytest.approx(image.width, rel=0.02) and lens.height == pytest.approx(image.height, rel=0.02)
-    assert not any(_on(scene, m) for n in view["parts"] for m in scene._pointer_pieces(view["parts"][n]))
-    assert pl.sync_counts([0]).get("looked", 0) >= 2 or scene._views
+    x0, y0, x1, y1 = scene._part_rect(view, view["parts"]["aorta"]["box"])
+    middle = ((x0 + x1) / 2, (y0 + y1) / 2)
+    assert len(shade) >= 2 and all(not (p.get_left()[0] < middle[0] < p.get_right()[0]
+                                        and p.get_bottom()[1] < middle[1] < p.get_top()[1]) for p in shade)
+    assert shade.width <= image.width + 0.01 and not any(_baked(a) for _, _, anims in log for a in anims)
+    assert all(_on(scene, view["parts"][n]["tag"]) for n in view["revealed"])
 
 
 def test_the_camera_draws_out_when_the_narration_moves_on_and_back_in_when_a_part_is_named(monkeypatch, photo):

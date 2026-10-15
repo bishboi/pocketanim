@@ -60,13 +60,38 @@ class Library:
             for f in audio.glob("*") if audio.is_dir() else []:
                 self.files[f"audio/{f.name}"] = f.read_bytes()
             return
-        root = source / "library" if (source / "library" / "library.json").is_file() else source
+        if (source / "library" / "library.json").is_file():
+            root = source / "library"
+        elif (source / "dsl" / "generated").is_dir():
+            # A build not packed for the phone yet (packing happens on Save): its export, read as the library
+            # would hold it -- programs as scenes, the narration as audio.
+            gen = source / "dsl" / "generated"
+            for f in gen.glob("*.panim"):
+                self.files[f"scenes/{f.name}"] = f.read_bytes()
+            for f in gen.glob("*.narration.*"):
+                self.files[f"audio/{f.name}"] = f.read_bytes()
+            for folder in ("assets", "images"):
+                for f in (gen / folder).glob("*") if (gen / folder).is_dir() else []:
+                    if f.is_file():
+                        self.files[f"{folder}/{f.name}"] = f.read_bytes()
+            if (gen / "library.atlas").is_file():
+                self.files["library.atlas"] = (gen / "library.atlas").read_bytes()
+            for f in source.glob("*.py"):
+                self.files[f"source/{f.name}"] = f.read_bytes()
+            return
+        else:
+            root = source
         for f in root.rglob("*"):
             if f.is_file() and not f.name.endswith(".zip"):
                 self.files[str(f.relative_to(root)).replace("\\", "/")] = f.read_bytes()
 
     @property
     def title(self) -> str:
+        for rel, data in self.files.items():
+            if rel.startswith("source/"):
+                found = re.search(r'^"""(.+?):', data.decode("utf-8", "ignore"))
+                if found:
+                    return found.group(1).strip()
         for rel, data in self.files.items():
             if rel.startswith("scenes/") and rel.endswith(".json"):
                 try:
@@ -81,10 +106,13 @@ class Library:
         return self.source.name
 
     def text(self) -> str:
-        return " ".join(d.decode("utf-8", "ignore") for r, d in self.files.items() if r.endswith((".json", ".panim")))
+        return " ".join(d.decode("utf-8", "ignore") for r, d in self.files.items()
+                        if r.endswith((".json", ".panim", ".py")))
 
 
 def kind_of(rel: str) -> str:
+    if rel.startswith("source/"):
+        return "skip"
     if rel.startswith("audio/"):
         return "narration"
     if rel.startswith("images/"):
@@ -166,6 +194,8 @@ def measure(lib: Library) -> dict:
     narration_ext: dict[str, int] = defaultdict(int)
     for rel, data in lib.files.items():
         kind = kind_of(rel)
+        if kind == "skip":
+            continue
         row = kinds[kind]
         row["files"] += 1
         row["bytes"] += len(data)
@@ -255,11 +285,16 @@ def report(rows: list[dict], out=sys.stdout) -> None:
             print(f"  {mb(size):>11}  {dims:>10}  {rel}", file=out)
 
 
+def all_builds() -> list[Path]:
+    """The app's builds in the temp folder, newest first (packed for the phone or not)."""
+    return sorted((p for p in Path(tempfile.gettempdir()).glob("panim-build-*")
+                   if (p / "library").is_dir() or (p / "dsl" / "generated").is_dir()),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+
+
 def latest_builds(count: int, match: str | None) -> list[Path]:
-    builds = sorted((p for p in Path(tempfile.gettempdir()).glob("panim-build-*") if (p / "library").is_dir()),
-                    key=lambda p: p.stat().st_mtime, reverse=True)
     out = []
-    for build in builds:
+    for build in all_builds():
         if match and match.lower() not in Library(build).text().lower():
             continue
         out.append(build)
@@ -278,7 +313,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     sources = list(args.sources) + (latest_builds(args.latest, args.match) if args.latest else [])
     if not sources:
-        ap.error("give build folders, library folders or library.zip files, or --latest N")
+        builds = all_builds()
+        print(f"No lecture to measure. The temp folder ({tempfile.gettempdir()}) has {len(builds)} build(s)"
+              + (f"; none mention {args.match!r}." if args.match and builds else "."), file=sys.stderr)
+        for build in builds[:20]:
+            print(f"  {build}  {Library(build).title}", file=sys.stderr)
+        if builds:
+            print("Run again with no --match, a word from one of those titles, or the folders themselves.",
+                  file=sys.stderr)
+        return 1
     rows = [measure(Library(s)) for s in sources]
     report(rows)
     if args.json:

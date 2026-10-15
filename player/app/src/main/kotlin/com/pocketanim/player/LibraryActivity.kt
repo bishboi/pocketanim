@@ -388,7 +388,10 @@ class LibraryActivity : Activity() {
             }
             runOnUiThread {
                 keeping.remove(lecture.key)
-                result.exceptionOrNull()?.let { say("Could not keep ${lecture.title}: ${it.message}") }
+                result.exceptionOrNull()?.let {
+                    say("Could not keep ${lecture.title}: ${it.message}")
+                    Ui.showError(this, "Could not keep “${lecture.title}”", it)
+                }
                 show()
             }
         }.start()
@@ -412,6 +415,7 @@ class LibraryActivity : Activity() {
                 result.exceptionOrNull()?.let {
                     if (tab == Tab.SAVED) say("Could not reach the saved lectures (showing what was here last): " +
                         "${it.message}")
+                    if (!quiet) Ui.showError(this, "Could not reach the saved lectures", it)
                 }
             }
         }.start()
@@ -491,7 +495,10 @@ class LibraryActivity : Activity() {
                 show()
                 result.fold(
                     onSuccess = { play(Lecture.Imported(dest, name.replace('-', ' ')), fromStart = false) },
-                    onFailure = { say("Could not import $name: ${it.message}") },
+                    onFailure = {
+                        say("Could not import $name: ${it.message}")
+                        Ui.showError(this, "Could not import $name", it)
+                    },
                 )
             }
         }.start()

@@ -25,6 +25,58 @@ import java.util.Locale
  * libraries, so it builds its views itself). Dark throughout, like a video app: the picture is the bright thing.
  */
 object Ui {
+    /**
+     * An error as a report: what was being done, the phone and app, and the whole exception -- its class, message
+     * and stack, through every cause -- so a failure on the phone can be read (and copied) without a cable and
+     * logcat.
+     */
+    fun errorText(context: Context, what: String, error: Throwable): String {
+        val stack = java.io.StringWriter().also { error.printStackTrace(java.io.PrintWriter(it)) }.toString()
+        val version = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "?"
+        return buildString {
+            append(what).append("\n\n")
+            append("${error.javaClass.name}: ${error.message ?: "(no message)"}\n")
+            var cause = error.cause
+            while (cause != null && cause !== cause.cause) {
+                append("caused by ${cause.javaClass.name}: ${cause.message ?: "(no message)"}\n")
+                cause = cause.cause
+            }
+            append("\napp $version · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+            append(" · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\n\n")
+            append(stack)
+        }
+    }
+
+    /** The full error in a dialog: selectable, scrollable, with Copy. [onClose] runs when it is dismissed. */
+    fun showError(activity: android.app.Activity, what: String, error: Throwable, onClose: (() -> Unit)? = null) {
+        if (activity.isFinishing) return
+        val text = errorText(activity, what, error)
+        android.util.Log.e("Pocketanim", text)
+        val body = TextView(activity).apply {
+            setText(text)
+            setTextIsSelectable(true)
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setTextColor(TEXT)
+            val pad = (16 * activity.resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        val scroll = android.widget.ScrollView(activity).apply { addView(body) }
+        android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(what)
+            .setView(scroll)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Pocketanim error", text))
+                android.widget.Toast.makeText(activity, "Error copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .setOnDismissListener { onClose?.invoke() }
+            .show()
+    }
+
     const val BG = 0xFF0E1014.toInt()
     const val SURFACE = 0xFF171A20.toInt()
     const val SURFACE_HIGH = 0xFF20242C.toInt()

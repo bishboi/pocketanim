@@ -236,6 +236,7 @@ class PlayerActivity : Activity() {
                         loading(false)
                         showNotice("Could not play this lecture: ${error.message ?: error.javaClass.simpleName}",
                             action = "Back") { finish() }
+                        Ui.showError(this, "Could not play “${lecture.title}”", error)
                     },
                 )
             }
@@ -308,8 +309,11 @@ class PlayerActivity : Activity() {
             }
             runOnUiThread {
                 val (rate, channels) = format.getOrNull() ?: run {
-                    showNotice("Playing without narration: " +
-                        (format.exceptionOrNull()?.message ?: "it could not be read"))
+                    val why = format.exceptionOrNull()
+                    showNotice("Playing without narration: " + (why?.message ?: "it could not be read"),
+                        action = if (why != null) "Details" else null) {
+                        why?.let { Ui.showError(this, "The narration could not be read ($found)", it) }
+                    }
                     return@runOnUiThread
                 }
                 if (!isFinishing) view.attachAudio(found, rate, channels)
@@ -333,6 +337,14 @@ class PlayerActivity : Activity() {
 
     private fun build(): View {
         view = PanimView(this)
+        // A frame that cannot be drawn: its full error, once (every frame after it would say the same).
+        var frameErrorShown = false
+        view.onFrameError = { index, error ->
+            if (!frameErrorShown && !isFinishing) {
+                frameErrorShown = true
+                Ui.showError(this, "Frame $index of this lecture could not be drawn", error)
+            }
+        }
 
         stage = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         stage.addView(view, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))

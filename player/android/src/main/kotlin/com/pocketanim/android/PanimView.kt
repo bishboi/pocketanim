@@ -54,6 +54,12 @@ class PanimView @JvmOverloads constructor(
     private var audioClock: AudioClock? = null
 
     /** Statistics the throughput gate needs; see docs/SPEC.md §11. */
+    /**
+     * Told (on the UI thread) when a frame could not be made or drawn: the frame is dropped either way, but a
+     * lecture whose frames all fail was a blank screen with the reason only in logcat.
+     */
+    @Volatile var onFrameError: ((Int, Throwable) -> Unit)? = null
+
     @Volatile var framesDrawn: Long = 0L
         private set
     @Volatile var framesSkipped: Long = 0L
@@ -280,6 +286,7 @@ class PanimView @JvmOverloads constructor(
                         // a kept boundary, and the frame after is drawn whole. (A surface going away mid-frame is
                         // one such; an OutOfMemoryError another.)
                         android.util.Log.w("PanimView", "frame $index dropped", e)
+                        onFrameError?.let { report -> post { report(index, e) } }
                         runCatching { active.recover() }
                         drawnKey = Frames.UNKNOWN
                         forceRedraw = true

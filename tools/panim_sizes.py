@@ -157,6 +157,32 @@ def geometry_parts(blob: bytes) -> dict:
     return out
 
 
+def audio_seconds(name: str, data: bytes) -> float | None:
+    """How long a narration file plays: an Ogg (Opus/Vorbis) stream from its last page's granule position, a WAV
+    from its header; None for other kinds."""
+    try:
+        if data[:4] == b"OggS":
+            last = data.rfind(b"OggS")
+            granule = struct.unpack_from("<q", data, last + 6)[0]
+            head = data[:200]
+            rate = 48000 if b"OpusHead" in head else struct.unpack_from("<I", data, head.find(b"vorbis") + 11)[0]
+            return granule / rate if granule > 0 else None
+        if data[:4] == b"RIFF":
+            import wave
+
+            with wave.open(io.BytesIO(data)) as w:
+                return w.getnframes() / float(w.getframerate())
+    except Exception:  # noqa: BLE001 -- a file it cannot read: no length
+        return None
+    return None
+
+
+def clock(seconds: float) -> str:
+    seconds = int(round(seconds))
+    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}" if seconds >= 3600 else \
+        f"{seconds // 60}:{seconds % 60:02d}"
+
+
 def program_parts(text: str) -> dict:
     out: dict[str, int] = defaultdict(int)
     for line in text.splitlines(keepends=True):
@@ -215,6 +241,9 @@ def measure(lib: Library) -> dict:
             images["largest"].append((len(data), rel, dims))
         elif kind == "narration":
             narration_ext[Path(rel).suffix] += len(data)
+            seconds = audio_seconds(rel, data)
+            if seconds:
+                narration_ext["seconds"] = narration_ext.get("seconds", 0) + seconds
     images["largest"] = sorted(images["largest"], reverse=True)[:5]
     total = sum(r["bytes"] for r in kinds.values())
     return {"title": lib.title, "source": str(lib.source), "total": total,
@@ -239,7 +268,9 @@ def report(rows: list[dict], out=sys.stdout) -> None:
         print(f"  {'total':<12} {sum(r['files'] for r in kinds.values()):>6} {mb(total):>11}", file=out)
 
     for row in rows:
-        table(f"{row['title']}  ({row['source']})", row["kinds"], row["total"])
+        seconds = row["narration"].get("seconds")
+        length = f"  [{clock(seconds)}]" if seconds else ""
+        table(f"{row['title']}{length}  ({row['source']})", row["kinds"], row["total"])
     all_kinds = {k: {"files": 0, "bytes": 0, "deflated": 0} for k in KINDS}
     geometry: dict[str, int] = defaultdict(int)
     program: dict[str, int] = defaultdict(int)
@@ -259,6 +290,12 @@ def report(rows: list[dict], out=sys.stdout) -> None:
     if rows:
         print(f"\n  per lecture: {mb(total / len(rows))} on average; the zip (all but narration) "
               f"{mb(sum(r['zip'] for r in rows) / len(rows))}", file=out)
+        timed = [r["narration"]["seconds"] for r in rows if r["narration"].get("seconds")]
+        if timed:
+            spent = sum(timed)
+            print(f"  playing time: {clock(spent)} in all ({len(timed)} of {len(rows)} lectures timed), "
+                  f"{clock(spent / len(timed))} on average; {mb(total / len(rows) / (spent / len(timed) / 60))} "
+                  "per minute", file=out)
     g = all_kinds["geometry"]
     if g["bytes"]:
         print("\nGEOMETRY (assets/*.panm)", file=out)

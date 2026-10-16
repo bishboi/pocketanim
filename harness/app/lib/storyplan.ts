@@ -91,6 +91,8 @@ export const STORY_PLAN_SYSTEM = [
   "    Only questions on the video's last idea go to its closing self-check. Every question listed is placed once.",
   "  - The opening of a video after the first starts with a one-minute look back: a question or two asking the",
   "    student to recall the video before, then its answer.",
+  "  - Each goal is taught once, in its own section. A later video recalls earlier ones in a minute at its start,",
+  "    never teaches them again; only the lecture's last video ends with a short review of the whole lecture.",
   "Facts come from the goals and the book only. Call write_story_plan once.",
 ].join("\n");
 
@@ -104,8 +106,11 @@ export function storyPlanRequest(video: { index: number; of: number; sections: S
     ...(subject ? [`The subject is ${subject}.`, ""] : []),
     `Plan video ${video.index} of ${video.of}.`,
     "",
-    ...(before.length ? ["Earlier videos taught (the student has seen these):",
-      ...before.slice(-8).map((g) => `  ${g.goal}`), ""] : ["This is the first video of the lecture.", ""]),
+    ...(before.length ? ["Earlier videos teach these (the student has seen them; recall in a sentence, never teach again):",
+      ...before.map((g) => `  ${g.goal}`), ""] : ["This is the first video of the lecture.", ""]),
+    `Its length: about ${Math.round(video.sections.reduce((n, s) => n + s.words, 0) / 100)} minutes ` +
+      `(${video.sections.reduce((n, s) => n + s.words, 0)} spoken words), so plan only what fits.`,
+    "",
     "ITS SECTIONS, in order, with the goals each teaches:",
     ...video.sections.flatMap((s) => {
       const goals = map.goals.filter((g) => g.section === s.n);
@@ -115,7 +120,7 @@ export function storyPlanRequest(video: { index: number; of: number; sections: S
     "",
     ...(questions.length ? [`THE BOOK'S QUESTIONS IN THIS VIDEO (${questions.length}; place every one):`,
       ...questions.map(questionLine), ""] : []),
-    ...(after.length ? ["The videos after this one teach (do not teach these):", ...after.slice(0, 6).map((g) => `  ${g.goal}`), ""]
+    ...(after.length ? ["The videos after this one teach (do not teach or preview these):", ...after.map((g) => `  ${g.goal}`), ""]
       : ["This is the last video of the lecture.", ""]),
     "Call write_story_plan now.",
   ].join("\n");
@@ -178,7 +183,10 @@ export function sectionPlanText(plan: StoryPlan, n: number, goals: Goal[], map: 
     `YOUR SECTION (${n}):`,
     first ? `  It OPENS the video: ${plan.opening}` : `  Pick up from: "${own.opensFrom}". Carry on from there, mid-thought: no greeting, ` +
       "no \"now let us talk about\", nothing the section before already said.",
-    `  Guess first: ask "${own.guessFirst}", give the student a moment, then answer it.`,
+    `  Guess first: ask "${own.guessFirst}", let the student think, then answer it.`,
+    own.questions.length ? `  The book's questions you ask (listed below with your part of the book): ${own.questions.join(", ")}. ` +
+      "Every other book question is asked in another section: do not solve it here."
+      : "  You ask none of the book's questions: they are asked in other sections.",
     ...(mine.length ? ["  The goals it teaches, every one (report each in goals_taught with the numbers of the sentences, counted",
       "  from 1 in your text, that teach it):", ...mine.map((g) => `    ${goalLine(g, map.items)}`)] : []),
     last ? `  It CLOSES the video: ${plan.closing}` : `  End on: "${own.handsOn}", left open for the next section to answer. ` +

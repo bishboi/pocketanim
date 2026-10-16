@@ -27,7 +27,7 @@ import { fillManim, freeDrawings, hasManim, needsManim, repairManim, type ManimC
 import { resolvePlaces } from "./mapagent";
 import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
-import { nextVideos, planTopics, type Topic } from "./topics";
+import { OPEN_CLOSE_MINUTES, microMinutes, nextVideos, planTopics, type Topic } from "./topics";
 import { MediaLog, type MediaItem } from "./media";
 import { PREVIEW_MINUTES, SECTION_TOOL, SECTION_TOOL_PLANNED, TRANSITION_TOOL, storyPlanOn, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines, linesOf, numberedSection } from "./lines";
@@ -979,13 +979,15 @@ async function viaOpenRouter(
       sendPlan();
     };
     /** A section's part in its video's plan, for its request ([] without a plan). */
-    const planFor = (n: number): string[] => {
+    const planFor = (section: Section): string[] => {
       if (!map) return [];
-      const plan = plans.get(n);
-      if (plan) return sectionPlanText(plan, n, map.goals, map);
-      const own = map.goals.filter((g) => g.section === n);
-      return own.length ? ["THE GOALS THIS SECTION TEACHES, every one (report each in goals_taught with the numbers of the",
-        "sentences, counted from 1 in your text, that teach it):", ...own.map((g) => `  ${goalLine(g, map!.items)}`)] : [];
+      // Its length: the video's plan and the cut into videos count on it (written past it, videos ran 45 minutes).
+      const length = `  Length: about ${section.words} words (${Math.round(section.words / WORDS_PER_MINUTE)} min); stay close to it.`;
+      const plan = plans.get(section.n);
+      if (plan) return [...sectionPlanText(plan, section.n, map.goals, map), length];
+      const own = map.goals.filter((g) => g.section === section.n);
+      return [...(own.length ? ["THE GOALS THIS SECTION TEACHES, every one (report each in goals_taught with the numbers of the",
+        "sentences, counted from 1 in your text, that teach it):", ...own.map((g) => `  ${goalLine(g, map!.items)}`)] : []), length];
     };
     /** A written section's goals checked: each one it did not report is written in where it fits (one small call
      * each), and counted. */
@@ -1051,7 +1053,7 @@ async function viaOpenRouter(
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: OutMessage[] = [
           cachedSystem(prompt, writer),
-          { role: "user", content: sectionRequest(section, sections.length, prior, note, sections, planFor(section.n)) },
+          { role: "user", content: sectionRequest(section, sections.length, prior, note, sections, planFor(section)) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -1144,7 +1146,7 @@ async function viaOpenRouter(
     const release = (group: Section[]) => {
       const titled = group.map((x) => done.get(x.n)).find((w): w is WrittenSection => !!w);
       const topic: Topic = { index: topics.length + 1, of: 0, sections: group.map((x) => x.n),
-        minutes: Math.round(group.reduce((n, x) => n + x.minutes, 0) * 10) / 10,
+        minutes: Math.round(group.reduce((n, x) => n + (done.has(x.n) ? spokenMinutes(done.get(x.n)!.text) : x.minutes), 0) * 10) / 10,
         // The writer's title of the video's first section ("The Three Orders"), before the book's heading there (a
         // chapter's first heading may be a label: "THEME").
         title: done.get(group[0].n)?.title?.replace(/^Section \d+$/, "") ||
@@ -1209,8 +1211,27 @@ async function viaOpenRouter(
       while (series && nextGroup < videoGroups.length) {
         const group = videoGroups[nextGroup].map((n) => sections.find((x) => x.n === n)).filter((x): x is Section => !!x);
         if (!group.every((x) => done.has(x.n) || failed.includes(x.n))) return;
-        release(group);
-        cursor += group.length;
+        // Written longer than a video holds: cut where the two halves are most even (the plan was for one video,
+        // but a 45-minute video is worse than a story told over two).
+        const length = (xs: Section[]) => xs.reduce((m, x) => m + spokenMinutes(done.get(x.n)?.text ?? ""), 0) + OPEN_CLOSE_MINUTES;
+        const parts = [group];
+        for (let long = parts.findIndex((p) => p.length > 1 && length(p) > microMinutes().max); long >= 0;
+          long = parts.findIndex((p) => p.length > 1 && length(p) > microMinutes().max)) {
+          const p = parts[long];
+          let best = 1;
+          for (let k = 2; k < p.length; k++) {
+            if (Math.max(length(p.slice(0, k)), length(p.slice(k))) < Math.max(length(p.slice(0, best)), length(p.slice(best)))) best = k;
+          }
+          parts.splice(long, 1, p.slice(0, best), p.slice(best));
+        }
+        if (parts.length > 1) {
+          emit({ type: "message", role: "status", text: `Video ${topics.length + 1} was written to about ` +
+            `${Math.round(length(group))} min: made as ${parts.length} videos, cut between sections.` });
+        }
+        for (const part of parts) {
+          release(part);
+          cursor += part.length;
+        }
         nextGroup += 1;
       }
     };

@@ -11,7 +11,7 @@ const NOT_GEO = "concept|mind|heat|flow|tree|bubble|story|site|bit|key|genetic|g
   "pixel|frame|look[- ]?up|hash|tile|bump|shadow|uv|depth|environment|cube|chord|fate|cell";
 const NOT_GEO_MAP = new RegExp(`\\b(?:${NOT_GEO})[\\s-]*maps?\\b`, "gi");
 const MAP = /\bmaps?\b(?!\s+(?:onto|to|into|out|each|every|a\b|an\b|one|the (?:input|domain|values?|points?)|\w+\s+(?:on)?to\b))/i;
-const GEO = /\b(?:atlas|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)/i;
+const GEO = /\b(?:atlas(?![\s-]+(?:style|lecture|look|template|theme))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)/i;
 const DIVISIONS = /\b(?:[Ss]tates|[Pp]rovinces|[Dd]istricts|[Cc]ountries|[Kk]ingdoms|[Cc]olonies) (?:of|in) (?:the )?[A-Z]\w+/;
 const SHAPE = /\b(?:outlines?|shape|borders?|boundar(?:y|ies)|frontiers?|territor(?:y|ies)|extent|coast|spread|expansion|conquests?|voyages?|routes?|journey|march|campaigns?|migrations?)\s+(?:of|between|from|across|through|over|along|around|to|into)\s+(?:the\s+)?(?:(?!an?\b)[a-z]+\s+)?(?!(?:Earth|Sun|Moon|Milky|Solar|Universe|Atom|Cell)\b)[A-Z][a-z]/;
 const ROUTE = /\bfrom\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+to\s+[A-Z][a-z]+/;

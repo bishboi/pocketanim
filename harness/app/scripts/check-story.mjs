@@ -6,7 +6,7 @@
 //   npm run check:story
 import assert from "node:assert/strict";
 
-const { bookSections, sectionRequest, transcriptPrompt } = await import("../lib/transcript.ts");
+const { bookSections, sectionRequest, transcriptPrompt, withoutExercises } = await import("../lib/transcript.ts");
 const { sourceItems, readLearningMap } = await import("../lib/learningmap.ts");
 const { readStoryPlan, sectionPlanText } = await import("../lib/storyplan.ts");
 const { goalsTaught, insertAfterLine } = await import("../lib/coverage.ts");
@@ -72,6 +72,13 @@ assert.match(request, /Big question: Why did rivers make cities\?/);
 assert.match(request, /It OPENS the video/);
 assert.match(request, /goals_taught/);
 assert.doesNotMatch(request, /WHAT THIS PART COVERS/);
+assert.match(request, new RegExp(`The book's questions you ask[^\\n]*${qs[0].id}`), "a section is told its own book questions");
+const quiet = plan.sections.find((x) => !x.questions.length);
+if (quiet) assert.match(sectionPlanText(plan, quiet.section, map.goals, map).join("\n"), /ask none of the book's questions/);
+// A planned section does not see the exercise list (it gets only its own questions, listed).
+assert.equal(withoutExercises("## A\ntext\n## Exercises\n1. Why?\n## B\nmore"), "## A\ntext\n## B\nmore");
+const lastSection = sections[sections.length - 1];
+assert.doesNotMatch(sectionRequest(lastSection, sections.length, [], undefined, sections, ["plan"]), /## Exercises|^1\. Why did farmers/m);
 const unplanned = sectionRequest(sections[0], sections.length, [], undefined, sections);
 assert.match(unplanned, /WHAT THIS PART COVERS/, "an unplanned request keeps its list");
 

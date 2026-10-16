@@ -316,8 +316,10 @@ export const STORYTELLING_PLANNED: string[] = [
   "  - The video is ONE story with ONE big question (from its plan). Every section moves it forward; none starts over.",
   "    Pick up exactly where the section before leaves the student, often mid-thought (\"So the river floods every",
   "    year. And that one fact changed everything.\").",
-  "  - Make them guess before you tell: ask a real question, give them a moment (\"Think for a second: what would you",
-  "    do?\"), then answer it. At least once in every section (the plan names the question).",
+  "  - Make them guess before you tell: ask the plan's question, let them think, then answer it. Once in your",
+  "    section, in fresh words: not the same pause phrase (\"एक पल रुको\", \"think for a second\") section after section.",
+  "  - Teach your own goals. An idea another section or video teaches gets one sentence of recall at most, never",
+  "    explained or worked out again; the book's questions you are not given are asked elsewhere.",
   "  - Use the running example (from the plan) and call back to earlier moments by name (\"remember our farmer?\"):",
   "    callbacks make it one lecture.",
   "  - Concrete before abstract: a scene, an object, a number made tangible (\"as heavy as 40 school bags\"), then",
@@ -506,10 +508,25 @@ export function sectionSource(section: Section, planned = false): string {
     return `WHAT THE REFERENCE SAYS IN PART${section.parts.length > 1 ? "S" : ""} ${section.parts.join(", ")}:\n` +
       section.source.slice(0, 12000);
   }
-  if (section.questionsOnly) return `THE BOOK'S TEXT THESE QUESTIONS COME FROM:\n${section.source.slice(0, 6000)}${questions}`;
-  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}` +
+  // A planned section sees the book's questions it is given, not the whole exercise list: given all of them, two
+  // sections solved the same questions.
+  const source = planned ? withoutExercises(section.source) : section.source;
+  if (section.questionsOnly) return `THE BOOK'S TEXT THESE QUESTIONS COME FROM:\n${source.slice(0, 6000)}${questions}`;
+  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${source.slice(0, 12000)}` +
     `${planned ? "" : coverList(section.source)}${questions}`;
   return "";
+}
+
+/** A part of the book without its exercise blocks (an exercise heading up to the next other heading). */
+export function withoutExercises(source: string): string {
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of String(source ?? "").split("\n")) {
+    const heading = /^#{1,6}\s+(.+)$/.exec(line)?.[1];
+    if (heading !== undefined) skipping = /\b(?:exercises?|questions?|mcqs?|अभ्यास|प्रश्न(?:ावली)?)\b/i.test(heading);
+    if (!skipping) out.push(line);
+  }
+  return out.join("\n").trim();
 }
 
 /** What a part of the book covers: its ideas and its asides, all of which the section teaches. */

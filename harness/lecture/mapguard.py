@@ -22,7 +22,7 @@ _MAP = re.compile(r"\bmaps?\b(?!\s+(?:onto|to|into|out|each|every|a\b|an\b|one|t
                   r"\w+\s+(?:on)?to\b))", re.I)
 _NOT_GEO_MAP = re.compile(rf"\b(?:{_NOT_GEO})[\s-]*maps?\b", re.I)
 _GEO = re.compile(
-    r"\b(?:atlas|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
+    r"\b(?:atlas(?![\s-]+(?:style|lecture|look|template|theme))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
     r"trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)", re.I)
 _DIVISIONS = re.compile(r"\b(?:[Ss]tates|[Pp]rovinces|[Dd]istricts|[Cc]ountries|[Kk]ingdoms|[Cc]olonies) (?:of|in) "
                         r"(?:the )?[A-Z]\w+")

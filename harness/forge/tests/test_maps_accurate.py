@@ -26,7 +26,8 @@ NOT_MAPS = ["A concept map of photosynthesis", "a function maps x to y", "the bo
             "A plant cell in cross-section", "the journey of a Red blood cell", "the shape of the Earth",
             "Mind map of the causes of the First World War", "states of matter: solid, liquid, gas",
             "a heat map of the data", "the water cycle over land and sea", "A volcano in cross-section",
-            "A light ray from air to glass", "the spread of the infection through the body"]
+            "A light ray from air to glass", "the spread of the infection through the body",
+            "A detailed diagram in Atlas style of the human eye and its retina"]
 
 
 @pytest.mark.parametrize("text", MAPS)

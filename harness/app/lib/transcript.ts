@@ -16,6 +16,15 @@ import type { Language } from "./lecture";
 import { bookQuestions, questionLine, questionWords, type BookQuestion } from "./questions";
 import { asidesOf, ideasOf } from "./coverage";
 
+/**
+ * Whether a book's lecture is planned before it is written (learningmap.ts, storyplan.ts): on unless
+ * PANIM_STORY_PLAN=0. A lecture remade from a reference video, or written from typed notes alone, keeps the
+ * reference's order and is written as before.
+ */
+export function storyPlanOn(): boolean {
+  return process.env.PANIM_STORY_PLAN !== "0";
+}
+
 /** Narration words in a minute of finished lecture, at the slow teaching pace with its pauses, questions and cards. */
 export const WORDS_PER_MINUTE = 100;
 const SECTION_MINUTES = 5;
@@ -222,6 +231,34 @@ export const SECTION_TOOL = {
   },
 };
 
+/** write_section for a planned lecture: the same, and the goals of the plan the section taught, by sentence. */
+export const SECTION_TOOL_PLANNED = {
+  type: "function" as const,
+  function: {
+    ...SECTION_TOOL.function,
+    parameters: {
+      ...SECTION_TOOL.function.parameters,
+      properties: {
+        ...SECTION_TOOL.function.parameters.properties,
+        goals_taught: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              goal: { type: "string", description: "The goal's id (\"g4\")." },
+              lines: { type: "array", items: { type: "integer" }, description: "The numbers of the sentences that teach it, counted from 1 in your text." },
+            },
+            required: ["goal", "lines"],
+            additionalProperties: false,
+          },
+          description: "Each of the section's goals, with the sentences that teach it.",
+        },
+      },
+      required: ["section", "title", "text", "taught", "goals_taught"],
+    },
+  },
+};
+
 /**
  * How the teacher sounds: talking to the class as friends ("दोस्तों", "समझे दोस्तों?") and checking in after an
  * idea, in the lecture's language. Hindi words in Devanagari, so the voice reads them as Hindi.
@@ -270,6 +307,65 @@ export const STORYTELLING: string[] = [
   "",
 ];
 
+/**
+ * How a planned lecture is told (storyplan.ts): one story per video, written from its plan, so the rules are about
+ * the telling; what to cover and where the story goes are in the plan.
+ */
+export const STORYTELLING_PLANNED: string[] = [
+  "HOW A GREAT TEACHER TELLS IT:",
+  "  - The video is ONE story with ONE big question (from its plan). Every section moves it forward; none starts over.",
+  "    Pick up exactly where the section before leaves the student, often mid-thought (\"So the river floods every",
+  "    year. And that one fact changed everything.\").",
+  "  - Make them guess before you tell: ask a real question, give them a moment (\"Think for a second: what would you",
+  "    do?\"), then answer it. At least once in every section (the plan names the question).",
+  "  - Use the running example (from the plan) and call back to earlier moments by name (\"remember our farmer?\"):",
+  "    callbacks make it one lecture.",
+  "  - Concrete before abstract: a scene, an object, a number made tangible (\"as heavy as 40 school bags\"), then",
+  "    the term. Everyday life in India is the best source: trains, cricket, the monsoon, the kitchen, the market.",
+  "  - Name the wrong idea students usually hold (the goal says it), let them hold it for a moment, then show why it",
+  "    fails.",
+  "  - Vary the rhythm: a short line after a long explanation. Not every sentence is a fact. Never read out a list.",
+  "  - End your section on something open that the next section answers (the plan says what), never on a summary.",
+  "  - A figure, a map or a table is shown at its moment: say what it shows and why it matters there, and point at",
+  "    the one or two things to look at. The book's questions are asked right after the idea they test, as a check-in.",
+  "  - The story never changes the facts: no invented events, people, quotes, numbers or dates presented as history",
+  "    or science. A scene you imagine is said as imagined (\"imagine...\", \"सोचो...\").",
+  "",
+];
+
+/** How the teacher sounds in a planned lecture: friendly, with check-ins only where a teacher would pause. */
+export function classVoicePlanned(language: Language): string[] {
+  const hindi = "\"दोस्तों\" (never \"बच्चों\"), \"देखो\", \"सोचो ज़रा\", \"समझ में आया?\", \"चलो आगे देखते हैं\"";
+  const english = "\"friends\", \"look at this\", \"think about it\", \"does that make sense?\", \"let's see\"";
+  const words = language === "english" ? english : language === "hindi" || language === "hinglish" ? hindi
+    : `${hindi} in Hindi or Hinglish; ${english} in English`;
+  return [
+    "THE VOICE: a friendly teacher talking to the class as friends. Check in only after a hard step, never as a",
+    `refrain, and never with the same words twice in a row. Words like ${words} are examples, not a list to use.`,
+    "",
+  ];
+}
+
+/** What good narration sounds like: one short passage in each language, for its moves, not its words. */
+export const NARRATION_EXAMPLES: string[] = [
+  "WHAT IT SOUNDS LIKE (two short passages, for how they move: a scene, a guess, the wrong idea, a callback, an open",
+  "end; never copy their words or topics):",
+  "  English: \"Imagine it is five thousand years ago, and you are standing on the bank of the Indus. Every summer",
+  "  the river floods, and everything near it goes under water. Now think for a second: would you build your village",
+  "  here, right next to the danger? Most people say no. But the first farmers chose exactly this spot. Why? Because",
+  "  when the water goes back, it leaves a gift behind: soft, wet, rich soil. Seeds pushed into it grow with little",
+  "  ploughing. One family could now grow more grain than it could eat. That extra grain, the surplus, changed",
+  "  everything. Remember our farmer from the last video? With a surplus in his store, he no longer has to farm every",
+  "  day. So what does he do with his time? Hold that question, because its answer is how the first towns began.\"",
+  "  Hinglish: \"सोचो, तुम एक cricket ball को ज़मीन पर roll करते हो। थोड़ी देर बाद वो रुक जाती है। क्यों? एक second",
+  "  रुको, guess करो। ज़्यादातर लोग कहेंगे, 'ball की force खत्म हो गई।' सदियों तक लोग यही मानते रहे, लेकिन ये",
+  "  गलत है। Ball को कोई चीज़ रोक रही है, और वो है friction, यानी ज़मीन और ball के बीच की रगड़। याद करो, ice पर",
+  "  ball कितनी दूर फिसलती है? बहुत दूर, क्योंकि वहाँ friction बहुत कम है। तो अगर friction बिल्कुल ना हो, तो ball",
+  "  कब रुकेगी? कभी नहीं। यही है inertia। अब सवाल ये है: अगर चीज़ें खुद नहीं रुकतीं, तो bus के अचानक brake",
+  "  लगाने पर हम आगे क्यों गिरते हैं?\"",
+  "",
+];
+
 export function transcriptPrompt(options: {
   sections: Section[];
   minutes: number;
@@ -278,8 +374,10 @@ export function transcriptPrompt(options: {
   subject?: string;
   hasReference: boolean;
   content: string;
+  /** Planned before writing (storyplan.ts): the telling rules for a planned lecture, coverage by the plan's goals. */
+  planned?: boolean;
 }): string {
-  const { sections, hasReference } = options;
+  const { sections, hasReference, planned } = options;
   const range = microMinutes();
   return [
     "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. A later",
@@ -295,12 +393,23 @@ export function transcriptPrompt(options: {
     `     minutes (a minute is about ${WORDS_PER_MINUTE} spoken words). Where each starts and ends is decided from your`,
     "     written transcript, always between sections, and you are then asked for the words that close one video and",
     "     open the next. So write the sections as one continuous lecture, and spend the time where learning needs it.",
-    "  4. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
-    "     and question in it: every heading of its part of the book, every box beside the text, and each of the",
-    "     source's own questions (say which one it is, by its number). Nothing checks this after you: it is yours.",
-    "",
-    ...STORYTELLING,
-    ...classVoice(options.language),
+    ...(planned ? [
+      "  4. COVER EVERYTHING IN THE SOURCE: the lecture's learning goals were planned from every heading, term, box and",
+      "     figure of the book, and each section's request names its own. Teach every goal of yours and report it in",
+      "     goals_taught; a goal left out is written in afterwards, where it fits less well. Ask each of the book's",
+      "     questions your section is given (say which one it is, by its number).",
+      "",
+      ...STORYTELLING_PLANNED,
+      ...classVoicePlanned(options.language),
+      ...NARRATION_EXAMPLES,
+    ] : [
+      "  4. COVER EVERYTHING IN THE SOURCE: every idea, definition, law, fact, figure, table, example, box or aside,",
+      "     and question in it: every heading of its part of the book, every box beside the text, and each of the",
+      "     source's own questions (say which one it is, by its number). Nothing checks this after you: it is yours.",
+      "",
+      ...STORYTELLING,
+      ...classVoice(options.language),
+    ]),
     "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
     "  - A voice speaks it, so write only the words said: no headings, bullet lists, [brackets] or stage directions,",
     "    and say formulas and symbols the way they are spoken.",
@@ -388,7 +497,7 @@ function neighbours(section: Section, all: Section[], written: WrittenSection[])
   return lines.length ? ["BEING WRITTEN AT THE SAME TIME, NOT YOURS TO TEACH (do not explain or preview these):", ...lines, ""] : [];
 }
 
-export function sectionSource(section: Section): string {
+export function sectionSource(section: Section, planned = false): string {
   const questions = section.questions?.length
     ? `\nTHE SOURCE'S QUESTIONS IN THIS SECTION (${section.questions.length}; every one taken up):\n` +
       section.questions.map(questionLine).join("\n")
@@ -398,7 +507,8 @@ export function sectionSource(section: Section): string {
       section.source.slice(0, 12000);
   }
   if (section.questionsOnly) return `THE BOOK'S TEXT THESE QUESTIONS COME FROM:\n${section.source.slice(0, 6000)}${questions}`;
-  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}${coverList(section.source)}${questions}`;
+  if (section.book) return `THE PART OF THE BOOK THIS SECTION TEACHES:\n${section.source.slice(0, 12000)}` +
+    `${planned ? "" : coverList(section.source)}${questions}`;
   return "";
 }
 
@@ -412,7 +522,7 @@ function coverList(source: string): string {
 }
 
 export function sectionRequest(section: Section, count: number, written: WrittenSection[], note?: string,
-  all: Section[] = []): string {
+  all: Section[] = [], plan: string[] = []): string {
   // Sections are written a few at a time: the one just before this may still be on its way.
   const last = written.find((w) => w.n === section.n - 1);
   const tail = last ? last.text.slice(-1500) : "";
@@ -432,7 +542,8 @@ export function sectionRequest(section: Section, count: number, written: Written
         : section.questionsOnly ? ", which takes up more of the source's questions, listed below"
         : section.book ? ", which teaches its part of the book, given below" : "") +
       `. Call write_section once, with section: ${section.n} and the full text.`,
-    ...(sectionSource(section) ? ["", sectionSource(section)] : []),
+    ...(plan.length ? ["", ...plan] : []),
+    ...(sectionSource(section, plan.length > 0) ? ["", sectionSource(section, plan.length > 0)] : []),
     ...(note ? ["", `Your last try at section ${section.n} was sent back: ${note}`] : []),
   ].join("\n");
 }

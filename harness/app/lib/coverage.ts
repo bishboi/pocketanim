@@ -67,3 +67,71 @@ export function ideasOf(source: string): Idea[] {
   for (const m of text.matchAll(/\*\*([^*\n]{2,80})\*\*|__([^_\n]{2,80})__/g)) add("term", m[1] ?? m[2]);
   return out;
 }
+
+/**
+ * The coverage check of a planned lecture (learningmap.ts, storyplan.ts), done by code: each section reports the
+ * goals it taught (write_section "goals_taught", by sentence number); a goal of the section's it did not report is
+ * written in by a small patch (PATCH_TOOL, patchRequest) where it fits, and the lecture's count is shown.
+ */
+
+/** The goal ids a section reports as taught, kept only when they are its own and name a sentence it has. */
+export function goalsTaught(raw: unknown, own: string[], sentences: number): string[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = new Set<string>();
+  for (const item of list) {
+    const goal = String((item as { goal?: unknown })?.goal ?? item ?? "").trim();
+    const lines = (item as { lines?: unknown })?.lines;
+    const named = Array.isArray(lines) ? lines.map(Number).filter((n) => n >= 1 && n <= sentences) : [];
+    if (own.includes(goal) && (named.length || !Array.isArray(lines))) out.add(goal);
+  }
+  return [...out];
+}
+
+export const PATCH_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "write_patch",
+    description: "Save the words that teach a goal the section left out, and the sentence they follow.",
+    parameters: {
+      type: "object",
+      properties: {
+        after_line: { type: "integer", description: "The number of the sentence the words follow." },
+        text: { type: "string", description: "The words to add: only what the teacher says, a few sentences." },
+      },
+      required: ["after_line", "text"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** The request for a patch: the section's numbered sentences, the goal it missed, and its part of the book. */
+export function patchRequest(numbered: string, goal: string, source: string): string {
+  return [
+    "A section of a video lecture's transcript, its sentences numbered:",
+    numbered,
+    "",
+    `It was to teach this goal and did not: ${goal}`,
+    "",
+    "Its part of the book:",
+    source.slice(0, 6000),
+    "",
+    "Write the few sentences that teach it, in the section's own voice and language, from the book's facts only, and",
+    "say after which sentence they go: where they fit the flow, not at the very end. Call write_patch once.",
+  ].join("\n");
+}
+
+/** The section's text with `addition` after its sentence number `after` (1-based, as linesOf numbers them); after
+ * the last paragraph's first sentence when the number is not found, so the section still ends on its hand-off. */
+export function insertAfterLine(text: string, lines: string[], after: number, addition: string): string {
+  const words = addition.trim();
+  if (!words) return text;
+  const line = lines[Math.max(0, Math.min(lines.length, after) - 1)];
+  const at = line ? text.indexOf(line) : -1;
+  if (at >= 0) {
+    const end = at + line.length;
+    return `${text.slice(0, end)} ${words}${text.slice(end)}`;
+  }
+  const paragraphs = text.split(/\n\s*\n/);
+  paragraphs.splice(Math.max(0, paragraphs.length - 1), 0, words);
+  return paragraphs.join("\n\n");
+}

@@ -29,8 +29,11 @@ import type { BookQuestion } from "./questions";
 import { joinParts, maxVideoMinutes, splitByTopics, splitLecture, topicPart, type LecturePart } from "./parts";
 import { nextVideos, planTopics, type Topic } from "./topics";
 import { MediaLog, type MediaItem } from "./media";
-import { PREVIEW_MINUTES, SECTION_TOOL, TRANSITION_TOOL, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptSections, type Section, type WrittenSection } from "./transcript";
-import { fillLines, linesOf } from "./lines";
+import { PREVIEW_MINUTES, SECTION_TOOL, SECTION_TOOL_PLANNED, TRANSITION_TOOL, storyPlanOn, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptSections, type Section, type WrittenSection } from "./transcript";
+import { fillLines, linesOf, numberedSection } from "./lines";
+import { LEARNING_MAP_SYSTEM, LEARNING_MAP_TOOL, goalLine, learningMapRequest, readLearningMap, sourceItems, type LearningMap } from "./learningmap";
+import { STORY_PLAN_SYSTEM, STORY_PLAN_TOOL, readStoryPlan, sectionPlanText, storyPlanRequest, type StoryPlan } from "./storyplan";
+import { PATCH_TOOL, goalsTaught, insertAfterLine, patchRequest } from "./coverage";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, runTool } from "./agent";
 
@@ -833,6 +836,8 @@ async function viaOpenRouter(
   let planned: Section[] = [];
   // The book's own questions (exercises, MCQs): every one explained, each option marked (questions.ts).
   let bookQs: BookQuestion[] = [];
+  // A planned lecture's moments for the picture (storyplan.ts): per section, what its scenes show on the stage.
+  const storyCues = new Map<number, string[]>();
   // A long lecture as a series of videos of 25-30 min (topics.ts). Where each starts and ends is decided from the
   // written transcript as its sections come in (their real length), always between sections, and the writer then
   // writes the words that close one video and open the next: no video is ever cut after it is made.
@@ -866,14 +871,139 @@ async function viaOpenRouter(
         (bookQs.length ? `; its ${bookQs.length} question${bookQs.length > 1 ? "s" : ""}${mcqs ? ` (${mcqs} multiple-choice)` : ""} ` +
           "covered too." : ".") });
     }
-    const prompt = transcriptPrompt({
+    // A book's lecture is planned before it is written (learningmap.ts, storyplan.ts): its goals, then each video's
+    // story, then its sections from that plan, and each section's goals checked as it comes in.
+    const planOn = storyPlanOn() && fromBook && !reference?.parts?.length;
+    const transcriptPromptFor = (planned: boolean) => transcriptPrompt({
       sections, minutes, language, languageRules: languagePrompt(language), subject: subject?.label,
-      hasReference: !!reference?.parts?.length,
+      hasReference: !!reference?.parts?.length, planned,
       // The book's text is already in its sections; only what was typed goes in beside it.
       content: fromBook ? request.content : `${request.content}\n${doc?.markdown ?? ""}`,
     });
+    let prompt = transcriptPromptFor(planOn);
     emit({ type: "input", role: "system", text: prompt });
     const writer = transcriptModel(request.transcriptModel);
+    // How hard the writer thinks (PANIM_TRANSCRIPT_EFFORT): medium for a planned lecture, the default otherwise.
+    const transcriptEffort = process.env.PANIM_TRANSCRIPT_EFFORT || (planOn ? "medium" : undefined);
+    let map: LearningMap | null = null;
+    const plans = new Map<number, StoryPlan>();                 // each section's video plan, by section number
+    // The videos a planned lecture is made as, decided before writing (each video's story is planned whole):
+    // the sections of each, by number.
+    let videoGroups: number[][] = planOn
+      ? (series ? planTopics(sections).map((t) => t.sections) : [sections.map((x) => x.n)]) : [];
+    const coverage = { planned: 0, taught: 0, patched: 0, missing: [] as string[] };
+    /** One call that answers with a tool (the map, a video's plan, a patch): its arguments, or null. */
+    const askTool = async (system: string, content: string, tool: unknown, what: string): Promise<Record<string, unknown> | null> => {
+      try {
+        const result = await completionWithRetry(key, writer, [{ role: "system", content: system }, { role: "user", content }],
+          emit, () => {}, [tool as ToolSpec], undefined, "required", transcriptEffort);
+        const addedIn = result.usage?.prompt_tokens ?? 0;
+        const addedOut = result.usage?.completion_tokens ?? 0;
+        inputTokens += addedIn;
+        outputTokens += addedOut;
+        costUsd = ledger.bill("transcript", Number(result.usage?.cost ?? 0), { inputTokens: addedIn, outputTokens: addedOut,
+          span: result.span, detail: { step: what, model: writer } });
+        for (const call of result.message.tool_calls ?? []) {
+          try {
+            return JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+          } catch {}
+        }
+        return null;
+      } catch (error) {
+        if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
+        emit({ type: "message", role: "status", text: `Transcript: the ${what} could not be made ` +
+          `(${error instanceof Error ? error.message.slice(0, 140) : String(error)}).` });
+        return null;
+      }
+    };
+    /** Before any section is written: the learning map, then every video's story plan at once. */
+    const planLecture = async () => {
+      if (!planOn) return;
+      const items = sourceItems(sections);
+      emit({ type: "message", role: "status", text: `Planning: the learning goals of the ${items.length} headings, terms, ` +
+        "boxes and figures of the book, before anything is written." });
+      const raw = await askTool(LEARNING_MAP_SYSTEM, learningMapRequest(sections, items, subject?.label), LEARNING_MAP_TOOL,
+        "learning map");
+      if (!raw) {
+        // No map: written as before, from the book's parts.
+        prompt = transcriptPromptFor(false);
+        videoGroups = [];
+        return;
+      }
+      map = readLearningMap(raw, items, sections);
+      emit({ type: "message", role: "status", text: `Learning map: ${map.goals.length} goals from the book's ${items.length} ` +
+        `items${map.added ? ` (${map.added} added for items the map left out)` : ""}.` });
+      emit({ type: "tool_result", name: "write_learning_map", text: map.goals.map((g) => goalLine(g, map!.items)).join("\n") });
+      const videos = videoGroups.map((ns, k) => ({ index: k + 1, of: videoGroups.length,
+        sections: ns.map((n) => sections.find((x) => x.n === n)).filter((x): x is Section => !!x) }));
+      const replies = await Promise.all(videos.map((video) => {
+        const qs = video.sections.flatMap((x) => x.questions ?? []);
+        return askTool(STORY_PLAN_SYSTEM, storyPlanRequest(video, map!, qs, subject?.label), STORY_PLAN_TOOL,
+          `story plan of video ${video.index}`).then((reply) => reply ? readStoryPlan(reply, video, qs) : null);
+      }));
+      const byId = new Map(bookQs.map((q) => [q.id, q]));
+      replies.forEach((plan, k) => {
+        if (!plan) return;
+        for (const own of plan.sections) {
+          plans.set(own.section, plan);
+          storyCues.set(own.section, [
+            "THE STORY'S MOMENTS IN THIS SECTION (from the lecture's plan), for the stage:",
+            ...(plan.sections[0]?.section === own.section ? [`  The video's big question, asked near its start: put it on ` +
+              `the stage as a question when it is asked ("${plan.bigQuestion}").`] : []),
+            ...(own.guessFirst ? [`  The student is asked to guess ("${own.guessFirst}"): show it as a question on the stage ` +
+              "when it is asked, and the answer when the transcript gives it."] : []),
+            ...(plan.runningExample ? [`  The running example (${plan.runningExample}): when the transcript comes back to it, ` +
+              "show the same picture of it as before, not a new one."] : []),
+          ]);
+          // The book's questions go to the section the plan asks them in.
+          const at = sections.findIndex((x) => x.n === own.section);
+          if (at >= 0) sections[at] = { ...sections[at], questions: own.questions.map((id) => byId.get(id)).filter((q): q is BookQuestion => !!q) };
+        }
+        emit({ type: "message", role: "status", text: `Story plan, video ${k + 1}: "${plan.bigQuestion}"` +
+          (plan.runningExample ? `; running example: ${plan.runningExample}` : "") + "." });
+      });
+      // A section of only the book's questions whose questions the plan asked elsewhere is not written.
+      const empty = sections.filter((x) => x.questionsOnly && !(x.questions ?? []).length).map((x) => x.n);
+      if (empty.length) {
+        for (const n of empty) sections.splice(sections.findIndex((x) => x.n === n), 1);
+        videoGroups = videoGroups.map((ns) => ns.filter((n) => !empty.includes(n))).filter((ns) => ns.length);
+      }
+    };
+    /** A section's part in its video's plan, for its request ([] without a plan). */
+    const planFor = (n: number): string[] => {
+      if (!map) return [];
+      const plan = plans.get(n);
+      if (plan) return sectionPlanText(plan, n, map.goals, map);
+      const own = map.goals.filter((g) => g.section === n);
+      return own.length ? ["THE GOALS THIS SECTION TEACHES, every one (report each in goals_taught with the numbers of the",
+        "sentences, counted from 1 in your text, that teach it):", ...own.map((g) => `  ${goalLine(g, map!.items)}`)] : [];
+    };
+    /** A written section's goals checked: each one it did not report is written in where it fits (one small call
+     * each), and counted. */
+    const coverSection = async (section: Section, text: string, reported: unknown): Promise<string> => {
+      if (!map) return text;
+      const own = map.goals.filter((g) => g.section === section.n);
+      if (!own.length) return text;
+      const taught = goalsTaught(reported, own.map((g) => g.id), linesOf(text).length);
+      coverage.planned += own.length;
+      coverage.taught += taught.length;
+      for (const goal of own.filter((g) => !taught.includes(g.id))) {
+        const lines = linesOf(text);
+        const patch = await askTool("You add a few sentences to a lecture's transcript, in its own voice.",
+          patchRequest(numberedSection({ n: section.n, title: "", text }), goalLine(goal, map.items), section.source),
+          PATCH_TOOL, `patch for ${goal.id} in section ${section.n}`);
+        const words = cleanSection(String(patch?.text ?? ""));
+        if (!words) {
+          coverage.missing.push(goal.id);
+          continue;
+        }
+        text = insertAfterLine(text, lines, Number(patch?.after_line) || lines.length, words);
+        coverage.patched += 1;
+        emit({ type: "message", role: "status", text: `Coverage: section ${section.n} left out ${goal.id} ` +
+          `("${goal.goal.slice(0, 80)}"); written in after its sentence ${Number(patch?.after_line) || lines.length}.` });
+      }
+      return text;
+    };
     emit({ type: "message", role: "status",
       text: `Transcript by ${writer}; the video (pictures and Manim) by ${model}. ` +
         describeProviders({ transcript: writer, video: model, ...(manimModel() ? { Manim: manimModel()! } : {}) }) });
@@ -908,7 +1038,7 @@ async function viaOpenRouter(
         // A fresh request per section: the same system prompt (cached by the provider) and one short ask.
         const talk: OutMessage[] = [
           cachedSystem(prompt, writer),
-          { role: "user", content: sectionRequest(section, sections.length, prior, note, sections) },
+          { role: "user", content: sectionRequest(section, sections.length, prior, note, sections, planFor(section.n)) },
         ];
         const abort = new AbortController();
         let why: "silent" | "stalled" | null = null;
@@ -925,7 +1055,7 @@ async function viaOpenRouter(
             lastDelta = Date.now();
             if (kind === "thinking") state.thinking = true;
             else state.words += (text.match(/\s+/g) ?? []).length;
-          }, [SECTION_TOOL], abort.signal, "required");
+          }, [map ? SECTION_TOOL_PLANNED : SECTION_TOOL], abort.signal, "required", transcriptEffort);
         } catch (error) {
           if (error instanceof ProviderAuthError) throw error;     // a refused key is refused again: stop
           if (stopped()) return null;
@@ -954,13 +1084,16 @@ async function viaOpenRouter(
         let title = "";
         let text = "";
         let taught: string[] = [];
+        let goals: unknown = [];
         for (const call of result.message.tool_calls ?? []) {
           try {
-            const args = JSON.parse(call.function.arguments || "{}") as { title?: string; text?: string; taught?: unknown };
+            const args = JSON.parse(call.function.arguments || "{}") as { title?: string; text?: string; taught?: unknown;
+              goals_taught?: unknown };
             if (String(args.text ?? "").trim().length > text.length) {
               text = String(args.text).trim();
               title = String(args.title ?? "");
               taught = taughtNotes(args.taught);
+              goals = args.goals_taught;
             }
           } catch {}
         }
@@ -981,7 +1114,9 @@ async function viaOpenRouter(
               `sentence${cleaned.dropped.length > 1 ? "s" : ""} said before taken out (${cleaned.dropped.slice(0, 2)
                 .map((d) => `"${d.slice(0, 60)}"`).join(", ")}${cleaned.dropped.length > 2 ? ", ..." : ""}).` });
           }
-          return { n: section.n, title: title || `Section ${section.n}`, text: cleaned.text, taught };
+          // A planned section's goals: each one it left out is written in now, before its scenes are made.
+          const covered = await coverSection(section, cleaned.text, goals);
+          return { n: section.n, title: title || `Section ${section.n}`, text: covered, taught };
         }
         note = problem;
       }
@@ -1055,10 +1190,22 @@ async function viaOpenRouter(
       if (!fresh || sameParagraph(fresh, where === "start" ? w.text.split(/\n\s*\n/)[0] : w.text.split(/\n\s*\n/).pop() ?? "")) return;
       done.set(n, { ...w, text: where === "end" ? `${w.text}\n\n${fresh}` : `${fresh}\n\n${w.text}` });
     };
+    /** A planned lecture's videos (decided before writing), each released once all its sections are in. */
+    let nextGroup = 0;
+    const releasePlanned = () => {
+      while (series && nextGroup < videoGroups.length) {
+        const group = videoGroups[nextGroup].map((n) => sections.find((x) => x.n === n)).filter((x): x is Section => !!x);
+        if (!group.every((x) => done.has(x.n) || failed.includes(x.n))) return;
+        release(group);
+        cursor += group.length;
+        nextGroup += 1;
+      }
+    };
     /** Every video the sections written so far decide, in order (one call at a time). */
     const planVideos = () => (planning = planning.then(async () => {
       try {
-        await decideVideos();
+        if (videoGroups.length) releasePlanned();
+        else await decideVideos();
       } catch (error) {
         halted = halted ?? error;
       }
@@ -1126,6 +1273,7 @@ async function viaOpenRouter(
     // there (writtenQueue), not when the last section is. Its end, or its failure, is transcriptDone.
     transcriptDone = (async () => {
       try {
+        await planLecture();
         await Promise.all(Array.from({ length: Math.min(PARALLEL, sections.length) }, worker));
       } finally {
         clearInterval(progress);
@@ -1153,6 +1301,12 @@ async function viaOpenRouter(
       emit({ type: "message", role: "status",
         text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min).` });
       mark("transcript written");
+      if (map && coverage.planned) {
+        emit({ type: "message", role: "status", text: `Coverage: ${coverage.planned - coverage.missing.length} of ` +
+          `${coverage.planned} learning goals taught (${coverage.taught} as written` +
+          (coverage.patched ? `, ${coverage.patched} written in afterwards` : "") + ")" +
+          (coverage.missing.length ? `; not taught: ${coverage.missing.join(", ")}.` : ".") });
+      }
       for (const topic of topics) {
         if (!topic.title) topic.title = written.find((w) => w.n === topic.sections[0])?.title ?? "";
       }
@@ -1592,6 +1746,7 @@ async function viaOpenRouter(
         first ? "This is the first section: the script also has the lecture's title, sub and intro."
           : "Give the script a title (only the first section's is used) and no intro.",
         ...seriesDuties(section.n, last),
+        ...(storyCues.has(section.n) ? ["", ...storyCues.get(section.n)!, ""] : []),
         ...(request.preview ? ["PREVIEW: this short lecture shows how the whole one will look. Include, where the " +
           "content allows, one chapter on the map and one with a diagram, besides the pictures, so each kind can be " +
           "judged."] : []),

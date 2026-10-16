@@ -1,0 +1,7 @@
+.cache/
+__pycache__/
+data/historical/
+data/icons/
+data/illustrations/
+data/geonames/
+media/

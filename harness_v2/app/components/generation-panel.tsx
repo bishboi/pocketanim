@@ -14,22 +14,24 @@ import { solidKind } from "./figures-panel";
 import type { Selection } from "./panels";
 
 const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
-const GENERATED = ["exact", "styled", "svg", "manim"];
+const GENERATED = ["exact", "styled", "svg", "manim", "map"];
 
-export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultManimModel, select, onCall, act }: {
-  run: Run; defaultModel: string; defaultSvgModel: string; defaultManimModel: string; select: (s: Selection) => void; onCall: (id: string) => void;
+export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultManimModel, defaultMapModel, select, onCall, act }: {
+  run: Run; defaultModel: string; defaultSvgModel: string; defaultManimModel: string; defaultMapModel: string; select: (s: Selection) => void; onCall: (id: string) => void;
   act: (body: Record<string, unknown>) => Promise<boolean>;
 }) {
   const gen = run.generation;
   const [model, setModel] = useState(gen?.model || defaultModel);
   const [svgModel, setSvgModel] = useState(gen?.svgModel || defaultSvgModel);
   const [manimModel, setManimModel] = useState(gen?.manimModel || defaultManimModel);
+  const [mapModel, setMapModel] = useState(gen?.mapModel || defaultMapModel);
   useEffect(() => {
     setModel(run.generation?.model || defaultModel);
     setSvgModel(run.generation?.svgModel || defaultSvgModel);
     setManimModel(run.generation?.manimModel || defaultManimModel);
+    setMapModel(run.generation?.mapModel || defaultMapModel);
   }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const models = { model, svgModel, manimModel };
+  const models = { model, svgModel, manimModel, mapModel };
   const wayOf = (id: string) => {
     const f = run.triage?.figures[id];
     return f?.override ?? (f?.status === "done" ? f.kind : undefined);
@@ -50,14 +52,16 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
   return (
     <div className="space-y-3" data-testid="generation">
       <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
-        <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws, SVG drawings and Manim</h3>
+        <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws, SVG drawings, Manim and maps</h3>
         <p className="mb-2 text-xs text-neutral-400">Each figure triaged <b>Exact redraw</b> or <b>Styled redraw</b> is redrawn by the image model from the
           book&apos;s figure (sent as the reference image), with no text in it (labels are put on later), in gentle words that moderation lets through
           (gentler still, then without the reference, when it blocks one). Styled uses the same prompt for now: there are no lecture styles yet.
           Each figure triaged <b>SVG drawing</b> is drawn by the SVG model from the figure itself, in one call, with v1&apos;s SVG prompt; code checks it
           against v1&apos;s rules and sends what breaks them back once. It is shown on v1&apos;s default board. Each figure triaged <b>Manim</b> is
           written in Manim by the Manim model from the figure itself, in one call, with v1&apos;s Manim rules, and rendered here with the repo&apos;s Manim:
-          its last frame and its video (a failed render goes back to the model once, with the error).
+          its last frame and its video (a failed render goes back to the model once, with the error). Each figure triaged <b>Map</b> is written
+          by the map model from the book&apos;s map, in one call, as a short map script (region and a few beats of map operations, v1&apos;s), drawn
+          on real map data by v2&apos;s lecture engine and rendered the same way.
           The other ways are built by steps to come{others.length ? ` (${others.length} figure(s) here: ${[...new Set(others.map((b) => choiceOf(wayOf(b.id))?.label))].join(", ")})` : ""}.</p>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-400">Image model</span>
@@ -69,6 +73,9 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
           <span className="text-neutral-400">Manim model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={manimModel}
             title="Reads the figure and writes its Manim code, in one call" onChange={(e) => setManimModel(e.target.value)} data-testid="manim-model" />
+          <span className="text-neutral-400">Map model</span>
+          <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={mapModel}
+            title="Reads the book's map and writes its map script, in one call" onChange={(e) => setMapModel(e.target.value)} data-testid="map-model" />
           <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} disabled={!figures.length || busyCount === figures.length} data-testid="generate-run"
             onClick={() => act({ action: "run", ...models })}>{done && done < figures.length ? `Generate the ${figures.length - done} left` : "Generate"}</button>
           <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={!figures.length || busyCount === figures.length} data-testid="generate-reset"
@@ -82,11 +89,11 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
           {gen ? gen.status : "not generated yet"}</span>
         <span>{done} of {figures.length} generated</span>
         {failed > 0 && <span className="text-red-300">{failed} failed</span>}
-        {gen && <span>{gen.rounds} run{gen.rounds === 1 ? "" : "s"} · {gen.model}{gen.svgModel ? ` · ${gen.svgModel}` : ""}{gen.manimModel ? ` · ${gen.manimModel}` : ""}</span>}
+        {gen && <span>{gen.rounds} run{gen.rounds === 1 ? "" : "s"} · {gen.model}{gen.svgModel ? ` · ${gen.svgModel}` : ""}{gen.manimModel ? ` · ${gen.manimModel}` : ""}{gen.mapModel ? ` · ${gen.mapModel}` : ""}</span>}
         <span className="font-semibold">{money(cost)}</span>
       </div>
       {gen?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{gen.error}</p>}
-      {!figures.length && <p className="text-sm text-neutral-400">No figure is triaged Exact redraw, Styled redraw, SVG drawing or Manim. Change a figure&apos;s way on the Figures tab, or triage again.</p>}
+      {!figures.length && <p className="text-sm text-neutral-400">No figure is triaged Exact redraw, Styled redraw, SVG drawing, Manim or Map. Change a figure&apos;s way on the Figures tab, or triage again.</p>}
 
       <ul className="space-y-3">
         {figures.map((b) => {
@@ -119,12 +126,12 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
                   <img alt={b.id} className="max-h-72 w-full rounded bg-white object-contain" src={`/api/documents/${run.documentId}/figure/${encodeURIComponent(b.id)}`} />
                 </figure>
                 <figure>
-                  <figcaption className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">{kind === "svg" ? "SVG drawing (on v1's default board)" : kind === "manim" ? "Manim (its last frame; the video below)" : "Generated"}
-                    {lastCall?.provider === "fixture" ? (kind === "svg" || kind === "manim" ? " (offline stand-in)" : " (offline stand-in: the book's figure back)") : ""}</figcaption>
+                  <figcaption className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">{kind === "svg" ? "SVG drawing (on v1's default board)" : kind === "manim" ? "Manim (its last frame; the video below)" : kind === "map" ? "Map (its last frame; the video below)" : "Generated"}
+                    {lastCall?.provider === "fixture" ? (kind === "svg" || kind === "manim" || kind === "map" ? " (offline stand-in)" : " (offline stand-in: the book's figure back)") : ""}</figcaption>
                   {f?.url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img alt={`${b.id} generated`} className={`max-h-72 w-full rounded object-contain ${kind === "svg" || kind === "manim" ? "bg-[#0D1117]" : "bg-white"}`} src={f.url}
-                      data-testid={kind === "svg" ? "generated-svg" : kind === "manim" ? "generated-manim" : "generated-image"} />
+                    <img alt={`${b.id} generated`} className={`max-h-72 w-full rounded object-contain ${kind === "svg" || kind === "manim" || kind === "map" ? "bg-[#0D1117]" : "bg-white"}`} src={f.url}
+                      data-testid={kind === "svg" ? "generated-svg" : kind === "manim" ? "generated-manim" : kind === "map" ? "generated-map" : "generated-image"} />
                   ) : (
                     <div className="flex h-40 items-center justify-center rounded border border-dashed border-neutral-700 text-xs text-neutral-500">
                       {f?.status === "running" ? "generating…" : f?.error ? "no image" : "not generated yet"}</div>
@@ -134,7 +141,9 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
               {f?.error && <p className="mt-1 text-xs text-red-300" data-testid="generation-error">Error: {f.error}</p>}
               {kind === "svg" && f?.status === "done" && <SvgFacts run={run} block={b.id} parts={f.svgParts ?? []} problems={f.svgProblems} />}
               {kind === "manim" && <ManimFacts run={run} block={b.id} video={f?.status === "done" && !!f.video} code={f?.code} at={f?.at} />}
-              {lastCall && <PromptParts parts={kind === "svg" || kind === "manim" ? [...lastCall.prompt.system, ...lastCall.prompt.user] : lastCall.prompt.user} sent={f?.prompt} />}
+              {kind === "map" && <ManimFacts run={run} block={b.id} video={f?.status === "done" && !!f.video} what="map script"
+                code={f?.mapScript ? JSON.stringify(f.mapScript, null, 2) : undefined} at={f?.at} />}
+              {lastCall && <PromptParts parts={kind === "svg" || kind === "manim" || kind === "map" ? [...lastCall.prompt.system, ...lastCall.prompt.user] : lastCall.prompt.user} sent={f?.prompt} />}
             </li>
           );
         })}
@@ -180,7 +189,7 @@ function SvgFacts({ run, block, parts, problems }: { run: Run; block: string; pa
 }
 
 /** A Manim figure's video (its whole build, as rendered) and its code. */
-function ManimFacts({ run, block, video, code, at }: { run: Run; block: string; video: boolean; code?: string; at?: number }) {
+function ManimFacts({ run, block, video, code, at, what = "Manim code" }: { run: Run; block: string; video: boolean; code?: string; at?: number; what?: string }) {
   const [show, setShow] = useState(false);
   return (
     <div className="mt-2 text-xs" data-testid="manim-facts">
@@ -191,7 +200,7 @@ function ManimFacts({ run, block, video, code, at }: { run: Run; block: string; 
       {code && (
         <>
           <button className="mt-1 rounded border border-neutral-700 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800" onClick={() => setShow(!show)}>
-            {show ? "Hide the Manim code" : "Show the Manim code"}</button>
+            {show ? `Hide the ${what}` : `Show the ${what}`}</button>
           {show && <pre className="mono mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-neutral-900 p-2 text-[11px] text-neutral-300">{code}</pre>}
         </>
       )}

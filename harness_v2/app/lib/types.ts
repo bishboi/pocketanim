@@ -160,6 +160,8 @@ export type FigureGeneration = {
   /** A Manim figure's code (the body of construct()) and its video (the last frame is `file`). */
   code?: string;
   video?: string;
+  /** A map's script, as the engine was given it. */
+  mapScript?: Record<string, unknown>;
   /** Where the image is kept, and its URL for the page. */
   file?: string;
   url?: string;
@@ -176,6 +178,8 @@ export type Generation = {
   svgModel?: string;
   /** The Manim model (reads the figure, writes its Manim code, in one call). */
   manimModel?: string;
+  /** The map model (reads the book's map, writes its map script, in one call). */
+  mapModel?: string;
   started?: number;
   ended?: number;
   rounds: number;

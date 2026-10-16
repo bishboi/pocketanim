@@ -1,0 +1,484 @@
+# Lecture engine
+
+Narrated, captioned, map-animated lectures that play on the phone, in the web
+editor, and render in Manim — from one source file. This is the engine from the
+map-lecture guide (Rajasthan, India and its five styled variants), rebuilt so
+that everything it draws exports as a **tier-1 program** rather than video.
+
+```
+pocket_lecture.py    the engine: styles, beats, captions, panel, cards, maps
+compile_lecture.py   beat script (JSON) -> Manim on the engine, with a linter
+resolve_region.py    the country or state a piece of content is about
+examples/india.json  the reference India lecture, condensed
+examples/animated-diagrams.json  diagrams whose pictures move and whose arrows flow
+examples/manim-diagrams.json  38 kinds of diagram free Manim builds (manim_catalog.py writes it)
+manim_catalog.py     the diagrams free Manim builds that no other op draws, each a worked, checked example
+```
+
+## What is the same as the guide
+
+* **Audio drives timing.** `beat(text, *animations)` speaks the line first,
+  measures it, runs the animations over 55% of it (1.2–3.2 s), and holds for
+  the rest plus 0.45 s.
+* **One projection for everything.** `MapFrame` takes a Cartopy projection
+  (Lambert Conformal fitted to the region by default, standard parallels at
+  1/6 and 5/6 of its latitude span) and one linear map to scene units; every
+  outline, river, marker and graticule goes through it.
+* **Engine, data and script are separate.** A lecture is a `MapLecture`
+  subclass with a `REGION` and a `construct` of beats — or a JSON script the
+  compiler turns into one.
+* **Styles are one table.** `THEMES` holds atlas, vox, cardboard, whiteboard,
+  blueprint, chalkboard, parchment, lab and cosmos: palette, fonts, panel treatment, caption box, map
+  colours, text entrance. `LECTURE_STYLE` (or `use_style`) picks one.
+* The screen layout and z-order of the guide: map left of x = 1.05, panel to
+  the right, captions at y = −3.45 on z 60, chapter cards on z 40.
+
+## What is different, and why
+
+The phone plays a *program*, not pixels, so the engine avoids what a program
+cannot carry:
+
+| Guide | Here | Why |
+| --- | --- | --- |
+| Background textures as `ImageMobject` | Vector shapes (grid, fibres, board frame, soft discs), one baked asset | No image verb |
+| Rainfall raster from Matplotlib | Filled regions (`region_fill`, `fill_state`) | No image verb |
+| Globe intro as PNG frames | Omitted | No image verb |
+| Blueprint text types letter by letter | Writes on | No per-letter verb |
+| `set_z_index` on everything | Same — the program now carries z | Added `z=` |
+| `add_sound` per beat | Same — the exporter records where each starts | Mixed into one track |
+
+Scenes written the guide's own way — like the pasted India script — also
+export: image backgrounds are dropped (the scene's background colour is kept),
+and everything vector plays.
+
+## Writing a lecture
+
+```python
+import os
+os.environ.setdefault("LECTURE_STYLE", "vox")
+from pocket_lecture import *
+
+class GeneratedScene(MapLecture):
+    REGION = dict(country="India", view="ind")     # or dict(state="Rajasthan", country="India")
+    SECTIONS = ["Introduction", "Rivers"]
+
+    def construct(self):
+        self.chapter(1, "Rivers", "Two families", "Chapter one. The rivers of India.")
+        self.show_map()
+        self.beat("The Ganga is India's longest river.",
+                  self.panel_title("Rivers"),
+                  self.river("Ganges"),
+                  self.big_stat("2,525 km", "Ganga: longest river of India", P.RIVER))
+        self.beat("Delhi is the capital.", self.mark("New Delhi", "Delhi", P.GOLD))
+        self.outro_fade()
+```
+
+Colours are read from `P` at call time (`P.RIVER`, `P.GOLD`, ...) so a style
+switch never leaves stale defaults. Helpers return animations to pass into
+`beat`: `panel_title`, `fact`, `big_stat`, `bar_chart`, `clear_panel`, `mark`,
+`river`, `path`, `flow` (curved arrow), `fill_state`, `graticule`, `dim`.
+Whole-beat helpers: `chapter`, `title_slide`, `recap`, `credits`,
+`outro_fade`. A beat that changes the panel title plays the change before the
+new facts arrive.
+
+Or write a beat script and compile it:
+
+```sh
+python harness/lecture/compile_lecture.py harness/lecture/examples/india.json -o scene.py
+python harness/lecture/compile_lecture.py script.json --check     # lint only
+```
+
+The linter rejects unknown operations, map operations without a region, and
+missing fields, and warns about captions past two lines and a panel that runs
+into the caption.
+
+## Place names
+
+A marker's `place` is looked up in this order:
+
+1. Natural Earth's populated places. This is about 7,300 towns worldwide, the same data the maps are drawn from.
+2. The same lookup under a renamed city's other name, e.g. Prayagraj ⇄ Allahabad or Bengaluru ⇄ Bangalore (`PLACE_ALIASES`).
+3. `data/places_extra.csv`, a short hand-kept list of district towns and parks.
+4. The GeoNames gazetteer: about 150,000 towns, with old, new and non-Latin names. Download it once:
+
+   ```
+   .venv/bin/python harness/scripts/fetch_gazetteer.py
+   ```
+
+   `setup-python.sh` does this for you.
+5. OpenStreetMap's Nominatim, when online. Each answer is cached in `.cache/geocode.json`. Set `PANIM_GEOCODE=0` to turn this off.
+
+`compile_lecture.py --check` reports a place none of these can find as an error. The fix is to give `lonlat` for that marker instead.
+
+A Devanagari line is spoken by a Hindi voice whatever the style's voice, and Devanagari text is laid out large and scaled down, so small captions keep their shaping.
+
+## The stage: the map only when it is needed
+
+The left half of the frame is the stage, and the fact panel is on the right.
+
+A chapter draws the map only if one of its beats points at it: a marker, a river, a state or an arrow.
+Otherwise the stage shows pictures.
+
+**Inside a line, on its words.** Once the voice is made, each line's word times are known (the voice's own, or
+aligned here by Whisper: `local_align.py`). The engine then plays, inside the beat, each picture that names something
+as its words are said: a marker's place, an area shaded, a diagram part revealed or focused, a term defined, a choice
+marked (the compiler passes the words as `self.safe(..., said="...")`). A diagram whose own line names several of its
+parts draws the first with it and brings each other in on its name. And anything already on screen that the line
+names again (a diagram's part, a timeline's date or event, a map's place, a compare card's heading) is pointed at on
+its words, a short swell, at most four a line. The build reports the counts ("Inside the beats: ...").
+
+**Places the map names.** A name is looked up in Natural Earth's towns, `data/places_extra.csv`, GeoNames,
+Natural Earth's seas, bays, gulfs, straits, peaks and ranges, then OpenStreetMap. What none of them knows (Adam's
+Bridge, Sri Lanka's Wet Zone, its Central Highlands) the **map agent** finds before the compile
+(`map_agent.py`, run by the app's `lib/mapagent.ts`): a model with web search, OpenStreetMap and Wikidata lookups
+and the map country's provinces sets each one as a point, an area (provinces joined, or an outline cut to the
+land) or a range, checked on the map, into the script's `"places"`:
+
+```json
+"places": {"Adam's Bridge": {"lonlat": [79.55, 9.12], "source": "Wikidata"},
+           "Wet Zone": {"states": ["Colombo", "Gampaha", "Kalutara", "Galle", "Matara", "Ratnapura", "Kegalle"]},
+           "Central Highlands": {"outline": [[80.4, 7.5], [81.0, 7.5], [81.1, 6.8], [80.5, 6.6]], "kind": "mountains"}}
+```
+
+The compiler passes them to the scene (`set_places`); markers, `state`, `relief` and journeys find them there
+first. A sea or strait named by a marker is labelled on the water, not shaded.
+
+### Pictures: three ways, the writer's choice
+
+Every picture a lecture shows is made one of three ways. Which way is the writer's judgement, picture by picture:
+
+1. **Built in Manim**, in full detail: diagrams, equations, molecules, timelines, the map, and free-form Manim for
+   every other drawing (graphs, apparatus, forces, anything that moves).
+2. **A detailed diagram by the diagram model**: `{"op":"picture","draw":"<the picture in words>","labels"?}` (or
+   `{"op":"draw","what","labels"?}`), a labelled textbook drawing (a cell, a cross-section, a machine) made by
+   `PANIM_DIAGRAM_MODEL` and shown whole, its labels written beside it by the board.
+3. **Made by the illustration model**: `{"op":"picture","generate":"<what it shows, in English>","caption"?}`
+   (`genimage.py`), a picture of a real thing the class should see: a person, a place, an animal, an object. The
+   picture of each thing a diagram's node, a map's icon or a panel's line shows is made the same way.
+
+Nothing is searched for on the web, nothing is drawn as an SVG, and there are no icons, emoji or picture libraries.
+
+An image-model picture is a **cutout**. The model (OpenRouter, `PANIM_IMAGE_MODEL`, default
+`google/gemini-2.5-flash-image`) is asked for the subject alone on plain white, with no border, frame,
+background or text. The white around it is made transparent and the picture trimmed. It sits on the board
+without a frame, and the phone draws the same PNG (the program's `image` lines), at tier 1. Each picture is made
+once and cached by its words, style and model (`.cache/images/gen-*.png`), with its cost beside it. A compile reports what it made and what that cost (`generated` in `--json`),
+and the app bills it. There is no limit on how many a compile makes. `PANIM_IMAGES=0`
+turns them off, and `PANIM_IMAGE_FAKE=1` draws an offline stand-in for tests.
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"picture","generate":"…","caption"?}` | A picture the image model makes (older names still compile: `photo` with `subject`/`query`, `illustration` with `query`; their words become what is made). |
+| `{"op":"picture","items":[{"generate"\|"figure","caption"}],"title"?}` | 2 to 4 pictures together. |
+| `{"op":"figure","id":"fig2","where":"stage"}` | A figure from the uploaded PDF, shown as the diagram model's exact redraw of it in the lecture's style (app/lib/figures.ts); the book's own picture is never shown. |
+
+On a map chapter, a stage picture covers the map, and the next beat that points at the map clears it. No
+picture is ever added without the writer asking for it.
+
+Photos are downloaded when the script compiles, into `.cache/images`. To search from the shell:
+
+```
+.venv/bin/python harness/lecture/images.py "sugarcane field India"
+```
+
+Set `PANIM_IMAGES=0` to turn internet photos off.
+
+## Subjects: the content decides the kind of lecture
+
+`genre.py` reads the content and picks its subject: geography, history, biology, chemistry, physics,
+mathematics, economics or general. It scores the vocabulary and also counts dates, chemical formulas and
+maths signs. The subject sets:
+- **the style:** vox for geography, parchment for history, lab for biology and chemistry, cosmos for
+  physics, chalkboard for mathematics, atlas for economics;
+- **the map:** often for geography; sometimes for history and economics; rarely for biology; never for
+  chemistry, physics and mathematics;
+- **the kit:** which stage pictures the model is told to use.
+
+```
+.venv/bin/python harness/lecture/genre.py < content.txt
+```
+
+In the app, the **Lecture · Auto** template (style `auto`) uses the subject's style. The subject is
+reported in the log. The kit operations draw on the stage:
+
+| Operation | What it shows |
+|---|---|
+| `{"op":"molecule","name":"glucose" \| "H2O" \| "<SMILES>","label"?}` | A 2-D structure in CPK colours, laid out by RDKit. Names not in the table are looked up on PubChem (`PANIM_MOLECULES_ONLINE=0` turns that off). Shown only where it teaches: the compiler leaves out a molecule on a beat that explains no structure (bonds, shape, groups, isomers; `STRUCTURE_TALK`, English and Hindi), and one already on the board in its chapter; the automatic pictures add one only to a paragraph that explains a structure, once a chapter. |
+| `{"op":"equation","tex":"CH_4 + 2O_2 \\rightarrow CO_2 + 2H_2O","label"?}` | Typeset by LaTeX (Unicode text without it). During a problem, the next line of its working. |
+| `{"op":"plot","exprs":["sin(x)"],"x_range":[-3,3],"x_label"?,"y_label"?}` | Graphs of functions of x (a safe subset of numpy). |
+| `{"op":"process","steps":["…","…"],"cycle"?:true,"title"?}` | A chain of steps, or a cycle. |
+| `{"op":"timeline","events":[["1526","Panipat"]],"where":"stage","title"?}` | A large timeline. |
+| `{"op":"quote","text":"…","who":"…"}` | A primary-source quote. |
+
+Automatic pictures follow the subject too. A science beat that names a molecule or writes an equation
+gets a molecule or an equation, and a history chapter opens on a timeline of the years it mentions.
+
+## No icons
+
+An older script's icon operations still compile: an icon at a place becomes a labelled marker, and a panel icon
+becomes a fact line. A diagram node's `entity` becomes a picture the image model makes.
+
+## Paragraph flow: one visual a paragraph, built as the narration goes
+
+A lecture plans its stage a **paragraph** at a time: 3 to 5 beats that explain one idea. It never puts up a new
+picture every sentence. A paragraph starts at a beat marked `"paragraph": true`, at a beat that puts up its own
+visual, or after 5 beats. Its visual is one of these:
+- a map sequence, for where things are;
+- a diagram built on the stage and revealed across the paragraph's beats, for how things work;
+- a definition or a comparison;
+- the document's figures;
+- pictures of the people, places and things it names, made by the image model.
+
+Some paragraphs need no picture at all.
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"diagram","id":"chain","kind":"flow\|cycle\|hub","nodes":[{"id","label","picture"?}],"edges"?:[[from,to,label?]],"show"?:[ids],"title"?}` | A diagram of the things themselves. A node may carry a picture (`{"generate"}`, `{"draw"}` or `{"figure"}`) beside its label, and arrows join the nodes. `flow` takes its layout from its edges (a chain, a hierarchy or a flowchart), `cycle` goes round, and `hub` puts the first node in the middle. `show` draws some nodes first. |
+| `{"op":"reveal","diagram":"chain","nodes":["deer"]}` | The next nodes of that diagram, with the arrows that now connect them. |
+| `{"op":"focus","diagram":"chain","node":"plants"}` | A ring around one node while the narration talks about it. |
+| `{"op":"define","term","meaning"}` | A hard word, big, with its meaning in plain words. |
+| `{"op":"compare","columns":[{"title","points":[…]}],"title"?}` | Two or three kinds side by side. |
+
+Where the script chose nothing, `auto_visuals` fills a paragraph's first beat, and only that beat:
+- with an equation or molecule, or, in history, a timeline;
+- else with pictures of the people and places it names, as a gallery when there are several;
+- else with nothing, and the last paragraph's picture leaves the stage.
+
+Fetched illustrations of a topic are off unless the script sets `"auto_illustrations": true`. The compiler
+warns when more than 60% of beats put up a new picture.
+
+## The board, and drawing STEM in Manim
+
+**Little text on screen.** Every chapter without a map is taught on the **board**, whatever the style: the whole
+frame holds the picture, and the only words on screen are a strip over it with the topic heading (`panel`) and
+one key point (`fact` or `stat`; each replaces the last). A chapter with a map keeps its side panel, holding at
+most 3 short points (under 70 characters) under its title; the compiler rejects more in a model-written
+lecture. Set `"layout": "panel"` on a script for the old side panel everywhere.
+
+**On the board** (`stem.py`): every graph, apparatus, maths or science drawing is free-form Manim (`manim`, below).
+The small built drawings there once were (the physics presets, `sketch`, `graph`, `plot`, `motion`, `trace`,
+`sweep`, `sim`, `counter`) are gone: the app turns any the writer still uses into a `manim` op
+(`manimcoder.ts freeDrawings`), and the compiler leaves out what is left, with a note.
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"work","id","lines":[TeX...],"title"?,"box"?}` | A worked solution. The same id adds lines under the last; `box` rings the answer. With a picture on the stage, it moves left and the working opens beside it. When the working reaches the bottom, it scrolls up. |
+| `{"op":"problem","id","text","given"?,"find"?,"figure"?,"think"?}` | A long question: its statement across the top, its figure (a `draw` op, made by the diagram model) on the left, and its solution (`work` with the same id) on the right. |
+
+Maths in `work` lines and `equation` is typeset by LaTeX (`harness/scripts/fetch_latex.py` installs it), Hindi
+inside it (`\text{...}`) by XeLaTeX, and drawn as Unicode text only when LaTeX is missing or a line will not
+compile (`nolatex.py`).
+
+**Nothing on top of anything.** The board keeps each thing in its own place:
+
+- Two pictures in one beat (a figure and its equation, a drawing and a question) share the board: the drawing
+  on the left half, the words about it on the right. Played as written, the second used to replace the first
+  before it was seen.
+- A `define` beside a drawing goes into the right half, and the drawing moves left; the next definition takes
+  its place. A `work` then takes that half.
+- An `equation` while a problem is being solved is the next line of its working, not a new picture that wipes
+  the problem.
+- A `figure` with `where: "full"` is a stage figure on the board, below the title strip.
+- A diagram's labels move off the lines and other labels they would sit on, and the whole diagram, labels
+  included, is fitted to its box.
+- In each beat the compiler puts `unstage` first, then what goes up on the stage, then what adds to it (`work`,
+  `reveal`, `focus`, `answer`), whatever order the model wrote them in.
+
+`harness/scripts/lecture_audit.py <scene.py> GeneratedScene out/ --frames` plays a lecture with its animations
+skipped (a minute or two for a 20-minute lecture) and lists, beat by beat, text on text, text or drawings on a
+picture, text off the frame, and lines through labels, with a picture of every beat's end.
+
+**Theory, then problems.** Mathematics, physics and chemistry (the page's **Subject** menu, or detected from the
+content) teach each concept first as theory built on the board, then as 2 or 3 long, exam-style problems. Each
+is solved in detail over 8 to 15 beats. The chosen length sets how many problems there are (the teaching plan's
+`problems_per_topic`), and the compiler checks the count (`--min-problems`). Photos are only for a scientist the
+lecture names. The styles follow the subject: chalkboard for mathematics, blueprint for physics, lab for
+chemistry.
+
+## Teaching in depth: pace, pauses and questions for the class
+
+A lecture teaches each topic slowly, the way a teacher does in class. It does not read the book out or
+summarise it. The prompts (the app's `lecturePrompt` and Forge's `EXPLAIN_SIMPLY`) ask for this, for every
+important statement of the content:
+- say it in easy words;
+- explain each hard term;
+- give two or three examples from daily life;
+- say why it is so;
+- say the key idea again in other words;
+- add the background the book leaves out.
+
+A chapter is where the lecture starts, not its limit. Without a length in the request, a long source gets time
+for this: about a minute for every 120 of its words, from 10 to 30 minutes (Forge plans 2.5 times the reading
+time).
+
+**Length and depth.** On the editor page and on the Forge page, **Video length** can be set to 5, 10, 15, 20,
+30 or 40 minutes, or left automatic. The content decides the topics: about one every 350 words of a source, and
+for a bare topic, one every 3 minutes. The length decides how deep each topic goes, through the teaching plan
+(`teaching_plan` in `compile_lecture.py`). This applies to Forge and the command line only: the app's lectures
+have no teaching plan. Their transcript writer decides how to teach, with three aims (the quality of the learning,
+videos of 25-30 minutes, everything in the source covered), and the app compiles them with `"teaching_rules": false`,
+so only what a video needs to be drawn is checked.
+
+| Minutes per topic | Examples per statement | Questions |
+|---|---|---|
+| under 1.5 | 1 | one every two topics |
+| 1.5–3 | 2 | one per topic |
+| 3–5 | 3 | two per topic below 4 minutes a topic, else one |
+| 5 and over | 4 | two per topic, three from 7 minutes a topic |
+
+So the same chapter at 30 minutes keeps its topics, and gets more examples and more questions than at 10. The
+questions are capped at one every 2 minutes and the example beats at about one every 50 seconds, so a short
+video of a long chapter is never asked for more than it has room for.
+
+The prompt gives the model these numbers and asks for everything to be explained in detail: no term, fact, name
+or number without what it means and why it matters. The compiler checks the finished script against the plan.
+The app passes `--min-questions` and `--min-examples`, and a written lecture with fewer of either is sent back.
+The agent's trace shows the plan, for example: "Length 20 min: about 7 topics, 2 examples for each statement,
+at least 7 questions for the class".
+
+**Long lectures are written in parts.** Over 10 minutes, the model writes the title, intro and first chapters with `write_lecture` (`"more": true`), then the rest with `add_chapters`, about 5 minutes at a time. The last call has `"done": true`. Each part is checked when it arrives, and the length, questions, examples and problems are checked over the whole lecture at the end. No single reply has to hold a 30-minute script. If the model stops partway, the chapters it wrote are built into a shorter video.
+
+**Pace.** `PANIM_PACE` sets it. `relaxed`, the default, has:
+- the voice at 0.9 speed;
+- 0.9 s of silence after every line;
+- 1.8 s at the end of each paragraph.
+
+`brisk` is the older, faster pace (1.0, 0.45 s and 0.9 s). A beat can ask for more silence after itself with
+`"pause": 1-8` (seconds), for a line that needs a moment to sink in.
+
+**Questions.** Between topics the lecture stops and asks the class something. The stage shows the question; a
+bar under its heading fills during `think` seconds of silence; then the next beat shows the answer and
+explains it.
+
+| Operation | What it builds |
+|---|---|
+| `{"op":"question","text","choices"?:[2-5],"answer"?,"think"?:5,"title"?,"from_book"?}` | The question card. `answer` is the right choice's letter (`"B"`), its number from 1, or its text. For an open question with no choices, it is the answer in words. The heading reads "Think about it", or "सोचिए" in Hindi. `from_book` names a question of the uploaded PDF (`"q3"`, questions.ts): the compiler then wants all its choices shown and every one explained with `option`. |
+| `{"op":"option","choice":"A","right"?}` | One choice of the question up, on the beat that explains it: a wrong one crossed out in red and faded, the right one ringed in green (the answer, shown now). `right` decides for a question given without its answer. |
+| `{"op":"zoom","diagram","node"?,"scale"?}` | Moves in on one part of the picture on the stage (scaled about it and brought to the middle); without `node`, back out. Played as a baked clip, so the phone moves the picture and does not draw a copy over it. |
+| diagram `"flow"`, node `"anim"` | A node's `anim` (`bob`, `sway`, `breathe`, `drift`, and the older `spin`, `pulse`, `shake`, `flicker`, `hop`, read as the nearest of those) sets its picture moving while the diagram is up; `none` or nothing keeps it still. `flow` runs dots along the arrows (on for flow and cycle). Every motion repeats within 4 s, so the exporter stores one period per line and the phone plays it round (`clip ... loop=`); a moving picture is keyed on its `image` line. |
+| `{"op":"figure","id","photo":true,"where"?}` on a book figure | Every figure of the book (a diagram, a graph, an apparatus, a photograph) is redrawn by the diagram model from the figure itself (harness/app/lib/figures.ts, genimage.redraw) as an exact copy in the lecture's style: the same layout, parts, arrows, numbers and labels letter for letter, watermarks, logos, QR codes, figure numbers, captions and scan marks left out; checked label by label, the closest try kept. It is shown whole on the stage. The book's own picture is never shown: a figure that cannot be redrawn is left out of the figures table and rebuilt in Manim (`from_figure`). |
+| `{"op":"draw","id","what","labels"?,"caption"?}` | ONLY FOR WHAT THE MANIM OPS CANNOT BUILD EXACTLY (a cell, an organ, a cross-section, real apparatus or a machine). The compiler makes it a picture op for the diagram model (compile_lecture._drawn_picture): `what` is what it is asked to draw, `labels` (or the older `parts`, read as words) up to 6 parts the board labels beside it (genimage.locate). It is shown whole on the stage: reveals and focuses of its parts are left out. In a problem, its figure box shows it. |
+| `{"op":"manim","id","code"}` | Free-form Manim for a picture the menu cannot draw (`free_check.py`, `stem.BoardMixin.free`): `code` is the body of `construct()` for its beat, the only op on that beat. Beats with the same `id` share their variables, so a figure built on one beat is indicated, copied into a free-body diagram or transformed on the next. The beat's line is spoken while the block plays, then held. The block runs in a sandbox (no imports, dunders, files or exec; of the scene only `play`, `wait`, `add`, `remove`) with Manim's names, `np`, `INK`, `MUTED_INK`, `PALETTE` and the board's bounds; Manim's default white is drawn in the style's ink on a light board. Before a script is accepted each id's blocks run in a probe scene under the exporter: one that raises, draws off the board (x -6.9..6.9, y -3.05..2.85), runs far longer than its line, or uses an animation the phone cannot play is refused with the reason. Verdicts are cached in `.cache/free/` by the code. A figure is the stage's drawing: a working, a question or a card that follows goes beside it (the figure moved into the left half until its next block, which moves it home and clears them). With `"area": "left"` on its first block the figure is drawn in the left half from the start and never moves: what comes beside it takes the right half and stays while later blocks explain the figure (a derivation beside its ray diagram, the angle ringed as the line using it is written). |
+| `{"op":"answer"}` | On the next beat: the right choice ringed with a tick, or the answer in words under the question. |
+
+A lecture written by a model (one with a target length) must ask the class at least one question and give
+examples; the compiler returns an error otherwise. For an offline or hand-made script, these checks are only
+warnings.
+
+## Lecture PDFs and figures
+
+`pdf_source.py` turns a PDF into Markdown plus its figures. Each figure is marked in the text as
+`[FIGURE fig3: caption]`.
+- With `DATALAB_API_KEY` set, it uses Datalab's conversion API: `POST /api/v1/convert`, then it polls the
+  `request_check_url` it gets back.
+- Without a key, it uses pypdf, offline.
+- Conversions are cached by the PDF's content, so the same PDF is converted only once.
+
+On the upload page, each figure has a **×** to leave it out of the lecture; **restore all** brings them back. A
+removed figure is dropped from the figure list and from the text, so the model never sees it. It is recorded
+in `excluded.json` beside the PDF, which Forge's reader honours too.
+
+A script shows a figure with `{"op":"figure","id":"fig3","where":"panel"|"full"}`, or several at once in a
+gallery. The app supplies the
+`figures` table (id → image file); the model only names ids. A figure is a raster image: the phone
+export writes it into the program as an `image` line (its PNG goes in the library's `images/` folder), and the
+scene stays tier 1.
+
+Figures the script does not show itself are placed automatically: each goes on the beat whose words best
+match its caption, or in document order, at most one every two beats and never over a map beat. Set
+`"place_figures": false` to turn this off.
+
+## Voice
+
+Lectures are voiced by Gemini 3.8 Flash-Lite TTS (`gemini_tts.py`; `PANIM_TTS=chirp` for the older Google Chirp 3 HD,
+`chirp.py`; `tts.py` picks), and by nothing else. It needs `GEMINI_API_KEY`; without it, or when Google refuses a
+line, the build stops with the reason (`VoiceUnavailable`) rather than switching to another voice or leaving the
+lecture silent. `PANIM_VOICE=silent` builds without narration (tests, a quick look at the pictures), with lengths
+estimated from the word count; `PANIM_VOICE=gemini:<voice>` or `PANIM_TTS_VOICE` picks a speaker; otherwise
+every lecture is spoken by Achird. Gemini reads a Hinglish line whole, Hindi and English together; a long line goes a few
+sentences at a time. Its pace is set with ffmpeg (`atempo`), as the model has no speaking-rate setting.
+
+Lines are cached by the voice, its speed and the spoken text in `PANIM_AUDIO_DIR` (default `./build_audio`).
+`SAY` respells names for the voice without touching the captions.
+
+The app refuses a lecture build when the voice is not set up, and warns when one comes back with no audio.
+
+## Building
+
+```sh
+# the harness path: program, assets, narration.wav, tier verdict
+python harness/scripts/export_scene.py scene.py GeneratedScene build/
+
+# pack a build for the phone
+python -m tools.build_library --source build/dsl/generated --out library
+adb push library /sdcard/Android/data/com.pocketanim.player/files/
+
+# or render the same file to video with Manim
+PYTHONPATH=harness/lecture manim -qm scene.py GeneratedScene
+```
+
+Map data is Natural Earth through Cartopy's downloader (`admin_0_countries`,
+`admin_0_countries_ind` for India's view of its borders, `admin_1_states_provinces`,
+`rivers_lake_centerlines`, `populated_places`), fetched once and cached.
+
+`corpus/scenes/14_lecture_engine.py` is a network-free lecture on the engine.
+Against Manim's own frames it is 0.04% of pixels off, worst frame 2.7% of its
+ink, and it is in the nightly fidelity job.
+
+## A YouTube video as the reference, and Hinglish narration
+
+**Reference video.** On the page, under the content, paste a YouTube link and press **Use as reference** (or paste
+the video's transcript: on YouTube, ... > Show transcript, select all, copy). `youtube_source.py` reads the
+video's captions (hand-made ones first, then automatic; Hindi and English preferred) and cuts the transcript into
+parts of about two and a half minutes. The lecture remakes the video: the same topics in the same order (every
+chapter names the part it teaches with `from_part`, and a part no chapter teaches is an error), its examples,
+questions and solved numericals (same numbers, step by step), and every figure it draws or describes built as a
+diagram or in free-form Manim. Its sentences are never copied (the copy check reads the transcript too).
+Without a chosen length, the lecture runs as long as the video. A PDF can be used as well: the PDF is the
+content and its figures; the video gives the structure.
+
+YouTube refuses requests from many servers and VPNs ("YouTube refused the request from this network"); then
+paste the transcript. Captions turned off for a video: paste one from elsewhere.
+
+    .venv/bin/python harness/lecture/youtube_source.py "https://youtu.be/VIDEO" out/
+    .venv/bin/python harness/lecture/youtube_source.py --transcript transcript.txt out/ --title "Laws of Motion"
+
+**Language.** The page's **Language** menu: Automatic (the content's), English, Hindi, or **Hinglish**: the
+subject in English, explained in easy spoken Hindi, like an Indian teacher's class video. In a Hinglish lecture:
+
+- every narration line is Hindi in Devanagari with the subject's terms in English in Latin letters ("जब net
+  force zero होता है, तो acceleration भी zero होता है।");
+- Hindi written in Latin letters ("matlab", "hota hai") is refused: the voice reads Latin letters as English;
+- everything on screen is English: titles, headings, key points, definitions, labels, questions, problems,
+  working and the recap. The compiler checks all of this (`compile_lecture._language_mix`).
+
+The voice speaks a Hinglish line with the Hindi Chirp voice, English terms included (it says them naturally);
+only a whole English phrase of four or more words switches to the Indian English voice
+(`PANIM_CHIRP_ENGLISH_RUN` sets that length).
+
+## Transcript first, then the video
+
+A lecture is made in two stages (`harness/app/lib/transcript.ts`):
+
+1. **The transcript.** The model writes the whole lecture as the teacher speaks it, one section of about five
+   minutes at a time (`write_section`). With a reference video, each section remakes its next parts: the same
+   order, examples, solved problems (same numbers) and the video's own questions, explained more slowly and in
+   more detail. What it covers and how it teaches are told in the prompt, not checked afterwards: only an empty
+   section is asked again. The page shows the transcript under the agent log, with a download button.
+2. **The video.** The beat script's narration is that transcript, sentence for sentence, in order; its chapters
+   name their `section`, and beats name its lines by number; a line no beat names is said on a beat of its own,
+   so the detail of stage one reaches the video. The model's work in this stage is the pictures, and only they
+   are checked (the compile and the picture checks).
+
+The length follows the reference video (up to 90 minutes) unless one is chosen; a 60-minute source makes a
+60-minute lecture, written in twelve sections.
+
+**The teacher's voice.** The transcript is written the way a teacher talks to a class, not the way a book reads:
+it speaks to the students ("बच्चों", "देखो"), checks in after each idea ("ठीक है? समझ में आया?"), says each rule
+two or three times, gives memory tricks, builds each diagram out loud force by force, leaves questions for the
+class, and works numericals one small step at a time. With a reference video it keeps that teacher's tricks and
+repeated rules. Its captions are treated as automatic captions of a live class: misheard words ("पुलिस" for
+pulley) are recovered from the physics, and channel talk (subscribe, the next video) is left out.
+
+A pasted transcript can be a caption tool's export: Tactiq's `` * `00:00:04.400`[words](link) `` lines are read
+with their times, and subscribe prompts and [संगीत] / [music] tags are dropped.

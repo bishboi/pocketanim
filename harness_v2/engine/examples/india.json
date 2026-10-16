@@ -1,0 +1,61 @@
+{
+  "title": "India",
+  "sub": "The geography of a subcontinent",
+  "style": "atlas",
+  "region": {"country": "India", "view": "ind"},
+  "intro": "Welcome to this lecture on the geography of India.",
+  "chapters": [
+    {
+      "title": "Location & Extent",
+      "sub": "India's place in the world",
+      "narration": "Chapter one. Location and extent.",
+      "beats": [
+        {"say": "India lies entirely in the Northern Hemisphere, at the heart of South Asia.",
+         "do": [{"op": "panel", "title": "Where is India?", "sub": "South Asia"}]},
+        {"say": "With an area of about 3.287 million square kilometres, it is the seventh largest country in the world.",
+         "do": [{"op": "stat", "value": "3.287 million km²", "label": "7th largest country · 2.4% of world land area"}]},
+        {"say": "The Tropic of Cancer divides the country almost in half, passing through eight states.",
+         "do": [{"op": "graticule", "lat": 23.44, "label": "Tropic of Cancer", "color": "GOLD"},
+                {"op": "fact", "text": "Tropic of Cancer crosses 8 states", "color": "GOLD"}]},
+        {"say": "Politically, India is a union of 28 states and 8 union territories, with New Delhi as its capital.",
+         "do": [{"op": "panel", "title": "Administration"},
+                {"op": "marker", "place": "New Delhi", "label": "Delhi", "color": "GOLD"},
+                {"op": "stat", "value": "28 · 8", "label": "States · Union Territories"}]}
+      ]
+    },
+    {
+      "title": "Rivers",
+      "sub": "Himalayan and peninsular systems",
+      "narration": "Chapter two. The rivers of India.",
+      "beats": [
+        {"say": "Himalayan rivers are fed by both rain and melting snow, so they flow all year round.",
+         "do": [{"op": "panel", "title": "Two river systems"},
+                {"op": "river", "name": "Ganges"},
+                {"op": "river", "name": "Brahmaputra"},
+                {"op": "fact", "text": "Himalayan: snow and rain fed, perennial", "color": "RIVER"}]},
+        {"say": "The Ganga, flowing about 2,525 kilometres to the Bay of Bengal, is India's longest river.",
+         "do": [{"op": "stat", "value": "2,525 km", "label": "Ganga: longest river of India", "color": "RIVER"}]},
+        {"say": "Most peninsular rivers flow east into the Bay of Bengal, each ending in a fertile delta.",
+         "do": [{"op": "river", "name": "Godavari", "color": "TEAL"},
+                {"op": "river", "name": "Krishna", "color": "TEAL"},
+                {"op": "fact", "text": "East-flowing: Godavari, Krishna, Kaveri", "color": "TEAL"}]}
+      ]
+    },
+    {
+      "title": "Climate",
+      "sub": "The rhythm of the monsoon",
+      "narration": "Chapter three. The monsoon climate.",
+      "beats": [
+        {"say": "In early June, the south-west monsoon bursts over Kerala, and then advances in two branches.",
+         "do": [{"op": "panel", "title": "The Monsoon", "sub": "Seasonal reversal of winds"},
+                {"op": "state", "name": "Kerala", "color": "GREEN"},
+                {"op": "arrow", "points": [[66, 11], [69, 14], [72.5, 17.5], [75.5, 22], [78, 25.5]], "color": "RIVER"}]},
+        {"say": "Between June and September it brings about three quarters of India's annual rainfall.",
+         "do": [{"op": "stat", "value": "≈ 75%", "label": "of annual rain falls June to September", "color": "RIVER"},
+                {"op": "bars", "items": [["Mawsynram", 11870], ["Mumbai", 2400], ["Pune", 700], ["Leh", 100]], "unit": " mm", "color": "RIVER"}]}
+      ]
+    }
+  ],
+  "recap": [["Location", "Northern Hemisphere · 7th largest"], ["Rivers", "Perennial Himalayan · seasonal peninsular"], ["Monsoon", "June to September · three quarters of the rain"]],
+  "credits": "Map data: Natural Earth (India's view) · Projections: Cartopy · Animation: Manim"
+}

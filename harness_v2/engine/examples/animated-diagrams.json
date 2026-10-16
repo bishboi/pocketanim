@@ -1,0 +1,223 @@
+{
+ "title": "Diagrams that move",
+ "style": "chalkboard",
+ "auto_visuals": false,
+ "place_figures": false,
+ "chapters": [
+  {
+   "title": "The water cycle",
+   "map": false,
+   "beats": [
+    {
+     "say": "The sun heats the sea, and water rises as vapour.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "w",
+       "kind": "cycle",
+       "nodes": [
+        {
+         "id": "s",
+         "label": "Sun heats the sea",
+         "entity": "sun"
+        },
+        {
+         "id": "c",
+         "label": "Vapour forms clouds",
+         "entity": "cloud"
+        },
+        {
+         "id": "r",
+         "label": "Rain falls",
+         "entity": "rain"
+        },
+        {
+         "id": "v",
+         "label": "Rivers run back",
+         "entity": "boat"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "High up, the vapour cools and gathers into clouds, which the wind carries over the land.",
+     "do": []
+    },
+    {
+     "say": "Over the hills the clouds let the water fall as rain, and in the cold as snow.",
+     "do": []
+    },
+    {
+     "say": "Rivers carry it back down to the sea, and the cycle begins again.",
+     "do": []
+    }
+   ]
+  },
+  {
+   "title": "A power station",
+   "map": false,
+   "beats": [
+    {
+     "say": "Burning fuel boils water into steam.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "p",
+       "kind": "flow",
+       "nodes": [
+        {
+         "id": "f",
+         "label": "Fuel burns",
+         "entity": "fire"
+        },
+        {
+         "id": "t",
+         "label": "Steam turns a turbine",
+         "entity": "gear"
+        },
+        {
+         "id": "g",
+         "label": "Generator makes current",
+         "entity": "lightning"
+        },
+        {
+         "id": "b",
+         "label": "Lamps light up",
+         "entity": "bulb"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "The steam spins the turbine, and the turbine turns the generator, which pushes current out to every home.",
+     "do": []
+    }
+   ]
+  },
+  {
+   "title": "Blood goes round",
+   "map": false,
+   "beats": [
+    {
+     "say": "The heart pumps blood to the lungs and back, then out to the body.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "h",
+       "kind": "hub",
+       "flow": true,
+       "nodes": [
+        {
+         "id": "h",
+         "label": "Heart",
+         "entity": "heart"
+        },
+        {
+         "id": "l",
+         "label": "Lungs",
+         "entity": "lungs"
+        },
+        {
+         "id": "b",
+         "label": "Body",
+         "entity": "person",
+         "anim": "breathe"
+        }
+       ],
+       "edges": [
+        [
+         "h",
+         "l"
+        ],
+        [
+         "l",
+         "h"
+        ],
+        [
+         "h",
+         "b"
+        ],
+        [
+         "b",
+         "h"
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "say": "Each beat pushes it on; in the lungs it takes up oxygen, in the body it gives it away.",
+     "do": []
+    }
+   ]
+  },
+  {
+   "title": "A food chain",
+   "map": false,
+   "beats": [
+    {
+     "say": "Grass makes food from sunlight.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "f",
+       "kind": "flow",
+       "show": [
+        "s",
+        "g"
+       ],
+       "nodes": [
+        {
+         "id": "s",
+         "label": "Sunlight",
+         "entity": "sun"
+        },
+        {
+         "id": "g",
+         "label": "Grass",
+         "entity": "grass"
+        },
+        {
+         "id": "r",
+         "label": "Rabbit",
+         "entity": "rabbit"
+        },
+        {
+         "id": "e",
+         "label": "Eagle",
+         "entity": "eagle"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "A rabbit eats the grass.",
+     "do": [
+      {
+       "op": "reveal",
+       "diagram": "f",
+       "nodes": [
+        "r"
+       ]
+      }
+     ]
+    },
+    {
+     "say": "And an eagle catches the rabbit.",
+     "do": [
+      {
+       "op": "reveal",
+       "diagram": "f",
+       "nodes": [
+        "e"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -21,6 +21,8 @@ import { BLOCKED, REDRAW_LEVELS, redrawParts, redrawText } from "./prompts/redra
 import { SVG_TOOL, checkSvg, standInSvg, svgPrompt } from "./prompts/svg";
 import { MANIM_TOOL, manimPrompt, standInManim } from "./prompts/manim";
 import { checkManim, renderManim } from "./manim";
+import { MAP_TOOL, mapPrompt, standInMap } from "./prompts/map";
+import { compileMap, mapProblems, mapScript, renderMap } from "./maps";
 import { copyFile } from "node:fs/promises";
 import { callTool } from "./llm";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
@@ -31,11 +33,11 @@ import type { FigureGeneration, Generation, Run } from "./types";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_GENERATE_PARALLEL) || 3);
 /** The ways this step generates. */
-export const GENERATED: TriageKind[] = ["exact", "styled", "svg", "manim"];
+export const GENERATED: TriageKind[] = ["exact", "styled", "svg", "manim", "map"];
 
 export type GenerateAction =
-  | { action: "run" | "reset"; model?: string; svgModel?: string; manimModel?: string }
-  | { action: "one"; block: string; model?: string; svgModel?: string; manimModel?: string }
+  | { action: "run" | "reset"; model?: string; svgModel?: string; manimModel?: string; mapModel?: string }
+  | { action: "one"; block: string; model?: string; svgModel?: string; manimModel?: string; mapModel?: string }
   | { action: "stop" };
 
 /** A figure's way as it stands: chosen by hand, else the triage's. */
@@ -75,9 +77,10 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
   gen.model = a.model || gen.model || run.options.imageModel || modelFor("image");
   gen.svgModel = a.svgModel || gen.svgModel || run.options.svgModel || modelFor("svg");
   gen.manimModel = a.manimModel || gen.manimModel || run.options.manimModel || modelFor("manim");
+  gen.mapModel = a.mapModel || gen.mapModel || run.options.mapModel || modelFor("map");
   run.generation = gen;
   const figures = toGenerate(run);
-  if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw, SVG drawing or Manim");
+  if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw, SVG drawing, Manim or Map");
   // Figures being generated now go on; the others are free to start, alone or together.
   const free = (b: Block) => !busy.has(busyKey(id, b.id));
   let todo: Block[];
@@ -197,6 +200,7 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
   const t = run.triage?.figures[block.id];
   if (kind === "svg") return drawSvg(run, block, state, reference, { caption, context, how: t?.how });
   if (kind === "manim") return drawManim(run, block, state, reference, { caption, context, how: t?.how });
+  if (kind === "map") return drawMap(run, block, state, reference, { caption, context, how: t?.how });
   // Asked in full; when the model's moderation blocks it, in gentler words; then with no reference image at all.
   for (const level of REDRAW_LEVELS) {
     const blind = level === "blind";
@@ -344,5 +348,77 @@ async function drawManim(run: Run, block: Block, state: FigureGeneration, refere
     return;
   }
   Object.assign(state, { status: "failed", error: state.error ?? "no Manim code was written", at: Date.now() });
+  saveRun(run);
+}
+
+/**
+ * A figure triaged Map: the map model is shown the book's map and writes it as a short map script in the same call
+ * (region, title, a few beats of map operations); v2's engine checks and compiles it (what it refuses goes back to the
+ * same model once) and renders it silent: the last frame and the video, as for Manim.
+ */
+async function drawMap(run: Run, block: Block, state: FigureGeneration, reference: string,
+  x: { caption?: string; context?: string; how?: string }) {
+  const gen = run.generation!;
+  let retry: { script: string; errors: string[] } | undefined;
+  const work = path.join(path.dirname(generatedFile(run.id, block.id)), `${block.id.replace(/[^\w]+/g, "_")}.map`);
+  await mkdir(work, { recursive: true });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const prompt = mapPrompt({ documentId: run.documentId, blockId: block.id, page: block.page, caption: x.caption, context: x.context, how: x.how, retry });
+    const call = newCall(run, { step: "generate", label: `Map ${block.id}${attempt > 1 ? " (again, with what the engine refused)" : ""}`,
+      block: block.id, model: gen.mapModel!, effort: "off", prompt });
+    state.calls.push(call.id);
+    const reply = await callTool({ call, tool: MAP_TOOL, images: [reference], onChange: () => saveRun(run),
+      fake: () => standInMap(x.caption ?? block.text) });
+    if (!reply) {
+      check(call, "Map", "fail", `the call failed: ${call.error ?? "no reply"}`);
+      state.error = `the call failed: ${call.error ?? "no reply"}`;
+      break;
+    }
+    const { script, dropped } = mapScript(reply);
+    state.mapScript = script;
+    if (dropped.length) check(call, "Map operations", "fixed", `taken out: ${dropped.join("; ")}`);
+    const beats = ((script.chapters as { beats: unknown[] }[])[0]?.beats ?? []).length;
+    if (!beats) {
+      check(call, "Map operations", "fail", "no beat has a map operation");
+      retry = { script: JSON.stringify(reply), errors: ["no beat has a map operation: give each beat 1 to 4 map operations"] };
+      state.error = "the map had no map operations";
+      continue;
+    }
+    const compiled = await compileMap(script, work);
+    if (compiled.warnings.length) check(call, "Engine warnings", "info", compiled.warnings.slice(0, 6).join("; "));
+    const problems = mapProblems(compiled);
+    if (problems.length || !compiled.source) {
+      check(call, "Engine check", "fail", problems.slice(0, 8).join("; "));
+      retry = { script: JSON.stringify(script), errors: problems };
+      state.error = `the engine refused it: ${problems.slice(0, 3).join("; ")}`;
+      if (problems.some((e) => /could not run/.test(e))) break;
+      continue;
+    }
+    check(call, "Engine check", "pass", `${beats} beat(s) compiled`);
+    state.status = "running";
+    saveRun(run);
+    const out = await renderMap(compiled.source, path.join(work, "render"));
+    if (!out.png) {
+      check(call, "Render", "fail", out.error ?? "no frame");
+      retry = { script: JSON.stringify(script), errors: [out.error ?? "the render failed"] };
+      state.error = `the render failed: ${(out.error ?? "").split("\n").slice(-2).join(" ")}`;
+      if (/not installed/.test(out.error ?? "")) break;
+      continue;
+    }
+    const png = generatedFile(run.id, block.id, "png");
+    await copyFile(out.png, png);
+    let video: string | undefined;
+    if (out.mp4) {
+      video = generatedFile(run.id, block.id, "mp4");
+      await copyFile(out.mp4, video);
+    }
+    check(call, "Render", out.mp4 ? "pass" : "info", `rendered in ${out.seconds.toFixed(1)} s${out.mp4 ? ": its last frame and its video" : `: the last frame only (${out.error})`}`);
+    const url = `/api/runs/${run.id}/generated/${encodeURIComponent(block.id)}?v=${Date.now()}`;
+    call.output = { ...(call.output as object), image: url };
+    Object.assign(state, { status: "done", file: png, video, url, at: Date.now(), error: undefined, level: undefined, prompt: undefined, code: undefined });
+    saveRun(run);
+    return;
+  }
+  Object.assign(state, { status: "failed", error: state.error ?? "no map was made", at: Date.now() });
   saveRun(run);
 }

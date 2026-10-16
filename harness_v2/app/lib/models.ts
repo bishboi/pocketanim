@@ -48,8 +48,8 @@ export const ROLES: RoleInfo[] = [
   { role: "manim", label: "Manim", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Draws the figures triaged Manim: reads the figure and writes its Manim code, in one call; rendered here (generation).",
     env: ["V2_MANIM_MODEL", "PANIM_MANIM_MODEL", "OPENROUTER_MODEL"] },
-  { role: "map", label: "Map", kind: "text", used: false, fallback: "anthropic/claude-sonnet-4.5",
-    what: "Finds the places of the figures triaged Map (a step to come).",
+  { role: "map", label: "Map", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
+    what: "Draws the figures triaged Map: reads the book's map and writes its map script, in one call; v2's engine renders it (generation).",
     env: ["V2_MAP_MODEL", "PANIM_MAP_MODEL", "PANIM_MANIM_MODEL", "OPENROUTER_MODEL"] },
 ];
 

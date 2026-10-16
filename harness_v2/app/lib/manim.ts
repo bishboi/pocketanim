@@ -68,23 +68,27 @@ export function pythonPath(): string {
   return "python3";
 }
 
-function run(args: string[], cwd: string): Promise<{ code: number | null; out: string }> {
+export function runPython(args: string[], cwd: string, env: Record<string, string> = {}, input?: string, timeout = TIMEOUT_MS):
+  Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn(pythonPath(), args, { cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
+    const child = spawn(pythonPath(), args, { cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", ...env } });
+    let stdout = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    if (input !== undefined) child.stdin.end(input);
     let out = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (out += d));
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      out += `\nstopped: over ${TIMEOUT_MS / 1000} s`;
-    }, TIMEOUT_MS);
+      out += `\nstopped: over ${timeout / 1000} s`;
+    }, timeout);
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, out });
+      resolve({ code, out, stdout });
     });
     child.on("error", (error) => {
       clearTimeout(timer);
-      resolve({ code: -1, out: String(error) });
+      resolve({ code: -1, out: String(error), stdout });
     });
   });
 }
@@ -104,15 +108,26 @@ function errorOf(out: string): string {
   return (at >= 0 ? lines.slice(at) : lines.slice(-12)).slice(-14).join("\n").slice(0, 1500);
 }
 
+export type Rendered = { png?: string; mp4?: string; error?: string; seconds: number };
+
 /** The code rendered in `dir`: its last frame (PNG) and its video (MP4), or why not. */
-export async function renderManim(code: string, dir: string): Promise<{ png?: string; mp4?: string; error?: string; seconds: number }> {
-  const began = Date.now();
+export async function renderManim(code: string, dir: string): Promise<Rendered> {
   const problems = checkManim(code);
   if (problems.length) return { error: problems.join("; "), seconds: 0 };
+  return renderScene(sceneSource(code), "Figure", dir);
+}
+
+/**
+ * A scene's source rendered in `dir` (a fresh folder): its last frame first (a broken scene fails fast, its error
+ * said), then its video. `env` is added to the render's environment (v1's engine on PYTHONPATH, silent voice).
+ */
+export async function renderScene(source: string, scene: string, dir: string, env: Record<string, string> = {}): Promise<Rendered> {
+  const began = Date.now();
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "figure.py"), sceneSource(code), "utf8");
-  const base = ["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "figure.py", "Figure"];
+  await writeFile(path.join(dir, "figure.py"), source, "utf8");
+  const base = ["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "figure.py", scene];
+  const run = (args: string[], cwd: string) => runPython(args, cwd, env);
   const still = await run([...base.slice(0, 4), "-s", ...base.slice(4)], dir);
   const png = await find(path.join(dir, "media", "images"), ".png");
   if (still.code !== 0 || !png) {

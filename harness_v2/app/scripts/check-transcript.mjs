@@ -12,6 +12,8 @@ delete process.env.DATALAB_API_KEY;
 const here = import.meta.dirname;
 // Manim renders with the repo's .venv (the check runs from a temporary folder).
 process.env.V2_PYTHON ??= path.resolve(here, "../../../.venv/bin/python");
+// Maps are drawn by v2's own engine (a copy of v1's).
+process.env.V2_ENGINE ??= path.resolve(here, "../../engine");
 const pdf = readFileSync(path.join(here, "fixtures", "chapter.pdf"));
 process.chdir(mkdtempSync(path.join(tmpdir(), "v2-check-")));
 const { addDocument } = await import(path.resolve(here, "../lib/docs.ts"));
@@ -246,6 +248,32 @@ assert.ok(gmn.code.includes("self.play"));
 const mcall = run.calls.find((c) => c.id === gmn.calls.at(-1));
 assert.ok(mcall.prompt.system.some((p) => p.key === "rules" && p.text.includes("PALETTE")) && mcall.prompt.user.some((p) => p.text.includes("to rebuild exactly")), "v1's Manim rules");
 assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), JSON.stringify(mcall.checks));
+// Maps: written by the map model from the book's map, in one call, compiled and rendered by v2's engine.
+const { mapScript, compileMap, mapProblems, engineDir } = await import(path.resolve(here, "../lib/maps.ts"));
+assert.ok(engineDir().endsWith(path.join("harness_v2", "engine")), `v2's own engine: ${engineDir()}`);
+const ms = mapScript({ region: { country: "India" }, title: "T", beats: [{ say: "s", do: [{ op: "river", name: "Ganges" }, { op: "panel", title: "x" },
+  { op: "marker", place: "Delhi", picture: { draw: "a fort" } }] }] });
+assert.ok(ms.dropped.some((d) => /panel/.test(d)) && ms.dropped.some((d) => /picture/.test(d)), ms.dropped.join("; "));
+assert.equal(ms.script.chapters[0].beats[0].do.length, 2);
+const { mkdirSync } = await import("node:fs");
+mkdirSync(path.join(process.cwd(), "map-check"), { recursive: true });
+const refusedMap = await compileMap(mapScript({ region: { country: "India" }, title: "T", beats: [{ say: "s", do: [{ op: "marker", label: "nowhere" }] }] }).script,
+  path.join(process.cwd(), "map-check"));
+const why = mapProblems(refusedMap);
+assert.ok(why[0] === "nothing was drawn on a map" && why.some((w) => /no place/.test(w)), `a map whose ops were all left out is refused: ${why}`);
+await triageAction(run.id, { action: "override", block: pics[0].id, kind: "map" });
+await generateAction(run.id, { action: "one", block: pics[0].id });
+run = await wait(run.id, (r) => r.generation.status === "running");
+const gmap = run.generation.figures[pics[0].id];
+assert.equal(gmap.status, "done", gmap.error);
+assert.equal(gmap.kind, "map");
+assert.equal(readFileSync(gmap.file).subarray(1, 4).toString(), "PNG", "the map's last frame");
+assert.ok(gmap.video && readFileSync(gmap.video).subarray(4, 8).toString() === "ftyp", "the map's video");
+assert.equal(gmap.mapScript.region.country, "India");
+const mapCall = run.calls.find((c) => c.id === gmap.calls.at(-1));
+assert.ok(mapCall.checks.some((c) => c.name === "Engine check" && c.result === "pass") && mapCall.prompt.system.some((p) => p.key === "ops" && p.text.includes('"op":"empire"')), "v1's map ops");
+await triageAction(run.id, { action: "override", block: pics[0].id, kind: "exact" });
+
 // In parallel: one figure started while another is being generated; the busy one is not started twice.
 const { generating } = await import(path.resolve(here, "../lib/generate.ts"));
 await generateAction(run.id, { action: "one", block: pics[1].id });

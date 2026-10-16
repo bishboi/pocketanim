@@ -82,3 +82,20 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
 
 export const DEFAULT_KINDS: TriageKind[] = TRIAGE_CHOICES.filter((c) => c.on).map((c) => c.key);
 export const choiceOf = (k?: string) => TRIAGE_CHOICES.find((c) => c.key === k);
+
+/**
+ * The decision model's instructions for the triage, in v1's words (harness/app/lib/figures.ts CLASSIFY_PROMPT): its
+ * framing, the ways offered each as v1 describes it, and its rule between EXACT and STYLED. v1's reply format
+ * ("KIND | HOW") is left out: a decision model only chooses (each way is also its criterion).
+ */
+export function triageInstructions(kinds: TriageKind[]): string {
+  return [
+    "You look at ONE figure from a textbook (the picture in the state) and decide how a video lecture should best show it: " +
+      "by what matters in it, what must stay exactly as it is, and what may change.",
+    "Choose exactly one of these ways:",
+    ...kinds.map((k) => `- ${choiceOf(k)!.prompt}`),
+    ...(kinds.includes("exact") && kinds.includes("styled") ? ["When in doubt between EXACT and STYLED, EXACT."] : []),
+    ...(kinds.includes("book") ? [] : ["The book's own picture is never shown as it is: choose how it is rebuilt or redrawn."]),
+    "If no way fits well, choose the closest.",
+  ].join("\n");
+}

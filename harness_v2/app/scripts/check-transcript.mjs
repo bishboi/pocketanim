@@ -103,6 +103,8 @@ assert.equal(tcall.model, "typesafe/jev-1.14");
 assert.deepEqual(Object.keys(tcall.tool.way.criteria), ["manim", "map", "styled"], "only the ways ticked are offered");
 assert.equal(tcall.tool.way.options, undefined, "a Choice's options go in criteria");
 assert.equal(tcall.tool.way.type, "choice");
+assert.ok(tcall.tool.way.instructions.startsWith("You look at ONE figure from a textbook"), "v1's triage instructions");
+assert.ok(tcall.tool.way.instructions.includes("- MAP: a map of a real place") && !tcall.tool.way.instructions.includes("PHOTO:"), "the ways offered, in v1's words");
 assert.ok(tcall.request.state.some((s) => s.type === "image_url"), "the picture is in the state");
 assert.ok(!JSON.stringify(tcall.request).includes("iVBORw0KGgo"), "the run's file keeps no image bytes");
 const f0 = run.triage.figures[pics[0].id];

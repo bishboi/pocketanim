@@ -24,7 +24,7 @@ import { callTool } from "./llm";
 import { answerTo, callDecision, readChoice, type StateItem } from "./decisions";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
-import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, type TriageKind } from "./triage-kinds";
+import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, triageInstructions, type TriageKind } from "./triage-kinds";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import type { FigureTriage, Run, Triage, TriageEngine } from "./types";
 
@@ -283,9 +283,8 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
   c: { caption?: string; around: string[]; lecture?: Run["lectures"][number]; goals: { id: string; goal: string }[]; subject?: string }) {
   const triage = run.triage!;
   const kinds = triage.kinds;
-  const instructions = "How should a video lecture show this textbook figure (the picture in the state)? Choose by what the figure " +
-    "teaches and what must survive in the video: its exact values and labels, its look, or only its idea." +
-    (kinds.includes("exact") && kinds.includes("styled") ? " Between exact and styled, exact when in doubt." : "");
+  // v1's triage instructions (triage-kinds.ts); each way also goes as its criterion.
+  const instructions = triageInstructions(kinds);
   const criteria = Object.fromEntries(kinds.map((k) => [k, choiceOf(k)!.prompt]));
   const words: string[] = [
     ...(c.subject ? [`Subject: ${c.subject}.`] : []),
@@ -299,8 +298,8 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
   const stateItems: StateItem[] = [...words, { type: "image_url", image_url: { url: image } }];
   const call = newCall(run, { step: "triage", label: `Triage ${block.id}`, block: block.id, model: triage.model, effort: "off", prompt: {
     system: [
-      part("question", "Question (choice)", "ask", instructions),
-      part("choices", `Ways offered (${kinds.length})`, "choices", kinds.map((k) => `${k}: ${choiceOf(k)!.prompt}`)),
+      part("question", "Instructions (v1's triage, as the question's instructions)", "rules", instructions),
+      part("choices", `Criteria: the ways offered (${kinds.length})`, "choices", kinds.map((k) => `${k}: ${choiceOf(k)!.prompt}`)),
     ],
     user: [
       part("state", "State: the figure's words", "book", words.slice(0, -1)),

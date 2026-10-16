@@ -128,16 +128,17 @@ export default function Page() {
     setRunId("");
   };
 
-  const start = async () => {
+  /** A new run: the whole transcript, or only so far (`until` "read" or "figures") for the figure triage. */
+  const start = async (until?: "read" | "figures", then: (typeof TABS)[number] = "Lectures") => {
     setError(null);
     const res = await fetch("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ documentId: docId, options }) });
+      body: JSON.stringify({ documentId: docId, options, until }) });
     const json = await res.json();
     if (!res.ok) return setError(json.error ?? "the run could not start");
     setSelection(null);
     setRun(null);
     setRunId(json.id);
-    setTab("Lectures");
+    setTab(then);
   };
 
   // What the PDF lights up, by Datalab's boxes: every block in its lecture's colour; a lecture's blocks; a goal's
@@ -232,10 +233,10 @@ export default function Page() {
           <select className={input} value={options.effort} onChange={(e) => setOptions({ ...options, effort: e.target.value as Options["effort"] })}>
             {["low", "medium", "high", "off"].map((l) => <option key={l}>{l}</option>)}
           </select>
-          <button disabled={!docId || run?.status === "running"} onClick={start} data-testid="start"
+          <button disabled={!docId || run?.status === "running"} onClick={() => start()} data-testid="start"
             className="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40">Build the transcript</button>
           {config && !config.hasKey && <span className="text-amber-300">No OPENROUTER_API_KEY: calls are answered by the offline stand-in.</span>}
-          {config && !config.datalab && <span className="text-amber-300">No DATALAB_API_KEY: PDFs are read offline (no figures, no bold).</span>}
+          {config && !config.datalab && <span className="text-amber-300">No DATALAB_API_KEY: PDFs are read offline (pictures cut from the PDF; no captions, no bold).</span>}
           {error && <span className="text-red-300" data-testid="error">{error}</span>}
         </div>
         {run && (
@@ -243,7 +244,7 @@ export default function Page() {
             <span className="text-neutral-500">This run:</span>
             {run.status === "running"
               ? <button className="rounded border border-red-700 px-2 py-0.5 text-red-200 hover:bg-red-950" onClick={() => act("", { action: "stop" })}>Stop</button>
-              : run.status !== "done" && <button className="rounded border border-emerald-700 px-2 py-0.5 text-emerald-200 hover:bg-emerald-950" data-testid="continue"
+              : run.status !== "done" && !run.legacy && <button className="rounded border border-emerald-700 px-2 py-0.5 text-emerald-200 hover:bg-emerald-950" data-testid="continue"
                   title="Keep every step done so far and do only what is left, with the models above" onClick={() => act("", { action: "continue", options })}>Continue from where it stopped</button>}
             <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=json`} data-testid="export-json"
               title="One file with everything: the lectures' numbered sentences, goals, blocks, figure triage, and the book itself (PDF, Datalab JSON, figures). Import it here or on another machine to go on with the next steps.">Export transcript (to import later)</a>
@@ -269,6 +270,7 @@ export default function Page() {
             ))}
           </ol>
         )}
+        {run?.legacy && <p className="mt-1 text-xs text-amber-300" data-testid="legacy">{run.legacy}</p>}
         {run?.error && <p className="mt-1 text-xs text-red-300">{run.error}</p>}
       </header>
 
@@ -294,10 +296,23 @@ export default function Page() {
             )}
           </nav>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {!run && tab !== "Models" && <p className="text-sm text-neutral-400">{doc ? `${doc.name}: ${doc.pages} pages read by ${doc.source}. Press Build the transcript to start.` : "No book chosen yet."}</p>}
+            {!run && tab !== "Models" && tab !== "Figures" && <p className="text-sm text-neutral-400">{doc ? `${doc.name}: ${doc.pages} pages read by ${doc.source}. Press Build the transcript to start.` : "No book chosen yet."}</p>}
             {run && tab === "Lectures" && <LecturesPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
             {run && tab === "Book" && <BookPanel run={run} selection={selection} select={setSelection} />}
             {run && tab === "Transcript" && <TranscriptPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
+            {!run && tab === "Figures" && docId && (
+              <div className="space-y-2 text-sm text-neutral-300" data-testid="figures-start">
+                <p>Triage this book&apos;s figures without building the transcript: a run that only reads the book (and, if you like, describes its
+                  figures), saved like any other. Continue builds the transcript from it later.</p>
+                <div className="flex gap-2">
+                  <button className="rounded bg-emerald-700 px-3 py-1 text-xs font-semibold text-white" data-testid="read-only"
+                    onClick={() => start("read", "Figures")}>Read the book</button>
+                  <button className="rounded border border-emerald-700 px-3 py-1 text-xs text-emerald-200"
+                    title="Also describe each figure with the Figures model: the chat triage reads the description"
+                    onClick={() => start("figures", "Figures")}>Read and describe the figures</button>
+                </div>
+              </div>
+            )}
             {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={(run.options.triageChatModel && run.options.triageModel) || config?.models.triage?.model || ""}
               defaultChatModel={run.options.triageChatModel || options.triageChatModel || config?.models.triageChat?.model || ""} selection={selection}
               select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} />}

@@ -99,10 +99,10 @@ export function saveRun(run: Run, now = false): void {
  */
 export async function loadRun(id: string): Promise<Run | null> {
   const live = runs.get(id);
-  if (live) return live;
+  if (live) return normalize(live as unknown as Record<string, unknown>);
   let run: Run;
   try {
-    run = JSON.parse(await readFile(runFile(id), "utf8"));
+    run = normalize(JSON.parse(await readFile(runFile(id), "utf8")));
   } catch {
     return null;
   }
@@ -130,6 +130,31 @@ export async function loadRun(id: string): Promise<Run | null> {
   return run;
 }
 
+/**
+ * A run file as this version reads it. One written by an earlier v2 (sections, a learning map and story plans,
+ * before lectures were planned from Datalab's blocks) has none of the fields this one fills: they are made empty,
+ * and it is marked as from an earlier version (it can be opened, not continued).
+ */
+function normalize(raw: Record<string, unknown>): Run {
+  const run = raw as unknown as Run & { sections?: unknown };
+  const legacy = !Array.isArray(raw.lectures) && (Array.isArray(run.sections) || !Array.isArray(raw.blocks));
+  run.steps = Array.isArray(run.steps) ? run.steps : [];
+  run.blocks = Array.isArray(run.blocks) ? run.blocks : [];
+  run.skipped = Array.isArray(run.skipped) ? run.skipped : [];
+  run.lectures = Array.isArray(run.lectures) ? run.lectures : [];
+  run.goalStatus = run.goalStatus && typeof run.goalStatus === "object" ? run.goalStatus : {};
+  run.calls = Array.isArray(run.calls) ? run.calls : [];
+  run.log = Array.isArray(run.log) ? run.log : [];
+  run.options = run.options ?? ({} as Run["options"]);
+  run.documentName = run.documentName ?? "(unknown book)";
+  run.created = Number(run.created) || 0;
+  if (legacy) {
+    run.legacy = "Made by an earlier version of v2 (sections and story plans): its calls can be looked at, but it cannot be continued. Build the transcript again for this book.";
+    if (run.status === "running") run.status = "interrupted";
+  }
+  return run;
+}
+
 export type RunSummary = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string;
   triage?: string };
 
@@ -139,8 +164,21 @@ export async function listRuns(): Promise<RunSummary[]> {
   const out = [];
   for (const name of await readdir(root)) {
     if (!name.endsWith(".json")) continue;
-    const run = runs.get(name.slice(0, -5)) ?? await loadRun(name.slice(0, -5));
+    // A run already in memory may have been read by an earlier version of this code: normalized here too.
+    let run: Run | null;
+    try {
+      const live = runs.get(name.slice(0, -5));
+      run = live ? normalize(live as unknown as Record<string, unknown>) : await loadRun(name.slice(0, -5));
+    } catch (error) {
+      console.error(`run file ${name} could not be read: ${(error as Error).message}`);
+      continue;
+    }
     if (!run) continue;
+    if (run.legacy) {
+      out.push({ id: run.id, documentName: run.documentName, created: run.created, status: `${run.status} (earlier version)`,
+        cost: run.calls.reduce((n, c) => n + (Number(c.cost) || 0), 0), lectures: "no lectures" });
+      continue;
+    }
     const figures = Object.values(run.triage?.figures ?? {});
     out.push({ id: run.id, documentName: run.documentName, created: run.created, status: run.status,
       cost: run.calls.reduce((n, c) => n + c.cost, 0),

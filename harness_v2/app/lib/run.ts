@@ -23,7 +23,8 @@ import { LECTURE_TOOL, PATCH_TOOL, lecturePrompt, lectureSystem, patchPrompt, pl
 import { part } from "./prompts/parts";
 import { callTool } from "./llm";
 import { modelFor } from "./models";
-import { documentBook, documentInfo, loadRun, newId, saveRun } from "./store";
+import { documentInfo, loadRun, newId, saveRun } from "./store";
+import { bookOf, markPictures } from "./docs";
 import type { Call, Check, LectureState, Options, Run, Step, StepKey } from "./types";
 import type { Prompt } from "./prompts/parts";
 
@@ -49,7 +50,11 @@ export function clearStop(key: string) {
   stopping.delete(key);
 }
 
-export async function startRun(documentId: string, asked: Partial<Options>): Promise<Run> {
+/**
+ * A new run. `until` stops it after that step (the book read, or its figures described too), for the figure triage
+ * without a transcript; Continue builds the rest later.
+ */
+export async function startRun(documentId: string, asked: Partial<Options>, until?: StepKey): Promise<Run> {
   const info = await documentInfo(documentId);
   const options: Options = {
     lectureMinutes: asked.lectureMinutes && asked.lectureMinutes >= 3 ? asked.lectureMinutes : 27,
@@ -72,7 +77,7 @@ export async function startRun(documentId: string, asked: Partial<Options>): Pro
     calls: [], log: [],
   };
   saveRun(run, true);
-  launch(run);
+  launch(run, until && ORDER.includes(until) ? until : undefined);
   return run;
 }
 
@@ -84,6 +89,7 @@ export async function startRun(documentId: string, asked: Partial<Options>): Pro
 export async function continueRun(id: string, asked: Partial<Options> = {}): Promise<Run> {
   const run = await loadRun(id);
   if (!run) throw new Error("no such run");
+  if (run.legacy) throw new Error(run.legacy);
   if (jobs.has(`${id}:transcript`)) throw new Error("this run's transcript is already being made");
   for (const k of ["plannerModel", "writerModel", "figureModel", "triageModel", "triageChatModel", "imageModel", "svgModel", "manimModel", "mapModel", "effort", "language"] as const) {
     if (asked[k]) (run.options as Record<string, unknown>)[k] = asked[k];
@@ -97,6 +103,7 @@ export async function continueRun(id: string, asked: Partial<Options> = {}): Pro
 export async function redoFrom(id: string, key: StepKey, asked: Partial<Options> = {}): Promise<Run> {
   const run = await loadRun(id);
   if (!run) throw new Error("no such run");
+  if (run.legacy) throw new Error(run.legacy);
   if (jobs.has(`${id}:transcript`)) throw new Error("stop the run before making a step again");
   const from = ORDER.indexOf(key);
   if (from < 0) throw new Error("no such step");
@@ -123,7 +130,7 @@ export function stopJob(id: string, job: "transcript" | "triage") {
   if (jobs.has(`${id}:${job}`)) stopping.add(`${id}:${job}`);
 }
 
-function launch(run: Run) {
+function launch(run: Run, until?: StepKey) {
   const key = `${run.id}:transcript`;
   jobs.add(key);
   stopping.delete(key);
@@ -133,9 +140,11 @@ function launch(run: Run) {
   saveRun(run, true);
   void (async () => {
     try {
-      const book = await documentBook(run.documentId);
-      await flow(run, book);
-      run.status = "done";
+      const book = await bookOf(run.documentId);
+      if (run.blocks.length && markPictures(run.blocks, book)) log(run, "The book's figure pictures were found again: the figure blocks are marked anew.");
+      await flow(run, book, until);
+      run.status = until ? "stopped" : "done";
+      if (until) log(run, `Stopped after "${run.steps.find((s) => s.key === until)?.label}", as asked: Continue builds the transcript.`);
     } catch (error) {
       const stopped = error instanceof Stopped;
       run.status = stopped ? "stopped" : "failed";
@@ -190,7 +199,7 @@ export async function imageData(file: string): Promise<string | undefined> {
 }
 
 /** Each step skips what it already has, so a run continued after a stop or a failure does only what is left. */
-async function flow(run: Run, book: { json: RawBlock; figures: Record<string, string> }) {
+async function flow(run: Run, book: { json: RawBlock; figures: Record<string, string> }, until?: StepKey) {
   const o = run.options;
   const subject = o.subject || undefined;
   const halt = () => {
@@ -207,6 +216,7 @@ async function flow(run: Run, book: { json: RawBlock; figures: Record<string, st
     step(run, "read", "done", `${run.blocks.length} blocks: ${[...types.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(", ")}`);
     if (!run.blocks.some((b) => kindOf(b.type) === "heading")) log(run, "Datalab found no SectionHeader in the book: the planner divides it by its text alone.");
   }
+  if (until === "read") return;
 
   // 2. Figures: each picture Datalab cut out, described for the planner (those not described yet) ─────────────
   if (!done("figures")) {
@@ -224,6 +234,7 @@ async function flow(run: Run, book: { json: RawBlock; figures: Record<string, st
     step(run, "figures", "done", pictures.length ? `${run.blocks.filter((b) => b.description).length} of ${pictures.length} figures described`
       : figureBlocks ? `${figureBlocks} figure blocks, no picture of them: their captions only` : "no figures");
   }
+  if (until === "figures") return;
 
   // 3. Plan ─────────────────────────────────────────────────────────────────────────────────────────────────────
   if (!done("plan") || !run.lectures.length) {

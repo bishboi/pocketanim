@@ -16,7 +16,9 @@
  * Code checks each answer: the way chosen must be one offered. A figure with no picture cannot be triaged.
  */
 
-import { documentBook, loadRun, saveRun } from "./store";
+import { docDir, loadRun, saveRun, type documentBook } from "./store";
+import { refreshFigures } from "./datalab";
+import { bookOf, markPictures } from "./docs";
 import { figureFile, kindOf, type Block } from "./source/blocks";
 import { callTool } from "./llm";
 import { answerTo, callDecision, readChoice, type StateItem } from "./decisions";
@@ -33,7 +35,8 @@ export type TriageAction =
   | ({ action: "run" | "reset" | "unsure" } & Settings)
   | ({ action: "one"; block: string } & Settings)
   | { action: "override"; block: string; kind: string | null }
-  | { action: "stop" };
+  | { action: "stop" }
+  | { action: "rescan" };
 
 export function defaultTriageModel(run: Run): string {
   // A run started before decision models (no triageChatModel) kept a chat model as its triageModel.
@@ -53,6 +56,15 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
     stopJob(id, "triage");
     return run;
   }
+  if (a.action === "rescan") {
+    // The book's pictures searched again (Datalab's cached result, then the PDF itself), the run's blocks marked anew.
+    const report = await refreshFigures(docDir(run.documentId));
+    const book = await bookOf(run.documentId);
+    const changed = markPictures(run.blocks, book);
+    log(run, `Figure pictures searched again: ${report?.note ?? "the search failed"}${changed ? `; ${changed} block(s) marked anew` : ""}.`);
+    saveRun(run, true);
+    return run;
+  }
   if (a.action === "override") {
     const f = run.triage?.figures[a.block];
     if (!f) throw new Error("that figure has not been triaged");
@@ -62,6 +74,7 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
     saveRun(run, true);
     return run;
   }
+  if (run.legacy) throw new Error(run.legacy);
   if (!run.blocks.length) throw new Error("the book has not been read in this run yet: build the transcript first (its first step reads it)");
   if (jobs.has(`${id}:triage`)) throw new Error("the triage is already running");
   const kinds = (a.kinds ?? run.triage?.kinds ?? DEFAULT_KINDS).filter((k): k is TriageKind => !!choiceOf(k));
@@ -83,8 +96,15 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
   // The engine of this round: the unsure ones always go to the chat model.
   const engine: TriageEngine = a.action === "unsure" ? "chat" : a.action === "one" ? a.engine ?? triage.engine : triage.engine;
   run.triage = triage;
+  // The book's pictures as found now (a book uploaded before the search found them all is searched again, once).
+  const book = await bookOf(run.documentId);
+  if (markPictures(run.blocks, book)) log(run, "The book's figure pictures were found again: the figure blocks are marked anew.");
+  saveRun(run);
   const figures = triageable(run);
-  if (!figures.length) throw new Error("this book has no figure with a picture to triage");
+  if (!figures.length) {
+    const r = book.report;
+    throw new Error(`this book has no figure with a picture to triage${r ? `: ${r.note}` : ""}`);
+  }
   let todo: Block[];
   if (a.action === "reset") {
     // Decisions and hand choices go; each figure's past calls stay listed with it (their cost was real).
@@ -125,7 +145,7 @@ function launch(run: Run, todo: Block[], engine: TriageEngine) {
   saveRun(run, true);
   void (async () => {
     try {
-      const book = await documentBook(run.documentId);
+      const book = await bookOf(run.documentId);
       const queue = [...todo];
       const worker = async () => {
         while (queue.length && !stopRequested(key)) await triageFigure(run, queue.shift()!, book, engine);

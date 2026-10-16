@@ -77,7 +77,16 @@ npm run check                                                # type check and th
 
 Without `OPENROUTER_API_KEY`, every call is answered by an offline stand-in (cost 0), so the flow and the page can
 be tried with no key. Without `DATALAB_API_KEY`, an offline reader builds JSON of the same shape from the PDF's text positions (pdf.js):
-paragraphs and larger-font headings, no figures. `DATALAB_MODE` (default `balanced`) sets Datalab's mode;
+paragraphs, larger-font headings, and a Picture block for each picture a page paints (no captions, no bold).
+
+**Figure pictures** are looked for wherever Datalab may put them (a block's `images`, its HTML's `<img>`, the
+result's named images), and a figure block still without one takes the picture the PDF paints inside its box, cut
+out of the PDF itself (`app/lib/pdf-images.ts`; a figure drawn as vector lines has none). What was found is in the
+book's `figure-report.json` and on the Figures tab, with **Search the pictures again** (no Datalab call). A book
+uploaded before this is searched again once, by itself.
+
+**Triage without a transcript:** on the Figures tab with no run, **Read the book** (or **Read and describe the
+figures**) starts a run that stops there; triage it, and Continue builds the transcript later. `DATALAB_MODE` (default `balanced`) sets Datalab's mode;
 **Models come from `.env.local`** (`app/.env.example` lists them all), so nothing has to be typed. What v2's own
 `app/.env.local` does not set is taken from v1's `harness/app/.env.local`, and v1's variable names work too. Each role
 reads the first variable that is set (`app/lib/models.ts`):

@@ -54,7 +54,7 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
   const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
 
   if (!run.blocks.length) {
-    return <p className="text-sm text-neutral-400">The book has not been read in this run yet. Build the transcript (its first step reads the book), then triage its figures.</p>;
+    return <p className="text-sm text-neutral-400">The book has not been read in this run yet{run.status === "running" ? ": it is being read now." : ". Continue the run, or start one for the figures only."}</p>;
   }
   return (
     <div className="space-y-3" data-testid="figures">
@@ -127,8 +127,7 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
         <span className="font-semibold">{money(cost)}</span>
       </div>
       {triage?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200" data-testid="triage-error">{triage.error}</p>}
-      {!figures.length && <p className="text-sm text-neutral-400">This book has no figure with a picture: Datalab cut none out
-        {noPicture.length ? ` (${noPicture.length} figure block(s) without one)` : ""}.</p>}
+      <FigureSearch run={run} figures={figures.length} noPicture={noPicture.length} running={running} act={act} />
 
       <ul className="grid gap-2 xl:grid-cols-2">
         {figures.map((b) => {
@@ -204,6 +203,41 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+type Report = { figureBlocks: number; matched: number; blockImages: number; topImages: number; imgTags: number; cut?: number; unmatched: string[]; note: string };
+
+/** What the search for the book's figure pictures found, and a button to search again (no Datalab call). */
+function FigureSearch({ run, figures, noPicture, running, act }: { run: Run; figures: number; noPicture: number; running: boolean;
+  act: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [report, setReport] = useState<Report | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch(`/api/documents/${run.documentId}/figures`).then((r) => r.json()).then((j) => setReport(j.report)).catch(() => {});
+  }, [run.documentId, figures]);
+  if (!noPicture && report && !report.unmatched.length) return null;
+  return (
+    <div className={`rounded border p-2 text-xs ${figures ? "border-neutral-800 text-neutral-400" : "border-amber-800 bg-amber-950/30 text-amber-100"}`} data-testid="figure-search">
+      <p>
+        {figures ? `${figures} figure(s) have a picture` : "No figure has a picture yet"}{noPicture ? `; ${noPicture} figure block(s) have none` : ""}.
+        {report ? ` Search: ${report.note}.` : ""}
+      </p>
+      {report && (
+        <p className="mt-0.5 text-neutral-400">Datalab found {report.figureBlocks} figure block(s); its result had {report.blockImages} block image(s),
+          {" "}{report.topImages} named picture(s) and {report.imgTags} &lt;img&gt; tag(s){report.cut !== undefined ? `; ${report.cut} cut out of the PDF itself` : ""}.
+          {report.unmatched.length ? ` Still without: ${report.unmatched.slice(0, 6).join(", ")}${report.unmatched.length > 6 ? "…" : ""}` : ""}</p>
+      )}
+      <button className="mt-1 rounded border border-neutral-600 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800 disabled:opacity-40" disabled={busy || running}
+        data-testid="figure-rescan" onClick={async () => {
+          setBusy(true);
+          await act({ action: "rescan" });
+          const j = await fetch(`/api/documents/${run.documentId}/figures`).then((r) => r.json()).catch(() => ({}));
+          setReport(j.report ?? null);
+          setBusy(false);
+        }}>{busy ? "Searching…" : "Search the pictures again"}</button>
+      <span className="ml-2 text-neutral-500">Datalab&apos;s cached result, then the PDF itself: no new conversion, no cost.</span>
     </div>
   );
 }

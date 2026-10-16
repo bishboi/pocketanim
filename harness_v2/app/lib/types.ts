@@ -107,6 +107,8 @@ export type Run = {
   log: { t: number; text: string }[];
   /** The figure triage (triage.ts): how each of the book's figures is to be shown. Runs apart from the transcript. */
   triage?: Triage;
+  /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
+  legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
   imported?: { file: string; at: number };
 };

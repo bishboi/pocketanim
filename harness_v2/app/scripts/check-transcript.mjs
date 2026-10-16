@@ -3,7 +3,7 @@
 // boxes; every block is placed in a lecture; every goal is taught or written in; lectures see the ones before them.
 //   npm run check
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -167,7 +167,6 @@ assert.ok(added.length >= 1 && added.every((c) => c.lecture === lost.n), `only l
 const whole = JSON.parse(JSON.stringify(await exportWhole(run)));
 assert.equal(whole.version, 2);
 assert.ok(whole.book.pdf && whole.book.datalab && Object.keys(whole.book.figures).length === 2, "the book is in the file");
-const { rmSync } = await import("node:fs");
 rmSync(path.join(process.cwd(), ".data"), { recursive: true, force: true });
 assert.match(checkExport({ format: "x" }), /not an exported/);
 assert.match(checkExport({ ...whole, version: 99 }), /newer/);
@@ -186,6 +185,34 @@ assert.equal(t3.status, "done", t3.error);
 assert.equal(t3.lectures[2].status, "written");
 assert.ok(t3.calls.find((c) => c.lecture === 3).prompt.user.find((p) => p.key === "previous").text.includes(run.lectures[0].text.slice(0, 60)),
   "a lecture written after import sees the imported ones");
+
+// A figure Datalab returned no picture for: cut out of the PDF itself, and triaged with no transcript built.
+const figDoc = await addDocument("figure.pdf", new Uint8Array(readFileSync(path.join(here, "fixtures", "figure.pdf"))));
+const fdir = path.join(process.cwd(), ".data", "docs", figDoc.id);
+const fbook = JSON.parse(readFileSync(path.join(fdir, "book.json"), "utf8"));
+const [, , fw, fh] = fbook.children[0].bbox;
+// The offline reader found the picture itself (/page/0/Picture/0). A second figure block where Datalab would put it
+// (the picture is at about x 0.07-0.64, y 0.19-0.48), with no picture: the search cuts it out of the PDF.
+fbook.children[0].children.push({ id: "/page/0/Picture/5", block_type: "Picture", html: "", bbox: [fw * 0.06, fh * 0.18, fw * 0.66, fh * 0.49], children: null });
+writeFileSync(path.join(fdir, "book.json"), JSON.stringify(fbook));
+rmSync(path.join(fdir, "figure-report.json"), { force: true });
+const readOnly = await startRun(figDoc.id, {}, "read");
+let r1 = await wait(readOnly.id, (r) => r.status === "running");
+assert.equal(r1.status, "stopped", r1.error);
+assert.equal(r1.steps.find((x) => x.key === "read").status, "done");
+assert.equal(r1.steps.find((x) => x.key === "plan").status, "waiting", "no transcript built");
+assert.equal(r1.calls.length, 0);
+await triageAction(readOnly.id, { action: "run" });
+r1 = await wait(readOnly.id, (r) => r.triage.status === "running");
+assert.equal(r1.triage.status, "done", r1.triage.error);
+assert.ok(r1.blocks.find((b) => b.id === "/page/0/Picture/5").image, "the picture was cut out of the PDF");
+const freport = JSON.parse(readFileSync(path.join(fdir, "figure-report.json"), "utf8"));
+assert.equal(freport.cut, 1, JSON.stringify(freport));
+assert.ok(r1.blocks.find((b) => b.id === "/page/0/Picture/0")?.image, "the offline reader makes a Picture block of the PDF's picture");
+const cutPng = readFileSync(JSON.parse(readFileSync(path.join(fdir, "figures.json"), "utf8"))["/page/0/Picture/5"]);
+assert.equal(cutPng.subarray(1, 4).toString(), "PNG");
+assert.equal(cutPng.readUInt32BE(16), 420, "the picture at its own size");
+assert.equal(r1.triage.figures["/page/0/Picture/5"].status, "done");
 
 console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${Object.keys(run.goalStatus).length} goals, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

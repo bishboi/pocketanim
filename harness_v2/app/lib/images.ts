@@ -20,7 +20,7 @@ export type ImageResult = { bytes: Buffer; mime: string };
 
 const placeholder = (url: string) => `${url.split(",")[0]},… (${Math.round(url.length * 0.75 / 1024)} kB)`;
 
-export async function callImage(o: { call: Call; text: string; reference: string; fake: () => ImageResult; onChange: () => void }):
+export async function callImage(o: { call: Call; text: string; reference?: string; fake: () => ImageResult; onChange: () => void }):
   Promise<ImageResult | null> {
   const { call } = o;
   call.api = "image";
@@ -53,7 +53,7 @@ async function fixture(fake: () => ImageResult) {
   return fake();
 }
 
-async function real(call: Call, text: string, reference: string): Promise<ImageResult> {
+async function real(call: Call, text: string, reference?: string): Promise<ImageResult> {
   const known = routes.get(call.model);
   const order: ("chat" | "images")[] = known ? [known, known === "chat" ? "images" : "chat"] : ["chat", "images"];
   let last: Error | undefined;
@@ -84,10 +84,10 @@ async function post(url: string, body: unknown): Promise<Record<string, unknown>
   return json;
 }
 
-async function viaChat(call: Call, text: string, reference: string): Promise<ImageResult> {
-  const body = { model: call.model, modalities: ["image", "text"], usage: { include: true },
-    messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: reference } }, { type: "text", text }] }] };
-  call.request = { ...body, messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: placeholder(reference) } }, { type: "text", text }] }] };
+async function viaChat(call: Call, text: string, reference?: string): Promise<ImageResult> {
+  const content = (url?: string) => [...(url ? [{ type: "image_url", image_url: { url } }] : []), { type: "text", text }];
+  const body = { model: call.model, modalities: ["image", "text"], usage: { include: true }, messages: [{ role: "user", content: content(reference) }] };
+  call.request = { ...body, messages: [{ role: "user", content: content(reference && placeholder(reference)) }] };
   const json = await post(CHAT, body);
   const message = ((json.choices as { message?: { content?: string; images?: { image_url?: { url?: string } }[] } }[] | undefined)?.[0]?.message) ?? {};
   bill(call, json);
@@ -97,9 +97,10 @@ async function viaChat(call: Call, text: string, reference: string): Promise<Ima
   return await bytesOf(url);
 }
 
-async function viaImages(call: Call, text: string, reference: string): Promise<ImageResult> {
-  const body = { model: call.model, prompt: text, input_references: [{ type: "image_url", image_url: { url: reference } }] };
-  call.request = { ...body, input_references: [{ type: "image_url", image_url: { url: placeholder(reference) } }] };
+async function viaImages(call: Call, text: string, reference?: string): Promise<ImageResult> {
+  const refs = (url?: string) => (url ? { input_references: [{ type: "image_url", image_url: { url } }] } : {});
+  const body = { model: call.model, prompt: text, ...refs(reference) };
+  call.request = { ...body, ...refs(reference && placeholder(reference)) };
   const json = await post(IMAGES, body);
   bill(call, json);
   const items = (json.data ?? json.images ?? []) as Record<string, unknown>[];

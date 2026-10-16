@@ -1,6 +1,7 @@
 /**
  * Generation, the step after the triage: every figure triaged Exact or Styled redraw (or set so by hand) is redrawn
- * by the image model from the book's figure, with v1's redraw prompt (prompts/redraw.ts). Each figure keeps the
+ * by the image model from the book's figure, with the redraw prompt (prompts/redraw.ts: v1's, with no text in the image
+ * and gentler words; asked gentler still, then without the reference image, when a model's moderation blocks it). Each figure keeps the
  * prompt it was sent, as its parts, the image made, and its calls; everything is saved in the run as it comes.
  *
  *   run     generate every redraw figure not generated yet
@@ -16,7 +17,7 @@ import path from "node:path";
 import { bookOf } from "./docs";
 import { callImage } from "./images";
 import { modelFor } from "./models";
-import { redrawParts, redrawText } from "./prompts/redraw";
+import { BLOCKED, REDRAW_LEVELS, redrawParts, redrawText } from "./prompts/redraw";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
 import { DATA, loadRun, saveRun } from "./store";
@@ -142,25 +143,30 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
     .filter((b) => b.page === block.page && kindOf(b.type) === "text" && !(caption && b.text.startsWith(caption))).map((b) => b.text).join(" ");
   const context = [lecture ? `Lecture "${lecture.title}"${goals.length ? `, to teach: ${goals.join("; ")}` : ""}.` : "", around].filter(Boolean).join(" ");
   const t = run.triage?.figures[block.id];
-  let plain = false;
-  for (let round = 0; round < 2; round++) {
-    const parts = redrawParts({ caption: caption || block.description || block.text, context, how: t?.how, plain });
+  // Asked in full; when the model's moderation blocks it, in gentler words; then with no reference image at all.
+  for (const level of REDRAW_LEVELS) {
+    const blind = level === "blind";
+    const parts = redrawParts({ caption: caption || block.description || block.text, description: block.description, context, how: t?.how, level });
     const text = redrawText(parts);
-    const call = newCall(run, { step: "generate", label: `Redraw ${block.id} (${kind === "exact" ? "Exact" : "Styled"}${plain ? ", plain" : ""})`,
-      block: block.id, model: gen.model, effort: "off", prompt: { system: [], user: [...parts,
-        { key: "reference", label: "The book's figure (reference image)", kind: "book", text: `[attached before the words: /api/documents/${run.documentId}/figure/${encodeURIComponent(block.id)}]` }] } });
+    const call = newCall(run, { step: "generate", label: `Redraw ${block.id} (${kind === "exact" ? "Exact" : "Styled"}${level === "full" ? "" : `, ${level}`})`,
+      block: block.id, model: gen.model, effort: "off", prompt: { system: [], user: [...parts, ...(blind ? [] : [
+        { key: "reference", label: "The book's figure (reference image)", kind: "book" as const, text: `[attached before the words: /api/documents/${run.documentId}/figure/${encodeURIComponent(block.id)}]` }])] } });
     state.calls.push(call.id);
     state.prompt = text;
-    const out = await callImage({ call, text, reference, onChange: () => saveRun(run),
-      fake: () => ({ bytes: Buffer.from(reference.split(",")[1], "base64"), mime: reference.slice(5, reference.indexOf(";")) }) });
+    const out = await callImage({ call, text, reference: blind ? undefined : reference, onChange: () => saveRun(run),
+      fake: () => {
+        // The stand-in answers as a moderating model would when its name says so ("fixture-moderated"), to try the
+        // gentler asks offline; else it gives the book's figure back.
+        if (gen.model.includes("moderated") && !blind) throw new Error('400 {"error":{"message":"Azure MAI blocked this request through content moderation.","code":400}}');
+        return { bytes: Buffer.from(reference.split(",")[1], "base64"), mime: reference.slice(5, reference.indexOf(";")) };
+      } });
     if (!out) {
-      // An image model's content filter blocks a request as copying now and then: v1 asks once more in the plainest words.
-      if (!plain && /filter|safety|blocked|policy|moderat/i.test(call.error ?? "")) {
-        check(call, "Filter", "fixed", "blocked by the model's filter: asked again in the plainest words");
-        plain = true;
+      const next = REDRAW_LEVELS[REDRAW_LEVELS.indexOf(level) + 1];
+      if (next && BLOCKED.test(call.error ?? "")) {
+        check(call, "Moderation", "fixed", `blocked by the model's moderation: asked again ${next === "gentle" ? "in gentler words" : "with no reference image, from what the figure shows"}`);
         continue;
       }
-      Object.assign(state, { status: "failed", error: `the call failed: ${call.error ?? "no image"}`, at: Date.now() });
+      Object.assign(state, { status: "failed", error: `the call failed: ${call.error ?? "no image"}`, at: Date.now(), level });
       saveRun(run);
       return;
     }
@@ -171,7 +177,7 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
     const url = `/api/runs/${run.id}/generated/${encodeURIComponent(block.id)}?v=${Date.now()}`;
     call.output = { image: url, bytes: out.bytes.length, mime: out.mime };
     check(call, "Image", "pass", `${Math.round(out.bytes.length / 1024)} kB ${out.mime}${call.provider === "fixture" ? " (the stand-in returns the book's figure)" : ""}`);
-    Object.assign(state, { status: "done", file: target, url, at: Date.now(), plain });
+    Object.assign(state, { status: "done", file: target, url, at: Date.now(), level });
     saveRun(run);
     return;
   }

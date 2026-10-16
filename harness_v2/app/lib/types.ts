@@ -152,8 +152,8 @@ export type FigureGeneration = {
   kind?: TriageKind;
   /** The prompt as sent (its parts are on its call). */
   prompt?: string;
-  /** Asked in the plainest words, the full prompt having been blocked by the model's filter. */
-  plain?: boolean;
+  /** How it was asked in the end: full, gentle (the full prompt blocked by moderation), blind (no reference image). */
+  level?: "full" | "gentle" | "blind";
   /** Where the image is kept, and its URL for the page. */
   file?: string;
   url?: string;

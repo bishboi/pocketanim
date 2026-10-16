@@ -156,8 +156,11 @@ assert.equal(run.generation.status, "done", run.generation.error);
 const g0 = run.generation.figures[pics[0].id];
 assert.equal(g0.status, "done");
 assert.equal(g0.kind, "exact");
-assert.ok(g0.prompt.startsWith("Make a clean, sharp version of the attached REFERENCE IMAGE for a video lesson that LOOKS JUST LIKE IT"), g0.prompt);
-assert.ok(g0.prompt.includes("What it shows: Figure 1: A map of the rivers of India."), "the caption in the prompt");
+assert.ok(g0.prompt.startsWith("Create an original, clean educational illustration for a school video lesson, based on the attached sketch."), g0.prompt);
+assert.ok(g0.prompt.includes("It shows: Figure 1: A map of the rivers of India."), "the caption in the prompt");
+assert.ok(g0.prompt.includes("NO TEXT AT ALL in the picture"), "no text in the image");
+assert.ok(!/LOOKS JUST LIKE|exact copy|textbook|EVERY LABEL/i.test(g0.prompt), "no words moderation reads as copying");
+assert.equal(g0.level, "full");
 assert.ok(readFileSync(g0.file).subarray(1, 4).toString() === "PNG", "the image kept");
 assert.ok(!run.generation.figures[pics[1].id], "a figure not triaged as a redraw is not generated");
 const gcall = run.calls.find((c) => c.id === g0.calls[0]);
@@ -168,6 +171,16 @@ await assert.rejects(generateAction(run.id, { action: "run" }), /every redraw is
 await generateAction(run.id, { action: "one", block: pics[0].id });
 run = await wait(run.id, (r) => r.generation.status === "running");
 assert.equal(run.generation.figures[pics[0].id].calls.length, 2);
+// A model whose moderation blocks: asked in gentler words, then with no reference image, and that is kept.
+await generateAction(run.id, { action: "one", block: pics[0].id, model: "fixture-moderated" });
+run = await wait(run.id, (r) => r.generation.status === "running");
+const gm = run.generation.figures[pics[0].id];
+assert.equal(gm.status, "done", gm.error);
+assert.equal(gm.level, "blind");
+const [cFull, cGentle, cBlind] = gm.calls.slice(-3).map((id) => run.calls.find((c) => c.id === id));
+assert.ok(cFull.status === "failed" && /moderation/.test(cFull.error) && cFull.checks.some((c) => c.name === "Moderation"));
+assert.ok(cGentle.prompt.user[0].label.includes("gentle") && !cGentle.prompt.user.some((p) => p.key === "context"), "gentle: no book text");
+assert.ok(!JSON.stringify(cBlind.request ?? {}).includes("image_url") && !cBlind.prompt.user.some((p) => p.key === "reference"), "blind: no reference image");
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
@@ -177,7 +190,7 @@ assert.ok(x.lectures.every((l) => l.lines.length && l.lines[0].n === 1));
 const fig = x.blocks.find((b) => b.id === pics[0].id).figure;
 assert.equal(fig.triage.kind, "exact");
 assert.equal(fig.triage.chosenBy, "user");
-assert.ok(fig.generated?.prompt?.includes("LOOKS JUST LIKE IT"), "the export carries the redraw's prompt");
+assert.ok(fig.generated?.prompt?.includes("NO TEXT AT ALL"), "the export carries the redraw's prompt");
 assert.ok(transcriptMarkdown(run).includes("### Transcript"));
 const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");

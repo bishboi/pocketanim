@@ -42,7 +42,8 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
       <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
         <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws</h3>
         <p className="mb-2 text-xs text-neutral-400">Each figure triaged <b>Exact redraw</b> or <b>Styled redraw</b> is redrawn by the image model from the
-          book&apos;s figure (sent as the reference image), with v1&apos;s redraw prompt. Styled uses the same prompt for now: there are no lecture styles yet.
+          book&apos;s figure (sent as the reference image), with no text in it (labels are put on later), in gentle words that moderation lets through
+          (gentler still, then without the reference, when it blocks one). Styled uses the same prompt for now: there are no lecture styles yet.
           The other ways are built by steps to come{others.length ? ` (${others.length} figure(s) here: ${[...new Set(others.map((b) => choiceOf(wayOf(b.id))?.label))].join(", ")})` : ""}.</p>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-400">Image model</span>
@@ -78,7 +79,8 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
                 <span className="rounded px-1.5 py-px font-semibold text-neutral-950" style={{ background: solidKind(kind) }}>{choiceOf(kind)?.label}</span>
                 <span className="text-neutral-500">page {b.page + 1}</span>
                 <span className={TONE[f?.status ?? "waiting"]}>{f ? (f.status === "running" ? "generating…" : f.status) : "not generated"}</span>
-                {f?.plain && <span className="text-amber-300">asked in the plain words (the full prompt was blocked)</span>}
+                {f?.level && f.level !== "full" && <span className="text-amber-300" data-testid="generation-level">{f.level === "gentle"
+                  ? "asked in gentler words (the full prompt was blocked by moderation)" : "drawn with no reference image (the picture was blocked by moderation)"}</span>}
                 <span className="ml-auto flex items-center gap-1.5">
                   <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
                     disabled={running} onClick={() => act({ action: "one", block: b.id, model })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>

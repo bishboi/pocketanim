@@ -14,6 +14,8 @@ import { Player } from "@/components/player";
 import { CostBreakdown, versionTotal } from "@/components/cost-breakdown";
 import type { AiPicture, Costs } from "@/lib/costs";
 import { AiPictures } from "@/components/ai-pictures";
+import { LecturePlan } from "@/components/lecture-plan";
+import type { PlanView } from "@/lib/storyplan";
 import { clearPage, loadPage, savePage } from "@/lib/pagestate";
 import type { SceneIR } from "@/lib/pocketanim";
 
@@ -74,7 +76,8 @@ type TraceEvent = {
   /** A lecture made as several videos: each part's title, length and scene (lib/parts.ts). */
   parts?: { title: string; minutes: number; source: string }[];
   /** One micro-lecture, written before the rest: built at once, while the others are still being written. */
-  part?: { index: number; of: number; title: string; minutes: number; source: string };
+  part?: { index: number; of: number; title: string; minutes: number; source: string };  /** A book lecture's plan so far (lib/storyplan.ts), with each goal's coverage. */
+  plan?: PlanView;
 };
 
 /** A build already under way: its progress id and the export it will finish with. */
@@ -146,6 +149,8 @@ type Version = {
   sceneClass?: string;
   /** The lecture's spoken transcript, written in full before the video (lib/transcript.ts). */
   transcript?: string;
+  /** A book lecture's plan (lib/storyplan.ts): its learning goals, each video's story, and coverage, live. */
+  plan?: PlanView;
   /** One video of a lecture made as several micro-lectures (lib/topics.ts, lib/parts.ts): the versions of one n are its parts. */
   part?: { index: number; of: number; title: string; minutes: number };
 };
@@ -242,8 +247,8 @@ function TraceLine({ event }: { event: TraceEvent }) {
 }
 
 function applyTrace(trace: TraceEvent[], event: TraceEvent): TraceEvent[] {
-  // An early part's scene is built, not shown in the trace (the status line before it says so).
-  if (event.type === "part") return trace;
+  // An early part's scene is built, not shown in the trace (the status line before it says so); the plan has its panel.
+  if (event.type === "part" || event.type === "plan") return trace;
   // A picture the AI made: one line in the log; the picture itself is in the panel above it.
   if (event.type === "picture" && event.picture) {
     const p = event.picture;
@@ -927,6 +932,7 @@ export default function Home() {
                         ? (event.model ?? item.model)
                         : item.model,
                     transcript: event.type === "transcript" ? event.text : item.transcript,
+                    plan: event.type === "plan" && event.plan ? event.plan : item.plan,
                     inputTokens: event.inputTokens ?? item.inputTokens,
                     outputTokens: event.outputTokens ?? item.outputTokens,
                     costUsd: event.costUsd ?? item.costUsd,
@@ -1585,6 +1591,7 @@ export default function Home() {
                     ))}
                   </div>
                 )}
+                {version.plan && <LecturePlan plan={version.plan} />}
                 {version.transcript && (
                   <details className="rounded border border-neutral-800 p-2 text-xs text-neutral-300" data-testid="transcript">
                     <summary className="cursor-pointer text-neutral-200">

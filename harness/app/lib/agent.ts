@@ -4,10 +4,11 @@
  */
 
 import type { AiPicture, Costs } from "./costs";
+import type { PlanView } from "./storyplan";
 
 export type AgentEvent = {
   type: "message" | "input" | "delta" | "tool_call" | "tool_result" | "usage" | "done" | "error" | "transcript" | "part" | "job"
-    | "picture";
+    | "picture" | "plan";
   role?: string;
   name?: string;
   text?: string;
@@ -21,6 +22,8 @@ export type AgentEvent = {
   seconds?: number;
   /** When the server sent it (ms since the epoch; lib/jobs.ts stamps every event). */
   at?: number;
+  /** The lecture's plan so far (type "plan", lib/storyplan.ts): its learning goals, each video's story, coverage. */
+  plan?: PlanView;
   /** A picture the AI made for the lecture (type "picture"), with what it cost. */
   picture?: AiPicture;
   source?: string;

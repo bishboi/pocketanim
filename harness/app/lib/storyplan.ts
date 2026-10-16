@@ -185,3 +185,47 @@ export function sectionPlanText(plan: StoryPlan, n: number, goals: Goal[], map: 
       "Never end on a summary of what you just said.",
   ];
 }
+
+/** Where a goal stands while the lecture is written: not written yet, taught as written, written in afterwards,
+ * or still missing. */
+export type GoalStatus = "waiting" | "taught" | "patched" | "missing";
+
+/** The lecture's plan as the page shows it (the "plan" event): the learning map, each video's story, coverage. */
+export type PlanView = {
+  goals: {
+    id: string; goal: string; section: number; items: { kind: string; text: string }[];
+    misconception: string; hook: string; difficulty: number; added?: boolean; status: GoalStatus;
+  }[];
+  videos: {
+    index: number; of: number; bigQuestion: string; runningExample: string; arc: string; opening: string; closing: string;
+    sections: { section: number; opensFrom: string; handsOn: string; guessFirst: string; questions: string[] }[];
+  }[];
+  /** Every section of the lecture, in order. */
+  sections: number[];
+  coverage: { planned: number; taught: number; patched: number; missing: number };
+};
+
+/** The plan for the page, from the map, the videos' plans and each goal's status so far. */
+export function planView(map: LearningMap, plans: StoryPlan[], status: Map<string, GoalStatus>, sections: number[],
+  questions: BookQuestion[]): PlanView {
+  const byId = new Map(map.items.map((i) => [i.id, i]));
+  const asked = (id: string) => {
+    const q = questions.find((x) => x.id === id);
+    return q ? `${q.number}. ${q.text}${q.choices.length ? ` (${q.choices.join(" / ")})` : ""}` : id;
+  };
+  const goals = map.goals.map((g) => ({
+    id: g.id, goal: g.goal, section: g.section,
+    items: g.items.map((id) => byId.get(id)).filter((i): i is NonNullable<typeof i> => !!i).map((i) => ({ kind: i.kind, text: i.text })),
+    misconception: g.misconception, hook: g.hook, difficulty: g.difficulty, ...(g.added ? { added: true } : {}),
+    status: status.get(g.id) ?? "waiting" as GoalStatus,
+  }));
+  const count = (s: GoalStatus) => goals.filter((g) => g.status === s).length;
+  return {
+    goals,
+    videos: plans.map((p) => ({ index: p.video, of: p.of, bigQuestion: p.bigQuestion, runningExample: p.runningExample, arc: p.arc,
+      opening: p.opening, closing: p.closing,
+      sections: p.sections.map((s) => ({ ...s, questions: s.questions.map(asked) })) })),
+    sections,
+    coverage: { planned: goals.length, taught: count("taught"), patched: count("patched"), missing: count("missing") },
+  };
+}

@@ -32,7 +32,7 @@ import { MediaLog, type MediaItem } from "./media";
 import { PREVIEW_MINUTES, SECTION_TOOL, SECTION_TOOL_PLANNED, TRANSITION_TOOL, storyPlanOn, WORDS_PER_MINUTE, cleanSection, fromTranscriptPrompt, previewSections, sectionForVideo, sectionProblem, sectionRequest, sectionsOf, transcriptPrompt, transitionRequest, transcriptSections, type Section, type WrittenSection } from "./transcript";
 import { fillLines, linesOf, numberedSection } from "./lines";
 import { LEARNING_MAP_SYSTEM, LEARNING_MAP_TOOL, goalLine, learningMapRequest, readLearningMap, sourceItems, type LearningMap } from "./learningmap";
-import { STORY_PLAN_SYSTEM, STORY_PLAN_TOOL, readStoryPlan, sectionPlanText, storyPlanRequest, type StoryPlan } from "./storyplan";
+import { STORY_PLAN_SYSTEM, STORY_PLAN_TOOL, planView, readStoryPlan, sectionPlanText, storyPlanRequest, type GoalStatus, type StoryPlan } from "./storyplan";
 import { PATCH_TOOL, goalsTaught, insertAfterLine, patchRequest } from "./coverage";
 import { REPO, python, speakAhead } from "./pocketanim";
 import { AgentEvent, TOOLS, applySceneTool, runTool } from "./agent";
@@ -892,6 +892,13 @@ async function viaOpenRouter(
     let videoGroups: number[][] = planOn
       ? (series ? planTopics(sections).map((t) => t.sections) : [sections.map((x) => x.n)]) : [];
     const coverage = { planned: 0, taught: 0, patched: 0, missing: [] as string[] };
+    // Each goal's standing, and the plan as the page shows it (sent again whenever it changes).
+    const goalStatus = new Map<string, GoalStatus>();
+    const sendPlan = () => {
+      if (!map) return;
+      const videoPlans = [...new Set(plans.values())].sort((a, b) => a.video - b.video);
+      emit({ type: "plan", plan: planView(map, videoPlans, goalStatus, sections.map((x) => x.n), bookQs) });
+    };
     /** One call that answers with a tool (the map, a video's plan, a patch): its arguments, or null. */
     const askTool = async (system: string, content: string, tool: unknown, what: string): Promise<Record<string, unknown> | null> => {
       try {
@@ -934,6 +941,7 @@ async function viaOpenRouter(
       emit({ type: "message", role: "status", text: `Learning map: ${map.goals.length} goals from the book's ${items.length} ` +
         `items${map.added ? ` (${map.added} added for items the map left out)` : ""}.` });
       emit({ type: "tool_result", name: "write_learning_map", text: map.goals.map((g) => goalLine(g, map!.items)).join("\n") });
+      sendPlan();
       const videos = videoGroups.map((ns, k) => ({ index: k + 1, of: videoGroups.length,
         sections: ns.map((n) => sections.find((x) => x.n === n)).filter((x): x is Section => !!x) }));
       const replies = await Promise.all(videos.map((video) => {
@@ -968,6 +976,7 @@ async function viaOpenRouter(
         for (const n of empty) sections.splice(sections.findIndex((x) => x.n === n), 1);
         videoGroups = videoGroups.map((ns) => ns.filter((n) => !empty.includes(n))).filter((ns) => ns.length);
       }
+      sendPlan();
     };
     /** A section's part in its video's plan, for its request ([] without a plan). */
     const planFor = (n: number): string[] => {
@@ -987,6 +996,7 @@ async function viaOpenRouter(
       const taught = goalsTaught(reported, own.map((g) => g.id), linesOf(text).length);
       coverage.planned += own.length;
       coverage.taught += taught.length;
+      for (const id of taught) goalStatus.set(id, "taught");
       for (const goal of own.filter((g) => !taught.includes(g.id))) {
         const lines = linesOf(text);
         const patch = await askTool("You add a few sentences to a lecture's transcript, in its own voice.",
@@ -995,13 +1005,16 @@ async function viaOpenRouter(
         const words = cleanSection(String(patch?.text ?? ""));
         if (!words) {
           coverage.missing.push(goal.id);
+          goalStatus.set(goal.id, "missing");
           continue;
         }
+        goalStatus.set(goal.id, "patched");
         text = insertAfterLine(text, lines, Number(patch?.after_line) || lines.length, words);
         coverage.patched += 1;
         emit({ type: "message", role: "status", text: `Coverage: section ${section.n} left out ${goal.id} ` +
           `("${goal.goal.slice(0, 80)}"); written in after its sentence ${Number(patch?.after_line) || lines.length}.` });
       }
+      sendPlan();
       return text;
     };
     emit({ type: "message", role: "status",
@@ -1301,6 +1314,14 @@ async function viaOpenRouter(
       emit({ type: "message", role: "status",
         text: `Transcript written: ${written.length} sections, ${words} words (about ${Math.round(words / 100)} min).` });
       mark("transcript written");
+      // A section that could not be written leaves its goals untaught.
+      const learned = map as LearningMap | null;          // set inside planLecture, which TypeScript does not follow
+      if (learned) {
+        for (const goal of learned.goals) {
+          if (!goalStatus.has(goal.id) && failed.includes(goal.section)) goalStatus.set(goal.id, "missing");
+        }
+        sendPlan();
+      }
       if (map && coverage.planned) {
         emit({ type: "message", role: "status", text: `Coverage: ${coverage.planned - coverage.missing.length} of ` +
           `${coverage.planned} learning goals taught (${coverage.taught} as written` +

@@ -202,7 +202,9 @@ export function readLearningMap(raw: unknown, items: SourceItem[], sections: Sec
     const own = left.filter((i) => i.section === section.n);
     if (!own.length) continue;
     added += 1;
-    goals.push({ id: "", goal: `Understand ${own.map((i) => i.kind === "figure" ? `figure ${i.text}` : i.text).join("; ")}`.slice(0, 240),
+    // Named shortly (a box by its title, a figure by its id); the items themselves are listed with the goal.
+    const name = (i: SourceItem) => i.kind === "aside" ? i.text.split(":")[0] : i.kind === "figure" ? `figure ${i.text.split(":")[0]}` : i.text;
+    goals.push({ id: "", goal: `Also from the book: ${own.map(name).join("; ")}`.slice(0, 240),
       items: own.map((i) => i.id), section: section.n, buildsOn: [], misconception: "", hook: "", difficulty: 2, added: true });
   }
   // In teaching order (by section, the model's order within one); ids follow that order.

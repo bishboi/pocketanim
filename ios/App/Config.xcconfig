@@ -1,0 +1,13 @@
+// Build settings for the PanimPlayer app (project.yml names this file for every configuration).
+//
+// The Supabase project saved lectures are listed from. Empty here: the app then asks for it (Library -> ⋮). Set
+// them in Secrets.xcconfig (gitignored; copy Secrets.example.xcconfig) to build them in. They reach the app as the
+// Info.plist keys PanimSupabaseURL / PanimSupabaseAnonKey (Lectures.project()). The anon key is a public key, but
+// it is still kept out of the repository.
+PANIM_SUPABASE_URL =
+PANIM_SUPABASE_ANON_KEY =
+
+// The signing team for a device build, if you would rather not pick it in Xcode each time a project is generated.
+DEVELOPMENT_TEAM =
+
+#include? "Secrets.xcconfig"

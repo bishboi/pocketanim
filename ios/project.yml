@@ -1,0 +1,106 @@
+# XcodeGen spec for the iOS player app. Generate the project with `xcodegen generate` in this folder; the
+# .xcodeproj and App/Info.plist are build output (gitignored). See README.md.
+name: PanimPlayer
+
+options:
+  bundleIdPrefix: com.pocketanim
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+# The package in this folder (Package.swift): PanimCore (decoder, interpreter, renderer, playback, library) and
+# PanimAudio (Ogg Opus narration).
+packages:
+  Panim:
+    path: .
+
+targets:
+  PanimPlayer:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App/Sources
+      # The scene library, packed at build time as for the APK (ios.yml; tools/build_library.py). A folder
+      # reference, so it lands in the bundle as library/ with its tree intact. Optional: a build without it still
+      # plays saved and imported lectures, and the Samples tab says it has none.
+      - path: App/Resources/library
+        type: folder
+        buildPhase: resources
+        optional: true
+    configFiles:
+      Debug: App/Config.xcconfig
+      Release: App/Config.xcconfig
+    dependencies:
+      - package: Panim
+        product: PanimCore
+      - package: Panim
+        product: PanimAudio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pocketanim.player
+        PRODUCT_NAME: PanimPlayer
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Pocketanim
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIImageRespectsSafeAreaInsets: false
+        UIUserInterfaceStyle: Dark
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        # Narration plays on with the screen locked; the picture catches up when it is back.
+        UIBackgroundModes:
+          - audio
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # A lecture zip ("Download for the phone") opened from Files, Safari or AirDrop is imported and played.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Lecture library
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.zip-archive
+              - com.pkware.zip-archive
+        LSSupportsOpeningDocumentsInPlace: false
+        # Documents/library (copied in with Finder or Files) replaces the bundled samples: the iOS form of the
+        # Android app's `adb push`.
+        UIFileSharingEnabled: true
+        # Built in from Config.xcconfig / Secrets.xcconfig; empty means the app asks.
+        PanimSupabaseURL: $(PANIM_SUPABASE_URL)
+        PanimSupabaseAnonKey: $(PANIM_SUPABASE_ANON_KEY)
+
+schemes:
+  PanimPlayer:
+    build:
+      targets:
+        PanimPlayer: all
+    run:
+      config: Debug
+    archive:
+      config: Release

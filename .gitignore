@@ -61,3 +61,8 @@ ios/.build*/
 ios/*.xcodeproj/
 ios/App/Secrets.xcconfig
 ios/DerivedData/
+# The scene library packed into the iOS app at build time (as player/app/src/main/assets), and the
+# Info.plist XcodeGen writes from project.yml
+ios/App/Resources/library/
+ios/App/Info.plist
+ios/build/

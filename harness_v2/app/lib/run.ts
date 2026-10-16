@@ -65,6 +65,7 @@ export async function startRun(documentId: string, asked: Partial<Options>, unti
     figureModel: asked.figureModel || modelFor("figure"),
     triageModel: asked.triageModel || modelFor("triage"),
     triageChatModel: asked.triageChatModel || modelFor("triageChat"),
+    scriptModel: asked.scriptModel || modelFor("script"),
     imageModel: asked.imageModel || modelFor("image"),
     svgModel: asked.svgModel || modelFor("svg"),
     manimModel: asked.manimModel || modelFor("manim"),
@@ -126,7 +127,7 @@ export async function redoFrom(id: string, key: StepKey, asked: Partial<Options>
 }
 
 /** Ask a running job to stop after the call it is in. */
-export function stopJob(id: string, job: "transcript" | "triage" | "generate") {
+export function stopJob(id: string, job: "transcript" | "triage" | "generate" | "script") {
   if (jobs.has(`${id}:${job}`)) stopping.add(`${id}:${job}`);
 }
 

@@ -14,13 +14,14 @@ import { CallInspector, money } from "@/components/call-inspector";
 import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, TranscriptPanel, lectureColor, type RoleModel, type Selection } from "@/components/panels";
 import { FiguresPanel } from "@/components/figures-panel";
 import { GenerationPanel } from "@/components/generation-panel";
+import { ScriptPanel } from "@/components/script-panel";
 import { choiceOf } from "@/lib/triage-kinds";
 
 type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleModel>; triageModel: string };
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Calls", "Costs", "Models"] as const;
 const GREY = "rgba(148, 163, 184, 0.22)";
 const GREEN = "rgba(16, 185, 129, 0.45)";
 
@@ -67,7 +68,7 @@ export default function Page() {
       const next = (await res.json()) as Run;
       setRun(next);
       setDocId(next.documentId);
-      if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running") setTimeout(tick, 1000);
+      if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running" || next.script?.status === "running") setTimeout(tick, 1000);
       else void refresh();
     };
     void tick();
@@ -82,7 +83,7 @@ export default function Page() {
     if (run) setOptions(run.options);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running";
+  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running" || run?.script?.status === "running";
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -162,6 +163,7 @@ export default function Page() {
     };
     const ok = (m: Mark | null): m is Mark => !!m;
     if (selection?.kind === "block") return [mark(selection.id, lectureColor(home.get(selection.id) ?? 1), true)].filter(ok);
+    if (selection?.kind === "blocks") return selection.ids.map((id) => mark(id, lectureColor(home.get(id) ?? 1), true)).filter(ok);
     if (selection?.kind === "goal") {
       const lecture = run.lectures.find((l) => l.goals.some((g) => g.id === selection.id));
       const goal = lecture?.goals.find((g) => g.id === selection.id);
@@ -291,7 +293,8 @@ export default function Page() {
             ))}
             {selection && (
               <span className="ml-auto flex items-center gap-2 pb-1 text-xs text-neutral-400" data-testid="selection">
-                Showing {selection.kind === "lecture" ? `lecture ${selection.n}` : selection.kind === "goal" ? `goal ${selection.id}` : `block ${selection.id}`} in the PDF
+                Showing {selection.kind === "lecture" ? `lecture ${selection.n}` : selection.kind === "goal" ? `goal ${selection.id}`
+                  : selection.kind === "blocks" ? `${selection.label} (${selection.ids.length} blocks)` : `block ${selection.id}`} in the PDF
                 <button className="rounded border border-neutral-700 px-1.5" onClick={() => setSelection(null)}>clear</button>
               </span>
             )}
@@ -323,6 +326,8 @@ export default function Page() {
               defaultMapModel={run.options.mapModel || options.mapModel || config?.models.map?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)}
               setWay={(block, kind) => act("/triage", { action: "override", block, kind })} />}
+            {run && tab === "Script" && <ScriptPanel run={run} defaultModel={run.options.scriptModel || options.scriptModel || config?.models.script?.model || ""}
+              select={setSelection} onCall={setCallId} act={(body) => act("/script", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

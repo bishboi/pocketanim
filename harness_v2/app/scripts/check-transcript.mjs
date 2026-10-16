@@ -89,6 +89,7 @@ assert.ok(previous.includes(run.lectures[0].text.slice(0, 80)), "lecture 2 sees 
 assert.ok(!/at most about|words \(\d+ min\)/.test(render(second.prompt.system) + render(second.prompt.user)), "no length ceiling");
 // Figures: both described, then triaged from the ways allowed.
 const { triageAction } = await import(path.resolve(here, "../lib/triage.ts"));
+const { linesOf: linesOfText } = await import(path.resolve(here, "../lib/source/book.ts"));
 const { checkExport, exportTranscript, exportWhole, importTranscript, transcriptMarkdown } = await import(path.resolve(here, "../lib/export.ts"));
 const { continueRun } = await import(path.resolve(here, "../lib/run.ts"));
 const pics = run.blocks.filter((b) => b.image);
@@ -286,6 +287,39 @@ assert.ok([pics[0].id, pics[1].id].every((id) => run.generation.figures[id].stat
 assert.deepEqual(generating(run.id), []);
 await triageAction(run.id, { action: "override", block: pics[1].id, kind: null });
 
+// Script: chapters and beats, every sentence once and in order; code mends what it can and says so.
+const { readScript, scriptAction, lectureFigures } = await import(path.resolve(here, "../lib/script.ts"));
+const figs = [{ id: "f1", way: "Map", caption: "a map", ready: true, lines: [3] }];
+const mended = readScript({ chapters: [
+  { title: "B", narration: "", map: false, beats: [{ lines: [5, 6], show: "x" }, { lines: [3, 4, 99], show: "the map", figure: "f1" }] },
+  { title: "A", narration: "Chapter one.", map: false, beats: [{ lines: [1, 2, 2], show: "y", figure: "nope" }] },
+] }, 7, figs);
+assert.deepEqual(mended.problems, [], mended.problems.join("; "));
+assert.deepEqual(mended.chapters.flatMap((c) => c.beats.flatMap((b) => b.lines)), [1, 2, 3, 4, 5, 6, 7], "every sentence once, in order");
+assert.equal(mended.chapters[0].title, "A", "chapters in sentence order");
+assert.ok(mended.chapters[1].map, "a chapter showing a Map figure is a map chapter");
+const fixedNames = mended.checks.filter((c) => c.result === "fixed").map((c) => c.name);
+for (const name of ["Sentence numbers", "Each sentence once", "Order", "Every sentence", "Figures", "Map chapter"]) assert.ok(fixedNames.includes(name), `${name}: ${fixedNames}`);
+assert.equal(mended.chapters[1].narration, "Chapter 2. B.", "a title card line when none was given");
+const tangled = readScript({ chapters: [{ title: "A", narration: "", map: false, beats: [{ lines: [1, 3], show: "" }, { lines: [2, 4], show: "" }] }] }, 4, []);
+assert.ok(tangled.problems.some((p) => /interleave/.test(p)), "interleaved beats go back to the model");
+
+await scriptAction(run.id, { action: "run" });
+run = await wait(run.id, (r) => r.script.status === "running");
+assert.equal(run.script.status, "done", run.script.error);
+for (const l of run.lectures) {
+  const ls = run.script.lectures[l.n];
+  assert.equal(ls.status, "done", ls.error);
+  const said = ls.chapters.flatMap((c) => c.beats.flatMap((b) => b.lines));
+  assert.deepEqual(said, Array.from({ length: linesOfText(l.text).length }, (_, i) => i + 1), `lecture ${l.n}: every sentence once, in order`);
+  assert.ok(ls.chapters.every((c) => c.title && c.narration && c.beats.length));
+}
+const scriptCall = run.calls.find((c) => c.step === "script");
+assert.ok(scriptCall.prompt.user.some((p) => p.key === "transcript" && p.text.startsWith("1| ")), "the transcript numbered");
+const withFigure = run.lectures.find((l) => lectureFigures(run, l.n).length);
+if (withFigure) assert.ok(run.script.lectures[withFigure.n].chapters.some((c) => c.beats.some((b) => b.figure)), "the lecture's figure placed on a beat");
+await assert.rejects(scriptAction(run.id, { action: "run" }), /every written lecture is scripted/);
+
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
 assert.equal(x.format, "pocketanim.v2.transcript");
@@ -298,6 +332,7 @@ assert.ok(fig.generated?.prompt?.includes("NO TEXT AT ALL"), "the export carries
 assert.ok(transcriptMarkdown(run).includes("### Transcript"));
 const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");
+assert.deepEqual(back.script.lectures[1].chapters, run.script.lectures[1].chapters, "the scripts travel with the export");
 assert.equal(back.documentId, run.documentId, "the same book: found here, not made again");
 assert.deepEqual(back.lectures.map((l) => l.text), run.lectures.map((l) => l.text));
 assert.equal(back.triage.figures[pics[0].id].override, "exact");

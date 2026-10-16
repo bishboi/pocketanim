@@ -80,6 +80,7 @@ export type Options = {
   /** The models of the steps after the transcript (lib/models.ts), as the run was started with them. */
   triageModel?: string;
   triageChatModel?: string;
+  scriptModel?: string;
   imageModel?: string;
   svgModel?: string;
   manimModel?: string;
@@ -109,6 +110,8 @@ export type Run = {
   triage?: Triage;
   /** The generation (generate.ts): the figures triaged as redraws, redrawn by the image model. */
   generation?: Generation;
+  /** The script (script.ts): each lecture's chapters and beats, every transcript sentence in one beat. */
+  script?: ScriptState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -143,6 +146,34 @@ export type FigureTriage = {
 };
 
 export type TriageEngine = "decision" | "chat";
+
+/** One beat: the transcript sentences said on it (by number, 1-based) and what is on screen while they are. */
+export type Beat = { n: number; lines: number[]; show: string; figure?: string };
+
+/** One chapter: a topic, with its title card and one stage (a map, or a board). */
+export type Chapter = { n: number; title: string; narration: string; map: boolean; beats: Beat[] };
+
+export type LectureScript = {
+  lecture: number;
+  status: "waiting" | "running" | "done" | "failed";
+  chapters: Chapter[];
+  /** How many sentences the transcript had when it was scripted. */
+  lines?: number;
+  checks?: Check[];
+  error?: string;
+  calls: string[];
+  at?: number;
+};
+
+export type ScriptState = {
+  status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
+  model: string;
+  started?: number;
+  ended?: number;
+  rounds: number;
+  lectures: Record<string, LectureScript>;
+  error?: string;
+};
 
 /** One figure's generated image: the prompt it was sent and the image made. */
 export type FigureGeneration = {

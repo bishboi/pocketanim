@@ -11,7 +11,8 @@ import { kindOf } from "@/lib/source/blocks";
 import { linesOf } from "@/lib/source/book";
 import { CHECK_STYLE, money, seconds } from "./call-inspector";
 
-export type Selection = { kind: "lecture"; n: number } | { kind: "goal"; id: string } | { kind: "block"; id: string } | null;
+export type Selection = { kind: "lecture"; n: number } | { kind: "goal"; id: string } | { kind: "block"; id: string }
+  | { kind: "blocks"; ids: string[]; label: string } | null;
 
 export const LECTURE_COLORS = [
   "rgba(250, 204, 21, 0.32)", "rgba(56, 189, 248, 0.32)", "rgba(244, 114, 182, 0.32)", "rgba(74, 222, 128, 0.32)",

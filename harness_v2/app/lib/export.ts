@@ -15,7 +15,7 @@ import { linesOf } from "./source/book";
 import { choiceOf, type TriageKind } from "./triage-kinds";
 import { docDir, documentInfo, listDocuments, newId, saveRun } from "./store";
 import type { RawBlock } from "./datalab";
-import type { DocumentInfo, GoalStatus, LectureState, Run, Step } from "./types";
+import type { Chapter, DocumentInfo, GoalStatus, LectureState, Run, Step } from "./types";
 import type { Block } from "./source/blocks";
 
 export const EXPORT_FORMAT = "pocketanim.v2.transcript";
@@ -43,6 +43,8 @@ export type ExportedLecture = {
   /** The text as written (paragraphs kept); `lines` is it sentence by sentence. */
   text: string;
   blocksTaught: string[];
+  /** Its script, when it has one: chapters, and beats naming the `lines` above by number. */
+  script?: { chapters: Chapter[] };
 };
 export type ExportedBlock = Pick<Block, "id" | "type" | "html" | "text" | "page" | "box"> & {
   lecture?: number;
@@ -104,6 +106,7 @@ export function exportTranscript(run: Run): ExportedTranscript {
       }),
       text: l.text ?? "",
       blocksTaught: l.blocksTaught ?? [],
+      ...(run.script?.lectures[l.n]?.status === "done" ? { script: { chapters: run.script.lectures[l.n].chapters } } : {}),
     };
   });
   const blocks: ExportedBlock[] = run.blocks.map((b) => {
@@ -241,6 +244,11 @@ export async function importTranscript(data: unknown, file: string): Promise<Run
     calls: [], log: [{ t: Date.now(), text: `Imported from ${file} (run ${x.run.id}, exported ${x.exported}); ${book.how}.` }],
     imported: { file, at: Date.now() },
   };
+  const scripted = x.lectures.filter((l) => l.script?.chapters?.length);
+  if (scripted.length) {
+    run.script = { status: "done", model: x.run.options.scriptModel ?? "", rounds: 0, lectures: Object.fromEntries(scripted.map((l) =>
+      [l.n, { lecture: l.n, status: "done", chapters: l.script!.chapters, lines: l.lines.length, calls: [] }])) };
+  }
   const triaged = x.blocks.filter((b) => b.figure?.triage);
   if (x.triage) {
     run.triage = { status: "done", kinds: x.triage.kinds, model: x.triage.model, rounds: 0,

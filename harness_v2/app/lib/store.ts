@@ -114,6 +114,11 @@ export async function loadRun(id: string): Promise<Run | null> {
     for (const s of run.steps) if (s.status === "running") s.status = "waiting";
     for (const l of run.lectures) if (l.status === "writing") l.status = "waiting";
   }
+  if (run.script?.status === "running") {
+    cut = true;
+    run.script.status = "interrupted";
+    for (const l of Object.values(run.script.lectures)) if (l.status === "running" || l.status === "waiting") l.status = l.chapters.length ? "done" : "waiting";
+  }
   if (run.generation?.status === "running") {
     cut = true;
     run.generation.status = "interrupted";

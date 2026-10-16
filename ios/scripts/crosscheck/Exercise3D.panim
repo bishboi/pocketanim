@@ -1,0 +1,21 @@
+# The 3D paths the corpus programs leave out (a zoom move, a spin about phi, a surface with expressions in every
+# function, shapes and an image under a camera), for ios/scripts/crosscheck.sh. Assets are dsl/generated's.
+scene 3d fps=24
+camera phi=70 theta=-50 zoom=0.9
+surface S fn=0.3*exp(-(u*u+v*v)/4)*(sqrt(abs(u))+log(2+v))-tan(u/9)+cos(pi*v/6)/(1+0.5*u*u) u=-2.5,2.5 v=-2,2 res=9,7 fill=#FC6255,#58C4DD,#83C167 alpha=0.85 stroke=0.25
+geom M asset=bd7291a075
+circle C r=1 at=0,0 stroke=#F7D96F w=4
+image P src=pic.png px=8,8 z=3 keys=0:1:-7,4,-5,4,-7,2
+show S
+create C t=0.5
+show C
+fade M t=0.5 shift=0,0.5
+show M
+move phi=40 theta=10 zoom=1.4 t=1.5
+spin rate=0.8 t=1 about=phi
+spin rate=-0.5 t=1
+par n=2 t=1
+move zoom=0.8 t=1
+fadeout C t=1
+indicate M t=0.6
+wait t=0.5

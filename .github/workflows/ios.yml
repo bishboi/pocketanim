@@ -1,0 +1,142 @@
+name: ios
+
+# Builds the iOS player and attaches it to the run: an unsigned .ipa (sign it with your own team to install on a
+# phone, e.g. with Xcode, AltStore or `codesign` + Apple Configurator) and the Simulator .app (drag onto a booted
+# simulator). Also runs the Swift package's tests on macOS.
+#
+# The environment this project is developed in is Linux, which has Swift but neither UIKit nor Xcode: the package's
+# platform-neutral parts are checked there, and this is the only place the app itself is built.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pack the scene library into the app
+        # The same library apk.yml packs into the APK, built the same way: the app opens offline with samples.
+        # ios/App/Resources/library is build output and gitignored, as player/app/src/main/assets is.
+        run: |
+          pip install numpy
+          python -m tools.build_library --out ios/App/Resources/library
+          du -sh ios/App/Resources/library
+
+      - name: Build in the Supabase project
+        # Optional: without these secrets the app asks for the project itself (Library -> ⋮).
+        env:
+          PANIM_SUPABASE_URL: ${{ secrets.PANIM_SUPABASE_URL }}
+          PANIM_SUPABASE_ANON_KEY: ${{ secrets.PANIM_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$PANIM_SUPABASE_URL" ] && [ -n "$PANIM_SUPABASE_ANON_KEY" ]; then
+            # xcconfig reads "//" as a comment: the URL's is written "/$()/".
+            url=$(printf '%s' "$PANIM_SUPABASE_URL" | sed 's#//#/$()/#')
+            {
+              echo "PANIM_SUPABASE_URL = $url"
+              echo "PANIM_SUPABASE_ANON_KEY = $PANIM_SUPABASE_ANON_KEY"
+            } > ios/App/Secrets.xcconfig
+            echo "Supabase project built in."
+          else
+            echo "No Supabase secrets: the app will ask for the project."
+          fi
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          mkdir -p build
+
+      - name: Build for the Simulator
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project PanimPlayer.xcodeproj -scheme PanimPlayer -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim -quiet \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build/sim.log
+          test -d build/sim/Build/Products/Release-iphonesimulator/PanimPlayer.app
+
+      - name: Build for a device (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project PanimPlayer.xcodeproj -scheme PanimPlayer -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device -quiet \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee build/device.log
+          test -d build/device/Build/Products/Release-iphoneos/PanimPlayer.app
+
+      - name: Package
+        id: meta
+        working-directory: ios
+        run: |
+          sha=$(git rev-parse --short HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          mkdir -p build/out build/ipa/Payload
+          cp -R build/device/Build/Products/Release-iphoneos/PanimPlayer.app build/ipa/Payload/
+          (cd build/ipa && zip -qry "../out/PanimPlayer-$sha-unsigned.ipa" Payload)
+          (cd build/sim/Build/Products/Release-iphonesimulator && \
+            zip -qry "$GITHUB_WORKSPACE/ios/build/out/PanimPlayer-$sha-simulator.app.zip" PanimPlayer.app)
+          ls -lh build/out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketanim-ios-unsigned-ipa-${{ steps.meta.outputs.sha }}
+          path: ios/build/out/*-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketanim-ios-simulator-${{ steps.meta.outputs.sha }}
+          path: ios/build/out/*-simulator.app.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pocketanim-ios-build-logs-${{ github.run_id }}
+          path: ios/build/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # After the app is built and uploaded, so a failing test still leaves something to install.
+      - name: Test the Swift package
+        working-directory: ios
+        run: swift test
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### iOS player built"
+            echo '```'
+            ls -lh ios/build/out 2>/dev/null || echo "(nothing was built)"
+            echo '```'
+            echo 'Download them from the **Artifacts** section of this run.'
+            echo
+            echo '**Simulator** — unzip, then:'
+            echo '```'
+            echo 'xcrun simctl install booted PanimPlayer.app'
+            echo 'xcrun simctl launch booted com.pocketanim.player'
+            echo '```'
+            echo '**Device** — the .ipa is unsigned: re-sign it with your team (or build from Xcode, see ios/README.md).'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -342,12 +342,91 @@ private class FileAssets(private val root: File) : AssetLoader {
  * nothing downstream can tell which tier it is looking at, which is the whole
  * point of the interpreter producing a [Scene].
  */
-private fun load(path: File): Frames =
-    if (path.name.endsWith(".panim")) {
+private fun load(path: File): Frames {
+    // A library directory, or `<dir>#<scene>`: the scene opened through its manifest, as the phone opens it (an
+    // asset pack, version 2 shapes and all). Without a name, its first scene.
+    val spec = path.path
+    val hash = spec.lastIndexOf('#')
+    val dir = File(if (hash >= 0) spec.substring(0, hash) else spec)
+    if (dir.isDirectory && File(dir, "library.json").isFile) {
+        val library = Library.load(DirStorage(dir))
+        return library.open(if (hash >= 0) spec.substring(hash + 1) else library.scenes.first().name)
+    }
+    return if (path.name.endsWith(".panim")) {
         Interpreter.open(Program.parse(path.readText()), FileAssets(path.parentFile))
     } else {
         Scene.parse(path.readBytes())
     }
+}
+
+/**
+ * A [PathSink] that writes down every call it is handed, one line each, floats to four places: the drawing itself,
+ * as text, so two implementations of the renderer (this one and the iOS port's PanimVerify) can be diffed call for
+ * call. ios/scripts/crosscheck.sh does that.
+ */
+private class TraceSink(private val out: StringBuilder) : PathSink {
+    private fun f(v: Float) = String.format(Locale.ROOT, "%.4f", v)
+    private fun hex(argb: Int) = Integer.toHexString(argb).padStart(8, '0')
+
+    override fun beginPath() { out.append("beginPath\n") }
+    override fun moveTo(x: Float, y: Float) { out.append("moveTo ${f(x)} ${f(y)}\n") }
+    override fun lineTo(x: Float, y: Float) { out.append("lineTo ${f(x)} ${f(y)}\n") }
+    override fun cubicTo(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) {
+        out.append("cubicTo ${f(x1)} ${f(y1)} ${f(x2)} ${f(y2)} ${f(x3)} ${f(y3)}\n")
+    }
+    override fun closeSubpath() { out.append("closeSubpath\n") }
+    override fun fillPath(argb: Int) { out.append("fill ${hex(argb)}\n") }
+    override fun strokePath(argb: Int, widthInSceneUnits: Float) {
+        out.append("stroke ${hex(argb)} ${f(widthInSceneUnits)}\n")
+    }
+    override fun fillAndStrokePath(argb: Int, widthInSceneUnits: Float) {
+        out.append("fillAndStroke ${hex(argb)} ${f(widthInSceneUnits)}\n")
+    }
+    override fun strokeStyle(round: Boolean) { out.append("strokeStyle ${if (round) "round" else "bevel"}\n") }
+    override fun drawImage(image: ImageDraw, bytes: (String) -> ByteArray?) {
+        out.append("drawImage ${image.src} ${image.width} ${image.height} ${f(image.alpha)}")
+        for (c in image.corners) out.append(' ').append(f(c))
+        out.append(" before ${image.before} bytes ${bytes(image.src)?.size ?: -1}\n")
+    }
+}
+
+/**
+ * Verify <scene> trace [frames] [options]: every frame named drawn through a [TraceSink], in the order named (so a
+ * computing source is also sought the way the list goes). frames: `all`, `every:N` (0, N, 2N, ... and the last),
+ * or a comma list; default every:30. options: `default` (RenderOptions.DEFAULT), `shipping` (for a 1280-pixel
+ * surface, the default) or a benchmark variant's name.
+ */
+private fun trace(scene: Frames, framesArg: String?, optionsArg: String?) {
+    val n = scene.frameCount
+    val spec = framesArg ?: "every:30"
+    val frames: List<Int> = when {
+        spec == "all" -> (0 until n).toList()
+        spec.startsWith("every:") -> {
+            val by = spec.substringAfter(':').toInt()
+            val list = (0 until n step by).toList()
+            if (n > 0 && list.last() != n - 1) list + (n - 1) else list
+        }
+        else -> spec.split(",").map { it.trim().toInt() }
+    }
+    val options = when (val name = optionsArg ?: "shipping") {
+        "default" -> RenderOptions.DEFAULT
+        "shipping" -> RenderOptions.forSurface(1280)
+        else -> Benchmark.variants(1280).firstOrNull { it.first == name }?.second ?: error("unknown options $name")
+    }
+    val out = StringBuilder()
+    out.append("trace fps ${scene.fps} frames $n background ${Integer.toHexString(scene.background).padStart(8, '0')}\n")
+    val sink = TraceSink(out)
+    for (i in frames) {
+        val key = scene.contentKey(i)
+        out.append("frame $i key ${if (key == Frames.UNKNOWN) "unknown" else key.toString()}\n")
+        Renderer.drawFrame(scene, i, sink, options)
+        if (out.length > 1 shl 20) {
+            print(out)
+            out.setLength(0)
+        }
+    }
+    print(out)
+}
 
 /**
  * Seeking must be exact, not approximate.
@@ -626,7 +705,7 @@ fun main(args: Array<String>) {
         return
     }
     if (args.size < 2 && args.firstOrNull() != "selftest") {
-        println("usage: Verify <scene|libraryDir> <dump|render|bench|seektest|library|devicebench> [args]")
+        println("usage: Verify <scene|libraryDir[#scene]> <dump|trace|render|bench|seektest|library|devicebench> [args]")
         println("       Verify selftest")
         return
     }
@@ -752,7 +831,7 @@ fun main(args: Array<String>) {
 
     val scene = load(File(args[0]))
     val mode = args[1]
-    val probe = args.getOrNull(2)?.toInt() ?: (scene.frameCount / 2)
+    val probe = if (mode == "trace") 0 else args.getOrNull(2)?.toInt() ?: (scene.frameCount / 2)
 
     when (mode) {
         "perframe" -> {
@@ -765,6 +844,7 @@ fun main(args: Array<String>) {
             }
         }
         "dump" -> dump(scene, probe)
+        "trace" -> trace(scene, args.getOrNull(2), args.getOrNull(3))
         "render" -> {
             val out = args.getOrNull(3) ?: "frame.png"
             // An optional variant name renders through one of the sweep's

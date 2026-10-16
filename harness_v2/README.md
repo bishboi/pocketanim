@@ -22,7 +22,27 @@ v1 (`harness/`) is left as it is; v2 shares nothing with it at run time but the 
 | 3. Plan | One call reads the whole book as Datalab's JSON (id, block_type, html, figure description; no boxes) and divides it into lectures by what is learned, mapping each lecture's goals. It answers with block ids only. Code drops unknown ids, keeps a block placed twice in its first lecture, puts a block placed nowhere with the block before it, and keeps each goal's blocks inside its lecture. | 1 |
 | 4. Write | Each lecture written in order from its blocks and goals, with every earlier lecture's full transcript in the prompt and the instruction to leave nothing out. The writer reports which goals and blocks it taught; one patch call writes in any it did not. | 1 per lecture, 1 patch call when needed |
 
-There is no length ceiling anywhere. The wanted length of a lecture (minutes) is only stated as context in the plan
+Then, apart from the transcript and at any time once the book is read:
+
+| Step | What | Calls |
+| --- | --- | --- |
+| Figure triage | A model that reads images decides, per figure, how the video shows it, choosing only from the ways ticked on the page: Manim (rebuilt exactly), Map, Exact redraw, Styled redraw, SVG drawing, Photo search, Book's picture, Leave out (`app/lib/triage-kinds.ts`). It gets the figure's picture, block, caption, description, the text around it and the lecture and goals it is in. Code checks the way is one offered and there is an instruction for whoever builds it. **Triage figures** does those not done yet; **Reset and rerun all** forgets every decision; each figure can be rerun alone or set by hand. | 1 per figure |
+
+There is no length ceiling anywhere.
+
+## Saved, continued, exported
+
+- Every run is written to `app/.data/runs/<id>.json` as it goes: every step's result, every call, the triage. Pick
+  it from **Past runs** at any time.
+- **Stop** stops after the call in progress. **Continue from where it stopped** keeps every step done and does only
+  what is left (figures not described, the plan if none, lectures not written), with the models now chosen. A run
+  the server lost mid-way (a restart) shows as interrupted and continues the same way. **↻ redo** on a step clears
+  it and the steps after it, and makes them again.
+- **Export transcript (JSON)** (`/api/runs/<id>/export`): format `pocketanim.v2.transcript`, version 1. Each
+  lecture's sentences numbered (the numbers the scene script will name), its goals with their sentences and status,
+  patched sentences marked, its blocks; every block with Datalab's id, type, HTML, page and box; each figure with
+  its description and triage (the way, who chose it, the instruction, what must stay exact). **Export (Markdown)**
+  is the same to read. **Import transcript** turns an exported JSON into a run of its own, to continue from. The wanted length of a lecture (minutes) is only stated as context in the plan
 call; the topics decide where lectures end.
 
 The prompts' words are v1's where they apply (`app/lib/prompts/texts.ts`); `app/lib/prompts/build.ts` builds each
@@ -35,6 +55,8 @@ prompt as named parts.
 - **Lectures:** each lecture's why, its blocks and its goals with their status (taught, written in after, missing).
 - **Book:** every Datalab block: type, lecture, skipped reason, its HTML.
 - **Transcript:** each lecture's text; a goal's sentences in green, patched ones in amber, untaught blocks listed.
+- **Figures:** the triage: the ways a figure may be shown, the model, run / reset and rerun all / stop; every figure
+  with its picture, the way chosen, the instruction, its error and its calls. The PDF colours each figure by its way.
 - **Calls:** every call; open one to see its prompt part by part (click a part to open it), output, checks,
   attempts, tool schema and the request exactly as sent.
 - **Costs:** by step, by model, by lecture (OpenRouter's own `usage.cost`).
@@ -52,7 +74,8 @@ npm run check                                                # type check and th
 Without `OPENROUTER_API_KEY`, every call is answered by an offline stand-in (cost 0), so the flow and the page can
 be tried with no key. Without `DATALAB_API_KEY`, an offline reader builds JSON of the same shape from the PDF's text positions (pdf.js):
 paragraphs and larger-font headings, no figures. `DATALAB_MODE` (default `balanced`) sets Datalab's mode;
-`V2_PLANNER_MODEL`, `V2_WRITER_MODEL` and `V2_FIGURE_MODEL` set the default models. Each PDF is converted once and
+`V2_PLANNER_MODEL`, `V2_WRITER_MODEL`, `V2_FIGURE_MODEL` and `V2_TRIAGE_MODEL` set the default models;
+`V2_TRIAGE_PARALLEL` (4) how many figures are triaged at once. Each PDF is converted once and
 cached in `app/.data/datalab/`.
 
 Uploaded books and runs are kept in `app/.data/` (not versioned).

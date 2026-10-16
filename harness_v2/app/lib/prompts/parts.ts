@@ -15,6 +15,7 @@ export type PartKind =
   | "questions"  // the book's questions
   | "context"    // what other sections are doing, what was written before
   | "language"   // the narration language's rules
+  | "choices"    // the options a model chooses from
   | "ask"        // the request itself
   | "retry";     // why the last try was sent back
 

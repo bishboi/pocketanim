@@ -10,5 +10,6 @@ export async function GET() {
     plannerModel: process.env.V2_PLANNER_MODEL || "anthropic/claude-sonnet-4.5",
     writerModel: process.env.V2_WRITER_MODEL || "anthropic/claude-sonnet-4.5",
     figureModel: process.env.V2_FIGURE_MODEL || "google/gemini-2.5-flash",
+    triageModel: process.env.V2_TRIAGE_MODEL || process.env.V2_FIGURE_MODEL || "google/gemini-2.5-flash",
   });
 }

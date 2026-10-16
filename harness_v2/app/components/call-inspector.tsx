@@ -19,13 +19,14 @@ export const KIND_STYLE: Record<PartKind, string> = {
   questions: "border-violet-500 bg-violet-950 text-violet-200",
   context: "border-neutral-500 bg-neutral-800 text-neutral-200",
   language: "border-pink-500 bg-pink-950 text-pink-200",
+  choices: "border-cyan-500 bg-cyan-950 text-cyan-200",
   ask: "border-white bg-neutral-700 text-white",
   retry: "border-red-500 bg-red-950 text-red-200",
 };
 
 const KIND_NAME: Record<PartKind, string> = {
   rules: "instructions", book: "book content", items: "book items", goals: "goals", plan: "story plan",
-  questions: "book questions", context: "context", language: "language", ask: "request", retry: "retry note",
+  questions: "book questions", context: "context", language: "language", choices: "choices", ask: "request", retry: "retry note",
 };
 
 export const CHECK_STYLE = {

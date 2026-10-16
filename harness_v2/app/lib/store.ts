@@ -50,8 +50,11 @@ export async function documentInfo(id: string): Promise<DocumentInfo> {
 
 // ─── Runs ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const runs = new Map<string, Run>();
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+// Kept on globalThis: Next can load this module more than once (a copy per route), and every copy must see the same
+// live runs, or a run being written would look like one the server lost.
+const shared = globalThis as unknown as { __v2runs?: Map<string, Run>; __v2pending?: Map<string, ReturnType<typeof setTimeout>> };
+const runs = (shared.__v2runs ??= new Map<string, Run>());
+const pending = (shared.__v2pending ??= new Map<string, ReturnType<typeof setTimeout>>());
 
 function runFile(id: string): string {
   if (!ID.test(id)) throw new Error("not a run id");
@@ -76,25 +79,60 @@ export function saveRun(run: Run, now = false): void {
   }, now ? 0 : 500));
 }
 
+/**
+ * A run: the live one while this server has it, else as last written. One written as running that this server does
+ * not have was cut off (the server stopped): it is marked interrupted, what was running set back to waiting, so it
+ * can be continued from there.
+ */
 export async function loadRun(id: string): Promise<Run | null> {
   const live = runs.get(id);
   if (live) return live;
+  let run: Run;
   try {
-    return JSON.parse(await readFile(runFile(id), "utf8"));
+    run = JSON.parse(await readFile(runFile(id), "utf8"));
   } catch {
     return null;
   }
+  let cut = false;
+  if (run.status === "running") {
+    cut = true;
+    run.status = "interrupted";
+    run.error = "The server stopped while this ran. Continue picks it up from where it was.";
+    for (const s of run.steps) if (s.status === "running") s.status = "waiting";
+    for (const l of run.lectures) if (l.status === "writing") l.status = "waiting";
+  }
+  if (run.triage?.status === "running") {
+    cut = true;
+    run.triage.status = "interrupted";
+    for (const f of Object.values(run.triage.figures)) if (f.status === "running") f.status = "waiting";
+  }
+  for (const c of run.calls) {
+    if (c.status === "running") {
+      c.status = "failed";
+      c.error = "cut off: the server stopped during the call";
+    }
+  }
+  runs.set(run.id, run);
+  if (cut) saveRun(run, true);
+  return run;
 }
 
-export async function listRuns(): Promise<{ id: string; documentName: string; created: number; status: string; cost: number }[]> {
+export type RunSummary = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string;
+  triage?: string };
+
+export async function listRuns(): Promise<RunSummary[]> {
   const root = path.join(DATA, "runs");
   if (!existsSync(root)) return [];
   const out = [];
   for (const name of await readdir(root)) {
     if (!name.endsWith(".json")) continue;
     const run = runs.get(name.slice(0, -5)) ?? await loadRun(name.slice(0, -5));
-    if (run) out.push({ id: run.id, documentName: run.documentName, created: run.created, status: run.status,
-      cost: run.calls.reduce((n, c) => n + c.cost, 0) });
+    if (!run) continue;
+    const figures = Object.values(run.triage?.figures ?? {});
+    out.push({ id: run.id, documentName: run.documentName, created: run.created, status: run.status,
+      cost: run.calls.reduce((n, c) => n + c.cost, 0),
+      lectures: `${run.lectures.filter((l) => l.status === "written").length}/${run.lectures.length} lectures`,
+      triage: figures.length ? `${figures.filter((f) => f.status === "done").length}/${figures.length} figures triaged` : undefined });
   }
   return out.sort((a, b) => b.created - a.created);
 }

@@ -22,7 +22,7 @@ import { PLAN_TOOL, goalLine, readPlan, type Lecture } from "./plan";
 import { LECTURE_TOOL, PATCH_TOOL, lecturePrompt, lectureSystem, patchPrompt, planPrompt } from "./prompts/build";
 import { part } from "./prompts/parts";
 import { callTool } from "./llm";
-import { documentBook, documentInfo, newId, saveRun } from "./store";
+import { documentBook, documentInfo, loadRun, newId, saveRun } from "./store";
 import type { Call, Check, LectureState, Options, Run, Step, StepKey } from "./types";
 import type { Prompt } from "./prompts/parts";
 
@@ -32,10 +32,24 @@ const STEPS: { key: StepKey; label: string }[] = [
   { key: "plan", label: "Plan lectures and goals" },
   { key: "write", label: "Write lectures" },
 ];
+const ORDER: StepKey[] = STEPS.map((s) => s.key);
+
+/** What runs on each run right now (a run's transcript and its triage are each one job at a time). */
+const shared = globalThis as unknown as { __v2jobs?: Set<string>; __v2stop?: Set<string> };
+export const jobs = (shared.__v2jobs ??= new Set<string>());
+const stopping = (shared.__v2stop ??= new Set<string>());
+
+/** Thrown between calls when the page asked a job to stop. */
+export class Stopped extends Error {}
+export function stopRequested(key: string): boolean {
+  return stopping.has(key);
+}
+export function clearStop(key: string) {
+  stopping.delete(key);
+}
 
 export async function startRun(documentId: string, asked: Partial<Options>): Promise<Run> {
   const info = await documentInfo(documentId);
-  const book = await documentBook(documentId);
   const options: Options = {
     lectureMinutes: asked.lectureMinutes && asked.lectureMinutes >= 3 ? asked.lectureMinutes : 27,
     language: asked.language ?? "auto",
@@ -51,18 +65,87 @@ export async function startRun(documentId: string, asked: Partial<Options>): Pro
     calls: [], log: [],
   };
   saveRun(run, true);
-  void flow(run, book).catch((error) => {
-    run.status = "failed";
-    run.error = (error as Error).message;
-    run.ended = Date.now();
-    for (const s of run.steps) if (s.status === "running") s.status = "failed";
-    log(run, `Failed: ${run.error}`);
-    saveRun(run, true);
-  });
+  launch(run);
   return run;
 }
 
-function log(run: Run, text: string) {
+/**
+ * A run picked up where it stopped (failed, stopped, cut off by a server restart): every step's saved result is kept
+ * and only what is not done yet is done: figures not described, the plan if there is none, lectures not written.
+ * The models and effort may be changed for what is left.
+ */
+export async function continueRun(id: string, asked: Partial<Options> = {}): Promise<Run> {
+  const run = await loadRun(id);
+  if (!run) throw new Error("no such run");
+  if (jobs.has(`${id}:transcript`)) throw new Error("this run's transcript is already being made");
+  for (const k of ["plannerModel", "writerModel", "figureModel", "effort", "language"] as const) {
+    if (asked[k]) (run.options as Record<string, unknown>)[k] = asked[k];
+  }
+  log(run, "Continued: the steps done are kept; what is left is done now.");
+  launch(run);
+  return run;
+}
+
+/** A step made again: its saved result and every later step's are cleared, then the run continues from it. */
+export async function redoFrom(id: string, key: StepKey, asked: Partial<Options> = {}): Promise<Run> {
+  const run = await loadRun(id);
+  if (!run) throw new Error("no such run");
+  if (jobs.has(`${id}:transcript`)) throw new Error("stop the run before making a step again");
+  const from = ORDER.indexOf(key);
+  if (from < 0) throw new Error("no such step");
+  for (const s of run.steps.slice(from)) Object.assign(s, { status: "waiting", started: undefined, ended: undefined, summary: undefined });
+  if (from <= ORDER.indexOf("read")) run.blocks = [];
+  if (from <= ORDER.indexOf("figures")) for (const b of run.blocks) delete b.description;
+  if (from <= ORDER.indexOf("plan")) {
+    run.lectures = [];
+    run.skipped = [];
+    run.goalStatus = {};
+  }
+  if (from <= ORDER.indexOf("write")) {
+    for (const l of run.lectures) {
+      Object.assign(l, { status: "waiting", text: undefined, goalLines: undefined, blocksTaught: undefined, patched: undefined, dropped: undefined });
+    }
+    for (const g of Object.keys(run.goalStatus)) run.goalStatus[g] = "waiting";
+  }
+  log(run, `Step "${run.steps[from].label}" and the ones after it cleared, to be made again.`);
+  return continueRun(id, asked);
+}
+
+/** Ask a running job to stop after the call it is in. */
+export function stopJob(id: string, job: "transcript" | "triage") {
+  if (jobs.has(`${id}:${job}`)) stopping.add(`${id}:${job}`);
+}
+
+function launch(run: Run) {
+  const key = `${run.id}:transcript`;
+  jobs.add(key);
+  stopping.delete(key);
+  run.status = "running";
+  run.error = undefined;
+  run.ended = undefined;
+  saveRun(run, true);
+  void (async () => {
+    try {
+      const book = await documentBook(run.documentId);
+      await flow(run, book);
+      run.status = "done";
+    } catch (error) {
+      const stopped = error instanceof Stopped;
+      run.status = stopped ? "stopped" : "failed";
+      run.error = stopped ? "Stopped from the page. Continue picks it up from here." : (error as Error).message;
+      for (const s of run.steps) if (s.status === "running") s.status = stopped ? "waiting" : "failed";
+      for (const l of run.lectures) if (l.status === "writing") l.status = "waiting";
+      log(run, stopped ? "Stopped." : `Failed: ${run.error}`);
+    } finally {
+      jobs.delete(key);
+      stopping.delete(key);
+      run.ended = Date.now();
+      saveRun(run, true);
+    }
+  })();
+}
+
+export function log(run: Run, text: string) {
   run.log.push({ t: Date.now(), text });
   saveRun(run);
 }
@@ -76,9 +159,10 @@ function step(run: Run, key: StepKey, status: Step["status"], summary?: string) 
   saveRun(run);
 }
 
-function newCall(run: Run, o: { step: string; label: string; lecture?: number; model: string; prompt: Prompt }): Call {
-  const call: Call = { id: `c${run.calls.length + 1}`, step: o.step, label: o.label, lecture: o.lecture, model: o.model,
-    effort: run.options.effort, status: "running", started: Date.now(), attempts: [], prompt: o.prompt, cost: 0,
+export function newCall(run: Run, o: { step: string; label: string; lecture?: number; block?: string; model: string; prompt: Prompt;
+  effort?: string }): Call {
+  const call: Call = { id: `c${run.calls.length + 1}`, step: o.step, label: o.label, lecture: o.lecture, block: o.block, model: o.model,
+    effort: o.effort ?? run.options.effort, status: "running", started: Date.now(), attempts: [], prompt: o.prompt, cost: 0,
     provider: "openrouter", checks: [] };
   run.calls.push(call);
   if (o.lecture) run.lectures.find((l) => l.n === o.lecture)?.calls.push(call.id);
@@ -86,51 +170,84 @@ function newCall(run: Run, o: { step: string; label: string; lecture?: number; m
   return call;
 }
 
-const check = (call: Call, name: string, result: Check["result"], detail: string) => call.checks.push({ name, result, detail });
+export const check = (call: Call, name: string, result: Check["result"], detail: string) => call.checks.push({ name, result, detail });
 
+/** A figure's file as a data URL, for a model that reads images. */
+export async function imageData(file: string): Promise<string | undefined> {
+  try {
+    const ext = path.extname(file).toLowerCase().replace(".", "").replace("jpg", "jpeg") || "png";
+    return `data:image/${ext};base64,${(await readFile(file)).toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Each step skips what it already has, so a run continued after a stop or a failure does only what is left. */
 async function flow(run: Run, book: { json: RawBlock; figures: Record<string, string> }) {
   const o = run.options;
   const subject = o.subject || undefined;
+  const halt = () => {
+    if (stopping.has(`${run.id}:transcript`)) throw new Stopped();
+  };
+  const done = (key: StepKey) => run.steps.find((s) => s.key === key)?.status === "done";
 
   // 1. Read: Datalab's JSON, its blocks in page order ─────────────────────────────────────────────────────────
-  step(run, "read", "running");
-  run.blocks = datalabBlocks(book.json, book.figures);
-  const types = new Map<string, number>();
-  for (const b of run.blocks) types.set(b.type, (types.get(b.type) ?? 0) + 1);
-  step(run, "read", "done", `${run.blocks.length} blocks: ${[...types.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(", ")}`);
-  if (!run.blocks.some((b) => kindOf(b.type) === "heading")) log(run, "Datalab found no SectionHeader in the book: the planner divides it by its text alone.");
+  if (!done("read") || !run.blocks.length) {
+    step(run, "read", "running");
+    run.blocks = datalabBlocks(book.json, book.figures);
+    const types = new Map<string, number>();
+    for (const b of run.blocks) types.set(b.type, (types.get(b.type) ?? 0) + 1);
+    step(run, "read", "done", `${run.blocks.length} blocks: ${[...types.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(", ")}`);
+    if (!run.blocks.some((b) => kindOf(b.type) === "heading")) log(run, "Datalab found no SectionHeader in the book: the planner divides it by its text alone.");
+  }
 
-  // 2. Figures: each picture Datalab cut out, described for the planner ──────────────────────────────────────────
-  step(run, "figures", "running");
-  const pictures = run.blocks.map((b) => ({ block: b, file: b.image ? figureFile(b, book.json, book.figures) : undefined }))
-    .filter((x): x is { block: Block; file: string } => !!x.file);
-  await Promise.all(pictures.map(({ block, file }) => describeFigure(run, block, file, subject)));
-  const figureBlocks = run.blocks.filter((b) => kindOf(b.type) === "figure").length;
-  step(run, "figures", "done", pictures.length ? `${run.blocks.filter((b) => b.description).length} of ${pictures.length} figures described`
-    : figureBlocks ? `${figureBlocks} figure blocks, no picture of them: their captions only` : "no figures");
+  // 2. Figures: each picture Datalab cut out, described for the planner (those not described yet) ─────────────
+  if (!done("figures")) {
+    step(run, "figures", "running");
+    const pictures = run.blocks.map((b) => ({ block: b, file: b.image ? figureFile(b, book.json, book.figures) : undefined }))
+      .filter((x): x is { block: Block; file: string } => !!x.file);
+    const left = pictures.filter((p) => !p.block.description);
+    if (left.length < pictures.length) log(run, `${pictures.length - left.length} figure(s) already described: kept.`);
+    await Promise.all(left.map(async ({ block, file }) => {
+      halt();
+      await describeFigure(run, block, file, subject);
+    }));
+    halt();
+    const figureBlocks = run.blocks.filter((b) => kindOf(b.type) === "figure").length;
+    step(run, "figures", "done", pictures.length ? `${run.blocks.filter((b) => b.description).length} of ${pictures.length} figures described`
+      : figureBlocks ? `${figureBlocks} figure blocks, no picture of them: their captions only` : "no figures");
+  }
 
   // 3. Plan ─────────────────────────────────────────────────────────────────────────────────────────────────────
-  step(run, "plan", "running");
-  const planCall = newCall(run, { step: "plan", label: "Plan the lectures and their goals", model: o.plannerModel,
-    prompt: planPrompt(run.blocks, o.lectureMinutes, subject) });
-  const raw = await callTool({ call: planCall, tool: PLAN_TOOL, onChange: () => saveRun(run),
-    fake: () => fakePlan(run.blocks, o.lectureMinutes) });
-  if (!raw) throw new Error(`The lectures could not be planned: ${planCall.error ?? "no reply"}`);
-  const { plan, checks } = readPlan(raw, run.blocks);
-  planCall.checks.push(...checks);
-  if (!plan.lectures.length) throw new Error("The plan had no lectures.");
-  run.skipped = plan.skipped;
-  run.lectures = plan.lectures.map((l): LectureState => ({ ...l, status: "waiting", calls: [] }));
-  for (const g of plan.lectures.flatMap((l) => l.goals)) run.goalStatus[g.id] = "waiting";
-  step(run, "plan", "done", `${plan.lectures.length} lecture${plan.lectures.length > 1 ? "s" : ""}, ` +
-    `${plan.lectures.reduce((n, l) => n + l.goals.length, 0)} goals${plan.skipped.length ? `, ${plan.skipped.length} blocks skipped as furniture` : ""}`);
+  if (!done("plan") || !run.lectures.length) {
+    halt();
+    step(run, "plan", "running");
+    const planCall = newCall(run, { step: "plan", label: "Plan the lectures and their goals", model: o.plannerModel,
+      prompt: planPrompt(run.blocks, o.lectureMinutes, subject) });
+    const raw = await callTool({ call: planCall, tool: PLAN_TOOL, onChange: () => saveRun(run),
+      fake: () => fakePlan(run.blocks, o.lectureMinutes) });
+    if (!raw) throw new Error(`The lectures could not be planned: ${planCall.error ?? "no reply"}`);
+    const { plan, checks } = readPlan(raw, run.blocks);
+    planCall.checks.push(...checks);
+    if (!plan.lectures.length) throw new Error("The plan had no lectures.");
+    run.skipped = plan.skipped;
+    run.lectures = plan.lectures.map((l): LectureState => ({ ...l, status: "waiting", calls: [] }));
+    run.goalStatus = {};
+    for (const g of plan.lectures.flatMap((l) => l.goals)) run.goalStatus[g.id] = "waiting";
+    step(run, "plan", "done", `${plan.lectures.length} lecture${plan.lectures.length > 1 ? "s" : ""}, ` +
+      `${plan.lectures.reduce((n, l) => n + l.goals.length, 0)} goals${plan.skipped.length ? `, ${plan.skipped.length} blocks skipped as furniture` : ""}`);
+  }
 
-  // 4. Write, in order: each lecture is given every lecture before it ───────────────────────────────────────────
+  // 4. Write, in order: each lecture is given every lecture before it (those written are kept) ──────────────────
   step(run, "write", "running");
   const system = lectureSystem(o.language, subject);
-  for (const lecture of plan.lectures) {
-    await writeLecture(run, lecture, plan.lectures, system);
-    step(run, "write", "running", `${run.lectures.filter((l) => l.status === "written").length} of ${plan.lectures.length} written`);
+  const kept = run.lectures.filter((l) => l.status === "written").length;
+  if (kept) log(run, `${kept} lecture(s) already written: kept.`);
+  for (const lecture of run.lectures) {
+    if (lecture.status === "written") continue;
+    halt();
+    await writeLecture(run, lecture, run.lectures, system);
+    step(run, "write", "running", `${run.lectures.filter((l) => l.status === "written").length} of ${run.lectures.length} written`);
   }
   const statuses = Object.values(run.goalStatus);
   const n = (s: string) => statuses.filter((x) => x === s).length;
@@ -138,9 +255,6 @@ async function flow(run: Run, book: { json: RawBlock; figures: Record<string, st
   step(run, "write", run.lectures.every((l) => l.status === "failed") ? "failed" : "done",
     `${run.lectures.filter((l) => l.status === "written").length} of ${run.lectures.length} written; goals: ${n("taught")} taught, ` +
     `${n("patched")} written in after, ${n("missing")} missing; ${missingBlocks} block(s) not reported taught`);
-  run.status = "done";
-  run.ended = Date.now();
-  saveRun(run, true);
 }
 
 // ─── Figures ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -163,7 +277,7 @@ const DESCRIBE_TOOL = {
 
 async function describeFigure(run: Run, block: Block, file: string, subject?: string) {
   const caption = run.blocks.find((b) => b.page === block.page && kindOf(b.type) === "caption" && b.box[1] >= block.box[1] - 0.02)?.text;
-  const call = newCall(run, { step: "figure", label: `Describe ${block.id}`, model: run.options.figureModel, prompt: {
+  const call = newCall(run, { step: "figure", label: `Describe ${block.id}`, block: block.id, model: run.options.figureModel, prompt: {
     system: [part("role", "Role", "rules", "You describe a textbook's figure for a teacher planning lectures, who cannot see it. Say what it " +
       "shows: its parts, labels, arrows, numbers and what it teaches. Only what is in the figure.")],
     user: [
@@ -173,11 +287,7 @@ async function describeFigure(run: Run, block: Block, file: string, subject?: st
       part("ask", "Request", "ask", "Describe it (describe_figure)."),
     ],
   } });
-  let image: string | undefined;
-  try {
-    const ext = path.extname(file).toLowerCase().replace(".", "").replace("jpg", "jpeg") || "png";
-    image = `data:image/${ext};base64,${(await readFile(file)).toString("base64")}`;
-  } catch {}
+  const image = await imageData(file);
   const reply = await callTool({ call, tool: DESCRIBE_TOOL, images: image ? [image] : [], onChange: () => saveRun(run),
     fake: () => ({ description: `A figure of ${caption || block.text || block.id}, its parts labelled as in the book.` }) });
   const words = String(reply?.description ?? "").trim();

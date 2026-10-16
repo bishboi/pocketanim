@@ -5,6 +5,7 @@
 import type { Part } from "./prompts/parts";
 import type { Block } from "./source/blocks";
 import type { Goal } from "./plan";
+import type { TriageKind } from "./triage-kinds";
 
 /** What code found when it read a model's reply: passed, mended by code, failed, or only noted. */
 export type Check = { name: string; result: "pass" | "fixed" | "fail" | "info"; detail: string };
@@ -15,6 +16,8 @@ export type Call = {
   step: string;
   label: string;
   lecture?: number;
+  /** The book's block the call is about (a figure described or triaged). */
+  block?: string;
   model: string;
   effort?: string;
   status: "running" | "done" | "failed";
@@ -79,7 +82,8 @@ export type Run = {
   documentName: string;
   created: number;
   ended?: number;
-  status: "running" | "done" | "failed";
+  /** "interrupted": the server stopped while it ran (it can be continued); "stopped": stopped from the page. */
+  status: "running" | "done" | "failed" | "stopped" | "interrupted";
   error?: string;
   options: Options;
   steps: Step[];
@@ -90,6 +94,41 @@ export type Run = {
   goalStatus: Record<string, GoalStatus>;
   calls: Call[];
   log: { t: number; text: string }[];
+  /** The figure triage (triage.ts): how each of the book's figures is to be shown. Runs apart from the transcript. */
+  triage?: Triage;
+  /** Where it was imported from, when it came from an exported transcript. */
+  imported?: { file: string; at: number };
+};
+
+/** How one figure is to be shown, as the triage decided it (and the user, when they chose another). */
+export type FigureTriage = {
+  block: string;
+  status: "waiting" | "running" | "done" | "failed";
+  kind?: TriageKind;
+  /** The model's instruction for whoever builds or redraws it. */
+  how?: string;
+  /** Why this way. */
+  reason?: string;
+  /** Labels, values and parts that must stay exactly as in the book. */
+  keep?: string[];
+  /** The way the user chose instead of the model's. */
+  override?: TriageKind;
+  error?: string;
+  calls: string[];
+  at?: number;
+};
+
+export type Triage = {
+  status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
+  /** The ways the model may choose from (the user's choice). */
+  kinds: TriageKind[];
+  model: string;
+  started?: number;
+  ended?: number;
+  /** How many times it was run (reset or not). */
+  rounds: number;
+  figures: Record<string, FigureTriage>;
+  error?: string;
 };
 
 export type GoalStatus = "waiting" | "taught" | "patched" | "missing";

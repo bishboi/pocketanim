@@ -12,16 +12,20 @@ import type { DocumentInfo, Options, Run } from "@/lib/types";
 import { PdfView, type Mark } from "@/components/pdf-view";
 import { CallInspector, money } from "@/components/call-inspector";
 import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, TranscriptPanel, lectureColor, type Selection } from "@/components/panels";
+import { FiguresPanel } from "@/components/figures-panel";
+import { choiceOf } from "@/lib/triage-kinds";
 
-type Config = { hasKey: boolean; datalab: boolean; plannerModel: string; writerModel: string; figureModel: string };
-const TABS = ["Lectures", "Book", "Transcript", "Calls", "Costs", "Models"] as const;
+type Config = { hasKey: boolean; datalab: boolean; plannerModel: string; writerModel: string; figureModel: string; triageModel: string };
+type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Calls", "Costs", "Models"] as const;
 const GREY = "rgba(148, 163, 184, 0.22)";
 const GREEN = "rgba(16, 185, 129, 0.45)";
 
 export default function Page() {
   const [config, setConfig] = useState<Config | null>(null);
   const [docs, setDocs] = useState<DocumentInfo[]>([]);
-  const [runs, setRuns] = useState<{ id: string; documentName: string; created: number; status: string; cost: number }[]>([]);
+  const [runs, setRuns] = useState<RunRow[]>([]);
+  const [poke, setPoke] = useState(0);
   const [docId, setDocId] = useState("");
   const [uploading, setUploading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,8 +63,8 @@ export default function Page() {
       if (!res.ok || stop) return;
       const next = (await res.json()) as Run;
       setRun(next);
-      setDocId((d) => d || next.documentId);
-      if (next.status === "running") setTimeout(tick, 1000);
+      setDocId(next.documentId);
+      if (next.status === "running" || next.triage?.status === "running") setTimeout(tick, 1000);
       else void refresh();
     };
     void tick();
@@ -68,13 +72,44 @@ export default function Page() {
     return () => {
       stop = true;
     };
-  }, [runId, refresh]);
+  }, [runId, refresh, poke]);
 
+  // A run picked from the list brings its options back, so continuing it shows what it was made with.
   useEffect(() => {
-    if (run?.status !== "running") return;
+    if (run) setOptions(run.options);
+  }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const busy = run?.status === "running" || run?.triage?.status === "running";
+  useEffect(() => {
+    if (!busy) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [run?.status]);
+  }, [busy]);
+
+  /** An action on the run (continue, stop, redo a step, the triage's): then follow it again. */
+  const act = async (path: string, body: Record<string, unknown>) => {
+    setError(null);
+    const res = await fetch(`/api/runs/${runId}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(json.error ?? "that did not work");
+      return false;
+    }
+    setPoke((n) => n + 1);
+    return true;
+  };
+
+  const importFile = async (file: File) => {
+    setError(null);
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/runs/import", { method: "POST", body: form });
+    const json = await res.json();
+    if (!res.ok) return setError(json.error ?? "the import failed");
+    await refresh();
+    setSelection(null);
+    setRunId(json.id);
+  };
 
   const upload = async (file: File) => {
     setUploading(`Reading ${file.name} with ${config?.datalab ? "Datalab" : "the offline reader (no DATALAB_API_KEY)"}…`);
@@ -107,6 +142,15 @@ export default function Page() {
   // blocks (green, its lecture's others grey); one block.
   const marks: Mark[] = useMemo(() => {
     if (!run) return [];
+    if (tab === "Figures" && selection?.kind !== "block") {
+      // The figures, each in the colour of the way it is shown (grey: not triaged yet).
+      return run.blocks.filter((b) => b.image).map((b) => {
+        const f = run.triage?.figures[b.id];
+        const kind = f?.override ?? (f?.status === "done" ? f.kind : undefined);
+        return { id: b.id, page: b.page, box: b.box, color: choiceOf(kind)?.color ?? "rgba(148,163,184,0.35)",
+          label: `${b.id} · ${kind ? choiceOf(kind)!.label : f?.status ?? "not triaged"}` };
+      });
+    }
     const home = new Map(run.lectures.flatMap((l) => l.blocks.map((id) => [id, l.n] as const)));
     const mark = (id: string, color: string, strong = false): Mark | null => {
       const b = run.blocks.find((x) => x.id === id);
@@ -124,7 +168,7 @@ export default function Page() {
       return (lecture?.blocks ?? []).map((id) => mark(id, lectureColor(selection.n), true)).filter(ok);
     }
     return run.blocks.map((b) => mark(b.id, home.has(b.id) ? lectureColor(home.get(b.id)!) : "rgba(148,163,184,0.15)")).filter(ok);
-  }, [run, selection]);
+  }, [run, selection, tab]);
 
   const call = run?.calls.find((c) => c.id === callId) ?? null;
   const total = run?.calls.reduce((n, c) => n + c.cost, 0) ?? 0;
@@ -137,7 +181,7 @@ export default function Page() {
     <div className="flex h-screen flex-col">
       <header className="border-b border-neutral-800 px-4 py-2">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-sm font-semibold text-neutral-100">Harness v2 <span className="text-neutral-500">· Transcript</span></h1>
+          <h1 className="text-sm font-semibold text-neutral-100">Harness v2 <span className="text-neutral-500">· Transcript, figure triage</span></h1>
           <select className={input} value={docId} onChange={(e) => { setDocId(e.target.value); setRun(null); setRunId(""); setSelection(null); }} data-testid="doc-select">
             <option value="">Choose a book…</option>
             {docs.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.pages} pages, {d.words.toLocaleString()} words, {d.source})</option>)}
@@ -150,8 +194,13 @@ export default function Page() {
           {uploading && <span className="text-xs text-sky-300">{uploading}</span>}
           <select className={input} value={runId} onChange={(e) => { setSelection(null); setRunId(e.target.value); }}>
             <option value="">Past runs…</option>
-            {runs.map((r) => <option key={r.id} value={r.id}>{new Date(r.created).toLocaleString()} · {r.documentName} · {r.status} · {money(r.cost)}</option>)}
+            {runs.map((r) => <option key={r.id} value={r.id}>{new Date(r.created).toLocaleString()} · {r.documentName} · {r.status} · {r.lectures}{r.triage ? ` · ${r.triage}` : ""} · {money(r.cost)}</option>)}
           </select>
+          <label className="cursor-pointer rounded border border-neutral-600 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800" title="A transcript exported as JSON, as a run of its own">
+            Import transcript
+            <input type="file" accept="application/json,.json" className="hidden" data-testid="import"
+              onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
+          </label>
           <div className="ml-auto flex items-center gap-3 text-xs text-neutral-300" data-testid="totals">
             {run && <>
               <span className={run.status === "failed" ? "text-red-300" : run.status === "done" ? "text-emerald-300" : "text-sky-300"}>{run.status}</span>
@@ -186,8 +235,22 @@ export default function Page() {
             className="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40">Build the transcript</button>
           {config && !config.hasKey && <span className="text-amber-300">No OPENROUTER_API_KEY: calls are answered by the offline stand-in.</span>}
           {config && !config.datalab && <span className="text-amber-300">No DATALAB_API_KEY: PDFs are read offline (no figures, no bold).</span>}
-          {error && <span className="text-red-300">{error}</span>}
+          {error && <span className="text-red-300" data-testid="error">{error}</span>}
         </div>
+        {run && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="run-actions">
+            <span className="text-neutral-500">This run:</span>
+            {run.status === "running"
+              ? <button className="rounded border border-red-700 px-2 py-0.5 text-red-200 hover:bg-red-950" onClick={() => act("", { action: "stop" })}>Stop</button>
+              : run.status !== "done" && <button className="rounded border border-emerald-700 px-2 py-0.5 text-emerald-200 hover:bg-emerald-950" data-testid="continue"
+                  title="Keep every step done so far and do only what is left, with the models above" onClick={() => act("", { action: "continue", options })}>Continue from where it stopped</button>}
+            <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=json`} data-testid="export-json"
+              title="Every lecture's numbered sentences, goals, blocks and figure triage: for the scene script">Export transcript (JSON)</a>
+            <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=md`}>Export (Markdown)</a>
+            {run.imported && <span className="text-neutral-500">imported from {run.imported.file}</span>}
+            <span className="text-neutral-500">Saved as it goes: pick it again from Past runs at any time.</span>
+          </div>
+        )}
         {run && (
           <ol className="mt-2 flex flex-wrap gap-2 text-xs" data-testid="steps">
             {run.steps.map((s, k) => (
@@ -195,6 +258,10 @@ export default function Page() {
                 s.status === "running" ? "border-sky-700 bg-sky-950/40" : s.status === "failed" ? "border-red-800 bg-red-950/40" : "border-neutral-800"}`}>
                 <span className="text-neutral-500">{k + 1}.</span> <span className="text-neutral-100">{s.label}</span>
                 {s.started && <span className="text-neutral-500"> · {Math.round(((s.ended ?? now) - s.started) / 1000)} s</span>}
+                {run.status !== "running" && (s.status === "done" || s.status === "failed") && (
+                  <button className="ml-1 text-neutral-500 hover:text-neutral-200" title={`Make "${s.label}" again, and the steps after it (the others are kept)`}
+                    onClick={() => confirm(`Make "${s.label}" and every step after it again? Their saved results are cleared.`) && act("", { action: "redo", step: s.key, options })}>↻ redo</button>
+                )}
                 {s.summary && <span className="block max-w-[34rem] text-[11px] text-neutral-400">{s.summary}</span>}
               </li>
             ))}
@@ -229,10 +296,13 @@ export default function Page() {
             {run && tab === "Lectures" && <LecturesPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
             {run && tab === "Book" && <BookPanel run={run} selection={selection} select={setSelection} />}
             {run && tab === "Transcript" && <TranscriptPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
+            {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={config?.triageModel ?? options.figureModel ?? ""} selection={selection}
+              select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && <ModelsPanel models={[{ role: "Planner", model: options.plannerModel ?? "" }, { role: "Writer", model: options.writerModel ?? "" },
-              { role: "Figures", model: options.figureModel ?? "" }]} />}
+              { role: "Figures", model: options.figureModel ?? "" },
+              { role: "Triage", model: run?.triage?.model || config?.triageModel || "" }]} />}
             {run && run.log.length > 0 && tab === "Lectures" && (
               <details className="mt-4 text-xs text-neutral-400"><summary className="cursor-pointer">Run log ({run.log.length})</summary>
                 <ul className="mt-1 space-y-0.5">{run.log.map((l, k) => <li key={k}>{new Date(l.t).toLocaleTimeString()} · {l.text}</li>)}</ul>

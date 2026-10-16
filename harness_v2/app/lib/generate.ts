@@ -72,7 +72,7 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
     return run;
   }
   if (run.legacy) throw new Error(run.legacy);
-  if (!run.triage) throw new Error("triage the figures first: generation draws the figures triaged Exact or Styled redraw, SVG drawing or Manim");
+  if (!run.triage) throw new Error("no figure has a way yet: triage the figures, or choose a way under Generate as");
   const gen: Generation = run.generation ?? { status: "idle", model: "", rounds: 0, figures: {} };
   gen.model = a.model || gen.model || run.options.imageModel || modelFor("image");
   gen.svgModel = a.svgModel || gen.svgModel || run.options.svgModel || modelFor("svg");

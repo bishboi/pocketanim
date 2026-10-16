@@ -69,8 +69,10 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
     return run;
   }
   if (a.action === "override") {
-    const f = run.triage?.figures[a.block];
-    if (!f) throw new Error("that figure has not been triaged");
+    // A way chosen by hand needs no triage: a figure not triaged (or a run with no triage yet) gets one here.
+    if (!run.blocks.some((b) => b.id === a.block && b.image)) throw new Error("no such figure with a picture");
+    run.triage ??= { status: "idle", kinds: DEFAULT_KINDS, model: defaultTriageModel(run), rounds: 0, figures: {} };
+    const f = (run.triage.figures[a.block] ??= { block: a.block, status: "waiting", calls: [] });
     if (a.kind && !choiceOf(a.kind)) throw new Error(`no such way: ${a.kind}`);
     f.override = (a.kind || undefined) as TriageKind | undefined;
     log(run, a.kind ? `Figure ${a.block}: shown as ${choiceOf(a.kind)!.label} (chosen by hand).` : `Figure ${a.block}: back to the model's choice.`);

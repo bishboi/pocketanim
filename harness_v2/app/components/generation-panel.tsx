@@ -16,9 +16,11 @@ import type { Selection } from "./panels";
 const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
 const GENERATED = ["exact", "styled", "svg", "manim", "map"];
 
-export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultManimModel, defaultMapModel, select, onCall, act }: {
+export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultManimModel, defaultMapModel, select, onCall, act, setWay }: {
   run: Run; defaultModel: string; defaultSvgModel: string; defaultManimModel: string; defaultMapModel: string; select: (s: Selection) => void; onCall: (id: string) => void;
   act: (body: Record<string, unknown>) => Promise<boolean>;
+  /** Change a figure's way (the triage's choice by hand): it is then generated that way. */
+  setWay: (block: string, kind: string) => Promise<boolean>;
 }) {
   const gen = run.generation;
   const [model, setModel] = useState(gen?.model || defaultModel);
@@ -38,6 +40,13 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
   };
   const figures = run.blocks.filter((b) => b.image && GENERATED.includes(wayOf(b.id) ?? ""));
   const others = run.blocks.filter((b) => b.image && wayOf(b.id) && !GENERATED.includes(wayOf(b.id)!));
+  // Every figure with a picture is listed: one not triaged a way this step makes can be given one here.
+  const listed = run.blocks.filter((b) => b.image);
+  /** A figure the decision model chose Map for, made a redraw by the 20-point rule. */
+  const wasMap = (id: string) => /^Map \d+%/.test(run.triage?.figures[id]?.rule ?? "") && !run.triage?.figures[id]?.override;
+  const generateAs = async (id: string, kind: string) => {
+    if (await setWay(id, kind)) await act({ action: "one", block: id, ...models });
+  };
   const running = gen?.status === "running";
   // A figure is busy while it is queued or being generated; the others stay free to start.
   const busyFig = (id: string) => running && (gen?.figures[id]?.status === "running" || gen?.figures[id]?.status === "waiting");
@@ -48,7 +57,7 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
   const cost = run.calls.filter((c) => c.step === "generate").reduce((n, c) => n + c.cost, 0);
   const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
 
-  if (!run.triage) return <p className="text-sm text-neutral-400">Triage the figures first (Figures tab): this step redraws the figures triaged Exact or Styled redraw.</p>;
+  if (!run.blocks.length) return <p className="text-sm text-neutral-400">The book has not been read in this run yet: start a run (the Figures tab can read it alone).</p>;
   return (
     <div className="space-y-3" data-testid="generation">
       <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
@@ -93,12 +102,15 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
         <span className="font-semibold">{money(cost)}</span>
       </div>
       {gen?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{gen.error}</p>}
-      {!figures.length && <p className="text-sm text-neutral-400">No figure is triaged Exact redraw, Styled redraw, SVG drawing, Manim or Map. Change a figure&apos;s way on the Figures tab, or triage again.</p>}
+      {!listed.length && <p className="text-sm text-neutral-400">This book has no figure with a picture.</p>}
+      {listed.length > 0 && !figures.length && <p className="text-sm text-neutral-400">No figure is triaged a way this step makes yet: choose
+        one under <b>Generate as</b> on a figure below.</p>}
 
       <ul className="space-y-3">
-        {figures.map((b) => {
+        {listed.map((b) => {
           const f = gen?.figures[b.id];
           const kind = wayOf(b.id);
+          const makes = GENERATED.includes(kind ?? "");
           const lastCall = f?.calls.length ? run.calls.find((c) => c.id === f.calls[f.calls.length - 1]) : undefined;
           return (
             <li key={b.id} className="rounded border border-neutral-800 p-2" style={{ borderLeft: `4px solid ${solidKind(kind)}` }} data-testid="generation-card">
@@ -106,12 +118,25 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
                 <button className="font-mono text-neutral-200 hover:underline" onClick={() => select({ kind: "block", id: b.id })}>{b.id}</button>
                 <span className="rounded px-1.5 py-px font-semibold text-neutral-950" style={{ background: solidKind(kind) }}>{choiceOf(kind)?.label}</span>
                 <span className="text-neutral-500">page {b.page + 1}</span>
-                <span className={TONE[f?.status ?? "waiting"]}>{f ? (f.status === "running" ? "generating…" : f.status === "waiting" && busyFig(b.id) ? "queued" : f.status) : "not generated"}</span>
+                {!kind && <span className="rounded bg-neutral-800 px-1.5 py-px text-neutral-300">not triaged</span>}
+                <span className={TONE[f?.status ?? "waiting"]}>{!makes ? (kind ? "made by a step to come" : "") : f ? (f.status === "running" ? "generating…" : f.status === "waiting" && busyFig(b.id) ? "queued" : f.status) : "not generated"}</span>
+                {wasMap(b.id) && (
+                  <span className="text-amber-300" data-testid="was-map">Jev chose Map; the 20-point rule made it a redraw
+                    <button className="ml-1 rounded border border-emerald-700 px-1.5 py-px text-[11px] text-emerald-200 hover:bg-emerald-950 disabled:opacity-40"
+                      disabled={busyFig(b.id)} data-testid="generate-as-map" onClick={() => generateAs(b.id, "map")}>Generate as Map</button></span>
+                )}
                 {f?.level && f.level !== "full" && <span className="text-amber-300" data-testid="generation-level">{f.level === "gentle"
                   ? "asked in gentler words (the full prompt was blocked by moderation)" : "drawn with no reference image (the picture was blocked by moderation)"}</span>}
                 <span className="ml-auto flex items-center gap-1.5">
+                  <label className="flex items-center gap-1 text-[11px] text-neutral-400">Generate as
+                    <select className="rounded border border-neutral-700 bg-neutral-900 px-1 py-px text-[11px] text-neutral-200" value={makes ? kind : ""}
+                      disabled={busyFig(b.id)} data-testid="generate-as" onChange={(e) => e.target.value && setWay(b.id, e.target.value)}>
+                      {!makes && <option value="">{kind ? `${choiceOf(kind)?.label} (not made here)` : "choose a way…"}</option>}
+                      {GENERATED.map((k) => <option key={k} value={k}>{choiceOf(k)?.label}</option>)}
+                    </select>
+                  </label>
                   <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
-                    disabled={busyFig(b.id)} data-testid="generate-one" onClick={() => act({ action: "one", block: b.id, ...models })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
+                    disabled={busyFig(b.id) || !makes} data-testid="generate-one" onClick={() => act({ action: "one", block: b.id, ...models })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
                   {f?.calls.map((id) => {
                     const c = run.calls.find((x) => x.id === id);
                     return c ? <button key={id} onClick={() => onCall(id)} className={`rounded border px-1.5 py-px text-[10px] hover:bg-neutral-800 ${c.status === "failed" ? "border-red-800 text-red-300" : "border-neutral-700 text-neutral-400"}`}>

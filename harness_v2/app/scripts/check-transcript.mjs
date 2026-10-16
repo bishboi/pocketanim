@@ -367,5 +367,15 @@ assert.equal(cutPng.subarray(1, 4).toString(), "PNG");
 assert.equal(cutPng.readUInt32BE(16), 420, "the picture at its own size");
 assert.equal(r1.triage.figures["/page/0/Picture/5"].status, "done");
 
+// A way chosen by hand on a run with no triage: the figure gets it, and is generated that way.
+const bare = await startRun(figDoc.id, {}, "read");
+let r2 = await wait(bare.id, (r) => r.status === "running");
+assert.ok(!r2.triage, "no triage yet");
+await triageAction(bare.id, { action: "override", block: "/page/0/Picture/0", kind: "exact" });
+await generateAction(bare.id, { action: "one", block: "/page/0/Picture/0" });
+r2 = await wait(bare.id, (r) => r.generation.status === "running");
+assert.equal(r2.generation.figures["/page/0/Picture/0"].status, "done", r2.generation.figures["/page/0/Picture/0"].error);
+await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9/Nothing/1", kind: "map" }), /no such figure/);
+
 console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${Object.keys(run.goalStatus).length} goals, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

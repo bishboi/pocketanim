@@ -321,7 +321,8 @@ export default function Page() {
               defaultSvgModel={run.options.svgModel || options.svgModel || config?.models.svg?.model || ""}
               defaultManimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
               defaultMapModel={run.options.mapModel || options.mapModel || config?.models.map?.model || ""}
-              select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)} />}
+              select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)}
+              setWay={(block, kind) => act("/triage", { action: "override", block, kind })} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

@@ -4,7 +4,8 @@
  * The script: each lecture cut into chapters and beats. A chapter shows its title card (number, title, the line said
  * on it) and its stage (map or board); each beat its sentences (numbers and words, as the transcript has them), what
  * is on screen, and its figure. Clicking a beat lights up in the PDF what it teaches (its figure, else the blocks of
- * the goals its sentences teach). Build, rebuild, one lecture again, stop; lectures are scripted in parallel.
+ * the goals its sentences teach). Build, rebuild, stop; lectures in parallel or one at a time; or one lecture: picked
+ * (and shown alone), or the next one not scripted yet.
  */
 
 import { useEffect, useState } from "react";
@@ -23,7 +24,9 @@ export function ScriptPanel({ run, defaultModel, select, onCall, act }: {
 }) {
   const st = run.script;
   const [model, setModel] = useState(st?.model || defaultModel);
-  useEffect(() => setModel(run.script?.model || defaultModel), [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [inTurn, setInTurn] = useState(false);
+  const [picked, setPicked] = useState<number | null>(null);
+  useEffect(() => { setModel(run.script?.model || defaultModel); setPicked(null); }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const running = st?.status === "running";
   const written = run.lectures.filter((l) => l.status === "written" && l.text);
   const busy = (n: number) => running && (st?.lectures[n]?.status === "running" || st?.lectures[n]?.status === "waiting");
@@ -32,6 +35,9 @@ export function ScriptPanel({ run, defaultModel, select, onCall, act }: {
   const beats = Object.values(st?.lectures ?? {}).reduce((k, l) => k + l.chapters.reduce((j, c) => j + c.beats.length, 0), 0);
   const cost = run.calls.filter((c) => c.step === "script").reduce((n, c) => n + c.cost, 0);
   const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
+  const next = written.find((l) => !busy(l.n) && st?.lectures[l.n]?.status !== "done");
+  const one = written.find((l) => l.n === picked);
+  const shown = one ? [one] : written;
 
   if (!written.length) return <p className="text-sm text-neutral-400">No lecture is written yet: build the transcript (or import one) first. The script cuts each lecture&apos;s transcript into chapters and beats.</p>;
   return (
@@ -41,17 +47,34 @@ export function ScriptPanel({ run, defaultModel, select, onCall, act }: {
         <p className="mb-2 text-xs text-neutral-400">Each lecture&apos;s transcript cut into <b>chapters</b> (a topic, with a title card and one stage: a map or a
           board) and <b>beats</b> (1-2 of its numbered sentences, and what is on screen while they are said). Every sentence is in exactly one beat, in
           order, so the narration is the transcript word for word; code checks it and mends what it can. The lecture&apos;s figures are placed on the
-          beats that teach them. Lectures are scripted in parallel.</p>
+          beats that teach them. Script one lecture at a time (pick it, or take the next one not scripted), or build them all:
+          in parallel, or one after the other.</p>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-400">Model</span>
           <input className="mono w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
             onChange={(e) => setModel(e.target.value)} data-testid="script-model" />
           <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} data-testid="script-run"
             disabled={written.every((l) => busy(l.n) || st?.lectures[l.n]?.status === "done")}
-            onClick={() => act({ action: "run", model })}>{!done ? "Build the scripts" : done < written.length ? `Script the ${written.length - done} left` : "All scripted"}</button>
+            onClick={() => act({ action: "run", model, oneAtATime: inTurn })}>{!done ? "Build the scripts" : done < written.length ? `Script the ${written.length - done} left` : "All scripted"}</button>
           <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} data-testid="script-reset" disabled={written.every((l) => busy(l.n))}
-            onClick={() => confirm("Script every lecture again? The scripts there are now are replaced.") && act({ action: "reset", model })}>Rebuild all</button>
+            onClick={() => confirm("Script every lecture again? The scripts there are now are replaced.") && act({ action: "reset", model, oneAtATime: inTurn })}>Rebuild all</button>
+          <label className="flex items-center gap-1 text-neutral-300" title="Build them one lecture after the other, not in parallel">
+            <input type="checkbox" checked={inTurn} onChange={(e) => setInTurn(e.target.checked)} data-testid="script-in-turn" /> one at a time</label>
           {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop all</button>}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-2 text-xs">
+          <span className="text-neutral-400">One lecture</span>
+          <select className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={picked ?? ""} data-testid="script-pick"
+            onChange={(e) => setPicked(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">all lectures shown</option>
+            {written.map((l) => <option key={l.n} value={l.n}>Lecture {l.n}: {l.title}{st?.lectures[l.n]?.status === "done" ? " ✓" : ""}</option>)}
+          </select>
+          {one && <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={busy(one.n)} data-testid="script-picked"
+            onClick={() => act({ action: "one", lecture: one.n, model })}>
+            {busy(one.n) ? `Scripting lecture ${one.n}…` : `${st?.lectures[one.n]?.status === "done" ? "Rescript" : "Script"} lecture ${one.n}`}</button>}
+          <button className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} disabled={!next} data-testid="script-next"
+            onClick={() => next && (setPicked(picked === null ? null : next.n), act({ action: "next", model }))}>
+            {next ? `Script the next: lecture ${next.n}` : "No lecture left to script"}</button>
         </div>
       </section>
       <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="script-summary">
@@ -64,7 +87,7 @@ export function ScriptPanel({ run, defaultModel, select, onCall, act }: {
       </div>
       {st?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{st.error}</p>}
 
-      {written.map((lecture) => {
+      {shown.map((lecture) => {
         const ls = st?.lectures[lecture.n];
         const lines = linesOf(lecture.text ?? "");
         // What a beat teaches, in the book: its figure, else the blocks of the goals its sentences teach.

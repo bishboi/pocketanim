@@ -10,7 +10,8 @@
  *     chapter a map chapter; a lecture figure not shown is noted.
  *
  * When the sentences still do not run 1 to the last once each, the lecture is asked again with what broke. Lectures
- * are scripted in parallel (each on its own, as figures are generated), and everything is saved in the run.
+ * are scripted in parallel (each on its own, as figures are generated), or one at a time: one lecture picked, the next
+ * one not scripted yet, or a whole build in turn. Everything is saved in the run.
  */
 
 import { linesOf } from "./source/book";
@@ -25,7 +26,10 @@ import type { Beat, Chapter, Check, LectureScript, Run, ScriptState } from "./ty
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCRIPT_PARALLEL) || 3);
 
-export type ScriptAction = { action: "run" | "reset"; model?: string } | { action: "one"; lecture: number; model?: string } | { action: "stop" };
+/** run/reset: every lecture (not scripted yet / all again), in parallel or, with oneAtATime, in turn. one: that lecture.
+ * next: the first lecture not scripted yet. */
+export type ScriptAction = { action: "run" | "reset"; model?: string; oneAtATime?: boolean } | { action: "one"; lecture: number; model?: string }
+  | { action: "next"; model?: string } | { action: "stop" };
 
 const shared = globalThis as unknown as { __v2scriptBusy?: Set<string>; __v2scriptActive?: Map<string, number> };
 const busy = (shared.__v2scriptBusy ??= new Set<string>());
@@ -69,6 +73,10 @@ export async function scriptAction(id: string, a: ScriptAction): Promise<Run> {
     if (!written.some((l) => l.n === a.lecture)) throw new Error(`lecture ${a.lecture} is not written`);
     if (!free(a.lecture)) throw new Error(`lecture ${a.lecture} is being scripted already`);
     todo = [a.lecture];
+  } else if (a.action === "next") {
+    const next = written.find((l) => free(l.n) && st.lectures[l.n]?.status !== "done");
+    if (!next) throw new Error("every written lecture is scripted or being scripted: rescript one, or rebuild all");
+    todo = [next.n];
   } else if (a.action === "reset") {
     todo = written.map((l) => l.n).filter(free);
     log(run, `Scripts reset: ${todo.length} lecture(s) scripted again.`);
@@ -82,11 +90,11 @@ export async function scriptAction(id: string, a: ScriptAction): Promise<Run> {
     st.lectures[n] = { lecture: n, status: "waiting", chapters: st.lectures[n]?.chapters ?? [], calls: st.lectures[n]?.calls ?? [] };
   }
   st.rounds += 1;
-  launch(run, todo);
+  launch(run, todo, (a.action === "run" || a.action === "reset") && a.oneAtATime ? 1 : AT_ONCE);
   return run;
 }
 
-function launch(run: Run, todo: number[]) {
+function launch(run: Run, todo: number[], atOnce: number) {
   const key = `${run.id}:script`;
   const st = run.script!;
   const first = !active.get(run.id);
@@ -112,7 +120,7 @@ function launch(run: Run, todo: number[]) {
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(AT_ONCE, queue.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(atOnce, queue.length) }, worker));
     const left = (active.get(run.id) ?? 1) - 1;
     if (left > 0) active.set(run.id, left);
     else {

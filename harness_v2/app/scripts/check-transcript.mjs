@@ -18,7 +18,7 @@ const pdf = readFileSync(path.join(here, "fixtures", "chapter.pdf"));
 process.chdir(mkdtempSync(path.join(tmpdir(), "v2-check-")));
 const { addDocument } = await import(path.resolve(here, "../lib/docs.ts"));
 const { startRun } = await import(path.resolve(here, "../lib/run.ts"));
-const { loadRun } = await import(path.resolve(here, "../lib/store.ts"));
+const { loadRun, saveRun } = await import(path.resolve(here, "../lib/store.ts"));
 const { render } = await import(path.resolve(here, "../lib/prompts/parts.ts"));
 
 const doc = await addDocument("chapter.pdf", new Uint8Array(pdf));
@@ -319,6 +319,20 @@ assert.ok(scriptCall.prompt.user.some((p) => p.key === "transcript" && p.text.st
 const withFigure = run.lectures.find((l) => lectureFigures(run, l.n).length);
 if (withFigure) assert.ok(run.script.lectures[withFigure.n].chapters.some((c) => c.beats.some((b) => b.figure)), "the lecture's figure placed on a beat");
 await assert.rejects(scriptAction(run.id, { action: "run" }), /every written lecture is scripted/);
+await assert.rejects(scriptAction(run.id, { action: "next" }), /every written lecture is scripted/);
+// One at a time: a whole build in turn, and the next lecture not scripted yet.
+await scriptAction(run.id, { action: "reset", oneAtATime: true });
+run = await wait(run.id, (r) => r.script.status === "running");
+assert.equal(run.script.status, "done", run.script.error);
+assert.ok(run.lectures.every((l) => run.script.lectures[l.n].status === "done"), "a build in turn scripts every lecture");
+{
+  const r = await loadRun(run.id);
+  r.script.lectures[2].status = "failed";
+  await saveRun(r, true);
+  await scriptAction(run.id, { action: "next" });
+  run = await wait(run.id, (x) => x.script.status === "running");
+  assert.equal(run.script.lectures[2].status, "done", "next scripts the first lecture not scripted");
+}
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);

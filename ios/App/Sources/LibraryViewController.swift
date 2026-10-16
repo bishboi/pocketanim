@@ -588,7 +588,7 @@ final class GradientView: UIView {
 }
 
 /** A lecture's card: tap to play, hold for its menu. */
-final class CardView: UIControl, UIContextMenuInteractionDelegate {
+final class CardView: UIControl {
     var onTap: (() -> Void)?
     var menu: (() -> [UIAction])?
     var menuTitle = ""
@@ -598,7 +598,8 @@ final class CardView: UIControl, UIContextMenuInteractionDelegate {
         isAccessibilityElement = true
         accessibilityTraits = .button
         addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
-        addInteraction(UIContextMenuInteraction(delegate: self))
+        // UIControl brings its own context-menu interaction; it only needs switching on.
+        isContextMenuInteractionEnabled = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -607,8 +608,8 @@ final class CardView: UIControl, UIContextMenuInteractionDelegate {
         didSet { alpha = isHighlighted ? 0.7 : 1 }
     }
 
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let actions = menu?(), !actions.isEmpty else { return nil }
         let title = menuTitle
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in

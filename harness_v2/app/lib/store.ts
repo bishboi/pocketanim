@@ -119,6 +119,21 @@ export async function loadRun(id: string): Promise<Run | null> {
     run.script.status = "interrupted";
     for (const l of Object.values(run.script.lectures)) if (l.status === "running" || l.status === "waiting") l.status = l.chapters.length ? "done" : "waiting";
   }
+  if (run.scenes && (run.scenes.status === "running" || run.scenes.renders)) {
+    cut = true;
+    if (run.scenes.status === "running") run.scenes.status = "interrupted";
+    run.scenes.renders = 0;
+    for (const l of Object.values(run.scenes.lectures)) {
+      if (l.status === "running" || l.status === "waiting") l.status = Object.keys(l.beats).length ? "done" : "waiting";
+      l.doing = undefined;
+      if (l.compile?.status === "running") l.compile.status = "failed";
+      for (const b of Object.values(l.beats)) {
+        if (b.status === "running") b.status = b.ops.length ? "done" : "waiting";
+        if (b.render?.status === "running") Object.assign(b.render, { status: "failed", error: "the server stopped while it rendered" });
+      }
+      for (const c of Object.values(l.chapters ?? {})) if (c.status === "running") Object.assign(c, { status: "failed", error: "the server stopped while it rendered" });
+    }
+  }
   if (run.generation?.status === "running") {
     cut = true;
     run.generation.status = "interrupted";

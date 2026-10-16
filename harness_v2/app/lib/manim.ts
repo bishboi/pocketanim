@@ -93,7 +93,7 @@ export function runPython(args: string[], cwd: string, env: Record<string, strin
   });
 }
 
-async function find(dir: string, ext: string): Promise<string | undefined> {
+export async function find(dir: string, ext: string): Promise<string | undefined> {
   if (!existsSync(dir)) return undefined;
   for (const e of await readdir(dir, { withFileTypes: true, recursive: true })) {
     if (e.isFile() && e.name.endsWith(ext) && !e.name.includes("partial")) return path.join(e.parentPath ?? (e as unknown as { path: string }).path, e.name);
@@ -102,7 +102,7 @@ async function find(dir: string, ext: string): Promise<string | undefined> {
 }
 
 /** The last error lines of a failed render: what goes back to the model. */
-function errorOf(out: string): string {
+export function errorOf(out: string): string {
   const lines = out.split("\n").map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).filter(Boolean);
   const at = lines.findIndex((l) => /Traceback|Error/.test(l));
   return (at >= 0 ? lines.slice(at) : lines.slice(-12)).slice(-14).join("\n").slice(0, 1500);

@@ -11,8 +11,9 @@
  * When a model's moderation still blocks it, it is asked again in gentler words (`gentle`: no book text, a simple
  * school illustration), then with no reference image at all (`blind`: drawn from what the figure shows, in words).
  *
- * Styled redraws use the same prompt for now: the styled form needs a lecture's template look (its art style, ink
- * and palette), and v2 has no templates yet.
+ * Styled redraws keep the sketch's layout and parts but are drawn in the run's look (lib/styles.ts: its style and
+ * art style, palette and board), chosen in the Scenes tab; Exact redraws keep the sketch's own drawing style. Both
+ * stand on the look's board colour.
  */
 
 import { part, type Part } from "./parts";
@@ -31,6 +32,8 @@ export type RedrawInput = {
   how?: string;
   /** The colour it stands on when it has no background of its own (v1: the template's board, #0D1117 by default). */
   background?: string;
+  /** A Styled redraw: the look it is drawn in, in words (styles.ts lookWords). */
+  look?: string;
   level?: RedrawLevel;
 };
 
@@ -66,9 +69,14 @@ export function redrawParts(x: RedrawInput): Part[] {
     part("what", "What it shows (caption)", "book", `It shows: ${what}.`),
     ...(x.context?.trim() ? [part("context", "What it is for (lecture, goals, book text)", "context", `It is used to teach: ${x.context.trim().slice(0, 500)}`)] : []),
     ...(x.how?.trim() ? [part("how", "Note on this figure (triage)", "items", `Note on this figure: ${x.how.trim().slice(0, 300)}`)] : []),
-    part("keep", "Keep its layout and look", "rules", "Follow the sketch closely: the same layout, the same parts in the same places and " +
+    ...(x.look ? [
+      part("keep", "Keep its layout", "rules", "Follow the sketch closely: the same layout, the same parts in the same places and " +
+        "proportions, every arrow, line and connection, and its level of detail. Nothing added, nothing left out, nothing rearranged."),
+      part("style", "Drawn in the lecture's look (Styled)", "rules", `Draw it in the lecture's look: ${x.look}. Use that look's colours and ` +
+        "way of drawing instead of the sketch's."),
+    ] : [part("keep", "Keep its layout and look", "rules", "Follow the sketch closely: the same layout, the same parts in the same places and " +
       "proportions, every arrow, line and connection, and its drawing style, colours and level of detail. Nothing added, " +
-      "nothing left out, nothing rearranged."),
+      "nothing left out, nothing rearranged.")]),
     part("notext", "No text", "rules", NO_TEXT),
     part("clean", "Clean and clear", "rules", "Make it sharp and clear, readable on a phone, without blur, grain, stains or uneven light. " +
       "Show only the illustration itself: no page, border, frame or anything around it."),

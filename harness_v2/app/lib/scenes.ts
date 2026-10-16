@@ -1,0 +1,635 @@
+/**
+ * The scenes step: each beat of a lecture's script given its visuals, as the engine's operations
+ * (harness_v2/engine/compile_lecture.py), then compiled by the engine, mended, and rendered a beat or a chapter at a
+ * time to be looked at.
+ *
+ *   - BUILD: one call per chapter (prompts/scenes.ts), in order, so a lecture's region and diagrams carry on; a whole
+ *     lecture, one chapter, or one beat (the beats around it given as they are). The narration is the script's: the
+ *     model writes only each beat's "do". Code takes out what is switched off (visual-kinds.ts) and says so.
+ *   - COMPILE: the lecture as the engine's beat script (the run's look, its figures as files), checked and compiled
+ *     by the engine; its errors and notes are put on the beats they name. The image model makes the pictures asked
+ *     for while it compiles (the engine's genimage.py; a stand-in picture when there is no key).
+ *   - FIX: the beats the compiler refused are asked again with what it said, once by itself after a build, and
+ *     whenever the page asks.
+ *   - RENDER: one beat in its chapter (the chapter rendered up to it, silent, and the beat cut out: its clip and its
+ *     last frame), or a chapter (its video, and each beat's frame and clip), in the run's look or another.
+ *
+ * Everything is saved in the run; renders under .data/runs/<run>/scenes/.
+ */
+
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import sharp from "sharp";
+import { bookOf } from "./docs";
+import { callTool, usingFixture } from "./llm";
+import { engineDir } from "./maps";
+import { errorOf, runPython } from "./manim";
+import { modelFor } from "./models";
+import { part } from "./prompts/parts";
+import { SCENES_TOOL, scenesPrompt, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
+import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
+import { lectureFigures } from "./script-figures";
+import { captionOf, figureFile } from "./source/blocks";
+import { linesOf } from "./source/book";
+import { DATA, loadRun, saveRun } from "./store";
+import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
+import type { Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
+import { ALL_KINDS, VISUAL_KINDS, filterOps } from "./visual-kinds";
+
+const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
+const RENDERS_AT_ONCE = Math.max(1, Number(process.env.V2_RENDER_PARALLEL) || 2);
+const COMPILE_TIMEOUT = Math.max(60, Number(process.env.V2_COMPILE_TIMEOUT_SECONDS) || 900) * 1000;
+const RENDER_TIMEOUT = Math.max(60, Number(process.env.V2_RENDER_TIMEOUT_SECONDS) || 900) * 1000;
+
+type Scope = "rest" | "all" | "next" | "lecture" | "chapter" | "beat";
+export type ScenesAction =
+  | { action: "look"; style?: string; art?: string }
+  | { action: "kinds"; kinds: string[] }
+  | { action: "beatKinds"; lecture: number; beat: number; kinds: string[] | null }
+  | { action: "edit"; lecture: number; beat: number; ops: unknown }
+  | { action: "build"; scope: Scope; lecture?: number; chapter?: number; beat?: number; model?: string; oneAtATime?: boolean; note?: string }
+  | { action: "fix"; lecture: number; model?: string }
+  | { action: "compile"; lecture: number }
+  | { action: "render"; lecture: number; chapter: number; beat?: number; style?: string; art?: string }
+  | { action: "stop" };
+
+const shared = globalThis as unknown as { __v2scenesBusy?: Set<string>; __v2scenesActive?: Map<string, number>; __v2renderBusy?: Set<string>;
+  __v2renderQueue?: (() => void)[]; __v2renderOn?: { n: number } };
+const busy = (shared.__v2scenesBusy ??= new Set<string>());
+const active = (shared.__v2scenesActive ??= new Map<string, number>());
+const renderBusy = (shared.__v2renderBusy ??= new Set<string>());
+const renderQueue = (shared.__v2renderQueue ??= []);
+const renderOn = (shared.__v2renderOn ??= { n: 0 });
+const busyKey = (run: string, n: number) => `${run}|${n}`;
+
+export function scenesDir(runId: string): string {
+  return path.join(DATA, "runs", runId, "scenes");
+}
+
+/** A file under the run's scenes folder as a URL the page can load. */
+function fileUrl(runId: string, file: string): string {
+  return `/api/runs/${runId}/scenes/file?p=${encodeURIComponent(path.relative(scenesDir(runId), file))}&v=${Date.now()}`;
+}
+
+function stateOf(run: Run): ScenesState {
+  run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {} };
+  return run.scenes;
+}
+
+function lectureState(run: Run, n: number): SceneLecture {
+  const st = stateOf(run);
+  st.lectures[n] ??= { lecture: n, status: "waiting", beats: {}, calls: [] };
+  return st.lectures[n];
+}
+
+/** The lecture's script, when it is scripted. */
+function scriptOf(run: Run, n: number) {
+  const ls = run.script?.lectures[n];
+  return ls?.status === "done" && ls.chapters.length ? ls : undefined;
+}
+
+function beatState(sl: SceneLecture, n: number): SceneBeat {
+  sl.beats[n] ??= { n, status: "waiting", ops: [], calls: [] };
+  return sl.beats[n];
+}
+
+const kindsFor = (run: Run, sl: SceneLecture, beat: number) => sl.beats[beat]?.kinds ?? stateOf(run).kinds;
+
+export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
+  const run = await loadRun(id);
+  if (!run) throw new Error("no such run");
+  if (a.action === "stop") {
+    stopJob(id, "scenes");
+    return run;
+  }
+  if (run.legacy) throw new Error(run.legacy);
+  const st = stateOf(run);
+  if (a.action === "look") {
+    st.look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "kinds") {
+    st.kinds = ALL_KINDS.filter((k) => a.kinds.includes(k));
+    saveRun(run, true);
+    return run;
+  }
+  const lectureOf = (n?: number) => {
+    if (!n || !scriptOf(run, n)) throw new Error(`lecture ${n ?? "?"} is not scripted yet: script it first`);
+    return lectureState(run, n);
+  };
+  if (a.action === "beatKinds") {
+    const sl = lectureOf(a.lecture);
+    const b = beatState(sl, a.beat);
+    if (a.kinds === null) delete b.kinds;
+    else b.kinds = ALL_KINDS.filter((k) => a.kinds!.includes(k));
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "edit") {
+    const sl = lectureOf(a.lecture);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
+    if (!Array.isArray(a.ops)) throw new Error("the operations must be a JSON list of objects");
+    const b = beatState(sl, a.beat);
+    const kept = filterOps(a.ops as Record<string, unknown>[], kindsFor(run, sl, a.beat));
+    Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
+    lock(run, [a.lecture], async () => {
+      await compileLecture(run, a.lecture);
+    });
+    return run;
+  }
+  if (a.action === "compile") {
+    lectureOf(a.lecture);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built already`);
+    lock(run, [a.lecture], async () => {
+      await compileLecture(run, a.lecture);
+    });
+    return run;
+  }
+  if (a.action === "render") {
+    const sl = lectureOf(a.lecture);
+    const script = scriptOf(run, a.lecture)!;
+    const chapter = script.chapters.find((c) => c.n === a.chapter);
+    if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    if (a.beat !== undefined && !chapter.beats.some((b) => b.n === a.beat)) throw new Error(`beat ${a.beat} is not in chapter ${a.chapter}`);
+    if (!chapter.beats.some((b) => sl.beats[b.n]?.ops.length)) throw new Error(`chapter ${a.chapter} has no visuals yet: build its scenes first`);
+    const key = `${id}|${a.lecture}|${a.chapter}|${a.beat ?? "all"}`;
+    if (renderBusy.has(key)) throw new Error("that is being rendered already");
+    const look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
+    const target: SceneRender = { status: "running", style: look.style, art: look.art, started: Date.now() };
+    if (a.beat !== undefined) beatState(sl, a.beat).render = target;
+    else (sl.chapters ??= {})[a.chapter] = target as SceneChapterRender;
+    renderBusy.add(key);
+    st.renders = (st.renders ?? 0) + 1;
+    saveRun(run, true);
+    void (async () => {
+      try {
+        await renderPart(run, a.lecture, a.chapter, a.beat, look, target);
+      } catch (error) {
+        Object.assign(target, { status: "failed", error: (error as Error).message, at: Date.now() });
+      } finally {
+        renderBusy.delete(key);
+        st.renders = Math.max(0, (st.renders ?? 1) - 1);
+        saveRun(run, true);
+      }
+    })();
+    return run;
+  }
+
+  // Builds and fixes.
+  const scripted = run.lectures.filter((l) => scriptOf(run, l.n)).map((l) => l.n);
+  if (!scripted.length) throw new Error("no lecture is scripted yet: build the scripts first (Script tab)");
+  st.model = a.model || st.model || run.options.scenesModel || modelFor("scenes");
+  const free = (n: number) => !busy.has(busyKey(id, n));
+  if (a.action === "fix") {
+    const sl = lectureOf(a.lecture);
+    const broken = Object.values(sl.beats).filter((b) => b.errors?.length).map((b) => b.n);
+    if (!broken.length) throw new Error(`lecture ${a.lecture} has no beat the compiler refused`);
+    if (!free(a.lecture)) throw new Error(`lecture ${a.lecture} is being built already`);
+    st.rounds += 1;
+    lock(run, [a.lecture], async () => {
+      await fixLecture(run, a.lecture);
+    });
+    return run;
+  }
+  let todo: number[];
+  if (a.scope === "lecture" || a.scope === "chapter" || a.scope === "beat") {
+    const sl = lectureOf(a.lecture);
+    if (!free(a.lecture!)) throw new Error(`lecture ${a.lecture} is being built already`);
+    const script = scriptOf(run, a.lecture!)!;
+    if (a.scope === "chapter" && !script.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    if (a.scope === "beat" && !script.chapters.some((c) => c.beats.some((b) => b.n === a.beat))) throw new Error(`lecture ${a.lecture} has no beat ${a.beat}`);
+    void sl;
+    todo = [a.lecture!];
+  } else if (a.scope === "next") {
+    const next = scripted.find((n) => free(n) && st.lectures[n]?.status !== "done");
+    if (next === undefined) throw new Error("every scripted lecture has its scenes, or is being built: rebuild one, or all");
+    todo = [next];
+  } else if (a.scope === "all") {
+    todo = scripted.filter(free);
+  } else {
+    todo = scripted.filter((n) => free(n) && st.lectures[n]?.status !== "done");
+    if (!todo.length) throw new Error("every scripted lecture has its scenes, or is being built: rebuild one, or all");
+  }
+  if (!todo.length) throw new Error("every lecture is being built already");
+  st.rounds += 1;
+  for (const n of todo) {
+    const sl = lectureState(run, n);
+    Object.assign(sl, { status: "waiting", error: undefined, doing: "queued" });
+  }
+  if (a.scope === "all") log(run, `Scenes rebuilt: ${todo.length} lecture(s).`);
+  const what = a.scope === "chapter" ? { chapter: a.chapter! } : a.scope === "beat" ? { beat: a.beat! } : {};
+  lock(run, todo, (n) => buildLecture(run, n, what, a.note), (a.scope === "all" || a.scope === "rest") && a.oneAtATime ? 1 : AT_ONCE);
+  return run;
+}
+
+/** Run `work` for each lecture, `atOnce` at a time, each lecture locked while it runs; the step's status kept. */
+function lock(run: Run, lectures: number[], work: (n: number) => Promise<void>, atOnce = AT_ONCE) {
+  const st = stateOf(run);
+  const key = `${run.id}:scenes`;
+  for (const n of lectures) busy.add(busyKey(run.id, n));
+  const first = !active.get(run.id);
+  active.set(run.id, (active.get(run.id) ?? 0) + 1);
+  jobs.add(key);
+  if (first) {
+    clearStop(key);
+    Object.assign(st, { status: "running", error: undefined, started: Date.now(), ended: undefined });
+  }
+  saveRun(run, true);
+  void (async () => {
+    const queue = [...lectures];
+    const worker = async () => {
+      for (let n = queue.shift(); n !== undefined; n = queue.shift()) {
+        const sl = lectureState(run, n);
+        try {
+          if (!stopRequested(key)) await work(n);
+        } catch (error) {
+          Object.assign(sl, { status: "failed", error: (error as Error).message });
+        } finally {
+          busy.delete(busyKey(run.id, n));
+          if (sl.status === "running" || sl.status === "waiting") sl.status = Object.keys(sl.beats).length ? "done" : "waiting";
+          for (const b of Object.values(sl.beats)) if (b.status === "running") b.status = b.ops.length ? "done" : "waiting";
+          sl.doing = undefined;
+          saveRun(run);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(atOnce, queue.length) }, worker));
+    const left = (active.get(run.id) ?? 1) - 1;
+    if (left > 0) active.set(run.id, left);
+    else {
+      active.delete(run.id);
+      const all = Object.values(st.lectures);
+      const failed = all.filter((l) => l.status === "failed").length;
+      if (stopRequested(key)) {
+        st.status = "stopped";
+        log(run, "Scenes stopped: what was built is kept.");
+      } else {
+        st.status = failed && failed === all.length ? "failed" : "done";
+        st.error = failed ? `${failed} lecture(s) failed: see each one's error.` : undefined;
+      }
+      jobs.delete(key);
+      clearStop(key);
+      st.ended = Date.now();
+    }
+    saveRun(run, true);
+  })();
+}
+
+/** Lectures being built now, by number. */
+export function buildingScenes(runId: string): number[] {
+  return [...busy].filter((k) => k.startsWith(`${runId}|`)).map((k) => Number(k.slice(runId.length + 1)));
+}
+
+/** The lecture's beats as the prompt gives them. */
+function beatInputs(run: Run, n: number): SceneBeatInput[] {
+  const script = scriptOf(run, n)!;
+  const lecture = run.lectures.find((l) => l.n === n)!;
+  const lines = linesOf(lecture.text ?? "");
+  const figures = new Map(lectureFigures(run, n).map((f) => [f.id, f]));
+  const sl = lectureState(run, n);
+  return script.chapters.flatMap((c) => c.beats.map((b) => {
+    const f = b.figure ? figures.get(b.figure) : undefined;
+    return { n: b.n, chapter: c.n, text: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim(), show: b.show,
+      ...(f ? { figure: { id: f.id, way: f.way, caption: f.caption, ready: f.ready } } : {}),
+      ...(sl.beats[b.n]?.kinds ? { kinds: sl.beats[b.n].kinds } : {}),
+      ...(sl.beats[b.n]?.ops.length ? { ops: sl.beats[b.n].ops } : {}) };
+  }));
+}
+
+/** One call: the visuals of the beats `ask` names, written into the lecture's state. */
+async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record<number, string[]>, note?: string): Promise<void> {
+  const st = stateOf(run);
+  const sl = lectureState(run, n);
+  const script = scriptOf(run, n)!;
+  const lecture = run.lectures.find((l) => l.n === n)!;
+  const beats = beatInputs(run, n);
+  const targets = beats.filter((b) => ask.what === "lecture" || (ask.what === "chapter" && b.chapter === ask.chapter)
+    || (ask.what === "beat" && b.n === ask.beat) || (ask.what === "fix" && ask.beats.includes(b.n))).map((b) => b.n);
+  const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
+  // The kinds told: the run's, and any a target beat has of its own (its line says which it may use).
+  const kinds = [...new Set([...st.kinds, ...targets.flatMap((t) => sl.beats[t]?.kinds ?? [])])];
+  const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
+  const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
+    : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;
+  const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
+    prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
+      chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
+      beats, figures, region: sl.region, ask, problems, note }) });
+  sl.calls.push(call.id);
+  for (const t of targets) {
+    const b = beatState(sl, t);
+    b.status = "running";
+    b.calls.push(call.id);
+  }
+  saveRun(run);
+  const reply = await callTool({ call, tool: SCENES_TOOL, onChange: () => saveRun(run), fake: () => fakeScenes(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
+  if (!reply) {
+    for (const t of targets) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
+    throw new Error(`the call failed: ${call.error ?? "no reply"}`);
+  }
+  const answered = new Map<number, unknown[]>();
+  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; do?: unknown }[] : []) {
+    const k = Math.round(Number(b?.beat));
+    if (targets.includes(k) && !answered.has(k)) answered.set(k, Array.isArray(b.do) ? b.do : []);
+  }
+  let droppedAll = 0;
+  for (const t of targets) {
+    const b = beatState(sl, t);
+    const ops = answered.get(t);
+    if (!ops) {
+      b.status = b.ops.length ? "done" : "failed";
+      continue;
+    }
+    const kept = filterOps(ops as Record<string, unknown>[], kindsFor(run, sl, t));
+    droppedAll += kept.dropped.length;
+    Object.assign(b, { ops: kept.ops, dropped: kept.dropped, status: "done", edited: false, errors: undefined, notes: undefined });
+  }
+  const missing = targets.filter((t) => !answered.has(t));
+  check(call, "Beats", missing.length ? "fail" : "pass", missing.length ? `${missing.length} of ${targets.length} beat(s) not answered: ${missing.slice(0, 12).map((t) => `#${t}`).join(", ")}`
+    : `all ${targets.length} beat(s) answered`);
+  if (droppedAll) check(call, "Switched off", "fixed", `${droppedAll} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
+  const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
+  const needsMap = script.chapters.some((c) => c.map);
+  if (region && needsMap && (!sl.region || ask.what === "lecture")) {
+    sl.region = region;
+    check(call, "Region", "pass", JSON.stringify(region));
+  } else if (needsMap && !sl.region && st.kinds.includes("map")) {
+    check(call, "Region", "info", "a chapter is on a map but no region was given: its map operations are left out by the compiler");
+  }
+  sl.scriptAt = run.script?.lectures[n]?.at;
+  saveRun(run);
+}
+
+/** A whole lecture (chapter by chapter), one chapter, or one beat; compiled; the refused beats mended once. */
+async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?: number }, note?: string) {
+  const sl = lectureState(run, n);
+  const script = scriptOf(run, n)!;
+  const key = `${run.id}:scenes`;
+  Object.assign(sl, { status: "running", error: undefined });
+  const chapters = what.chapter ? [what.chapter] : what.beat ? [] : script.chapters.map((c) => c.n);
+  if (what.beat) {
+    sl.doing = `beat ${what.beat}`;
+    saveRun(run);
+    await writeBeats(run, n, { what: "beat", beat: what.beat }, undefined, note);
+  }
+  for (const [i, c] of chapters.entries()) {
+    if (stopRequested(key)) return;
+    sl.doing = chapters.length > 1 ? `chapter ${c} (${i + 1} of ${chapters.length})` : `chapter ${c}`;
+    saveRun(run);
+    await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
+  }
+  if (stopRequested(key)) return;
+  await compileLecture(run, n);
+  if (Object.values(sl.beats).some((b) => b.errors?.length) && !stopRequested(key)) await fixLecture(run, n);
+  Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
+  saveRun(run);
+}
+
+/** The refused beats asked again with what the compiler said, then the lecture compiled again. */
+async function fixLecture(run: Run, n: number) {
+  const sl = lectureState(run, n);
+  const broken = Object.values(sl.beats).filter((b) => b.errors?.length);
+  if (!broken.length) return;
+  sl.doing = `mending ${broken.length} beat(s)`;
+  saveRun(run);
+  await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
+  await compileLecture(run, n);
+  Object.assign(sl, { status: "done", at: Date.now() });
+}
+
+// ---------------- the engine's script ----------------
+
+/** The lecture's figures as files the engine shows (a generated one when it is made, else the book's), by id. */
+async function figureFiles(run: Run, n: number): Promise<Record<string, { file: string; caption: string }>> {
+  const out: Record<string, { file: string; caption: string }> = {};
+  const figures = lectureFigures(run, n);
+  if (!figures.length) return out;
+  const book = await bookOf(run.documentId).catch(() => null);
+  for (const f of figures) {
+    const block = run.blocks.find((b) => b.id === f.id);
+    if (!block) continue;
+    const made = run.generation?.figures[f.id];
+    let file = made?.status === "done" && made.file && existsSync(made.file) ? made.file : undefined;
+    if (file?.endsWith(".svg")) {
+      // The engine shows pictures: the SVG drawn as a PNG.
+      const png = path.join(scenesDir(run.id), "figures", `${f.id.replace(/[^\w]+/g, "_")}.png`);
+      try {
+        await mkdir(path.dirname(png), { recursive: true });
+        await sharp(await readFile(file), { density: 200 }).png().toFile(png);
+        file = png;
+      } catch {
+        file = undefined;
+      }
+    }
+    file ??= book ? figureFile(block, book.json, book.figures) : undefined;
+    if (file) out[f.id] = { file, caption: captionOf(run.blocks, block) ?? f.caption ?? "" };
+  }
+  return out;
+}
+
+/** The lecture as the engine's beat script, in `look`; `only` keeps one chapter, up to one beat. */
+async function engineScript(run: Run, n: number, look: Look, only?: { chapter: number; upTo?: number }): Promise<Record<string, unknown>> {
+  const script = scriptOf(run, n)!;
+  const lecture = run.lectures.find((l) => l.n === n)!;
+  const lines = linesOf(lecture.text ?? "");
+  const sl = lectureState(run, n);
+  const region = script.chapters.some((c) => c.map) && sl.region ? sl.region : null;
+  let chapters = script.chapters.map((c) => ({
+    n: c.n, title: c.title, narration: c.narration, map: c.map && !!region,
+    beats: c.beats.map((b) => ({ n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sl.beats[b.n]?.ops ?? [] })),
+  }));
+  if (only) {
+    chapters = chapters.filter((c) => c.n === only.chapter).map((c) => ({ ...c, beats: only.upTo === undefined ? c.beats
+      : c.beats.slice(0, c.beats.findIndex((b) => b.n === only.upTo) + 1) }));
+  }
+  return {
+    title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
+    figures: await figureFiles(run, n),
+    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration, map: c.map, beats: c.beats.map((b) => ({ say: b.say, do: b.do })) })),
+  };
+}
+
+function engineEnv(run: Run): Record<string, string> {
+  const image = run.options.imageModel || modelFor("image");
+  return { PYTHONPATH: engineDir(), PANIM_VOICE: "silent", PANIM_IMAGE_MODEL: image, PANIM_DIAGRAM_MODEL: image,
+    ...(usingFixture(image) ? { PANIM_IMAGE_FAKE: "1" } : {}) };
+}
+
+type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[] };
+
+async function compile(run: Run, script: Record<string, unknown>, dir: string): Promise<Compiled> {
+  await mkdir(dir, { recursive: true });
+  const out = await runPython([path.join(engineDir(), "compile_lecture.py"), "-", "--json"], dir, engineEnv(run), JSON.stringify(script), COMPILE_TIMEOUT);
+  try {
+    const json = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as Compiled & { source?: string | null };
+    return { ...json, source: json.source ?? undefined, errors: json.errors ?? [], warnings: json.warnings ?? [] };
+  } catch {
+    return { errors: [`the engine's compile failed: ${errorOf(out.out).slice(-800)}`], warnings: [] };
+  }
+}
+
+/** Which beat (the script's number) a compiler message names ("chapter 2 beat 3: ..."), within `only`'s chapters. */
+function beatNamed(run: Run, n: number, text: string, chapters?: number[]): number | undefined {
+  const m = /chapter (\d+) beat (\d+)/i.exec(text);
+  if (!m) return undefined;
+  const script = scriptOf(run, n)!;
+  const list = chapters ? script.chapters.filter((c) => chapters.includes(c.n)) : script.chapters;
+  return list[Number(m[1]) - 1]?.beats[Number(m[2]) - 1]?.n;
+}
+
+/** The whole lecture checked and compiled by the engine; its messages put on the beats they name. */
+async function compileLecture(run: Run, n: number) {
+  const st = stateOf(run);
+  const sl = lectureState(run, n);
+  sl.doing = "compiling (and making its pictures)";
+  const began = Date.now();
+  sl.compile = { status: "running", errors: [], warnings: [], at: began };
+  saveRun(run);
+  const c = await compile(run, await engineScript(run, n, st.look), path.join(scenesDir(run.id), `L${n}`, "compile"));
+  for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined });
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  for (const e of c.errors) {
+    const at = beatNamed(run, n, e);
+    if (at !== undefined) (beatState(sl, at).errors ??= []).push(e.replace(/^chapter \d+ beat \d+:\s*/i, ""));
+    else errors.push(e);
+  }
+  for (const w of c.warnings) {
+    const at = beatNamed(run, n, w);
+    if (at !== undefined) (beatState(sl, at).notes ??= []).push(w.replace(/chapter \d+ beat \d+:\s*/i, ""));
+    else warnings.push(w);
+  }
+  const pictures = (c.generated ?? []).map((g) => ({ prompt: String(g.prompt ?? ""), model: g.model, usd: Number(g.usd) || 0 }));
+  sl.compile = { status: c.errors.length ? "failed" : "done", errors, warnings, pictures, minutes: c.minutes, seconds: (Date.now() - began) / 1000, at: Date.now() };
+  const cost = pictures.reduce((k, p) => k + (p.usd ?? 0), 0);
+  if (pictures.length) {
+    // The pictures the image model made while compiling, as a call, so the Costs tab counts them.
+    const call = newCall(run, { step: "scenes", label: `Pictures for lecture ${n} (${pictures.length}, made while compiling)`, lecture: n,
+      model: pictures[0].model ?? "image model", effort: "off",
+      prompt: { system: [], user: pictures.map((p, i) => part(`p${i + 1}`, `Picture ${i + 1}`, "items", p.prompt)) } });
+    Object.assign(call, { api: "image", status: "done", ended: Date.now(), cost, provider: usingFixture(call.model) ? "fixture" : "openrouter",
+      attempts: [{ started: began, ended: Date.now() }], output: { pictures: pictures.length } });
+    sl.calls.push(call.id);
+  }
+  sl.doing = undefined;
+  saveRun(run);
+}
+
+// ---------------- renders ----------------
+
+async function renderSlot(): Promise<() => void> {
+  if (renderOn.n >= RENDERS_AT_ONCE) await new Promise<void>((resolve) => renderQueue.push(resolve));
+  renderOn.n += 1;
+  return () => {
+    renderOn.n -= 1;
+    renderQueue.shift()?.();
+  };
+}
+
+function ffmpeg(args: string[]): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.env.V2_FFMPEG || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
+    let out = "";
+    child.stderr.on("data", (d) => (out += d));
+    child.on("close", (code) => resolve({ code, out }));
+    child.on("error", (e) => resolve({ code: -1, out: String(e) }));
+  });
+}
+
+async function duration(file: string): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(process.env.V2_FFPROBE || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]);
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("close", () => resolve(Number(out.trim()) || 0));
+    child.on("error", () => resolve(0));
+  });
+}
+
+/**
+ * A chapter rendered silent (up to `beat`, when one is asked for), in `look`; each beat found in the engine's beat
+ * log, and cut out: its clip and its last frame. A beat's render keeps the beat; a chapter's keeps them all.
+ */
+async function renderPart(run: Run, n: number, chapter: number, beat: number | undefined, look: Look, target: SceneRender) {
+  const release = await renderSlot();
+  const began = Date.now();
+  try {
+    const dir = path.join(scenesDir(run.id), `L${n}`, beat !== undefined ? `beat-${beat}` : `chapter-${chapter}`);
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+    const script = await engineScript(run, n, look, { chapter, upTo: beat });
+    const compiled = await compile(run, script, dir);
+    if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
+    const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
+    await writeFile(path.join(dir, "scene.py"), source, "utf8");
+    const beatLog = path.join(dir, "beats.jsonl");
+    const checkLog = path.join(dir, "checks.jsonl");
+    const out = await runPython(["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "scene.py", "GeneratedScene"], dir,
+      { ...engineEnv(run), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
+    const video = path.join(dir, "media", "videos", "scene", "480p15", "GeneratedScene.mp4");
+    if (out.code !== 0 || !existsSync(video)) {
+      throw new Error(/No module named ['"]?manim/.test(out.out) ? "Manim is not installed for this Python: run harness/scripts/setup-python.sh"
+        : `the render failed: ${errorOf(out.out)}`);
+    }
+    const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;
+    const wanted = beat !== undefined ? sc.beats.slice(0, sc.beats.findIndex((b) => b.n === beat) + 1) : sc.beats;
+    // The beat log: a "beat" row as each line is said, the chapter's title card first.
+    const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number; text?: string }) : [];
+    const said = rows.filter((r) => r.kind === "beat");
+    const offset = said.length > wanted.length ? said.length - wanted.length : 0;
+    const total = await duration(video);
+    const checks = existsSync(checkLog) ? (await readFile(checkLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { say: string; issues: string[]; fixed: string[] }) : [];
+    const lines = linesOf(run.lectures.find((l) => l.n === n)!.text ?? "");
+    const cut = async (i: number) => {
+      const b = wanted[i];
+      const start = said[offset + i]?.start ?? 0;
+      const end = said[offset + i + 1]?.start ?? total;
+      const still = path.join(dir, `beat-${b.n}.png`);
+      const clip = path.join(dir, `beat-${b.n}.mp4`);
+      await ffmpeg(["-ss", String(Math.max(0, end - 0.12)), "-i", video, "-frames:v", "1", still]);
+      await ffmpeg(["-ss", String(start), "-to", String(end), "-i", video, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", clip]);
+      const text = b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim().slice(0, 200);
+      const found = checks.filter((c) => c.say && text.startsWith(c.say.slice(0, 60)));
+      return { n: b.n, start, end, still: existsSync(still) ? fileUrl(run.id, still) : undefined, clip: existsSync(clip) ? fileUrl(run.id, clip) : undefined,
+        issues: found.flatMap((c) => c.issues ?? []), fixed: found.flatMap((c) => c.fixed ?? []) };
+    };
+    if (beat !== undefined) {
+      const last = await cut(wanted.length - 1);
+      Object.assign(target, { status: "done", still: last.still, clip: last.clip, video: fileUrl(run.id, video), issues: last.issues, fixed: last.fixed,
+        seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined });
+    } else {
+      const beats = [];
+      for (let i = 0; i < wanted.length; i++) beats.push(await cut(i));
+      Object.assign(target, { status: "done", video: fileUrl(run.id, video), still: beats.at(-1)?.still, beats,
+        issues: beats.flatMap((b) => b.issues), fixed: beats.flatMap((b) => b.fixed), seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined });
+    }
+  } finally {
+    release();
+  }
+}
+
+// ---------------- offline stand-in ----------------
+
+/** The stand-in's visuals (no key): a heading on each chapter's first beat, the beat's figure, a diagram, a definition. */
+function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[]) {
+  const on = new Set(kinds);
+  const script = scriptOf(run, n)!;
+  const first = new Set(script.chapters.map((c) => c.beats[0]?.n));
+  const out = beats.map((b) => {
+    const ops: Record<string, unknown>[] = [];
+    const chapter = script.chapters.find((c) => c.n === b.chapter)!;
+    if (first.has(b.n)) ops.push({ op: "panel", title: chapter.title.slice(0, 40) });
+    const words = b.text.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter((w) => w.length > 3);
+    if (b.figure && on.has("figure")) ops.push({ op: "picture", figure: b.figure.id, caption: b.figure.caption.slice(0, 60) });
+    else if (first.has(b.n) && on.has("diagram") && words.length >= 3) {
+      const nodes = words.slice(0, 3).map((w, i) => ({ id: `n${i + 1}`, label: w }));
+      ops.push({ op: "diagram", id: `d${b.n}`, kind: "flow", nodes, edges: [["n1", "n2"], ["n2", "n3"]] });
+    } else if (on.has("define") && b.n % 3 === 0 && words[0]) ops.push({ op: "define", term: words[0], meaning: b.text.slice(0, 60) });
+    else ops.push({ op: "fact", text: (b.show || b.text).slice(0, 50) });
+    return { beat: b.n, do: ops };
+  });
+  return { region: null, beats: out };
+}

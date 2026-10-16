@@ -81,6 +81,7 @@ export type Options = {
   triageModel?: string;
   triageChatModel?: string;
   scriptModel?: string;
+  scenesModel?: string;
   imageModel?: string;
   svgModel?: string;
   manimModel?: string;
@@ -112,6 +113,8 @@ export type Run = {
   generation?: Generation;
   /** The script (script.ts): each lecture's chapters and beats, every transcript sentence in one beat. */
   script?: ScriptState;
+  /** The scenes (scenes.ts): each beat's visuals as the engine's operations, compiled, and rendered beat by beat. */
+  scenes?: ScenesState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -247,4 +250,86 @@ export type DocumentInfo = {
   words: number;
   source: string;
   created: number;
+};
+
+/** A render of part of a lecture's scenes (silent, low quality, for a look): one beat in context, or a chapter. */
+export type SceneRender = {
+  status: "running" | "done" | "failed";
+  /** The look it was rendered in. */
+  style: string;
+  art: string;
+  /** URLs: the last frame, the beat's own clip, the whole video rendered (the chapter, or the chapter so far). */
+  still?: string;
+  clip?: string;
+  video?: string;
+  /** What the engine's check found on screen, and mended by itself. */
+  issues?: string[];
+  fixed?: string[];
+  error?: string;
+  seconds?: number;
+  started?: number;
+  at?: number;
+};
+
+/** A chapter's render: the video, and each beat in it (its last frame, its clip, where it is in the video). */
+export type SceneChapterRender = SceneRender & { beats?: { n: number; still?: string; clip?: string; start: number; end: number; issues?: string[]; fixed?: string[] }[] };
+
+/** One beat's visuals: the engine's operations, and what was made of them. */
+export type SceneBeat = {
+  n: number;
+  status: "waiting" | "running" | "done" | "failed";
+  ops: Record<string, unknown>[];
+  /** What code took out of the model's answer (a kind switched off, an op the engine does not know). */
+  dropped?: string[];
+  /** The compiler's errors on this beat (it does not compile), and its notes (warnings, what it mended). */
+  errors?: string[];
+  notes?: string[];
+  /** Its own visual kinds, when they differ from the run's. */
+  kinds?: string[];
+  /** Written (or changed) by hand. */
+  edited?: boolean;
+  render?: SceneRender;
+  calls: string[];
+};
+
+export type SceneCompile = {
+  status: "running" | "done" | "failed";
+  errors: string[];
+  warnings: string[];
+  /** Pictures the image model made for it, and what each cost. */
+  pictures?: { prompt: string; model?: string; usd?: number }[];
+  minutes?: number;
+  seconds?: number;
+  at?: number;
+};
+
+export type SceneLecture = {
+  lecture: number;
+  status: "waiting" | "running" | "done" | "failed";
+  /** What it is doing now, in words ("chapter 2 of 4", "compiling", "mending 3 beats"). */
+  doing?: string;
+  region?: Record<string, unknown> | null;
+  beats: Record<string, SceneBeat>;
+  compile?: SceneCompile;
+  chapters?: Record<string, SceneChapterRender>;
+  /** When the script it was built from was made (a newer script: rebuild). */
+  scriptAt?: number;
+  error?: string;
+  calls: string[];
+  at?: number;
+};
+
+export type ScenesState = {
+  status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
+  model: string;
+  look: { style: string; art: string };
+  /** The visual kinds switched on (visual-kinds.ts). */
+  kinds: string[];
+  rounds: number;
+  lectures: Record<string, SceneLecture>;
+  /** Renders going now. */
+  renders?: number;
+  error?: string;
+  started?: number;
+  ended?: number;
 };

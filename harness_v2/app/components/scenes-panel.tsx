@@ -1,0 +1,629 @@
+"use client";
+
+/**
+ * The scenes: each beat's visuals as the lecture engine's operations, compiled, and rendered to be looked at.
+ *
+ *   - The look: the style (the film's frame) and the art style (how its pictures are drawn), each with a miniature;
+ *     what is rendered and the Styled redraws use it.
+ *   - The visuals switched on: every kind (map, book figures, AI illustrations, AI detailed diagrams, gallery,
+ *     diagrams, timeline, Manim...) on or off for the run; a beat can have its own.
+ *   - Build: the next lecture, one lecture, all (in parallel or one at a time); a chapter or a beat again.
+ *   - One lecture: its chapters and beats in an outline (what each beat uses, what the compiler refused, what is
+ *     rendered); a chapter shows its render (the video, a frame for each beat); a beat shows its sentences, its
+ *     operations (as cards, or as JSON to change by hand), the compiler's words on it, its kinds, and its render
+ *     (its clip and last frame), in the run's look or another.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import type { Call, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
+import { linesOf } from "@/lib/source/book";
+import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
+import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
+import { lectureFigures } from "@/lib/script-figures";
+import { money, seconds } from "./call-inspector";
+import { PromptView } from "./script-panel";
+import type { Selection } from "./panels";
+
+type Act = (body: Record<string, unknown>) => Promise<boolean>;
+type Lecture = Run["lectures"][number];
+type Pick = { kind: "chapter"; c: number } | { kind: "beat"; n: number };
+
+const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
+const DOT = { waiting: "bg-neutral-500", running: "bg-sky-400 animate-pulse", done: "bg-emerald-400", failed: "bg-red-400" } as const;
+/** A colour per visual kind, for its badges. */
+const KIND_COLOR: Record<string, string> = {
+  base: "#a3a3a3", map: "#34d399", figure: "#fbbf24", illustration: "#f472b6", drawing: "#fb7185", gallery: "#e879f9", diagram: "#38bdf8",
+  timeline: "#a78bfa", manim: "#22d3ee", equation: "#facc15", molecule: "#4ade80", define: "#93c5fd", compare: "#c4b5fd", question: "#fdba74",
+  numbers: "#fca5a5", work: "#5eead4", words: "#d6d3d1",
+};
+const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
+
+export function ScenesPanel({ run, defaultModel, select, onCall, act }: {
+  run: Run; defaultModel: string; select: (s: Selection) => void; onCall: (id: string) => void; act: Act;
+}) {
+  const st = run.scenes;
+  const [model, setModel] = useState(st?.model || defaultModel);
+  const [inTurn, setInTurn] = useState(false);
+  const [open, setOpen] = useState<number | "all">("all");
+  const [showLook, setShowLook] = useState(!Object.keys(run.scenes?.lectures ?? {}).length);
+  useEffect(() => { setModel(run.scenes?.model || defaultModel); setOpen("all"); }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scripted = run.lectures.filter((l) => run.script?.lectures[l.n]?.status === "done");
+  const running = st?.status === "running";
+  const busy = (n: number) => running && (st?.lectures[n]?.status === "running" || (st?.lectures[n]?.status === "waiting" && !!st?.lectures[n]?.doing));
+  const done = scripted.filter((l) => st?.lectures[l.n]?.status === "done").length;
+  const next = scripted.find((l) => !busy(l.n) && st?.lectures[l.n]?.status !== "done");
+  const look = st?.look ?? { style: "atlas", art: "auto" };
+  const kinds = st?.kinds ?? VISUAL_KINDS.map((k) => k.id);
+  const cost = run.calls.filter((c) => c.step === "scenes").reduce((k, c) => k + c.cost, 0);
+  const beatsBuilt = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.ops.length).length, 0);
+  const refused = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.errors?.length).length, 0);
+  const lecture = open === "all" ? undefined : scripted.find((l) => l.n === open);
+  const buildOne = (n: number) => { setOpen(n); return act({ action: "build", scope: "lecture", lecture: n, model }); };
+
+  if (!scripted.length) return <p className="text-sm text-neutral-400">No lecture is scripted yet: build the scripts first (Script tab). The scenes give each beat of a script its visuals.</p>;
+  return (
+    <div className="space-y-3" data-testid="scenes">
+      <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-semibold text-neutral-100">Scenes: what is on screen on each beat</h3>
+          <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => setShowLook(!showLook)}>{showLook ? "hide the look and visuals" : "show the look and visuals"}</button>
+        </div>
+        <p className="mb-2 text-xs text-neutral-400">Each beat of the script gets its visuals as the lecture engine&apos;s operations (the narration stays the
+          transcript): one call a chapter, told only the kinds of visual switched on. The engine compiles the lecture (making its AI pictures), the beats it
+          refuses are sent back with what it said, and any beat or chapter can be rendered (silent) to see it, in this look or another.</p>
+        {showLook && <LookPicker look={look} act={act} />}
+        {showLook && <KindToggles kinds={kinds} onChange={(k) => act({ action: "kinds", kinds: k })} />}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-2 text-xs">
+          <span className="text-neutral-400">Model</span>
+          <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
+            onChange={(e) => setModel(e.target.value)} data-testid="scenes-model" />
+          <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={!next} data-testid="scenes-next"
+            onClick={() => next && buildOne(next.n)}>{next ? `Build the next: lecture ${next.n}` : "No lecture left to build"}</button>
+          <span className="mx-1 h-4 w-px bg-neutral-700" />
+          <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} data-testid="scenes-run"
+            disabled={scripted.every((l) => busy(l.n) || st?.lectures[l.n]?.status === "done")}
+            onClick={() => act({ action: "build", scope: "rest", model, oneAtATime: inTurn })}>{!done ? "Build all" : done < scripted.length ? `Build the ${scripted.length - done} left` : "All built"}</button>
+          <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={scripted.every((l) => busy(l.n))}
+            onClick={() => confirm("Build every lecture's scenes again? What is there now (and any beat changed by hand) is replaced.") && act({ action: "build", scope: "all", model, oneAtATime: inTurn })}>Rebuild all</button>
+          <label className="flex items-center gap-1 text-neutral-300" title="One lecture after the other, not in parallel">
+            <input type="checkbox" checked={inTurn} onChange={(e) => setInTurn(e.target.checked)} /> one at a time</label>
+          {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
+          <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
+          <span>{done} of {scripted.length} lectures built</span>
+          <span>{beatsBuilt} beats with visuals</span>
+          {refused > 0 && <span className="text-red-300">{refused} refused by the compiler</span>}
+          {(st?.renders ?? 0) > 0 && <span className="text-sky-300">{st!.renders} rendering…</span>}
+          <span className="text-neutral-500">{styleOf(look.style).name} · {artOf(look.art).name} art</span>
+          <span className="font-semibold">{money(cost)}</span>
+        </div>
+        {st?.error && <p className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{st.error}</p>}
+      </section>
+
+      <nav className="flex flex-wrap gap-1 border-b border-neutral-800">
+        <Tab on={open === "all"} onClick={() => setOpen("all")}>All lectures</Tab>
+        {scripted.map((l) => {
+          const s = st?.lectures[l.n]?.status ?? "waiting";
+          return <Tab key={l.n} on={open === l.n} onClick={() => setOpen(l.n)} title={l.title}>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${st?.lectures[l.n] ? DOT[s] : "bg-neutral-700"}`} /> Lecture {l.n}</Tab>;
+        })}
+      </nav>
+      {!lecture ? <Overview run={run} lectures={scripted} busy={busy} openLecture={setOpen} build={buildOne} />
+        : <LectureView key={lecture.n} run={run} lecture={lecture} busy={busy(lecture.n)} model={model} act={act} select={select} onCall={onCall} />}
+    </div>
+  );
+}
+
+function Tab({ on, onClick, title, children }: { on: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
+  return <button onClick={onClick} title={title} data-testid="scenes-tab"
+    className={`flex items-center gap-1.5 rounded-t px-2.5 py-1 text-xs ${on ? "bg-neutral-800 text-white" : "text-neutral-400 hover:text-neutral-200"}`}>{children}</button>;
+}
+
+function Mini({ marks, background }: { marks: PreviewMark[]; background: string }) {
+  return (
+    <svg viewBox="0 0 320 180" className="w-full rounded" style={{ background }}>
+      {marks.map((m, i) => m.t === "rect" ? <rect key={i} x={m.x} y={m.y} width={m.w} height={m.h} fill={m.fill} rx={m.rx} opacity={m.opacity} />
+        : m.t === "circle" ? <circle key={i} cx={m.cx} cy={m.cy} r={m.r} fill={m.fill} stroke={m.stroke} strokeWidth={m.sw} />
+          : m.t === "line" ? <line key={i} x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} stroke={m.stroke} strokeWidth={m.sw} />
+            : <text key={i} x={m.x} y={m.y} fontSize={m.size} fill={m.fill} textAnchor={m.anchor} fontWeight={m.weight}>{m.text}</text>)}
+    </svg>
+  );
+}
+
+/** The style (frame) and art style (pictures) pickers, each with its miniature. */
+function LookPicker({ look, act }: { look: { style: string; art: string }; act: Act }) {
+  const s = styleOf(look.style);
+  return (
+    <div className="space-y-2" data-testid="scenes-look">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Style <span className="font-normal normal-case text-neutral-500">· the film&apos;s frame: board, fonts, panel, captions</span></p>
+      <div className="grid grid-cols-3 gap-2 lg:grid-cols-5 xl:grid-cols-9">
+        {STYLES.map((x) => (
+          <button key={x.id} onClick={() => act({ action: "look", style: x.id })} title={x.summary} data-testid="scenes-style"
+            className={`rounded border p-1 text-left ${look.style === x.id ? "border-sky-400 ring-1 ring-sky-400" : "border-neutral-800 hover:border-neutral-600"}`}>
+            <Mini marks={x.preview} background={x.background} />
+            <span className="mt-0.5 block text-[11px] text-neutral-200">{x.name}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-neutral-500">{s.name}: {s.summary}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Art style <span className="font-normal normal-case text-neutral-500">· how its pictures, diagrams and maps are drawn</span></p>
+      <div className="flex flex-wrap gap-1.5">
+        {ART_STYLES.map((a) => (
+          <button key={a.id} onClick={() => act({ action: "look", art: a.id })} title={a.summary} data-testid="scenes-art"
+            className={`flex items-center gap-1.5 rounded border px-1.5 py-1 text-[11px] ${look.art === a.id ? "border-sky-400 bg-sky-950 text-sky-100" : "border-neutral-800 text-neutral-300 hover:border-neutral-600"}`}>
+            <svg viewBox="0 0 64 36" className="h-5 w-9 rounded" style={{ background: s.background }}
+              dangerouslySetInnerHTML={{ __html: artPreview(a.id === "auto" ? STYLE_ART[s.id] ?? "clean" : a.id, s.ink, s.palette[0]) }} />
+            {a.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Every visual kind as a switch, with what it draws. */
+function KindToggles({ kinds, onChange, compact }: { kinds: string[]; onChange: (k: string[]) => void; compact?: boolean }) {
+  const on = new Set(kinds);
+  const flip = (id: string) => onChange(on.has(id) ? kinds.filter((k) => k !== id) : [...kinds, id]);
+  return (
+    <div className={compact ? "" : "mt-3"} data-testid="scenes-kinds">
+      {!compact && (
+        <div className="mb-1 flex items-center gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Visuals the scenes may use <span className="font-normal normal-case text-neutral-500">· {kinds.length} of {VISUAL_KINDS.length} on</span></p>
+          <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => onChange(VISUAL_KINDS.map((k) => k.id))}>all on</button>
+          <button className="text-[11px] text-sky-300 hover:underline" onClick={() => onChange([])}>all off</button>
+          <button className="text-[11px] text-sky-300 hover:underline" onClick={() => onChange(kinds.filter((k) => !kindById(k)?.paid))}>no paid pictures</button>
+        </div>
+      )}
+      <div className={`grid gap-1.5 ${compact ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-2 lg:grid-cols-4"}`}>
+        {VISUAL_KINDS.map((k) => (
+          <label key={k.id} title={k.about} data-testid="scenes-kind"
+            className={`flex cursor-pointer items-start gap-1.5 rounded border px-1.5 py-1 text-[11px] ${on.has(k.id) ? "border-neutral-600 bg-neutral-800/60" : "border-neutral-800 opacity-60"}`}>
+            <input type="checkbox" className="mt-0.5" checked={on.has(k.id)} onChange={() => flip(k.id)} />
+            <span className="min-w-0">
+              <span className="font-medium" style={{ color: KIND_COLOR[k.id] }}>{k.label}</span>{k.paid ? <span className="ml-1 rounded bg-amber-950 px-1 text-[9px] text-amber-300">image model</span> : null}
+              {!compact && <span className="block text-neutral-500">{k.about}</span>}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Overview({ run, lectures, busy, openLecture, build }: {
+  run: Run; lectures: Lecture[]; busy: (n: number) => boolean; openLecture: (n: number) => void; build: (n: number) => void;
+}) {
+  return (
+    <table className="w-full text-xs" data-testid="scenes-overview">
+      <thead className="text-left text-[10px] uppercase tracking-wide text-neutral-500">
+        <tr><th className="py-1">Lecture</th><th>State</th><th>Beats with visuals</th><th>Refused</th><th>Compiled</th><th>Rendered</th><th>Cost</th><th /></tr>
+      </thead>
+      <tbody>
+        {lectures.map((l) => {
+          const sl = run.scenes?.lectures[l.n];
+          const all = run.script!.lectures[l.n].chapters.flatMap((c) => c.beats);
+          const withOps = all.filter((b) => sl?.beats[b.n]?.ops.length).length;
+          const refused = all.filter((b) => sl?.beats[b.n]?.errors?.length).length;
+          const rendered = all.filter((b) => sl?.beats[b.n]?.render?.status === "done").length + Object.values(sl?.chapters ?? {}).filter((c) => c.status === "done").length;
+          const cost = run.calls.filter((c) => c.step === "scenes" && c.lecture === l.n).reduce((k, c) => k + c.cost, 0);
+          return (
+            <tr key={l.n} className="cursor-pointer border-t border-neutral-800 hover:bg-neutral-900" onClick={() => openLecture(l.n)} data-testid="scenes-lecture">
+              <td className="py-1.5 pr-2 text-neutral-100"><b>{l.n}</b>. {l.title}</td>
+              <td className={TONE[sl?.status ?? "waiting"]}>{sl?.doing ?? sl?.status ?? "not built"}</td>
+              <td>{withOps} of {all.length}</td>
+              <td className={refused ? "text-red-300" : "text-neutral-500"}>{refused || "—"}</td>
+              <td className={sl?.compile?.status === "failed" ? "text-red-300" : ""}>{sl?.compile ? sl.compile.status : "—"}</td>
+              <td>{rendered || "—"}</td>
+              <td>{money(cost)}</td>
+              <td className="text-right"><button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
+                disabled={busy(l.n)} onClick={(e) => { e.stopPropagation(); build(l.n); }}>{sl?.status === "done" ? "Rebuild" : "Build"}</button></td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function LectureView({ run, lecture, busy, model, act, select, onCall }: {
+  run: Run; lecture: Lecture; busy: boolean; model: string; act: Act; select: (s: Selection) => void; onCall: (id: string) => void;
+}) {
+  const sl = run.scenes?.lectures[lecture.n];
+  const script = run.script!.lectures[lecture.n];
+  const lines = useMemo(() => linesOf(lecture.text ?? ""), [lecture.text]);
+  const [pick, setPick] = useState<Pick>({ kind: "chapter", c: script.chapters[0]?.n ?? 1 });
+  const [view, setView] = useState<"Beats" | "Compiler" | "Calls">("Beats");
+  const calls = (sl?.calls ?? []).map((id) => run.calls.find((c) => c.id === id)).filter((c): c is Call => !!c);
+  const beats = script.chapters.flatMap((c) => c.beats.map((b) => ({ ...b, chapter: c.n })));
+  const refused = beats.filter((b) => sl?.beats[b.n]?.errors?.length).length;
+  const stale = sl?.scriptAt !== undefined && script.at !== undefined && sl.scriptAt < script.at;
+  const pictures = sl?.compile?.pictures ?? [];
+  return (
+    <section className="space-y-2" data-testid="scenes-lecture-view">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-sm font-semibold text-neutral-100">Lecture {lecture.n}: {lecture.title}</span>
+        <span className={TONE[sl?.status ?? "waiting"]}>{sl?.doing ?? sl?.status ?? "not built"}</span>
+        {sl?.compile && <span className={sl.compile.status === "failed" ? "text-red-300" : sl.compile.status === "running" ? "text-sky-300" : "text-neutral-400"}>
+          compile: {sl.compile.status}{sl.compile.seconds ? ` in ${sl.compile.seconds.toFixed(0)} s` : ""}{sl.compile.minutes ? ` · about ${sl.compile.minutes} min of video` : ""}</span>}
+        {pictures.length > 0 && <span className="text-neutral-400">{pictures.length} AI picture(s) · {money(pictures.reduce((k, p) => k + (p.usd ?? 0), 0))}</span>}
+        {sl?.region && <span className="mono text-emerald-300" title="the map region">{JSON.stringify(sl.region)}</span>}
+        <span className="ml-auto flex gap-1.5">
+          <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={busy} data-testid="scenes-build-lecture"
+            onClick={() => act({ action: "build", scope: "lecture", lecture: lecture.n, model })}>{sl?.status === "done" ? "Rebuild this lecture" : "Build this lecture"}</button>
+          <button className={`${btn} border-neutral-700 text-neutral-200`} disabled={busy || !sl} onClick={() => act({ action: "compile", lecture: lecture.n })}>Compile</button>
+          <button className={`${btn} border-red-800 text-red-200`} disabled={busy || !refused} data-testid="scenes-fix"
+            onClick={() => act({ action: "fix", lecture: lecture.n, model })}>Mend {refused || ""} refused</button>
+        </span>
+      </div>
+      {stale && <p className="text-xs text-amber-300">The script was rebuilt after these scenes: rebuild them so their beats match.</p>}
+      {sl?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">Error: {sl.error}</p>}
+      <nav className="flex gap-1 text-xs">
+        {(["Beats", "Compiler", "Calls"] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)} className={`rounded-full border px-2.5 py-0.5 ${view === v ? "border-sky-600 bg-sky-950 text-sky-100" : "border-neutral-700 text-neutral-400 hover:text-neutral-200"}`}>
+            {v}{v === "Compiler" && sl?.compile ? ` (${(sl.compile.errors.length + sl.compile.warnings.length + refused)})` : ""}{v === "Calls" && calls.length ? ` (${calls.length})` : ""}</button>
+        ))}
+      </nav>
+      {view === "Beats" && (
+        <div className="flex gap-3">
+          <Outline run={run} lecture={lecture} lines={lines} pick={pick} setPick={setPick} />
+          <div className="min-w-0 flex-1">
+            {pick.kind === "chapter"
+              ? <ChapterDetail key={`c${pick.c}`} run={run} lecture={lecture} c={pick.c} busy={busy} model={model} act={act} setPick={setPick} />
+              : <BeatDetail key={`b${pick.n}`} run={run} lecture={lecture} n={pick.n} lines={lines} busy={busy} model={model} act={act} setPick={setPick} select={select} onCall={onCall} />}
+          </div>
+        </div>
+      )}
+      {view === "Compiler" && <CompilerView sl={sl} beats={beats} setPick={(p) => { setPick(p); setView("Beats"); }} />}
+      {view === "Calls" && <PromptView calls={calls} onCall={onCall} />}
+    </section>
+  );
+}
+
+/** The kinds a beat's operations are, as coloured dots. */
+function KindDots({ ops }: { ops: Record<string, unknown>[] }) {
+  const ks = [...new Set(ops.map((o) => kindOfOp(o) ?? "base").filter((k) => k !== "base"))];
+  return <span className="flex gap-0.5">{ks.map((k) => <span key={k} title={kindById(k)?.label} className="inline-block h-2 w-2 rounded-full" style={{ background: KIND_COLOR[k] }} />)}</span>;
+}
+
+function Outline({ run, lecture, lines, pick, setPick }: { run: Run; lecture: Lecture; lines: string[]; pick: Pick; setPick: (p: Pick) => void }) {
+  const sl = run.scenes?.lectures[lecture.n];
+  const script = run.script!.lectures[lecture.n];
+  return (
+    <aside className="sticky top-0 w-60 shrink-0 self-start overflow-y-auto" style={{ maxHeight: "75vh" }} data-testid="scenes-outline">
+      {script.chapters.map((ch) => {
+        const cr = sl?.chapters?.[ch.n];
+        return (
+          <div key={ch.n} className="mb-1.5">
+            <button onClick={() => setPick({ kind: "chapter", c: ch.n })} data-testid="scenes-chapter"
+              className={`flex w-full items-baseline gap-1 rounded px-1.5 py-1 text-left text-xs ${pick.kind === "chapter" && pick.c === ch.n ? "bg-sky-950 text-sky-100" : "text-neutral-100 hover:bg-neutral-800"}`}>
+              <span className="text-neutral-500">{ch.n}.</span><span className="min-w-0 flex-1 truncate font-semibold">{ch.title}</span>
+              <span className={`text-[9px] ${ch.map ? "text-emerald-400" : "text-neutral-500"}`}>{ch.map ? "map" : "board"}</span>
+              {cr && <span className={`text-[9px] ${TONE[cr.status]}`} title="chapter render">▶</span>}
+            </button>
+            <ol className="ml-3 border-l border-neutral-800">
+              {ch.beats.map((b) => {
+                const sb = sl?.beats[b.n];
+                const on = pick.kind === "beat" && pick.n === b.n;
+                return (
+                  <li key={b.n}>
+                    <button onClick={() => setPick({ kind: "beat", n: b.n })} data-testid="scenes-beat"
+                      className={`flex w-full items-center gap-1.5 px-1.5 py-0.5 text-left text-[11px] ${on ? "bg-sky-950 text-sky-100" : "text-neutral-300 hover:bg-neutral-800"}`}>
+                      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${sb ? DOT[sb.status] : "bg-neutral-700"}`} />
+                      <span className="w-6 shrink-0 text-neutral-500">#{b.n}</span>
+                      <span className="min-w-0 flex-1 truncate">{lines[b.lines[0] - 1]}</span>
+                      {sb?.errors?.length ? <span className="text-red-400" title={sb.errors.join("\n")}>✗</span> : null}
+                      {sb?.kinds ? <span className="text-amber-300" title="its own visual kinds">◐</span> : null}
+                      {sb?.edited ? <span className="text-violet-300" title="changed by hand">✎</span> : null}
+                      {sb?.render?.status === "done" ? <span className="text-emerald-400" title="rendered">▣</span> : sb?.render?.status === "running" ? <span className="animate-pulse text-sky-300">▣</span> : null}
+                      <KindDots ops={sb?.ops ?? []} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        );
+      })}
+    </aside>
+  );
+}
+
+/** The run's look, or another, for a render. */
+function LookSelect({ style, art, setStyle, setArt }: { style: string; art: string; setStyle: (s: string) => void; setArt: (a: string) => void }) {
+  return (
+    <>
+      <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-1 text-xs text-neutral-100" value={style} onChange={(e) => setStyle(e.target.value)} data-testid="render-style">
+        {STYLES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+      <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-1 text-xs text-neutral-100" value={art} onChange={(e) => setArt(e.target.value)}>
+        {ART_STYLES.map((a) => <option key={a.id} value={a.id}>{a.name} art</option>)}
+      </select>
+    </>
+  );
+}
+
+function RenderState({ r, what }: { r?: SceneRender; what: string }) {
+  if (!r) return <p className="text-xs text-neutral-500">Not rendered yet: render {what} to see it (silent, low quality, a few seconds a beat).</p>;
+  return (
+    <p className="text-[11px] text-neutral-400">
+      <span className={TONE[r.status]}>{r.status === "running" ? "rendering…" : r.status}</span> · {styleOf(r.style).name}, {artOf(r.art).name} art
+      {r.seconds ? ` · ${r.seconds.toFixed(0)} s` : r.started && r.status === "running" ? ` · ${seconds(r.started, Date.now())}` : ""}
+      {r.error && <span className="block whitespace-pre-wrap text-red-300">{r.error}</span>}
+    </p>
+  );
+}
+
+function Issues({ issues, fixed }: { issues?: string[]; fixed?: string[] }) {
+  if (!issues?.length && !fixed?.length) return null;
+  return (
+    <ul className="mt-1 space-y-0.5 text-[11px]">
+      {(issues ?? []).map((x, i) => <li key={`i${i}`} className="text-amber-300">⚠ on screen: {x}</li>)}
+      {(fixed ?? []).map((x, i) => <li key={`f${i}`} className="text-neutral-400">✎ mended on screen: {x}</li>)}
+    </ul>
+  );
+}
+
+function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
+  run: Run; lecture: Lecture; c: number; busy: boolean; model: string; act: Act; setPick: (p: Pick) => void;
+}) {
+  const st = run.scenes;
+  const sl = st?.lectures[lecture.n];
+  const ch = run.script!.lectures[lecture.n].chapters.find((x) => x.n === c)!;
+  const r = sl?.chapters?.[c];
+  const [style, setStyle] = useState(st?.look.style ?? "atlas");
+  const [art, setArt] = useState(st?.look.art ?? "auto");
+  const built = ch.beats.filter((b) => sl?.beats[b.n]?.ops.length).length;
+  return (
+    <div className="space-y-2" data-testid="scenes-chapter-detail">
+      <div className="rounded border border-neutral-800 bg-neutral-900/40 p-2">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-sm font-semibold text-neutral-100">Chapter {ch.n}: {ch.title}</span>
+          <span className={`rounded px-1.5 py-px text-[10px] ${ch.map ? "bg-emerald-950 text-emerald-300" : "bg-neutral-800 text-neutral-300"}`}>{ch.map ? "on a map" : "on a board"}</span>
+          <span className="text-[11px] text-neutral-500">{ch.beats.length} beats · {built} with visuals</span>
+        </div>
+        <p className="text-[11px] italic text-neutral-400">title card: “{ch.narration}”</p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+          <button className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} disabled={busy} data-testid="scenes-build-chapter"
+            onClick={() => act({ action: "build", scope: "chapter", lecture: lecture.n, chapter: c, model })}>{built ? "Build this chapter again" : "Build this chapter"}</button>
+          <span className="mx-1 h-4 w-px bg-neutral-700" />
+          <LookSelect style={style} art={art} setStyle={setStyle} setArt={setArt} />
+          <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={!built || r?.status === "running"} data-testid="scenes-render-chapter"
+            onClick={() => act({ action: "render", lecture: lecture.n, chapter: c, style, art })}>{r?.status === "running" ? "Rendering…" : r ? "Render the chapter again" : "Render the chapter"}</button>
+        </div>
+      </div>
+      <RenderState r={r} what="the chapter" />
+      {r?.video && r.status === "done" && <video key={r.video} src={r.video} controls className="w-full max-w-3xl rounded border border-neutral-800 bg-black" data-testid="scenes-chapter-video" />}
+      {r?.beats?.length ? (
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-3" data-testid="scenes-filmstrip">
+          {r.beats.map((b) => (
+            <button key={b.n} onClick={() => setPick({ kind: "beat", n: b.n })} className="rounded border border-neutral-800 p-1 text-left hover:border-sky-600">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {b.still ? <img alt={`beat ${b.n}`} src={b.still} className="w-full rounded" /> : <div className="aspect-video rounded bg-neutral-900" />}
+              <span className="text-[10px] text-neutral-400">#{b.n} · {b.start.toFixed(1)}–{b.end.toFixed(1)} s{b.issues?.length ? <span className="text-amber-300"> · ⚠ {b.issues.length}</span> : null}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <ul className="space-y-1">
+        {ch.beats.map((b) => {
+          const sb = sl?.beats[b.n];
+          return (
+            <li key={b.n} className="flex cursor-pointer gap-2 rounded border border-neutral-900 px-2 py-1 text-xs hover:bg-neutral-900" onClick={() => setPick({ kind: "beat", n: b.n })}>
+              <span className="w-8 text-neutral-500">#{b.n}</span>
+              <span className="min-w-0 flex-1 text-neutral-300">{b.show || "—"}</span>
+              <span className="flex flex-wrap justify-end gap-1">{(sb?.ops ?? []).map((o, i) => <OpChip key={i} op={o} />)}{sb?.errors?.length ? <span className="text-red-300">✗ refused</span> : null}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function OpChip({ op }: { op: Record<string, unknown> }) {
+  const k = kindOfOp(op) ?? "base";
+  return <span className="rounded border px-1 text-[10px]" style={{ borderColor: KIND_COLOR[k], color: KIND_COLOR[k] }}>{String(op.op)}{op.op === "picture" ? `:${pictureWord(op)}` : ""}</span>;
+}
+
+const pictureWord = (op: Record<string, unknown>) => Array.isArray(op.items) ? "gallery" : op.figure ? "figure" : op.draw ? "drawing" : "illustration";
+
+/** An operation in words: what it puts on screen. */
+function opWords(op: Record<string, unknown>): string {
+  const s = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+  switch (op.op) {
+    case "panel": return `heading “${s(op.title)}”${op.sub ? ` · ${s(op.sub)}` : ""}`;
+    case "fact": return `key point “${s(op.text)}”`;
+    case "picture": return Array.isArray(op.items) ? `gallery of ${op.items.length}: ${(op.items as Record<string, unknown>[]).map((i) => i.caption ?? i.generate ?? i.figure).join(", ")}`
+      : op.figure ? `book figure ${s(op.figure)}${op.caption ? ` — ${s(op.caption)}` : ""}` : op.draw ? `AI diagram: ${s(op.draw)}${Array.isArray(op.labels) ? ` [${(op.labels as string[]).join(", ")}]` : ""}`
+        : `AI illustration: ${s(op.generate)}${op.scene ? " (scene)" : ""}${Array.isArray(op.labels) ? ` [${(op.labels as string[]).join(", ")}]` : ""}`;
+    case "diagram": return `${s(op.kind ?? "flow")} diagram “${s(op.id)}”: ${(Array.isArray(op.nodes) ? op.nodes as Record<string, unknown>[] : []).map((n) => n.label).join(" → ")}`;
+    case "reveal": return `reveal ${(op.nodes as string[] | undefined)?.join(", ")} in “${s(op.diagram)}”`;
+    case "focus": return `focus ${s(op.node)} in “${s(op.diagram)}”`;
+    case "zoom": return op.node ? `zoom on ${s(op.node)} in “${s(op.diagram)}”` : `zoom back out of “${s(op.diagram)}”`;
+    case "timeline": return `timeline: ${(Array.isArray(op.events) ? op.events as unknown[][] : []).map((e) => `${e[0]} ${e[1]}`).join(" · ")}`;
+    case "define": return `define “${s(op.term)}”: ${s(op.meaning)}`;
+    case "compare": return `compare: ${(Array.isArray(op.columns) ? op.columns as Record<string, unknown>[] : []).map((c) => c.title).join(" vs ")}`;
+    case "equation": return `equation ${s(op.tex)}`;
+    case "molecule": return `molecule ${s(op.name)}`;
+    case "manim": return `Manim figure “${s(op.id)}” (${String(op.code ?? "").split("\n").length} lines of code)`;
+    case "question": return `question: ${s(op.text)}`;
+    case "stat": return `stat ${s(op.value)} — ${s(op.label)}`;
+    case "bars": return `bar chart of ${(op.items as unknown[] | undefined)?.length ?? 0}`;
+    case "marker": return `marker ${s(op.place ?? op.lonlat)}${op.label ? ` “${s(op.label)}”` : ""}`;
+    case "state": return `shade ${s(op.name)}`;
+    case "river": return `river ${s(op.name)}`;
+    case "arrow": case "path": case "journey": return `${s(op.op)} ${s(op.points ?? op.stops)}`;
+    case "empire": return `${s(op.name)} in ${s(op.year)}`;
+    case "work": return `working “${s(op.id)}”: ${(op.lines as string[] | undefined)?.join(" · ")}`;
+    case "quote": return `quote “${s(op.text)}” — ${s(op.who)}`;
+    default: return JSON.stringify(Object.fromEntries(Object.entries(op).filter(([k]) => k !== "op"))).slice(0, 140);
+  }
+}
+
+function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select, onCall }: {
+  run: Run; lecture: Lecture; n: number; lines: string[]; busy: boolean; model: string; act: Act; setPick: (p: Pick) => void; select: (s: Selection) => void; onCall: (id: string) => void;
+}) {
+  const st = run.scenes;
+  const sl: SceneLecture | undefined = st?.lectures[lecture.n];
+  const script = run.script!.lectures[lecture.n];
+  const all = script.chapters.flatMap((c) => c.beats.map((b) => ({ ...b, chapter: c })));
+  const at = all.findIndex((b) => b.n === n);
+  const b = all[at];
+  const sb: SceneBeat | undefined = sl?.beats[n];
+  const [style, setStyle] = useState(st?.look.style ?? "atlas");
+  const [art, setArt] = useState(st?.look.art ?? "auto");
+  const [editing, setEditing] = useState(false);
+  const [json, setJson] = useState("");
+  const [note, setNote] = useState("");
+  const [bad, setBad] = useState<string | null>(null);
+  const fromChapter = b ? sl?.chapters?.[b.chapter.n]?.beats?.find((x) => x.n === n) : undefined;
+  const r = sb?.render;
+  const figure = b?.figure ? lectureFigures(run, lecture.n).find((f) => f.id === b.figure) : undefined;
+  const ownKinds = sb?.kinds;
+  if (!b) return null;
+  return (
+    <div className="space-y-2.5" data-testid="scenes-beat-detail">
+      <div className="flex items-center gap-2 text-xs">
+        <button className="rounded border border-neutral-700 px-1.5 text-neutral-300 disabled:opacity-30" disabled={at <= 0} onClick={() => setPick({ kind: "beat", n: all[at - 1].n })}>‹ prev</button>
+        <span className="font-semibold text-neutral-100">Beat #{n}</span>
+        <button className="text-sky-300 hover:underline" onClick={() => setPick({ kind: "chapter", c: b.chapter.n })}>chapter {b.chapter.n}: {b.chapter.title}</button>
+        <span className="text-neutral-500">sentences {b.lines.join(", ")}</span>
+        <span className={sb ? TONE[sb.status] : "text-neutral-500"}>{sb?.status ?? "not built"}</span>
+        <button className="ml-auto rounded border border-neutral-700 px-1.5 text-neutral-300 disabled:opacity-30" disabled={at >= all.length - 1} onClick={() => setPick({ kind: "beat", n: all[at + 1].n })}>next ›</button>
+      </div>
+      <div className="rounded border border-neutral-800 bg-neutral-900/40 p-2 text-xs">
+        <p className="text-sm text-neutral-100">{b.lines.map((k) => lines[k - 1]).join(" ")}</p>
+        <p className="mt-1 text-neutral-400"><span className="text-neutral-500">the script&apos;s plan:</span> {b.show || "—"}</p>
+        {figure && (
+          <button className="mt-1 flex items-center gap-2 text-left" onClick={() => select({ kind: "block", id: figure.id })}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img alt={figure.id} className="h-12 rounded bg-white object-contain" src={run.generation?.figures[figure.id]?.status === "done" && run.generation.figures[figure.id].url ? run.generation.figures[figure.id].url : `/api/documents/${run.documentId}/figure/${encodeURIComponent(figure.id)}`} />
+            <span className="text-neutral-300">figure {figure.id} · {figure.way}{figure.ready ? "" : " · not made yet (the book's picture is used)"}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">On screen ({sb?.ops.length ?? 0} operations)</p>
+            {sb?.edited && <span className="text-[10px] text-violet-300">✎ changed by hand</span>}
+            <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => { setJson(JSON.stringify(sb?.ops ?? [], null, 2)); setBad(null); setEditing(!editing); }}>
+              {editing ? "cancel" : "edit as JSON"}</button>
+          </div>
+          {editing ? (
+            <div className="space-y-1">
+              <textarea className="mono h-64 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json} onChange={(e) => setJson(e.target.value)} data-testid="scenes-json" />
+              {bad && <p className="text-[11px] text-red-300">{bad}</p>}
+              <button className={`${btn} border-violet-700 bg-violet-800 text-white`} disabled={busy} onClick={async () => {
+                let ops: unknown;
+                try { ops = JSON.parse(json); } catch (e) { setBad(`not JSON: ${(e as Error).message}`); return; }
+                if (await act({ action: "edit", lecture: lecture.n, beat: n, ops })) setEditing(false);
+              }}>Save and compile</button>
+            </div>
+          ) : sb?.ops.length ? (
+            <ol className="space-y-1" data-testid="scenes-ops">
+              {sb.ops.map((o, i) => {
+                const k = kindOfOp(o) ?? "base";
+                return (
+                  <li key={i} className="rounded border-l-2 bg-neutral-900 px-2 py-1 text-xs" style={{ borderColor: KIND_COLOR[k] }}>
+                    <span className="mr-1.5 rounded px-1 text-[10px]" style={{ background: `${KIND_COLOR[k]}22`, color: KIND_COLOR[k] }}>{k === "base" ? "words" : kindById(k)?.label}</span>
+                    <span className="text-neutral-200">{opWords(o)}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : <p className="text-xs text-neutral-500">{sb?.status === "running" ? "Being written…" : sb ? "Nothing new on screen: the last visual stays up." : "Not built yet."}</p>}
+          {sb?.dropped?.length ? <ul className="text-[11px] text-amber-300">{sb.dropped.map((d, i) => <li key={i}>✂ taken out: {d}</li>)}</ul> : null}
+          {sb?.errors?.length ? <ul className="rounded border border-red-900 bg-red-950/30 p-1.5 text-[11px] text-red-200" data-testid="scenes-errors">{sb.errors.map((e, i) => <li key={i}>✗ {e}</li>)}</ul> : null}
+          {sb?.notes?.length ? <ul className="text-[11px] text-neutral-400">{sb.notes.map((e, i) => <li key={i}>{/^fixed/i.test(e) ? "✎" : "i"} {e.replace(/^fixed:\s*/i, "")}</li>)}</ul> : null}
+
+          <div className="rounded border border-neutral-800 p-2">
+            <div className="mb-1 flex items-center gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Visuals this beat may use</p>
+              {ownKinds ? <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: null })}>same as the run</button>
+                : <span className="ml-auto text-[11px] text-neutral-500">the run&apos;s ({st?.kinds.length ?? 0})</span>}
+            </div>
+            <KindToggles compact kinds={ownKinds ?? st?.kinds ?? []} onChange={(k) => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: k })} />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100" placeholder="a note for the model (optional): “a timeline instead”, “show the granary”"
+              value={note} onChange={(e) => setNote(e.target.value)} />
+            <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={busy} data-testid="scenes-build-beat"
+              onClick={() => act({ action: "build", scope: "beat", lecture: lecture.n, beat: n, model, note: note || undefined })}>{sb?.ops.length ? "Build this beat again" : "Build this beat"}</button>
+          </div>
+          {sb?.calls.length ? <p className="flex flex-wrap gap-1 text-[10px]">{sb.calls.map((id) => <button key={id} className="rounded border border-neutral-700 px-1 text-neutral-400 hover:bg-neutral-800" onClick={() => onCall(id)}>call {id}</button>)}</p> : null}
+        </div>
+
+        <div className="space-y-2" data-testid="scenes-beat-render">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Render</p>
+            <LookSelect style={style} art={art} setStyle={setStyle} setArt={setArt} />
+            <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={!sb?.ops.length && !b.chapter.beats.some((x) => sl?.beats[x.n]?.ops.length) || r?.status === "running"}
+              data-testid="scenes-render-beat" onClick={() => act({ action: "render", lecture: lecture.n, chapter: b.chapter.n, beat: n, style, art })}>
+              {r?.status === "running" ? "Rendering…" : r ? "Render again" : "Render this beat"}</button>
+          </div>
+          <p className="text-[10px] text-neutral-500">The chapter is rendered up to this beat (so what is on the board before it is there), and this beat cut out.</p>
+          <RenderState r={r} what="this beat" />
+          {r?.status === "done" && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {r.still && <img alt={`beat ${n}, last frame`} src={r.still} className="w-full rounded border border-neutral-800" data-testid="scenes-still" />}
+              {r.clip && <video key={r.clip} src={r.clip} controls loop className="w-full rounded border border-neutral-800 bg-black" />}
+              <Issues issues={r.issues} fixed={r.fixed} />
+              {r.video && <a className="text-[11px] text-sky-300 hover:underline" href={r.video} target="_blank" rel="noreferrer">the chapter up to here (video)</a>}
+            </>
+          )}
+          {(!r || r.status !== "done") && fromChapter?.still && (
+            <div>
+              <p className="text-[11px] text-neutral-500">From the chapter&apos;s render:</p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={`beat ${n} in the chapter`} src={fromChapter.still} className="w-full rounded border border-neutral-800" />
+              <Issues issues={fromChapter.issues} fixed={fromChapter.fixed} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: number }[]; setPick: (p: Pick) => void }) {
+  if (!sl?.compile) return <p className="text-xs text-neutral-500">Not compiled yet: it is compiled after each build.</p>;
+  const c = sl.compile;
+  const refused = beats.filter((b) => sl.beats[b.n]?.errors?.length);
+  const noted = beats.filter((b) => sl.beats[b.n]?.notes?.length);
+  return (
+    <div className="space-y-3 text-xs" data-testid="scenes-compiler">
+      <p className="text-neutral-400">The engine checked and compiled the whole lecture: <span className={c.status === "failed" ? "text-red-300" : "text-emerald-300"}>{c.status}</span>
+        {c.seconds ? ` in ${c.seconds.toFixed(0)} s` : ""}{c.minutes ? `, about ${c.minutes} minutes of video` : ""}.</p>
+      {[...c.errors].length > 0 && <ul className="text-red-300">{c.errors.map((e, i) => <li key={i}>✗ {e}</li>)}</ul>}
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Refused beats ({refused.length})</p>
+        {refused.length ? <ul className="space-y-1">{refused.map((b) => (
+          <li key={b.n}><button className="text-left text-red-200 hover:underline" onClick={() => setPick({ kind: "beat", n: b.n })}>#{b.n}: {sl.beats[b.n].errors!.join("; ")}</button></li>
+        ))}</ul> : <p className="text-neutral-500">None.</p>}
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">What it mended or noted, by beat ({noted.length})</p>
+        <ul className="space-y-0.5">{noted.map((b) => (
+          <li key={b.n}><button className="text-left text-neutral-300 hover:underline" onClick={() => setPick({ kind: "beat", n: b.n })}>#{b.n}: {sl.beats[b.n].notes!.map((x) => x.replace(/^fixed:\s*/i, "")).join("; ")}</button></li>
+        ))}</ul>
+      </div>
+      {c.warnings.length > 0 && (
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">On the whole lecture</p>
+          <ul className="space-y-0.5 text-neutral-400">{c.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+        </div>
+      )}
+      {c.pictures?.length ? (
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">AI pictures made ({c.pictures.length})</p>
+          <ul className="space-y-0.5 text-neutral-400">{c.pictures.map((p, i) => <li key={i}>{p.prompt} <span className="text-neutral-500">· {p.model} · {money(p.usd ?? 0)}</span></li>)}</ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}

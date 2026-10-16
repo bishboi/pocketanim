@@ -334,6 +334,56 @@ assert.ok(run.lectures.every((l) => run.script.lectures[l.n].status === "done"),
   assert.equal(run.script.lectures[2].status, "done", "next scripts the first lecture not scripted");
 }
 
+// Scenes: each beat's visuals as the engine's operations, compiled, a kind switched off, one beat rendered.
+const { scenesAction } = await import(path.resolve(here, "../lib/scenes.ts"));
+const { filterOps } = await import(path.resolve(here, "../lib/visual-kinds.ts"));
+const slow = async (id, busy, tries = 1800) => {
+  for (let i = 0; i < tries; i++) {
+    const r = await loadRun(id);
+    if (!busy(r)) return r;
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  throw new Error("timed out");
+};
+const offOps = filterOps([{ op: "picture", generate: "a farmer" }, { op: "diagram", id: "d", nodes: [{ id: "a", label: "A", picture: { generate: "x" } }] },
+  { op: "timeline", events: [["1526", "Panipat", { generate: "a battle" }]] }, { op: "fact", text: "ok" }, { op: "teleport" }], ["diagram", "timeline"]);
+assert.equal(offOps.ops.length, 3, "the illustration and the unknown op taken out");
+assert.ok(!offOps.ops[0].nodes[0].picture && offOps.ops[1].events[0].length === 2, "pictures on nodes and events taken out when illustrations are off");
+assert.equal(offOps.dropped.length, 4);
+await scenesAction(run.id, { action: "look", style: "chalkboard", art: "sketch" });
+await scenesAction(run.id, { action: "kinds", kinds: ["figure", "diagram", "define", "timeline"] });
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+const sl1 = run.scenes.lectures[1];
+assert.equal(sl1.status, "done", sl1.error);
+assert.equal(run.scenes.look.style, "chalkboard");
+const sceneBeats = run.script.lectures[1].chapters.flatMap((c) => c.beats);
+assert.ok(sceneBeats.every((b) => sl1.beats[b.n]?.status === "done"), "every beat has its visuals");
+assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
+assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
+assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "define", "clear"].includes(o.op))), "only the kinds switched on");
+const scenesCall = run.calls.find((c) => c.step === "scenes");
+assert.ok(scenesCall.prompt.system.some((p) => p.key === "kinds" && /DIAGRAM/.test(p.text) && !/AI ILLUSTRATIONS/.test(p.text)), "only the kinds on are told");
+// A beat's kinds of its own, its operations by hand, one beat built again.
+const firstBeat = sceneBeats[0].n;
+await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: ["define"] });
+await scenesAction(run.id, { action: "build", scope: "beat", lecture: 1, beat: firstBeat });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.ok(run.scenes.lectures[1].beats[firstBeat].ops.every((o) => ["panel", "fact", "define", "clear"].includes(o.op)), "a beat's own kinds kept");
+await scenesAction(run.id, { action: "edit", lecture: 1, beat: firstBeat, ops: [{ op: "panel", title: "By hand" }, { op: "define", term: "Surplus", meaning: "More food than is needed" }] });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.ok(run.scenes.lectures[1].beats[firstBeat].edited);
+await assert.rejects(scenesAction(run.id, { action: "edit", lecture: 1, beat: firstBeat, ops: "nope" }), /JSON list/);
+// One beat rendered in its chapter, in another look: its frame and clip.
+const ch1 = run.script.lectures[1].chapters[0];
+const renderBeat = ch1.beats[1]?.n ?? firstBeat;
+await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n, beat: renderBeat, style: "blueprint" });
+run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
+const rendered = run.scenes.lectures[1].beats[renderBeat].render;
+assert.equal(rendered.status, "done", rendered.error);
+assert.equal(rendered.style, "blueprint");
+assert.ok(rendered.still && rendered.clip && rendered.video, "a frame, a clip and the video");
+
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
 assert.equal(x.format, "pocketanim.v2.transcript");
@@ -347,6 +397,8 @@ assert.ok(transcriptMarkdown(run).includes("### Transcript"));
 const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");
 assert.deepEqual(back.script.lectures[1].chapters, run.script.lectures[1].chapters, "the scripts travel with the export");
+assert.deepEqual(back.scenes.lectures[1].beats[firstBeat].ops, run.scenes.lectures[1].beats[firstBeat].ops, "the scenes travel with the export");
+assert.equal(back.scenes.look.style, "chalkboard");
 assert.equal(back.documentId, run.documentId, "the same book: found here, not made again");
 assert.deepEqual(back.lectures.map((l) => l.text), run.lectures.map((l) => l.text));
 assert.equal(back.triage.figures[pics[0].id].override, "exact");

@@ -380,7 +380,7 @@ function ranges(ns: number[]) {
 }
 
 /** Each call made for the lecture (the first try, and the one sent back when it broke): prompt parts, answer, checks. */
-function PromptView({ calls, onCall }: { calls: Call[]; onCall: (id: string) => void }) {
+export function PromptView({ calls, onCall }: { calls: Call[]; onCall: (id: string) => void }) {
   const [picked, setPicked] = useState<string | null>(null);
   const call = calls.find((c) => c.id === picked) ?? calls.at(-1);
   if (!call) return <p className="text-xs text-neutral-500">No call made yet: script this lecture.</p>;
@@ -441,7 +441,7 @@ function Answer({ output }: { output: unknown }) {
   );
 }
 
-function CheckList({ checks }: { checks: { name: string; result: keyof typeof CHECK_STYLE; detail: string }[] }) {
+export function CheckList({ checks }: { checks: { name: string; result: keyof typeof CHECK_STYLE; detail: string }[] }) {
   return (
     <ul className="space-y-1 text-xs">
       {checks.map((c, k) => (

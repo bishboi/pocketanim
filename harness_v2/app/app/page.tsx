@@ -15,13 +15,14 @@ import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, Transcri
 import { FiguresPanel } from "@/components/figures-panel";
 import { GenerationPanel } from "@/components/generation-panel";
 import { ScriptPanel } from "@/components/script-panel";
+import { ScenesPanel } from "@/components/scenes-panel";
 import { choiceOf } from "@/lib/triage-kinds";
 
 type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleModel>; triageModel: string };
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Calls", "Costs", "Models"] as const;
 const GREY = "rgba(148, 163, 184, 0.22)";
 const GREEN = "rgba(16, 185, 129, 0.45)";
 
@@ -68,7 +69,8 @@ export default function Page() {
       const next = (await res.json()) as Run;
       setRun(next);
       setDocId(next.documentId);
-      if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running" || next.script?.status === "running") setTimeout(tick, 1000);
+      if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running" || next.script?.status === "running"
+        || next.scenes?.status === "running" || (next.scenes?.renders ?? 0) > 0) setTimeout(tick, 1000);
       else void refresh();
     };
     void tick();
@@ -83,7 +85,7 @@ export default function Page() {
     if (run) setOptions(run.options);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running" || run?.script?.status === "running";
+  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running" || run?.script?.status === "running" || run?.scenes?.status === "running" || (run?.scenes?.renders ?? 0) > 0;
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -187,7 +189,7 @@ export default function Page() {
     <div className="flex h-screen flex-col">
       <header className="border-b border-neutral-800 px-4 py-2">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-sm font-semibold text-neutral-100">Harness v2 <span className="text-neutral-500">· Transcript, figure triage</span></h1>
+          <h1 className="text-sm font-semibold text-neutral-100">Harness v2 <span className="text-neutral-500">· Transcript, figures, script, scenes</span></h1>
           <select className={input} value={docId} onChange={(e) => { setDocId(e.target.value); setRun(null); setRunId(""); setSelection(null); }} data-testid="doc-select">
             <option value="">Choose a book…</option>
             {docs.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.pages} pages, {d.words.toLocaleString()} words, {d.source})</option>)}
@@ -328,6 +330,8 @@ export default function Page() {
               setWay={(block, kind) => act("/triage", { action: "override", block, kind })} />}
             {run && tab === "Script" && <ScriptPanel run={run} defaultModel={run.options.scriptModel || options.scriptModel || config?.models.script?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/script", body)} />}
+            {run && tab === "Scenes" && <ScenesPanel run={run} defaultModel={run.options.scenesModel || options.scenesModel || config?.models.scenes?.model || ""}
+              select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

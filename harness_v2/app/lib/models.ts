@@ -6,7 +6,7 @@
  * The page starts from these and can change a run's own; nothing has to be typed.
  */
 
-export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script";
+export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script" | "scenes";
 
 export type RoleInfo = {
   role: ModelRole;
@@ -51,6 +51,9 @@ export const ROLES: RoleInfo[] = [
   { role: "script", label: "Script", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Cuts each lecture's transcript into chapters and beats, every sentence in one beat, and places its figures (script).",
     env: ["V2_SCRIPT_MODEL", "OPENROUTER_MODEL"] },
+  { role: "scenes", label: "Scenes", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
+    what: "Writes each beat's visuals as the lecture engine's operations (maps, diagrams, pictures, timelines, Manim...), mends what the engine refuses (scenes).",
+    env: ["V2_SCENES_MODEL", "OPENROUTER_MODEL"] },
   { role: "map", label: "Map", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Draws the figures triaged Map: reads the book's map and writes its map script, in one call; v2's engine renders it (generation).",
     env: ["V2_MAP_MODEL", "PANIM_MAP_MODEL", "PANIM_MANIM_MODEL", "OPENROUTER_MODEL"] },

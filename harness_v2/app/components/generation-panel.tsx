@@ -6,6 +6,7 @@
  * words), the image made, its calls, cost and error.
  */
 
+import { artUsed, cleanLook, styleOf } from "@/lib/styles";
 import { useEffect, useState } from "react";
 import type { Run } from "@/lib/types";
 import { choiceOf } from "@/lib/triage-kinds";
@@ -64,7 +65,7 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
         <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws, SVG drawings, Manim and maps</h3>
         <p className="mb-2 text-xs text-neutral-400">Each figure triaged <b>Exact redraw</b> or <b>Styled redraw</b> is redrawn by the image model from the
           book&apos;s figure (sent as the reference image), with no text in it (labels are put on later), in gentle words that moderation lets through
-          (gentler still, then without the reference, when it blocks one). Styled uses the same prompt for now: there are no lecture styles yet.
+          (gentler still, then without the reference, when it blocks one). Styled is drawn in the look chosen in the Scenes tab ({run.scenes ? `${styleOf(run.scenes.look.style).name}, ${artUsed(cleanLook(run.scenes.look)).name} art` : "none chosen yet: Exact's way"}); both stand on its board colour.
           Each figure triaged <b>SVG drawing</b> is drawn by the SVG model from the figure itself, in one call, with v1&apos;s SVG prompt; code checks it
           against v1&apos;s rules and sends what breaks them back once. It is shown on v1&apos;s default board. Each figure triaged <b>Manim</b> is
           written in Manim by the Manim model from the figure itself, in one call, with v1&apos;s Manim rules, and rendered here with the repo&apos;s Manim:

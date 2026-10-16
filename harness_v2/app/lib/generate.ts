@@ -27,6 +27,7 @@ import { copyFile } from "node:fs/promises";
 import { callTool } from "./llm";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
+import { cleanLook, lookWords, styleOf } from "./styles";
 import { DATA, loadRun, saveRun } from "./store";
 import type { TriageKind } from "./triage-kinds";
 import type { FigureGeneration, Generation, Run } from "./types";
@@ -204,7 +205,9 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
   // Asked in full; when the model's moderation blocks it, in gentler words; then with no reference image at all.
   for (const level of REDRAW_LEVELS) {
     const blind = level === "blind";
-    const parts = redrawParts({ caption: caption || block.description || block.text, description: block.description, context, how: t?.how, level });
+    const look = cleanLook(run.scenes?.look);
+    const parts = redrawParts({ caption: caption || block.description || block.text, description: block.description, context, how: t?.how, level,
+      background: run.scenes ? styleOf(look.style).background : undefined, look: kind === "styled" ? lookWords(look) : undefined });
     const text = redrawText(parts);
     const call = newCall(run, { step: "generate", label: `Redraw ${block.id} (${kind === "exact" ? "Exact" : "Styled"}${level === "full" ? "" : `, ${level}`})`,
       block: block.id, model: gen.model, effort: "off", prompt: { system: [], user: [...parts, ...(blind ? [] : [

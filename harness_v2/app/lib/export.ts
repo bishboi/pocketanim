@@ -17,6 +17,7 @@ import { docDir, documentInfo, listDocuments, newId, saveRun } from "./store";
 import type { RawBlock } from "./datalab";
 import type { Chapter, DocumentInfo, GoalStatus, LectureState, Run, Step } from "./types";
 import type { Block } from "./source/blocks";
+import { ALL_KINDS } from "./visual-kinds";
 
 export const EXPORT_FORMAT = "pocketanim.v2.transcript";
 /** 2: the book inside (`book`); 1 (no book) is still read. */
@@ -45,6 +46,8 @@ export type ExportedLecture = {
   blocksTaught: string[];
   /** Its script, when it has one: chapters, and beats naming the `lines` above by number. */
   script?: { chapters: Chapter[] };
+  /** Its scenes, when it has them: the map region, and each beat's operations (and kinds of its own) by beat number. */
+  scenes?: { region?: Record<string, unknown> | null; beats: Record<string, { ops: Record<string, unknown>[]; kinds?: string[]; edited?: boolean }> };
 };
 export type ExportedBlock = Pick<Block, "id" | "type" | "html" | "text" | "page" | "box"> & {
   lecture?: number;
@@ -63,6 +66,8 @@ export type ExportedTranscript = {
   lectures: ExportedLecture[];
   blocks: ExportedBlock[];
   triage?: { kinds: TriageKind[]; model: string; status: string; engine?: string; chatModel?: string; threshold?: number };
+  /** The scenes' look and the visual kinds switched on. */
+  scenes?: { model: string; look: { style: string; art: string }; kinds: string[] };
   /** What the transcript cost, by step (USD). */
   costs?: Record<string, number>;
   book?: ExportedBook;
@@ -107,6 +112,9 @@ export function exportTranscript(run: Run): ExportedTranscript {
       text: l.text ?? "",
       blocksTaught: l.blocksTaught ?? [],
       ...(run.script?.lectures[l.n]?.status === "done" ? { script: { chapters: run.script.lectures[l.n].chapters } } : {}),
+      ...(run.scenes?.lectures[l.n] && Object.keys(run.scenes.lectures[l.n].beats).length ? { scenes: { region: run.scenes.lectures[l.n].region,
+        beats: Object.fromEntries(Object.values(run.scenes.lectures[l.n].beats).map((b) => [b.n, { ops: b.ops,
+          ...(b.kinds ? { kinds: b.kinds } : {}), ...(b.edited ? { edited: true } : {}) }])) } } : {}),
     };
   });
   const blocks: ExportedBlock[] = run.blocks.map((b) => {
@@ -134,6 +142,7 @@ export function exportTranscript(run: Run): ExportedTranscript {
     lectures, blocks,
     ...(run.triage ? { triage: { kinds: run.triage.kinds, model: run.triage.model, status: run.triage.status, engine: run.triage.engine,
       chatModel: run.triage.chatModel, threshold: run.triage.threshold } } : {}),
+    ...(run.scenes ? { scenes: { model: run.scenes.model, look: run.scenes.look, kinds: run.scenes.kinds } } : {}),
     costs: run.calls.reduce<Record<string, number>>((m, c) => ({ ...m, [c.step]: (m[c.step] ?? 0) + c.cost }), {}),
   };
 }
@@ -248,6 +257,13 @@ export async function importTranscript(data: unknown, file: string): Promise<Run
   if (scripted.length) {
     run.script = { status: "done", model: x.run.options.scriptModel ?? "", rounds: 0, lectures: Object.fromEntries(scripted.map((l) =>
       [l.n, { lecture: l.n, status: "done", chapters: l.script!.chapters, lines: l.lines.length, calls: [] }])) };
+  }
+  const withScenes = x.lectures.filter((l) => l.scenes && Object.keys(l.scenes.beats).length);
+  if (x.scenes || withScenes.length) {
+    run.scenes = { status: "done", model: x.scenes?.model ?? "", look: x.scenes?.look ?? { style: "atlas", art: "auto" }, kinds: x.scenes?.kinds ?? ALL_KINDS,
+      rounds: 0, lectures: Object.fromEntries(withScenes.map((l) => [l.n, { lecture: l.n, status: "done", region: l.scenes!.region, calls: [],
+        beats: Object.fromEntries(Object.entries(l.scenes!.beats).map(([n, b]) => [n, { n: Number(n), status: "done", ops: b.ops, kinds: b.kinds,
+          edited: b.edited, calls: [] }])) }])) };
   }
   const triaged = x.blocks.filter((b) => b.figure?.triage);
   if (x.triage) {

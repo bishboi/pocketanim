@@ -41,15 +41,6 @@ const size = (text: string) => (text.length >= 1000 ? `${(text.length / 1000).to
 export const seconds = (a?: number, b?: number) => (a && b ? `${((b - a) / 1000).toFixed(1)} s` : a ? "…" : "");
 
 export function CallInspector({ call, onClose }: { call: Call; onClose: () => void }) {
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const all = [...call.prompt.system.map((p) => ({ ...p, where: "system" })), ...call.prompt.user.map((p) => ({ ...p, where: "user" }))];
-  const id = (p: Part & { where: string }) => `${p.where}:${p.key}`;
-  const toggle = (k: string) => setOpen((s) => {
-    const n = new Set(s);
-    if (n.has(k)) n.delete(k);
-    else n.add(k);
-    return n;
-  });
   const body = call.request ?? {
     model: call.model,
     messages: [{ role: "system", content: render(call.prompt.system) }, { role: "user", content: render(call.prompt.user) }],
@@ -91,40 +82,7 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
         ) : null}
 
         <Section title="Prompt" note="The final prompt as the parts it was built from. Click a part to see what is inside it.">
-          <div className="flex items-center gap-2 text-xs">
-            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800" onClick={() => setOpen(new Set(all.map(id)))}>Open all</button>
-            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800" onClick={() => setOpen(new Set())}>Close all</button>
-            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800"
-              onClick={() => navigator.clipboard?.writeText(`${render(call.prompt.system)}\n\n---\n\n${render(call.prompt.user)}`)}>Copy full prompt</button>
-            <span className="text-neutral-500">{size(render(call.prompt.system) + render(call.prompt.user))} characters in all</span>
-          </div>
-          {(["system", "user"] as const).map((where) => (
-            <div key={where} className="mt-3">
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">{where === "system" ? "System message" : "User message"}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {call.prompt[where].map((p) => {
-                  const k = `${where}:${p.key}`;
-                  return (
-                    <button key={k} onClick={() => toggle(k)} data-testid="prompt-part"
-                      className={`rounded border px-2 py-1 text-xs ${KIND_STYLE[p.kind]} ${open.has(k) ? "ring-2 ring-white/60" : "opacity-90 hover:opacity-100"}`}>
-                      {p.label} <span className="opacity-60">· {KIND_NAME[p.kind]} · {size(p.text)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {call.prompt[where].filter((p) => open.has(`${where}:${p.key}`)).map((p) => (
-                <div key={p.key} className={`mt-2 rounded border-l-4 ${KIND_STYLE[p.kind]} bg-neutral-900 p-2`}>
-                  <p className="mb-1 text-[11px] font-semibold">{p.label}</p>
-                  <pre className="mono max-h-[50vh] overflow-auto whitespace-pre-wrap text-[11.5px] leading-snug text-neutral-200">{p.text}</pre>
-                  {/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.test(p.text) && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img alt="the figure sent with this call" className="mt-2 max-h-80 rounded bg-white"
-                      src={/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.exec(p.text)![0]} />
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
+          <PromptParts prompt={call.prompt} />
         </Section>
 
         <Section title="Output" note={call.api === "decisions" ? "The decision model's typed answer: the option chosen, a probability for each, and its confidence."
@@ -179,6 +137,57 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
           <Json value={body} />
         </details>
       </div>
+    </div>
+  );
+}
+
+/** A prompt as the parts it was built from, system and user: each part opens to its text. */
+export function PromptParts({ prompt, compact }: { prompt: Call["prompt"]; compact?: boolean }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const all = [...prompt.system.map((p) => ({ ...p, where: "system" })), ...prompt.user.map((p) => ({ ...p, where: "user" }))];
+  const id = (p: Part & { where: string }) => `${p.where}:${p.key}`;
+  const toggle = (k: string) => setOpen((s) => {
+    const n = new Set(s);
+    if (n.has(k)) n.delete(k);
+    else n.add(k);
+    return n;
+  });
+  return (
+    <div>
+          <div className="flex items-center gap-2 text-xs">
+            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800" onClick={() => setOpen(new Set(all.map(id)))}>Open all</button>
+            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800" onClick={() => setOpen(new Set())}>Close all</button>
+            <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800"
+              onClick={() => navigator.clipboard?.writeText(`${render(prompt.system)}\n\n---\n\n${render(prompt.user)}`)}>Copy full prompt</button>
+            <span className="text-neutral-500">{size(render(prompt.system) + render(prompt.user))} characters in all</span>
+          </div>
+          {(["system", "user"] as const).map((where) => (
+            <div key={where} className="mt-3">
+              <p className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">{where === "system" ? "System message" : "User message"}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {prompt[where].map((p) => {
+                  const k = `${where}:${p.key}`;
+                  return (
+                    <button key={k} onClick={() => toggle(k)} data-testid="prompt-part"
+                      className={`rounded border px-2 py-1 text-xs ${KIND_STYLE[p.kind]} ${open.has(k) ? "ring-2 ring-white/60" : "opacity-90 hover:opacity-100"}`}>
+                      {p.label} <span className="opacity-60">· {KIND_NAME[p.kind]} · {size(p.text)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {prompt[where].filter((p) => open.has(`${where}:${p.key}`)).map((p) => (
+                <div key={p.key} className={`mt-2 rounded border-l-4 ${KIND_STYLE[p.kind]} bg-neutral-900 p-2`}>
+                  <p className="mb-1 text-[11px] font-semibold">{p.label}</p>
+                  <pre className={`mono ${compact ? "max-h-72" : "max-h-[50vh]"} overflow-auto whitespace-pre-wrap text-[11.5px] leading-snug text-neutral-200`}>{p.text}</pre>
+                  {/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.test(p.text) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img alt="the figure sent with this call" className="mt-2 max-h-80 rounded bg-white"
+                      src={/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.exec(p.text)![0]} />
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
     </div>
   );
 }

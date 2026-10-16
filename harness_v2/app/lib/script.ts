@@ -18,11 +18,12 @@ import { linesOf } from "./source/book";
 import { callTool } from "./llm";
 import { modelFor } from "./models";
 import { SCRIPT_TOOL, scriptPrompt, type FigureForScript } from "./prompts/script";
-import { captionOf } from "./source/blocks";
-import { choiceOf } from "./triage-kinds";
+import { lectureFigures } from "./script-figures";
 import { clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { loadRun, saveRun } from "./store";
 import type { Beat, Chapter, Check, LectureScript, Run, ScriptState } from "./types";
+
+export { lectureFigures };
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCRIPT_PARALLEL) || 3);
 
@@ -35,24 +36,6 @@ const shared = globalThis as unknown as { __v2scriptBusy?: Set<string>; __v2scri
 const busy = (shared.__v2scriptBusy ??= new Set<string>());
 const active = (shared.__v2scriptActive ??= new Map<string, number>());
 const busyKey = (run: string, n: number) => `${run}|${n}`;
-
-/** A figure's way as it stands (chosen by hand, else the triage's). */
-function wayOf(run: Run, block: string): string | undefined {
-  const f = run.triage?.figures[block];
-  return f?.override ?? (f?.status === "done" ? f.kind : undefined);
-}
-
-/** A lecture's figures, as the script is told of them: way, caption, made yet, and the sentences that teach them. */
-export function lectureFigures(run: Run, n: number): FigureForScript[] {
-  const lecture = run.lectures.find((l) => l.n === n);
-  if (!lecture) return [];
-  return run.blocks.filter((b) => b.image && lecture.blocks.includes(b.id) && wayOf(run, b.id) !== "skip").map((b) => {
-    const lines = [...new Set(lecture.goals.filter((g) => g.blocks.includes(b.id)).flatMap((g) => lecture.goalLines?.[g.id] ?? []))].sort((x, y) => x - y);
-    const way = wayOf(run, b.id);
-    return { id: b.id, way: way ? choiceOf(way)?.label ?? way : "not triaged", caption: captionOf(run.blocks, b) ?? b.description ?? "",
-      ready: run.generation?.figures[b.id]?.status === "done", lines };
-  });
-}
 
 export async function scriptAction(id: string, a: ScriptAction): Promise<Run> {
   const run = await loadRun(id);

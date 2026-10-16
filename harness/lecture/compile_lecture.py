@@ -631,11 +631,58 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     with "fixed: " (shown in the log, never sent back to the writer)."""
     canonical_ops(script)
     notes = _fix_unusable(script, has_map)
+    notes += _split_manim_beats(script)
     notes += _fix_steps(script)
     notes += _build_with_speech(script)
     reveals: list[str] = []
     _complete_reveals(script, reveals, script.get("figures") or {})
     return notes + reveals
+
+
+def _split_manim_beats(script: dict) -> list[str]:
+    """A manim op shares a beat with other ops: the beat becomes two, the figure on one and the rest on the other,
+    in the order they were written, the line's sentences shared between them. A line of one sentence keeps the
+    figure, and the other ops go to the next beat (or the one before) that is not a figure. Sending the section
+    back for it rewrote the whole section and its figures."""
+    notes: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        beats = chapter.get("beats") or []
+        out: list = []
+        moved: list[tuple[int, list]] = []          # (index in out, ops) for a one-sentence line
+        for b, beat in enumerate(beats):
+            ops = beat.get("do") if isinstance(beat, dict) and isinstance(beat.get("do"), list) else []
+            manim = [op for op in ops if isinstance(op, dict) and op.get("op") == "manim"]
+            rest = [op for op in ops if not (isinstance(op, dict) and op.get("op") == "manim")]
+            if len(manim) != 1 or not rest:
+                out.append(beat)
+                continue
+            at = f"chapter {c + 1} beat {b + 1}"
+            figure_first = ops.index(manim[0]) < ops.index(rest[0])
+            said = [x for x in re.split(r"(?<=[.?!।])\s+", str(beat.get("say") or "").strip()) if x]
+            if len(said) >= 2:
+                half = (len(said) + 1) // 2
+                first, second = " ".join(said[:half]), " ".join(said[half:])
+                one = {**beat, "say": first, "do": manim if figure_first else rest}
+                two = {k: v for k, v in beat.items() if k not in ("lines", "at")}
+                two.update({"say": second, "do": rest if figure_first else manim})
+                one.pop("lines", None)
+                out += [one, two]
+                notes.append(f"{FIXED}{at}: its manim figure and its other ops put on beats of their own")
+            else:
+                out.append({**beat, "do": manim})
+                moved.append((len(out) - 1, rest))
+                notes.append(f"{FIXED}{at}: its other ops moved off the manim figure's beat")
+        for at_out, rest in moved:
+            # The next beat that is not a figure, else the one before; with neither, the ops are left out.
+            near = [k for k in range(at_out + 1, len(out))] + [k for k in range(at_out - 1, -1, -1)]
+            home = next((k for k in near if isinstance(out[k], dict)
+                         and not any(isinstance(op, dict) and op.get("op") == "manim" for op in out[k].get("do") or [])),
+                        None)
+            if home is not None:
+                out[home] = {**out[home], "do": [*(out[home].get("do") or []), *rest]}
+        if beats:
+            chapter["beats"] = out
+    return notes
 
 
 # A picture that stays up this many beats at most is built along them (_build_with_speech).

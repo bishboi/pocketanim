@@ -41,10 +41,13 @@ def test_a_manim_beat_compiles_to_a_free_beat_and_shares_its_names(monkeypatch):
     assert errors == []
     source = cl.compile_script(script)
     assert source.count('self.free("fig", ') == 2 and "self.board()" in source
-    # Only op on its beat; code required.
+    # Only op on its beat (the compiler moves the rest off it, not refusing it); code required.
     crowded = _script(BUILD)
     crowded["chapters"][0]["beats"][0]["do"].append({"op": "fact", "text": "a box"})
-    assert any("only its manim op" in e for e in cl.lint(crowded)[0])
+    errors, warnings = cl.lint(crowded)
+    assert not any("only its manim op" in e for e in errors)
+    assert any(w.startswith(cl.FIXED) and "manim figure" in w for w in warnings)
+    assert all(len(b["do"]) == 1 for b in crowded["chapters"][0]["beats"] if any(op["op"] == "manim" for op in b["do"]))
     empty = _script("  ")
     assert any("needs its code" in e for e in cl.lint(empty)[0])
     assert any("not allowed" in e for e in cl.lint(_script("import os"))[0])

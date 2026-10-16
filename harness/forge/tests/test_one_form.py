@@ -185,3 +185,26 @@ def test_a_detailed_drawing_is_made_by_the_diagram_model_never_as_an_svg(tmp_pat
     assert asked[0] == "test/diagram-model"                                   # the drawing: the diagram model
     source = cl.compile_script(script)
     assert "svg" not in source.lower() and "self.stage_image(" in source and "labels=[('upper epidermis'" in source
+
+
+def test_a_manim_figure_sharing_its_beat_is_given_a_beat_of_its_own():
+    code = "class Fig(Scene):\n    def construct(self):\n        self.add(Circle())\n"
+    script = {"chapters": [{"title": "C", "beats": [
+        {"say": "Here is the field. Watch it bend the beam.", "do": [
+            {"op": "panel", "title": "Fields"}, {"op": "manim", "code": code}]},
+        {"say": "One line only.", "do": [{"op": "manim", "code": code}, {"op": "fact", "text": "E = F/q"}]},
+        {"say": "Next.", "do": []},
+    ]}]}
+    notes = cl.mechanical_fixes(script, has_map=False)
+    beats = script["chapters"][0]["beats"]
+    # Two sentences: shared, in the order the ops were written (the panel first).
+    assert [b["say"] for b in beats[:2]] == ["Here is the field.", "Watch it bend the beam."]
+    assert [op["op"] for op in beats[0]["do"]] == ["panel"]
+    assert [op["op"] for op in beats[1]["do"]] == ["manim"]
+    # One sentence: the figure keeps the beat, its other op moves to the next beat that is not a figure.
+    assert [op["op"] for op in beats[2]["do"]] == ["manim"]
+    assert [op["op"] for op in beats[3]["do"]] == ["fact"]
+    assert sum("manim figure" in n for n in notes) == 2 and all(n.startswith(cl.FIXED) for n in notes if "manim" in n)
+    for beat in beats:
+        ops = beat["do"]
+        assert not (any(op["op"] == "manim" for op in ops) and len(ops) > 1)

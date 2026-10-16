@@ -127,7 +127,7 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
         <span className="font-semibold">{money(cost)}</span>
         {next && done > 0 && (
           <button className="ml-auto rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40" disabled={running}
-            data-testid="to-generation" onClick={next}>Next: generate the redraws and SVGs →</button>
+            data-testid="to-generation" onClick={next}>Next: generate the redraws, SVGs and Manim →</button>
         )}
       </div>
       {triage?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200" data-testid="triage-error">{triage.error}</p>}

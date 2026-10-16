@@ -6,13 +6,14 @@ import { onBoard } from "@/lib/prompts/svg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4" };
 
 /** A figure's generated image, by its block id (URL-encoded). */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; fig: string }> }) {
   const { id, fig } = await params;
   const run = await loadRun(id).catch(() => null);
-  const file = run?.generation?.figures[decodeURIComponent(fig)]?.file;
+  const f = run?.generation?.figures[decodeURIComponent(fig)];
+  const file = new URL(request.url).searchParams.has("video") ? f?.video : f?.file;
   if (!file) return NextResponse.json({ error: "no generated image" }, { status: 404 });
   if (file.endsWith(".svg")) {
     // An SVG as v1's default board shows it (its colour names as the board's colours, on the board), or as written

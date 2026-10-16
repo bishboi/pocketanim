@@ -19,6 +19,9 @@ import { callImage } from "./images";
 import { modelFor } from "./models";
 import { BLOCKED, REDRAW_LEVELS, redrawParts, redrawText } from "./prompts/redraw";
 import { SVG_TOOL, checkSvg, standInSvg, svgPrompt } from "./prompts/svg";
+import { MANIM_TOOL, manimPrompt, standInManim } from "./prompts/manim";
+import { checkManim, renderManim } from "./manim";
+import { copyFile } from "node:fs/promises";
 import { callTool } from "./llm";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
@@ -28,11 +31,11 @@ import type { FigureGeneration, Generation, Run } from "./types";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_GENERATE_PARALLEL) || 3);
 /** The ways this step generates. */
-export const GENERATED: TriageKind[] = ["exact", "styled", "svg"];
+export const GENERATED: TriageKind[] = ["exact", "styled", "svg", "manim"];
 
 export type GenerateAction =
-  | { action: "run" | "reset"; model?: string; svgModel?: string }
-  | { action: "one"; block: string; model?: string; svgModel?: string }
+  | { action: "run" | "reset"; model?: string; svgModel?: string; manimModel?: string }
+  | { action: "one"; block: string; model?: string; svgModel?: string; manimModel?: string }
   | { action: "stop" };
 
 /** A figure's way as it stands: chosen by hand, else the triage's. */
@@ -63,9 +66,10 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
   const gen: Generation = run.generation ?? { status: "idle", model: "", rounds: 0, figures: {} };
   gen.model = a.model || gen.model || run.options.imageModel || modelFor("image");
   gen.svgModel = a.svgModel || gen.svgModel || run.options.svgModel || modelFor("svg");
+  gen.manimModel = a.manimModel || gen.manimModel || run.options.manimModel || modelFor("manim");
   run.generation = gen;
   const figures = toGenerate(run);
-  if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw or SVG drawing");
+  if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw, SVG drawing or Manim");
   let todo: Block[];
   if (a.action === "reset") {
     gen.figures = Object.fromEntries(Object.entries(gen.figures).map(([b, f]) => [b, { block: b, status: "waiting", calls: f.calls } as FigureGeneration]));
@@ -147,6 +151,7 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
   const context = [lecture ? `Lecture "${lecture.title}"${goals.length ? `, to teach: ${goals.join("; ")}` : ""}.` : "", around].filter(Boolean).join(" ");
   const t = run.triage?.figures[block.id];
   if (kind === "svg") return drawSvg(run, block, state, reference, { caption, context, how: t?.how });
+  if (kind === "manim") return drawManim(run, block, state, reference, { caption, context, how: t?.how });
   // Asked in full; when the model's moderation blocks it, in gentler words; then with no reference image at all.
   for (const level of REDRAW_LEVELS) {
     const blind = level === "blind";
@@ -232,5 +237,67 @@ async function drawSvg(run: Run, block: Block, state: FigureGeneration, referenc
   if (last) last.output = { ...(last.output as object), image: url };
   Object.assign(state, { status: "done", file: target, url, at: Date.now(), level: undefined, svgParts: best.parts,
     svgProblems: best.problems.length ? best.problems : undefined, prompt: undefined });
+  saveRun(run);
+}
+
+/**
+ * A figure triaged Manim: the Manim model is shown the book's figure and writes its Manim code in the same call,
+ * with v1's Manim rules; the code is checked and rendered with the repo's Manim (manim.ts): the last frame and a
+ * short video. A refused or failed render goes back to the same model once, with the error, as v1's coder did.
+ */
+async function drawManim(run: Run, block: Block, state: FigureGeneration, reference: string,
+  x: { caption?: string; context?: string; how?: string }) {
+  const gen = run.generation!;
+  let retry: { code: string; error: string } | undefined;
+  const work = path.join(path.dirname(generatedFile(run.id, block.id)), `${block.id.replace(/[^\w]+/g, "_")}.manim`);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const prompt = manimPrompt({ documentId: run.documentId, blockId: block.id, page: block.page, caption: x.caption, context: x.context, how: x.how, retry });
+    const call = newCall(run, { step: "generate", label: `Manim ${block.id}${attempt > 1 ? " (again, with the error)" : ""}`,
+      block: block.id, model: gen.manimModel!, effort: "off", prompt });
+    state.calls.push(call.id);
+    const reply = await callTool({ call, tool: MANIM_TOOL, images: [reference], onChange: () => saveRun(run),
+      fake: () => ({ code: standInManim(x.caption ?? block.text) }) });
+    const code = String(reply?.code ?? "").replace(/^```(?:python)?\n?|```\s*$/g, "").trim();
+    if (!code) {
+      check(call, "Code", "fail", call.error ? `the call failed: ${call.error}` : "the answer had no code");
+      if (call.error) break;
+      retry = { code: "(none)", error: "your answer had no code: give the body of construct() in write_manim" };
+      continue;
+    }
+    state.code = code;
+    const problems = checkManim(code);
+    if (problems.length) {
+      check(call, "Rules", "fail", problems.join("; "));
+      retry = { code, error: problems.join("\n") };
+      state.error = `refused before running: ${problems.join("; ")}`;
+      continue;
+    }
+    check(call, "Rules", "pass", `${code.split("\n").length} lines`);
+    state.status = "running";
+    saveRun(run);
+    const out = await renderManim(code, work);
+    if (!out.png) {
+      check(call, "Render", "fail", out.error ?? "no frame");
+      retry = { code, error: out.error ?? "the render failed" };
+      state.error = `the render failed: ${(out.error ?? "").split("\n").slice(-2).join(" ")}`;
+      if (/not installed/.test(out.error ?? "")) break;
+      continue;
+    }
+    const png = generatedFile(run.id, block.id, "png");
+    await mkdir(path.dirname(png), { recursive: true });
+    await copyFile(out.png, png);
+    let video: string | undefined;
+    if (out.mp4) {
+      video = generatedFile(run.id, block.id, "mp4");
+      await copyFile(out.mp4, video);
+    }
+    check(call, "Render", out.mp4 ? "pass" : "info", `rendered in ${out.seconds.toFixed(1)} s${out.mp4 ? ": its last frame and its video" : `: the last frame only (${out.error})`}`);
+    const url = `/api/runs/${run.id}/generated/${encodeURIComponent(block.id)}?v=${Date.now()}`;
+    call.output = { ...(call.output as object), image: url };
+    Object.assign(state, { status: "done", file: png, video, url, at: Date.now(), error: undefined, level: undefined, prompt: undefined });
+    saveRun(run);
+    return;
+  }
+  Object.assign(state, { status: "failed", error: state.error ?? "no Manim code was written", at: Date.now() });
   saveRun(run);
 }

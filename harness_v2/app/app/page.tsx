@@ -319,6 +319,7 @@ export default function Page() {
               select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} next={() => setTab("Generate")} />}
             {run && tab === "Generate" && <GenerationPanel run={run} defaultModel={run.options.imageModel || options.imageModel || config?.models.image?.model || ""}
               defaultSvgModel={run.options.svgModel || options.svgModel || config?.models.svg?.model || ""}
+              defaultManimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}

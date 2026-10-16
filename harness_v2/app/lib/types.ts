@@ -157,6 +157,9 @@ export type FigureGeneration = {
   /** An SVG's parts (its <g id>s), and the rules it still breaks when no try kept them all. */
   svgParts?: string[];
   svgProblems?: string[];
+  /** A Manim figure's code (the body of construct()) and its video (the last frame is `file`). */
+  code?: string;
+  video?: string;
   /** Where the image is kept, and its URL for the page. */
   file?: string;
   url?: string;
@@ -171,6 +174,8 @@ export type Generation = {
   model: string;
   /** The SVG model (reads the figure, writes the SVG, in one call). */
   svgModel?: string;
+  /** The Manim model (reads the figure, writes its Manim code, in one call). */
+  manimModel?: string;
   started?: number;
   ended?: number;
   rounds: number;

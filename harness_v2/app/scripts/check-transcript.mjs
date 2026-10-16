@@ -10,6 +10,8 @@ import path from "node:path";
 delete process.env.OPENROUTER_API_KEY;
 delete process.env.DATALAB_API_KEY;
 const here = import.meta.dirname;
+// Manim renders with the repo's .venv (the check runs from a temporary folder).
+process.env.V2_PYTHON ??= path.resolve(here, "../../../.venv/bin/python");
 const pdf = readFileSync(path.join(here, "fixtures", "chapter.pdf"));
 process.chdir(mkdtempSync(path.join(tmpdir(), "v2-check-")));
 const { addDocument } = await import(path.resolve(here, "../lib/docs.ts"));
@@ -162,7 +164,8 @@ assert.ok(g0.prompt.includes("NO TEXT AT ALL in the picture"), "no text in the i
 assert.ok(!/LOOKS JUST LIKE|exact copy|textbook|EVERY LABEL/i.test(g0.prompt), "no words moderation reads as copying");
 assert.equal(g0.level, "full");
 assert.ok(readFileSync(g0.file).subarray(1, 4).toString() === "PNG", "the image kept");
-assert.ok(!run.generation.figures[pics[1].id], "a figure not triaged as a redraw is not generated");
+assert.equal(run.generation.figures[pics[1].id]?.kind, "manim", "the graph, triaged Manim, is drawn in Manim");
+assert.equal(run.generation.figures[pics[1].id]?.status, "done", run.generation.figures[pics[1].id]?.error);
 const gcall = run.calls.find((c) => c.id === g0.calls[0]);
 assert.equal(gcall.api, "image");
 assert.ok(gcall.prompt.user.some((p) => p.key === "keep") && gcall.prompt.user.some((p) => p.key === "reference"), "the prompt by its parts");
@@ -195,12 +198,32 @@ const gs = run.generation.figures[pics[1].id];
 assert.equal(gs.status, "done", gs.error);
 assert.equal(gs.kind, "svg");
 assert.ok(readFileSync(gs.file, "utf8").startsWith("<svg") && gs.svgParts.includes("subject"), "the SVG kept, with its parts");
-const scall = run.calls.find((c) => c.id === gs.calls[0]);
+const svgCalls = run.calls.filter((c) => gs.calls.includes(c.id) && c.label.startsWith("SVG"));
+const scall = svgCalls[0];
 assert.equal(scall.model, "anthropic/claude-sonnet-4.5", "the SVG model");
-assert.equal(gs.calls.length, 1, "one call: the same model reads the figure and draws it");
+assert.equal(svgCalls.length, 1, "one call: the same model reads the figure and draws it");
 assert.ok(scall.prompt.system.some((p) => p.key === "rules" && p.text.includes("Colours by NAME")), "v1's SVG rules");
 assert.ok(scall.prompt.user.some((p) => p.key === "image"), "the figure goes with the request");
 assert.ok(scall.checks.some((c) => c.name === "SVG rules" && c.result === "pass"), JSON.stringify(scall.checks));
+// Manim: drawn by the Manim model from the figure, in one call, checked, and rendered with the repo's Manim.
+const { checkManim, renderManim } = await import(path.resolve(here, "../lib/manim.ts"));
+assert.ok(checkManim("import os\nself.play(Create(Circle()))").some((p) => /imports/.test(p)));
+assert.ok(checkManim("open('x').read()\nself.add(Circle())").some((p) => /open/.test(p)));
+assert.ok(checkManim("x = Circle().__class__\nself.add(x)").some((p) => /dunder/.test(p)));
+assert.deepEqual(checkManim('c = Circle(color=INK)\nself.play(Create(c))'), []);
+const broken = await renderManim("self.play(Create(NoSuchThing()))", path.join(process.cwd(), "manim-broken"));
+assert.ok(!broken.png && /NameError|NoSuchThing/.test(broken.error ?? ""), `the error goes back to the model: ${broken.error}`);
+await triageAction(run.id, { action: "override", block: pics[1].id, kind: "manim" });
+await generateAction(run.id, { action: "one", block: pics[1].id });
+run = await wait(run.id, (r) => r.generation.status === "running");
+const gmn = run.generation.figures[pics[1].id];
+assert.equal(gmn.status, "done", gmn.error);
+assert.equal(readFileSync(gmn.file).subarray(1, 4).toString(), "PNG", "its last frame");
+assert.ok(gmn.video && readFileSync(gmn.video).subarray(4, 8).toString() === "ftyp", "its video");
+assert.ok(gmn.code.includes("self.play"));
+const mcall = run.calls.find((c) => c.id === gmn.calls.at(-1));
+assert.ok(mcall.prompt.system.some((p) => p.key === "rules" && p.text.includes("PALETTE")) && mcall.prompt.user.some((p) => p.text.includes("to rebuild exactly")), "v1's Manim rules");
+assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), JSON.stringify(mcall.checks));
 await triageAction(run.id, { action: "override", block: pics[1].id, kind: null });
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.

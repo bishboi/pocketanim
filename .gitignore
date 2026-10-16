@@ -55,3 +55,9 @@ harness/lecture/data/historical/
 
 # Narration and sound effects made by a lecture run without PANIM_AUDIO_DIR
 build_audio/
+
+# iOS player build output (SwiftPM, XcodeGen, Xcode) and local secrets
+ios/.build*/
+ios/*.xcodeproj/
+ios/App/Secrets.xcconfig
+ios/DerivedData/

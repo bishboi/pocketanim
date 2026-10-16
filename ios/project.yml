@@ -8,6 +8,9 @@ options:
     iOS: "15.0"
   createIntermediateGroups: true
   developmentLanguage: en
+  # The project file format Xcode 15 opens (newer XcodeGen writes Xcode 16's format 77 by default).
+  xcodeVersion: "15.4"
+  projectFormat: xcode15_3
 
 settings:
   base:

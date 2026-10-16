@@ -1,6 +1,5 @@
 /**
- * Where v2 keeps its files: harness_v2/app/.data/docs/<id>/ (the PDF, the book's Markdown read from it, its
- * manifest) and harness_v2/app/.data/runs/<id>.json (a run, written as it goes, so a page reloaded mid-run sees it).
+ * Where v2 keeps its files: harness_v2/app/.data/docs/<id>/ (the PDF, Datalab's JSON of it, its figures) and harness_v2/app/.data/runs/<id>.json (a run, written as it goes, so a page reloaded mid-run sees it).
  */
 
 import { randomBytes } from "node:crypto";
@@ -8,6 +7,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DocumentInfo, Run } from "./types";
+import type { RawBlock } from "./datalab";
 
 export const DATA = path.join(process.cwd(), ".data");
 export const REPO = path.resolve(process.cwd(), "..", "..");
@@ -34,8 +34,14 @@ export async function listDocuments(): Promise<DocumentInfo[]> {
   return out.sort((a, b) => b.created - a.created);
 }
 
-export async function documentMarkdown(id: string): Promise<string> {
-  return readFile(path.join(docDir(id), "out", "document.md"), "utf8");
+/** The book as Datalab's JSON, and its figures' image files by block id. */
+export async function documentBook(id: string): Promise<{ json: RawBlock; figures: Record<string, string> }> {
+  const json = JSON.parse(await readFile(path.join(docDir(id), "book.json"), "utf8")) as RawBlock;
+  let figures: Record<string, string> = {};
+  try {
+    figures = JSON.parse(await readFile(path.join(docDir(id), "figures.json"), "utf8"));
+  } catch {}
+  return { json, figures };
 }
 
 export async function documentInfo(id: string): Promise<DocumentInfo> {

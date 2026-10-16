@@ -9,5 +9,6 @@ export async function GET() {
     datalab: !!process.env.DATALAB_API_KEY,
     plannerModel: process.env.V2_PLANNER_MODEL || "anthropic/claude-sonnet-4.5",
     writerModel: process.env.V2_WRITER_MODEL || "anthropic/claude-sonnet-4.5",
+    figureModel: process.env.V2_FIGURE_MODEL || "google/gemini-2.5-flash",
   });
 }

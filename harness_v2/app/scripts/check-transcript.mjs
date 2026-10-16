@@ -1,56 +1,62 @@
-// The transcription flow end to end with the offline stand-in (no key): a small book in, every step done, every
-// item under a goal, every goal taught or written in, each call recorded with its prompt parts and checks.
+// The transcription flow end to end with no keys: a 4-page chapter PDF read by the offline reader into Datalab-shaped
+// JSON, planned and written by the offline stand-in. Checks: blocks keep Datalab's ids and boxes; the planner sees no
+// boxes; every block is placed in a lecture; every goal is taught or written in; lectures see the ones before them.
 //   npm run check
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 delete process.env.OPENROUTER_API_KEY;
-const dir = mkdtempSync(path.join(tmpdir(), "v2-check-"));
-process.chdir(dir);
-const { startRun } = await import(path.resolve(import.meta.dirname, "../lib/run.ts"));
-const { loadRun } = await import(path.resolve(import.meta.dirname, "../lib/store.ts"));
-const { render } = await import(path.resolve(import.meta.dirname, "../lib/prompts/parts.ts"));
+delete process.env.DATALAB_API_KEY;
+const here = import.meta.dirname;
+const pdf = readFileSync(path.join(here, "fixtures", "chapter.pdf"));
+process.chdir(mkdtempSync(path.join(tmpdir(), "v2-check-")));
+const { addDocument } = await import(path.resolve(here, "../lib/docs.ts"));
+const { startRun } = await import(path.resolve(here, "../lib/run.ts"));
+const { loadRun } = await import(path.resolve(here, "../lib/store.ts"));
+const { render } = await import(path.resolve(here, "../lib/prompts/parts.ts"));
 
-const book = [
-  "# From Villages to Cities", "",
-  "## The River Valleys", "", "The first farmers settled near the **Indus**. The floods left rich **silt** behind them every year. ".repeat(20), "",
-  "[FIGURE fig1: The Indus valley]", "", "Do you know?", "The Nile flood came at the same time every year.", "",
-  "## The First Cities", "", "Cities such as **Harappa** had drains and a **granary** for the grain of the whole town. ".repeat(22), "",
-  "## Exercises", "", "1. Why did farmers settle near rivers?", "2. Which of these was found in Harappa?", "(a) Iron (b) Drains (c) Coins (d) Paper",
-].join("\n");
-const id = "check-0001";
-mkdirSync(path.join(dir, ".data", "docs", id, "out"), { recursive: true });
-writeFileSync(path.join(dir, ".data", "docs", id, "out", "document.md"), book);
-writeFileSync(path.join(dir, ".data", "docs", id, "info.json"), JSON.stringify({ id, name: "check.pdf", pages: 2, words: 500, source: "test", created: 1 }));
-
-const started = await startRun(id, { minutes: 10, parallel: 4 });
+const doc = await addDocument("chapter.pdf", new Uint8Array(pdf));
+assert.equal(doc.pages, 4);
+assert.equal(doc.source, "offline");
+const started = await startRun(doc.id, { lectureMinutes: 4 });
 let run;
-for (let i = 0; i < 200; i++) {
+for (let i = 0; i < 300; i++) {
   run = await loadRun(started.id);
   if (run.status !== "running") break;
   await new Promise((r) => setTimeout(r, 200));
 }
 assert.equal(run.status, "done", run.error);
 assert.ok(run.steps.every((s) => s.status === "done"), JSON.stringify(run.steps));
-const placed = run.map.goals.flatMap((g) => g.items);
-assert.equal(new Set(placed).size, run.map.items.length, "every item under one goal");
-assert.ok(run.sections.every((s) => s.status === "written" && s.text), "every section written");
+
+// Datalab's shape: ids by page and type, boxes within the page.
+assert.ok(run.blocks.length > 10);
+for (const b of run.blocks) {
+  assert.match(b.id, /^\/page\/\d+\/[A-Za-z]+\/\d+$/);
+  assert.ok(b.box.every((v) => v >= -0.01 && v <= 1.01), `${b.id} box ${b.box}`);
+}
+assert.ok(run.blocks.some((b) => b.type === "SectionHeader"), "headers found");
+
+// The planner reads Datalab's ids, types and HTML, never the boxes; it answers with ids.
+const plan = run.calls.find((c) => c.step === "plan");
+const sent = render(plan.prompt.user);
+assert.ok(sent.includes('"block_type":"SectionHeader"') && sent.includes("/page/0/"), "planner sees the blocks");
+assert.ok(!/bbox|polygon|"box"/.test(sent), "planner sees no boxes");
+
+// Every block in exactly one lecture (or skipped); every goal taught or written in; the patch ran.
+const placed = run.lectures.flatMap((l) => l.blocks);
+assert.equal(new Set(placed).size, placed.length, "no block in two lectures");
+assert.equal(placed.length + run.skipped.length, run.blocks.length, "every block placed or skipped");
+assert.ok(run.lectures.length >= 2, `lectures by topic (${run.lectures.length})`);
+assert.ok(run.lectures.every((l) => l.status === "written" && l.text), JSON.stringify(run.lectures.map((l) => [l.n, l.status, run.calls.filter((c) => c.lecture === l.n).map((c) => c.error)])));
 assert.ok(Object.values(run.goalStatus).every((s) => s === "taught" || s === "patched"), JSON.stringify(run.goalStatus));
-assert.ok(Object.values(run.goalStatus).includes("patched"), "the patch step ran");
-const kinds = new Set(run.calls.map((c) => c.step));
-for (const k of ["map", "plan", "section", "patch"]) assert.ok(kinds.has(k), `a ${k} call`);
-for (const c of run.calls) {
-  assert.ok(c.prompt.system.length && c.prompt.user.length, `${c.label}: prompt parts`);
-  assert.ok(render(c.prompt.user).length > 20, `${c.label}: user prompt`);
-  assert.ok(c.checks.length || c.step === "plan", `${c.label}: checks`);
-  assert.equal(c.provider, "fixture");
-}
-const section = run.calls.find((c) => c.step === "section");
-for (const key of ["ask", "story", "yours", "goals", "questions", "length", "book"]) {
-  assert.ok(section.prompt.user.some((p) => p.key === key), `section prompt has its ${key} part`);
-}
-console.log(`ok: ${run.sections.length} sections, ${run.map.goals.length} goals, ${run.calls.length} calls, ` +
-  `${Object.values(run.goalStatus).filter((s) => s === "patched").length} patched`);
+assert.ok(run.calls.some((c) => c.step === "patch"), "a patch call");
+
+// A later lecture is given the earlier ones whole; no length ceiling anywhere in a writer's prompt.
+const second = run.calls.find((c) => c.step === "lecture" && c.lecture === 2);
+const previous = second.prompt.user.find((p) => p.key === "previous").text;
+assert.ok(previous.includes(run.lectures[0].text.slice(0, 80)), "lecture 2 sees lecture 1's transcript");
+assert.ok(!/at most about|words \(\d+ min\)/.test(render(second.prompt.system) + render(second.prompt.user)), "no length ceiling");
+console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${Object.keys(run.goalStatus).length} goals, ${run.calls.length} calls`);
 process.exit(0);

@@ -115,6 +115,11 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
                 <div key={p.key} className={`mt-2 rounded border-l-4 ${KIND_STYLE[p.kind]} bg-neutral-900 p-2`}>
                   <p className="mb-1 text-[11px] font-semibold">{p.label}</p>
                   <pre className="mono max-h-[50vh] overflow-auto whitespace-pre-wrap text-[11.5px] leading-snug text-neutral-200">{p.text}</pre>
+                  {/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.test(p.text) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img alt="the figure sent with this call" className="mt-2 max-h-80 rounded bg-white"
+                      src={/\/api\/documents\/[^\s\]]+\/figure\/[^\s\]]+/.exec(p.text)![0]} />
+                  )}
                 </div>
               ))}
             </div>

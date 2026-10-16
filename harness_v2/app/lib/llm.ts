@@ -20,10 +20,13 @@ export function usingFixture(model: string): boolean {
 }
 
 /** The request body exactly as it is sent (also shown on the page). */
-export function requestBody(model: string, prompt: Prompt, tool: Tool, effort?: string): Record<string, unknown> {
+export function requestBody(model: string, prompt: Prompt, tool: Tool, effort?: string, images: string[] = []): Record<string, unknown> {
+  const user = images.length
+    ? [{ type: "text", text: render(prompt.user) }, ...images.map((url) => ({ type: "image_url", image_url: { url } }))]
+    : render(prompt.user);
   return {
     model,
-    messages: [{ role: "system", content: render(prompt.system) }, { role: "user", content: render(prompt.user) }],
+    messages: [{ role: "system", content: render(prompt.system) }, { role: "user", content: user }],
     tools: [tool],
     tool_choice: { type: "function", function: { name: tool.function.name } },
     usage: { include: true },
@@ -36,6 +39,8 @@ export async function callTool(o: {
   tool: Tool;
   fake: () => Record<string, unknown>;
   onChange: () => void;
+  /** Pictures sent with the user message (data URLs). */
+  images?: string[];
 }): Promise<Record<string, unknown> | null> {
   const { call, tool } = o;
   call.tool = tool;
@@ -43,7 +48,7 @@ export async function callTool(o: {
   for (let attempt = 1; attempt <= TRIES; attempt++) {
     const began = Date.now();
     try {
-      const args = call.provider === "fixture" ? await fixture(o.fake) : await real(call, tool);
+      const args = call.provider === "fixture" ? await fixture(o.fake) : await real(call, tool, o.images);
       call.attempts.push({ started: began, ended: Date.now() });
       call.output = args ?? undefined;
       call.status = "done";
@@ -73,7 +78,7 @@ async function fixture(fake: () => Record<string, unknown>): Promise<Record<stri
   return fake();
 }
 
-async function real(call: Call, tool: Tool): Promise<Record<string, unknown> | null> {
+async function real(call: Call, tool: Tool, images: string[] = []): Promise<Record<string, unknown> | null> {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
   try {
@@ -82,7 +87,7 @@ async function real(call: Call, tool: Tool): Promise<Record<string, unknown> | n
       signal: abort.signal,
       headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json",
         "X-Title": "pocketanim harness v2" },
-      body: JSON.stringify(requestBody(call.model, call.prompt, tool, call.effort)),
+      body: JSON.stringify(requestBody(call.model, call.prompt, tool, call.effort, images)),
     });
     const body = await response.text();
     if (!response.ok) throw new Error(`${response.status} ${body.slice(0, 300)}`);

@@ -3,19 +3,18 @@
  */
 
 import type { Part } from "./prompts/parts";
-import type { LearningMap } from "./plan/learningmap";
-import type { GoalStatus, StoryPlan } from "./plan/storyplan";
-import type { BookQuestion } from "./source/questions";
+import type { Block } from "./source/blocks";
+import type { Goal } from "./plan";
 
 /** What code found when it read a model's reply: passed, mended by code, failed, or only noted. */
 export type Check = { name: string; result: "pass" | "fixed" | "fail" | "info"; detail: string };
 
 export type Call = {
   id: string;
-  /** Which step of the flow made it: "map", "plan", "section", "patch", "check". */
+  /** Which step of the flow made it: "plan", "lecture", "patch". */
   step: string;
   label: string;
-  section?: number;
+  lecture?: number;
   model: string;
   effort?: string;
   status: "running" | "done" | "failed";
@@ -33,41 +32,45 @@ export type Call = {
   provider: "openrouter" | "fixture";
   error?: string;
   checks: Check[];
+  /** Pictures sent with the prompt (a figure to describe), as URLs the page can show. */
+  images?: string[];
 };
 
-export type StepKey = "read" | "map" | "plan" | "write" | "videos";
+export type StepKey = "read" | "figures" | "plan" | "write";
 
 export type Step = { key: StepKey; label: string; status: "waiting" | "running" | "done" | "failed"; started?: number;
   ended?: number; summary?: string };
 
-export type SectionState = {
+/** A lecture of the series: its part of the book (block ids) and goals from the plan, and its transcript. */
+export type LectureState = {
   n: number;
-  minutes: number;
-  words: number;
-  source: string;
-  questions: BookQuestion[];
-  questionsOnly?: boolean;
-  video?: number;
+  title: string;
+  why: string;
+  blocks: string[];
+  goals: Goal[];
   status: "waiting" | "writing" | "written" | "failed";
-  title?: string;
   /** The final text (cleaned, repeats out, patches in). */
   text?: string;
-  /** Each goal the section reported, with the sentence numbers in the final text that teach it. */
+  /** Each goal taught, with the sentence numbers in the final text that teach it. */
   goalLines?: Record<string, number[]>;
-  /** Sentences written in by a patch: their numbers in the final text. */
-  patched?: { goal: string; lines: number[] }[];
+  /** The blocks the writer (or a patch) says it taught; the rest of the lecture's blocks are missing. */
+  blocksTaught?: string[];
+  /** Sentences written in by a patch, with what they cover. */
+  patched?: { covers: string[]; lines: number[] }[];
   dropped?: string[];
   calls: string[];
 };
 
 export type Options = {
-  minutes: number;
+  /** How long a lecture is meant to be: told to the planner, as context. */
+  lectureMinutes: number;
   language: "auto" | "english" | "hindi" | "hinglish";
   subject: string;
   plannerModel: string;
   writerModel: string;
+  /** Reads the book's figures (a model that reads images). */
+  figureModel: string;
   effort: "low" | "medium" | "high" | "off";
-  parallel: number;
 };
 
 export type Run = {
@@ -80,14 +83,16 @@ export type Run = {
   error?: string;
   options: Options;
   steps: Step[];
-  sections: SectionState[];
-  map?: LearningMap;
-  plans: StoryPlan[];
-  videos: { index: number; sections: number[]; minutes: number; title: string; written?: number }[];
+  /** The book as blocks (blocks.ts): what the plan and the lectures name. */
+  blocks: Block[];
+  skipped: { block: string; reason: string }[];
+  lectures: LectureState[];
   goalStatus: Record<string, GoalStatus>;
   calls: Call[];
   log: { t: number; text: string }[];
 };
+
+export type GoalStatus = "waiting" | "taught" | "patched" | "missing";
 
 export type DocumentInfo = {
   id: string;

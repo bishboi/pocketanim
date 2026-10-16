@@ -1,238 +1,198 @@
 /**
- * The four prompts of the transcription, as parts (parts.ts). Their words are v1's (prompts/texts.ts and v1's
- * transcript.ts, learningmap.ts, storyplan.ts, coverage.ts); what is new is that each piece is named.
+ * The prompts of the transcription, as named parts (parts.ts):
  *
- *   learningMapPrompt   one call: the book's items, section by section, into learning goals
- *   storyPlanPrompt     one call per video: its story, and each section's part in it
- *   sectionPrompt       one call per section: its spoken transcript
- *   patchPrompt         one call per goal a section did not report: the sentences that teach it
+ *   planPrompt     one call: the whole book as blocks -> lectures (block ids) and their learning goals
+ *   lecturePrompt  one call per lecture, in order: its transcript, from its blocks and goals, with every lecture
+ *                  before it given whole (what the student has already been taught)
+ *   patchPrompt    one call per lecture that left a goal or a block out: the sentences that teach them, and where
+ *
+ * There is no length ceiling anywhere: the planner is told how long a lecture is meant to be, as context; a writer
+ * is told to teach everything it is given, and to stop when it has.
  */
 
-import { ideasOf, numbered, WORDS_PER_MINUTE, withoutExercises, type Section, type WrittenSection } from "../source/book";
-import { questionLine, type BookQuestion } from "../source/questions";
-import { goalLine, type LearningMap, type SourceItem } from "../plan/learningmap";
-import type { StoryPlan } from "../plan/storyplan";
-import { microMinutes } from "../plan/videos";
-import {
-  LEARNING_MAP_SYSTEM, NARRATION_EXAMPLES, STORY_PLAN_SYSTEM, STORYTELLING_PLANNED, classVoicePlanned, languagePrompt,
-  type Language,
-} from "./texts";
+import { blocksJson, bookWords, kindOf, type Block } from "../source/blocks";
+import { numbered } from "../source/book";
+import { goalLine, type Lecture } from "../plan";
+import { NARRATION_EXAMPLES, classVoicePlanned, languagePrompt, type Language } from "./texts";
 import { part, type Part, type Prompt } from "./parts";
 
-// ─── Learning map ────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Plan ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export function learningMapPrompt(sections: Section[], items: SourceItem[], subject?: string): Prompt {
-  const user: Part[] = [];
-  if (subject) user.push(part("subject", "Subject", "context", `The subject is ${subject}.`));
-  user.push(part("count", "What to place", "ask",
-    `The book's items to teach (${items.length}), section by section, with each section's text:`));
-  let budget = 60000;
-  for (const section of sections) {
-    if (section.questionsOnly) continue;
-    const own = items.filter((i) => i.section === section.n);
-    const text = section.source.slice(0, Math.max(1500, Math.min(6000, budget)));
-    budget -= text.length;
-    user.push(part(`items-${section.n}`, `Section ${section.n} items`, "items", [`SECTION ${section.n}`,
-      own.length ? own.map((i) => `  ${i.id} [${i.kind}] ${i.text}`).join("\n") : "  (no listed items: its text only)"]));
-    user.push(part(`book-${section.n}`, `Section ${section.n} book text`, "book",
-      ["  Its part of the book:", text.split("\n").map((line) => `    ${line}`).join("\n")]));
-  }
-  user.push(part("ask", "Request", "ask", "List the learning goals now (write_learning_map), every item under exactly one goal."));
-  return { system: [part("system", "Planner's rules", "rules", LEARNING_MAP_SYSTEM)], user };
+export function planPrompt(blocks: Block[], lectureMinutes: number, subject?: string): Prompt {
+  const words = bookWords(blocks);
+  const figures = blocks.filter((b) => kindOf(b.type) === "figure").length;
+  return {
+    system: [
+      part("role", "Role", "rules", [
+        "You are an experienced teacher planning a book chapter as a series of video lectures, before any of them is",
+        "written. You divide the chapter into LECTURES by what is learned, and you list each lecture's LEARNING GOALS.",
+      ]),
+      part("segment", "How to divide it", "rules", [
+        "HOW TO DIVIDE THE BOOK INTO LECTURES:",
+        "  - A lecture is a unit a student sits down to learn: one topic and everything it needs, with a beginning, a",
+        "    middle and an end. Never cut an idea, an explanation, a worked example or a figure away from the text that",
+        "    explains it. Cut where one topic is complete and the next begins.",
+        "  - Every block of the book is taught in exactly one lecture, except the book's furniture (QR codes, \"scan",
+        "    for e-content\", page headers, reprint and copyright notes), which you list in skipped.",
+        "  - A box beside the text (\"Do you know?\", \"Activity\"), a figure and its caption go in the lecture whose topic they serve.",
+        "  - The book's questions (exercises, in-text questions, multiple-choice questions) go in the lecture that teaches the idea each tests, so it",
+        "    is asked right after that idea is taught.",
+        "  - Teach in the book's order unless another order is clearly better for learning.",
+      ]),
+      part("map", "How to map the goals", "rules", [
+        "HOW TO MAP EACH LECTURE'S LEARNING GOALS:",
+        "  - goal: what the student will be able to do, one sentence in a student's words, about understanding, not",
+        "    reciting (\"Explain why ...\", \"Tell ... apart from ...\", \"Use ... to work out ...\").",
+        "  - blocks: the ids of this lecture's blocks that teach it. Together the goals cover all of the lecture's",
+        "    teaching blocks: every heading's idea, every bold term, every box and every figure.",
+        "  - misconception: the wrong idea students usually hold (\"heavier things fall faster\"); \"\" when there is none.",
+        "  - hook: something from a student's everyday life in India to start from (cricket, trains, the monsoon, the",
+        "    kitchen, the market, a festival), true to the idea.",
+      ]),
+      part("output", "How to answer", "rules", [
+        "Answer with Datalab's block ids only (\"/page/3/Text/7\"), never the book's text: the text is taken from the book by its id.",
+        "Facts come from the book only. Call plan_lectures once.",
+      ]),
+    ],
+    user: [
+      ...(subject ? [part("subject", "Subject", "context", `The subject is ${subject}.`)] : []),
+      part("length", "How long a lecture is", "context", [
+        `HOW LONG A LECTURE IS: each lecture is one video of about ${lectureMinutes} minutes, watched on its own. A book`,
+        `is taught at roughly its own length, about 100 words of the book a minute, so a lecture usually takes about`,
+        `${lectureMinutes * 100} words of the book; let the topics decide, not the count. This chapter has ${words} words`,
+        `in ${blocks.length} blocks (${figures} figures): about ${Math.max(1, Math.round(words / (lectureMinutes * 100)))} lecture(s).`,
+      ]),
+      part("book", "The book as JSON", "book", [
+        "THE BOOK as Datalab read it: every block in page order, one JSON object a line (Datalab's id, block_type and",
+        "html; a figure has figure_shows, what it shows):",
+        blocksJson(blocks),
+      ]),
+      part("ask", "Request", "ask", "Divide it into lectures and map their goals now (plan_lectures): every block in one lecture or in skipped."),
+    ],
+  };
 }
 
-// ─── Story plan ──────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Lecture ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export function storyPlanPrompt(video: { index: number; of: number; sections: Section[] }, map: LearningMap,
-  questions: BookQuestion[], subject?: string): Prompt {
-  const numbers = new Set(video.sections.map((s) => s.n));
-  const before = map.goals.filter((g) => g.section < Math.min(...numbers));
-  const after = map.goals.filter((g) => g.section > Math.max(...numbers));
-  const words = video.sections.reduce((n, s) => n + s.words, 0);
-  const user: Part[] = [];
-  if (subject) user.push(part("subject", "Subject", "context", `The subject is ${subject}.`));
-  user.push(part("video", "Which video", "ask", `Plan video ${video.index} of ${video.of}.`));
-  user.push(part("before", "Earlier videos", "context", before.length
-    ? ["Earlier videos teach these (the student has seen them; recall in a sentence, never teach again):",
-      ...before.map((g) => `  ${g.goal}`)]
-    : "This is the first video of the lecture."));
-  user.push(part("length", "Length", "context",
-    `Its length: about ${Math.round(words / WORDS_PER_MINUTE)} minutes (${words} spoken words), so plan only what fits.`));
-  user.push(part("goals", "Sections and goals", "goals", ["ITS SECTIONS, in order, with the goals each teaches:",
-    ...video.sections.flatMap((s) => {
-      const goals = map.goals.filter((g) => g.section === s.n);
-      return [`  SECTION ${s.n}${s.questionsOnly ? " (the book's questions on the part before)" : ""}`,
-        ...(goals.length ? goals.map((g) => `    ${goalLine(g, map.items)}`) : ["    (no goals of its own)"])];
-    })]));
-  if (questions.length) {
-    user.push(part("questions", "Book questions", "questions",
-      [`THE BOOK'S QUESTIONS IN THIS VIDEO (${questions.length}; place every one):`, ...questions.map(questionLine)]));
-  }
-  user.push(part("after", "Later videos", "context", after.length
-    ? ["The videos after this one teach (do not teach or preview these):", ...after.map((g) => `  ${g.goal}`)]
-    : "This is the last video of the lecture."));
-  user.push(part("ask", "Request", "ask", "Call write_story_plan now."));
-  return { system: [part("system", "Planner's rules", "rules", STORY_PLAN_SYSTEM)], user };
-}
+/** How a great teacher tells it: v1's rules, with the plan's story and the length ceiling taken out. */
+const TELLING = [
+  "HOW A GREAT TEACHER TELLS IT:",
+  "  - The lecture is ONE story with ONE question the student wants answered, asked near the start and answered by",
+  "    the end. Every part moves it forward.",
+  "  - Make them guess before you tell: ask, let them think, then answer. In fresh words each time, never a stock",
+  "    pause phrase.",
+  "  - Concrete before abstract: a scene, an object, a number made tangible (\"as heavy as 40 school bags\"), then the",
+  "    term. Everyday life in India is the best source: trains, cricket, the monsoon, the kitchen, the market.",
+  "  - Name the wrong idea students usually hold (the goal says it), let them hold it for a moment, then show why it",
+  "    fails.",
+  "  - Vary the rhythm: a short line after a long explanation. Not every sentence is a fact. Never read out a list.",
+  "  - A figure, a map or a table is shown at its moment: say what it shows and why it matters there, and point at the",
+  "    one or two things to look at. The book's questions are asked right after the idea they test, as a check-in,",
+  "    then answered in full, every choice of a multiple-choice question explained.",
+  "  - The story never changes the facts: no invented events, people, quotes, numbers or dates presented as history or",
+  "    science. A scene you imagine is said as imagined (\"imagine...\", \"सोचो...\").",
+  "  - When everything is taught, stop: no padding, no extra self-checks or study tips, no summary of what was just said",
+  "    except the short close of the lecture.",
+];
 
-// ─── Section ─────────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** The section writer's system prompt: the same for every section (so the provider caches it). */
-export function sectionSystem(sections: Section[], language: Language, subject?: string): Part[] {
-  const range = microMinutes();
+export function lectureSystem(language: Language, subject?: string): Part[] {
   return [
     part("role", "Role", "rules", [
-      "You write the complete spoken TRANSCRIPT of a video lecture: every word the teacher says, in order. A later",
-      "step turns it into the video sentence for sentence and adds the pictures, so everything the student hears is",
-      "in these words.",
+      "You write the complete spoken TRANSCRIPT of one video lecture of a series: every word the teacher says, in order.",
+      "A later step turns it into the video sentence for sentence and adds the pictures, so everything the student hears",
+      "is in these words.",
     ]),
     part("matters", "What matters", "rules", [
-      "FOUR THINGS MATTER above all:",
-      "  1. THE QUALITY OF THE LEARNING comes first: the student truly understands and remembers. The order of",
-      "     explanation, the examples, how deep each idea goes and how a video opens and closes are yours to decide.",
-      "     Nothing about your style or length is counted or checked.",
-      "  2. TOLD AS A STORY. The student follows a story, never a list of facts read out (rule 4 below says how).",
-      `  3. VIDEOS OF ${range.min}-${range.max} MINUTES. A long lecture is watched as several videos of about ${range.min}-${range.max}`,
-      `     minutes (a minute is about ${WORDS_PER_MINUTE} spoken words). Where each starts and ends is decided from your`,
-      "     written transcript, always between sections, and you are then asked for the words that close one video and",
-      "     open the next. So write the sections as one continuous lecture, and spend the time where learning needs it.",
-      "  4. COVER EVERYTHING IN THE SOURCE: the lecture's learning goals were planned from every heading, term, box and",
-      "     figure of the book, and each section's request names its own. Teach every goal of yours and report it in",
-      "     goals_taught; a goal left out is written in afterwards, where it fits less well. Ask each of the book's",
-      "     questions your section is given (say which one it is, by its number).",
+      "WHAT MATTERS above all:",
+      "  1. LEAVE NOTHING OUT. Everything in the blocks of the book you are given is taught: every heading's idea, every",
+      "     definition and bold term, every fact, number and example, every box, every figure, every book question. Take",
+      "     the time each needs; nothing about the length is counted. Report each goal you taught in goals_taught and",
+      "     each block in blocks_taught: what is missing is written in afterwards, where it fits less well.",
+      "  2. THE QUALITY OF THE LEARNING: the student truly understands and remembers.",
+      "  3. TOLD AS A STORY, never a list of facts read out.",
+      "  4. ONE SERIES. The lectures before this one are given to you whole: the student has watched them. Never teach",
+      "     again what they taught; recall it in a sentence when this lecture needs it, and build on it. Open by",
+      "     picking up from where the last lecture ended (a short look back), and end with a short close of this",
+      "     lecture and what comes next.",
     ]),
-    part("telling", "How to tell it", "rules", STORYTELLING_PLANNED),
+    part("telling", "How to tell it", "rules", TELLING),
     part("voice", "Voice", "rules", classVoicePlanned(language)),
     part("examples", "Narration examples", "rules", NARRATION_EXAMPLES),
     part("use", "How the transcript is used", "rules", [
       "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
       "  - A voice speaks it, so write only the words said: no headings, bullet lists, [brackets] or stage directions,",
       "    and say formulas and symbols the way they are spoken.",
-      "  - Where the source marks [FIGURE figN: caption], the video shows that figure as it is spoken of there.",
-      "  - Teach the subject only. The book's own furniture is not content: never mention or describe its QR codes,",
-      "    \"scan for e-content\" boxes, logos, page numbers, page layout, reprint or copyright notes.",
-      "  - Each request asks for one section, with the end of the one before when it is written: write that one",
-      "    section, carrying on from there. Several sections are written at the same time, each by its own request:",
-      "    the request names what the sections around it teach, which are theirs to teach.",
-      "  - The student hears the lecture once, in order: what one section explains, the student already knows in the",
-      "    next. A sentence said again, in this section or another, is taken out of the transcript.",
+      "  - Teach the subject only. The book's furniture is not content: never mention its QR codes, logos, page",
+      "    numbers, page layout, reprint or copyright notes.",
       ...(subject ? [`  - The subject is ${subject}.`] : []),
     ]),
     part("language", "Language", "language", languagePrompt(language)),
-    part("outline", "The sections", "context", ["THE SECTIONS, in order (each request gives that section's own source):",
-      ...sections.map((s) => `  SECTION ${s.n}` + (s.questionsOnly ? ": more of the source's questions from the section before"
-        : `: ${headingOf(s.source) || "its part of the book"}`) +
-        (s.questions?.length ? ` (${s.questions.length} of the source's questions)` : ""))]),
-  ].filter((p) => p.text);       // "auto" language has no rules of its own
+  ].filter((p) => p.text);
 }
 
-function headingOf(source: string): string {
-  return (/^#{1,6}\s+(.+)$/m.exec(source ?? "")?.[1] ?? "").replace(/[*_`]/g, "").trim().slice(0, 80);
-}
-
-/** What the sections around this one teach, when they are not written yet: theirs, not this section's. */
-function neighbours(section: Section, all: Section[], written: WrittenSection[]): string[] {
-  const lines = all.filter((s) => Math.abs(s.n - section.n) <= 2 && s.n !== section.n && !written.some((w) => w.n === s.n))
-    .map((s) => {
-      const ideas = ideasOf(s.source).filter((idea) => idea.kind !== "aside").map((idea) => idea.text).slice(0, 12);
-      const what = ideas.length ? ideas.join("; ") : `"${s.source.slice(0, 200).replace(/\s+/g, " ")}..."`;
-      return `  Section ${s.n}${s.n < section.n ? " (before this one)" : " (after this one)"}: ${what}`;
-    });
-  return lines.length ? ["BEING WRITTEN AT THE SAME TIME, NOT YOURS TO TEACH (do not explain or preview these):", ...lines] : [];
-}
-
-export function sectionPrompt(o: {
-  section: Section; all: Section[]; written: WrittenSection[]; system: Part[];
-  plan?: StoryPlan; map: LearningMap; note?: string;
+export function lecturePrompt(o: {
+  lecture: Lecture; lectures: Lecture[]; blocks: Block[]; system: Part[];
+  previous: { n: number; title: string; text: string }[]; note?: string;
 }): Prompt {
-  const { section, all, written, plan, map } = o;
-  const user: Part[] = [];
-  const last = written.find((w) => w.n === section.n - 1);
-  const context: string[] = [];
-  if (written.length) context.push(`Written so far: ${written.map((w) => `section ${w.n} "${w.title}"`).join(", ")}.`);
-  else if (section.n === 1) context.push("Nothing is written yet: this is the start of the lecture.");
-  if (last) context.push(`Section ${last.n} ended like this:`, `  ...${last.text.slice(-1500)}`);
-  else if (section.n > 1) context.push(`Section ${section.n - 1} is being written at the same time as this one (its topic is in the outline of sections).`);
-  if (context.length) user.push(part("before", "Written before", "context", context));
-  const around = neighbours(section, all, written);
-  if (around.length) user.push(part("around", "Written at the same time", "context", around));
-  user.push(part("ask", "Request", "ask", `Now write SECTION ${section.n} of ${all.length}` +
-    (section.n === all.length ? " (the last: the lecture ends with it)" : "") +
-    (section.questionsOnly ? ", which takes up more of the source's questions, listed below" : ", which teaches its part of the book, given below") +
-    `. Call write_section once, with section: ${section.n} and the full text.`));
-  const own = plan?.sections.find((s) => s.section === section.n);
-  if (plan && own) {
-    const first = plan.sections[0]?.section === section.n;
-    const end = plan.sections[plan.sections.length - 1]?.section === section.n;
-    user.push(part("story", "The video's story", "plan", [
-      `THE STORY OF THIS VIDEO (video ${plan.video} of ${plan.of}), planned before any section was written. Every section of it is`,
-      "being written from this plan at the same time, so follow it: it is what makes them one lesson.",
-      `  Big question: ${plan.bigQuestion}`,
-      ...(plan.runningExample ? [`  Running example: ${plan.runningExample}`] : []),
-      `  Arc: ${plan.arc}`,
-      "  Its sections:",
-      ...plan.sections.map((s) => `    Section ${s.section}${s.section === section.n ? " (YOURS)" : ""}: picks up from "${s.opensFrom}"; ` +
-        `ends on "${s.handsOn}"`),
-    ]));
-    user.push(part("yours", "This section's part", "plan", [
-      `YOUR SECTION (${section.n}):`,
-      first ? `  It OPENS the video: ${plan.opening}` : `  Pick up from: "${own.opensFrom}". Carry on from there, mid-thought: no greeting, ` +
-        "no \"now let us talk about\", nothing the section before already said.",
-      `  Guess first: ask "${own.guessFirst}", let the student think, then answer it.`,
-      end ? `  It CLOSES the video: ${plan.closing}` : `  End on: "${own.handsOn}", left open for the next section to answer. ` +
-        "Never end on a summary of what you just said.",
-    ]));
-  }
-  const goals = map.goals.filter((g) => g.section === section.n);
-  if (goals.length) {
-    user.push(part("goals", "Goals to teach", "goals", ["The goals it teaches, every one (report each in goals_taught with the numbers of the",
-      "sentences, counted from 1 in your text, that teach it):", ...goals.map((g) => `  ${goalLine(g, map.items)}`)]));
-  }
-  const qs = section.questions ?? [];
-  user.push(part("questions", "Book questions", "questions", qs.length
-    ? [`The book's questions you ask (${qs.map((q) => q.id).join(", ")}). Every other book question is asked in another ` +
-      "section: do not solve it here.", ...qs.map(questionLine)]
-    : "You ask none of the book's questions: they are asked in other sections."));
-  user.push(part("length", "Length", "context", `Length: at most about ${section.words} words ` +
-    `(${Math.round(section.words / WORDS_PER_MINUTE)} min). Shorter is fine once your goals are taught: never fill it out ` +
-    "with extra exercises, recaps or talk about how to study."));
-  const source = withoutExercises(section.source);
-  user.push(part("book", section.questionsOnly ? "Book text these questions come from" : "Book text", "book",
-    [section.questionsOnly ? "THE BOOK'S TEXT THESE QUESTIONS COME FROM:" : "THE PART OF THE BOOK THIS SECTION TEACHES:",
-      source.slice(0, section.questionsOnly ? 6000 : 12000)]));
-  if (o.note) user.push(part("retry", "Why the last try was sent back", "retry", `Your last try at section ${section.n} was sent back: ${o.note}`));
+  const { lecture, lectures } = o;
+  const byId = new Map(o.blocks.map((b) => [b.id, b]));
+  const own = lecture.blocks.map((id) => byId.get(id)).filter((b): b is Block => !!b);
+  const user: Part[] = [
+    part("series", "The series", "context", [`THE SERIES (${lectures.length} lecture${lectures.length > 1 ? "s" : ""}); you write lecture ${lecture.n}:`,
+      ...lectures.map((l) => `  Lecture ${l.n}${l.n === lecture.n ? " (THIS ONE)" : ""}: ${l.title}`)]),
+    part("previous", "Lectures already given", "context", o.previous.length
+      ? ["THE LECTURES ALREADY GIVEN, whole (the student has watched them: never teach their content again; recall it in",
+        "a sentence where this lecture needs it):",
+        ...o.previous.map((p) => `\n=== LECTURE ${p.n}: ${p.title} ===\n${p.text}`)]
+      : "This is the first lecture of the series: nothing has been taught yet."),
+    part("later", "Later lectures", "context", lectures.filter((l) => l.n > lecture.n).length
+      ? ["THE LECTURES AFTER THIS ONE teach these (not yours: do not teach or preview them):",
+        ...lectures.filter((l) => l.n > lecture.n).flatMap((l) => [`  Lecture ${l.n}: ${l.title}`,
+          ...l.goals.map((g) => `    - ${g.goal}`)])]
+      : "This is the last lecture of the series."),
+    part("goals", "This lecture's goals", "goals", [`THIS LECTURE: ${lecture.title}${lecture.why ? ` (${lecture.why})` : ""}`,
+      "Its learning goals, every one (report each in goals_taught with the numbers of the sentences, counted from 1 in",
+      "your text, that teach it):", ...lecture.goals.map((g) => `  ${goalLine(g)}`)]),
+    part("book", "This lecture's book blocks", "book", [
+      `THE BOOK'S BLOCKS THIS LECTURE TEACHES (${own.length}), as Datalab read them, in order. Teach every one; report them in blocks_taught:`,
+      blocksJson(own),
+    ]),
+    part("ask", "Request", "ask", `Write lecture ${lecture.n} now: its complete transcript, leaving nothing in its blocks out. ` +
+      "Call write_lecture_transcript once."),
+  ];
+  if (o.note) user.push(part("retry", "Why the last try was sent back", "retry", `Your last try was sent back: ${o.note}`));
   return { system: o.system, user };
 }
 
 // ─── Patch ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export function patchPrompt(text: string, goal: string, source: string): Prompt {
+export function patchPrompt(text: string, missing: { goals: string[]; blocks: Block[] }): Prompt {
   return {
-    system: [part("system", "Patcher's rules", "rules", "You add a few sentences to a lecture's transcript, in its own voice.")],
+    system: [part("system", "Patcher's rules", "rules", "You add sentences to a lecture's transcript, in its own voice and language, " +
+      "so that it teaches what it left out.")],
     user: [
-      part("section", "The section, numbered", "context", ["A section of a video lecture's transcript, its sentences numbered:", numbered(text)]),
-      part("goal", "The goal it missed", "goals", `It was to teach this goal and did not: ${goal}`),
-      part("book", "Book text", "book", ["Its part of the book:", source.slice(0, 6000)]),
-      part("ask", "Request", "ask", "Write the few sentences that teach it, in the section's own voice and language, from the book's " +
-        "facts only, and say after which sentence they go: where they fit the flow, not at the very end. Call write_patch once."),
+      part("lecture", "The lecture, numbered", "context", ["A lecture's transcript, its sentences numbered:", numbered(text)]),
+      ...(missing.goals.length ? [part("goals", "Goals it did not teach", "goals", ["It did not teach these goals:", ...missing.goals.map((g) => `  ${g}`)])] : []),
+      ...(missing.blocks.length ? [part("book", "Blocks it did not teach", "book", ["It did not teach these blocks of the book:", blocksJson(missing.blocks)])] : []),
+      part("ask", "Request", "ask", "For each, write the sentences that teach it, from the book's facts only, and say after which " +
+        "sentence they go: where they fit the flow, not all at the end. Call write_patches once."),
     ],
   };
 }
 
 // ─── Tools ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export const SECTION_TOOL = {
+export const LECTURE_TOOL = {
   type: "function" as const,
   function: {
-    name: "write_section",
-    description: "Save one section of the lecture's spoken transcript. The text is only what the teacher says, in " +
-      "paragraphs: no stage directions, no headings, no brackets, no markdown.",
+    name: "write_lecture_transcript",
+    description: "Save one lecture's spoken transcript. The text is only what the teacher says, in paragraphs: no stage " +
+      "directions, no headings, no brackets, no markdown.",
     parameters: {
       type: "object",
       properties: {
-        section: { type: "integer", description: "The section number, starting at 1." },
-        title: { type: "string", description: "A short English title for what the section teaches." },
-        text: { type: "string", description: "The section's full spoken transcript, paragraph by paragraph." },
+        title: { type: "string", description: "The lecture's title." },
+        text: { type: "string", description: "The lecture's full spoken transcript, paragraph by paragraph." },
         goals_taught: {
           type: "array",
           items: {
@@ -244,10 +204,10 @@ export const SECTION_TOOL = {
             required: ["goal", "lines"],
             additionalProperties: false,
           },
-          description: "Each of the section's goals, with the sentences that teach it.",
         },
+        blocks_taught: { type: "array", items: { type: "string" }, description: "The Datalab ids of the book's blocks you taught (\"/page/3/Text/7\")." },
       },
-      required: ["section", "title", "text", "goals_taught"],
+      required: ["title", "text", "goals_taught", "blocks_taught"],
       additionalProperties: false,
     },
   },
@@ -256,15 +216,26 @@ export const SECTION_TOOL = {
 export const PATCH_TOOL = {
   type: "function" as const,
   function: {
-    name: "write_patch",
-    description: "Save the words that teach a goal the section left out, and the sentence they follow.",
+    name: "write_patches",
+    description: "Save the sentences that teach what the lecture left out, each with the sentence it follows.",
     parameters: {
       type: "object",
       properties: {
-        after_line: { type: "integer", description: "The number of the sentence the words follow." },
-        text: { type: "string", description: "The words to add: only what the teacher says, a few sentences." },
+        patches: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              after_line: { type: "integer", description: "The number of the sentence the words follow." },
+              text: { type: "string", description: "The words to add: only what the teacher says." },
+              covers: { type: "array", items: { type: "string" }, description: "The goal and block ids these words teach (\"g4\", \"/page/3/Text/7\")." },
+            },
+            required: ["after_line", "text", "covers"],
+            additionalProperties: false,
+          },
+        },
       },
-      required: ["after_line", "text"],
+      required: ["patches"],
       additionalProperties: false,
     },
   },

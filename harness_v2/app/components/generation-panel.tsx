@@ -14,15 +14,20 @@ import { solidKind } from "./figures-panel";
 import type { Selection } from "./panels";
 
 const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
-const GENERATED = ["exact", "styled"];
+const GENERATED = ["exact", "styled", "svg"];
 
-export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
-  run: Run; defaultModel: string; select: (s: Selection) => void; onCall: (id: string) => void;
+export function GenerationPanel({ run, defaultModel, defaultSvgModel, select, onCall, act }: {
+  run: Run; defaultModel: string; defaultSvgModel: string; select: (s: Selection) => void; onCall: (id: string) => void;
   act: (body: Record<string, unknown>) => Promise<boolean>;
 }) {
   const gen = run.generation;
   const [model, setModel] = useState(gen?.model || defaultModel);
-  useEffect(() => setModel(run.generation?.model || defaultModel), [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [svgModel, setSvgModel] = useState(gen?.svgModel || defaultSvgModel);
+  useEffect(() => {
+    setModel(run.generation?.model || defaultModel);
+    setSvgModel(run.generation?.svgModel || defaultSvgModel);
+  }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const models = { model, svgModel };
   const wayOf = (id: string) => {
     const f = run.triage?.figures[id];
     return f?.override ?? (f?.status === "done" ? f.kind : undefined);
@@ -40,32 +45,37 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
   return (
     <div className="space-y-3" data-testid="generation">
       <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
-        <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws</h3>
+        <h3 className="text-sm font-semibold text-neutral-100">Generation: redraws and SVG drawings</h3>
         <p className="mb-2 text-xs text-neutral-400">Each figure triaged <b>Exact redraw</b> or <b>Styled redraw</b> is redrawn by the image model from the
           book&apos;s figure (sent as the reference image), with no text in it (labels are put on later), in gentle words that moderation lets through
           (gentler still, then without the reference, when it blocks one). Styled uses the same prompt for now: there are no lecture styles yet.
+          Each figure triaged <b>SVG drawing</b> is drawn by the SVG model from the figure itself, in one call, with v1&apos;s SVG prompt; code checks it
+          against v1&apos;s rules and sends what breaks them back once. It is shown on v1&apos;s default board.
           The other ways are built by steps to come{others.length ? ` (${others.length} figure(s) here: ${[...new Set(others.map((b) => choiceOf(wayOf(b.id))?.label))].join(", ")})` : ""}.</p>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-400">Image model</span>
           <input className="mono w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
             onChange={(e) => setModel(e.target.value)} disabled={running} data-testid="image-model" />
+          <span className="text-neutral-400">SVG model</span>
+          <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={svgModel}
+            title="Reads the figure and writes the SVG, in one call" onChange={(e) => setSvgModel(e.target.value)} disabled={running} data-testid="svg-model" />
           <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} disabled={running || !figures.length} data-testid="generate-run"
-            onClick={() => act({ action: "run", model })}>{done && done < figures.length ? `Generate the ${figures.length - done} left` : "Generate"}</button>
+            onClick={() => act({ action: "run", ...models })}>{done && done < figures.length ? `Generate the ${figures.length - done} left` : "Generate"}</button>
           <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={running || !figures.length} data-testid="generate-reset"
-            onClick={() => confirm("Forget every generated image and generate them all again?") && act({ action: "reset", model })}>Reset and regenerate all</button>
+            onClick={() => confirm("Forget every generated image and generate them all again?") && act({ action: "reset", ...models })}>Reset and regenerate all</button>
           {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
         </div>
       </section>
       <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="generation-summary">
         <span className={gen?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : gen?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>
           {gen ? gen.status : "not generated yet"}</span>
-        <span>{done} of {figures.length} redraws generated</span>
+        <span>{done} of {figures.length} generated</span>
         {failed > 0 && <span className="text-red-300">{failed} failed</span>}
-        {gen && <span>{gen.rounds} run{gen.rounds === 1 ? "" : "s"} · {gen.model}</span>}
+        {gen && <span>{gen.rounds} run{gen.rounds === 1 ? "" : "s"} · {gen.model}{gen.svgModel ? ` · ${gen.svgModel}` : ""}</span>}
         <span className="font-semibold">{money(cost)}</span>
       </div>
       {gen?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{gen.error}</p>}
-      {!figures.length && <p className="text-sm text-neutral-400">No figure is triaged Exact or Styled redraw. Change a figure&apos;s way on the Figures tab, or triage again.</p>}
+      {!figures.length && <p className="text-sm text-neutral-400">No figure is triaged Exact redraw, Styled redraw or SVG drawing. Change a figure&apos;s way on the Figures tab, or triage again.</p>}
 
       <ul className="space-y-3">
         {figures.map((b) => {
@@ -83,7 +93,7 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
                   ? "asked in gentler words (the full prompt was blocked by moderation)" : "drawn with no reference image (the picture was blocked by moderation)"}</span>}
                 <span className="ml-auto flex items-center gap-1.5">
                   <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
-                    disabled={running} onClick={() => act({ action: "one", block: b.id, model })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
+                    disabled={running} onClick={() => act({ action: "one", block: b.id, ...models })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
                   {f?.calls.map((id) => {
                     const c = run.calls.find((x) => x.id === id);
                     return c ? <button key={id} onClick={() => onCall(id)} className={`rounded border px-1.5 py-px text-[10px] hover:bg-neutral-800 ${c.status === "failed" ? "border-red-800 text-red-300" : "border-neutral-700 text-neutral-400"}`}>
@@ -98,10 +108,12 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
                   <img alt={b.id} className="max-h-72 w-full rounded bg-white object-contain" src={`/api/documents/${run.documentId}/figure/${encodeURIComponent(b.id)}`} />
                 </figure>
                 <figure>
-                  <figcaption className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">Generated{lastCall?.provider === "fixture" ? " (offline stand-in: the book's figure back)" : ""}</figcaption>
+                  <figcaption className="mb-1 text-[11px] uppercase tracking-wide text-neutral-500">{kind === "svg" ? "SVG drawing (on v1's default board)" : "Generated"}
+                    {lastCall?.provider === "fixture" ? (kind === "svg" ? " (offline stand-in)" : " (offline stand-in: the book's figure back)") : ""}</figcaption>
                   {f?.url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img alt={`${b.id} generated`} className="max-h-72 w-full rounded bg-white object-contain" src={f.url} data-testid="generated-image" />
+                    <img alt={`${b.id} generated`} className={`max-h-72 w-full rounded object-contain ${kind === "svg" ? "bg-[#0D1117]" : "bg-white"}`} src={f.url}
+                      data-testid={kind === "svg" ? "generated-svg" : "generated-image"} />
                   ) : (
                     <div className="flex h-40 items-center justify-center rounded border border-dashed border-neutral-700 text-xs text-neutral-500">
                       {f?.status === "running" ? "generating…" : f?.error ? "no image" : "not generated yet"}</div>
@@ -109,7 +121,8 @@ export function GenerationPanel({ run, defaultModel, select, onCall, act }: {
                 </figure>
               </div>
               {f?.error && <p className="mt-1 text-xs text-red-300" data-testid="generation-error">Error: {f.error}</p>}
-              {lastCall && <PromptParts parts={lastCall.prompt.user} sent={f?.prompt} />}
+              {kind === "svg" && f?.status === "done" && <SvgFacts run={run} block={b.id} parts={f.svgParts ?? []} problems={f.svgProblems} />}
+              {lastCall && <PromptParts parts={kind === "svg" ? [...lastCall.prompt.system, ...lastCall.prompt.user] : lastCall.prompt.user} sent={f?.prompt} />}
             </li>
           );
         })}
@@ -135,6 +148,21 @@ function PromptParts({ parts, sent }: { parts: Run["calls"][number]["prompt"]["u
       </div>
       {p && <pre className={`mono mt-1 whitespace-pre-wrap rounded border-l-4 bg-neutral-900 p-2 text-[11.5px] text-neutral-200 ${KIND_STYLE[p.kind]}`}>{p.text}</pre>}
       {whole && sent && <pre className="mono mt-1 whitespace-pre-wrap rounded bg-neutral-900 p-2 text-[11.5px] text-neutral-200">{sent}</pre>}
+    </div>
+  );
+}
+
+/** An SVG's parts, the rules it still breaks, and its code as written. */
+function SvgFacts({ run, block, parts, problems }: { run: Run; block: string; parts: string[]; problems?: string[] }) {
+  const [code, setCode] = useState<string | null>(null);
+  return (
+    <div className="mt-2 text-xs" data-testid="svg-facts">
+      <p className="text-neutral-400">Parts ({parts.length}): {parts.length ? parts.map((p) => <span key={p} className="mono mr-1 rounded bg-neutral-800 px-1">{p}</span>) : "none"}</p>
+      {problems?.length ? <p className="mt-0.5 text-amber-300">Still breaks v1&apos;s rules: {problems.join("; ")}</p> : <p className="mt-0.5 text-emerald-300">Keeps v1&apos;s rules.</p>}
+      <button className="mt-1 rounded border border-neutral-700 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800"
+        onClick={async () => setCode(code ? null : await fetch(`/api/runs/${run.id}/generated/${encodeURIComponent(block)}?raw`).then((r) => r.text()))}>
+        {code ? "Hide the SVG code" : "Show the SVG code"}</button>
+      {code && <pre className="mono mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-neutral-900 p-2 text-[11px] text-neutral-300">{code}</pre>}
     </div>
   );
 }

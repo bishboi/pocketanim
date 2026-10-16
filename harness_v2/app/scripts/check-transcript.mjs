@@ -182,6 +182,27 @@ assert.ok(cFull.status === "failed" && /moderation/.test(cFull.error) && cFull.c
 assert.ok(cGentle.prompt.user[0].label.includes("gentle") && !cGentle.prompt.user.some((p) => p.key === "context"), "gentle: no book text");
 assert.ok(!JSON.stringify(cBlind.request ?? {}).includes("image_url") && !cBlind.prompt.user.some((p) => p.key === "reference"), "blind: no reference image");
 
+// SVG: a figure set to SVG is drawn by the SVG model from the figure itself, in one call, and checked against v1's rules.
+const { checkSvg, onBoard } = await import(path.resolve(here, "../lib/prompts/svg.ts"));
+const bad = checkSvg('<svg viewBox="0 0 800 400"><script>alert(1)</script><g id="a" onclick="x()"><rect fill="#ff0000"/></g><image href="http://x/y.png"/></svg>');
+assert.ok(!/script|onclick|http:/.test(bad.svg), "nothing that runs or loads is kept");
+assert.ok(bad.problems.some((p) => /hex/.test(p)) && bad.problems.some((p) => /not allowed: image/.test(p)), bad.problems.join("; "));
+assert.ok(onBoard('<svg viewBox="0 0 800 400"><g id="a"><rect fill="RIVER" stroke="INK"/></g></svg>').includes('fill="#5AB4F0" stroke="#F4E9D8"'), "names as the board's colours");
+await triageAction(run.id, { action: "override", block: pics[1].id, kind: "svg" });
+await generateAction(run.id, { action: "run" });
+run = await wait(run.id, (r) => r.generation.status === "running");
+const gs = run.generation.figures[pics[1].id];
+assert.equal(gs.status, "done", gs.error);
+assert.equal(gs.kind, "svg");
+assert.ok(readFileSync(gs.file, "utf8").startsWith("<svg") && gs.svgParts.includes("subject"), "the SVG kept, with its parts");
+const scall = run.calls.find((c) => c.id === gs.calls[0]);
+assert.equal(scall.model, "anthropic/claude-sonnet-4.5", "the SVG model");
+assert.equal(gs.calls.length, 1, "one call: the same model reads the figure and draws it");
+assert.ok(scall.prompt.system.some((p) => p.key === "rules" && p.text.includes("Colours by NAME")), "v1's SVG rules");
+assert.ok(scall.prompt.user.some((p) => p.key === "image"), "the figure goes with the request");
+assert.ok(scall.checks.some((c) => c.name === "SVG rules" && c.result === "pass"), JSON.stringify(scall.checks));
+await triageAction(run.id, { action: "override", block: pics[1].id, kind: null });
+
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
 assert.equal(x.format, "pocketanim.v2.transcript");

@@ -18,6 +18,8 @@ import { bookOf } from "./docs";
 import { callImage } from "./images";
 import { modelFor } from "./models";
 import { BLOCKED, REDRAW_LEVELS, redrawParts, redrawText } from "./prompts/redraw";
+import { SVG_TOOL, checkSvg, standInSvg, svgPrompt } from "./prompts/svg";
+import { callTool } from "./llm";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
 import { DATA, loadRun, saveRun } from "./store";
@@ -26,11 +28,11 @@ import type { FigureGeneration, Generation, Run } from "./types";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_GENERATE_PARALLEL) || 3);
 /** The ways this step generates. */
-export const GENERATED: TriageKind[] = ["exact", "styled"];
+export const GENERATED: TriageKind[] = ["exact", "styled", "svg"];
 
 export type GenerateAction =
-  | { action: "run" | "reset"; model?: string }
-  | { action: "one"; block: string; model?: string }
+  | { action: "run" | "reset"; model?: string; svgModel?: string }
+  | { action: "one"; block: string; model?: string; svgModel?: string }
   | { action: "stop" };
 
 /** A figure's way as it stands: chosen by hand, else the triage's. */
@@ -60,9 +62,10 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
   if (jobs.has(`${id}:generate`)) throw new Error("the generation is already running");
   const gen: Generation = run.generation ?? { status: "idle", model: "", rounds: 0, figures: {} };
   gen.model = a.model || gen.model || run.options.imageModel || modelFor("image");
+  gen.svgModel = a.svgModel || gen.svgModel || run.options.svgModel || modelFor("svg");
   run.generation = gen;
   const figures = toGenerate(run);
-  if (!figures.length) throw new Error("no figure is triaged Exact or Styled redraw");
+  if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw or SVG drawing");
   let todo: Block[];
   if (a.action === "reset") {
     gen.figures = Object.fromEntries(Object.entries(gen.figures).map(([b, f]) => [b, { block: b, status: "waiting", calls: f.calls } as FigureGeneration]));
@@ -143,6 +146,7 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
     .filter((b) => b.page === block.page && kindOf(b.type) === "text" && !(caption && b.text.startsWith(caption))).map((b) => b.text).join(" ");
   const context = [lecture ? `Lecture "${lecture.title}"${goals.length ? `, to teach: ${goals.join("; ")}` : ""}.` : "", around].filter(Boolean).join(" ");
   const t = run.triage?.figures[block.id];
+  if (kind === "svg") return drawSvg(run, block, state, reference, { caption, context, how: t?.how });
   // Asked in full; when the model's moderation blocks it, in gentler words; then with no reference image at all.
   for (const level of REDRAW_LEVELS) {
     const blind = level === "blind";
@@ -181,4 +185,52 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
     saveRun(run);
     return;
   }
+}
+
+/**
+ * A figure triaged SVG: the SVG model is shown the book's figure and writes the SVG from it, in one call (no other
+ * model describes it first), with v1's SVG prompt. Code checks it against v1's rules; what breaks them goes back to
+ * the same model once, and the better of the two is kept.
+ */
+async function drawSvg(run: Run, block: Block, state: FigureGeneration, reference: string,
+  x: { caption?: string; context?: string; how?: string }) {
+  const gen = run.generation!;
+  let retry: string[] | undefined;
+  let best: { svg: string; problems: string[]; parts: string[]; shapes: number; animated: boolean } | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const prompt = svgPrompt({ documentId: run.documentId, blockId: block.id, page: block.page, caption: x.caption, context: x.context, how: x.how, retry });
+    const call = newCall(run, { step: "generate", label: `SVG ${block.id}${attempt > 1 ? " (again, with what broke the rules)" : ""}`,
+      block: block.id, model: gen.svgModel!, effort: "off", prompt });
+    state.calls.push(call.id);
+    const reply = await callTool({ call, tool: SVG_TOOL, images: [reference], onChange: () => saveRun(run),
+      fake: () => ({ svg: standInSvg(x.caption ?? block.text), parts: ["subject", "label"] }) });
+    const raw = String(reply?.svg ?? call.text ?? "");
+    if (!raw.includes("<svg")) {
+      check(call, "SVG", "fail", call.error ? `the call failed: ${call.error}` : "the answer had no SVG");
+      if (call.error) break;
+      retry = ["your answer had no <svg>…</svg>: give the whole SVG in draw_svg"];
+      continue;
+    }
+    const got = checkSvg(raw);
+    check(call, "SVG rules", got.problems.length ? "fail" : "pass", got.problems.length ? got.problems.join("; ")
+      : `${got.shapes} shapes, ${got.parts.length} parts${got.animated ? ", animated" : ""}, ${Math.round(got.svg.length / 1024)} KB`);
+    if (!best || got.problems.length < best.problems.length) best = got;
+    if (!got.problems.length) break;
+    retry = got.problems;
+  }
+  if (!best) {
+    const last = run.calls.find((c) => c.id === state.calls[state.calls.length - 1]);
+    Object.assign(state, { status: "failed", error: last?.error ? `the call failed: ${last.error}` : "no SVG was drawn", at: Date.now() });
+    saveRun(run);
+    return;
+  }
+  const target = generatedFile(run.id, block.id, "svg");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, best.svg, "utf8");
+  const url = `/api/runs/${run.id}/generated/${encodeURIComponent(block.id)}?v=${Date.now()}`;
+  const last = run.calls.find((c) => c.id === state.calls[state.calls.length - 1]);
+  if (last) last.output = { ...(last.output as object), image: url };
+  Object.assign(state, { status: "done", file: target, url, at: Date.now(), level: undefined, svgParts: best.parts,
+    svgProblems: best.problems.length ? best.problems : undefined, prompt: undefined });
+  saveRun(run);
 }

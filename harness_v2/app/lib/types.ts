@@ -154,6 +154,9 @@ export type FigureGeneration = {
   prompt?: string;
   /** How it was asked in the end: full, gentle (the full prompt blocked by moderation), blind (no reference image). */
   level?: "full" | "gentle" | "blind";
+  /** An SVG's parts (its <g id>s), and the rules it still breaks when no try kept them all. */
+  svgParts?: string[];
+  svgProblems?: string[];
   /** Where the image is kept, and its URL for the page. */
   file?: string;
   url?: string;
@@ -164,8 +167,10 @@ export type FigureGeneration = {
 
 export type Generation = {
   status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
-  /** The image model. */
+  /** The image model (redraws). */
   model: string;
+  /** The SVG model (reads the figure, writes the SVG, in one call). */
+  svgModel?: string;
   started?: number;
   ended?: number;
   rounds: number;

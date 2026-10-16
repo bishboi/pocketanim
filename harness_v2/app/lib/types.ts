@@ -38,7 +38,7 @@ export type Call = {
   /** Pictures sent with the prompt (a figure to describe), as URLs the page can show. */
   images?: string[];
   /** "decisions": a decision model (decisions.ts), its questions in `tool`; else a chat call. */
-  api?: "chat" | "decisions";
+  api?: "chat" | "decisions" | "image";
   /** The request as sent (images cut to a placeholder), when it is not a chat request. */
   request?: unknown;
 };
@@ -107,6 +107,8 @@ export type Run = {
   log: { t: number; text: string }[];
   /** The figure triage (triage.ts): how each of the book's figures is to be shown. Runs apart from the transcript. */
   triage?: Triage;
+  /** The generation (generate.ts): the figures triaged as redraws, redrawn by the image model. */
+  generation?: Generation;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -133,12 +135,43 @@ export type FigureTriage = {
   confidence?: number;
   /** Its confidence was under the run's threshold: to be looked at (or asked of the chat model). */
   unsure?: boolean;
+  /** A rule code applied to the model's choice (a near-tie of Map and a redraw redrawn), said in words. */
+  rule?: string;
   error?: string;
   calls: string[];
   at?: number;
 };
 
 export type TriageEngine = "decision" | "chat";
+
+/** One figure's generated image: the prompt it was sent and the image made. */
+export type FigureGeneration = {
+  block: string;
+  status: "waiting" | "running" | "done" | "failed";
+  /** The way it was generated as (exact, styled). */
+  kind?: TriageKind;
+  /** The prompt as sent (its parts are on its call). */
+  prompt?: string;
+  /** Asked in the plainest words, the full prompt having been blocked by the model's filter. */
+  plain?: boolean;
+  /** Where the image is kept, and its URL for the page. */
+  file?: string;
+  url?: string;
+  error?: string;
+  calls: string[];
+  at?: number;
+};
+
+export type Generation = {
+  status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
+  /** The image model. */
+  model: string;
+  started?: number;
+  ended?: number;
+  rounds: number;
+  figures: Record<string, FigureGeneration>;
+  error?: string;
+};
 
 export type Triage = {
   status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";

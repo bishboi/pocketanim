@@ -48,7 +48,9 @@ export type ExportedBlock = Pick<Block, "id" | "type" | "html" | "text" | "page"
   lecture?: number;
   skipped?: string;
   figure?: { image: string; description?: string; triage?: { kind: TriageKind; label: string; chosenBy: "model" | "user"; how?: string; reason?: string; keep?: string[];
-    engine?: "decision" | "chat"; probabilities?: Record<string, number>; confidence?: number; unsure?: boolean } };
+    engine?: "decision" | "chat"; probabilities?: Record<string, number>; confidence?: number; unsure?: boolean; rule?: string };
+    /** The redraw generated for it: the image model, the prompt as sent, and the image (on the server that made it). */
+    generated?: { kind?: string; model: string; prompt?: string; image?: string } };
 };
 export type ExportedTranscript = {
   format: typeof EXPORT_FORMAT;
@@ -116,7 +118,9 @@ export function exportTranscript(run: Run): ExportedTranscript {
         ...(b.description ? { description: b.description } : {}),
         ...(kind ? { triage: { kind, label: choiceOf(kind)!.label, chosenBy: t?.override ? "user" as const : "model" as const,
           how: t?.how, reason: t?.reason, keep: t?.keep, engine: t?.engine, probabilities: t?.probabilities, confidence: t?.confidence,
-          unsure: t?.unsure } } : {}),
+          unsure: t?.unsure, rule: t?.rule } } : {}),
+        ...(run.generation?.figures[b.id]?.status === "done" ? { generated: { kind: run.generation.figures[b.id].kind,
+          model: run.generation.model, prompt: run.generation.figures[b.id].prompt, image: `/api/runs/${run.id}/generated/${encodeURIComponent(b.id)}` } } : {}),
       } } : {}),
     };
   });

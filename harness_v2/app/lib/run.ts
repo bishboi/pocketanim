@@ -126,7 +126,7 @@ export async function redoFrom(id: string, key: StepKey, asked: Partial<Options>
 }
 
 /** Ask a running job to stop after the call it is in. */
-export function stopJob(id: string, job: "transcript" | "triage") {
+export function stopJob(id: string, job: "transcript" | "triage" | "generate") {
   if (jobs.has(`${id}:${job}`)) stopping.add(`${id}:${job}`);
 }
 

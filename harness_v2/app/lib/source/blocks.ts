@@ -77,6 +77,16 @@ export function blocksJson(blocks: Block[]): string {
 
 export const bookWords = (blocks: Block[]) => blocks.reduce((n, b) => n + b.text.split(/\s+/).filter(Boolean).length, 0);
 
+/**
+ * A figure's caption: a Caption block beside it on its page (the two after it, then the two before), else a text
+ * block there that reads as one ("Figure 3.2: ...", "Fig. 4 ..."), as the offline reader and some books give it.
+ */
+export function captionOf(blocks: Block[], block: Block): string | undefined {
+  const i = blocks.indexOf(block);
+  const near = [...blocks.slice(i + 1, i + 3), ...blocks.slice(Math.max(0, i - 2), i).reverse()].filter((b) => b.page === block.page);
+  return (near.find((b) => kindOf(b.type) === "caption") ?? near.find((b) => /^\s*(fig(ure)?\.?)\s*\d/i.test(b.text)))?.text;
+}
+
 /** A rough sort of Datalab's types, for colours and counts on the page. */
 export function kindOf(type: string): "heading" | "text" | "figure" | "table" | "caption" | "furniture" {
   if (/SectionHeader|Title/.test(type)) return "heading";

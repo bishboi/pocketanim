@@ -135,6 +135,38 @@ await triageAction(run.id, { action: "one", block: pics[1].id });
 run = await wait(run.id, (r) => r.triage.status === "running");
 assert.equal(run.triage.figures[pics[1].id].calls.length, 7, "a figure's calls are kept across reruns");
 
+// A Map choice under 20 points from a redraw is redrawn instead; 20 or more apart, it stays a map.
+const { mapOrRedraw } = await import(path.resolve(here, "../lib/triage.ts"));
+const near = { choice: "map", probabilities: { map: 0.45, exact: 0.30, styled: 0.20 }, confidence: 0.45 };
+assert.match(mapOrRedraw(near, ["map", "exact", "styled"]), /under 20 points/);
+assert.equal(near.choice, "exact");
+const far = { choice: "map", probabilities: { map: 0.7, exact: 0.2, styled: 0.1 }, confidence: 0.7 };
+assert.equal(mapOrRedraw(far, ["map", "exact", "styled"]), undefined);
+assert.equal(far.choice, "map");
+const noRedraw = { choice: "map", probabilities: { map: 0.5, manim: 0.45 } };
+assert.equal(mapOrRedraw(noRedraw, ["map", "manim"]), undefined, "no redraw offered: stays a map");
+
+// Generation: the figures set to a redraw are redrawn with v1's prompt; the image is kept and shown.
+const { generateAction } = await import(path.resolve(here, "../lib/generate.ts"));
+await generateAction(run.id, { action: "run" });
+run = await wait(run.id, (r) => r.generation.status === "running");
+assert.equal(run.generation.status, "done", run.generation.error);
+const g0 = run.generation.figures[pics[0].id];
+assert.equal(g0.status, "done");
+assert.equal(g0.kind, "exact");
+assert.ok(g0.prompt.startsWith("Make a clean, sharp version of the attached REFERENCE IMAGE for a video lesson that LOOKS JUST LIKE IT"), g0.prompt);
+assert.ok(g0.prompt.includes("What it shows: Figure 1: A map of the rivers of India."), "the caption in the prompt");
+assert.ok(readFileSync(g0.file).subarray(1, 4).toString() === "PNG", "the image kept");
+assert.ok(!run.generation.figures[pics[1].id], "a figure not triaged as a redraw is not generated");
+const gcall = run.calls.find((c) => c.id === g0.calls[0]);
+assert.equal(gcall.api, "image");
+assert.ok(gcall.prompt.user.some((p) => p.key === "keep") && gcall.prompt.user.some((p) => p.key === "reference"), "the prompt by its parts");
+assert.equal(gcall.output.image.split("?")[0], `/api/runs/${run.id}/generated/${encodeURIComponent(pics[0].id)}`);
+await assert.rejects(generateAction(run.id, { action: "run" }), /every redraw is generated/);
+await generateAction(run.id, { action: "one", block: pics[0].id });
+run = await wait(run.id, (r) => r.generation.status === "running");
+assert.equal(run.generation.figures[pics[0].id].calls.length, 2);
+
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
 assert.equal(x.format, "pocketanim.v2.transcript");
@@ -143,6 +175,7 @@ assert.ok(x.lectures.every((l) => l.lines.length && l.lines[0].n === 1));
 const fig = x.blocks.find((b) => b.id === pics[0].id).figure;
 assert.equal(fig.triage.kind, "exact");
 assert.equal(fig.triage.chosenBy, "user");
+assert.ok(fig.generated?.prompt?.includes("LOOKS JUST LIKE IT"), "the export carries the redraw's prompt");
 assert.ok(transcriptMarkdown(run).includes("### Transcript"));
 const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");

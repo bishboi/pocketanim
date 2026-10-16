@@ -15,9 +15,9 @@ import type { Selection } from "./panels";
 const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
 export const solidKind = (k?: string) => (choiceOf(k)?.color ?? "rgba(148,163,184,0.45)").replace(/[\d.]+\)$/, "1)");
 
-export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, select, onCall, act }: {
+export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, select, onCall, act, next }: {
   run: Run; defaultModel: string; defaultChatModel: string; selection: Selection; select: (s: Selection) => void; onCall: (id: string) => void;
-  act: (body: Record<string, unknown>) => Promise<boolean>;
+  act: (body: Record<string, unknown>) => Promise<boolean>; next?: () => void;
 }) {
   const triage = run.triage;
   const [kinds, setKinds] = useState<TriageKind[]>(triage?.kinds ?? DEFAULT_KINDS);
@@ -125,6 +125,10 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
         {[...counts].map(([k, n]) => <span key={k} style={{ color: solidKind(k) }}>{n} {choiceOf(k)?.label}</span>)}
         {triage && <span>{triage.rounds} run{triage.rounds === 1 ? "" : "s"} · {triage.engine === "chat" ? triage.chatModel : triage.model}</span>}
         <span className="font-semibold">{money(cost)}</span>
+        {next && done > 0 && (
+          <button className="ml-auto rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40" disabled={running}
+            data-testid="to-generation" onClick={next}>Next: generate the redraws →</button>
+        )}
       </div>
       {triage?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200" data-testid="triage-error">{triage.error}</p>}
       <FigureSearch run={run} figures={figures.length} noPicture={noPicture.length} running={running} act={act} />
@@ -169,6 +173,7 @@ export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, s
                     ))}
                   </div>
                 )}
+                {f?.rule && <p className="mt-1 text-amber-300" data-testid="triage-rule">✎ {f.rule}</p>}
                 {f?.how && <p className="mt-1 text-neutral-200">{f.override && f.kind && f.override !== f.kind ? <span className="text-neutral-500">Model&apos;s note (for {choiceOf(f.kind)?.label}): </span> : null}{f.how}</p>}
                 {f?.reason && <p className="mt-0.5 text-neutral-400">Why: {f.reason}</p>}
                 {f?.keep?.length ? <p className="mt-0.5 text-neutral-400">Keep exactly: {f.keep.join(", ")}</p> : null}

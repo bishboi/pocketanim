@@ -19,7 +19,7 @@
 import { docDir, loadRun, saveRun, type documentBook } from "./store";
 import { refreshFigures } from "./datalab";
 import { bookOf, markPictures } from "./docs";
-import { figureFile, kindOf, type Block } from "./source/blocks";
+import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
 import { callTool } from "./llm";
 import { answerTo, callDecision, readChoice, type StateItem } from "./decisions";
 import { modelFor } from "./models";
@@ -43,6 +43,8 @@ export function defaultTriageModel(run: Run): string {
   return (run.options.triageChatModel && run.options.triageModel) || modelFor("triage");
 }
 const DEFAULT_THRESHOLD = Number(process.env.V2_TRIAGE_CONFIDENCE) || 0.6;
+/** A decision model's Map choice closer than this to its best redraw (Exact, Styled) becomes that redraw. */
+const MAP_MARGIN = Number(process.env.V2_MAP_REDRAW_MARGIN) || 0.2;
 
 /** The figures a run can triage: blocks with a picture Datalab cut out. */
 export function triageable(run: Run): Block[] {
@@ -208,8 +210,8 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
     return;
   }
   const i = run.blocks.indexOf(block);
-  const caption = run.blocks.slice(i + 1, i + 3).concat(run.blocks.slice(Math.max(0, i - 2), i))
-    .find((b) => b.page === block.page && kindOf(b.type) === "caption");
+  const captionText = captionOf(run.blocks, block);
+  const caption = captionText ? { text: captionText } : undefined;
   const around = [...run.blocks.slice(Math.max(0, i - 3), i), ...run.blocks.slice(i + 1, i + 4)]
     .filter((b) => b.page === block.page || Math.abs(b.page - block.page) <= 1)
     .filter((b) => ["text", "heading", "caption"].includes(kindOf(b.type)));
@@ -267,7 +269,7 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
   check(call, "Instruction", how ? "pass" : "fail", how ? `${how.split(" ").length} words` : "no instruction for whoever builds it");
   const keep = (Array.isArray(reply.keep) ? reply.keep : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 40);
   if (keep.length) check(call, "Must keep", "info", keep.join(", ").slice(0, 300));
-  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400), unsure: false, probabilities: undefined, confidence: undefined,
+  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400), unsure: false, probabilities: undefined, confidence: undefined, rule: undefined,
     reason: String(reply.reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300), keep } satisfies Partial<FigureTriage>);
   saveRun(run);
 }
@@ -324,14 +326,33 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
     return;
   }
   const threshold = triage.threshold ?? DEFAULT_THRESHOLD;
+  const rule = mapOrRedraw(answer, kinds);
   const unsure = answer.confidence !== undefined && answer.confidence < threshold;
   const ranked = Object.entries(answer.probabilities).sort((x, y) => y[1] - x[1]).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
   check(call, "Way offered", "pass", `${choiceOf(answer.choice)!.label}${ranked ? ` (${ranked})` : ""}`);
+  if (rule) check(call, "Map or redraw", "fixed", rule);
   check(call, "Confidence", unsure ? "fail" : answer.confidence === undefined ? "info" : "pass", answer.confidence === undefined
     ? "the answer gave no confidence" : `${(answer.confidence * 100).toFixed(0)}% (threshold ${(threshold * 100).toFixed(0)}%)${unsure ? ": unsure" : ""}`);
   Object.assign(state, { status: "done", kind: answer.choice as TriageKind, probabilities: answer.probabilities, confidence: answer.confidence,
-    unsure, how: undefined, reason: undefined, keep: undefined } satisfies Partial<FigureTriage>);
+    unsure, rule, how: undefined, reason: undefined, keep: undefined } satisfies Partial<FigureTriage>);
   saveRun(run);
+}
+
+/**
+ * A Map choice only a little surer than a redraw (Exact or Styled, whichever is surer; under MAP_MARGIN apart) is
+ * redrawn instead: a redraw keeps the book's picture, a map built wrong does not. Changes the answer; says why.
+ */
+export function mapOrRedraw(answer: { choice?: string; probabilities: Record<string, number>; confidence?: number },
+  kinds: TriageKind[], margin = MAP_MARGIN): string | undefined {
+  const p = answer.probabilities;
+  if (answer.choice !== "map" || p.map === undefined) return undefined;
+  const redraw = (["exact", "styled"] as const).filter((k) => kinds.includes(k) && p[k] !== undefined).sort((x, y) => p[y] - p[x])[0];
+  if (!redraw || p.map - p[redraw] >= margin) return undefined;
+  const rule = `Map ${(p.map * 100).toFixed(0)}% and ${choiceOf(redraw)!.label} ${(p[redraw] * 100).toFixed(0)}% are under ` +
+    `${Math.round(margin * 100)} points apart: redrawn instead`;
+  answer.choice = redraw;
+  answer.confidence = p[redraw];
+  return rule;
 }
 
 /** The offline stand-in of a decision model: a choice by the figure's words, with probabilities. */

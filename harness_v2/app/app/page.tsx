@@ -13,13 +13,14 @@ import { PdfView, type Mark } from "@/components/pdf-view";
 import { CallInspector, money } from "@/components/call-inspector";
 import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, TranscriptPanel, lectureColor, type RoleModel, type Selection } from "@/components/panels";
 import { FiguresPanel } from "@/components/figures-panel";
+import { GenerationPanel } from "@/components/generation-panel";
 import { choiceOf } from "@/lib/triage-kinds";
 
 type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleModel>; triageModel: string };
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Calls", "Costs", "Models"] as const;
 const GREY = "rgba(148, 163, 184, 0.22)";
 const GREEN = "rgba(16, 185, 129, 0.45)";
 
@@ -66,7 +67,7 @@ export default function Page() {
       const next = (await res.json()) as Run;
       setRun(next);
       setDocId(next.documentId);
-      if (next.status === "running" || next.triage?.status === "running") setTimeout(tick, 1000);
+      if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running") setTimeout(tick, 1000);
       else void refresh();
     };
     void tick();
@@ -81,7 +82,7 @@ export default function Page() {
     if (run) setOptions(run.options);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const busy = run?.status === "running" || run?.triage?.status === "running";
+  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running";
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -315,7 +316,9 @@ export default function Page() {
             )}
             {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={(run.options.triageChatModel && run.options.triageModel) || config?.models.triage?.model || ""}
               defaultChatModel={run.options.triageChatModel || options.triageChatModel || config?.models.triageChat?.model || ""} selection={selection}
-              select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} />}
+              select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} next={() => setTab("Generate")} />}
+            {run && tab === "Generate" && <GenerationPanel run={run} defaultModel={run.options.imageModel || options.imageModel || config?.models.image?.model || ""}
+              select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

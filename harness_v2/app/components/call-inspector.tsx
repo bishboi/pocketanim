@@ -75,7 +75,7 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
           <Stat label="Model" value={call.model} wide />
-          <Stat label="Provider" value={call.provider === "fixture" ? "offline stand-in" : call.api === "decisions" ? "OpenRouter Decisions" : "OpenRouter"} />
+          <Stat label="Provider" value={call.provider === "fixture" ? "offline stand-in" : call.api === "decisions" ? "OpenRouter Decisions" : call.api === "image" ? "OpenRouter (image)" : "OpenRouter"} />
           <Stat label="Effort" value={call.effort ?? "default"} />
           <Stat label="Status" value={call.status} tone={call.status === "failed" ? "text-red-300" : call.status === "done" ? "text-emerald-300" : "text-sky-300"} />
           <Stat label="Time" value={seconds(call.started, call.ended)} />
@@ -137,6 +137,10 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-100">{text}</p>
             </div>
           )}
+          {typeof output?.image === "string" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt="the image made" className="mb-2 max-h-96 rounded bg-white" src={output.image as string} data-testid="call-image" />
+          )}
           {rest && <Json value={rest} />}
           {call.text && !output && <p className="whitespace-pre-wrap text-sm">{call.text}</p>}
         </Section>
@@ -164,10 +168,12 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
           </ul>
         </Section>
 
-        <details className="mt-4">
-          <summary className="cursor-pointer text-sm text-neutral-300">{call.api === "decisions" ? "Questions" : "Tool schema"}</summary>
-          <Json value={call.tool} />
-        </details>
+        {call.tool ? (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-sm text-neutral-300">{call.api === "decisions" ? "Questions" : "Tool schema"}</summary>
+            <Json value={call.tool} />
+          </details>
+        ) : null}
         <details className="mt-2">
           <summary className="cursor-pointer text-sm text-neutral-300">Request as sent</summary>
           <Json value={body} />

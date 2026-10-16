@@ -14,10 +14,12 @@ let package = Package(
         .library(name: "PanimAudio", targets: ["PanimAudio"]),
     ],
     targets: [
-        .target(name: "PanimCore"),
+        .target(name: "PanimCore", dependencies: ["PanimZip"]),
+        .target(name: "PanimZip"),
         .target(name: "PanimAudio"),
         .executableTarget(name: "PanimVerify", dependencies: ["PanimCore"]),
         .testTarget(name: "PanimCoreTests", dependencies: ["PanimCore"]),
-        .testTarget(name: "PanimAudioTests", dependencies: ["PanimAudio"]),
+        .testTarget(name: "PanimAudioTests", dependencies: ["PanimAudio"], resources: [.copy("Resources")]),
+        .testTarget(name: "PanimZipTests", dependencies: ["PanimZip"]),
     ]
 )

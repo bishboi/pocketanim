@@ -146,12 +146,13 @@ export async function checkModel(model: string, kind: "text" | "vision" | "image
       reply: process.env.OPENROUTER_API_KEY ? "fixture model: answered by the offline stand-in" : "no OPENROUTER_API_KEY: calls use the offline stand-in" };
   }
   if (kind === "decision") {
-    // A decision model gets one Noul question (does this hold?) on the Decisions API; it passes if it answers.
+    // A decision model gets one Choice question (is this true?) on the Decisions API; it passes if it answers.
     try {
       const response = await fetch(process.env.OPENROUTER_DECISIONS_URL || "https://openrouter.ai/api/alpha/decisions", {
         method: "POST", signal: AbortSignal.timeout(60000),
         headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, state: ["A triangle has three sides."], questions: { check: { type: "noul", instructions: "The statement in the state is true." } } }),
+        body: JSON.stringify({ model, state: ["A triangle has three sides."], questions: { check: { type: "choice",
+          instructions: "Is the statement in the state true?", criteria: { true: "The statement is true.", false: "The statement is false." } } } }),
       });
       const body = await response.text();
       const seconds = (Date.now() - began) / 1000;

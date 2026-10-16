@@ -284,7 +284,7 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
   const instructions = "How should a video lecture show this textbook figure (the picture in the state)? Choose by what the figure " +
     "teaches and what must survive in the video: its exact values and labels, its look, or only its idea." +
     (kinds.includes("exact") && kinds.includes("styled") ? " Between exact and styled, exact when in doubt." : "");
-  const options = Object.fromEntries(kinds.map((k) => [k, choiceOf(k)!.prompt]));
+  const criteria = Object.fromEntries(kinds.map((k) => [k, choiceOf(k)!.prompt]));
   const words: string[] = [
     ...(c.subject ? [`Subject: ${c.subject}.`] : []),
     `The figure's block in the book: ${JSON.stringify({ id: block.id, block_type: block.type, html: block.html })}`,
@@ -306,7 +306,7 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
     ],
   } });
   state.calls.push(call.id);
-  const reply = await callDecision({ call, state: stateItems, questions: { way: { type: "choice", instructions, options } },
+  const reply = await callDecision({ call, state: stateItems, questions: { way: { type: "choice", instructions, criteria } },
     onChange: () => saveRun(run), fake: () => fakeDecision(kinds, `${c.caption ?? ""} ${block.description ?? ""} ${block.text}`) });
   state.at = Date.now();
   if (!reply) {

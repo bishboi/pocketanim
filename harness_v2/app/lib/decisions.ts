@@ -20,9 +20,9 @@ const TIMEOUT_MS = 180_000;
 /** Part of the state: a line of text, or an image (a data URL). */
 export type StateItem = string | { type: "image_url"; image_url: { url: string } };
 
-export type ChoiceQuestion = { type: "choice"; instructions: string; options: Record<string, string> };
-export type NoulQuestion = { type: "noul"; instructions: string };
-export type Question = ChoiceQuestion | NoulQuestion;
+/** A Choice: its options are `criteria`, each option's key with what it means (the API refuses `options`). */
+export type ChoiceQuestion = { type: "choice"; instructions: string; criteria: Record<string, string> };
+export type Question = ChoiceQuestion;
 
 export type ChoiceAnswer = { choice?: string; probabilities: Record<string, number>; confidence?: number };
 
@@ -107,7 +107,7 @@ export function answerTo(reply: Record<string, unknown> | null, key: string): Re
 export function readChoice(a: Record<string, unknown> | undefined, options: string[]): ChoiceAnswer {
   if (!a) return { probabilities: {} };
   const probabilities: Record<string, number> = {};
-  const raw = a.probabilities ?? a.probs ?? a.distribution ?? a.options ?? a.scores;
+  const raw = a.probabilities ?? a.probs ?? a.distribution ?? a.criteria ?? a.options ?? a.scores;
   if (Array.isArray(raw)) {
     for (const p of raw as Record<string, unknown>[]) {
       const k = String(p?.option ?? p?.key ?? p?.label ?? p?.value ?? "");

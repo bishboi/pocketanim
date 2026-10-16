@@ -22,6 +22,7 @@ import { bookOf, markPictures } from "./docs";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
 import { callTool } from "./llm";
 import { answerTo, callDecision, readChoice, type StateItem } from "./decisions";
+import { fitImage, type Fitted } from "./imagefit";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, triageInstructions, type TriageKind } from "./triage-kinds";
@@ -219,8 +220,12 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
   const goals = lecture?.goals.filter((g) => g.blocks.includes(block.id)) ?? [];
   const subject = run.options.subject;
   state.engine = engine;
+  state.rule = undefined;
   if (engine === "decision") {
-    return decide(run, block, state, image, { caption: caption?.text, around: around.map((b) => b.text), lecture, goals, subject });
+    const outcome = await decide(run, block, state, image, { caption: caption?.text, around: around.map((b) => b.text), lecture, goals, subject });
+    if (outcome !== "picture-refused") return;
+    state.engine = "chat";
+    state.rule = "the decision model refused its picture: decided by the chat model";
   }
   const call = newCall(run, { step: "triage", label: `Triage ${block.id} (chat)`, block: block.id, model: triage.chatModel!, effort: "off", prompt: {
     system: [
@@ -269,7 +274,8 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
   check(call, "Instruction", how ? "pass" : "fail", how ? `${how.split(" ").length} words` : "no instruction for whoever builds it");
   const keep = (Array.isArray(reply.keep) ? reply.keep : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 40);
   if (keep.length) check(call, "Must keep", "info", keep.join(", ").slice(0, 300));
-  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400), unsure: false, probabilities: undefined, confidence: undefined, rule: undefined,
+  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400), unsure: false, probabilities: undefined, confidence: undefined,
+    rule: state.rule?.startsWith("the decision model refused") ? state.rule : undefined,
     reason: String(reply.reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300), keep } satisfies Partial<FigureTriage>);
   saveRun(run);
 }
@@ -295,7 +301,12 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
     ...(c.lecture ? [`It is taught in lecture ${c.lecture.n}, "${c.lecture.title}"${c.goals.length ? `, for: ${c.goals.map((g) => g.goal).join("; ")}` : ""}.`] : []),
     "The figure:",
   ];
-  const stateItems: StateItem[] = [...words, { type: "image_url", image_url: { url: image } }];
+  // Made to fit what a decision model takes (it refuses some sizes outright: "Invalid image dimensions").
+  let fitted: Fitted | undefined;
+  try {
+    fitted = await fitImage(image);
+  } catch {}
+  const stateItems: StateItem[] = [...words, { type: "image_url", image_url: { url: fitted?.url ?? image } }];
   const call = newCall(run, { step: "triage", label: `Triage ${block.id}`, block: block.id, model: triage.model, effort: "off", prompt: {
     system: [
       part("question", "Instructions (v1's triage, as the question's instructions)", "rules", instructions),
@@ -307,10 +318,22 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
     ],
   } });
   state.calls.push(call.id);
+  if (fitted) check(call, "Picture size", fitted.changed.length ? "fixed" : "pass", `${fitted.from.width}×${fitted.from.height}` +
+    (fitted.changed.length ? `: ${fitted.changed.join(", ")}` : ", sent as it is"));
   const reply = await callDecision({ call, state: stateItems, questions: { way: { type: "choice", instructions, criteria } },
-    onChange: () => saveRun(run), fake: () => fakeDecision(kinds, `${c.caption ?? ""} ${block.description ?? ""} ${block.text}`) });
+    onChange: () => saveRun(run), fake: () => {
+      // The stand-in refuses the picture as Jev did ("Invalid image dimensions") when its name says so, to try the
+      // fallback offline.
+      if (triage.model.includes("refuses-images")) throw new Error('400 {"error":{"message":"HTTP 400: {\\"detail\\":{\\"message\\":\\"Invalid image dimensions.\\"}}"}}');
+      return fakeDecision(kinds, `${c.caption ?? ""} ${block.description ?? ""} ${block.text}`);
+    } });
   state.at = Date.now();
   if (!reply) {
+    // A picture the decision model will not take at all: the chat model decides this one instead.
+    if (/image|dimension/i.test(call.error ?? "") && /\b400\b/.test(call.error ?? "")) {
+      check(call, "Picture refused", "fixed", "the decision model refused the picture: the chat model decides this figure");
+      return "picture-refused" as const;
+    }
     state.status = "failed";
     state.error = `the call failed: ${call.error ?? "no reply"}`;
     saveRun(run);

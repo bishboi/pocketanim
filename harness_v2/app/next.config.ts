@@ -16,7 +16,7 @@ if (existsSync(v1)) {
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(process.cwd()),
   // The offline PDF reader runs pdf.js on the server, as it is shipped.
-  serverExternalPackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfjs-dist", "sharp"],
 };
 
 export default nextConfig;

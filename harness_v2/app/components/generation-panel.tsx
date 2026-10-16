@@ -37,6 +37,9 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
   const figures = run.blocks.filter((b) => b.image && GENERATED.includes(wayOf(b.id) ?? ""));
   const others = run.blocks.filter((b) => b.image && wayOf(b.id) && !GENERATED.includes(wayOf(b.id)!));
   const running = gen?.status === "running";
+  // A figure is busy while it is queued or being generated; the others stay free to start.
+  const busyFig = (id: string) => running && (gen?.figures[id]?.status === "running" || gen?.figures[id]?.status === "waiting");
+  const busyCount = figures.filter((b) => busyFig(b.id)).length;
   const states = Object.values(gen?.figures ?? {});
   const done = figures.filter((b) => gen?.figures[b.id]?.status === "done").length;
   const failed = states.filter((f) => f.status === "failed").length;
@@ -59,18 +62,19 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-400">Image model</span>
           <input className="mono w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
-            onChange={(e) => setModel(e.target.value)} disabled={running} data-testid="image-model" />
+            onChange={(e) => setModel(e.target.value)} data-testid="image-model" />
           <span className="text-neutral-400">SVG model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={svgModel}
-            title="Reads the figure and writes the SVG, in one call" onChange={(e) => setSvgModel(e.target.value)} disabled={running} data-testid="svg-model" />
+            title="Reads the figure and writes the SVG, in one call" onChange={(e) => setSvgModel(e.target.value)} data-testid="svg-model" />
           <span className="text-neutral-400">Manim model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={manimModel}
-            title="Reads the figure and writes its Manim code, in one call" onChange={(e) => setManimModel(e.target.value)} disabled={running} data-testid="manim-model" />
-          <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} disabled={running || !figures.length} data-testid="generate-run"
+            title="Reads the figure and writes its Manim code, in one call" onChange={(e) => setManimModel(e.target.value)} data-testid="manim-model" />
+          <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} disabled={!figures.length || busyCount === figures.length} data-testid="generate-run"
             onClick={() => act({ action: "run", ...models })}>{done && done < figures.length ? `Generate the ${figures.length - done} left` : "Generate"}</button>
-          <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={running || !figures.length} data-testid="generate-reset"
+          <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={!figures.length || busyCount === figures.length} data-testid="generate-reset"
             onClick={() => confirm("Forget every generated image and generate them all again?") && act({ action: "reset", ...models })}>Reset and regenerate all</button>
-          {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
+          {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop all</button>}
+          {running && <span className="text-sky-300" data-testid="generating-count">{busyCount} generating; the others can be started now</span>}
         </div>
       </section>
       <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="generation-summary">
@@ -95,12 +99,12 @@ export function GenerationPanel({ run, defaultModel, defaultSvgModel, defaultMan
                 <button className="font-mono text-neutral-200 hover:underline" onClick={() => select({ kind: "block", id: b.id })}>{b.id}</button>
                 <span className="rounded px-1.5 py-px font-semibold text-neutral-950" style={{ background: solidKind(kind) }}>{choiceOf(kind)?.label}</span>
                 <span className="text-neutral-500">page {b.page + 1}</span>
-                <span className={TONE[f?.status ?? "waiting"]}>{f ? (f.status === "running" ? "generating…" : f.status) : "not generated"}</span>
+                <span className={TONE[f?.status ?? "waiting"]}>{f ? (f.status === "running" ? "generating…" : f.status === "waiting" && busyFig(b.id) ? "queued" : f.status) : "not generated"}</span>
                 {f?.level && f.level !== "full" && <span className="text-amber-300" data-testid="generation-level">{f.level === "gentle"
                   ? "asked in gentler words (the full prompt was blocked by moderation)" : "drawn with no reference image (the picture was blocked by moderation)"}</span>}
                 <span className="ml-auto flex items-center gap-1.5">
                   <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
-                    disabled={running} onClick={() => act({ action: "one", block: b.id, ...models })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
+                    disabled={busyFig(b.id)} data-testid="generate-one" onClick={() => act({ action: "one", block: b.id, ...models })}>{f?.status === "done" ? "Regenerate" : "Generate"}</button>
                   {f?.calls.map((id) => {
                     const c = run.calls.find((x) => x.id === id);
                     return c ? <button key={id} onClick={() => onCall(id)} className={`rounded border px-1.5 py-px text-[10px] hover:bg-neutral-800 ${c.status === "failed" ? "border-red-800 text-red-300" : "border-neutral-700 text-neutral-400"}`}>

@@ -31,6 +31,16 @@ Then, apart from the transcript and at any time once the book is read:
 | Generation (SVG drawings) | On the same Generate tab, every figure triaged **SVG drawing** (or set so by hand) is drawn by the **SVG model** (`V2_SVG_MODEL`, a model that reads images; default `anthropic/claude-sonnet-4.5`): it is shown the book's figure and writes the SVG from it **in the same call**, no other model describing it first. The prompt is v1's SVG prompt and rules (`figures.ts` `SVG_PROMPT`/`SVG_RULES` before 506360a, `app/lib/prompts/svg.ts`) without its PHOTO/MANIM ways out: colours by name (INK, ROSE, RIVER…), parts as `<g id>`, labels as `<text>`, animation only when it teaches. Code checks it against those rules (viewBox, elements, colour names, parts, size) and sends what breaks them back to the same model once. The page shows it on v1's default board (atlas colours), with its parts, any rule it still breaks, its code, and the prompt by its parts. Nothing in an SVG can run: scripts, handlers and outside links are stripped, and it is served under a sandboxing CSP. | 1 per figure (2 when it breaks the rules) |
 | Generation (Manim) | On the same Generate tab, every figure triaged **Manim** (or set so by hand) is written in Manim by the **Manim model** (`V2_MANIM_MODEL`, a model that reads images; default `anthropic/claude-sonnet-4.5`): it is shown the book's figure and writes the body of `construct()` **in the same call**, with v1's Manim rules (`lecture.ts` `MANIM_RULES`, `manimcoder.ts`: "the book's figure, to rebuild exactly"; `app/lib/prompts/manim.ts`) for one figure in one scene. Code checks it first (no imports, file/OS/process access, exec/eval, dunder names, while loops, classes, camera surgery), then renders it with the repo's Manim (`.venv` from `harness/scripts/setup-python.sh`, or `V2_PYTHON`) on v1's default board, in its own process and folder with a time limit (`V2_MANIM_TIMEOUT_SECONDS`, 120): its last frame (PNG) and its video (MP4, 480p). A refused or failed render goes back to the same model once, with the error. The card shows the frame, the video, the code and the prompt by its parts. | 1 per figure (2 when it fails) |
 
+**Parallel generation:** each figure is generated on its own, so any number can be generated at once: start one,
+then another, or a batch while singles run (a batch skips the figures already being generated; a figure is never
+generated twice at once). **Stop all** stops every batch after the figure each is on. `V2_GENERATE_PARALLEL` (3) is
+how many figures one batch does at once.
+
+**Pictures for the decision model** are made to fit first (`app/lib/imagefit.ts`, with sharp): no side over 1568 px
+or under 64 px, no longer than 4:1 (padded with white), transparency flattened, PNG. Jev refused some book figures
+outright ("Invalid image dimensions"); a picture it still refuses is decided by the chat model instead, and the
+figure says so. `V2_IMAGE_MAX_SIDE`, `V2_IMAGE_MIN_SIDE`, `V2_IMAGE_MAX_RATIO` change the limits.
+
 There is no length ceiling anywhere.
 
 ## Saved, continued, exported

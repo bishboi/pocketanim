@@ -98,6 +98,17 @@ assert.equal(run.triage.status, "done", run.triage.error);
 const kindOf = (k) => run.triage.figures[pics[k].id].kind;
 assert.equal(kindOf(0), "map");
 assert.equal(kindOf(1), "manim");
+// Pictures fitted for the decision model: none too small, too large or too long a strip.
+const { fitImage } = await import(path.resolve(here, "../lib/imagefit.ts"));
+const sharpLib = (await import("sharp")).default;
+for (const [w, h, ok] of [[20, 15, (f) => Math.min(f.width, f.height) >= 64], [3000, 200, (f) => f.width <= 1568 && f.width / f.height <= 4],
+  [400, 300, (f) => f.width === 400 && !f.changed.length], [5000, 5000, (f) => f.width === 1568], [30, 900, (f) => f.height / f.width <= 4 && Math.min(f.width, f.height) >= 64]]) {
+  const png = await sharpLib({ create: { width: w, height: h, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 0.5 } } }).png().toBuffer();
+  const f = await fitImage(`data:image/png;base64,${png.toString("base64")}`);
+  const real = await sharpLib(Buffer.from(f.url.split(",")[1], "base64")).metadata();
+  assert.ok(ok(f) && real.width === f.width && real.height === f.height && !real.hasAlpha, `${w}x${h} -> ${f.width}x${f.height} (${f.changed.join("; ")})`);
+}
+
 // By default a decision model decides: one Choice question over the ways ticked, the picture in the state.
 const tcall = run.calls.find((c) => c.step === "triage");
 assert.equal(tcall.api, "decisions");
@@ -111,6 +122,17 @@ assert.ok(tcall.request.state.some((s) => s.type === "image_url"), "the picture 
 assert.ok(!JSON.stringify(tcall.request).includes("iVBORw0KGgo"), "the run's file keeps no image bytes");
 const f0 = run.triage.figures[pics[0].id];
 assert.ok(f0.confidence > 0.8 && !f0.unsure && Object.keys(f0.probabilities).length === 3, JSON.stringify(f0));
+// A picture the decision model refuses ("Invalid image dimensions"): that figure is decided by the chat model.
+await triageAction(run.id, { action: "one", block: pics[0].id, model: "fixture-refuses-images" });
+run = await wait(run.id, (r) => r.triage.status === "running");
+const refused = run.triage.figures[pics[0].id];
+assert.equal(refused.status, "done", refused.error);
+assert.equal(refused.engine, "chat");
+assert.match(refused.rule, /refused its picture/);
+assert.ok(run.calls.some((c) => c.checks.some((k) => k.name === "Picture size")), "the picture's size is checked and said");
+await triageAction(run.id, { action: "one", block: pics[0].id, model: "typesafe/jev-1.14" });
+run = await wait(run.id, (r) => r.triage.status === "running");
+
 // The chat engine for one figure: its instruction and reason, the run's engine unchanged.
 await triageAction(run.id, { action: "one", block: pics[1].id, engine: "chat" });
 run = await wait(run.id, (r) => r.triage.status === "running");
@@ -131,7 +153,7 @@ await assert.rejects(triageAction(run.id, { action: "run" }), /every figure is t
 // Map not allowed: reset reruns all, and the map falls back to a way that is.
 await triageAction(run.id, { action: "reset", kinds: ["manim", "styled"] });
 run = await wait(run.id, (r) => r.triage.status === "running");
-assert.equal(run.triage.rounds, 6);
+assert.equal(run.triage.rounds, 8);
 assert.equal(kindOf(0), "manim");
 await triageAction(run.id, { action: "override", block: pics[0].id, kind: "exact" });
 assert.equal(run.triage.figures[pics[0].id].override, "exact");
@@ -170,7 +192,7 @@ const gcall = run.calls.find((c) => c.id === g0.calls[0]);
 assert.equal(gcall.api, "image");
 assert.ok(gcall.prompt.user.some((p) => p.key === "keep") && gcall.prompt.user.some((p) => p.key === "reference"), "the prompt by its parts");
 assert.equal(gcall.output.image.split("?")[0], `/api/runs/${run.id}/generated/${encodeURIComponent(pics[0].id)}`);
-await assert.rejects(generateAction(run.id, { action: "run" }), /every redraw is generated/);
+await assert.rejects(generateAction(run.id, { action: "run" }), /every figure is generated/);
 await generateAction(run.id, { action: "one", block: pics[0].id });
 run = await wait(run.id, (r) => r.generation.status === "running");
 assert.equal(run.generation.figures[pics[0].id].calls.length, 2);
@@ -224,6 +246,16 @@ assert.ok(gmn.code.includes("self.play"));
 const mcall = run.calls.find((c) => c.id === gmn.calls.at(-1));
 assert.ok(mcall.prompt.system.some((p) => p.key === "rules" && p.text.includes("PALETTE")) && mcall.prompt.user.some((p) => p.text.includes("to rebuild exactly")), "v1's Manim rules");
 assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), JSON.stringify(mcall.checks));
+// In parallel: one figure started while another is being generated; the busy one is not started twice.
+const { generating } = await import(path.resolve(here, "../lib/generate.ts"));
+await generateAction(run.id, { action: "one", block: pics[1].id });
+await generateAction(run.id, { action: "one", block: pics[0].id });
+assert.deepEqual(generating(run.id).sort(), [pics[0].id, pics[1].id].sort(), "both at once");
+await assert.rejects(generateAction(run.id, { action: "one", block: pics[1].id }), /being generated already/);
+run = await wait(run.id, (r) => r.generation.status === "running");
+assert.equal(run.generation.status, "done", run.generation.error);
+assert.ok([pics[0].id, pics[1].id].every((id) => run.generation.figures[id].status === "done"));
+assert.deepEqual(generating(run.id), []);
 await triageAction(run.id, { action: "override", block: pics[1].id, kind: null });
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.

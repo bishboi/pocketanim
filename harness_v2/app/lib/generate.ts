@@ -53,6 +53,15 @@ export function generatedFile(runId: string, block: string, ext = "png"): string
   return path.join(DATA, "runs", runId, "generated", `${block.replace(/[^\w]+/g, "_")}.${ext}`);
 }
 
+/**
+ * What is being generated now: each figure on its own (a figure is generated once at a time; any number of figures
+ * at once), and how many batches each run has going. Kept on globalThis, as the runs are (store.ts).
+ */
+const shared = globalThis as unknown as { __v2genBusy?: Set<string>; __v2genActive?: Map<string, number> };
+const busy = (shared.__v2genBusy ??= new Set<string>());
+const active = (shared.__v2genActive ??= new Map<string, number>());
+const busyKey = (run: string, block: string) => `${run}|${block}`;
+
 export async function generateAction(id: string, a: GenerateAction): Promise<Run> {
   const run = await loadRun(id);
   if (!run) throw new Error("no such run");
@@ -61,8 +70,7 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
     return run;
   }
   if (run.legacy) throw new Error(run.legacy);
-  if (!run.triage) throw new Error("triage the figures first: generation redraws the figures triaged Exact or Styled redraw");
-  if (jobs.has(`${id}:generate`)) throw new Error("the generation is already running");
+  if (!run.triage) throw new Error("triage the figures first: generation draws the figures triaged Exact or Styled redraw, SVG drawing or Manim");
   const gen: Generation = run.generation ?? { status: "idle", model: "", rounds: 0, figures: {} };
   gen.model = a.model || gen.model || run.options.imageModel || modelFor("image");
   gen.svgModel = a.svgModel || gen.svgModel || run.options.svgModel || modelFor("svg");
@@ -70,61 +78,98 @@ export async function generateAction(id: string, a: GenerateAction): Promise<Run
   run.generation = gen;
   const figures = toGenerate(run);
   if (!figures.length) throw new Error("no figure is triaged Exact redraw, Styled redraw, SVG drawing or Manim");
+  // Figures being generated now go on; the others are free to start, alone or together.
+  const free = (b: Block) => !busy.has(busyKey(id, b.id));
   let todo: Block[];
   if (a.action === "reset") {
-    gen.figures = Object.fromEntries(Object.entries(gen.figures).map(([b, f]) => [b, { block: b, status: "waiting", calls: f.calls } as FigureGeneration]));
-    todo = figures;
-    log(run, `Generation reset: every generated image cleared; all ${figures.length} redrawn again.`);
+    todo = figures.filter(free);
+    for (const b of todo) gen.figures[b.id] = { block: b.id, status: "waiting", calls: gen.figures[b.id]?.calls ?? [] };
+    log(run, `Generation reset: ${todo.length} figure(s) cleared and generated again${todo.length < figures.length ? ` (${figures.length - todo.length} being generated already go on)` : ""}.`);
   } else if (a.action === "one") {
     const b = figures.find((x) => x.id === a.block);
-    if (!b) throw new Error("that figure is not triaged as a redraw");
+    if (!b) throw new Error("that figure is not triaged Exact or Styled redraw, SVG drawing or Manim");
+    if (!free(b)) throw new Error("that figure is being generated already");
     todo = [b];
   } else {
-    todo = figures.filter((b) => gen.figures[b.id]?.status !== "done" || gen.figures[b.id]?.kind !== wayOf(run, b.id));
-    if (!todo.length) throw new Error("every redraw is generated: reset to generate them all again, or regenerate one");
+    todo = figures.filter((b) => free(b) && (gen.figures[b.id]?.status !== "done" || gen.figures[b.id]?.kind !== wayOf(run, b.id)));
+    if (!todo.length) throw new Error("every figure is generated or being generated: reset to generate them all again, or regenerate one");
   }
-  for (const b of todo) gen.figures[b.id] = { block: b.id, status: "waiting", calls: gen.figures[b.id]?.calls ?? [] };
+  if (!todo.length) throw new Error("every figure is being generated already");
+  for (const b of todo) {
+    busy.add(busyKey(id, b.id));
+    gen.figures[b.id] = { ...(gen.figures[b.id] ?? { calls: [] }), block: b.id, status: "waiting", calls: gen.figures[b.id]?.calls ?? [] };
+  }
   gen.rounds += 1;
   launch(run, todo);
   return run;
 }
 
+/** One batch (one figure, or several): runs beside any other batch of the run; the run's generation is running while any is. */
 function launch(run: Run, todo: Block[]) {
   const key = `${run.id}:generate`;
   const gen = run.generation!;
+  const first = !active.get(run.id);
+  active.set(run.id, (active.get(run.id) ?? 0) + 1);
   jobs.add(key);
-  clearStop(key);
-  Object.assign(gen, { status: "running", error: undefined, started: Date.now(), ended: undefined });
+  if (first) {
+    clearStop(key);
+    Object.assign(gen, { status: "running", error: undefined, started: Date.now(), ended: undefined });
+  }
   saveRun(run, true);
   void (async () => {
     try {
       const book = await bookOf(run.documentId);
       const queue = [...todo];
       const worker = async () => {
-        while (queue.length && !stopRequested(key)) await generateFigure(run, queue.shift()!, book);
+        for (let b = queue.shift(); b; b = queue.shift()) {
+          if (stopRequested(key)) {
+            busy.delete(busyKey(run.id, b.id));
+            continue;
+          }
+          try {
+            await generateFigure(run, b, book);
+          } finally {
+            busy.delete(busyKey(run.id, b.id));
+            const f = gen.figures[b.id];
+            if (f?.status === "running") f.status = "waiting";
+            saveRun(run);
+          }
+        }
       };
       await Promise.all(Array.from({ length: Math.min(AT_ONCE, queue.length) }, worker));
-      const all = Object.values(gen.figures);
-      const failed = all.filter((f) => f.status === "failed").length;
-      if (stopRequested(key)) {
-        gen.status = "stopped";
-        log(run, "Generation stopped: the images made are kept; Generate does the rest.");
-      } else {
-        gen.status = failed && failed === all.length ? "failed" : "done";
-        if (failed) gen.error = `${failed} figure(s) could not be generated: see each one's error, and regenerate them.`;
-      }
     } catch (error) {
-      gen.status = "failed";
       gen.error = (error as Error).message;
       log(run, `Generation failed: ${gen.error}`);
+      for (const b of todo) busy.delete(busyKey(run.id, b.id));
     } finally {
-      for (const f of Object.values(gen.figures)) if (f.status === "running") f.status = "waiting";
-      jobs.delete(key);
-      clearStop(key);
-      gen.ended = Date.now();
+      const left = (active.get(run.id) ?? 1) - 1;
+      if (left > 0) active.set(run.id, left);
+      else {
+        // The last batch of the run: the generation's status says how it all went.
+        active.delete(run.id);
+        const all = Object.values(gen.figures);
+        const failed = all.filter((f) => f.status === "failed").length;
+        if (stopRequested(key)) {
+          gen.status = "stopped";
+          log(run, "Generation stopped: what was made is kept; Generate does the rest.");
+        } else if (gen.error && !all.some((f) => f.status === "done")) {
+          gen.status = "failed";
+        } else {
+          gen.status = failed && failed === all.length ? "failed" : "done";
+          gen.error = failed ? `${failed} figure(s) could not be generated: see each one's error, and regenerate them.` : undefined;
+        }
+        jobs.delete(key);
+        clearStop(key);
+        gen.ended = Date.now();
+      }
       saveRun(run, true);
     }
   })();
+}
+
+/** Whether a figure of a run is being generated now (for the page). */
+export function generating(runId: string): string[] {
+  return [...busy].filter((k) => k.startsWith(`${runId}|`)).map((k) => k.slice(runId.length + 1));
 }
 
 async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<typeof bookOf>>) {

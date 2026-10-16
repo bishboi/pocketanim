@@ -38,15 +38,19 @@ There is no length ceiling anywhere.
   what is left (figures not described, the plan if none, lectures not written), with the models now chosen. A run
   the server lost mid-way (a restart) shows as interrupted and continues the same way. **↻ redo** on a step clears
   it and the steps after it, and makes them again.
-- **Export transcript (JSON)** (`/api/runs/<id>/export`): format `pocketanim.v2.transcript`, version 1. Each
-  lecture's sentences numbered (the numbers the scene script will name), its goals with their sentences and status,
-  patched sentences marked, its blocks; every block with Datalab's id, type, HTML, page and box; each figure with
-  its description and triage (the way, who chose it, the instruction, what must stay exact). **Export (Markdown)**
-  is the same to read. **Import transcript** turns an exported JSON into a run of its own, to continue from. The wanted length of a lecture (minutes) is only stated as context in the plan
-call; the topics decide where lectures end.
+- **Export transcript (to import later)** (`/api/runs/<id>/export`): one file, `<book>-<run>.panim-transcript.json`,
+  format `pocketanim.v2.transcript` version 2 (`app/lib/export.ts` is its contract). It holds:
+  - `lectures`: each lecture's sentences numbered (`lines`: the numbers the scene script will name), its text, its
+    goals with their sentences and status, patched sentences marked, its blocks and those it taught;
+  - `blocks`: every block with Datalab's id, type, HTML, page and box, its lecture, and for a figure its
+    description and triage (the way, who chose it, the instruction, what must stay exact);
+  - `run`: the options it was made with; `triage`: the ways allowed and the model; `costs` by step;
+  - `book`: the book itself, so the file is whole: the PDF, Datalab's JSON and each figure's picture (base64).
 
-The prompts' words are v1's where they apply (`app/lib/prompts/texts.ts`); `app/lib/prompts/build.ts` builds each
-prompt as named parts.
+  **Import transcript** reads it (here or on another machine) as a run with every step done. Its book is the same
+  PDF if it is already here (found by its sha256), else made again from the file, with no Datalab call. From an
+  imported run everything goes on as from the run it came from: the PDF and its highlights, the figure triage,
+  Continue, and the steps to come. **Markdown (to read)** is the same transcript to read; it is not imported.
 
 ## The page
 

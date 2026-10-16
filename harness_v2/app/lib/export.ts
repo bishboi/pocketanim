@@ -1,18 +1,38 @@
 /**
- * A run's transcript as a file to keep: every lecture's text with its sentences numbered (the numbers the scene
- * script will name), its goals with the sentences that teach them, the book's blocks each lecture teaches (Datalab's
- * id, type, HTML, page and box) and each figure's description and triage. JSON for the steps to come, Markdown to
- * read. An exported JSON can be imported again as a run (importTranscript), so later steps can start from it.
+ * A run's transcript as one file that later steps start from: every lecture's text with its sentences numbered (the
+ * numbers the scene script will name), its goals with the sentences that teach them, the book's blocks each lecture
+ * teaches (Datalab's id, type, HTML, page and box), each figure's description and triage, and the book itself (the
+ * PDF, Datalab's JSON and the figure pictures, base64). With the book inside, the file is whole: imported on any
+ * machine (importTranscript) it becomes a run with every step done, the book read again from it, so the next steps
+ * (triage, scene script...) and Continue work as on the run it came from. Markdown is the same to read only.
  */
 
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { linesOf } from "./source/book";
 import { choiceOf, type TriageKind } from "./triage-kinds";
-import { newId, saveRun } from "./store";
-import type { GoalStatus, LectureState, Run, Step } from "./types";
+import { docDir, documentInfo, listDocuments, newId, saveRun } from "./store";
+import type { RawBlock } from "./datalab";
+import type { DocumentInfo, GoalStatus, LectureState, Run, Step } from "./types";
 import type { Block } from "./source/blocks";
 
 export const EXPORT_FORMAT = "pocketanim.v2.transcript";
-export const EXPORT_VERSION = 1;
+/** 2: the book inside (`book`); 1 (no book) is still read. */
+export const EXPORT_VERSION = 2;
+
+/** The book as the file carries it: enough to read it again with no Datalab call. */
+export type ExportedBook = {
+  info: DocumentInfo;
+  /** sha256 of the PDF: an import finds the book already here by it. */
+  sha256: string;
+  pdf: string;
+  /** Datalab's JSON of it, as converted. */
+  datalab: RawBlock;
+  /** Each figure's picture by block id: its file's name and its bytes. */
+  figures: Record<string, { name: string; base64: string }>;
+};
 
 export type ExportedLine = { n: number; text: string; goals: string[]; patch?: string[] };
 export type ExportedLecture = {
@@ -38,7 +58,29 @@ export type ExportedTranscript = {
   lectures: ExportedLecture[];
   blocks: ExportedBlock[];
   triage?: { kinds: TriageKind[]; model: string; status: string };
+  /** What the transcript cost, by step (USD). */
+  costs?: Record<string, number>;
+  book?: ExportedBook;
 };
+
+/** The whole file: the transcript and the book inside it. */
+export async function exportWhole(run: Run): Promise<ExportedTranscript> {
+  return { ...exportTranscript(run), book: await bookOf(run.documentId) };
+}
+
+async function bookOf(id: string): Promise<ExportedBook | undefined> {
+  const dir = docDir(id);
+  if (!existsSync(path.join(dir, "source.pdf"))) return undefined;
+  const pdf = await readFile(path.join(dir, "source.pdf"));
+  const files: Record<string, string> = JSON.parse(await readFile(path.join(dir, "figures.json"), "utf8").catch(() => "{}"));
+  const figures: ExportedBook["figures"] = {};
+  for (const [block, file] of Object.entries(files)) {
+    const bytes = await readFile(file).catch(() => null);
+    if (bytes) figures[block] = { name: path.basename(file), base64: bytes.toString("base64") };
+  }
+  return { info: await documentInfo(id), sha256: createHash("sha256").update(pdf).digest("hex"), pdf: pdf.toString("base64"),
+    datalab: JSON.parse(await readFile(path.join(dir, "book.json"), "utf8")), figures };
+}
 
 export function exportTranscript(run: Run): ExportedTranscript {
   const home = new Map(run.lectures.flatMap((l) => l.blocks.map((id) => [id, l.n] as const)));
@@ -82,6 +124,7 @@ export function exportTranscript(run: Run): ExportedTranscript {
     document: { id: run.documentId, name: run.documentName, pdf: `/api/documents/${run.documentId}/pdf` },
     lectures, blocks,
     ...(run.triage ? { triage: { kinds: run.triage.kinds, model: run.triage.model, status: run.triage.status } } : {}),
+    costs: run.calls.reduce<Record<string, number>>((m, c) => ({ ...m, [c.step]: (m[c.step] ?? 0) + c.cost }), {}),
   };
 }
 
@@ -110,11 +153,56 @@ export function transcriptMarkdown(run: Run): string {
   return out.join("\n");
 }
 
-/** An exported transcript (JSON) as a run of its own: the transcript's steps done, nothing called again. */
-export function importTranscript(data: unknown, file: string): Run {
+/**
+ * The book of an imported file, here: the same PDF already uploaded (by its sha256), else the one the file names if
+ * it is here, else made again from the file (the PDF, Datalab's JSON and figures it carries; Datalab is not called).
+ */
+async function placeBook(x: ExportedTranscript): Promise<{ id: string; how: string }> {
+  if (x.book?.sha256) {
+    for (const d of await listDocuments()) {
+      const pdf = await readFile(path.join(docDir(d.id), "source.pdf")).catch(() => null);
+      if (pdf && createHash("sha256").update(pdf).digest("hex") === x.book.sha256) return { id: d.id, how: `the book already here (${d.name})` };
+    }
+  }
+  if (!x.book) {
+    if (existsSync(path.join(docDir(x.document.id), "source.pdf"))) return { id: x.document.id, how: "the book already here" };
+    return { id: x.document.id, how: "no book: the file carries none and it is not here (the PDF and figures will be missing)" };
+  }
+  const id = newId();
+  const dir = docDir(id);
+  await mkdir(path.join(dir, "figures"), { recursive: true });
+  await writeFile(path.join(dir, "source.pdf"), Buffer.from(x.book.pdf, "base64"));
+  await writeFile(path.join(dir, "book.json"), JSON.stringify(x.book.datalab), "utf8");
+  const figures: Record<string, string> = {};
+  for (const [block, f] of Object.entries(x.book.figures ?? {})) {
+    const file = path.join(dir, "figures", path.basename(f.name));
+    await writeFile(file, Buffer.from(f.base64, "base64"));
+    figures[block] = file;
+  }
+  await writeFile(path.join(dir, "figures.json"), JSON.stringify(figures), "utf8");
+  await writeFile(path.join(dir, "info.json"), JSON.stringify({ ...x.book.info, id, created: Date.now() }), "utf8");
+  return { id, how: `the book made again from the file (${x.book.info.name}, ${Object.keys(figures).length} figure pictures)` };
+}
+
+/** Whether a parsed file is an exported transcript this version reads; the reason when it is not. */
+export function checkExport(data: unknown): string | null {
   const x = data as ExportedTranscript;
-  if (x?.format !== EXPORT_FORMAT) throw new Error("not an exported v2 transcript (its format is not pocketanim.v2.transcript)");
-  if (!Array.isArray(x.lectures) || !Array.isArray(x.blocks)) throw new Error("the file has no lectures or blocks");
+  if (x?.format !== EXPORT_FORMAT) return "not an exported v2 transcript (its format is not pocketanim.v2.transcript)";
+  if (typeof x.version !== "number" || x.version > EXPORT_VERSION) return `made by a newer harness (version ${x.version}; this one reads up to ${EXPORT_VERSION})`;
+  if (!Array.isArray(x.lectures) || !Array.isArray(x.blocks)) return "the file has no lectures or blocks";
+  if (!x.document?.id || !x.run?.options) return "the file has no document or run options";
+  for (const l of x.lectures) {
+    if (!Array.isArray(l.lines) || !Array.isArray(l.goals) || !Array.isArray(l.blocks)) return `lecture ${l.n} is missing its lines, goals or blocks`;
+  }
+  return null;
+}
+
+/** An exported transcript (JSON) as a run of its own: the transcript's steps done, nothing called again. */
+export async function importTranscript(data: unknown, file: string): Promise<Run> {
+  const problem = checkExport(data);
+  if (problem) throw new Error(problem);
+  const x = data as ExportedTranscript;
+  const book = await placeBook(x);
   const goalStatus: Record<string, GoalStatus> = {};
   const lectures: LectureState[] = x.lectures.map((l) => {
     for (const g of l.goals) goalStatus[g.id] = g.status;
@@ -134,7 +222,7 @@ export function importTranscript(data: unknown, file: string): Run {
   const done = (key: Step["key"], label: string, summary: string): Step => ({ key, label, status: "done", summary });
   const written = lectures.filter((l) => l.status === "written").length;
   const run: Run = {
-    id: newId(), documentId: x.document.id, documentName: x.document.name, created: Date.now(), ended: Date.now(),
+    id: newId(), documentId: book.id, documentName: x.document.name, created: Date.now(), ended: Date.now(),
     status: written === lectures.length ? "done" : "stopped", options: x.run.options,
     steps: [
       done("read", "Read the book", `${blocks.length} blocks (imported)`),
@@ -143,7 +231,7 @@ export function importTranscript(data: unknown, file: string): Run {
       { key: "write", label: "Write lectures", status: written === lectures.length ? "done" : "waiting", summary: `${written} of ${lectures.length} written (imported)` },
     ],
     blocks, skipped: x.blocks.filter((b) => b.skipped).map((b) => ({ block: b.id, reason: b.skipped! })), lectures, goalStatus,
-    calls: [], log: [{ t: Date.now(), text: `Imported from ${file} (run ${x.run.id}, exported ${x.exported}).` }],
+    calls: [], log: [{ t: Date.now(), text: `Imported from ${file} (run ${x.run.id}, exported ${x.exported}); ${book.how}.` }],
     imported: { file, at: Date.now() },
   };
   const triaged = x.blocks.filter((b) => b.figure?.triage);

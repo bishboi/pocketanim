@@ -196,9 +196,9 @@ export default function Page() {
             <option value="">Past runs…</option>
             {runs.map((r) => <option key={r.id} value={r.id}>{new Date(r.created).toLocaleString()} · {r.documentName} · {r.status} · {r.lectures}{r.triage ? ` · ${r.triage}` : ""} · {money(r.cost)}</option>)}
           </select>
-          <label className="cursor-pointer rounded border border-neutral-600 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800" title="A transcript exported as JSON, as a run of its own">
+          <label className="cursor-pointer rounded border border-neutral-600 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800" title="An exported transcript (.panim-transcript.json): it becomes a run with its book, to go on from">
             Import transcript
-            <input type="file" accept="application/json,.json" className="hidden" data-testid="import"
+            <input type="file" accept="application/json,.json,.panim-transcript.json" className="hidden" data-testid="import"
               onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           </label>
           <div className="ml-auto flex items-center gap-3 text-xs text-neutral-300" data-testid="totals">
@@ -245,8 +245,9 @@ export default function Page() {
               : run.status !== "done" && <button className="rounded border border-emerald-700 px-2 py-0.5 text-emerald-200 hover:bg-emerald-950" data-testid="continue"
                   title="Keep every step done so far and do only what is left, with the models above" onClick={() => act("", { action: "continue", options })}>Continue from where it stopped</button>}
             <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=json`} data-testid="export-json"
-              title="Every lecture's numbered sentences, goals, blocks and figure triage: for the scene script">Export transcript (JSON)</a>
-            <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=md`}>Export (Markdown)</a>
+              title="One file with everything: the lectures' numbered sentences, goals, blocks, figure triage, and the book itself (PDF, Datalab JSON, figures). Import it here or on another machine to go on with the next steps.">Export transcript (to import later)</a>
+            <a className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-200 hover:bg-neutral-800" href={`/api/runs/${run.id}/export?format=md`}
+              title="To read; it cannot be imported">Markdown (to read)</a>
             {run.imported && <span className="text-neutral-500">imported from {run.imported.file}</span>}
             <span className="text-neutral-500">Saved as it goes: pick it again from Past runs at any time.</span>
           </div>

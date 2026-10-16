@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const file = (await request.formData()).get("file");
     if (!(file instanceof File)) throw new Error("no file");
-    const run = importTranscript(JSON.parse(await file.text()), file.name);
+    const run = await importTranscript(JSON.parse(await file.text()), file.name);
     return NextResponse.json({ id: run.id });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });

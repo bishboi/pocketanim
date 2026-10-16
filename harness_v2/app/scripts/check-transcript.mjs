@@ -85,7 +85,7 @@ assert.ok(previous.includes(run.lectures[0].text.slice(0, 80)), "lecture 2 sees 
 assert.ok(!/at most about|words \(\d+ min\)/.test(render(second.prompt.system) + render(second.prompt.user)), "no length ceiling");
 // Figures: both described, then triaged from the ways allowed.
 const { triageAction } = await import(path.resolve(here, "../lib/triage.ts"));
-const { exportTranscript, importTranscript, transcriptMarkdown } = await import(path.resolve(here, "../lib/export.ts"));
+const { checkExport, exportTranscript, exportWhole, importTranscript, transcriptMarkdown } = await import(path.resolve(here, "../lib/export.ts"));
 const { continueRun } = await import(path.resolve(here, "../lib/run.ts"));
 const pics = run.blocks.filter((b) => b.image);
 assert.equal(pics.length, 2, "two pictures");
@@ -121,8 +121,9 @@ const fig = x.blocks.find((b) => b.id === pics[0].id).figure;
 assert.equal(fig.triage.kind, "exact");
 assert.equal(fig.triage.chosenBy, "user");
 assert.ok(transcriptMarkdown(run).includes("### Transcript"));
-const back = importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
+const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");
+assert.equal(back.documentId, run.documentId, "the same book: found here, not made again");
 assert.deepEqual(back.lectures.map((l) => l.text), run.lectures.map((l) => l.text));
 assert.equal(back.triage.figures[pics[0].id].override, "exact");
 assert.deepEqual(exportTranscript(back).lectures, x.lectures, "export, import, export: the same lectures");
@@ -139,6 +140,30 @@ assert.equal(run.status, "done", run.error);
 assert.equal(lost.status, "written");
 const added = run.calls.slice(calls);
 assert.ok(added.length >= 1 && added.every((c) => c.lecture === lost.n), `only lecture ${lost.n} written again: ${added.map((c) => c.label)}`);
+
+// The whole file on another machine: the book is not there; the file carries it, and the next steps go on from it.
+const whole = JSON.parse(JSON.stringify(await exportWhole(run)));
+assert.equal(whole.version, 2);
+assert.ok(whole.book.pdf && whole.book.datalab && Object.keys(whole.book.figures).length === 2, "the book is in the file");
+const { rmSync } = await import("node:fs");
+rmSync(path.join(process.cwd(), ".data"), { recursive: true, force: true });
+assert.match(checkExport({ format: "x" }), /not an exported/);
+assert.match(checkExport({ ...whole, version: 99 }), /newer/);
+const there = await importTranscript(whole, "whole.json");
+assert.notEqual(there.documentId, run.documentId, "the book made again");
+assert.ok(there.log[0].text.includes("made again from the file"), there.log[0].text);
+assert.deepEqual(exportTranscript(there).lectures, x.lectures);
+await triageAction(there.id, { action: "one", block: pics[1].id, kinds: ["manim", "map"] });
+const t2 = await wait(there.id, (r) => r.triage.status === "running");
+assert.equal(t2.triage.figures[pics[1].id].kind, "manim", t2.triage.error);
+Object.assign(t2.lectures[2], { status: "waiting", text: undefined });
+t2.status = "stopped";
+await continueRun(there.id);
+const t3 = await wait(there.id, (r) => r.status === "running");
+assert.equal(t3.status, "done", t3.error);
+assert.equal(t3.lectures[2].status, "written");
+assert.ok(t3.calls.find((c) => c.lecture === 3).prompt.user.find((p) => p.key === "previous").text.includes(run.lectures[0].text.slice(0, 60)),
+  "a lecture written after import sees the imported ones");
 
 console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${Object.keys(run.goalStatus).length} goals, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

@@ -125,20 +125,24 @@ async function real(call: Call, tool: Tool, images: string[] = []): Promise<Reco
 }
 
 /** A model's prices (US dollars per million tokens) from OpenRouter's public list, and whether a tiny call works. */
-export async function checkModel(model: string): Promise<{ ok: boolean; seconds: number; cost: number; reply?: string;
-  error?: string; prices?: { input: number; output: number }; context?: number; fixture?: boolean }> {
+export async function checkModel(model: string, kind: "text" | "vision" | "image" = "text"): Promise<{ ok: boolean; seconds: number;
+  cost: number; reply?: string; error?: string; prices?: { input: number; output: number }; context?: number; fixture?: boolean;
+  outputs?: string[] }> {
   const began = Date.now();
   let prices: { input: number; output: number } | undefined;
   let context: number | undefined;
+  let outputs: string[] | undefined;
   try {
     const list = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(15000) });
     const data = (await list.json()) as { data?: { id: string; context_length?: number; pricing?: { prompt?: string; completion?: string } }[] };
-    const found = data.data?.find((m) => m.id === model);
+    const found = (data.data as { id: string; context_length?: number; pricing?: { prompt?: string; completion?: string };
+      architecture?: { output_modalities?: string[] } }[] | undefined)?.find((m) => m.id === model);
+    outputs = found?.architecture?.output_modalities;
     if (found?.pricing) prices = { input: Number(found.pricing.prompt) * 1e6, output: Number(found.pricing.completion) * 1e6 };
     context = found?.context_length;
   } catch {}
   if (usingFixture(model)) {
-    return { ok: true, seconds: 0, cost: 0, fixture: true, prices, context,
+    return { ok: true, seconds: 0, cost: 0, fixture: true, prices, context, outputs,
       reply: process.env.OPENROUTER_API_KEY ? "fixture model: answered by the offline stand-in" : "no OPENROUTER_API_KEY: calls use the offline stand-in" };
   }
   try {
@@ -146,15 +150,25 @@ export async function checkModel(model: string): Promise<{ ok: boolean; seconds:
       method: "POST",
       signal: AbortSignal.timeout(60000),
       headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with the one word: ready" }], max_tokens: 400,
-        usage: { include: true } }),
+      // An image model is asked for a picture (and passes only if one comes back); the others for one word.
+      body: JSON.stringify(kind === "image"
+        ? { model, messages: [{ role: "user", content: "Draw a small red circle on a white background." }], modalities: ["image", "text"],
+          usage: { include: true } }
+        : { model, messages: [{ role: "user", content: "Reply with the one word: ready" }], max_tokens: 400, usage: { include: true } }),
     });
     const body = await response.text();
-    if (!response.ok) return { ok: false, seconds: (Date.now() - began) / 1000, cost: 0, error: `${response.status} ${body.slice(0, 200)}`, prices, context };
+    if (!response.ok) return { ok: false, seconds: (Date.now() - began) / 1000, cost: 0, error: `${response.status} ${body.slice(0, 200)}`, prices, context, outputs };
     const json = JSON.parse(body);
-    return { ok: true, seconds: (Date.now() - began) / 1000, cost: Number(json.usage?.cost ?? 0), prices, context,
-      reply: String(json.choices?.[0]?.message?.content ?? "").slice(0, 80) };
+    const seconds = (Date.now() - began) / 1000;
+    const cost = Number(json.usage?.cost ?? 0);
+    if (kind === "image") {
+      const images = (json.choices?.[0]?.message?.images ?? []) as { image_url?: { url?: string } }[];
+      const url = images.find((i) => i.image_url?.url)?.image_url?.url;
+      return url ? { ok: true, seconds, cost, prices, context, outputs, reply: `an image came back (${Math.round(url.length * 0.75 / 1024)} kB)` }
+        : { ok: false, seconds, cost, prices, context, outputs, error: "no image came back: not a model that makes images" };
+    }
+    return { ok: true, seconds, cost, prices, context, outputs, reply: String(json.choices?.[0]?.message?.content ?? "").slice(0, 80) };
   } catch (error) {
-    return { ok: false, seconds: (Date.now() - began) / 1000, cost: 0, error: (error as Error).message, prices, context };
+    return { ok: false, seconds: (Date.now() - began) / 1000, cost: 0, error: (error as Error).message, prices, context, outputs };
   }
 }

@@ -14,6 +14,7 @@
 import { documentBook, loadRun, saveRun } from "./store";
 import { figureFile, kindOf, type Block } from "./source/blocks";
 import { callTool } from "./llm";
+import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, type TriageKind } from "./triage-kinds";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
@@ -28,7 +29,7 @@ export type TriageAction =
   | { action: "stop" };
 
 export function defaultTriageModel(run: Run): string {
-  return process.env.V2_TRIAGE_MODEL || run.options.figureModel || "google/gemini-2.5-flash";
+  return run.options.triageModel || modelFor("triage");
 }
 
 /** The figures a run can triage: blocks with a picture Datalab cut out. */

@@ -78,8 +78,24 @@ npm run check                                                # type check and th
 Without `OPENROUTER_API_KEY`, every call is answered by an offline stand-in (cost 0), so the flow and the page can
 be tried with no key. Without `DATALAB_API_KEY`, an offline reader builds JSON of the same shape from the PDF's text positions (pdf.js):
 paragraphs and larger-font headings, no figures. `DATALAB_MODE` (default `balanced`) sets Datalab's mode;
-`V2_PLANNER_MODEL`, `V2_WRITER_MODEL`, `V2_FIGURE_MODEL` and `V2_TRIAGE_MODEL` set the default models;
-`V2_TRIAGE_PARALLEL` (4) how many figures are triaged at once. Each PDF is converted once and
+**Models come from `.env.local`** (`app/.env.example` lists them all), so nothing has to be typed. What v2's own
+`app/.env.local` does not set is taken from v1's `harness/app/.env.local`, and v1's variable names work too. Each role
+reads the first variable that is set (`app/lib/models.ts`):
+
+| Role | Kind | Variables, in order | Used by |
+| --- | --- | --- | --- |
+| Planner | writes text | `V2_PLANNER_MODEL`, `OPENROUTER_MODEL` | transcript: plan |
+| Writer | writes text | `V2_WRITER_MODEL`, `OPENROUTER_TRANSCRIPT_MODEL`, `OPENROUTER_MODEL` | transcript: lectures |
+| Figures | reads images | `V2_FIGURE_MODEL`, `OPENROUTER_FIGURE_MODEL`, `OPENROUTER_SVG_MODEL` | transcript: figure descriptions |
+| Triage | reads images | `V2_TRIAGE_MODEL`, `V2_FIGURE_MODEL`, `OPENROUTER_FIGURE_MODEL` | figure triage |
+| Image (redraw) | makes images | `V2_IMAGE_MODEL`, `PANIM_DIAGRAM_MODEL`, `PANIM_IMAGE_MODEL` | redraws (Exact, Styled): to come |
+| SVG | writes text | `V2_SVG_MODEL`, `OPENROUTER_MODEL` | SVG drawings: to come |
+| Manim | writes text | `V2_MANIM_MODEL`, `PANIM_MANIM_MODEL`, `OPENROUTER_MODEL` | Manim figures: to come |
+| Map | writes text | `V2_MAP_MODEL`, `PANIM_MAP_MODEL`, `PANIM_MANIM_MODEL`, `OPENROUTER_MODEL` | maps: to come |
+
+The **Models** tab shows each role's model and the variable it came from, can change one for the runs started or
+continued next, and checks it (an image model passes only if an image comes back). A run keeps the models it was
+started with. `V2_TRIAGE_PARALLEL` (4) sets how many figures are triaged at once. Each PDF is converted once and
 cached in `app/.data/datalab/`.
 
 Uploaded books and runs are kept in `app/.data/` (not versioned).

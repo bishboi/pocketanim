@@ -11,11 +11,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DocumentInfo, Options, Run } from "@/lib/types";
 import { PdfView, type Mark } from "@/components/pdf-view";
 import { CallInspector, money } from "@/components/call-inspector";
-import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, TranscriptPanel, lectureColor, type Selection } from "@/components/panels";
+import { BookPanel, CallsPanel, CostsPanel, LecturesPanel, ModelsPanel, TranscriptPanel, lectureColor, type RoleModel, type Selection } from "@/components/panels";
 import { FiguresPanel } from "@/components/figures-panel";
 import { choiceOf } from "@/lib/triage-kinds";
 
-type Config = { hasKey: boolean; datalab: boolean; plannerModel: string; writerModel: string; figureModel: string; triageModel: string };
+type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleModel>; triageModel: string };
+/** A role's key in a run's options ("planner" -> plannerModel). */
+const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
 const TABS = ["Lectures", "Book", "Transcript", "Figures", "Calls", "Costs", "Models"] as const;
 const GREY = "rgba(148, 163, 184, 0.22)";
@@ -46,8 +48,8 @@ export default function Page() {
   useEffect(() => {
     fetch("/api/config").then((r) => r.json()).then((c: Config) => {
       setConfig(c);
-      setOptions((o) => ({ ...o, plannerModel: o.plannerModel || c.plannerModel, writerModel: o.writerModel || c.writerModel,
-        figureModel: o.figureModel || c.figureModel }));
+      // Every model from the environment (.env.local): nothing to type.
+      setOptions((o) => ({ ...Object.fromEntries(Object.values(c.models).map((m) => [optionKey(m.role), m.model])), ...o }));
     });
     void refresh();
     const saved = new URLSearchParams(location.search).get("run");
@@ -221,12 +223,11 @@ export default function Page() {
           </select>
           <span>Subject</span>
           <input className={`${input} w-28`} placeholder="(optional)" value={options.subject ?? ""} onChange={(e) => setOptions({ ...options, subject: e.target.value })} />
-          <span>Planner</span>
-          <input className={`${input} w-48`} value={options.plannerModel ?? ""} onChange={(e) => setOptions({ ...options, plannerModel: e.target.value })} />
-          <span>Writer</span>
-          <input className={`${input} w-48`} value={options.writerModel ?? ""} onChange={(e) => setOptions({ ...options, writerModel: e.target.value })} />
-          <span>Figures</span>
-          <input className={`${input} w-44`} value={options.figureModel ?? ""} onChange={(e) => setOptions({ ...options, figureModel: e.target.value })} />
+          <span title="From .env.local; change them in the Models tab">Models</span>
+          <button className="mono max-w-[30rem] truncate rounded border border-neutral-800 px-2 py-1 text-left text-[11px] text-neutral-300 hover:bg-neutral-800"
+            onClick={() => setTab("Models")} data-testid="models-summary" title="Change in the Models tab">
+            {options.plannerModel} · {options.writerModel} · {options.figureModel}
+          </button>
           <span>Effort</span>
           <select className={input} value={options.effort} onChange={(e) => setOptions({ ...options, effort: e.target.value as Options["effort"] })}>
             {["low", "medium", "high", "off"].map((l) => <option key={l}>{l}</option>)}
@@ -297,13 +298,13 @@ export default function Page() {
             {run && tab === "Lectures" && <LecturesPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
             {run && tab === "Book" && <BookPanel run={run} selection={selection} select={setSelection} />}
             {run && tab === "Transcript" && <TranscriptPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
-            {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={config?.triageModel ?? options.figureModel ?? ""} selection={selection}
+            {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={run.options.triageModel || options.triageModel || config?.triageModel || ""} selection={selection}
               select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
-            {tab === "Models" && <ModelsPanel models={[{ role: "Planner", model: options.plannerModel ?? "" }, { role: "Writer", model: options.writerModel ?? "" },
-              { role: "Figures", model: options.figureModel ?? "" },
-              { role: "Triage", model: run?.triage?.model || config?.triageModel || "" }]} />}
+            {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}
+              values={Object.fromEntries(Object.values(config.models).map((m) => [m.role, options[optionKey(m.role)] as string | undefined]))}
+              change={(role, model) => setOptions((o) => ({ ...o, [optionKey(role)]: model }))} />}
             {run && run.log.length > 0 && tab === "Lectures" && (
               <details className="mt-4 text-xs text-neutral-400"><summary className="cursor-pointer">Run log ({run.log.length})</summary>
                 <ul className="mt-1 space-y-0.5">{run.log.map((l, k) => <li key={k}>{new Date(l.t).toLocaleTimeString()} · {l.text}</li>)}</ul>

@@ -73,6 +73,12 @@ export type Options = {
   writerModel: string;
   /** Reads the book's figures (a model that reads images). */
   figureModel: string;
+  /** The models of the steps after the transcript (lib/models.ts), as the run was started with them. */
+  triageModel?: string;
+  imageModel?: string;
+  svgModel?: string;
+  manimModel?: string;
+  mapModel?: string;
   effort: "low" | "medium" | "high" | "off";
 };
 

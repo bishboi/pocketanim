@@ -346,36 +346,59 @@ export function CostsPanel({ run }: { run: Run }) {
 // ─── Models ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 type ModelCheck = { model: string; ok: boolean; seconds: number; cost: number; reply?: string; error?: string;
-  prices?: { input: number; output: number }; context?: number; fixture?: boolean };
+  prices?: { input: number; output: number }; context?: number; fixture?: boolean; outputs?: string[] };
 
-export function ModelsPanel({ models }: { models: { role: string; model: string }[] }) {
+/** A role as the page knows it (lib/models.ts ResolvedModel): its model from the environment and where that came from. */
+export type RoleModel = { role: string; label: string; what: string; kind: "text" | "vision" | "image"; env: string[]; used: boolean;
+  model: string; source: string };
+
+const KIND_LABEL = { text: "writes text", vision: "reads images", image: "makes images" } as const;
+
+/**
+ * Every model, by its role: the one in use (from .env unless changed here), where it came from, what it does, and a
+ * check (a one-word call; for an image model, whether an image comes back). Changing one here changes it for the
+ * runs started or continued from now on.
+ */
+export function ModelsPanel({ roles, values, change }: { roles: RoleModel[]; values: Record<string, string | undefined>;
+  change?: (role: string, model: string) => void }) {
   const [results, setResults] = useState<Record<string, ModelCheck | "checking">>({});
-  const check = async (model: string) => {
-    setResults((r) => ({ ...r, [model]: "checking" }));
-    const res = await fetch("/api/models", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
+  const check = async (role: string, model: string, kind: string) => {
+    setResults((r) => ({ ...r, [role]: "checking" }));
+    const res = await fetch("/api/models", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, kind }) });
     const json = await res.json();
-    setResults((r) => ({ ...r, [model]: json }));
+    setResults((r) => ({ ...r, [role]: json }));
   };
   return (
     <div className="space-y-2" data-testid="models">
-      <p className="text-xs text-neutral-400">Each model the run uses, checked with a one-word call: whether it answers, how fast, and its
-        prices from OpenRouter's list.</p>
-      {models.map(({ role, model }) => {
-        const r = results[model];
+      <p className="text-xs text-neutral-400">Every model, from <span className="mono">.env.local</span> (v2&apos;s, else v1&apos;s): the variable each
+        came from is shown. Change one here for the runs you start or continue next; Check makes a tiny call (an image model must send an image back).</p>
+      {roles.map((r) => {
+        const value = values[r.role] ?? r.model;
+        const changed = value !== r.model;
+        const res = results[r.role];
         return (
-          <div key={role} className="rounded border border-neutral-800 bg-neutral-900/60 p-2 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="w-28 text-neutral-500">{role}</span>
-              <span className="mono text-neutral-100">{model}</span>
-              <button onClick={() => check(model)} className="ml-auto rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800">Check</button>
+          <div key={r.role} className="rounded border border-neutral-800 bg-neutral-900/60 p-2 text-sm" data-testid={`model-${r.role}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-32 font-medium text-neutral-200">{r.label}</span>
+              <span className={`rounded px-1.5 py-px text-[10px] ${r.kind === "image" ? "bg-pink-950 text-pink-300" : r.kind === "vision" ? "bg-sky-950 text-sky-300" : "bg-neutral-800 text-neutral-300"}`}>{KIND_LABEL[r.kind]}</span>
+              {change ? (
+                <input className="mono w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs text-neutral-100" value={value}
+                  onChange={(e) => change(r.role, e.target.value)} />
+              ) : <span className="mono text-xs text-neutral-100">{value}</span>}
+              <span className="text-[11px] text-neutral-500">{changed ? <>changed here · <button className="underline" onClick={() => change?.(r.role, r.model)}>back to {r.source === "default" ? "the default" : r.source}</button></>
+                : r.source === "default" ? `default (set ${r.env[0]} in .env.local)` : `from ${r.source}`}</span>
+              <button onClick={() => check(r.role, value, r.kind)} className="ml-auto rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800">Check</button>
             </div>
-            {r === "checking" && <p className="mt-1 text-xs text-sky-300">Checking…</p>}
-            {r && r !== "checking" && (
-              <p className={`mt-1 text-xs ${r.ok ? "text-emerald-300" : "text-red-300"}`}>
-                {r.ok ? "✓ answers" : "✗ fails"}{r.fixture ? " (offline stand-in)" : ` in ${r.seconds.toFixed(1)} s, ${money(r.cost)}`}
-                {r.reply ? ` · "${r.reply}"` : ""}{r.error ? ` · ${r.error}` : ""}
-                {r.prices ? ` · $${r.prices.input.toFixed(2)} / $${r.prices.output.toFixed(2)} per million tokens in / out` : " · prices not found"}
-                {r.context ? ` · ${Math.round(r.context / 1000)}k context` : ""}
+            <p className="mt-1 text-xs text-neutral-400">{r.what}{r.used ? "" : <span className="text-amber-300/80"> Not used yet: kept for its step.</span>}</p>
+            {res === "checking" && <p className="mt-1 text-xs text-sky-300">Checking…</p>}
+            {res && res !== "checking" && (
+              <p className={`mt-1 text-xs ${res.ok ? "text-emerald-300" : "text-red-300"}`}>
+                {res.ok ? "✓ works" : "✗ fails"}{res.fixture ? " (offline stand-in)" : ` in ${res.seconds.toFixed(1)} s, ${money(res.cost)}`}
+                {res.reply ? ` · ${r.kind === "image" ? res.reply : `"${res.reply}"`}` : ""}{res.error ? ` · ${res.error}` : ""}
+                {res.prices ? ` · $${res.prices.input.toFixed(2)} / $${res.prices.output.toFixed(2)} per million tokens in / out` : " · prices not found"}
+                {res.context ? ` · ${Math.round(res.context / 1000)}k context` : ""}
+                {res.outputs ? ` · outputs: ${res.outputs.join(", ")}` : ""}
+                {r.kind === "image" && res.outputs && !res.outputs.includes("image") ? " · this model does not make images" : ""}
               </p>
             )}
           </div>

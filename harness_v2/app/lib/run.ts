@@ -22,6 +22,7 @@ import { PLAN_TOOL, goalLine, readPlan, type Lecture } from "./plan";
 import { LECTURE_TOOL, PATCH_TOOL, lecturePrompt, lectureSystem, patchPrompt, planPrompt } from "./prompts/build";
 import { part } from "./prompts/parts";
 import { callTool } from "./llm";
+import { modelFor } from "./models";
 import { documentBook, documentInfo, loadRun, newId, saveRun } from "./store";
 import type { Call, Check, LectureState, Options, Run, Step, StepKey } from "./types";
 import type { Prompt } from "./prompts/parts";
@@ -54,9 +55,14 @@ export async function startRun(documentId: string, asked: Partial<Options>): Pro
     lectureMinutes: asked.lectureMinutes && asked.lectureMinutes >= 3 ? asked.lectureMinutes : 27,
     language: asked.language ?? "auto",
     subject: asked.subject ?? "",
-    plannerModel: asked.plannerModel || process.env.V2_PLANNER_MODEL || "anthropic/claude-sonnet-4.5",
-    writerModel: asked.writerModel || process.env.V2_WRITER_MODEL || "anthropic/claude-sonnet-4.5",
-    figureModel: asked.figureModel || process.env.V2_FIGURE_MODEL || "google/gemini-2.5-flash",
+    plannerModel: asked.plannerModel || modelFor("planner"),
+    writerModel: asked.writerModel || modelFor("writer"),
+    figureModel: asked.figureModel || modelFor("figure"),
+    triageModel: asked.triageModel || modelFor("triage"),
+    imageModel: asked.imageModel || modelFor("image"),
+    svgModel: asked.svgModel || modelFor("svg"),
+    manimModel: asked.manimModel || modelFor("manim"),
+    mapModel: asked.mapModel || modelFor("map"),
     effort: asked.effort ?? "medium",
   };
   const run: Run = {
@@ -78,7 +84,7 @@ export async function continueRun(id: string, asked: Partial<Options> = {}): Pro
   const run = await loadRun(id);
   if (!run) throw new Error("no such run");
   if (jobs.has(`${id}:transcript`)) throw new Error("this run's transcript is already being made");
-  for (const k of ["plannerModel", "writerModel", "figureModel", "effort", "language"] as const) {
+  for (const k of ["plannerModel", "writerModel", "figureModel", "triageModel", "imageModel", "svgModel", "manimModel", "mapModel", "effort", "language"] as const) {
     if (asked[k]) (run.options as Record<string, unknown>)[k] = asked[k];
   }
   log(run, "Continued: the steps done are kept; what is left is done now.");

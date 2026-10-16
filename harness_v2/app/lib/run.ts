@@ -59,6 +59,7 @@ export async function startRun(documentId: string, asked: Partial<Options>): Pro
     writerModel: asked.writerModel || modelFor("writer"),
     figureModel: asked.figureModel || modelFor("figure"),
     triageModel: asked.triageModel || modelFor("triage"),
+    triageChatModel: asked.triageChatModel || modelFor("triageChat"),
     imageModel: asked.imageModel || modelFor("image"),
     svgModel: asked.svgModel || modelFor("svg"),
     manimModel: asked.manimModel || modelFor("manim"),
@@ -84,7 +85,7 @@ export async function continueRun(id: string, asked: Partial<Options> = {}): Pro
   const run = await loadRun(id);
   if (!run) throw new Error("no such run");
   if (jobs.has(`${id}:transcript`)) throw new Error("this run's transcript is already being made");
-  for (const k of ["plannerModel", "writerModel", "figureModel", "triageModel", "imageModel", "svgModel", "manimModel", "mapModel", "effort", "language"] as const) {
+  for (const k of ["plannerModel", "writerModel", "figureModel", "triageModel", "triageChatModel", "imageModel", "svgModel", "manimModel", "mapModel", "effort", "language"] as const) {
     if (asked[k]) (run.options as Record<string, unknown>)[k] = asked[k];
   }
   log(run, "Continued: the steps done are kept; what is left is done now.");

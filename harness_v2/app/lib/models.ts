@@ -6,15 +6,16 @@
  * The page starts from these and can change a run's own; nothing has to be typed.
  */
 
-export type ModelRole = "planner" | "writer" | "figure" | "triage" | "image" | "svg" | "manim" | "map";
+export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map";
 
 export type RoleInfo = {
   role: ModelRole;
   label: string;
   /** What it does, and in which step. */
   what: string;
-  /** text: writes text or code; vision: reads images, writes text; image: makes images. */
-  kind: "text" | "vision" | "image";
+  /** text: writes text or code; vision: reads images, writes text; image: makes images; decision: answers typed
+   * questions with probabilities (OpenRouter's Decisions API), no text. */
+  kind: "text" | "vision" | "image" | "decision";
   /** The variables read, in order. */
   env: string[];
   fallback: string;
@@ -32,9 +33,12 @@ export const ROLES: RoleInfo[] = [
   { role: "figure", label: "Figures", kind: "vision", used: true, fallback: "google/gemini-2.5-flash",
     what: "Describes each figure from its picture (transcript, step 2).",
     env: ["V2_FIGURE_MODEL", "OPENROUTER_FIGURE_MODEL", "OPENROUTER_SVG_MODEL"] },
-  { role: "triage", label: "Triage", kind: "vision", used: true, fallback: "google/gemini-2.5-flash",
-    what: "Decides how each figure is shown in the video (figure triage).",
-    env: ["V2_TRIAGE_MODEL", "V2_FIGURE_MODEL", "OPENROUTER_FIGURE_MODEL"] },
+  { role: "triage", label: "Triage", kind: "decision", used: true, fallback: "typesafe/jev-1.14",
+    what: "Decides how each figure is shown in the video: a choice among the ways offered, with probabilities (figure triage).",
+    env: ["V2_TRIAGE_MODEL"] },
+  { role: "triageChat", label: "Triage (chat)", kind: "vision", used: true, fallback: "google/gemini-2.5-flash",
+    what: "The figure triage asked of a chat model instead, with its instruction and reason: for unsure figures, or a whole run.",
+    env: ["V2_TRIAGE_CHAT_MODEL", "V2_FIGURE_MODEL", "OPENROUTER_FIGURE_MODEL"] },
   { role: "image", label: "Image (redraw)", kind: "image", used: false, fallback: "google/gemini-2.5-flash-image",
     what: "Makes images: redraws the figures triaged Exact or Styled (a step to come).",
     env: ["V2_IMAGE_MODEL", "PANIM_DIAGRAM_MODEL", "PANIM_IMAGE_MODEL"] },

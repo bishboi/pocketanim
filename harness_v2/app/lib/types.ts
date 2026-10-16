@@ -37,6 +37,10 @@ export type Call = {
   checks: Check[];
   /** Pictures sent with the prompt (a figure to describe), as URLs the page can show. */
   images?: string[];
+  /** "decisions": a decision model (decisions.ts), its questions in `tool`; else a chat call. */
+  api?: "chat" | "decisions";
+  /** The request as sent (images cut to a placeholder), when it is not a chat request. */
+  request?: unknown;
 };
 
 export type StepKey = "read" | "figures" | "plan" | "write";
@@ -75,6 +79,7 @@ export type Options = {
   figureModel: string;
   /** The models of the steps after the transcript (lib/models.ts), as the run was started with them. */
   triageModel?: string;
+  triageChatModel?: string;
   imageModel?: string;
   svgModel?: string;
   manimModel?: string;
@@ -119,16 +124,32 @@ export type FigureTriage = {
   keep?: string[];
   /** The way the user chose instead of the model's. */
   override?: TriageKind;
+  /** Who decided: a decision model (a choice with probabilities, no words) or a chat model (with its how and why). */
+  engine?: TriageEngine;
+  /** The decision model's probability for each way offered, and its confidence in the one chosen. */
+  probabilities?: Record<string, number>;
+  confidence?: number;
+  /** Its confidence was under the run's threshold: to be looked at (or asked of the chat model). */
+  unsure?: boolean;
   error?: string;
   calls: string[];
   at?: number;
 };
 
+export type TriageEngine = "decision" | "chat";
+
 export type Triage = {
   status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
   /** The ways the model may choose from (the user's choice). */
   kinds: TriageKind[];
+  /** Who decides: a decision model (Jev: a typed choice with probabilities), or a chat model that reads images. */
+  engine?: TriageEngine;
+  /** The decision model. */
   model: string;
+  /** The chat model (reads images; writes how and why). */
+  chatModel?: string;
+  /** Under this confidence a decision model's choice is marked unsure (0-1). */
+  threshold?: number;
   started?: number;
   ended?: number;
   /** How many times it was run (reset or not). */

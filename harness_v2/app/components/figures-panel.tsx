@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import type { Run } from "@/lib/types";
+import type { Run, TriageEngine } from "@/lib/types";
 import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, type TriageKind } from "@/lib/triage-kinds";
 import { money } from "./call-inspector";
 import type { Selection } from "./panels";
@@ -15,18 +15,28 @@ import type { Selection } from "./panels";
 const TONE = { waiting: "text-neutral-400", running: "text-sky-300", done: "text-emerald-300", failed: "text-red-300" } as const;
 export const solidKind = (k?: string) => (choiceOf(k)?.color ?? "rgba(148,163,184,0.45)").replace(/[\d.]+\)$/, "1)");
 
-export function FiguresPanel({ run, defaultModel, selection, select, onCall, act }: {
-  run: Run; defaultModel: string; selection: Selection; select: (s: Selection) => void; onCall: (id: string) => void;
+export function FiguresPanel({ run, defaultModel, defaultChatModel, selection, select, onCall, act }: {
+  run: Run; defaultModel: string; defaultChatModel: string; selection: Selection; select: (s: Selection) => void; onCall: (id: string) => void;
   act: (body: Record<string, unknown>) => Promise<boolean>;
 }) {
   const triage = run.triage;
   const [kinds, setKinds] = useState<TriageKind[]>(triage?.kinds ?? DEFAULT_KINDS);
-  const [model, setModel] = useState(triage?.model || defaultModel);
+  const [engine, setEngine] = useState<TriageEngine>(triage?.engine ?? "decision");
+  // A run triaged before decision models kept a chat model as its model.
+  const legacy = !!triage && !triage.engine;
+  const [model, setModel] = useState((!legacy && triage?.model) || defaultModel);
+  const [chatModel, setChatModel] = useState(triage?.chatModel || (legacy ? triage?.model : "") || defaultChatModel);
+  const [threshold, setThreshold] = useState(Math.round((triage?.threshold ?? 0.6) * 100));
   // A run picked from the list brings its own choices.
   useEffect(() => {
     setKinds(run.triage?.kinds ?? DEFAULT_KINDS);
-    setModel(run.triage?.model || defaultModel);
+    setEngine(run.triage?.engine ?? "decision");
+    const old = !!run.triage && !run.triage.engine;
+    setModel((!old && run.triage?.model) || defaultModel);
+    setChatModel(run.triage?.chatModel || (old ? run.triage?.model : "") || defaultChatModel);
+    setThreshold(Math.round((run.triage?.threshold ?? 0.6) * 100));
   }, [run.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const settings = { kinds, engine, model, chatModel, threshold: threshold / 100 };
 
   const figures = run.blocks.filter((b) => b.image);
   const noPicture = run.blocks.filter((b) => !b.image && /Figure|Picture/.test(b.type));
@@ -34,6 +44,7 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
   const states = Object.values(triage?.figures ?? {});
   const done = states.filter((f) => f.status === "done").length;
   const failed = states.filter((f) => f.status === "failed").length;
+  const unsure = states.filter((f) => f.status === "done" && f.unsure).length;
   const cost = run.calls.filter((c) => c.step === "triage").reduce((n, c) => n + c.cost, 0);
   const counts = new Map<string, number>();
   for (const f of states) {
@@ -49,8 +60,9 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
     <div className="space-y-3" data-testid="figures">
       <section className="rounded border border-neutral-800 bg-neutral-900/60 p-3">
         <h3 className="text-sm font-semibold text-neutral-100">Figure triage</h3>
-        <p className="mb-2 text-xs text-neutral-400">A model that reads images looks at each figure and decides how the video shows it, choosing only
-          from the ways ticked here. Every decision is saved with the run.</p>
+        <p className="mb-2 text-xs text-neutral-400">Each figure is classified into one of the ways ticked here. A <b>decision model</b> (Jev) answers
+          with the way, a probability for each and its confidence, no words; under the threshold a figure is marked unsure. A <b>chat model</b> that reads
+          images answers with an instruction and a reason too. Every decision is saved with the run.</p>
         <div className="grid gap-1.5 sm:grid-cols-2">
           {TRIAGE_CHOICES.map((c) => (
             <label key={c.key} className="flex cursor-pointer gap-2 rounded border border-neutral-800 p-1.5 text-xs hover:bg-neutral-800/60" data-testid={`kind-${c.key}`}>
@@ -64,18 +76,40 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
           ))}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-neutral-400">Model</span>
-          <input className="w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
-            onChange={(e) => setModel(e.target.value)} disabled={running} />
+          <span className="text-neutral-400">Decided by</span>
+          <select className="rounded border border-neutral-700 bg-neutral-900 px-1 py-1 text-neutral-100" value={engine} disabled={running}
+            data-testid="triage-engine" onChange={(e) => setEngine(e.target.value as TriageEngine)}>
+            <option value="decision">a decision model</option>
+            <option value="chat">a chat model (reads images)</option>
+          </select>
+          {engine === "decision" ? (
+            <>
+              <input className="mono w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model} title="The decision model (Decisions API)"
+                onChange={(e) => setModel(e.target.value)} disabled={running} />
+              <span className="text-neutral-400" title="A choice with less confidence than this is marked unsure">unsure under</span>
+              <input className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1 py-1 text-neutral-100" type="number" min={0} max={100}
+                value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} disabled={running} data-testid="triage-threshold" />
+              <span className="text-neutral-400">%</span>
+            </>
+          ) : null}
+          <span className="text-neutral-400">{engine === "decision" ? "Chat model (for unsure)" : "Chat model"}</span>
+          <input className="mono w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={chatModel}
+            onChange={(e) => setChatModel(e.target.value)} disabled={running} />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <button className={`${btn} border-emerald-700 bg-emerald-700 text-white`} disabled={running || !kinds.length || !figures.length}
-            data-testid="triage-run" onClick={() => act({ action: "run", kinds, model })}>
+            data-testid="triage-run" onClick={() => act({ action: "run", ...settings })}>
             {done && done < figures.length ? `Triage the ${figures.length - done} left` : "Triage figures"}
           </button>
           <button className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`} disabled={running || !kinds.length || !figures.length}
             data-testid="triage-reset"
-            onClick={() => confirm("Forget every figure's triage (and the ways chosen by hand) and triage them all again?") && act({ action: "reset", kinds, model })}>
+            onClick={() => confirm("Forget every figure's triage (and the ways chosen by hand) and triage them all again?") && act({ action: "reset", ...settings })}>
             Reset and rerun all
           </button>
+          {unsure > 0 && (
+            <button className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} disabled={running} data-testid="triage-unsure"
+              onClick={() => act({ action: "unsure", ...settings })}>Ask the chat model about the {unsure} unsure</button>
+          )}
           {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
           {!kinds.length && <span className="text-red-300">Tick at least one way.</span>}
         </div>
@@ -87,8 +121,9 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
         </span>
         <span>{done} of {figures.length} figures triaged</span>
         {failed > 0 && <span className="text-red-300">{failed} failed</span>}
+        {unsure > 0 && <span className="text-amber-300">{unsure} unsure</span>}
         {[...counts].map(([k, n]) => <span key={k} style={{ color: solidKind(k) }}>{n} {choiceOf(k)?.label}</span>)}
-        {triage && <span>{triage.rounds} run{triage.rounds === 1 ? "" : "s"} · {triage.model}</span>}
+        {triage && <span>{triage.rounds} run{triage.rounds === 1 ? "" : "s"} · {triage.engine === "chat" ? triage.chatModel : triage.model}</span>}
         <span className="font-semibold">{money(cost)}</span>
       </div>
       {triage?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200" data-testid="triage-error">{triage.error}</p>}
@@ -118,7 +153,22 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
                   <p className="mt-1">
                     <span className="rounded px-1.5 py-px font-semibold text-neutral-950" style={{ background: solidKind(kind) }}>{choiceOf(kind)?.label}</span>
                     {f?.override && <span className="ml-1 text-amber-300">chosen by hand{f.kind ? ` (model: ${choiceOf(f.kind)?.label})` : ""}</span>}
+                    {f?.confidence !== undefined && !f.override && (
+                      <span className={`ml-1 ${f.unsure ? "text-amber-300" : "text-neutral-400"}`}>{(f.confidence * 100).toFixed(0)}% sure{f.unsure ? " · unsure" : ""}</span>
+                    )}
+                    {f?.engine && <span className="ml-1 text-neutral-500">· {f.engine === "decision" ? "decision model" : "chat model"}</span>}
                   </p>
+                )}
+                {f?.probabilities && Object.keys(f.probabilities).length > 0 && (
+                  <div className="mt-1 space-y-px" data-testid="probabilities">
+                    {Object.entries(f.probabilities).sort((a, b) => b[1] - a[1]).map(([k, p]) => (
+                      <div key={k} className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                        <span className="w-20 truncate">{choiceOf(k)?.label ?? k}</span>
+                        <span className="h-1.5 flex-1 rounded bg-neutral-800"><span className="block h-1.5 rounded" style={{ width: `${Math.round(p * 100)}%`, background: solidKind(k) }} /></span>
+                        <span className="w-8 text-right">{(p * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {f?.how && <p className="mt-1 text-neutral-200">{f.override && f.kind && f.override !== f.kind ? <span className="text-neutral-500">Model&apos;s note (for {choiceOf(f.kind)?.label}): </span> : null}{f.how}</p>}
                 {f?.reason && <p className="mt-0.5 text-neutral-400">Why: {f.reason}</p>}
@@ -127,7 +177,12 @@ export function FiguresPanel({ run, defaultModel, selection, select, onCall, act
                 {f?.error && <p className="mt-1 text-red-300" data-testid="figure-error">Error: {f.error}</p>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
-                    disabled={running || !kinds.length} onClick={() => act({ action: "one", block: b.id, kinds, model })}>Rerun</button>
+                    disabled={running || !kinds.length} onClick={() => act({ action: "one", block: b.id, ...settings })}>Rerun</button>
+                  {engine === "decision" && (
+                    <button className="rounded border border-neutral-700 px-1.5 py-px text-[11px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
+                      title="Ask the chat model instead, for its instruction and reason" disabled={running || !kinds.length}
+                      onClick={() => act({ action: "one", block: b.id, ...settings, engine: "chat" })}>Ask chat model</button>
+                  )}
                   {f && (
                     <select className="rounded border border-neutral-700 bg-neutral-900 px-1 py-px text-[11px] text-neutral-300" value={f.override ?? ""}
                       title="Show it another way than the model chose" onChange={(e) => act({ action: "override", block: b.id, kind: e.target.value || null })}>

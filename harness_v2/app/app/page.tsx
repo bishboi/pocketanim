@@ -298,7 +298,8 @@ export default function Page() {
             {run && tab === "Lectures" && <LecturesPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
             {run && tab === "Book" && <BookPanel run={run} selection={selection} select={setSelection} />}
             {run && tab === "Transcript" && <TranscriptPanel run={run} selection={selection} select={setSelection} onCall={setCallId} />}
-            {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={run.options.triageModel || options.triageModel || config?.triageModel || ""} selection={selection}
+            {run && tab === "Figures" && <FiguresPanel run={run} defaultModel={(run.options.triageChatModel && run.options.triageModel) || config?.models.triage?.model || ""}
+              defaultChatModel={run.options.triageChatModel || options.triageChatModel || config?.models.triageChat?.model || ""} selection={selection}
               select={setSelection} onCall={setCallId} act={(body) => act("/triage", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}

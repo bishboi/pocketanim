@@ -1,36 +1,45 @@
 /**
- * The figure triage: how each of the book's figures is to be shown in the video, decided by a model that reads
- * images, one call per figure, from the ways the user allows (triage-kinds.ts). It runs apart from the transcript,
- * on any run whose book has been read, and every answer is saved in the run as it comes:
+ * The figure triage: how each of the book's figures is to be shown in the video, one call per figure, from the ways
+ * the user allows (triage-kinds.ts). It is a classification, so by default a decision model decides it (Jev on
+ * OpenRouter's Decisions API, decisions.ts): one Choice question over the ways offered, with the figure's picture
+ * and words as state; it answers with the way, a probability for each way and its confidence, and no words. A
+ * choice under the confidence threshold is marked unsure. The chat engine (a model that reads images) answers the
+ * same with an instruction for whoever builds the figure and its reason; it can be used for a whole round, or for
+ * the unsure figures only.
  *
  *   run       triage every figure not triaged yet (a first run, or the rest after a stop or a failure)
  *   reset     forget every decision (and the user's own choices) and triage them all again
  *   one       triage one figure again
+ *   unsure    ask the chat model about the figures the decision model was unsure of
  *
- * Code checks each answer: the way chosen must be one the user allows, with an instruction for whoever builds it.
- * A figure with no picture (Datalab cut none out) cannot be triaged and says so.
+ * It runs apart from the transcript, on any run whose book has been read, and every answer is saved as it comes.
+ * Code checks each answer: the way chosen must be one offered. A figure with no picture cannot be triaged.
  */
 
 import { documentBook, loadRun, saveRun } from "./store";
 import { figureFile, kindOf, type Block } from "./source/blocks";
 import { callTool } from "./llm";
+import { answerTo, callDecision, readChoice, type StateItem } from "./decisions";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { DEFAULT_KINDS, TRIAGE_CHOICES, choiceOf, type TriageKind } from "./triage-kinds";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
-import type { FigureTriage, Run, Triage } from "./types";
+import type { FigureTriage, Run, Triage, TriageEngine } from "./types";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_TRIAGE_PARALLEL) || 4);
 
+type Settings = { kinds?: string[]; engine?: TriageEngine; model?: string; chatModel?: string; threshold?: number };
 export type TriageAction =
-  | { action: "run" | "reset"; kinds?: string[]; model?: string }
-  | { action: "one"; block: string; kinds?: string[]; model?: string }
+  | ({ action: "run" | "reset" | "unsure" } & Settings)
+  | ({ action: "one"; block: string } & Settings)
   | { action: "override"; block: string; kind: string | null }
   | { action: "stop" };
 
 export function defaultTriageModel(run: Run): string {
-  return run.options.triageModel || modelFor("triage");
+  // A run started before decision models (no triageChatModel) kept a chat model as its triageModel.
+  return (run.options.triageChatModel && run.options.triageModel) || modelFor("triage");
 }
+const DEFAULT_THRESHOLD = Number(process.env.V2_TRIAGE_CONFIDENCE) || 0.6;
 
 /** The figures a run can triage: blocks with a picture Datalab cut out. */
 export function triageable(run: Run): Block[] {
@@ -58,8 +67,21 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
   const kinds = (a.kinds ?? run.triage?.kinds ?? DEFAULT_KINDS).filter((k): k is TriageKind => !!choiceOf(k));
   if (!kinds.length) throw new Error("choose at least one way a figure may be shown");
   const triage: Triage = run.triage ?? { status: "idle", kinds, model: "", rounds: 0, figures: {} };
+  if (run.triage && !run.triage.engine) {
+    // A run triaged before decision models: its model was a chat model.
+    triage.chatModel ??= triage.model;
+    triage.model = "";
+  }
   triage.kinds = kinds;
+  // A round of all the figures sets the run's engine; one figure or the unsure ones may be asked of another.
+  if (a.action === "run" || a.action === "reset") triage.engine = a.engine ?? triage.engine ?? "decision";
+  triage.engine ??= "decision";
   triage.model = a.model || triage.model || defaultTriageModel(run);
+  triage.chatModel = a.chatModel || triage.chatModel || run.options.triageChatModel || modelFor("triageChat");
+  if (a.threshold !== undefined && Number.isFinite(Number(a.threshold))) triage.threshold = Math.min(1, Math.max(0, Number(a.threshold)));
+  triage.threshold ??= DEFAULT_THRESHOLD;
+  // The engine of this round: the unsure ones always go to the chat model.
+  const engine: TriageEngine = a.action === "unsure" ? "chat" : a.action === "one" ? a.engine ?? triage.engine : triage.engine;
   run.triage = triage;
   const figures = triageable(run);
   if (!figures.length) throw new Error("this book has no figure with a picture to triage");
@@ -69,6 +91,10 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
     triage.figures = Object.fromEntries(Object.entries(triage.figures).map(([id, f]) => [id, { block: id, status: "waiting", calls: f.calls }]));
     todo = figures;
     log(run, `Triage reset: every figure's decision cleared; all ${figures.length} triaged again.`);
+  } else if (a.action === "unsure") {
+    todo = figures.filter((b) => triage.figures[b.id]?.unsure);
+    if (!todo.length) throw new Error("no figure is marked unsure");
+    log(run, `The ${todo.length} unsure figure(s) asked of the chat model (${triage.chatModel}).`);
   } else if (a.action === "one") {
     const b = figures.find((x) => x.id === a.block);
     if (!b) throw new Error("no such figure");
@@ -79,14 +105,15 @@ export async function triageAction(id: string, a: TriageAction): Promise<Run> {
   }
   for (const b of todo) {
     const old = triage.figures[b.id];
-    triage.figures[b.id] = { block: b.id, status: "waiting", calls: old?.calls ?? [], override: a.action === "one" ? old?.override : undefined };
+    triage.figures[b.id] = { block: b.id, status: "waiting", calls: old?.calls ?? [],
+      override: a.action === "one" || a.action === "unsure" ? old?.override : undefined };
   }
   triage.rounds += 1;
-  launch(run, todo);
+  launch(run, todo, engine);
   return run;
 }
 
-function launch(run: Run, todo: Block[]) {
+function launch(run: Run, todo: Block[], engine: TriageEngine) {
   const key = `${run.id}:triage`;
   const triage = run.triage!;
   jobs.add(key);
@@ -101,7 +128,7 @@ function launch(run: Run, todo: Block[]) {
       const book = await documentBook(run.documentId);
       const queue = [...todo];
       const worker = async () => {
-        while (queue.length && !stopRequested(key)) await triageFigure(run, queue.shift()!, book);
+        while (queue.length && !stopRequested(key)) await triageFigure(run, queue.shift()!, book, engine);
       };
       await Promise.all(Array.from({ length: Math.min(AT_ONCE, queue.length) }, worker));
       const all = Object.values(triage.figures);
@@ -146,7 +173,7 @@ const tool = (kinds: TriageKind[]) => ({
   },
 });
 
-async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typeof documentBook>>) {
+async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typeof documentBook>>, engine: TriageEngine) {
   const triage = run.triage!;
   const kinds = triage.kinds;
   const state = triage.figures[block.id];
@@ -169,7 +196,11 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
   const lecture = run.lectures.find((l) => l.blocks.includes(block.id));
   const goals = lecture?.goals.filter((g) => g.blocks.includes(block.id)) ?? [];
   const subject = run.options.subject;
-  const call = newCall(run, { step: "triage", label: `Triage ${block.id}`, block: block.id, model: triage.model, effort: "off", prompt: {
+  state.engine = engine;
+  if (engine === "decision") {
+    return decide(run, block, state, image, { caption: caption?.text, around: around.map((b) => b.text), lecture, goals, subject });
+  }
+  const call = newCall(run, { step: "triage", label: `Triage ${block.id} (chat)`, block: block.id, model: triage.chatModel!, effort: "off", prompt: {
     system: [
       part("role", "Role", "rules", "You look at ONE figure from a textbook and decide how a video lecture should best show it. The " +
         "book's own picture is not put in the video as it is unless that is one of the ways offered and nothing else would do."),
@@ -216,9 +247,80 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
   check(call, "Instruction", how ? "pass" : "fail", how ? `${how.split(" ").length} words` : "no instruction for whoever builds it");
   const keep = (Array.isArray(reply.keep) ? reply.keep : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 40);
   if (keep.length) check(call, "Must keep", "info", keep.join(", ").slice(0, 300));
-  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400),
+  Object.assign(state, { status: "done", kind: kind as TriageKind, how: how.slice(0, 400), unsure: false, probabilities: undefined, confidence: undefined,
     reason: String(reply.reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300), keep } satisfies Partial<FigureTriage>);
   saveRun(run);
+}
+
+/**
+ * The decision model's triage: one Choice question over the ways offered (each with what it means), the figure's
+ * picture and words as state. Its answer is the way, a probability for each, and a confidence; no words, so the
+ * figure keeps no instruction (the step that builds it reads the figure itself). Under the threshold it is unsure.
+ */
+async function decide(run: Run, block: Block, state: FigureTriage, image: string,
+  c: { caption?: string; around: string[]; lecture?: Run["lectures"][number]; goals: { id: string; goal: string }[]; subject?: string }) {
+  const triage = run.triage!;
+  const kinds = triage.kinds;
+  const instructions = "How should a video lecture show this textbook figure (the picture in the state)? Choose by what the figure " +
+    "teaches and what must survive in the video: its exact values and labels, its look, or only its idea." +
+    (kinds.includes("exact") && kinds.includes("styled") ? " Between exact and styled, exact when in doubt." : "");
+  const options = Object.fromEntries(kinds.map((k) => [k, choiceOf(k)!.prompt]));
+  const words: string[] = [
+    ...(c.subject ? [`Subject: ${c.subject}.`] : []),
+    `The figure's block in the book: ${JSON.stringify({ id: block.id, block_type: block.type, html: block.html })}`,
+    ...(c.caption ? [`Its caption: ${c.caption}`] : []),
+    ...(block.description ? [`What it shows: ${block.description}`] : []),
+    ...(c.around.length ? [`The book's text around it: ${c.around.join(" ")}`] : []),
+    ...(c.lecture ? [`It is taught in lecture ${c.lecture.n}, "${c.lecture.title}"${c.goals.length ? `, for: ${c.goals.map((g) => g.goal).join("; ")}` : ""}.`] : []),
+    "The figure:",
+  ];
+  const stateItems: StateItem[] = [...words, { type: "image_url", image_url: { url: image } }];
+  const call = newCall(run, { step: "triage", label: `Triage ${block.id}`, block: block.id, model: triage.model, effort: "off", prompt: {
+    system: [
+      part("question", "Question (choice)", "ask", instructions),
+      part("choices", `Ways offered (${kinds.length})`, "choices", kinds.map((k) => `${k}: ${choiceOf(k)!.prompt}`)),
+    ],
+    user: [
+      part("state", "State: the figure's words", "book", words.slice(0, -1)),
+      part("image", "State: the figure (picture)", "book", `[the picture is in the state: /api/documents/${run.documentId}/figure/${encodeURIComponent(block.id)}]`),
+    ],
+  } });
+  state.calls.push(call.id);
+  const reply = await callDecision({ call, state: stateItems, questions: { way: { type: "choice", instructions, options } },
+    onChange: () => saveRun(run), fake: () => fakeDecision(kinds, `${c.caption ?? ""} ${block.description ?? ""} ${block.text}`) });
+  state.at = Date.now();
+  if (!reply) {
+    state.status = "failed";
+    state.error = `the call failed: ${call.error ?? "no reply"}`;
+    saveRun(run);
+    return;
+  }
+  const answer = readChoice(answerTo(reply, "way"), kinds);
+  if (!answer.choice) {
+    check(call, "Way offered", "fail", `no way offered found in the answer: ${JSON.stringify(reply).slice(0, 200)}`);
+    state.status = "failed";
+    state.error = "the answer named no way offered (see the call's output)";
+    saveRun(run);
+    return;
+  }
+  const threshold = triage.threshold ?? DEFAULT_THRESHOLD;
+  const unsure = answer.confidence !== undefined && answer.confidence < threshold;
+  const ranked = Object.entries(answer.probabilities).sort((x, y) => y[1] - x[1]).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
+  check(call, "Way offered", "pass", `${choiceOf(answer.choice)!.label}${ranked ? ` (${ranked})` : ""}`);
+  check(call, "Confidence", unsure ? "fail" : answer.confidence === undefined ? "info" : "pass", answer.confidence === undefined
+    ? "the answer gave no confidence" : `${(answer.confidence * 100).toFixed(0)}% (threshold ${(threshold * 100).toFixed(0)}%)${unsure ? ": unsure" : ""}`);
+  Object.assign(state, { status: "done", kind: answer.choice as TriageKind, probabilities: answer.probabilities, confidence: answer.confidence,
+    unsure, how: undefined, reason: undefined, keep: undefined } satisfies Partial<FigureTriage>);
+  saveRun(run);
+}
+
+/** The offline stand-in of a decision model: a choice by the figure's words, with probabilities. */
+function fakeDecision(kinds: TriageKind[], words: string) {
+  const { kind } = fakeTriage(kinds, words);
+  const sure = /map|graph|chart/i.test(words) ? 0.86 : 0.48;
+  const rest = (1 - sure) / Math.max(1, kinds.length - 1);
+  return { way: { type: "choice", choice: kind, probabilities: Object.fromEntries(kinds.map((k) => [k, k === kind ? sure : rest])), confidence: sure },
+    usage: { prompt_tokens: 0, cost: 0 } };
 }
 
 /** The offline stand-in's choice: by the words of the caption and description, among the ways offered. */

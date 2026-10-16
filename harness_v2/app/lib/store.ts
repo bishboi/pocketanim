@@ -61,11 +61,24 @@ function runFile(id: string): string {
   return path.join(DATA, "runs", `${id}.json`);
 }
 
-async function writeRun(run: Run): Promise<void> {
-  await mkdir(path.join(DATA, "runs"), { recursive: true });
-  const file = runFile(run.id);
-  await writeFile(`${file}.tmp`, JSON.stringify(run), "utf8");
-  await rename(`${file}.tmp`, file);
+const writing = ((globalThis as unknown as { __v2writing?: Map<string, Promise<void>> }).__v2writing ??= new Map());
+
+/** One write of a run at a time, each to its own temporary file then renamed over the run's, so two saves close
+ * together never meet; a write that fails is logged, never thrown (a run in memory is still whole). */
+function writeRun(run: Run): Promise<void> {
+  const next = (writing.get(run.id) ?? Promise.resolve()).then(async () => {
+    try {
+      await mkdir(path.join(DATA, "runs"), { recursive: true });
+      const file = runFile(run.id);
+      const tmp = `${file}.${randomBytes(3).toString("hex")}.tmp`;
+      await writeFile(tmp, JSON.stringify(run), "utf8");
+      await rename(tmp, file);
+    } catch (error) {
+      console.error(`run ${run.id} could not be saved: ${(error as Error).message}`);
+    }
+  });
+  writing.set(run.id, next);
+  return next;
 }
 
 /** Keep a run in memory, and write it to disk at most twice a second. */

@@ -26,7 +26,7 @@ Then, apart from the transcript and at any time once the book is read:
 
 | Step | What | Calls |
 | --- | --- | --- |
-| Figure triage | A model that reads images decides, per figure, how the video shows it, choosing only from the ways ticked on the page: Manim (rebuilt exactly), Map, Exact redraw, Styled redraw, SVG drawing, Photo search, Book's picture, Leave out (`app/lib/triage-kinds.ts`). It gets the figure's picture, block, caption, description, the text around it and the lecture and goals it is in. Code checks the way is one offered and there is an instruction for whoever builds it. **Triage figures** does those not done yet; **Reset and rerun all** forgets every decision; each figure can be rerun alone or set by hand. | 1 per figure |
+| Figure triage | A classification, so a **decision model** decides it by default: Jev (`typesafe/jev-1.14`) on OpenRouter's Decisions API (`app/lib/decisions.ts`), one Choice question per figure over the ways ticked on the page (Manim, Map, Exact redraw, Styled redraw, SVG drawing, Photo search, Book's picture, Leave out: `app/lib/triage-kinds.ts`), with the figure's picture, block, caption, description, the text around it and its lecture as state. It answers with the way, a probability for each and its confidence, and no words; under the threshold (60% by default) a figure is marked **unsure**. A **chat model** that reads images can decide instead (a whole round, one figure, or **Ask the chat model about the unsure**), with an instruction for whoever builds the figure and its reason. Code checks the way is one offered. **Triage figures** does those not done yet; **Reset and rerun all** forgets every decision; each figure can be rerun alone or set by hand. | 1 per figure |
 
 There is no length ceiling anywhere.
 
@@ -87,7 +87,8 @@ reads the first variable that is set (`app/lib/models.ts`):
 | Planner | writes text | `V2_PLANNER_MODEL`, `OPENROUTER_MODEL` | transcript: plan |
 | Writer | writes text | `V2_WRITER_MODEL`, `OPENROUTER_TRANSCRIPT_MODEL`, `OPENROUTER_MODEL` | transcript: lectures |
 | Figures | reads images | `V2_FIGURE_MODEL`, `OPENROUTER_FIGURE_MODEL`, `OPENROUTER_SVG_MODEL` | transcript: figure descriptions |
-| Triage | reads images | `V2_TRIAGE_MODEL`, `V2_FIGURE_MODEL`, `OPENROUTER_FIGURE_MODEL` | figure triage |
+| Triage | decides (Decisions API) | `V2_TRIAGE_MODEL` (default `typesafe/jev-1.14`) | figure triage |
+| Triage (chat) | reads images | `V2_TRIAGE_CHAT_MODEL`, `V2_FIGURE_MODEL`, `OPENROUTER_FIGURE_MODEL` | figure triage: unsure figures, or a chat round |
 | Image (redraw) | makes images | `V2_IMAGE_MODEL`, `PANIM_DIAGRAM_MODEL`, `PANIM_IMAGE_MODEL` | redraws (Exact, Styled): to come |
 | SVG | writes text | `V2_SVG_MODEL`, `OPENROUTER_MODEL` | SVG drawings: to come |
 | Manim | writes text | `V2_MANIM_MODEL`, `PANIM_MANIM_MODEL`, `OPENROUTER_MODEL` | Manim figures: to come |
@@ -95,7 +96,10 @@ reads the first variable that is set (`app/lib/models.ts`):
 
 The **Models** tab shows each role's model and the variable it came from, can change one for the runs started or
 continued next, and checks it (an image model passes only if an image comes back). A run keeps the models it was
-started with. `V2_TRIAGE_PARALLEL` (4) sets how many figures are triaged at once. Each PDF is converted once and
+started with. `V2_TRIAGE_PARALLEL` (4) sets how many figures are triaged at once, `V2_TRIAGE_CONFIDENCE` (0.6) the default
+threshold. The Decisions API and its image input are marked alpha/early by OpenRouter: the answer is read loosely
+(the option, the probabilities and the confidence wherever they are) and kept raw on the call, so a change in its
+shape shows on the page. Each PDF is converted once and
 cached in `app/.data/datalab/`.
 
 Uploaded books and runs are kept in `app/.data/` (not versioned).

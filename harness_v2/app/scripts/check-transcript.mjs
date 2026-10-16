@@ -90,27 +90,49 @@ const { continueRun } = await import(path.resolve(here, "../lib/run.ts"));
 const pics = run.blocks.filter((b) => b.image);
 assert.equal(pics.length, 2, "two pictures");
 assert.ok(pics.every((b) => b.description), "pictures described");
-await triageAction(run.id, { action: "run", kinds: ["manim", "map", "styled"], model: "test/model" });
+await triageAction(run.id, { action: "run", kinds: ["manim", "map", "styled"] });
 run = await wait(run.id, (r) => r.triage.status === "running");
 assert.equal(run.triage.status, "done", run.triage.error);
 const kindOf = (k) => run.triage.figures[pics[k].id].kind;
 assert.equal(kindOf(0), "map");
 assert.equal(kindOf(1), "manim");
+// By default a decision model decides: one Choice question over the ways ticked, the picture in the state.
 const tcall = run.calls.find((c) => c.step === "triage");
-assert.ok(tcall.prompt.system.find((p) => p.key === "choices").text.includes("MAP:"), "the ways offered are in the prompt");
-assert.ok(!tcall.prompt.system.find((p) => p.key === "choices").text.includes("PHOTO:"), "a way not ticked is not offered");
-assert.deepEqual(tcall.tool.function.parameters.properties.kind.enum, ["manim", "map", "styled"]);
+assert.equal(tcall.api, "decisions");
+assert.equal(tcall.model, "typesafe/jev-1.14");
+assert.deepEqual(Object.keys(tcall.tool.way.options), ["manim", "map", "styled"], "only the ways ticked are offered");
+assert.equal(tcall.tool.way.type, "choice");
+assert.ok(tcall.request.state.some((s) => s.type === "image_url"), "the picture is in the state");
+assert.ok(!JSON.stringify(tcall.request).includes("iVBORw0KGgo"), "the run's file keeps no image bytes");
+const f0 = run.triage.figures[pics[0].id];
+assert.ok(f0.confidence > 0.8 && !f0.unsure && Object.keys(f0.probabilities).length === 3, JSON.stringify(f0));
+// The chat engine for one figure: its instruction and reason, the run's engine unchanged.
+await triageAction(run.id, { action: "one", block: pics[1].id, engine: "chat" });
+run = await wait(run.id, (r) => r.triage.status === "running");
+assert.equal(run.triage.engine, "decision");
+assert.equal(run.triage.figures[pics[1].id].engine, "chat");
+assert.ok(run.triage.figures[pics[1].id].how, "the chat model gives an instruction");
+assert.ok(run.calls.at(-1).tool.function.parameters.properties.kind.enum.includes("map"));
+// A high threshold makes the decisions unsure; the unsure ones go to the chat model.
+await triageAction(run.id, { action: "reset", threshold: 0.95 });
+run = await wait(run.id, (r) => r.triage.status === "running");
+assert.ok(Object.values(run.triage.figures).every((f) => f.unsure), "under the threshold: unsure");
+await triageAction(run.id, { action: "unsure" });
+run = await wait(run.id, (r) => r.triage.status === "running");
+assert.ok(Object.values(run.triage.figures).every((f) => f.engine === "chat" && !f.unsure && f.how), "the unsure ones answered by the chat model");
+await triageAction(run.id, { action: "reset", kinds: ["manim", "map", "styled"], threshold: 0.6 });
+run = await wait(run.id, (r) => r.triage.status === "running");
 await assert.rejects(triageAction(run.id, { action: "run" }), /every figure is triaged/);
 // Map not allowed: reset reruns all, and the map falls back to a way that is.
 await triageAction(run.id, { action: "reset", kinds: ["manim", "styled"] });
 run = await wait(run.id, (r) => r.triage.status === "running");
-assert.equal(run.triage.rounds, 2);
+assert.equal(run.triage.rounds, 6);
 assert.equal(kindOf(0), "manim");
 await triageAction(run.id, { action: "override", block: pics[0].id, kind: "exact" });
 assert.equal(run.triage.figures[pics[0].id].override, "exact");
 await triageAction(run.id, { action: "one", block: pics[1].id });
 run = await wait(run.id, (r) => r.triage.status === "running");
-assert.equal(run.triage.figures[pics[1].id].calls.length, 3, "a figure's calls are kept across reruns");
+assert.equal(run.triage.figures[pics[1].id].calls.length, 7, "a figure's calls are kept across reruns");
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);

@@ -50,7 +50,7 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
     else n.add(k);
     return n;
   });
-  const body = {
+  const body = call.request ?? {
     model: call.model,
     messages: [{ role: "system", content: render(call.prompt.system) }, { role: "user", content: render(call.prompt.user) }],
     tools: call.tool ? [call.tool] : undefined,
@@ -75,7 +75,7 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
           <Stat label="Model" value={call.model} wide />
-          <Stat label="Provider" value={call.provider === "fixture" ? "offline stand-in" : "OpenRouter"} />
+          <Stat label="Provider" value={call.provider === "fixture" ? "offline stand-in" : call.api === "decisions" ? "OpenRouter Decisions" : "OpenRouter"} />
           <Stat label="Effort" value={call.effort ?? "default"} />
           <Stat label="Status" value={call.status} tone={call.status === "failed" ? "text-red-300" : call.status === "done" ? "text-emerald-300" : "text-sky-300"} />
           <Stat label="Time" value={seconds(call.started, call.ended)} />
@@ -127,7 +127,8 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
           ))}
         </Section>
 
-        <Section title="Output" note={call.tool ? `What the model passed to ${(call.tool as { function?: { name?: string } }).function?.name}.` : undefined}>
+        <Section title="Output" note={call.api === "decisions" ? "The decision model's typed answer: the option chosen, a probability for each, and its confidence."
+          : call.tool ? `What the model passed to ${(call.tool as { function?: { name?: string } }).function?.name}.` : undefined}>
           {call.status === "running" && <p className="text-sm text-sky-300">Waiting for the reply…</p>}
           {call.error && <p className="text-sm text-red-300">{call.error}</p>}
           {text !== null && (
@@ -164,7 +165,7 @@ export function CallInspector({ call, onClose }: { call: Call; onClose: () => vo
         </Section>
 
         <details className="mt-4">
-          <summary className="cursor-pointer text-sm text-neutral-300">Tool schema</summary>
+          <summary className="cursor-pointer text-sm text-neutral-300">{call.api === "decisions" ? "Questions" : "Tool schema"}</summary>
           <Json value={call.tool} />
         </details>
         <details className="mt-2">

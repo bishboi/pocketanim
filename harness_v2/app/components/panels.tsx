@@ -349,10 +349,10 @@ type ModelCheck = { model: string; ok: boolean; seconds: number; cost: number; r
   prices?: { input: number; output: number }; context?: number; fixture?: boolean; outputs?: string[] };
 
 /** A role as the page knows it (lib/models.ts ResolvedModel): its model from the environment and where that came from. */
-export type RoleModel = { role: string; label: string; what: string; kind: "text" | "vision" | "image"; env: string[]; used: boolean;
+export type RoleModel = { role: string; label: string; what: string; kind: "text" | "vision" | "image" | "decision"; env: string[]; used: boolean;
   model: string; source: string };
 
-const KIND_LABEL = { text: "writes text", vision: "reads images", image: "makes images" } as const;
+const KIND_LABEL = { text: "writes text", vision: "reads images", image: "makes images", decision: "decides (typed answer)" } as const;
 
 /**
  * Every model, by its role: the one in use (from .env unless changed here), where it came from, what it does, and a
@@ -380,7 +380,7 @@ export function ModelsPanel({ roles, values, change }: { roles: RoleModel[]; val
           <div key={r.role} className="rounded border border-neutral-800 bg-neutral-900/60 p-2 text-sm" data-testid={`model-${r.role}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="w-32 font-medium text-neutral-200">{r.label}</span>
-              <span className={`rounded px-1.5 py-px text-[10px] ${r.kind === "image" ? "bg-pink-950 text-pink-300" : r.kind === "vision" ? "bg-sky-950 text-sky-300" : "bg-neutral-800 text-neutral-300"}`}>{KIND_LABEL[r.kind]}</span>
+              <span className={`rounded px-1.5 py-px text-[10px] ${r.kind === "image" ? "bg-pink-950 text-pink-300" : r.kind === "decision" ? "bg-emerald-950 text-emerald-300" : r.kind === "vision" ? "bg-sky-950 text-sky-300" : "bg-neutral-800 text-neutral-300"}`}>{KIND_LABEL[r.kind]}</span>
               {change ? (
                 <input className="mono w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs text-neutral-100" value={value}
                   onChange={(e) => change(r.role, e.target.value)} />

@@ -47,7 +47,8 @@ export type ExportedLecture = {
 export type ExportedBlock = Pick<Block, "id" | "type" | "html" | "text" | "page" | "box"> & {
   lecture?: number;
   skipped?: string;
-  figure?: { image: string; description?: string; triage?: { kind: TriageKind; label: string; chosenBy: "model" | "user"; how?: string; reason?: string; keep?: string[] } };
+  figure?: { image: string; description?: string; triage?: { kind: TriageKind; label: string; chosenBy: "model" | "user"; how?: string; reason?: string; keep?: string[];
+    engine?: "decision" | "chat"; probabilities?: Record<string, number>; confidence?: number; unsure?: boolean } };
 };
 export type ExportedTranscript = {
   format: typeof EXPORT_FORMAT;
@@ -57,7 +58,7 @@ export type ExportedTranscript = {
   document: { id: string; name: string; pdf: string };
   lectures: ExportedLecture[];
   blocks: ExportedBlock[];
-  triage?: { kinds: TriageKind[]; model: string; status: string };
+  triage?: { kinds: TriageKind[]; model: string; status: string; engine?: string; chatModel?: string; threshold?: number };
   /** What the transcript cost, by step (USD). */
   costs?: Record<string, number>;
   book?: ExportedBook;
@@ -114,7 +115,8 @@ export function exportTranscript(run: Run): ExportedTranscript {
         image: `/api/documents/${run.documentId}/figure/${encodeURIComponent(b.id)}`,
         ...(b.description ? { description: b.description } : {}),
         ...(kind ? { triage: { kind, label: choiceOf(kind)!.label, chosenBy: t?.override ? "user" as const : "model" as const,
-          how: t?.how, reason: t?.reason, keep: t?.keep } } : {}),
+          how: t?.how, reason: t?.reason, keep: t?.keep, engine: t?.engine, probabilities: t?.probabilities, confidence: t?.confidence,
+          unsure: t?.unsure } } : {}),
       } } : {}),
     };
   });
@@ -123,7 +125,8 @@ export function exportTranscript(run: Run): ExportedTranscript {
     run: { id: run.id, created: new Date(run.created).toISOString(), status: run.status, options: run.options },
     document: { id: run.documentId, name: run.documentName, pdf: `/api/documents/${run.documentId}/pdf` },
     lectures, blocks,
-    ...(run.triage ? { triage: { kinds: run.triage.kinds, model: run.triage.model, status: run.triage.status } } : {}),
+    ...(run.triage ? { triage: { kinds: run.triage.kinds, model: run.triage.model, status: run.triage.status, engine: run.triage.engine,
+      chatModel: run.triage.chatModel, threshold: run.triage.threshold } } : {}),
     costs: run.calls.reduce<Record<string, number>>((m, c) => ({ ...m, [c.step]: (m[c.step] ?? 0) + c.cost }), {}),
   };
 }
@@ -236,9 +239,12 @@ export async function importTranscript(data: unknown, file: string): Promise<Run
   };
   const triaged = x.blocks.filter((b) => b.figure?.triage);
   if (x.triage) {
-    run.triage = { status: "done", kinds: x.triage.kinds, model: x.triage.model, rounds: 0, figures: Object.fromEntries(triaged.map((b) => {
+    run.triage = { status: "done", kinds: x.triage.kinds, model: x.triage.model, rounds: 0,
+      engine: x.triage.engine === "chat" ? "chat" : "decision", chatModel: x.triage.chatModel, threshold: x.triage.threshold,
+      figures: Object.fromEntries(triaged.map((b) => {
       const t = b.figure!.triage!;
       return [b.id, { block: b.id, status: "done", kind: t.kind, how: t.how, reason: t.reason, keep: t.keep, calls: [],
+        engine: t.engine, probabilities: t.probabilities, confidence: t.confidence, unsure: t.unsure,
         ...(t.chosenBy === "user" ? { override: t.kind } : {}) }];
     })) };
   }

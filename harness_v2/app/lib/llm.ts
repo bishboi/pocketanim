@@ -125,7 +125,7 @@ async function real(call: Call, tool: Tool, images: string[] = []): Promise<Reco
 }
 
 /** A model's prices (US dollars per million tokens) from OpenRouter's public list, and whether a tiny call works. */
-export async function checkModel(model: string, kind: "text" | "vision" | "image" = "text"): Promise<{ ok: boolean; seconds: number;
+export async function checkModel(model: string, kind: "text" | "vision" | "image" | "decision" = "text"): Promise<{ ok: boolean; seconds: number;
   cost: number; reply?: string; error?: string; prices?: { input: number; output: number }; context?: number; fixture?: boolean;
   outputs?: string[] }> {
   const began = Date.now();
@@ -144,6 +144,23 @@ export async function checkModel(model: string, kind: "text" | "vision" | "image
   if (usingFixture(model)) {
     return { ok: true, seconds: 0, cost: 0, fixture: true, prices, context, outputs,
       reply: process.env.OPENROUTER_API_KEY ? "fixture model: answered by the offline stand-in" : "no OPENROUTER_API_KEY: calls use the offline stand-in" };
+  }
+  if (kind === "decision") {
+    // A decision model gets one Noul question (does this hold?) on the Decisions API; it passes if it answers.
+    try {
+      const response = await fetch(process.env.OPENROUTER_DECISIONS_URL || "https://openrouter.ai/api/alpha/decisions", {
+        method: "POST", signal: AbortSignal.timeout(60000),
+        headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, state: ["A triangle has three sides."], questions: { check: { type: "noul", instructions: "The statement in the state is true." } } }),
+      });
+      const body = await response.text();
+      const seconds = (Date.now() - began) / 1000;
+      if (!response.ok) return { ok: false, seconds, cost: 0, error: `${response.status} ${body.slice(0, 200)}`, prices, context, outputs };
+      const json = JSON.parse(body);
+      return { ok: true, seconds, cost: Number(json.usage?.cost ?? 0), prices, context, outputs, reply: `answered: ${JSON.stringify(json.check ?? json.answers?.check ?? json).slice(0, 120)}` };
+    } catch (error) {
+      return { ok: false, seconds: (Date.now() - began) / 1000, cost: 0, error: (error as Error).message, prices, context, outputs };
+    }
   }
   try {
     const response = await fetch(URL_, {

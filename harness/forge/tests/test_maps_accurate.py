@@ -27,7 +27,9 @@ NOT_MAPS = ["A concept map of photosynthesis", "a function maps x to y", "the bo
             "Mind map of the causes of the First World War", "states of matter: solid, liquid, gas",
             "a heat map of the data", "the water cycle over land and sea", "A volcano in cross-section",
             "A light ray from air to glass", "the spread of the infection through the body",
-            "A detailed diagram in Atlas style of the human eye and its retina"]
+            "A detailed diagram in Atlas style of the human eye and its retina",
+            "Tea and silk in a wooden chest, still life, no maps, no writing",
+            "A market town from its gate, fields in front, no map and no lettering"]
 
 
 @pytest.mark.parametrize("text", MAPS)
@@ -159,3 +161,8 @@ def test_manims_own_map_arguments_are_not_maps():
     assert not mapguard.code_draws_map("self.play(TransformMatchingTex(a, b, key_map={'FD': 'f'}))")
     assert not mapguard.code_draws_map("t = MathTex('x', tex_to_color_map={'x': RED})")
     assert mapguard.code_draws_map("india_map = Polygon(*points)")
+
+
+def test_a_timeline_by_continent_is_not_a_map_in_code():
+    assert not mapguard.code_draws_map('continents = ["Africa", "Europe"]\nfor c in continents:\n    pass')
+    assert mapguard.code_draws_map("lat, lon = 20.5, 78.9")

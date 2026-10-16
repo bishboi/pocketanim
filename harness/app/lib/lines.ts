@@ -88,8 +88,13 @@ export function fillLines(
         report.problems.push(`chapter ${ci + 1} beat ${bi + 1}: "lines" needs its chapter's "section" (a transcript section number)`);
         continue;
       }
+      if (!numbers.length) {
+        // No line named: its picture goes with a neighbouring beat (refusing it rewrote the whole section).
+        emptied.push({ chapter, beat });
+        continue;
+      }
       const bad = numbers.filter((k) => k < 1 || k > own.length);
-      if (bad.length || !numbers.length) {
+      if (bad.length) {
         report.problems.push(`chapter ${ci + 1} beat ${bi + 1}: line${bad.length > 1 ? "s" : ""} ${bad.join(", ") || "(none)"} ` +
           `not in section ${n}, which has lines 1-${own.length}`);
       }

@@ -125,7 +125,7 @@ def test_a_timeline_of_one_event_is_a_card_and_of_none_is_left_out():
     errors, warnings = cl.lint(script)
     assert not errors, errors
     first, second = (b["do"] for b in script["chapters"][0]["beats"])
-    assert first == [{"op": "fact", "text": "1066: Norman Conquest"}] and second == []
+    assert first == [{"op": "define", "term": "1066", "meaning": "Norman Conquest"}] and second == []
     assert any("timeline of one event shown as a card" in w for w in warnings)
     assert any("left out 'timeline'" in w for w in warnings)
     assert cl.compile_script(script, "GeneratedScene")
@@ -137,7 +137,7 @@ def test_a_compare_of_one_column_is_a_card_and_too_many_are_cut():
     errors, warnings = cl.lint(script)
     assert not errors, errors
     first, second = (b["do"] for b in script["chapters"][0]["beats"])
-    assert first == [{"op": "fact", "text": "Monks: pray; copy books"}]
+    assert first == [{"op": "define", "term": "Monks", "meaning": "pray; copy books"}]
     assert [c["title"] for c in second[0]["columns"]] == ["A", "B", "C"]
 
 

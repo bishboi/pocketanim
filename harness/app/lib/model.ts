@@ -982,7 +982,8 @@ async function viaOpenRouter(
     const planFor = (section: Section): string[] => {
       if (!map) return [];
       // Its length: the video's plan and the cut into videos count on it (written past it, videos ran 45 minutes).
-      const length = `  Length: about ${section.words} words (${Math.round(section.words / WORDS_PER_MINUTE)} min); stay close to it.`;
+      const length = `  Length: at most about ${section.words} words (${Math.round(section.words / WORDS_PER_MINUTE)} min). Shorter ` +
+        "is fine once your goals are taught: never fill it out with extra exercises, recaps or talk about how to study.";
       const plan = plans.get(section.n);
       if (plan) return [...sectionPlanText(plan, section.n, map.goals, map), length];
       const own = map.goals.filter((g) => g.section === section.n);

@@ -79,8 +79,10 @@ def check_code(code: str) -> list[str]:
     """What is not allowed in a block, or [] when it may run."""
     if not isinstance(code, str) or not code.strip():
         return ["no code"]
-    if len(code) > MAX_CODE:
-        return [f"{len(code)} characters; at most {MAX_CODE}: split it over the beats that say each part"]
+    # Counted without its comments and blank lines: explaining the code does not make it too long.
+    size = sum(len(line.rstrip()) + 1 for line in code.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+    if size > MAX_CODE:
+        return [f"{size} characters (without comments); at most {MAX_CODE}: split it over the beats that say each part"]
     try:
         tree = ast.parse(code)
     except SyntaxError as error:

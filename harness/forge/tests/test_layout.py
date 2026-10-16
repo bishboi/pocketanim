@@ -437,3 +437,11 @@ def pl_group(*mobs):
     from manim import Group
 
     return Group(*mobs)
+
+
+def test_a_one_date_card_on_an_empty_board_is_on_the_stage():
+    """A timeline of one date is mended into a define card: on an empty board it is a card on the stage, not a chip
+    in the strip at the top (which left the stage empty)."""
+    scene = _board_scene()
+    scene.define("Fourteenth century onward", "North Italian towns")
+    assert scene.stage_body is not None and getattr(scene.stage_body, "is_text_card", False)

@@ -445,7 +445,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         only = columns[0]
                         text = only["title"] + (": " + "; ".join(only["points"]) if only["points"] else "")
                         op.clear()
-                        op.update({"op": "fact", "text": text})
+                        op.update(_card_op(only["title"], "; ".join(only["points"])))
                         notes.append(f"{FIXED}{at}: a compare of one column shown as a card ({text[:60]})")
                         continue
                     if not columns:
@@ -461,7 +461,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         date, label = (e[0], e[1]) if isinstance(e, (list, tuple)) else (e.get("date"), e.get("label"))
                         text = f"{date}: {label}" if date not in (None, "") else str(label)
                         op.clear()
-                        op.update({"op": "fact", "text": text})
+                        op.update(_card_op(str(date or ""), str(label)) if date not in (None, "") else {"op": "fact", "text": text})
                         notes.append(f"{FIXED}{at}: a timeline of one event shown as a card ({text[:60]})")
                         continue
                 if kind in KIT_OPS:
@@ -493,6 +493,12 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         notes.append(f"{FIXED}{at}: {where}: picture left out ({problem}); its words stand alone")
     _purge(script)
     return notes
+
+
+def _card_op(head: str, body: str) -> dict:
+    """A card on the stage: the head big, the body under it. A fact on a board is only a chip in the strip at its
+    top, so a beat whose one picture was mended into a fact showed an empty stage."""
+    return {"op": "define", "term": head, "meaning": body} if head and body else {"op": "fact", "text": head or body}
 
 
 def _forget_picture(op: dict, spec) -> None:
@@ -865,7 +871,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                         errors.append(f"{at}: a manim beat carries only its manim op; draw the rest in its code, "
                                       "or put the other ops on beats of their own")
                     if _map_chapter(chapter, has_map):
-                        errors.append(f"{at}: a manim beat draws on the board; give its chapter \"map\": false")
+                        chapter["map"] = False
+                        warnings.append(f"{FIXED}{at}: a manim figure is drawn on the board, so its chapter is too")
                     if op.get("area") not in (None, "full", "left"):
                         errors.append(f"{at}: a manim op's area is \"left\" (the figure in the left half, a working "
                                       "or card beside it) or \"full\" (the default)")
@@ -3370,7 +3377,10 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 if op.get("op") == "question":
                     asked = [str(c) for c in op.get("choices") or []]
                 call = _op_call(op)
-                if call:
+                if call and call.startswith("*"):
+                    # Spread into the beat's calls (the dim op's animations): "lambda: *x" does not parse.
+                    calls.append(call)
+                elif call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
                     said = _op_said(op, parts_named, asked)
                     said = f", said={_q(said)}" if said else ""

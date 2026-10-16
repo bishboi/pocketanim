@@ -21,6 +21,8 @@ _NOT_GEO = (r"concept|mind|heat|flow|tree|bubble|story|site|bit|key|genetic|gene
 _MAP = re.compile(r"\bmaps?\b(?!\s+(?:onto|to|into|out|each|every|a\b|an\b|one|the (?:input|domain|values?|points?)|"
                   r"\w+\s+(?:on)?to\b))", re.I)
 _NOT_GEO_MAP = re.compile(rf"\b(?:{_NOT_GEO})[\s-]*maps?\b", re.I)
+# Saying there is no map ("no maps, no writing", "without a map") is not asking for one.
+_NO_MAP = re.compile(r"\b(?:no|not\s+an?|without\s+(?:an?\s+)?|never\s+an?)\s+(?:\w+\s+)?maps?\b", re.I)
 _GEO = re.compile(
     r"\b(?:atlas(?![\s-]+(?:style|lecture|look|template|theme))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
     r"trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)", re.I)
@@ -43,7 +45,7 @@ def is_map(text: str | None) -> bool:
     text = str(text or "")
     if not text.strip():
         return False
-    stripped = _NOT_GEO_MAP.sub(" ", text)
+    stripped = _NO_MAP.sub(" ", _NOT_GEO_MAP.sub(" ", text))
     if any(p.search(stripped) for p in (_MAP, _GEO, _DIVISIONS, _SHAPE)):
         return True
     return bool(_ROUTE.search(stripped) and _ROUTE_WORDS.search(stripped))
@@ -52,7 +54,7 @@ def is_map(text: str | None) -> bool:
 # In code: names that only a map has (india_outline, coast, lon, lat, longitude, borders_of), and map words in its
 # strings and comments. Python's map() is not one.
 _CODE_NAMES = re.compile(r"(?i)\b(?:[a-z0-9]+_)*(?:map|maps|coast|coastline|coastlines|lon|lat|lons|lats|longitude|"
-                         r"latitude|lonlat|latlon|continent|continents|country|countries|cartopy|geopandas|shapely)"
+                         r"latitude|lonlat|latlon|cartopy|geopandas|shapely)"
                          r"(?:_[a-z0-9]+)*\b(?!\s*\()")
 # Manim's own arguments with "map" in them (TransformMatchingTex's key_map, MathTex's tex_to_color_map): not maps.
 _MANIM_NAMES = re.compile(r"\b(?:key_map|tex_to_color_map|color_map|submobject_map)\b")

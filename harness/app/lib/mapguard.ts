@@ -10,6 +10,8 @@ const NOT_GEO = "concept|mind|heat|flow|tree|bubble|story|site|bit|key|genetic|g
   "self[- ]organi[sz]ing|logistic|contour|topic|journey|customer|argument|word|idea|cognitive|" +
   "pixel|frame|look[- ]?up|hash|tile|bump|shadow|uv|depth|environment|cube|chord|fate|cell";
 const NOT_GEO_MAP = new RegExp(`\\b(?:${NOT_GEO})[\\s-]*maps?\\b`, "gi");
+// Saying there is no map ("no maps, no writing", "without a map") is not asking for one.
+const NO_MAP = /\b(?:no|not\s+an?|without\s+(?:an?\s+)?|never\s+an?)\s+(?:\w+\s+)?maps?\b/gi;
 const MAP = /\bmaps?\b(?!\s+(?:onto|to|into|out|each|every|a\b|an\b|one|the (?:input|domain|values?|points?)|\w+\s+(?:on)?to\b))/i;
 const GEO = /\b(?:atlas(?![\s-]+(?:style|lecture|look|template|theme))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)/i;
 const DIVISIONS = /\b(?:[Ss]tates|[Pp]rovinces|[Dd]istricts|[Cc]ountries|[Kk]ingdoms|[Cc]olonies) (?:of|in) (?:the )?[A-Z]\w+/;
@@ -19,7 +21,7 @@ const ROUTE_WORDS = /\b(?:route|journey|voyage|march|travel(?:led|ed)?|sail(?:ed
 
 /** Whether a description of a picture asks for a geographic map. */
 export function isMap(text: string | undefined | null): boolean {
-  const stripped = String(text ?? "").replace(NOT_GEO_MAP, " ");
+  const stripped = String(text ?? "").replace(NOT_GEO_MAP, " ").replace(NO_MAP, " ");
   if (!stripped.trim()) return false;
   if ([MAP, GEO, DIVISIONS, SHAPE].some((pattern) => pattern.test(stripped))) return true;
   return ROUTE.test(stripped) && ROUTE_WORDS.test(stripped);

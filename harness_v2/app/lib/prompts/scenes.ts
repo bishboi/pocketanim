@@ -52,7 +52,7 @@ export const SCENES_TOOL = {
             type: "object",
             properties: {
               beat: { type: "integer", description: "The beat's number, as given." },
-              do: { type: "array", items: { type: "object", additionalProperties: true }, description: "Its operations (0-4)." },
+              do: { type: "array", items: { type: "object", additionalProperties: true }, description: "Its operations (as many as the pace below allows)." },
               paragraph: { type: "boolean", description: "The first beat of a paragraph (it gives the paragraph's visual)." },
               pause: { type: "number", description: "Extra seconds after the line, 1-2, rarely." },
               about: { type: "string", description: "The person, movement or place the beat is about, its English name." },
@@ -65,6 +65,34 @@ export const SCENES_TOOL = {
     },
   },
 };
+
+/** How busy the visuals are: operations a beat (0: no limit), and whether they change a paragraph at a time (v1) or
+ * on every beat. */
+export type ScenePace = { maxOps?: number; change?: "paragraph" | "beat" };
+
+const opsWords = (p?: ScenePace) => (p?.maxOps === 0 ? "as many operations as it needs" : `0-${p?.maxOps ?? 4} operations`);
+
+/**
+ * The pace chosen for this run, when it is not v1's: told after v1's instructions, and said to override them where
+ * they differ ("at most four operations", "a paragraph at a time").
+ */
+function pacePart(p?: ScenePace): Part | undefined {
+  const ops = p?.maxOps ?? 4;
+  const beat = p?.change === "beat";
+  if (ops === 4 && !beat) return undefined;
+  return part("pace", "This run's pace (overrides v1's where they differ)", "rules", [
+    "THIS RUN'S PACE, overriding what the instructions above say where they differ:",
+    ...(ops !== 4 ? [ops === 0
+      ? "  - OPERATIONS: no limit to the operations on a beat (not \"at most four\"): give a beat as many as its line needs, built on its words."
+      : `  - OPERATIONS: at most ${ops} operations on a beat (not four).`] : []),
+    ...(beat ? [
+      "  - THE VISUALS MOVE ON EVERY BEAT, not a paragraph at a time: every beat brings something new on screen -- a new",
+      "    picture, the next part of a diagram, a focus or a zoom, a label, a marker, a step of working -- so the screen",
+      "    never stands still for a whole line. A paragraph may still share one picture, built and pointed at beat by",
+      "    beat; an empty \"do\" is for a beat whose line truly needs nothing new.",
+    ] : []),
+  ]);
+}
 
 export type SceneSubject = { genre: string; label: string; guidance?: string; map?: string; kit?: string[] };
 
@@ -104,6 +132,8 @@ export function scenesPrompt(x: {
   manimAgent?: boolean;
   /** The lecture's subject and its kit (the engine's genre.py), as v1 tells it. */
   subject?: SceneSubject;
+  /** How many operations a beat, how often the visuals change: v1's (4, a paragraph at a time) unless set. */
+  pace?: ScenePace;
 }): { system: Part[]; user: Part[] } {
   const writing = (b: SceneBeatInput) => x.ask.what === "lecture" || (x.ask.what === "chapter" && b.chapter === x.ask.chapter)
     || (x.ask.what === "beat" && b.n === x.ask.beat) || (x.ask.what === "fix" && x.ask.beats.includes(b.n));
@@ -144,6 +174,7 @@ export function scenesPrompt(x: {
         x.manimAgent ? V1_MANIM_PLAN : V1_MANIM_RULES),
       v1("detailed", "Detailed diagrams"),
       v1("map", "Map operations"),
+      ...(pacePart(x.pace) ? [pacePart(x.pace)!] : []),
       ...(off.length ? [part("off", `Switched off here (${off.length})`, "choices", [
         "SWITCHED OFF FOR THIS LECTURE: never use these kinds of visual; anything of them is taken out:",
         ...off.map((k) => `  - ${x.labels[k] ?? k}`)])] : []),
@@ -159,7 +190,7 @@ export function scenesPrompt(x: {
       ...(x.note ? [part("note", "Your note for this", "context", x.note)] : []),
       ...(x.ask.what === "fix" ? [part("retry", "What the compiler refused", "retry",
         "The compiler refused these beats (COMPILER lines above). Write them again so they compile: keep what is right, change what it names.")] : []),
-      part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}. Give each beat its number and its do (0-4 operations), and ` +
+      part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}. Give each beat its number and its do (${opsWords(x.pace)}), and ` +
         `"paragraph": true on the first beat of each paragraph.`),
     ],
   };
@@ -195,9 +226,9 @@ const HAND_SHAPE = [
  * it change the chapter (the Voice tab's editor): v1's instructions as the scene writer gets them, its subject and
  * the kinds switched off, with the role and the answer's shape for a whole chapter, and Manim written as code.
  */
-export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject }): string {
+export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject; pace?: ScenePace }): string {
   const system = scenesPrompt({ lecture: { n: 0, title: "" }, look: x.look, kinds: x.kinds, labels: x.labels, chapters: [], beats: [],
-    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject }).system
+    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace }).system
     .map((p) => (p.key === "role" ? { ...p, text: HAND_ROLE } : p.key === "shape" ? { ...p, text: HAND_SHAPE } : p));
   return [render(system), "", `THE LOOK: the lecture is drawn in ${x.look}. Do not choose colours outside it.`].join("\n");
 }

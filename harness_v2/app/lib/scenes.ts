@@ -60,6 +60,7 @@ export type ScenesAction =
   | { action: "agent"; lecture: number; beat: number; instruction?: string; model?: string }
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
+  | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -125,6 +126,16 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   const st = stateOf(run);
   if (a.action === "look") {
     st.look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "pace") {
+    if (a.maxOps !== undefined) {
+      const k = Math.round(Number(a.maxOps));
+      if (!(k >= 0 && k <= 20)) throw new Error("operations a beat: 0 (no limit) to 20");
+      st.maxOps = k === 4 ? undefined : k;
+    }
+    if (a.change) st.visualChange = a.change === "beat" ? "beat" : undefined;
     saveRun(run, true);
     return run;
   }
@@ -428,7 +439,8 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
     prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
-      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n) }) });
+      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
+      pace: { maxOps: st.maxOps, change: st.visualChange } }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);

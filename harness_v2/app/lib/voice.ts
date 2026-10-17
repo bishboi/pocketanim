@@ -91,7 +91,7 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
 /** The scene writer's instructions, to give any chat model with this chapter's beat script (the editor's copy). */
 export async function editInstructions(run: Run, n: number): Promise<string> {
   const st = scenesOf(run);
-  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n),
+  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange },
     labels: Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label])) });
 }
 

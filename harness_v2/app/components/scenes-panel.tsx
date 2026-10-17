@@ -111,6 +111,22 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
             disabled={st?.reuseJudge === false}
             onBlur={(e) => e.target.value !== (st?.reuseModel ?? reuseModel) && act({ action: "reuseSettings", model: e.target.value })} title="the Picture reuse role's model (V2_REUSE_MODEL, else the triage's: Jev); changed here for this run" />
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="scenes-pace">
+          <span className="text-amber-300">Pace</span>
+          <label className="flex items-center gap-1 text-neutral-300" title="v1's instructions say at most four; a larger number (or none) is told after them as this run's pace">
+            operations a beat
+            <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5" value={String(st?.maxOps ?? 4)} data-testid="scenes-max-ops"
+              onChange={(e) => act({ action: "pace", maxOps: Number(e.target.value) })}>
+              <option value="4">up to 4 (v1)</option><option value="6">up to 6</option><option value="8">up to 8</option><option value="0">no limit</option>
+            </select></label>
+          <label className="flex items-center gap-1 text-neutral-300" title="v1 plans a visual a paragraph at a time (3-5 beats on one picture); every beat brings something new on screen">
+            visuals change
+            <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5" value={st?.visualChange ?? "paragraph"} data-testid="scenes-visual-change"
+              onChange={(e) => act({ action: "pace", change: e.target.value })}>
+              <option value="paragraph">a paragraph at a time (v1)</option><option value="beat">on every beat</option>
+            </select></label>
+          <span className="text-neutral-500">used for the next builds (and the Voice tab&apos;s instructions); build again to see it</span>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
           <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
           <span>{done} of {scripted.length} lectures built</span>

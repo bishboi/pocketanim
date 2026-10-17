@@ -118,6 +118,18 @@ const KIND_TEXT: Record<string, string[]> = {
     "  their part (buff 0.15-0.3), never on a line. True geometry, values and units. Never a map. FadeOut what the next",
     '  step no longer needs. area "left": the figure in the left half, a working ({"op":"work"}) beside it.',
   ],
+  manimPlan: [
+    'FREE-FORM MANIM: a figure you design yourself, in any subject, whenever it teaches better than the other kinds',
+    "(a graph, a free-body diagram, a ray diagram, a circuit, a wave, a Venn diagram, a Punnett square; a population",
+    "pyramid changing, a supply and demand shift, a river's long profile, tribute flowing up the feudal ranks):",
+    '  {"op":"manim","id":"f1","plan":"...","area"?:"left"}   the ONLY op on its beat. A Manim agent builds it from your plan:',
+    "  it writes the code, makes any pictures of real things the figure needs (a farmer, a granary) with the image model,",
+    "  previews it and looks at it. So the plan is precise: on this beat, what is drawn or moved, where on the board (left,",
+    "  right, centre), sizes, angles and values, every label's words, colours with meaning, the pictures of real things it",
+    "  holds (\"a picture of ...\"), and which earlier parts it points at or changes. Beats with the same id are one figure",
+    "  built over several beats: the frame first, then each part on the beat that names it. Never a map in it.",
+    '  area "left": the figure in the left half, a working ({"op":"work"}) beside it.',
+  ],
   equation: ['{"op":"equation","tex":"6CO_2 + 6H_2O -> C_6H_{12}O_6 + 6O_2","label"?}   a law or a reaction, large'],
   molecule: [
     '{"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula; ONLY where the sentences explain',
@@ -206,8 +218,11 @@ export function scenesPrompt(x: {
   /** The compiler's errors (and notes) on the beats to fix, by beat. */
   problems?: Record<number, string[]>;
   note?: string;
+  /** Manim figures are built by the Manim agent from a plan (else written here as code). */
+  manimAgent?: boolean;
 }): { system: Part[]; user: Part[] } {
   const on = x.kinds.filter((k) => KIND_TEXT[k]);
+  const text = (k: string) => (k === "manim" && x.manimAgent ? KIND_TEXT.manimPlan : KIND_TEXT[k]);
   const writing = (b: SceneBeatInput) => x.ask.what === "lecture" || (x.ask.what === "chapter" && b.chapter === x.ask.chapter)
     || (x.ask.what === "beat" && b.n === x.ask.beat) || (x.ask.what === "fix" && x.ask.beats.includes(b.n));
   const beatLine = (b: SceneBeatInput) => [
@@ -228,7 +243,7 @@ export function scenesPrompt(x: {
       part("role", "Role", "rules", ROLE),
       part("beats", "Beats, paragraphs and the board", "rules", BEATS),
       part("kinds", `The visuals you may use (${on.length})`, "choices", on.length
-        ? [`Only these kinds; anything else is taken out:`, "", ...on.flatMap((k) => [...KIND_TEXT[k], ""])]
+        ? [`Only these kinds; anything else is taken out:`, "", ...on.flatMap((k) => [...text(k), ""])]
         : "No visuals are switched on: only the heading and key point (panel, fact, clear)."),
     ],
     user: [

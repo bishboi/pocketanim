@@ -30,6 +30,7 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
+import { runManimAgent } from "./manim-agent";
 import { lectureFigures } from "./script-figures";
 import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
@@ -53,6 +54,8 @@ export type ScenesAction =
   | { action: "fix"; lecture: number; model?: string }
   | { action: "compile"; lecture: number }
   | { action: "render"; lecture: number; chapter: number; beat?: number; style?: string; art?: string }
+  | { action: "agent"; lecture: number; beat: number; instruction?: string; model?: string }
+  | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "stop" };
 
 const shared = globalThis as unknown as { __v2scenesBusy?: Set<string>; __v2scenesActive?: Map<string, number>; __v2renderBusy?: Set<string>;
@@ -69,28 +72,28 @@ export function scenesDir(runId: string): string {
 }
 
 /** A file under the run's scenes folder as a URL the page can load. */
-function fileUrl(runId: string, file: string): string {
+export function fileUrl(runId: string, file: string): string {
   return `/api/runs/${runId}/scenes/file?p=${encodeURIComponent(path.relative(scenesDir(runId), file))}&v=${Date.now()}`;
 }
 
-function stateOf(run: Run): ScenesState {
+export function stateOf(run: Run): ScenesState {
   run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {} };
   return run.scenes;
 }
 
-function lectureState(run: Run, n: number): SceneLecture {
+export function lectureState(run: Run, n: number): SceneLecture {
   const st = stateOf(run);
   st.lectures[n] ??= { lecture: n, status: "waiting", beats: {}, calls: [] };
   return st.lectures[n];
 }
 
 /** The lecture's script, when it is scripted. */
-function scriptOf(run: Run, n: number) {
+export function scriptOf(run: Run, n: number) {
   const ls = run.script?.lectures[n];
   return ls?.status === "done" && ls.chapters.length ? ls : undefined;
 }
 
-function beatState(sl: SceneLecture, n: number): SceneBeat {
+export function beatState(sl: SceneLecture, n: number): SceneBeat {
   sl.beats[n] ??= { n, status: "waiting", ops: [], calls: [] };
   return sl.beats[n];
 }
@@ -108,6 +111,12 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   const st = stateOf(run);
   if (a.action === "look") {
     st.look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "agentSettings") {
+    if (a.on !== undefined) st.manimAgent = a.on;
+    if (a.model !== undefined) st.manimModel = a.model.trim() || undefined;
     saveRun(run, true);
     return run;
   }
@@ -136,6 +145,18 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const kept = filterOps(a.ops as Record<string, unknown>[], kindsFor(run, sl, a.beat));
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
     lock(run, [a.lecture], async () => {
+      await compileLecture(run, a.lecture);
+    });
+    return run;
+  }
+  if (a.action === "agent") {
+    const sl = lectureOf(a.lecture);
+    if (!scriptOf(run, a.lecture)!.chapters.some((c) => c.beats.some((b) => b.n === a.beat))) throw new Error(`lecture ${a.lecture} has no beat ${a.beat}`);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
+    if (!kindsFor(run, sl, a.beat).includes("manim")) throw new Error("Manim is switched off for this beat: switch it on (for the run or the beat) first");
+    sl.doing = `the Manim agent on beat ${a.beat}`;
+    lock(run, [a.lecture], async () => {
+      await runManimAgent(run, a.lecture, a.beat, { instruction: a.instruction, model: a.model, stop: () => stopRequested(`${id}:scenes`) });
       await compileLecture(run, a.lecture);
     });
     return run;
@@ -317,7 +338,7 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
     prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
-      beats, figures, region: sl.region, ask, problems, note }) });
+      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -382,6 +403,8 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
     await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
   }
   if (stopRequested(key)) return;
+  await agentsOn(run, n, (b) => !b.ops.some((o) => o.op === "manim" && o.code));
+  if (stopRequested(key)) return;
   await compileLecture(run, n);
   if (Object.values(sl.beats).some((b) => b.errors?.length) && !stopRequested(key)) await fixLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
@@ -391,13 +414,36 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
 /** The refused beats asked again with what the compiler said, then the lecture compiled again. */
 async function fixLecture(run: Run, n: number) {
   const sl = lectureState(run, n);
-  const broken = Object.values(sl.beats).filter((b) => b.errors?.length);
-  if (!broken.length) return;
-  sl.doing = `mending ${broken.length} beat(s)`;
+  const agent = stateOf(run).manimAgent !== false;
+  // A refused Manim figure goes back to the Manim agent (told what the compiler said); the rest to the scene writer.
+  const isFigure = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim");
+  const broken = Object.values(sl.beats).filter((b) => b.errors?.length && !isFigure(b));
+  const figures = Object.values(sl.beats).filter((b) => b.errors?.length && isFigure(b));
+  if (!broken.length && !figures.length) return;
+  sl.doing = `mending ${broken.length + figures.length} beat(s)`;
   saveRun(run);
-  await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
+  if (broken.length) await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
+  for (const b of figures) {
+    if (stopRequested(`${run.id}:scenes`)) break;
+    await runManimAgent(run, n, b.n, { instruction: `The compiler refused this beat's figure: ${b.errors!.join("; ")}. Mend it.`, stop: () => stopRequested(`${run.id}:scenes`) });
+  }
+  await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code));
   await compileLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now() });
+}
+
+/** The Manim agent on each beat whose manim op `needs` it (the scene writer planned it), in beat order. */
+async function agentsOn(run: Run, n: number, needs: (b: SceneBeat) => boolean) {
+  if (stateOf(run).manimAgent === false) return;
+  const sl = lectureState(run, n);
+  const order = scriptOf(run, n)!.chapters.flatMap((c) => c.beats.map((b) => b.n));
+  const todo = order.filter((k) => sl.beats[k]?.ops.some((o) => o.op === "manim") && needs(sl.beats[k]));
+  for (const [i, k] of todo.entries()) {
+    if (stopRequested(`${run.id}:scenes`)) return;
+    sl.doing = `the Manim agent: beat ${k} (${i + 1} of ${todo.length})`;
+    saveRun(run);
+    await runManimAgent(run, n, k, { stop: () => stopRequested(`${run.id}:scenes`) });
+  }
 }
 
 // ---------------- the engine's script ----------------
@@ -431,7 +477,7 @@ async function figureFiles(run: Run, n: number): Promise<Record<string, { file: 
 }
 
 /** The lecture as the engine's beat script, in `look`; `only` keeps one chapter, up to one beat. */
-async function engineScript(run: Run, n: number, look: Look, only?: { chapter: number; upTo?: number }): Promise<Record<string, unknown>> {
+export async function engineScript(run: Run, n: number, look: Look, only?: { chapter: number; upTo?: number }): Promise<Record<string, unknown>> {
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
   const lines = linesOf(lecture.text ?? "");
@@ -452,17 +498,23 @@ async function engineScript(run: Run, n: number, look: Look, only?: { chapter: n
   };
 }
 
-function engineEnv(run: Run): Record<string, string> {
+/** The images the Manim agent made for a lecture, by name (the engine's image("name") reads it). */
+export function agentRegistry(runId: string, n: number): string {
+  return path.join(scenesDir(runId), `L${n}`, "agent-images.json");
+}
+
+export function engineEnv(run: Run, n?: number): Record<string, string> {
   const image = run.options.imageModel || modelFor("image");
   return { PYTHONPATH: engineDir(), PANIM_VOICE: "silent", PANIM_IMAGE_MODEL: image, PANIM_DIAGRAM_MODEL: image,
-    ...(usingFixture(image) ? { PANIM_IMAGE_FAKE: "1" } : {}) };
+    ...(usingFixture(image) ? { PANIM_IMAGE_FAKE: "1" } : {}),
+    ...(n !== undefined && existsSync(agentRegistry(run.id, n)) ? { PANIM_BLOCK_IMAGES: agentRegistry(run.id, n) } : {}) };
 }
 
 type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[] };
 
-async function compile(run: Run, script: Record<string, unknown>, dir: string): Promise<Compiled> {
+export async function compile(run: Run, script: Record<string, unknown>, dir: string, n?: number): Promise<Compiled> {
   await mkdir(dir, { recursive: true });
-  const out = await runPython([path.join(engineDir(), "compile_lecture.py"), "-", "--json"], dir, engineEnv(run), JSON.stringify(script), COMPILE_TIMEOUT);
+  const out = await runPython([path.join(engineDir(), "compile_lecture.py"), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
   try {
     const json = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as Compiled & { source?: string | null };
     return { ...json, source: json.source ?? undefined, errors: json.errors ?? [], warnings: json.warnings ?? [] };
@@ -488,7 +540,7 @@ async function compileLecture(run: Run, n: number) {
   const began = Date.now();
   sl.compile = { status: "running", errors: [], warnings: [], at: began };
   saveRun(run);
-  const c = await compile(run, await engineScript(run, n, st.look), path.join(scenesDir(run.id), `L${n}`, "compile"));
+  const c = await compile(run, await engineScript(run, n, st.look), path.join(scenesDir(run.id), `L${n}`, "compile"), n);
   for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined });
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -520,7 +572,7 @@ async function compileLecture(run: Run, n: number) {
 
 // ---------------- renders ----------------
 
-async function renderSlot(): Promise<() => void> {
+export async function renderSlot(): Promise<() => void> {
   if (renderOn.n >= RENDERS_AT_ONCE) await new Promise<void>((resolve) => renderQueue.push(resolve));
   renderOn.n += 1;
   return () => {
@@ -529,7 +581,7 @@ async function renderSlot(): Promise<() => void> {
   };
 }
 
-function ffmpeg(args: string[]): Promise<{ code: number | null; out: string }> {
+export function ffmpeg(args: string[]): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.env.V2_FFMPEG || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
     let out = "";
@@ -539,7 +591,7 @@ function ffmpeg(args: string[]): Promise<{ code: number | null; out: string }> {
   });
 }
 
-async function duration(file: string): Promise<number> {
+export async function duration(file: string): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(process.env.V2_FFPROBE || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]);
     let out = "";
@@ -561,14 +613,14 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
     const script = await engineScript(run, n, look, { chapter, upTo: beat });
-    const compiled = await compile(run, script, dir);
+    const compiled = await compile(run, script, dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
     await writeFile(path.join(dir, "scene.py"), source, "utf8");
     const beatLog = path.join(dir, "beats.jsonl");
     const checkLog = path.join(dir, "checks.jsonl");
     const out = await runPython(["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "scene.py", "GeneratedScene"], dir,
-      { ...engineEnv(run), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
+      { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
     const video = path.join(dir, "media", "videos", "scene", "480p15", "GeneratedScene.mp4");
     if (out.code !== 0 || !existsSync(video)) {
       throw new Error(/No module named ['"]?manim/.test(out.out) ? "Manim is not installed for this Python: run harness/scripts/setup-python.sh"

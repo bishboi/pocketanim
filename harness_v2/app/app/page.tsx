@@ -366,6 +366,7 @@ export default function Page() {
             {run && tab === "Script" && <ScriptPanel run={run} defaultModel={run.options.scriptModel || options.scriptModel || config?.models.script?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/script", body)} />}
             {run && tab === "Scenes" && <ScenesPanel run={run} defaultModel={run.options.scenesModel || options.scenesModel || config?.models.scenes?.model || ""}
+              manimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}

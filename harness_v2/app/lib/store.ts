@@ -130,6 +130,7 @@ export async function loadRun(id: string): Promise<Run | null> {
       for (const b of Object.values(l.beats)) {
         if (b.status === "running") b.status = b.ops.length ? "done" : "waiting";
         if (b.render?.status === "running") Object.assign(b.render, { status: "failed", error: "the server stopped while it rendered" });
+        if (b.agent?.status === "running") Object.assign(b.agent, { status: "failed", error: "the server stopped while the agent worked", ended: Date.now() });
       }
       for (const c of Object.values(l.chapters ?? {})) if (c.status === "running") Object.assign(c, { status: "failed", error: "the server stopped while it rendered" });
     }

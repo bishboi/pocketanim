@@ -38,8 +38,8 @@ const KIND_COLOR: Record<string, string> = {
 };
 const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
 
-export function ScenesPanel({ run, defaultModel, select, onCall, act }: {
-  run: Run; defaultModel: string; select: (s: Selection) => void; onCall: (id: string) => void; act: Act;
+export function ScenesPanel({ run, defaultModel, manimModel, select, onCall, act }: {
+  run: Run; defaultModel: string; manimModel: string; select: (s: Selection) => void; onCall: (id: string) => void; act: Act;
 }) {
   const st = run.scenes;
   const [model, setModel] = useState(st?.model || defaultModel);
@@ -88,6 +88,16 @@ export function ScenesPanel({ run, defaultModel, select, onCall, act }: {
           <label className="flex items-center gap-1 text-neutral-300" title="One lecture after the other, not in parallel">
             <input type="checkbox" checked={inTurn} onChange={(e) => setInTurn(e.target.checked)} /> one at a time</label>
           {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-cyan-300">Manim figures</span>
+          <label className="flex items-center gap-1 text-neutral-300" title="The scene writer plans a Manim figure; the Manim agent builds it: makes the pictures it needs, previews and mends its code">
+            <input type="radio" checked={st?.manimAgent !== false} onChange={() => act({ action: "agentSettings", on: true })} data-testid="scenes-agent-on" /> built by the Manim agent (pictures, previews)</label>
+          <label className="flex items-center gap-1 text-neutral-300" title="The scene writer writes the Manim code itself, in its answer">
+            <input type="radio" checked={st?.manimAgent === false} onChange={() => act({ action: "agentSettings", on: false })} /> written by the scene writer</label>
+          <span className="text-neutral-500">agent model</span>
+          <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" defaultValue={st?.manimModel ?? manimModel} key={st?.manimModel ?? manimModel}
+            onBlur={(e) => e.target.value !== (st?.manimModel ?? manimModel) && act({ action: "agentSettings", model: e.target.value })} title="the Manim role's model (V2_MANIM_MODEL); changed here for this run" />
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
           <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
@@ -234,7 +244,7 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
   const script = run.script!.lectures[lecture.n];
   const lines = useMemo(() => linesOf(lecture.text ?? ""), [lecture.text]);
   const [pick, setPick] = useState<Pick>({ kind: "chapter", c: script.chapters[0]?.n ?? 1 });
-  const [view, setView] = useState<"Beats" | "Compiler" | "Calls">("Beats");
+  const [view, setView] = useState<"Beats" | "Compiler" | "Pictures" | "Calls">("Beats");
   const calls = (sl?.calls ?? []).map((id) => run.calls.find((c) => c.id === id)).filter((c): c is Call => !!c);
   const beats = script.chapters.flatMap((c) => c.beats.map((b) => ({ ...b, chapter: c.n })));
   const refused = beats.filter((b) => sl?.beats[b.n]?.errors?.length).length;
@@ -260,9 +270,9 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
       {stale && <p className="text-xs text-amber-300">The script was rebuilt after these scenes: rebuild them so their beats match.</p>}
       {sl?.error && <p className="rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">Error: {sl.error}</p>}
       <nav className="flex gap-1 text-xs">
-        {(["Beats", "Compiler", "Calls"] as const).map((v) => (
+        {(["Beats", "Compiler", "Pictures", "Calls"] as const).map((v) => (
           <button key={v} onClick={() => setView(v)} className={`rounded-full border px-2.5 py-0.5 ${view === v ? "border-sky-600 bg-sky-950 text-sky-100" : "border-neutral-700 text-neutral-400 hover:text-neutral-200"}`}>
-            {v}{v === "Compiler" && sl?.compile ? ` (${(sl.compile.errors.length + sl.compile.warnings.length + refused)})` : ""}{v === "Calls" && calls.length ? ` (${calls.length})` : ""}</button>
+            {v}{v === "Compiler" && sl?.compile ? ` (${(sl.compile.errors.length + sl.compile.warnings.length + refused)})` : ""}{v === "Calls" && calls.length ? ` (${calls.length})` : ""}{v === "Pictures" ? ` (${Object.keys(run.scenes?.agentImages?.[lecture.n] ?? {}).length})` : ""}</button>
         ))}
       </nav>
       {view === "Beats" && (
@@ -276,6 +286,7 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
         </div>
       )}
       {view === "Compiler" && <CompilerView sl={sl} beats={beats} setPick={(p) => { setPick(p); setView("Beats"); }} />}
+      {view === "Pictures" && <PicturesView run={run} lecture={lecture} onCall={onCall} setPick={(p) => { setPick(p); setView("Beats"); }} />}
       {view === "Calls" && <PromptView calls={calls} onCall={onCall} />}
     </section>
   );
@@ -316,6 +327,7 @@ function Outline({ run, lecture, lines, pick, setPick }: { run: Run; lecture: Le
                       {sb?.errors?.length ? <span className="text-red-400" title={sb.errors.join("\n")}>✗</span> : null}
                       {sb?.kinds ? <span className="text-amber-300" title="its own visual kinds">◐</span> : null}
                       {sb?.edited ? <span className="text-violet-300" title="changed by hand">✎</span> : null}
+                      {sb?.agent ? <span className={sb.agent.status === "running" ? "animate-pulse text-sky-300" : sb.agent.status === "failed" ? "text-red-400" : "text-cyan-300"} title={`the Manim agent: ${sb.agent.status}`}>◆</span> : null}
                       {sb?.render?.status === "done" ? <span className="text-emerald-400" title="rendered">▣</span> : sb?.render?.status === "running" ? <span className="animate-pulse text-sky-300">▣</span> : null}
                       <KindDots ops={sb?.ops ?? []} />
                     </button>
@@ -586,6 +598,163 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
           )}
         </div>
       </div>
+      <AgentSection run={run} lecture={lecture} n={n} sb={sb} busy={busy} act={act} onCall={onCall}
+        manimOn={(ownKinds ?? st?.kinds ?? []).includes("manim")} />
+    </div>
+  );
+}
+
+const STEP_LOOK = { think: { icon: "💭", tone: "text-neutral-300" }, image: { icon: "🖼", tone: "text-pink-300" }, preview: { icon: "▶", tone: "text-sky-300" },
+  finish: { icon: "✓", tone: "text-emerald-300" }, error: { icon: "✗", tone: "text-red-300" } } as const;
+
+/** The Manim agent on this beat: ask it (with words of your own), and every step it took: its words, the pictures it
+ * made, each preview (its frame, its clip, the compiler's errors, the code), the code it settled on. */
+function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
+  run: Run; lecture: Lecture; n: number; sb?: SceneBeat; busy: boolean; act: Act; onCall: (id: string) => void; manimOn: boolean;
+}) {
+  const a = sb?.agent;
+  const [ask, setAsk] = useState("");
+  const [big, setBig] = useState<string | null>(null);
+  const plan = sb?.ops.find((o) => o.op === "manim")?.plan as string | undefined;
+  const images = run.scenes?.agentImages?.[lecture.n] ?? {};
+  const turns = [...new Set((a?.steps ?? []).map((x) => x.turn))];
+  return (
+    <section className="rounded border border-cyan-900/70 bg-cyan-950/10 p-2" data-testid="scenes-agent">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">Manim agent</span>
+        {a ? (
+          <>
+            <span className={a.status === "failed" ? "text-red-300" : a.status === "running" ? "animate-pulse text-sky-300" : a.status === "done" ? "text-emerald-300" : "text-amber-300"}>{a.status === "running" ? "working…" : a.status}</span>
+            <span className="text-neutral-400">figure “{a.id}” · {a.turns} turn(s) · {a.images.length} picture(s) · {a.steps.filter((x) => x.kind === "preview" || (x.kind === "finish" && x.still)).length} preview(s)</span>
+            <span className="mono text-neutral-500">{a.model} · images {a.imageModel}</span>
+            <span className="text-neutral-400">{seconds(a.started, a.ended ?? Date.now())} · {money(a.cost)}</span>
+          </>
+        ) : <span className="text-neutral-500">{manimOn ? "Builds this beat as a Manim figure: decides which pictures it needs and has them made, previews its code, looks at the frame, mends it." : "Manim is switched off for this beat."}</span>}
+      </div>
+      {(plan || a?.instruction) && (
+        <div className="mt-1 space-y-0.5 text-[11px]">
+          {plan && <p className="text-neutral-400"><span className="text-neutral-500">the scene writer&apos;s plan:</span> {plan}</p>}
+          {a?.instruction && <p className="text-neutral-400"><span className="text-neutral-500">asked:</span> {a.instruction}</p>}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <input className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100" value={ask} onChange={(e) => setAsk(e.target.value)}
+          placeholder="what you want (optional): “a farmer ploughing beside the river, the silt shown in layers”" data-testid="scenes-agent-ask" />
+        <button className={`${btn} border-cyan-700 bg-cyan-800 text-white`} disabled={busy || !manimOn} data-testid="scenes-agent-run"
+          onClick={() => act({ action: "agent", lecture: lecture.n, beat: n, instruction: ask || undefined })}>{a ? "Run the Manim agent again" : "Build with the Manim agent"}</button>
+      </div>
+      {a?.error && <p className="mt-1 text-[11px] text-red-300">{a.error}</p>}
+      {a && (
+        <ol className="mt-2 space-y-1.5" data-testid="scenes-agent-steps">
+          {turns.map((t) => (
+            <li key={t} className="rounded border border-neutral-800 bg-neutral-950/60 p-1.5">
+              <div className="mb-1 flex items-center gap-2 text-[10px] text-neutral-500">
+                <span className="rounded bg-neutral-800 px-1.5 text-neutral-300">turn {t}</span>
+                {[...new Set(a.steps.filter((x) => x.turn === t && x.call).map((x) => x.call!))].map((id) => (
+                  <button key={id} className="rounded border border-neutral-700 px-1 hover:bg-neutral-800" onClick={() => onCall(id)}>
+                    call {id}{(() => { const c = run.calls.find((x) => x.id === id); return c ? ` · ${c.api === "image" ? "image model" : "agent"} · ${money(c.cost)}` : ""; })()}</button>
+                ))}
+              </div>
+              <div className="space-y-1">
+                {a.steps.filter((x) => x.turn === t).map((x, i) => (
+                  <div key={i} className="text-xs">
+                    <span className={STEP_LOOK[x.kind].tone}>{STEP_LOOK[x.kind].icon} {x.kind === "think" ? "" : x.kind === "image" ? `made the picture “${x.args?.name}” (${x.args?.kind})` : x.kind === "preview" ? `previewed${x.seconds ? ` (${x.seconds.toFixed(0)} s)` : ""}` : x.kind === "finish" ? "finished" : "error"}</span>
+                    {x.kind === "think" && <span className="whitespace-pre-wrap text-neutral-300">{x.text}</span>}
+                    {x.kind === "image" && (
+                      <div className="mt-1 flex items-start gap-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {x.image && <img alt={String(x.args?.name)} src={x.image} onClick={() => setBig(x.image!)} className="h-28 cursor-zoom-in rounded border border-neutral-800 bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:16px_16px] object-contain" />}
+                        <span className="text-[11px] text-neutral-400">{String(x.args?.what ?? "")}</span>
+                      </div>
+                    )}
+                    {(x.kind === "preview" || x.kind === "finish") && (
+                      <div className="mt-1 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <div>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {x.still && <img alt="the preview's last frame" src={x.still} onClick={() => setBig(x.still!)} className="w-full cursor-zoom-in rounded border border-neutral-800" />}
+                          {x.video && <video src={x.video} controls loop className="mt-1 w-full rounded border border-neutral-800 bg-black" />}
+                          {x.args?.summary ? <p className="mt-1 text-[11px] text-emerald-200">{String(x.args.summary)}</p> : null}
+                        </div>
+                        <details open={!!x.errors?.length}>
+                          <summary className="cursor-pointer text-[11px] text-neutral-400">the code ({String(x.args?.code ?? "").split("\n").length} lines){x.args?.area === "left" ? " · left half" : ""}</summary>
+                          <pre className="mono mt-1 max-h-72 overflow-auto rounded bg-neutral-900 p-1.5 text-[10.5px] text-neutral-200">{String(x.args?.code ?? "")}</pre>
+                        </details>
+                      </div>
+                    )}
+                    {x.errors?.length ? <ul className="mt-1 rounded border border-red-900 bg-red-950/30 p-1 text-[11px] text-red-200">{x.errors.map((e, k) => <li key={k} className="whitespace-pre-wrap">✗ {e}</li>)}</ul> : null}
+                  </div>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {a?.images.length ? (
+        <div className="mt-2">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Pictures it made for this figure</p>
+          <div className="flex flex-wrap gap-2">{a.images.map((name) => images[name]).filter(Boolean).map((img) => <AgentImageCard key={img.name} img={img} onCall={onCall} open={setBig} />)}</div>
+        </div>
+      ) : null}
+      {a?.code && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] text-neutral-400">the code it settled on</summary>
+          <pre className="mono mt-1 max-h-80 overflow-auto rounded bg-neutral-900 p-1.5 text-[10.5px] text-neutral-200">{a.code}</pre>
+        </details>
+      )}
+      {big && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setBig(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="enlarged" src={big} className="max-h-full max-w-full rounded bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:16px_16px]" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentImageCard({ img, onCall, open }: { img: import("@/lib/types").AgentImage; onCall: (id: string) => void; open: (url: string) => void }) {
+  return (
+    <div className="w-40 rounded border border-neutral-800 p-1 text-[10px]" data-testid="scenes-agent-image">
+      {img.url
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img alt={img.name} src={img.url} onClick={() => open(img.url!)} className="h-24 w-full cursor-zoom-in rounded bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:16px_16px] object-contain" />
+        : <div className="flex h-24 items-center justify-center rounded bg-red-950/30 text-red-300">not made</div>}
+      <p className="mt-0.5 font-medium text-neutral-200">“{img.name}” <span className="text-neutral-500">{img.kind} · beat #{img.beat}</span></p>
+      <p className="line-clamp-2 text-neutral-400" title={img.what}>{img.what}</p>
+      {img.error && <p className="text-red-300">{img.error}</p>}
+      <p className="text-neutral-500">{money(img.cost)}{img.call && <button className="ml-1 text-sky-300 hover:underline" onClick={() => onCall(img.call!)}>call {img.call}</button>}</p>
+    </div>
+  );
+}
+
+/** Every picture the Manim agent made for the lecture, with the beat it was made for. */
+function PicturesView({ run, lecture, onCall, setPick }: { run: Run; lecture: Lecture; onCall: (id: string) => void; setPick: (p: Pick) => void }) {
+  const images = Object.values(run.scenes?.agentImages?.[lecture.n] ?? {});
+  const [big, setBig] = useState<string | null>(null);
+  const agents = Object.values(run.scenes?.lectures[lecture.n]?.beats ?? {}).filter((b) => b.agent);
+  return (
+    <div className="space-y-3 text-xs" data-testid="scenes-pictures">
+      <p className="text-neutral-400">The Manim agent ran on {agents.length} beat(s) and made {images.length} picture(s) for this lecture
+        ({money(images.reduce((k, i) => k + i.cost, 0))}). A picture is used in a figure&apos;s code by its name, image(&quot;name&quot;); any later figure of the lecture may use it again.</p>
+      <div className="flex flex-wrap gap-2">{images.map((img) => <AgentImageCard key={img.name} img={img} onCall={onCall} open={setBig} />)}</div>
+      {agents.length > 0 && (
+        <table className="w-full">
+          <thead className="text-left text-[10px] uppercase text-neutral-500"><tr><th className="py-1">Beat</th><th>Figure</th><th>State</th><th>Turns</th><th>Pictures</th><th>Cost</th><th>What it shows</th></tr></thead>
+          <tbody>{agents.map((b) => (
+            <tr key={b.n} className="cursor-pointer border-t border-neutral-800 hover:bg-neutral-900" onClick={() => setPick({ kind: "beat", n: b.n })}>
+              <td className="py-1">#{b.n}</td><td className="mono">{b.agent!.id}</td>
+              <td className={b.agent!.status === "failed" ? "text-red-300" : b.agent!.status === "done" ? "text-emerald-300" : "text-sky-300"}>{b.agent!.status}</td>
+              <td>{b.agent!.turns}</td><td>{b.agent!.images.join(", ") || "—"}</td><td>{money(b.agent!.cost)}</td>
+              <td className="text-neutral-400">{b.agent!.summary ?? b.agent!.error ?? ""}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {big && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setBig(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="enlarged" src={big} className="max-h-full max-w-full rounded" />
+        </div>
+      )}
     </div>
   );
 }

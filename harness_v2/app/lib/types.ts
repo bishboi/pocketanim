@@ -289,7 +289,50 @@ export type SceneBeat = {
   /** Written (or changed) by hand. */
   edited?: boolean;
   render?: SceneRender;
+  /** The Manim agent's work on this beat (manim-agent.ts), when it built its Manim figure. */
+  agent?: ManimAgentState;
   calls: string[];
+};
+
+/** A picture the Manim agent made for its figure: its name in the code (image("name")), what was asked, the file. */
+export type AgentImage = { name: string; what: string; kind: "cutout" | "scene"; beat: number; url?: string; file?: string; call?: string;
+  status: "done" | "failed"; error?: string; cost: number; at: number };
+
+/** One thing the agent did: a turn of the model (its words), an image made, a preview rendered, the end. */
+export type AgentStep = {
+  turn: number;
+  kind: "think" | "image" | "preview" | "finish" | "error";
+  call?: string;
+  text?: string;
+  args?: Record<string, unknown>;
+  /** An image's URL; a preview's last frame and video. */
+  image?: string;
+  still?: string;
+  video?: string;
+  errors?: string[];
+  seconds?: number;
+  at: number;
+};
+
+export type ManimAgentState = {
+  status: "running" | "done" | "failed" | "stopped";
+  model: string;
+  imageModel: string;
+  /** The figure's id (beats with the same id are one figure, built in order). */
+  id: string;
+  /** What it was asked to do (the scene writer's plan, the user's words). */
+  plan?: string;
+  instruction?: string;
+  steps: AgentStep[];
+  images: string[];
+  turns: number;
+  code?: string;
+  area?: string;
+  summary?: string;
+  error?: string;
+  cost: number;
+  started: number;
+  ended?: number;
 };
 
 export type SceneCompile = {
@@ -329,6 +372,11 @@ export type ScenesState = {
   lectures: Record<string, SceneLecture>;
   /** Renders going now. */
   renders?: number;
+  /** Manim figures written by the Manim agent (with images, previews), or by the scene writer in its answer. */
+  manimAgent?: boolean;
+  manimModel?: string;
+  /** The images the Manim agent made, by lecture, by name. */
+  agentImages?: Record<string, Record<string, AgentImage>>;
   error?: string;
   started?: number;
   ended?: number;

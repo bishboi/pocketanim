@@ -173,6 +173,42 @@ def picture(what: str, height: float = 2.0, width: float | None = None, labels=N
     return mob
 
 
+def image(name: str, height: float = 2.0, width: float | None = None, labels=None):
+    """A picture the Manim agent made for this lecture (harness v2, app/lib/manim-agent.ts), by the name it gave it
+    (`image("farmer", height=2.5)`): the file is in the registry PANIM_BLOCK_IMAGES names (a JSON object, name to
+    path). At most `height` tall and `width` wide; a cutout (transparent round its subject) sits on the board with no
+    frame. `labels` names its parts where the label finder sees them, as picture() does. Where it is not there, a
+    labelled frame of the same size stands in, so the figure still reads."""
+    import json as _json
+
+    import manim
+
+    width = float(width) if width else float(height) * 1.8
+    try:
+        import pocket_lecture as pl
+
+        registry = _json.loads(Path(os.environ["PANIM_BLOCK_IMAGES"]).read_text(encoding="utf-8"))
+        path = str(registry[str(name)])
+        if not Path(path).is_file():
+            raise KeyError(name)
+        mob = pl.cutout_mob(path, width, float(height))
+        mob.set_z_index(-0.5)
+        tags = _named_parts(mob, path, labels) if labels else []
+        if tags:
+            named = manim.Group(mob, *tags)
+            named.panim_picture = str(name)
+            return named
+    except Exception:  # noqa: BLE001 -- no such image (not made, renamed): a stand-in, not a crash
+        frame = manim.RoundedRectangle(corner_radius=0.1, width=width * 0.8, height=float(height) * 0.8,
+                                       stroke_opacity=0.6, stroke_width=2)
+        words = manim.Text(str(name)[:40], font_size=20)
+        if words.width > frame.width - 0.2:
+            words.scale_to_fit_width(frame.width - 0.2)
+        mob = manim.VGroup(frame, words)
+    mob.panim_picture = str(name)
+    return mob
+
+
 def pictures_in(code: str | None) -> list[str]:
     """The pictures a block asks for (`picture("...")` with the description written out), to be made first."""
     try:
@@ -209,6 +245,7 @@ def namespace(scene) -> dict:
 
     names.update(backed_text.classes(bg))
     names["picture"] = picture
+    names["image"] = image
     names.update(np=np, self=scene, INK=ink, MUTED_INK=muted, BACKGROUND=bg, PALETTE=colours,
                  BOARD_LEFT=AREA[0], BOARD_RIGHT=AREA[1], BOARD_BOTTOM=AREA[2], BOARD_TOP=AREA[3])
     names["__builtins__"] = dict(SAFE_BUILTINS)

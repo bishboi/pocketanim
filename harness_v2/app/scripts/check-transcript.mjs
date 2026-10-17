@@ -374,6 +374,22 @@ await scenesAction(run.id, { action: "edit", lecture: 1, beat: firstBeat, ops: [
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.ok(run.scenes.lectures[1].beats[firstBeat].edited);
 await assert.rejects(scenesAction(run.id, { action: "edit", lecture: 1, beat: firstBeat, ops: "nope" }), /JSON list/);
+// The Manim agent on a beat: it makes a picture, previews its code (rendered), looks, finishes; the beat is its figure.
+await assert.rejects(scenesAction(run.id, { action: "agent", lecture: 1, beat: firstBeat }), /switched off/);
+await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: ["manim"] });
+await scenesAction(run.id, { action: "agent", lecture: 1, beat: firstBeat, instruction: "show the first farmers by a river" });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+const agentBeat = run.scenes.lectures[1].beats[firstBeat];
+assert.equal(agentBeat.agent.status, "done", agentBeat.agent.error);
+assert.deepEqual(agentBeat.agent.steps.map((x) => x.kind).filter((k) => k !== "think"), ["image", "preview", "finish"]);
+assert.ok(agentBeat.agent.steps.find((x) => x.kind === "preview").still, "the preview's last frame");
+const madeImage = Object.values(run.scenes.agentImages[1])[0];
+assert.equal(madeImage.status, "done");
+assert.ok(agentBeat.ops.some((o) => o.op === "manim" && /image\("/.test(o.code)), "the beat is its figure, using the picture by name");
+assert.ok(run.calls.filter((c) => c.step === "manim-agent").length >= 4, "every turn and the picture are calls");
+assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
+assert.ok(!agentBeat.errors?.length, `the compiler takes the figure: ${agentBeat.errors}`);
+await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: null });
 // One beat rendered in its chapter, in another look: its frame and clip.
 const ch1 = run.script.lectures[1].chapters[0];
 const renderBeat = ch1.beats[1]?.n ?? firstBeat;

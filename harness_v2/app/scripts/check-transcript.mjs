@@ -1,6 +1,7 @@
 // The transcription flow end to end with no keys: a 4-page chapter PDF read by the offline reader into Datalab-shaped
-// JSON, planned and written by the offline stand-in. Checks: blocks keep Datalab's ids and boxes; the planner sees no
-// boxes; every block is placed in a lecture; every goal is taught or written in; lectures see the ones before them.
+// JSON, written by the offline stand-in, each lecture as its script in one call. Checks: blocks keep Datalab's ids and
+// boxes; the writer sees no boxes; the writer decides the lectures; chapters name their content (and may share it);
+// a figure may be on several beats; the beats are the transcript; lectures see the ones before them.
 //   npm run check
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -67,29 +68,48 @@ for (const b of run.blocks) {
 }
 assert.ok(run.blocks.some((b) => b.type === "SectionHeader"), "headers found");
 
-// The planner reads Datalab's ids, types and HTML, never the boxes; it answers with ids.
-const plan = run.calls.find((c) => c.step === "plan");
-const sent = render(plan.prompt.user);
-assert.ok(sent.includes('"block_type":"SectionHeader"') && sent.includes("/page/0/"), "planner sees the blocks");
-assert.ok(!/bbox|polygon|"box"/.test(sent), "planner sees no boxes");
+// No planner: the steps are read, figures, write; each lecture is written as its script in one call, at high effort.
+assert.deepEqual(run.steps.map((s) => s.key), ["read", "figures", "write"]);
+const first = run.calls.find((c) => c.step === "lecture");
+assert.equal(first.effort, "high", "the writer thinks longer");
+const sent = render(first.prompt.user);
+assert.ok(sent.includes('"block_type":"SectionHeader"') && sent.includes("/page/0/") && sent.includes("NOT TAUGHT"), "the writer sees the blocks, each taught or not");
+assert.ok(!/bbox|polygon|"box"/.test(sent), "the writer sees no boxes");
+assert.equal(first.tool.function.name, "write_lecture");
 
-// Every block in exactly one lecture (or skipped); every goal taught or written in; the patch ran.
-const placed = run.lectures.flatMap((l) => l.blocks);
-assert.equal(new Set(placed).size, placed.length, "no block in two lectures");
-assert.equal(placed.length + run.skipped.length, run.blocks.length, "every block placed or skipped");
+// The writer decided the lectures; each is its chapters and beats, the beats' sentences the whole text, in order.
+const { linesOf: linesOfText } = await import(path.resolve(here, "../lib/source/book.ts"));
 assert.ok(run.lectures.length >= 2, `lectures by topic (${run.lectures.length})`);
-assert.ok(run.lectures.every((l) => l.status === "written" && l.text), JSON.stringify(run.lectures.map((l) => [l.n, l.status, run.calls.filter((c) => c.lecture === l.n).map((c) => c.error)])));
-assert.ok(Object.values(run.goalStatus).every((s) => s === "taught" || s === "patched"), JSON.stringify(run.goalStatus));
-assert.ok(run.calls.some((c) => c.step === "patch"), "a patch call");
+assert.ok(run.lectures.every((l) => l.status === "written" && l.text && !l.goals.length), "written, no goals");
+const ids = new Set(run.blocks.map((b) => b.id));
+for (const l of run.lectures) {
+  const ls = run.script.lectures[l.n];
+  assert.equal(ls.status, "done");
+  assert.ok(ls.chapters.length && ls.chapters.every((c) => c.title && c.narration && c.beats.length && c.content.length && c.content.every((id) => ids.has(id))));
+  const said = ls.chapters.flatMap((c) => c.beats.flatMap((b) => b.lines));
+  assert.deepEqual(said, Array.from({ length: linesOfText(l.text).length }, (_, i) => i + 1), `lecture ${l.n}: the beats are the text, in order`);
+  assert.deepEqual(l.blocks, [...new Set(ls.chapters.flatMap((c) => c.content))], "a lecture's blocks are its chapters' content");
+}
+const allChapters = run.lectures.flatMap((l) => run.script.lectures[l.n].chapters);
+const usedBy = (id) => allChapters.filter((c) => c.content.includes(id)).length;
+assert.ok(run.blocks.some((b) => usedBy(b.id) > 1), "chapters may share content");
+const allBeats = allChapters.flatMap((c) => c.beats);
+const figIds = [...new Set(allBeats.flatMap((b) => b.figures ?? []))];
+assert.ok(figIds.length && figIds.some((f) => allBeats.filter((b) => (b.figures ?? []).includes(f)).length > 1), "a figure on several beats");
+const taughtIds = new Set(allChapters.flatMap((c) => c.content));
+const skippedIds = new Set(run.skipped.map((x) => x.block));
+assert.ok(run.blocks.every((b) => taughtIds.has(b.id) || skippedIds.has(b.id) || ["SectionHeader", "PageHeader", "PageFooter"].includes(b.type)),
+  "the whole book taught (or skipped as furniture)");
+assert.ok(first.checks.some((c) => c.name === "Script" && c.result === "pass"), "code reads the script");
 
-// A later lecture is given the earlier ones whole; no length ceiling anywhere in a writer's prompt.
+// A later lecture is given the earlier ones whole and the book marked with what they taught; no length ceiling.
 const second = run.calls.find((c) => c.step === "lecture" && c.lecture === 2);
 const previous = second.prompt.user.find((p) => p.key === "previous").text;
-assert.ok(previous.includes(run.lectures[0].text.slice(0, 80)), "lecture 2 sees lecture 1's transcript");
+assert.ok(previous.includes(linesOfText(run.lectures[0].text)[0]), "lecture 2 sees lecture 1's transcript");
+assert.ok(second.prompt.user.find((p) => p.key === "book").text.includes('"taught":"in lecture 1"'), "lecture 2 sees what lecture 1 taught");
 assert.ok(!/at most about|words \(\d+ min\)/.test(render(second.prompt.system) + render(second.prompt.user)), "no length ceiling");
 // Figures: both described, then triaged from the ways allowed.
 const { triageAction } = await import(path.resolve(here, "../lib/triage.ts"));
-const { linesOf: linesOfText } = await import(path.resolve(here, "../lib/source/book.ts"));
 const { checkExport, exportTranscript, exportWhole, importTranscript, transcriptMarkdown } = await import(path.resolve(here, "../lib/export.ts"));
 const { continueRun } = await import(path.resolve(here, "../lib/run.ts"));
 const pics = run.blocks.filter((b) => b.image);
@@ -287,52 +307,12 @@ assert.ok([pics[0].id, pics[1].id].every((id) => run.generation.figures[id].stat
 assert.deepEqual(generating(run.id), []);
 await triageAction(run.id, { action: "override", block: pics[1].id, kind: null });
 
-// Script: chapters and beats, every sentence once and in order; code mends what it can and says so.
-const { readScript, scriptAction, lectureFigures } = await import(path.resolve(here, "../lib/script.ts"));
-const figs = [{ id: "f1", way: "Map", caption: "a map", ready: true, lines: [3] }];
-const mended = readScript({ chapters: [
-  { title: "B", narration: "", map: false, beats: [{ lines: [5, 6], show: "x" }, { lines: [3, 4, 99], show: "the map", figure: "f1" }] },
-  { title: "A", narration: "Chapter one.", map: false, beats: [{ lines: [1, 2, 2], show: "y", figure: "nope" }] },
-] }, 7, figs);
-assert.deepEqual(mended.problems, [], mended.problems.join("; "));
-assert.deepEqual(mended.chapters.flatMap((c) => c.beats.flatMap((b) => b.lines)), [1, 2, 3, 4, 5, 6, 7], "every sentence once, in order");
-assert.equal(mended.chapters[0].title, "A", "chapters in sentence order");
-assert.ok(mended.chapters[1].map, "a chapter showing a Map figure is a map chapter");
-const fixedNames = mended.checks.filter((c) => c.result === "fixed").map((c) => c.name);
-for (const name of ["Sentence numbers", "Each sentence once", "Order", "Every sentence", "Figures", "Map chapter"]) assert.ok(fixedNames.includes(name), `${name}: ${fixedNames}`);
-assert.equal(mended.chapters[1].narration, "Chapter 2. B.", "a title card line when none was given");
-const tangled = readScript({ chapters: [{ title: "A", narration: "", map: false, beats: [{ lines: [1, 3], show: "" }, { lines: [2, 4], show: "" }] }] }, 4, []);
-assert.ok(tangled.problems.some((p) => /interleave/.test(p)), "interleaved beats go back to the model");
-
-await scriptAction(run.id, { action: "run" });
-run = await wait(run.id, (r) => r.script.status === "running");
-assert.equal(run.script.status, "done", run.script.error);
-for (const l of run.lectures) {
-  const ls = run.script.lectures[l.n];
-  assert.equal(ls.status, "done", ls.error);
-  const said = ls.chapters.flatMap((c) => c.beats.flatMap((b) => b.lines));
-  assert.deepEqual(said, Array.from({ length: linesOfText(l.text).length }, (_, i) => i + 1), `lecture ${l.n}: every sentence once, in order`);
-  assert.ok(ls.chapters.every((c) => c.title && c.narration && c.beats.length));
-}
-const scriptCall = run.calls.find((c) => c.step === "script");
-assert.ok(scriptCall.prompt.user.some((p) => p.key === "transcript" && p.text.startsWith("1| ")), "the transcript numbered");
-const withFigure = run.lectures.find((l) => lectureFigures(run, l.n).length);
-if (withFigure) assert.ok(run.script.lectures[withFigure.n].chapters.some((c) => c.beats.some((b) => b.figure)), "the lecture's figure placed on a beat");
-await assert.rejects(scriptAction(run.id, { action: "run" }), /every written lecture is scripted/);
-await assert.rejects(scriptAction(run.id, { action: "next" }), /every written lecture is scripted/);
-// One at a time: a whole build in turn, and the next lecture not scripted yet.
-await scriptAction(run.id, { action: "reset", oneAtATime: true });
-run = await wait(run.id, (r) => r.script.status === "running");
-assert.equal(run.script.status, "done", run.script.error);
-assert.ok(run.lectures.every((l) => run.script.lectures[l.n].status === "done"), "a build in turn scripts every lecture");
-{
-  const r = await loadRun(run.id);
-  r.script.lectures[2].status = "failed";
-  await saveRun(r, true);
-  await scriptAction(run.id, { action: "next" });
-  run = await wait(run.id, (x) => x.script.status === "running");
-  assert.equal(run.script.lectures[2].status, "done", "next scripts the first lecture not scripted");
-}
+// The script as the later steps read it: a lecture's figures with the beats they are on; the chapters using a block.
+const { lectureFigures, chaptersUsing } = await import(path.resolve(here, "../lib/script-figures.ts"));
+const withFigure = run.lectures.find((l) => lectureFigures(run, l.n).some((f) => f.beats.length > 1));
+assert.ok(withFigure, "a lecture's figure on several beats");
+const shared = run.blocks.find((b) => usedBy(b.id) > 1);
+assert.ok(chaptersUsing(run, shared.id).length > 1, "every chapter using a block");
 
 // Scenes: each beat's visuals as the engine's operations, compiled, a kind switched off, one beat rendered.
 const { scenesAction } = await import(path.resolve(here, "../lib/scenes.ts"));
@@ -472,7 +452,7 @@ const fig = x.blocks.find((b) => b.id === pics[0].id).figure;
 assert.equal(fig.triage.kind, "exact");
 assert.equal(fig.triage.chosenBy, "user");
 assert.ok(fig.generated?.prompt?.includes("NO TEXT AT ALL"), "the export carries the redraw's prompt");
-assert.ok(transcriptMarkdown(run).includes("### Transcript"));
+assert.ok(transcriptMarkdown(run).includes("### Script") && transcriptMarkdown(run).includes("Content: `"), "the markdown is the script");
 const back = await importTranscript(JSON.parse(JSON.stringify(x)), "x.json");
 assert.equal(back.status, "done");
 assert.deepEqual(back.script.lectures[1].chapters, run.script.lectures[1].chapters, "the scripts travel with the export");
@@ -483,16 +463,17 @@ assert.deepEqual(back.lectures.map((l) => l.text), run.lectures.map((l) => l.tex
 assert.equal(back.triage.figures[pics[0].id].override, "exact");
 assert.deepEqual(exportTranscript(back).lectures, x.lectures, "export, import, export: the same lectures");
 
-// Continue: a lecture lost is written again, and only it.
+// Continue: the last lecture lost is written again, and only it.
 const calls = run.calls.length;
-const lost = run.lectures[1];
+const lost = run.lectures.at(-1);
 Object.assign(lost, { status: "waiting", text: undefined });
 run.status = "failed";
 run.steps.find((s) => s.key === "write").status = "failed";
 await continueRun(run.id);
 run = await wait(run.id, (r) => r.status === "running");
 assert.equal(run.status, "done", run.error);
-assert.equal(lost.status, "written");
+assert.equal(run.lectures.at(-1).status, "written");
+assert.equal(run.lectures.length, x.lectures.length, "the same number of lectures");
 const added = run.calls.slice(calls);
 assert.ok(added.length >= 1 && added.every((c) => c.lecture === lost.n), `only lecture ${lost.n} written again: ${added.map((c) => c.label)}`);
 
@@ -510,13 +491,14 @@ assert.deepEqual(exportTranscript(there).lectures, x.lectures);
 await triageAction(there.id, { action: "one", block: pics[1].id, kinds: ["manim", "map"] });
 const t2 = await wait(there.id, (r) => r.triage.status === "running");
 assert.equal(t2.triage.figures[pics[1].id].kind, "manim", t2.triage.error);
-Object.assign(t2.lectures[2], { status: "waiting", text: undefined });
+const lastT2 = t2.lectures.at(-1).n;
+Object.assign(t2.lectures.at(-1), { status: "waiting", text: undefined });
 t2.status = "stopped";
 await continueRun(there.id);
 const t3 = await wait(there.id, (r) => r.status === "running");
 assert.equal(t3.status, "done", t3.error);
-assert.equal(t3.lectures[2].status, "written");
-assert.ok(t3.calls.find((c) => c.lecture === 3).prompt.user.find((p) => p.key === "previous").text.includes(run.lectures[0].text.slice(0, 60)),
+assert.equal(t3.lectures.at(-1).status, "written");
+assert.ok(t3.calls.find((c) => c.lecture === lastT2).prompt.user.find((p) => p.key === "previous").text.includes(linesOfText(run.lectures[0].text)[0]),
   "a lecture written after import sees the imported ones");
 
 // A figure Datalab returned no picture for: cut out of the PDF itself, and triaged with no transcript built.
@@ -533,7 +515,7 @@ const readOnly = await startRun(figDoc.id, {}, "read");
 let r1 = await wait(readOnly.id, (r) => r.status === "running");
 assert.equal(r1.status, "stopped", r1.error);
 assert.equal(r1.steps.find((x) => x.key === "read").status, "done");
-assert.equal(r1.steps.find((x) => x.key === "plan").status, "waiting", "no transcript built");
+assert.equal(r1.steps.find((x) => x.key === "write").status, "waiting", "no transcript built");
 assert.equal(r1.calls.length, 0);
 await triageAction(readOnly.id, { action: "run" });
 r1 = await wait(readOnly.id, (r) => r.triage.status === "running");
@@ -557,5 +539,5 @@ r2 = await wait(bare.id, (r) => r.generation.status === "running");
 assert.equal(r2.generation.figures["/page/0/Picture/0"].status, "done", r2.generation.figures["/page/0/Picture/0"].error);
 await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9/Nothing/1", kind: "map" }), /no such figure/);
 
-console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${Object.keys(run.goalStatus).length} goals, ${run.calls.length} calls, ${pics.length} figures triaged`);
+console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${allChapters.length} chapters, ${allBeats.length} beats, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

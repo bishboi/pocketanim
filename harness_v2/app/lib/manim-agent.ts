@@ -26,7 +26,7 @@ import { modelFor } from "./models";
 import { part, render, type Part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
 import { agentRegistry, compile, engineScript, fileUrl, lectureState, scenesDir, scriptOf, stateOf } from "./scenes";
-import { lectureFigures } from "./script-figures";
+import { beatFigures, lectureFigures } from "./script-figures";
 import { figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { saveRun } from "./store";
@@ -286,15 +286,17 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
     .filter((r) => r.op?.code);
   const after = chapter.beats.filter((x) => x.n > beat).slice(0, 3);
   const made = Object.values(imagesOf(run, n)).filter((i) => i.status === "done");
-  const figureId = sbeat.figure;
-  const figure = figureId ? lectureFigures(run, n).find((f) => f.id === figureId) : undefined;
-  let figureData: string | undefined;
-  if (figure) {
+  // The book's figures the script shows on this beat (a figure may be on several beats), their pictures attached.
+  const known = lectureFigures(run, n);
+  const figures = beatFigures(sbeat).map((id) => known.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f).slice(0, 3);
+  const book = figures.length ? await bookOf(run.documentId).catch(() => null) : null;
+  const figureData: string[] = [];
+  for (const figure of figures) {
     const gen = run.generation?.figures[figure.id];
-    const book = await bookOf(run.documentId).catch(() => null);
     const block = run.blocks.find((x) => x.id === figure.id);
     const file = gen?.status === "done" && gen.file && !gen.file.endsWith(".svg") ? gen.file : book && block ? figureFile(block, book.json, book.figures) : undefined;
-    figureData = file ? await imageData(file) : undefined;
+    const data = file ? await imageData(file) : undefined;
+    if (data) figureData.push(data);
   }
   const userParts: Part[] = [
     part("lecture", "The lecture and chapter", "context", `Lecture ${n}: ${lecture.title}. Chapter ${chapter.n}: ${chapter.title} (${chapter.map ? "on a map" : "on a board"}).`),
@@ -307,13 +309,14 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
       : "It starts on this beat: nothing of it is on the board yet."),
     ...(after.length ? [part("after", "What comes next (not yours: leave it for those beats)", "context", after.map((x) => `#${x.n}: ${x.lines.map((k) => lines[k - 1]).join(" ")}`))] : []),
     part("images", `Pictures already made for this lecture (${made.length})`, "items", made.length ? made.map((i) => `${i.name} (${i.kind}): ${i.what}`) : "None yet."),
-    ...(figure ? [part("bookfigure", "The book's figure on this beat (attached)", "items", `${figure.id}: ${figure.caption || "(no caption)"} - ${figure.way}${figureData ? "" : " (its picture could not be read)"}`)] : []),
+    ...(figures.length ? [part("bookfigure", `The book's figure${figures.length > 1 ? "s" : ""} on this beat (attached)`, "items",
+      figures.map((f) => `${f.id}: ${f.caption || "(no caption)"} - ${f.way}${f.beats.length > 1 ? ` (also shown on beats ${f.beats.filter((x) => x !== beat).join(", ")})` : ""}`))] : []),
     part("ask", "Request", "ask", "Build this beat's figure: make the pictures it needs, write the code, check it, mend it, finish."),
   ];
   const system: Part[] = [part("role", "Role", "rules", ROLE), part("rules", "Code, pictures, how to work", "rules", RULES)];
   const messages: Msg[] = [
     { role: "system", content: render(system) },
-    { role: "user", content: figureData ? [{ type: "text", text: render(userParts) }, { type: "image_url", image_url: { url: figureData } }] : render(userParts) },
+    { role: "user", content: figureData.length ? [{ type: "text", text: render(userParts) }, ...figureData.map((url) => ({ type: "image_url", image_url: { url } }))] : render(userParts) },
   ];
 
   let lastGood: { code: string; area?: string } | undefined;

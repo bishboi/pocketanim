@@ -43,6 +43,7 @@ export type Call = {
   request?: unknown;
 };
 
+/** "plan": runs made before lectures were written as scripts in one call (their planner step). */
 export type StepKey = "read" | "figures" | "plan" | "write";
 
 export type Step = { key: StepKey; label: string; status: "waiting" | "running" | "done" | "failed"; started?: number;
@@ -54,6 +55,7 @@ export type LectureState = {
   title: string;
   why: string;
   blocks: string[];
+  /** Learning goals: runs made before the lectures were written as scripts (new runs have none). */
   goals: Goal[];
   status: "waiting" | "writing" | "written" | "failed";
   /** The final text (cleaned, repeats out, patches in). */
@@ -87,6 +89,8 @@ export type Options = {
   manimModel?: string;
   mapModel?: string;
   effort: "low" | "medium" | "high" | "off";
+  /** The writer's reasoning (it writes each lecture as its script: longer thinking): "high" by default. */
+  writerEffort?: "low" | "medium" | "high" | "off";
 };
 
 export type Run = {
@@ -151,10 +155,13 @@ export type FigureTriage = {
 export type TriageEngine = "decision" | "chat";
 
 /** One beat: the transcript sentences said on it (by number, 1-based) and what is on screen while they are. */
-export type Beat = { n: number; lines: number[]; show: string; figure?: string };
+/** One beat: the sentences said on it (by number in the lecture's text, 1-based), what is on screen while they are,
+ * and the book's figures shown on it (any figure may be on several beats). `figure`: one figure, as older scripts had. */
+export type Beat = { n: number; lines: number[]; show: string; figures?: string[]; figure?: string };
 
 /** One chapter: a topic, with its title card and one stage (a map, or a board). */
-export type Chapter = { n: number; title: string; narration: string; map: boolean; beats: Beat[] };
+/** `content`: the book's blocks the chapter teaches from (Datalab ids); chapters may share them. */
+export type Chapter = { n: number; title: string; narration: string; map: boolean; content?: string[]; beats: Beat[] };
 
 export type LectureScript = {
   lecture: number;

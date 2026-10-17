@@ -1,17 +1,19 @@
 "use client";
 
 /**
- * The run's panels: the book as blocks, the lectures (their blocks and goals), the transcripts, every call, the
- * costs, and the models. Selecting a lecture, a goal or a block lights its source up in the PDF beside them.
+ * The run's panels: the book as blocks, the lectures (their chapters and the content each teaches from), the
+ * transcripts, every call, the costs, and the models. Selecting a lecture, a chapter or a block lights its source up
+ * in the PDF beside them.
  */
 
 import { useState } from "react";
-import type { Call, LectureState, Run } from "@/lib/types";
+import type { Call, Chapter, LectureState, Run } from "@/lib/types";
+import { beatFigures, chaptersOf } from "@/lib/script-figures";
 import { kindOf } from "@/lib/source/blocks";
 import { linesOf } from "@/lib/source/book";
 import { CHECK_STYLE, money, seconds } from "./call-inspector";
 
-export type Selection = { kind: "lecture"; n: number } | { kind: "goal"; id: string } | { kind: "block"; id: string }
+export type Selection = { kind: "lecture"; n: number } | { kind: "block"; id: string }
   | { kind: "blocks"; ids: string[]; label: string } | null;
 
 export const LECTURE_COLORS = [
@@ -21,13 +23,6 @@ export const LECTURE_COLORS = [
 export const lectureColor = (n: number) => LECTURE_COLORS[(n - 1) % LECTURE_COLORS.length];
 export const solid = (n: number) => lectureColor(n).replace(/[\d.]+\)$/, "1)");
 
-const GOAL_TONE = {
-  waiting: "border-neutral-700 text-neutral-400",
-  taught: "border-emerald-700 bg-emerald-950/60 text-emerald-300",
-  patched: "border-amber-700 bg-amber-950/60 text-amber-300",
-  missing: "border-red-700 bg-red-950/60 text-red-300",
-} as const;
-const GOAL_LABEL = { waiting: "not written yet", taught: "taught", patched: "written in after", missing: "missing" } as const;
 const KIND_TONE: Record<ReturnType<typeof kindOf>, string> = {
   heading: "text-sky-300", text: "text-neutral-400", figure: "text-violet-300", table: "text-amber-300", caption: "text-pink-300",
   furniture: "text-neutral-600",
@@ -105,62 +100,78 @@ export function BookPanel({ run, selection, select }: { run: Run; selection: Sel
   );
 }
 
-// ─── Lectures (the plan) ─────────────────────────────────────────────────────────────────────────────────────────
+// ─── Lectures (as the writer structured them) ────────────────────────────────────────────────────────────────────
+
+/** The book's blocks no lecture teaches from (headings, furniture and the skipped aside). */
+function notTaught(run: Run): string[] {
+  const used = new Set(run.lectures.flatMap((l) => [...l.blocks, ...chaptersOf(run, l.n).flatMap((c) => [...(c.content ?? []), ...c.beats.flatMap(beatFigures)])]));
+  const skipped = new Set(run.skipped.map((x) => x.block));
+  return run.blocks.filter((b) => !used.has(b.id) && !skipped.has(b.id) && !["heading", "furniture"].includes(kindOf(b.type))).map((b) => b.id);
+}
 
 export function LecturesPanel({ run, selection, select, onCall }: { run: Run; selection: Selection; select: (s: Selection) => void;
   onCall: (id: string) => void }) {
-  const planCall = run.calls.find((c) => c.step === "plan");
-  const goals = run.lectures.flatMap((l) => l.goals);
+  const writing = run.steps.find((s) => s.key === "write")?.status === "running";
+  const left = run.lectures.length ? notTaught(run) : [];
+  const chapters = run.lectures.reduce((k, l) => k + chaptersOf(run, l.n).length, 0);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-400">
         {run.lectures.length
-          ? <span>{run.lectures.length} lecture{run.lectures.length > 1 ? "s" : ""}, {goals.length} goals, divided by the planner by what is
-            learned{run.skipped.length ? `; ${run.skipped.length} blocks skipped as furniture` : ""}.</span>
-          : <span>{run.steps.find((s) => s.key === "plan")?.status === "running" ? "The planner is reading the whole book…" : "Not planned yet."}</span>}
-        {planCall && <CallsLink run={run} ids={[planCall.id]} onCall={onCall} />}
+          ? <span>{run.lectures.length} lecture{run.lectures.length > 1 ? "s" : ""}, {chapters} chapters, each lecture written as its script in one call
+            (the writer decides where it ends){run.skipped.length ? `; ${run.skipped.length} blocks skipped as furniture` : ""}. Click a chapter to see the
+            book&apos;s content it teaches from (chapters may share it).</span>
+          : <span>{writing ? "The writer is writing the first lecture…" : "Not written yet."}</span>}
       </div>
+      {left.length > 0 && !writing && (
+        <p className="flex flex-wrap items-center gap-1 text-[11px] text-amber-300">{left.length} block(s) of the book no lecture teaches from:
+          <BlockChips ids={left} run={run} select={select} tone={() => "text-amber-300"} /></p>
+      )}
       {run.lectures.map((l) => {
         const active = selection?.kind === "lecture" && selection.n === l.n;
+        const chs = chaptersOf(run, l.n);
+        const words = l.text ? l.text.split(/\s+/).length : 0;
         return (
           <section key={l.n} onClick={() => select(active ? null : { kind: "lecture", n: l.n })} data-testid="plan-lecture"
             className={`cursor-pointer rounded border p-3 ${active ? "border-white/60 bg-neutral-800/60" : "border-neutral-800 bg-neutral-900/60 hover:border-neutral-600"}`}>
             <div className="flex items-center gap-2">
               <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: solid(l.n) }} />
               <h3 className="text-sm font-semibold text-neutral-100">Lecture {l.n}: {l.title}</h3>
-              <span className="text-[11px] text-neutral-500">{l.blocks.length} blocks · {l.goals.length} goals
-                {l.text ? ` · written ${l.text.split(/\s+/).length} words (about ${Math.round(l.text.split(/\s+/).length / 100)} min)` : ""}</span>
+              <span className="text-[11px] text-neutral-500">{chs.length} chapters · {chs.reduce((k, c) => k + c.beats.length, 0)} beats · {l.blocks.length} blocks
+                {words ? ` · ${words} words (about ${Math.round(words / 130)} min)` : ""}</span>
               <StatusDot status={l.status} />
             </div>
             {l.why && <p className="mt-1 text-xs text-neutral-400">{l.why}</p>}
-            <div className="mt-2"><BlockChips ids={l.blocks} run={run} select={select} /></div>
-            <ul className="mt-2 space-y-1">
-              {l.goals.map((g) => {
-                const status = run.goalStatus[g.id] ?? "waiting";
-                const chosen = selection?.kind === "goal" && selection.id === g.id;
-                return (
-                  <li key={g.id} onClick={(e) => { e.stopPropagation(); select(chosen ? null : { kind: "goal", id: g.id }); }} data-testid="plan-goal"
-                    className={`rounded px-1.5 py-1 ${chosen ? "bg-emerald-950/70 ring-1 ring-emerald-500" : "hover:bg-neutral-800"}`}>
-                    <div className="flex items-start gap-2 text-xs">
-                      <span className={`shrink-0 rounded border px-1 text-[10px] ${GOAL_TONE[status]}`}>{GOAL_LABEL[status]}</span>
-                      <span className="text-neutral-100"><span className="text-neutral-500">{g.id}</span> {g.goal}</span>
-                    </div>
-                    <div className="mt-0.5 ml-1"><BlockChips ids={g.blocks} run={run} select={select} /></div>
-                    {(g.misconception || g.hook) && (
-                      <p className="mt-0.5 ml-1 text-[11px] text-neutral-500">
-                        {g.misconception && <>Wrong idea: <span className="text-neutral-400">{g.misconception}</span></>}
-                        {g.misconception && g.hook ? " · " : ""}{g.hook && <>Hook: <span className="text-neutral-400">{g.hook}</span></>}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <ol className="mt-2 space-y-1">
+              {chs.map((c) => <ChapterRow key={c.n} run={run} lecture={l.n} chapter={c} selection={selection} select={select} />)}
+            </ol>
+            {!chs.length && <div className="mt-2"><BlockChips ids={l.blocks} run={run} select={select} /></div>}
             <div className="mt-2"><CallsLink run={run} ids={l.calls} onCall={onCall} /></div>
           </section>
         );
       })}
     </div>
+  );
+}
+
+/** A chapter: its title card and stage, its beats and figures, and its content (clicked: lit up in the PDF). */
+function ChapterRow({ run, lecture, chapter, selection, select }: { run: Run; lecture: number; chapter: Chapter; selection: Selection; select: (s: Selection) => void }) {
+  const label = `lecture ${lecture}, chapter ${chapter.n}`;
+  const chosen = selection?.kind === "blocks" && selection.label === label;
+  const content = chapter.content ?? [];
+  const figures = [...new Set(chapter.beats.flatMap(beatFigures))];
+  const shared = content.filter((id) => run.lectures.some((l) => chaptersOf(run, l.n).some((c) => (l.n !== lecture || c.n !== chapter.n) && (c.content ?? []).includes(id))));
+  return (
+    <li onClick={(e) => { e.stopPropagation(); select(chosen ? null : { kind: "blocks", ids: content, label }); }} data-testid="lecture-chapter"
+      className={`rounded px-1.5 py-1 ${chosen ? "bg-sky-950/70 ring-1 ring-sky-500" : "hover:bg-neutral-800"}`}>
+      <div className="flex flex-wrap items-baseline gap-2 text-xs">
+        <span className="text-neutral-100"><span className="text-neutral-500">{chapter.n}.</span> {chapter.title}</span>
+        <span className={`rounded px-1 text-[10px] ${chapter.map ? "bg-emerald-950 text-emerald-300" : "bg-neutral-800 text-neutral-400"}`}>{chapter.map ? "map" : "board"}</span>
+        <span className="text-[11px] text-neutral-500">{chapter.beats.length} beats · {content.length} block(s){shared.length ? ` (${shared.length} shared with other chapters)` : ""}
+          {figures.length ? ` · ${figures.length} figure(s) on ${chapter.beats.filter((b) => beatFigures(b).length).length} beat(s)` : ""}</span>
+      </div>
+      {chosen && <div className="mt-1"><BlockChips ids={content} run={run} select={select} tone={(id) => (shared.includes(id) ? "text-sky-300" : "")} /></div>}
+    </li>
   );
 }
 
@@ -171,71 +182,48 @@ function StatusDot({ status }: { status: LectureState["status"] }) {
 
 // ─── Transcript ──────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** The transcript: each lecture's words, chapter by chapter, beat by beat (a beat's sentences together, numbered). */
 export function TranscriptPanel({ run, selection, select, onCall }: { run: Run; selection: Selection; select: (s: Selection) => void;
   onCall: (id: string) => void }) {
-  const goal = selection?.kind === "goal" ? selection.id : null;
   const words = run.lectures.reduce((n, l) => n + (l.text ? l.text.split(/\s+/).length : 0), 0);
   return (
     <div className="space-y-3">
-      <p className="text-xs text-neutral-400">{words.toLocaleString()} words written (about {Math.round(words / 100)} min).
-        {" "}Green: the sentences that teach the selected goal. Amber: sentences written in by a patch.</p>
+      <p className="text-xs text-neutral-400">{words.toLocaleString()} words written (about {Math.round(words / 130)} min). Each lecture is its
+        chapters and beats: the beats&apos; words, in order, are the transcript. Click a chapter&apos;s title to light up its content in the PDF.</p>
       {run.lectures.map((l) => {
         const active = selection?.kind === "lecture" && selection.n === l.n;
-        const patched = new Set((l.patched ?? []).flatMap((p) => p.lines));
-        const lit = new Set(goal ? l.goalLines?.[goal] ?? [] : []);
-        const untaught = l.blocks.filter((id) => !(l.blocksTaught ?? []).includes(id) && kindOf(run.blocks.find((b) => b.id === id)?.type ?? "") !== "heading");
-        let k = 0;
+        const lines = linesOf(l.text ?? "");
+        const chs = chaptersOf(run, l.n);
         return (
           <section key={l.n} className={`rounded border p-3 ${active ? "border-white/60" : "border-neutral-800"} bg-neutral-900/60`} data-testid="transcript-lecture">
             <div className="flex cursor-pointer items-center gap-2" onClick={() => select(active ? null : { kind: "lecture", n: l.n })}>
               <span className="h-3 w-3 rounded-sm" style={{ background: solid(l.n) }} />
               <h3 className="text-sm font-semibold text-neutral-100">Lecture {l.n}: {l.title}</h3>
-              <span className="text-[11px] text-neutral-500">{l.text ? `${l.text.split(/\s+/).length} words, about ${Math.round(l.text.split(/\s+/).length / 100)} min` : l.status}</span>
+              <span className="text-[11px] text-neutral-500">{l.text ? `${l.text.split(/\s+/).length} words, about ${Math.round(l.text.split(/\s+/).length / 130)} min` : l.status}</span>
               <StatusDot status={l.status} />
             </div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {l.goals.map((g) => {
-                const status = run.goalStatus[g.id] ?? "waiting";
-                return (
-                  <button key={g.id} onClick={() => select(goal === g.id ? null : { kind: "goal", id: g.id })} title={g.goal}
-                    className={`rounded border px-1.5 py-px text-[10px] ${GOAL_TONE[status]} ${goal === g.id ? "ring-1 ring-white" : ""}`}>
-                    {g.id} {GOAL_LABEL[status]}{l.goalLines?.[g.id]?.length ? ` · sentence ${l.goalLines[g.id].join(", ")}` : ""}
-                  </button>
-                );
-              })}
-            </div>
-            {l.status === "written" && (
-              <div className="mt-1 text-[11px]">
-                {untaught.length
-                  ? <span className="flex flex-wrap items-center gap-1 text-red-300">Blocks not reported taught:
-                    <BlockChips ids={untaught} run={run} select={select} tone={() => "text-red-300"} /></span>
-                  : <span className="text-emerald-300">Every block of the lecture reported taught.</span>}
-              </div>
-            )}
-            {l.text ? (
-              <div className="mt-2 space-y-2 text-[13.5px] leading-relaxed text-neutral-200">
-                {l.text.split(/\n\s*\n/).map((para, p) => (
-                  <p key={p}>
-                    {linesOf(para).map((line) => {
-                      k += 1;
-                      const n = k;
-                      return (
-                        <span key={n} title={`sentence ${n}`}
-                          className={lit.has(n) ? "rounded bg-emerald-800/70 text-white" : patched.has(n) ? "rounded bg-amber-900/60" : ""}>
-                          <sup className="mr-0.5 text-[9px] text-neutral-600">{n}</sup>{line}{" "}
+            {l.text && chs.length ? (
+              <div className="mt-2 space-y-3 text-[13.5px] leading-relaxed text-neutral-200">
+                {chs.map((c) => (
+                  <div key={c.n}>
+                    <button className="mb-1 text-left text-xs font-semibold text-sky-300 hover:underline"
+                      onClick={() => select({ kind: "blocks", ids: c.content ?? [], label: `lecture ${l.n}, chapter ${c.n}` })}>
+                      Chapter {c.n}: {c.title} <span className="font-normal italic text-neutral-500">“{c.narration}”</span></button>
+                    <p>
+                      {c.beats.map((b) => (
+                        <span key={b.n} className="mr-1" title={`beat ${b.n}: ${b.show}`}>
+                          {b.lines.map((k) => <span key={k}><sup className="mr-0.5 text-[9px] text-neutral-600">{k}</sup>{lines[k - 1]} </span>)}
                         </span>
-                      );
-                    })}
-                  </p>
+                      ))}
+                    </p>
+                  </div>
                 ))}
               </div>
-            ) : <p className="mt-2 text-xs text-neutral-500">{l.status === "writing" ? "Being written…" : l.status === "failed" ? "Could not be written." : "Not written yet: lectures are written in order, each after the one before."}</p>}
-            {(l.dropped?.length ?? 0) > 0 && (
-              <details className="mt-2 text-xs text-neutral-400">
-                <summary className="cursor-pointer">{l.dropped!.length} sentence{l.dropped!.length > 1 ? "s" : ""} taken out as said before</summary>
-                <ul className="ml-4 list-disc">{l.dropped!.map((d, i) => <li key={i}>{d}</li>)}</ul>
-              </details>
-            )}
+            ) : l.text ? (
+              <div className="mt-2 space-y-2 text-[13.5px] leading-relaxed text-neutral-200">
+                {l.text.split(/\n\s*\n/).map((para, p) => <p key={p}>{para}</p>)}
+              </div>
+            ) : <p className="mt-2 text-xs text-neutral-500">{l.status === "writing" ? "Being written…" : l.status === "failed" ? "Could not be written." : "Not written yet."}</p>}
             <div className="mt-2"><CallsLink run={run} ids={l.calls} onCall={onCall} /></div>
           </section>
         );

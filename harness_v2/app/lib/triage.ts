@@ -16,6 +16,7 @@
  * Code checks each answer: the way chosen must be one offered. A figure with no picture cannot be triaged.
  */
 
+import { chaptersUsing } from "./script-figures";
 import { docDir, loadRun, saveRun, type documentBook } from "./store";
 import { refreshFigures } from "./datalab";
 import { bookOf, markPictures } from "./docs";
@@ -219,12 +220,13 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
     .filter((b) => b.page === block.page || Math.abs(b.page - block.page) <= 1)
     .filter((b) => ["text", "heading", "caption"].includes(kindOf(b.type)));
   const lecture = run.lectures.find((l) => l.blocks.includes(block.id));
-  const goals = lecture?.goals.filter((g) => g.blocks.includes(block.id)) ?? [];
+  // The chapters that teach from it (any number: chapters share content).
+  const uses = chaptersUsing(run, block.id).filter((u) => !lecture || u.lecture === lecture.n).map((u) => u.chapter.title);
   const subject = run.options.subject;
   state.engine = engine;
   state.rule = undefined;
   if (engine === "decision") {
-    const outcome = await decide(run, block, state, image, { caption: caption?.text, around: around.map((b) => b.text), lecture, goals, subject });
+    const outcome = await decide(run, block, state, image, { caption: caption?.text, around: around.map((b) => b.text), lecture, uses, subject });
     if (outcome !== "picture-refused") return;
     state.engine = "chat";
     state.rule = "the decision model refused its picture: decided by the chat model";
@@ -247,8 +249,8 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
       ...(caption ? [part("caption", "Its caption", "book", caption.text)] : []),
       ...(block.description ? [part("shows", "What it shows (the figures step)", "items", block.description)] : []),
       ...(around.length ? [part("around", "The book's text around it", "book", around.map((b) => b.text).join("\n"))] : []),
-      ...(lecture ? [part("lecture", "Where it is taught", "goals", [`Lecture ${lecture.n}: ${lecture.title}`,
-        ...goals.map((g) => `${g.id}: ${g.goal}`)])] : []),
+      ...(lecture ? [part("lecture", "Where it is taught", "context", [`Lecture ${lecture.n}: ${lecture.title}`,
+        ...uses.map((t) => `chapter: ${t}`)])] : []),
       part("image", "The figure (picture)", "book", `[the picture is attached: /api/documents/${run.documentId}/figure/${encodeURIComponent(block.id)}]`),
       part("ask", "Request", "ask", "Decide how it is shown (triage_figure)."),
     ],
@@ -288,7 +290,7 @@ async function triageFigure(run: Run, block: Block, book: Awaited<ReturnType<typ
  * figure keeps no instruction (the step that builds it reads the figure itself). Under the threshold it is unsure.
  */
 async function decide(run: Run, block: Block, state: FigureTriage, image: string,
-  c: { caption?: string; around: string[]; lecture?: Run["lectures"][number]; goals: { id: string; goal: string }[]; subject?: string }) {
+  c: { caption?: string; around: string[]; lecture?: Run["lectures"][number]; uses: string[]; subject?: string }) {
   const triage = run.triage!;
   const kinds = triage.kinds;
   // v1's triage instructions (triage-kinds.ts); each way also goes as its criterion.
@@ -300,7 +302,7 @@ async function decide(run: Run, block: Block, state: FigureTriage, image: string
     ...(c.caption ? [`Its caption: ${c.caption}`] : []),
     ...(block.description ? [`What it shows: ${block.description}`] : []),
     ...(c.around.length ? [`The book's text around it: ${c.around.join(" ")}`] : []),
-    ...(c.lecture ? [`It is taught in lecture ${c.lecture.n}, "${c.lecture.title}"${c.goals.length ? `, for: ${c.goals.map((g) => g.goal).join("; ")}` : ""}.`] : []),
+    ...(c.lecture ? [`It is taught in lecture ${c.lecture.n}, "${c.lecture.title}"${c.uses.length ? `, in: ${c.uses.join("; ")}` : ""}.`] : []),
     "The figure:",
   ];
   // Made to fit what a decision model takes (it refuses some sizes outright: "Invalid image dimensions").

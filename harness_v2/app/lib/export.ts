@@ -156,8 +156,10 @@ export function transcriptMarkdown(run: Run): string {
   const byId = new Map(x.blocks.map((b) => [b.id, b]));
   for (const l of x.lectures) {
     out.push(`## Lecture ${l.n}: ${l.title}`, "", `_${l.why}_`, "", `${l.words} words, about ${l.minutes} min. ${l.status === "written" ? "" : `(${l.status})`}`.trim(), "");
-    out.push("### Goals", "");
-    for (const g of l.goals) out.push(`- **${g.id}** (${g.status}${g.lines.length ? `, sentences ${g.lines.join(", ")}` : ""}): ${g.goal}`);
+    if (l.goals.length) {
+      out.push("### Goals", "");
+      for (const g of l.goals) out.push(`- **${g.id}** (${g.status}${g.lines.length ? `, sentences ${g.lines.join(", ")}` : ""}): ${g.goal}`);
+    }
     const figures = l.blocks.map((id) => byId.get(id)).filter((b) => b?.figure);
     if (figures.length) {
       out.push("", "### Figures", "");
@@ -167,9 +169,23 @@ export function transcriptMarkdown(run: Run): string {
           (b!.figure!.description ? `\n  ${b!.figure!.description}` : ""));
       }
     }
-    out.push("", "### Transcript", "");
-    for (const line of l.lines) out.push(`${line.n}. ${line.text}${line.goals.length ? `  _[${line.goals.join(", ")}]_` : ""}${line.patch ? "  _(written in after)_" : ""}`);
-    out.push("");
+    if (l.script?.chapters.length) {
+      // The lecture as its script: each chapter (its stage and the book's blocks it teaches from), each beat's words.
+      out.push("", "### Script", "");
+      for (const c of l.script.chapters) {
+        out.push(`#### Chapter ${c.n}: ${c.title} (${c.map ? "on a map" : "on a board"})`, "", `_Title card: ${c.narration}_`, "",
+          `Content: ${(c.content ?? []).map((id) => `\`${id}\``).join(", ") || "none named"}`, "");
+        for (const b of c.beats) {
+          const figures = b.figures ?? (b.figure ? [b.figure] : []);
+          out.push(`${b.n}. ${b.lines.map((k) => l.lines[k - 1]?.text ?? "").join(" ")}  _[on screen: ${b.show || "-"}${figures.length ? `; figures ${figures.join(", ")}` : ""}]_`);
+        }
+        out.push("");
+      }
+    } else {
+      out.push("", "### Transcript", "");
+      for (const line of l.lines) out.push(`${line.n}. ${line.text}${line.goals.length ? `  _[${line.goals.join(", ")}]_` : ""}${line.patch ? "  _(written in after)_" : ""}`);
+      out.push("");
+    }
   }
   return out.join("\n");
 }
@@ -213,7 +229,8 @@ export function checkExport(data: unknown): string | null {
   if (!Array.isArray(x.lectures) || !Array.isArray(x.blocks)) return "the file has no lectures or blocks";
   if (!x.document?.id || !x.run?.options) return "the file has no document or run options";
   for (const l of x.lectures) {
-    if (!Array.isArray(l.lines) || !Array.isArray(l.goals) || !Array.isArray(l.blocks)) return `lecture ${l.n} is missing its lines, goals or blocks`;
+    if (!Array.isArray(l.lines) || !Array.isArray(l.blocks)) return `lecture ${l.n} is missing its lines or blocks`;
+    l.goals ??= [];
   }
   return null;
 }
@@ -248,8 +265,9 @@ export async function importTranscript(data: unknown, file: string): Promise<Run
     steps: [
       done("read", "Read the book", `${blocks.length} blocks (imported)`),
       done("figures", "Describe figures", `${blocks.filter((b) => b.description).length} described (imported)`),
-      done("plan", "Plan lectures and goals", `${lectures.length} lectures (imported)`),
-      { key: "write", label: "Write lectures", status: written === lectures.length ? "done" : "waiting", summary: `${written} of ${lectures.length} written (imported)` },
+      // A run made before the lectures were written as scripts had a planner step.
+      ...(lectures.some((l) => l.goals.length) ? [done("plan", "Plan lectures and goals", `${lectures.length} lectures (imported)`)] : []),
+      { key: "write", label: "Write lectures (chapters, beats)", status: written === lectures.length ? "done" : "waiting", summary: `${written} of ${lectures.length} written (imported)` },
     ],
     blocks, skipped: x.blocks.filter((b) => b.skipped).map((b) => ({ block: b.id, reason: b.skipped! })), lectures, goalStatus,
     calls: [], log: [{ t: Date.now(), text: `Imported from ${file} (run ${x.run.id}, exported ${x.exported}); ${book.how}.` }],

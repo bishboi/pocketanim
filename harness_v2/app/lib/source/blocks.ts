@@ -70,7 +70,7 @@ export function forModel(b: Block): Record<string, string> {
   return { id: b.id, block_type: b.type, html: b.html, ...(b.description ? { figure_shows: b.description } : {}) };
 }
 
-/** Blocks as JSON lines, in order: what the planner and the writers read. */
+/** Blocks as JSON lines, in order: what the writer reads. */
 export function blocksJson(blocks: Block[]): string {
   return blocks.map((b) => JSON.stringify(forModel(b))).join("\n");
 }

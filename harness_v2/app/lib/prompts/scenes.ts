@@ -60,8 +60,9 @@ const KIND_TEXT: Record<string, string[]> = {
     "  A map shows only the last few places named: name a place when it matters, not every place at once.",
   ],
   figure: [
-    "THE BOOK'S OWN FIGURES come first whenever one shows what the beat explains (the ones listed below, by id; the beat",
-    'the script put one on shows it there): {"op":"picture","figure":"<id>","caption"?}. One figure a beat.',
+    "THE BOOK'S OWN FIGURES come first whenever one shows what the beat explains (the ones listed below, by id; a beat",
+    'the script put a figure on shows it there): {"op":"picture","figure":"<id>","caption"?}. A figure may be shown on',
+    "several beats (already up: leave it, or point at its parts); two figures on one beat: one after the other, or a gallery.",
   ],
   illustration: [
     "AI ILLUSTRATIONS, made by the image model in the lecture's style: a real PERSON, PLACE, LIVING THING OR OBJECT the",
@@ -192,7 +193,8 @@ export type SceneBeatInput = {
   chapter: number;
   text: string;
   show: string;
-  figure?: { id: string; way: string; caption: string; ready: boolean };
+  /** The book's figures the script shows on it (a figure may be on several beats). */
+  figures?: { id: string; way: string; caption: string; ready: boolean }[];
   /** Its own kinds, when they differ from the lecture's. */
   kinds?: string[];
   /** Its operations now (a beat given for context, or the one being written again). */
@@ -228,7 +230,7 @@ export function scenesPrompt(x: {
   const beatLine = (b: SceneBeatInput) => [
     `#${b.n} [ch ${b.chapter}] "${b.text}"`,
     `   on screen: ${b.show || "-"}`,
-    ...(b.figure ? [`   figure: ${b.figure.id} (${b.figure.way}${b.figure.ready ? "" : ", not made yet: the book's picture is shown"}) - ${b.figure.caption || "(no caption)"}`] : []),
+    ...(b.figures ?? []).map((f) => `   figure: ${f.id} (${f.way}${f.ready ? "" : ", not made yet: the book's picture is shown"}) - ${f.caption || "(no caption)"}`),
     ...(b.kinds ? [`   this beat may use only: ${b.kinds.map((k) => x.labels[k] ?? k).join(", ") || "the heading and key point"}`] : []),
     ...(!writing(b) && b.ops ? [`   do (as it is, not to be written): ${JSON.stringify(b.ops)}`] : []),
     ...(writing(b) && b.ops?.length && x.ask.what !== "lecture" ? [`   do now (to be written again): ${JSON.stringify(b.ops)}`] : []),

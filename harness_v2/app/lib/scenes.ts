@@ -31,7 +31,7 @@ import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
-import { lectureFigures } from "./script-figures";
+import { beatFigures, lectureFigures } from "./script-figures";
 import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
@@ -369,9 +369,9 @@ function beatInputs(run: Run, n: number): SceneBeatInput[] {
   const figures = new Map(lectureFigures(run, n).map((f) => [f.id, f]));
   const sl = lectureState(run, n);
   return script.chapters.flatMap((c) => c.beats.map((b) => {
-    const f = b.figure ? figures.get(b.figure) : undefined;
+    const shown = beatFigures(b).map((id) => figures.get(id)).filter((f): f is NonNullable<typeof f> => !!f);
     return { n: b.n, chapter: c.n, text: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim(), show: b.show,
-      ...(f ? { figure: { id: f.id, way: f.way, caption: f.caption, ready: f.ready } } : {}),
+      ...(shown.length ? { figures: shown.map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready })) } : {}),
       kinds: kindsFor(run, sl, b.n),
       ...(sl.beats[b.n]?.ops.length ? { ops: sl.beats[b.n].ops } : {}) };
   }));
@@ -836,7 +836,7 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
     const chapter = script.chapters.find((c) => c.n === b.chapter)!;
     if (first.has(b.n)) ops.push({ op: "panel", title: chapter.title.slice(0, 40) });
     const words = b.text.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter((w) => w.length > 3);
-    if (b.figure && on.has("figure")) ops.push({ op: "picture", figure: b.figure.id, caption: b.figure.caption.slice(0, 60) });
+    if (b.figures?.length && on.has("figure")) ops.push({ op: "picture", figure: b.figures[0].id, caption: b.figures[0].caption.slice(0, 60) });
     else if (first.has(b.n) && on.has("diagram") && words.length >= 3) {
       const nodes = words.slice(0, 3).map((w, i) => ({ id: `n${i + 1}`, label: w }));
       ops.push({ op: "diagram", id: `d${b.n}`, kind: "flow", nodes, edges: [["n1", "n2"], ["n2", "n3"]] });

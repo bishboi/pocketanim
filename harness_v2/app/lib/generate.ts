@@ -27,6 +27,7 @@ import { copyFile } from "node:fs/promises";
 import { callTool } from "./llm";
 import { check, clearStop, imageData, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { captionOf, figureFile, kindOf, type Block } from "./source/blocks";
+import { chaptersUsing } from "./script-figures";
 import { cleanLook, lookWords, styleOf } from "./styles";
 import { DATA, loadRun, saveRun } from "./store";
 import type { TriageKind } from "./triage-kinds";
@@ -189,15 +190,15 @@ async function generateFigure(run: Run, block: Block, book: Awaited<ReturnType<t
     return;
   }
   // What the prompt says of the figure: its caption, else what the figures step saw; what it is for: its lecture,
-  // the goals it is under, the book's words around it; the triage's note when a chat model gave one.
+  // the chapters that teach from it, the book's words around it; the triage's note when a chat model gave one.
   const i = run.blocks.indexOf(block);
   // The prompt puts its own full stop after the caption.
   const caption = captionOf(run.blocks, block)?.replace(/[.\s]+$/, "");
   const lecture = run.lectures.find((l) => l.blocks.includes(block.id));
-  const goals = lecture?.goals.filter((g) => g.blocks.includes(block.id)).map((g) => g.goal) ?? [];
+  const uses = chaptersUsing(run, block.id).filter((u) => !lecture || u.lecture === lecture.n).map((u) => u.chapter.title);
   const around = [...run.blocks.slice(Math.max(0, i - 2), i), ...run.blocks.slice(i + 1, i + 3)]
     .filter((b) => b.page === block.page && kindOf(b.type) === "text" && !(caption && b.text.startsWith(caption))).map((b) => b.text).join(" ");
-  const context = [lecture ? `Lecture "${lecture.title}"${goals.length ? `, to teach: ${goals.join("; ")}` : ""}.` : "", around].filter(Boolean).join(" ");
+  const context = [lecture ? `Lecture "${lecture.title}"${uses.length ? `, in: ${uses.join("; ")}` : ""}.` : "", around].filter(Boolean).join(" ");
   const t = run.triage?.figures[block.id];
   if (kind === "svg") return drawSvg(run, block, state, reference, { caption, context, how: t?.how });
   if (kind === "manim") return drawManim(run, block, state, reference, { caption, context, how: t?.how });

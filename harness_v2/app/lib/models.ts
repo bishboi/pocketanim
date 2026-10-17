@@ -24,11 +24,11 @@ export type RoleInfo = {
 };
 
 export const ROLES: RoleInfo[] = [
-  { role: "planner", label: "Planner", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
-    what: "Divides the book into lectures and maps their goals (transcript, step 3).",
+  { role: "planner", label: "Planner (no longer used)", kind: "text", used: false, fallback: "anthropic/claude-sonnet-4.5",
+    what: "Divided the book into lectures and mapped their goals, in runs made before; the writer now decides the lectures itself.",
     env: ["V2_PLANNER_MODEL", "OPENROUTER_MODEL"] },
   { role: "writer", label: "Writer", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
-    what: "Writes each lecture's transcript and its patches (transcript, step 4).",
+    what: "Writes the lectures, one call each, in order, each as its script: chapters (their content, the book's blocks) and beats (the words said, what is on screen, the figures), deciding where each lecture ends; with high reasoning effort (transcript, step 3).",
     env: ["V2_WRITER_MODEL", "OPENROUTER_TRANSCRIPT_MODEL", "OPENROUTER_MODEL"] },
   { role: "figure", label: "Figures", kind: "vision", used: true, fallback: "google/gemini-2.5-flash",
     what: "Describes each figure from its picture (transcript, step 2).",
@@ -48,8 +48,8 @@ export const ROLES: RoleInfo[] = [
   { role: "manim", label: "Manim", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Draws the figures triaged Manim: reads the figure and writes its Manim code, in one call; rendered here (generation).",
     env: ["V2_MANIM_MODEL", "PANIM_MANIM_MODEL", "OPENROUTER_MODEL"] },
-  { role: "script", label: "Script", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
-    what: "Cuts each lecture's transcript into chapters and beats, every sentence in one beat, and places its figures (script).",
+  { role: "script", label: "Script (no longer used)", kind: "text", used: false, fallback: "anthropic/claude-sonnet-4.5",
+    what: "Cut a written transcript into chapters and beats, in runs made before; the writer now writes the lecture as its script.",
     env: ["V2_SCRIPT_MODEL", "OPENROUTER_MODEL"] },
   { role: "scenes", label: "Scenes", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Writes each beat's visuals as the lecture engine's operations (maps, diagrams, pictures, timelines, Manim...), mends what the engine refuses (scenes).",

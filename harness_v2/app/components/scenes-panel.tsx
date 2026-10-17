@@ -19,7 +19,7 @@ import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, S
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
 import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
-import { lectureFigures } from "@/lib/script-figures";
+import { beatFigures, lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
 import { FrameStill, IRPlayer } from "./player";
 import { PromptView } from "./script-panel";
@@ -612,7 +612,8 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
   const chapterRender = b ? sl?.chapters?.[b.chapter.n] : undefined;
   const fromChapter = chapterRender?.status === "done" ? chapterRender.beats?.find((x) => x.n === n) : undefined;
   const r = sb?.render;
-  const figure = b?.figure ? lectureFigures(run, lecture.n).find((f) => f.id === b.figure) : undefined;
+  const known = b ? lectureFigures(run, lecture.n) : [];
+  const figures = b ? beatFigures(b).map((id) => known.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f) : [];
   const ownKinds = sb?.kinds;
   const chapterKinds = b ? sl?.chapterKinds?.[b.chapter.n] : undefined;
   const inherited = chapterKinds ?? st?.kinds ?? [];
@@ -630,13 +631,14 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
       <div className="rounded border border-neutral-800 bg-neutral-900/40 p-2 text-xs">
         <p className="text-sm text-neutral-100">{b.lines.map((k) => lines[k - 1]).join(" ")}</p>
         <p className="mt-1 text-neutral-400"><span className="text-neutral-500">the script&apos;s plan:</span> {b.show || "—"}</p>
-        {figure && (
-          <button className="mt-1 flex items-center gap-2 text-left" onClick={() => select({ kind: "block", id: figure.id })}>
+        {figures.map((figure) => (
+          <button key={figure.id} className="mt-1 flex items-center gap-2 text-left" onClick={() => select({ kind: "block", id: figure.id })}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt={figure.id} className="h-12 rounded bg-white object-contain" src={run.generation?.figures[figure.id]?.status === "done" && run.generation.figures[figure.id].url ? run.generation.figures[figure.id].url : `/api/documents/${run.documentId}/figure/${encodeURIComponent(figure.id)}`} />
-            <span className="text-neutral-300">figure {figure.id} · {figure.way}{figure.ready ? "" : " · not made yet (the book's picture is used)"}</span>
+            <span className="text-neutral-300">figure {figure.id} · {figure.way}{figure.ready ? "" : " · not made yet (the book's picture is used)"}
+              {figure.beats.length > 1 ? <span className="text-neutral-500"> · also on beat{figure.beats.length > 2 ? "s" : ""} {figure.beats.filter((x) => x !== n).map((x) => `#${x}`).join(", ")}</span> : null}</span>
           </button>
-        )}
+        ))}
       </div>
 
       <div className="grid gap-3 xl:grid-cols-2">

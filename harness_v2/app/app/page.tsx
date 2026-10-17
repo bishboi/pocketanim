@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Harness v2, step one: the transcript. A book PDF in, read by Datalab into its JSON of blocks; one planner call
- * divides those blocks into lectures by what is learned and maps their goals (block ids only); each lecture is then
- * written from its blocks and goals, in order, with every lecture before it. Every step, every call (its prompt part
- * by part, output, checks, cost) and every block's place in the PDF is in view.
+ * Harness v2. A book PDF in, read by Datalab into its JSON of blocks; the lectures are written in order, each in one
+ * call as its script (chapters with the book's blocks they teach from, beats with the words said, what is on screen
+ * and the figures shown), with the whole book and every lecture before it; then the figures, the scenes. Every step,
+ * every call (its prompt part by part, output, checks, cost) and every block's place in the PDF is in view.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,8 +23,6 @@ type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleMo
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
 const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Calls", "Costs", "Models"] as const;
-const GREY = "rgba(148, 163, 184, 0.22)";
-const GREEN = "rgba(16, 185, 129, 0.45)";
 
 export default function Page() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -167,8 +165,8 @@ export default function Page() {
     setTab(then);
   };
 
-  // What the PDF lights up, by Datalab's boxes: every block in its lecture's colour; a lecture's blocks; a goal's
-  // blocks (green, its lecture's others grey); one block.
+  // What the PDF lights up, by Datalab's boxes: every block in its lecture's colour; a lecture's blocks; a chapter's
+  // content (or any set of blocks); one block.
   const marks: Mark[] = useMemo(() => {
     if (!run) return [];
     if (tab === "Figures" && selection?.kind !== "block") {
@@ -188,11 +186,6 @@ export default function Page() {
     const ok = (m: Mark | null): m is Mark => !!m;
     if (selection?.kind === "block") return [mark(selection.id, lectureColor(home.get(selection.id) ?? 1), true)].filter(ok);
     if (selection?.kind === "blocks") return selection.ids.map((id) => mark(id, lectureColor(home.get(id) ?? 1), true)).filter(ok);
-    if (selection?.kind === "goal") {
-      const lecture = run.lectures.find((l) => l.goals.some((g) => g.id === selection.id));
-      const goal = lecture?.goals.find((g) => g.id === selection.id);
-      return (lecture?.blocks ?? []).map((id) => (goal?.blocks.includes(id) ? mark(id, GREEN, true) : mark(id, GREY))).filter(ok);
-    }
     if (selection?.kind === "lecture") {
       const lecture = run.lectures.find((l) => l.n === selection.n);
       return (lecture?.blocks ?? []).map((id) => mark(id, lectureColor(selection.n), true)).filter(ok);
@@ -254,9 +247,14 @@ export default function Page() {
           <span title="From .env.local; change them in the Models tab">Models</span>
           <button className="mono max-w-[30rem] truncate rounded border border-neutral-800 px-2 py-1 text-left text-[11px] text-neutral-300 hover:bg-neutral-800"
             onClick={() => setTab("Models")} data-testid="models-summary" title="Change in the Models tab">
-            {options.plannerModel} · {options.writerModel} · {options.figureModel}
+            {options.writerModel} · {options.figureModel}
           </button>
-          <span>Effort</span>
+          <span title="The writer's reasoning: it writes each lecture as its script (chapters, beats) in one call">Writer effort</span>
+          <select className={input} value={options.writerEffort ?? "high"} onChange={(e) => setOptions({ ...options, writerEffort: e.target.value as Options["effort"] })}
+            data-testid="writer-effort">
+            {["low", "medium", "high", "off"].map((l) => <option key={l}>{l}</option>)}
+          </select>
+          <span title="Every other call's reasoning (figures, triage, scenes...)">Effort</span>
           <select className={input} value={options.effort} onChange={(e) => setOptions({ ...options, effort: e.target.value as Options["effort"] })}>
             {["low", "medium", "high", "off"].map((l) => <option key={l}>{l}</option>)}
           </select>
@@ -330,7 +328,7 @@ export default function Page() {
             </span>
             {selection && (
               <span className="flex items-center gap-2 pb-1 text-xs text-neutral-400" data-testid="selection">
-                Showing {selection.kind === "lecture" ? `lecture ${selection.n}` : selection.kind === "goal" ? `goal ${selection.id}`
+                Showing {selection.kind === "lecture" ? `lecture ${selection.n}`
                   : selection.kind === "blocks" ? `${selection.label} (${selection.ids.length} blocks)` : `block ${selection.id}`} in the PDF
                 <button className="rounded border border-neutral-700 px-1.5" onClick={() => setSelection(null)}>clear</button>
               </span>
@@ -363,8 +361,7 @@ export default function Page() {
               defaultMapModel={run.options.mapModel || options.mapModel || config?.models.map?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/generate", body)}
               setWay={(block, kind) => act("/triage", { action: "override", block, kind })} />}
-            {run && tab === "Script" && <ScriptPanel run={run} defaultModel={run.options.scriptModel || options.scriptModel || config?.models.script?.model || ""}
-              select={setSelection} onCall={setCallId} act={(body) => act("/script", body)} />}
+            {run && tab === "Script" && <ScriptPanel run={run} select={setSelection} onCall={setCallId} />}
             {run && tab === "Scenes" && <ScenesPanel run={run} defaultModel={run.options.scenesModel || options.scenesModel || config?.models.scenes?.model || ""}
               manimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}

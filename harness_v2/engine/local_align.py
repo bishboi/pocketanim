@@ -158,13 +158,77 @@ def snap_to_speech(words: list[dict], audio) -> list[dict]:
     return words
 
 
+def _read_16k(wav: str | Path):
+    """A line's audio as 16 kHz mono floats, with the wave module alone (no Whisper needed)."""
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(wav)) as handle:
+        channels, width, rate = handle.getnchannels(), handle.getsampwidth(), handle.getframerate()
+        raw = handle.readframes(handle.getnframes())
+    if width != 2:
+        raise ValueError("not 16-bit")
+    data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if channels > 1:
+        data = data.reshape(-1, channels).mean(axis=1)
+    if rate != RATE and len(data):
+        target = int(round(len(data) * RATE / rate))
+        data = np.interp(np.linspace(0, len(data) - 1, target), np.arange(len(data)), data).astype(np.float32)
+    return data
+
+
+def estimate(wav: str | Path, text: str) -> list[dict] | None:
+    """v2's stand-in when Whisper cannot be had (PANIM_ALIGN_ESTIMATE=off to have none): the line's words shared
+    out over its spoken stretches (between its pauses) by their length. Each word is marked "est": an estimate,
+    which pocket_lecture.line_words does not keep, so the real aligner times the line once it can."""
+    if (_env("PANIM_ALIGN_ESTIMATE") or "on").strip().lower() in ("off", "0", "no"):
+        return None
+    words = [w for w in (_clean(x) for x in text.split()) if w]
+    if not words:
+        return None
+    try:
+        audio = _read_16k(wav)
+    except (OSError, ValueError, EOFError):
+        return None
+    total = len(audio) / RATE
+    if total <= 0:
+        return None
+    spoken, at = [], 0.0
+    for a, b in pauses(audio):
+        if a > at:
+            spoken.append((at, a))
+        at = b
+    if total > at:
+        spoken.append((at, total))
+    spoken = spoken or [(0.0, total)]
+    voiced = sum(b - a for a, b in spoken)
+
+    def real(t: float) -> float:
+        """A time on the voiced stretches laid end to end, as a time in the line."""
+        for a, b in spoken:
+            if t <= b - a:
+                return a + t
+            t -= b - a
+        return spoken[-1][1]
+
+    weights = [len(w) + 1 for w in words]
+    unit = voiced / sum(weights)
+    out, at = [], 0.0
+    for word, weight in zip(words, weights):
+        start, end = real(at + 1e-6), real(at + weight * unit - 1e-6)
+        out.append({"w": word, "start": round(start, 3), "end": round(max(start, end), 3), "est": True})
+        at += weight * unit
+    return out
+
+
 def align(wav: str | Path, text: str) -> list[dict] | None:
     """The line's words as said, [{"w", "start", "end"}] in seconds into its audio; None when it cannot be done."""
     if not enabled() or not text.strip():
         return None
     model = _load()
     if model is None:
-        return None
+        return estimate(wav, text)
     from faster_whisper import decode_audio
     from faster_whisper.tokenizer import Tokenizer
 

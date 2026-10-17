@@ -388,14 +388,17 @@ export function useIR(src?: string): { ir?: SceneIR; error?: string } {
 }
 
 /** v1's player on a scene's geometry at `src` (its pictures under `assets`), all of it or a range of frames. */
-export function IRPlayer({ src, assets, range, compact, autoPlay }: { src: string; assets: string; range?: [number, number]; compact?: boolean; autoPlay?: boolean }) {
+export function IRPlayer({ src, assets, range, compact, autoPlay, audio }: { src: string; assets: string; range?: [number, number]; compact?: boolean; autoPlay?: boolean;
+  /** The narration track, played as the clock (a scene spoken with a voice). */
+  audio?: string }) {
   const { ir, error } = useIR(src);
   const imageUrl = useCallback((asset: string) => `${assets}${encodeURIComponent(asset)}`, [assets]);
   const segmentUrl = useCallback((k: number) => `${src}&segment=${k}`, [src]);
   if (error) return <p className="text-xs text-red-300">The player could not load it: {error}</p>;
   if (!ir) return <div className="flex aspect-video w-full items-center justify-center rounded border border-neutral-800 bg-black text-xs text-neutral-500">loading the scene…</div>;
   if (!("mode" in ir) || ir.mode !== "2d") return <p className="text-xs text-amber-300">This scene has no 2D geometry for the browser player ({"mode" in ir ? ir.mode : "none"}).</p>;
-  return <Player key={`${src}|${range?.join("-")}`} ir={ir} imageUrl={imageUrl} segmentUrl={segmentUrl} range={range} compact={compact} autoPlay={autoPlay} />;
+  return <Player key={`${src}|${range?.join("-")}|${audio ?? ""}`} ir={ir} imageUrl={imageUrl} segmentUrl={segmentUrl} range={range} compact={compact} autoPlay={autoPlay}
+    audioSrc={audio ?? null} />;
 }
 
 /** One frame of a scene, drawn from its geometry (a beat's last frame in a chapter's strip). */

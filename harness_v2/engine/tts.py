@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import chirp
 import eleven_tts
+import espeak_tts
 import gemini_tts
 
 chirp.NAME = "Google Chirp 3 HD"
-ENGINES = {"gemini": gemini_tts, "chirp": chirp, "eleven": eleven_tts}
+ENGINES = {"gemini": gemini_tts, "chirp": chirp, "eleven": eleven_tts, "espeak": espeak_tts}   # espeak: v2's offline voice
 
 
 def engine_name() -> str:
     chosen = (chirp._env("PANIM_TTS") or "").strip().lower()
-    return chosen if chosen in ("chirp", "eleven") else "gemini"
+    return chosen if chosen in ("chirp", "eleven", "espeak") else "gemini"
 
 
 def engine(name: str | None = None):
@@ -27,6 +28,8 @@ def engine(name: str | None = None):
 
 
 def setup_hint() -> str:
+    if engine_name() == "espeak":
+        return "Narration is spoken offline by espeak-ng (PANIM_TTS=espeak), and it is not installed: apt install espeak-ng."
     if engine_name() == "eleven":
         return ("Narration is spoken by ElevenLabs (PANIM_TTS=eleven), and no ElevenLabs API key is set: put "
                 "ELEVENLABS_API_KEY=<key> in harness/app/.env.local and restart the app.")

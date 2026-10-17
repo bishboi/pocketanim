@@ -1386,7 +1386,8 @@ def line_words(text: str) -> list[dict] | None:
         import local_align
 
         words = local_align.align(wav, spoken)
-        if words:
+        # An estimate (no aligner here: local_align.estimate) is used, never kept: the aligner times it once it can.
+        if words and not any(w.get("est") for w in words):
             part = kept.with_suffix(f".{os.getpid()}.{threading.get_ident()}.part")
             part.write_text(json.dumps(words, ensure_ascii=False))
             part.replace(kept)

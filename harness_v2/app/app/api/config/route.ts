@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveModels } from "@/lib/models";
+import { voicesReady } from "@/lib/voice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function GET() {
     hasKey: !!process.env.OPENROUTER_API_KEY,
     datalab: !!process.env.DATALAB_API_KEY,
     models,
+    voices: voicesReady(),
     plannerModel: models.planner.model,
     writerModel: models.writer.model,
     figureModel: models.figure.model,

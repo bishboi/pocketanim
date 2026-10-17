@@ -16,13 +16,15 @@ import { FiguresPanel } from "@/components/figures-panel";
 import { GenerationPanel } from "@/components/generation-panel";
 import { ScriptPanel } from "@/components/script-panel";
 import { ScenesPanel } from "@/components/scenes-panel";
+import { VoicePanel } from "@/components/voice-panel";
+import { voiceRunning } from "@/lib/voice-engines";
 import { choiceOf } from "@/lib/triage-kinds";
 
-type Config = { hasKey: boolean; datalab: boolean; models: Record<string, RoleModel>; triageModel: string };
+type Config = { hasKey: boolean; datalab: boolean; voices?: Record<string, boolean>; models: Record<string, RoleModel>; triageModel: string };
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Calls", "Costs", "Models"] as const;
 
 export default function Page() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -90,7 +92,7 @@ export default function Page() {
       setRun(next);
       setDocId(next.documentId);
       if (next.status === "running" || next.triage?.status === "running" || next.generation?.status === "running" || next.script?.status === "running"
-        || next.scenes?.status === "running" || (next.scenes?.renders ?? 0) > 0) setTimeout(tick, 1000);
+        || next.scenes?.status === "running" || (next.scenes?.renders ?? 0) > 0 || voiceRunning(next)) setTimeout(tick, 1000);
       else void refresh();
     };
     void tick();
@@ -105,7 +107,7 @@ export default function Page() {
     if (run) setOptions(run.options);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running" || run?.script?.status === "running" || run?.scenes?.status === "running" || (run?.scenes?.renders ?? 0) > 0;
+  const busy = run?.status === "running" || run?.triage?.status === "running" || run?.generation?.status === "running" || run?.script?.status === "running" || run?.scenes?.status === "running" || (run?.scenes?.renders ?? 0) > 0 || voiceRunning(run);
   useEffect(() => {
     if (!busy) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -365,6 +367,8 @@ export default function Page() {
             {run && tab === "Scenes" && <ScenesPanel run={run} defaultModel={run.options.scenesModel || options.scenesModel || config?.models.scenes?.model || ""}
               manimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
+            {run && tab === "Voice" && <VoicePanel run={run} ready={config?.voices} timingModel={config?.models.timing?.model || ""}
+              onCall={setCallId} act={(body) => act("/voice", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

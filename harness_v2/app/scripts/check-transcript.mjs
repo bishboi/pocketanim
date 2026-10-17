@@ -392,6 +392,49 @@ assert.equal(chRender.status, "done", chRender.error);
 assert.equal(chRender.beats.length, ch1.beats.length);
 assert.ok(chRender.beats.every((b, i, all) => b.to >= b.from && (i === 0 || b.from > all[i - 1].from)), "each beat's frames, in order");
 
+// The voice: a chapter with its scenes spoken (espeak-ng, offline), its words timed, its animations timed to them
+// (the timing model's call, a stand-in here), and played with its narration track.
+const { voiceAction, voiceOf } = await import(path.resolve(here, "../lib/voice.ts"));
+const { voiceRunning, scenesKey } = await import(path.resolve(here, "../lib/voice-engines.ts"));
+await voiceAction(run.id, { action: "settings", engine: "espeak", pace: "natural" });
+await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
+run = await slow(run.id, (r) => voiceRunning(r), 3000);
+let cv = run.voice.lectures[1][ch1.n];
+assert.equal(cv.status, "done", cv.error);
+assert.equal(cv.mode, "espeak:en-gb");
+assert.ok(cv.lines.length >= ch1.beats.length && cv.lines.every((l) => l.url && l.seconds > 0), "every line spoken, with its audio and length");
+assert.ok(cv.lines.filter((l) => l.beat !== undefined).length >= ch1.beats.length, "each beat's line found under its beat");
+assert.ok(cv.lines.every((l) => l.words?.length && l.wordsFrom), "when each word is said (estimated here: no Whisper download)");
+assert.ok(cv.cues.length && cv.cues.some((c) => c.cues?.length), "animations timed to the words");
+const timingCall = run.calls.find((c) => c.id === cv.calls.find((id) => run.calls.find((x) => x.id === id)?.tool));
+assert.ok(timingCall && timingCall.step === "voice" && /time the animations/i.test(timingCall.prompt.system[0].text), "the timing call, with align_cues's prompt");
+assert.ok(run.calls.some((c) => c.step === "voice" && c.api === "voice"), "the voice as a call, for the costs");
+assert.ok(cv.audio && cv.ir && cv.frames > 0 && cv.beats.length === ch1.beats.length, "played with its narration");
+assert.ok(cv.beats.every((b, i, all) => b.to >= b.from && (i === 0 || b.start > all[i - 1].start)), "each beat where its line is said");
+const fileOf = (url) => path.join(scenesDir(run.id), new URL(`http://x${url}`).searchParams.get("p"));
+const { duration: lengthOf } = await import(path.resolve(here, "../lib/scenes.ts"));
+const track = await lengthOf(fileOf(cv.audio));
+assert.ok(Math.abs(track - cv.frames / cv.fps) < 1.5, `the narration as long as the scene (${track} s, ${cv.frames / cv.fps} s)`);
+assert.ok(readFileSync(path.join(fileOf(cv.ir), "..", "aligned.py"), "utf8").includes("cues="), "the times written into the scene");
+const { rangeOf } = await import(path.resolve(here, "../lib/ranges.ts"));
+assert.deepEqual(rangeOf("bytes=100-199", 1000), [100, 199], "the narration served in ranges (the player seeks it)");
+assert.deepEqual(rangeOf("bytes=900-", 1000), [900, 999]);
+assert.deepEqual(rangeOf("bytes=-300", 1000), [700, 999]);
+assert.equal(rangeOf("bytes=2000-", 1000), "bad");
+assert.equal(rangeOf(null, 1000), undefined);
+assert.equal(cv.scenesKey, scenesKey(run, 1, ch1.n), "made from the scenes as they are");
+// Spoken again: every line found spoken (nothing paid twice).
+await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
+run = await slow(run.id, (r) => voiceRunning(r), 3000);
+cv = run.voice.lectures[1][ch1.n];
+assert.equal(cv.status, "done", cv.error);
+assert.equal(cv.cost.newLines, 0, "the lines found spoken already");
+assert.equal(voiceOf(run).settings.engine, "espeak");
+await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
+assert.ok(!(await loadRun(run.id)).voice.lectures[1][ch1.n], "the chapter's voice forgotten");
+await assert.rejects(voiceAction(run.id, { action: "speak", lecture: 99 }), /no chapter with its scenes/);
+console.log(`voice: chapter ${ch1.n}, ${cv.lines.length} lines, ${cv.cues.filter((c) => c.cues).length} beats timed, ${(cv.frames / cv.fps).toFixed(1)} s`);
+
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).
 const kc = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: ["define"] });

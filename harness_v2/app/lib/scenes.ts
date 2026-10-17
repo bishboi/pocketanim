@@ -728,6 +728,8 @@ export async function duration(file: string): Promise<number> {
 
 /** Where a scene's playable program is, as the page's player loads it: its geometry and its pictures. */
 export type Playable = { ir: string; assets: string; fps: number; frames: number; blockers: string[];
+  /** The narration track the exporter mixed (a scene spoken with a voice), as a file. */
+  narration?: string;
   /** Each line said, in order: where it starts (seconds), its words (the chapter's title card first). */
   said: { start: number; text?: string }[];
   checks: { say: string; issues: string[]; fixed: string[] }[] };
@@ -737,7 +739,7 @@ export type Playable = { ir: string; assets: string; fps: number; frames: number
  * plays (engine/tools/export_scene.py, v2's copy of v1's, on v2's engine), then expanded into the geometry the
  * browser draws (engine/tools/scene_ir.py). Silent; the engine's beat log says where each line starts.
  */
-export async function playable(run: Run, n: number, dir: string, source: string): Promise<Playable> {
+export async function playable(run: Run, n: number, dir: string, source: string, env: Record<string, string> = {}): Promise<Playable> {
   const scene = path.join(dir, "scene.py");
   await writeFile(scene, source, "utf8");
   const out = path.join(dir, "out");
@@ -747,8 +749,8 @@ export async function playable(run: Run, n: number, dir: string, source: string)
   await rm(checkLog, { force: true });
   const tools = path.join(engineDir(), "tools");
   const exported = await runPython([path.join(tools, "export_scene.py"), scene, "GeneratedScene", out], dir,
-    { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
-  let summary: { blockers?: string[]; error?: string } = {};
+    { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog, ...env }, undefined, RENDER_TIMEOUT);
+  let summary: { blockers?: string[]; error?: string; narration?: { file?: string } } = {};
   try {
     summary = JSON.parse(exported.stdout.slice(exported.stdout.indexOf("{")));
   } catch {
@@ -768,7 +770,8 @@ export async function playable(run: Run, n: number, dir: string, source: string)
   const checks = existsSync(checkLog) ? (await readFile(checkLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Playable["checks"][number]) : [];
   const rel = (f: string) => encodeURIComponent(path.relative(scenesDir(run.id), f));
   return { ir: `/api/runs/${run.id}/scenes/ir?p=${rel(out)}&v=${Date.now()}`, assets: `/api/runs/${run.id}/scenes/file?p=${rel(path.join(out, "dsl", "generated", "images"))}${encodeURIComponent("/")}`,
-    fps: ir.fps ?? 30, frames: ir.frames ?? 0, blockers: summary.blockers ?? [], said: rows.filter((r) => r.kind === "beat"), checks };
+    fps: ir.fps ?? 30, frames: ir.frames ?? 0, blockers: summary.blockers ?? [], said: rows.filter((r) => r.kind === "beat"), checks,
+    ...(summary.narration?.file ? { narration: path.join(out, summary.narration.file) } : {}) };
 }
 
 /**

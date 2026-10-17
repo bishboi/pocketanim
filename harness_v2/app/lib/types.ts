@@ -38,7 +38,7 @@ export type Call = {
   /** Pictures sent with the prompt (a figure to describe), as URLs the page can show. */
   images?: string[];
   /** "decisions": a decision model (decisions.ts), its questions in `tool`; else a chat call. */
-  api?: "chat" | "decisions" | "image";
+  api?: "chat" | "decisions" | "image" | "voice";
   /** The request as sent (images cut to a placeholder), when it is not a chat request. */
   request?: unknown;
 };
@@ -119,6 +119,8 @@ export type Run = {
   script?: ScriptState;
   /** The scenes (scenes.ts): each beat's visuals as the engine's operations, compiled, and rendered beat by beat. */
   scenes?: ScenesState;
+  /** The voice: each chapter with scenes spoken, its animations timed to the words, and played with its narration. */
+  voice?: VoiceState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -439,4 +441,76 @@ export type ScenesState = {
   error?: string;
   started?: number;
   ended?: number;
+};
+
+/** The voice engine and speaker the chapters are spoken with (the engine's tts.py). */
+export type VoiceSettings = {
+  /** gemini (GEMINI_API_KEY), chirp (Google Cloud), eleven (ElevenLabs, times its own words), espeak (offline, free). */
+  engine: "gemini" | "chirp" | "eleven" | "espeak";
+  /** The speaker (Gemini: Achird, Kore, Charon...); empty: the engine's default for the look. */
+  voice?: string;
+  /** The teaching pace (pocket_lecture.PACES): the holds after each line and paragraph. */
+  pace?: "natural" | "relaxed" | "slow";
+  /** The model that times the animations to the words (the timing role). */
+  timingModel?: string;
+};
+
+/** A line the chapter says, as spoken: its audio, length, cost and when each word is said. */
+export type VoiceLine = {
+  beat?: number;
+  text: string;
+  /** What the voice was given (numbers and symbols said as words). */
+  spoken?: string;
+  /** The voice director's marking of it for delivery (Gemini, ElevenLabs), when there is one. */
+  delivery?: string;
+  seconds?: number;
+  url?: string;
+  usd?: number | null;
+  words?: { w: string; start: number; end: number }[];
+  /** Where the word times came from: the voice, the aligner here (Whisper), an estimate, or why there are none. */
+  wordsFrom?: string;
+};
+
+/** A beat's animations timed to its words (align_cues): each one's start (and length), or why it was not timed. */
+export type VoiceCue = { beat?: number; kind: "beat" | "free"; text: string; parts: string[]; seconds?: number;
+  cues?: (number | [number, number])[]; why?: string };
+
+export type ChapterVoice = {
+  status: "running" | "done" | "failed";
+  /** What it is doing: compiling, speaking, aligning words, timing, rendering. */
+  phase?: string;
+  /** The voice it was spoken in (engine:speaker). */
+  mode?: string;
+  engine?: string;
+  /** The look it was rendered in. */
+  style?: string;
+  art?: string;
+  lines?: VoiceLine[];
+  cues?: VoiceCue[];
+  /** Which aligner timed the words (or why none could). */
+  aligner?: string;
+  /** What it cost: the lines spoken now, the chapter's whole voice, the voice director, the timing model. */
+  cost?: { spoken: number; voice: number; director: number; timing: number; lines: number; newLines: number };
+  calls?: string[];
+  /** Played with its narration in v1's web player: the geometry, the pictures, the voice track. */
+  ir?: string;
+  assets?: string;
+  audio?: string;
+  fps?: number;
+  frames?: number;
+  /** Each beat in the narrated chapter: where it starts and ends (seconds, frames). */
+  beats?: { n: number; start: number; end: number; from: number; to: number }[];
+  blockers?: string[];
+  /** The scenes it was made from (a key of their visuals and words): other scenes now mean the voice is behind them. */
+  scenesKey?: string;
+  error?: string;
+  started?: number;
+  seconds?: number;
+  at?: number;
+};
+
+export type VoiceState = {
+  settings: VoiceSettings;
+  /** By lecture, by chapter. */
+  lectures: Record<string, Record<string, ChapterVoice>>;
 };

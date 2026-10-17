@@ -271,6 +271,26 @@ assert.ok(gmn.code.includes("self.play"));
 const mcall = run.calls.find((c) => c.id === gmn.calls.at(-1));
 assert.ok(mcall.prompt.system.some((p) => p.key === "rules" && p.text.includes("PALETTE")) && mcall.prompt.user.some((p) => p.text.includes("to rebuild exactly")), "v1's Manim rules");
 assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), JSON.stringify(mcall.checks));
+// The beat script's reference (engine/BEAT_SCRIPT.md) keeps up with the compiler: every operation it accepts and every
+// field of the script, a chapter and a beat it reads is written there.
+{
+  const { runPython: rp } = await import(path.resolve(here, "../lib/manim.ts"));
+  const engine = process.env.V2_ENGINE;
+  const code = [
+    "import json, re, compile_lecture as c",
+    "ops = {'panel','fact','stat','bars','clear','icon','figure','photo','illustration','picture','draw','unstage'} | c.KIT_OPS | c.MAP_OPS | c.BUILD_OPS | c.STEP_OPS | c.WORK_OPS | c.FREE_OPS",
+    "src = open('compile_lecture.py').read()",
+    "fields = {w: sorted(set(k for k in re.findall(w + r'\\.get\\(\"([a-z_]+)\"', src) if not k.startswith('_'))) for w in ('script', 'chapter', 'beat')}",
+    "print(json.dumps({'ops': sorted(ops), **fields}))",
+  ].join("\n");
+  const listed = await rp(["-c", code], engine, { PYTHONPATH: engine });
+  const known = JSON.parse(listed.stdout.trim().split("\n").pop());
+  const doc = readFileSync(path.join(engine, "BEAT_SCRIPT.md"), "utf8");
+  const missing = Object.entries(known).flatMap(([kind, names]) => names.filter((k) => !doc.includes(`\`${k}\``)).map((k) => `${kind}: ${k}`));
+  assert.deepEqual(missing, [], `engine/BEAT_SCRIPT.md does not document: ${missing.join(", ")}`);
+  assert.ok(known.ops.length > 30 && known.script.length > 10 && known.beat.length > 4, "the compiler's names were read");
+}
+
 // Timelines in proportion (v2's engine): dates read as years; a range, periods (spans); drawn by a real render.
 {
   const { runPython: rp } = await import(path.resolve(here, "../lib/manim.ts"));

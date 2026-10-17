@@ -741,3 +741,13 @@ The compiler reads the script in three passes.
   of operations it accepts leaves it out.
 - **v2's `plan` on a `manim` op** is not compiled until the Manim agent has written its `code`. A script edited by
   hand needs `code`.
+
+---
+
+## Keeping this document current
+
+This file is the reference for the beat script, and it is checked: `npm run check` (harness_v2/app) fails when the
+compiler accepts an operation, or reads a field of the script, a chapter or a beat, that is not written here (each
+name in backticks). Any change to what the compiler or the engine accepts (a new operation, a new argument, a changed
+limit or default, something mended or refused differently) updates this file in the same change, with an example
+that compiles.

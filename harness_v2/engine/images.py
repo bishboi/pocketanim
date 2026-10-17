@@ -66,7 +66,9 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
     row = genimage.generate(str(what or ""), style=style or os.environ.get("LECTURE_STYLE"), realistic=realistic,
                             parts=parts, context=context, scene=scene, match=match, kind=kind, aspect=aspect,
                             look=look)
-    if row and is_map_row(row):
+    # A picture the image model made was checked as a map by what it was asked for (genimage); the title checks
+    # here are for files found by name (a Commons locator map: "India disputed hatched.svg"), not for descriptions.
+    if row and row.get("source") != "generated" and is_map_row(row):
         genimage._failed(str(what or ""), "left out: what it shows reads as a map (mapguard), and maps are drawn "
                                           "only on the map")
         return None

@@ -6,7 +6,7 @@
  * The page starts from these and can change a run's own; nothing has to be typed.
  */
 
-export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script" | "scenes" | "timing";
+export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script" | "scenes" | "timing" | "reuse";
 
 export type RoleInfo = {
   role: ModelRole;
@@ -54,6 +54,9 @@ export const ROLES: RoleInfo[] = [
   { role: "scenes", label: "Scenes", kind: "text", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Writes each beat's visuals as the lecture engine's operations (maps, diagrams, pictures, timelines, Manim...), mends what the engine refuses (scenes).",
     env: ["V2_SCENES_MODEL", "OPENROUTER_MODEL"] },
+  { role: "reuse", label: "Picture reuse", kind: "decision", used: true, fallback: "typesafe/jev-1.14",
+    what: "Decides, for each AI picture a scene asks for, whether a picture made before is shown again, drawn anew to match it (the same person or place), or none (drawn fresh), from the earlier pictures' words and prompts (scenes).",
+    env: ["V2_REUSE_MODEL", "V2_TRIAGE_MODEL"] },
   { role: "timing", label: "Timing (voice)", kind: "text", used: true, fallback: "google/gemini-2.5-flash",
     what: "Times each beat's animations to the words of its narration, once the voice has said them and each word's time is known (voice).",
     env: ["V2_TIMING_MODEL", "PANIM_ALIGN_MODEL", "OPENROUTER_MODEL"] },

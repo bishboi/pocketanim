@@ -15,6 +15,8 @@ const here = import.meta.dirname;
 process.env.V2_PYTHON ??= path.resolve(here, "../../../.venv/bin/python");
 // Maps are drawn by v2's own engine (a copy of v1's).
 process.env.V2_ENGINE ??= path.resolve(here, "../../engine");
+// The pictures the engine makes go to the check's own folder: never among a real run's pictures made before.
+process.env.PANIM_IMAGE_CACHE = path.join(mkdtempSync(path.join(tmpdir(), "v2-check-images-")));
 const pdf = readFileSync(path.join(here, "fixtures", "chapter.pdf"));
 process.chdir(mkdtempSync(path.join(tmpdir(), "v2-check-")));
 const { addDocument } = await import(path.resolve(here, "../lib/docs.ts"));
@@ -471,6 +473,30 @@ assert.deepEqual(gb.pictures.map((x) => x.role), ["in a gallery", "in a gallery"
 assert.ok(gb.pictures.every((x) => ["made", "cached"].includes(x.status) && x.url && x.prompt), "each picture: its file to show, the prompt it was made from");
 assert.ok(run.scenes.lectures[1].compile.images.asked >= 2);
 await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: galleryBeat, kinds: null });
+
+// Pictures made before: the decision model (Jev; a stand-in here) is asked whether one is the picture asked for now.
+// A new person is drawn fresh; the same person in another moment is drawn anew to match the first (its reference).
+const who = `Zorvan${Date.now().toString(36)}`;
+const [pb1, pb2] = run.script.lectures[1].chapters[0].beats.slice(0, 2).map((b) => b.n);
+for (const b of [pb1, pb2]) await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: b, kinds: ["illustration"] });
+await scenesAction(run.id, { action: "edit", lecture: 1, beat: pb1, ops: [{ op: "picture", generate: `King ${who} of the river cities, seated on a stone throne` }] });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+await scenesAction(run.id, { action: "edit", lecture: 1, beat: pb2, ops: [{ op: "picture", generate: `King ${who} of the river cities, riding a bullock cart to the market` }] });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+const matched = run.scenes.lectures[1].beats[pb2].pictures?.find((x) => x.what.includes("bullock"));
+assert.ok(matched?.decision, JSON.stringify(run.scenes.lectures[1].beats[pb2].pictures));
+assert.equal(matched.decision.action, "match", JSON.stringify(matched.decision));
+assert.ok(matched.decision.candidates.some((c) => c.what.includes("throne")) && matched.decision.pickedUrl, "asked about the throne picture, and chose it");
+const judgeCall = run.calls.find((c) => c.id === matched.decision.call);
+assert.ok(judgeCall && judgeCall.api === "decisions" && judgeCall.step === "scenes" && /throne/.test(render(judgeCall.prompt.user)), "the decision, as a call, with the pictures it was shown");
+assert.ok(Object.keys(judgeCall.tool.use.criteria).includes("fresh"));
+// Compiled again: the answer is kept, nothing asked again.
+const decisionsBefore = run.calls.filter((c) => c.api === "decisions" && c.step === "scenes").length;
+await scenesAction(run.id, { action: "compile", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+assert.equal(run.calls.filter((c) => c.api === "decisions" && c.step === "scenes").length, decisionsBefore, "kept, not asked again");
+assert.equal(run.scenes.lectures[1].beats[pb2].pictures.find((x) => x.what.includes("bullock")).decision.askedNow, false);
+for (const b of [pb1, pb2]) await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: b, kinds: null });
 
 // Reset: a chapter's scenes, then the lecture's.
 const resetCh = run.script.lectures[1].chapters[0];

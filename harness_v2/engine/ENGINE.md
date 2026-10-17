@@ -23,3 +23,8 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   narration mix needs `narration.py`). `tools/voice_scene.py`: a spoken scene's lines (audio, length, cost, word
   times and their source), the beats to time with `align_cues`'s prompt, and the timing model's answer checked and
   written into the scene as `cues=` (the app makes the timing call itself, so it is recorded).
+- `picture_judge.py`: with `PANIM_PICTURE_JUDGE` set (a decision model: Jev), whether a picture asked for is one made
+  before is the model's answer (show it again, draw a new one matching it, or draw fresh), from the earlier pictures'
+  words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures
+  (`judge-<key>.json`) and reported in `genimage.report()["judged"]`. `genimage._words` and `_names` leave out colour
+  codes, look words and titles.

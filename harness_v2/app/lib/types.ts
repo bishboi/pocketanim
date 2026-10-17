@@ -373,6 +373,24 @@ export type ManimAgentState = {
 export type MissingPicture = { what: string; error?: string; beat?: number };
 
 /** One AI picture of a beat, as the engine's compile got it: made now, made before (the cache), or not made. */
+export type PictureDecision = {
+  action: "reuse" | "match" | "fresh";
+  choice?: string | null;
+  confidence?: number | null;
+  probabilities?: Record<string, number>;
+  /** Below the threshold: a reuse drawn anew to match instead, a match drawn fresh. */
+  unsure?: boolean;
+  /** The pictures it was asked about: their words and prompt (and the chosen one's file, to show). */
+  candidates: { key: string; what: string; prompt?: string; reusable?: boolean }[];
+  picked?: string | null;
+  pickedUrl?: string;
+  model?: string;
+  call?: string;
+  /** Asked now (a call), or the answer kept from a compile before. */
+  askedNow?: boolean;
+  error?: string;
+};
+
 export type BeatPicture = {
   what: string;
   caption?: string;
@@ -385,6 +403,9 @@ export type BeatPicture = {
   model?: string;
   usd?: number;
   error?: string;
+  /** Whether a picture made before was used for it, as the decision model (Jev) decided: shown again (reuse), drawn
+   * anew to match it (match), or none (fresh); with its probabilities, the picture it chose, and its call. */
+  decision?: PictureDecision;
   beat?: number;
 };
 
@@ -436,6 +457,10 @@ export type ScenesState = {
   /** Manim figures written by the Manim agent (with images, previews), or by the scene writer in its answer. */
   manimAgent?: boolean;
   manimModel?: string;
+  /** Whether a picture made before is used again (or matched) as a decision model decides (on by default), or by
+   * matching words; and that model. */
+  reuseJudge?: boolean;
+  reuseModel?: string;
   /** The images the Manim agent made, by lecture, by name. */
   agentImages?: Record<string, Record<string, AgentImage>>;
   error?: string;

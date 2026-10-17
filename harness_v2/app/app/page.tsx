@@ -366,6 +366,7 @@ export default function Page() {
             {run && tab === "Script" && <ScriptPanel run={run} select={setSelection} onCall={setCallId} />}
             {run && tab === "Scenes" && <ScenesPanel run={run} defaultModel={run.options.scenesModel || options.scenesModel || config?.models.scenes?.model || ""}
               manimModel={run.options.manimModel || options.manimModel || config?.models.manim?.model || ""}
+              reuseModel={config?.models.reuse?.model || ""}
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
             {run && tab === "Voice" && <VoicePanel run={run} ready={config?.voices} timingModel={config?.models.timing?.model || ""}
               onCall={setCallId} act={(body) => act("/voice", body)} />}

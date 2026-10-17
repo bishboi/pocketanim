@@ -656,17 +656,34 @@ _HOW = re.compile(r"\b(?:an?|the|of|in|on|with|and|to|for|at|by|its|his|her|thei
                   r"text|labels?|border|centred|centered|full|figure|whole|shown|showing|view|portrait)\b", re.I)
 
 
+# How a picture looks, not what it shows: colour codes and the looks' and art styles' words (the scene writer puts
+# the look in its descriptions: "detailed shaded Atlas illustration exclusively #E3B25A ... on #0D1117").
+_LOOKS = re.compile(r"#?\b[0-9a-f]{6}\b|\b(?:atlas|parchment|lab|cosmos|vox|cardboard|whiteboard|blueprint|chalkboard|"
+                    r"chalk|sketch\w*|neon|watercolou?r|pencil|ink|cross-?hatch\w*|hatch\w*|shad\w*|outlines?|palette|"
+                    r"accents?|exclusively|only|lettering|writing|isolated|length|continuous|separate|panels?|"
+                    r"integrate\w*|colou?rs?)\b", re.I)
+
+
+_OPENERS = {"a", "an", "the", "one", "two", "three", "no", "not", "never", "this", "these", "that", "those", "it", "its",
+            "in", "on", "with", "at", "for", "from", "of", "and", "or", "but", "use", "show", "draw", "make", "add", "keep",
+            "make", "let", "give", "put", "place", "include", "avoid", "same", "each", "every", "all", "both", "some",
+            "background", "foreground", "style", "detailed", "simple", "clean", "full", "whole", "left", "right",
+            # Titles name no one by themselves (King Ravindra and King Ashoka are not the same person).
+            "king", "queen", "emperor", "empress", "prince", "princess", "sultan", "raja", "rani", "maharaja", "lord",
+            "lady", "sir", "saint", "st", "president", "prime", "minister", "general", "captain", "chief", "pope"}
+
+
 def _words(what: str) -> set[str]:
-    """What a request shows, as its content words (lower case, no drawing words)."""
-    plain = _HOW.sub(" ", re.sub(r"[^\w\s-]", " ", what.lower()))
+    """What a request shows, as its content words (lower case, no drawing or look words)."""
+    plain = _HOW.sub(" ", _LOOKS.sub(" ", re.sub(r"[^\w\s#-]", " ", what.lower())))
     return {w.strip("-") for w in plain.split() if len(w.strip("-")) > 2}
 
 
 def _names(what: str) -> set[str]:
     """The proper names in a request (a person, a place): its capitalised words, but for an opening article."""
-    tokens = re.findall(r"[A-Za-z][\w'-]*", what)
-    return {t.lower() for k, t in enumerate(tokens)
-            if t[0].isupper() and not (k == 0 and t.lower() in ("a", "an", "the", "one", "two", "three"))}
+    # Colour codes and look words are not names, nor the words a sentence of instructions opens with.
+    tokens = re.findall(r"[A-Za-z][\w'-]*", _LOOKS.sub(" ", what))
+    return {t.lower() for t in tokens if t[0].isupper() and t.lower() not in _OPENERS}
 
 
 def _same_thing(asked: str, made: str) -> float:
@@ -703,6 +720,46 @@ def _made_pictures() -> list[dict]:
         if png.exists() and row.get("what"):
             out.append({**row, "png": png})
     return out
+
+
+def _judging() -> bool:
+    import picture_judge
+
+    return picture_judge.enabled()
+
+
+def _made_by_key(key: str) -> dict | None:
+    """A picture made before, by its file's name (gen-<key>)."""
+    return next((row for row in _made_pictures() if row["png"].stem == key), None)
+
+
+def _shortlist(what: str, style: str | None, realistic: bool, parts, scene: bool = False, aspect: str | None = None,
+               look: str | None = None) -> list[tuple[dict, bool]]:
+    """The pictures made before that the decision model is asked about (picture_judge): in the same style, look and
+    model, sharing a content word with the request, the closest first; each with whether it can be shown again as it
+    is (the same shape, cutout or scene, and every part this one labels)."""
+    wanted = {str(p).strip().lower() for p in parts or [] if str(p).strip()}
+    asked = _words(what)
+    if not asked:
+        return []
+    scored = []
+    for row in _made_pictures():
+        if row.get("model") != model() or (row.get("style") or None) != (style or None) \
+                or bool(row.get("realistic")) != bool(realistic) or (row.get("look") or None) != _look_tag(look):
+            continue
+        made = _words(str(row["what"]))
+        shared = len(asked & made)
+        if not shared:
+            continue
+        reusable = bool(row.get("scene")) == bool(scene) and (row.get("aspect") or None) == (aspect or None) \
+            and wanted <= {str(p).strip().lower() for p in row.get("parts") or []}
+        scored.append((shared / len(asked | made), row, reusable))
+    scored.sort(key=lambda x: (-x[0], x[1]["png"].stat().st_mtime))
+    try:
+        limit = int(os.environ.get("PANIM_PICTURE_JUDGE_CANDIDATES") or 8)
+    except ValueError:
+        limit = 8
+    return [(row, reusable) for _, row, reusable in scored[:max(1, limit)]]
 
 
 def _reusable(what: str, style: str | None, realistic: bool, parts, scene: bool = False,
@@ -904,11 +961,28 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
                          f"{'|' + _look_tag(look) if look else ''}".encode()).hexdigest()[:20]
     # A child's drawing is named so the board knows to draw it on (pocket_lecture.draw_on).
     target = CACHE / (f"gen-child-{key}.png" if look == "child" else f"gen-{key}.png")
+    judged = None
+    import picture_judge
+
+    how = (f"style {style or 'default'}, {'photograph-like' if realistic else 'illustration'}, "
+           f"{'a whole scene' if scene else 'a cutout (the subject alone)'}"
+           f"{', labelled: ' + ', '.join(map(str, parts)) if parts else ''}{', ' + aspect if aspect else ''}")
+    if target.exists() and picture_judge.enabled():
+        picture_judge.recall(what, how, CACHE)
     if not target.exists():
-        same = _reusable(what, style, realistic, parts, scene, aspect, look)
-        if same is not None:
-            target = same
-            key = same.stem.split("-", 1)[1]
+        if picture_judge.enabled():
+            # v2: a decision model says whether a picture made before is this one, or one to match, or neither.
+            shortlist = _shortlist(what, style, realistic, parts, scene, aspect, look)
+            if shortlist:
+                judged = picture_judge.decide(what, context or "", how, shortlist, CACHE, _same_thing, _names, _made_by_key)
+                if judged["action"] == "reuse":
+                    target = judged["row"]["png"]
+                    key = target.stem.split("-", 1)[1]
+        else:
+            same = _reusable(what, style, realistic, parts, scene, aspect, look)
+            if same is not None:
+                target = same
+                key = same.stem.split("-", 1)[1]
     row = {"id": f"gen:{key}", "title": what[:200], "description": what[:500], "source": "generated",
            "license": "generated", "artist": model(), "credit": f"made with {model()}", "prompt": prompt,
            "model": model(), "png": str(target)}
@@ -927,8 +1001,13 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     if model() in REFUSED and not fallbacks():
         _failed(what, REFUSED[model()])          # refused already this run: not asked again
         return None
-    like = reference_for(what, style, realistic) if match and not target.exists() and model() not in NO_REFERENCE \
-        else None
+    if judged is not None or (match and _judging()):
+        # The decision model's match, or none: the words are not matched to a reference besides.
+        like = judged["row"] if judged is not None and judged["action"] == "match" and match \
+            and model() not in NO_REFERENCE else None
+    else:
+        like = reference_for(what, style, realistic) if match and not target.exists() and model() not in NO_REFERENCE \
+            else None
     plain = prompt
     reference = None
     if like is not None:
@@ -1278,7 +1357,8 @@ def report() -> dict:
     """What this process asked of the image model: how many pictures, how many made now, found made, failed (and
     why), and which model, for the lecture's log (compile_lecture --json "images")."""
     out = {"model": configured(), "diagram_model": diagram_model(), "proxy": proxy_shown(), "asked": len(ASKED), "cached": sum(1 for a in ASKED if a["cached"]),
-           "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED}
+           "made": sum(1 for m in MADE if m.get("made")), "failed": FAILED,
+           "judged": list(__import__("picture_judge").DECIDED.values())}
     return out
 
 

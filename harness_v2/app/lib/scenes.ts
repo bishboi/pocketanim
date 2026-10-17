@@ -57,6 +57,7 @@ export type ScenesAction =
   | { action: "render"; lecture: number; chapter: number; beat?: number; style?: string; art?: string }
   | { action: "agent"; lecture: number; beat: number; instruction?: string; model?: string }
   | { action: "agentSettings"; on?: boolean; model?: string }
+  | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -122,6 +123,12 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   const st = stateOf(run);
   if (a.action === "look") {
     st.look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "reuseSettings") {
+    if (a.on !== undefined) st.reuseJudge = a.on;
+    if (a.model !== undefined) st.reuseModel = a.model.trim() || undefined;
     saveRun(run, true);
     return run;
   }
@@ -562,16 +569,33 @@ export function agentRegistry(runId: string, n: number): string {
   return path.join(scenesDir(runId), `L${n}`, "agent-images.json");
 }
 
+/** The model that decides whether a picture made before is used again (picture_judge.py), when that is on. */
+export function reuseModel(run: Run): string | undefined {
+  const st = run.scenes;
+  return st?.reuseJudge === false ? undefined : st?.reuseModel || modelFor("reuse");
+}
+
 export function engineEnv(run: Run, n?: number): Record<string, string> {
   const image = run.options.imageModel || modelFor("image");
+  const judge = reuseModel(run);
   return { PYTHONPATH: engineDir(), PANIM_VOICE: "silent", PANIM_IMAGE_MODEL: image, PANIM_DIAGRAM_MODEL: image,
     ...(usingFixture(image) ? { PANIM_IMAGE_FAKE: "1" } : {}),
+    ...(judge ? { PANIM_PICTURE_JUDGE: judge, ...(usingFixture(judge) ? { PANIM_PICTURE_JUDGE_FAKE: "1" } : {}) } : { PANIM_PICTURE_JUDGE: "" }),
     ...(n !== undefined && existsSync(agentRegistry(run.id, n)) ? { PANIM_BLOCK_IMAGES: agentRegistry(run.id, n) } : {}) };
 }
 
+type Judged = { what: string; model?: string; candidates?: { key: string; what: string; prompt?: string; reusable?: boolean }[];
+  state?: string[]; criteria?: Record<string, string>; asked_now?: boolean; usd?: number; fake?: boolean; choice?: string | null;
+  probabilities?: Record<string, number>; confidence?: number | null; seconds?: number; action?: "reuse" | "match" | "fresh";
+  picked?: string | null; unsure?: boolean; error?: string };
+
 type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[];
   /** The engine's image model's report (genimage.report): asked, made, cached, and each picture it could not get. */
-  images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[] };
+  images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[];
+    /** The decision model's answers on reusing a picture made before (picture_judge.py). */
+    judged?: Judged[] };
+  /** The call each decision asked now was recorded as, by what was asked. */
+  judgedCalls?: Record<string, string>;
   /** Every picture the scene shows (compile_lecture.pictures_used): its file, what it shows, where. */
   pictures?: { file?: string; description?: string; role?: string; context?: { chapter?: number; beat?: number; caption?: string } }[] };
 
@@ -597,11 +621,39 @@ async function picturesByBeat(run: Run, n: number, c: Compiled, beatAt: (chapter
       await mkdir(dir, { recursive: true });
       await writeFile(copy, await readFile(p.file));
     }
-    out.push({ what: String(p.description ?? ""), caption: p.context?.caption, role: p.role, status: now.has(p.file) ? "made" : "cached",
-      url: fileUrl(run.id, copy), prompt: side.prompt, model: side.model, usd: Number(side.usd) || undefined, beat });
+    const what = String(p.description ?? "");
+    out.push({ what, caption: p.context?.caption, role: p.role, status: now.has(p.file) ? "made" : "cached",
+      url: fileUrl(run.id, copy), prompt: side.prompt, model: side.model, usd: Number(side.usd) || undefined, beat,
+      decision: await decisionFor(run, c, what, dir) });
   }
   for (const m of missing) out.push({ what: m.what, status: "failed", error: m.error, beat: m.beat });
   return out;
+}
+
+/** The decision model's answer on a picture (by what it shows), with the picture it chose copied to be shown. */
+async function decisionFor(run: Run, c: Compiled, what: string, dir: string): Promise<BeatPicture["decision"]> {
+  const same = (x?: string) => String(x ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const j = (c.images?.judged ?? []).find((x) => same(x.what) === same(what));
+  if (!j?.action) return undefined;
+  let pickedUrl: string | undefined;
+  if (j.picked) {
+    const from = path.join(imageCache(), `${j.picked}.png`);
+    const to = path.join(dir, `${j.picked}.png`);
+    if (existsSync(from)) {
+      if (!existsSync(to)) {
+        await mkdir(dir, { recursive: true });
+        await writeFile(to, await readFile(from));
+      }
+      pickedUrl = fileUrl(run.id, to);
+    }
+  }
+  return { action: j.action, choice: j.choice, confidence: j.confidence, probabilities: j.probabilities, unsure: j.unsure,
+    candidates: j.candidates ?? [], picked: j.picked, pickedUrl, model: j.model, call: c.judgedCalls?.[j.what], askedNow: !!j.asked_now, error: j.error };
+}
+
+/** Where the engine keeps the pictures it made (genimage.CACHE). */
+function imageCache(): string {
+  return process.env.PANIM_IMAGE_CACHE || path.join(engineDir(), ".cache", "images");
 }
 
 /** The engine's words for a picture it could not get (compile_lecture: "no reusable illustration for '...'; it is left out"). */
@@ -629,12 +681,37 @@ function missingPictures(c: Compiled, beatOf: (warning: string) => number | unde
   return { missing, report };
 }
 
+/**
+ * Each decision on reusing a picture asked now, as a call (a decision model's: the state, the question's options,
+ * the answer), so the Calls and Costs tabs have it; an answer kept from a compile before is no call.
+ */
+function recordJudged(run: Run, n: number, judged: Judged[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const j of judged) {
+    if (!j.asked_now) continue;
+    const call = newCall(run, { step: "scenes", label: `Reuse a picture made before? "${j.what.slice(0, 70)}${j.what.length > 70 ? "…" : ""}"`, lecture: n,
+      model: j.model ?? "decision model", effort: "off",
+      prompt: { system: [], user: (j.state ?? []).map((t, i) => part(i ? `picture${i - 1}` : "needed", i ? `Picture ${i - 1} made before` : "The picture needed now", i ? "context" : "ask", t)) } });
+    Object.assign(call, { api: "decisions", tool: { use: { type: "choice", criteria: j.criteria ?? {} } }, status: j.error ? "failed" : "done",
+      ended: call.started + Math.round((j.seconds ?? 0) * 1000), cost: j.usd ?? 0, provider: j.fake ? "fixture" : "openrouter",
+      attempts: [{ started: call.started, ended: call.started + Math.round((j.seconds ?? 0) * 1000), ...(j.error ? { error: j.error } : {}) }],
+      output: { choice: j.choice, probabilities: j.probabilities, confidence: j.confidence }, ...(j.error ? { error: j.error } : {}) });
+    check(call, "Decision", j.error ? "fail" : "info", j.error ? `no answer (${j.error}): drawn fresh`
+      : `${j.action === "reuse" ? `shown again: ${j.picked}` : j.action === "match" ? `drawn anew to match ${j.picked}` : "drawn fresh"}` +
+        `${j.confidence != null ? ` (${Math.round(j.confidence * 100)}%)` : ""}${j.unsure ? "; it was unsure, so not taken as it said" : ""}`);
+    lectureState(run, n).calls.push(call.id);
+    out[j.what] = call.id;
+  }
+  return out;
+}
+
 export async function compile(run: Run, script: Record<string, unknown>, dir: string, n?: number): Promise<Compiled> {
   await mkdir(dir, { recursive: true });
   const out = await runPython([path.join(engineDir(), "compile_lecture.py"), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
   try {
     const json = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as Compiled & { source?: string | null };
-    return { ...json, source: json.source ?? undefined, errors: json.errors ?? [], warnings: json.warnings ?? [] };
+    const judgedCalls = n !== undefined ? recordJudged(run, n, json.images?.judged ?? []) : {};
+    return { ...json, source: json.source ?? undefined, errors: json.errors ?? [], warnings: json.warnings ?? [], judgedCalls };
   } catch {
     return { errors: [`the engine's compile failed: ${errorOf(out.out).slice(-800)}`], warnings: [] };
   }

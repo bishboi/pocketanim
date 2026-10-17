@@ -39,8 +39,8 @@ const KIND_COLOR: Record<string, string> = {
 };
 const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
 
-export function ScenesPanel({ run, defaultModel, manimModel, select, onCall, act }: {
-  run: Run; defaultModel: string; manimModel: string; select: (s: Selection) => void; onCall: (id: string) => void; act: Act;
+export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", select, onCall, act }: {
+  run: Run; defaultModel: string; manimModel: string; reuseModel?: string; select: (s: Selection) => void; onCall: (id: string) => void; act: Act;
 }) {
   const st = run.scenes;
   const [model, setModel] = useState(st?.model || defaultModel);
@@ -99,6 +99,17 @@ export function ScenesPanel({ run, defaultModel, manimModel, select, onCall, act
           <span className="text-neutral-500">agent model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" defaultValue={st?.manimModel ?? manimModel} key={st?.manimModel ?? manimModel}
             onBlur={(e) => e.target.value !== (st?.manimModel ?? manimModel) && act({ action: "agentSettings", model: e.target.value })} title="the Manim role's model (V2_MANIM_MODEL); changed here for this run" />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-pink-300">AI pictures made before</span>
+          <label className="flex items-center gap-1 text-neutral-300" title="For each AI picture a scene asks for, the decision model is shown the pictures made before that could be it (their words and the prompts they were drawn from) and chooses: show one again, draw a new one that matches one (the same person or place, sent as its reference), or draw fresh">
+            <input type="radio" checked={st?.reuseJudge !== false} onChange={() => act({ action: "reuseSettings", on: true })} data-testid="scenes-reuse-judge" /> a decision model decides: show again, match, or draw fresh</label>
+          <label className="flex items-center gap-1 text-neutral-300" title="The engine's own rule: the same words shown again, the same proper name matched">
+            <input type="radio" checked={st?.reuseJudge === false} onChange={() => act({ action: "reuseSettings", on: false })} /> matched by their words</label>
+          <span className="text-neutral-500">model</span>
+          <input className="mono w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" defaultValue={st?.reuseModel ?? reuseModel} key={st?.reuseModel ?? reuseModel}
+            disabled={st?.reuseJudge === false}
+            onBlur={(e) => e.target.value !== (st?.reuseModel ?? reuseModel) && act({ action: "reuseSettings", model: e.target.value })} title="the Picture reuse role's model (V2_REUSE_MODEL, else the triage's: Jev); changed here for this run" />
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
           <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
@@ -383,7 +394,37 @@ const ROLE_ORDER = (role?: string) => (role?.includes("gallery") ? 0 : role?.inc
 /** The AI pictures of a beat, as the last compile got them, like the Manim agent's: each picture (enlarged on a click),
  * what it shows, its caption and place (a gallery's first), made now (and its cost), made before, or not made and the
  * image model's error; the prompt the image model was sent and its model. */
-function BeatPictures({ pictures, onRetry, busy }: { pictures: BeatPicture[]; onRetry: () => void; busy: boolean }) {
+/** What the decision model said about a picture: shown again, drawn to match one made before, or drawn fresh. */
+function Decision({ d, onBig, onCall }: { d: NonNullable<BeatPicture["decision"]>; onBig: (url: string) => void; onCall?: (id: string) => void }) {
+  const tone = d.action === "reuse" ? "text-sky-300" : d.action === "match" ? "text-violet-300" : "text-neutral-300";
+  const top = Object.entries(d.probabilities ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return (
+    <div className="mt-1 rounded border border-neutral-800 bg-neutral-950/60 p-1" data-testid="picture-decision">
+      <p className={tone}>
+        {d.action === "reuse" ? "shown again: a picture made before" : d.action === "match" ? "drawn anew to match a picture made before" : "drawn fresh"}
+        {d.confidence != null ? ` · ${Math.round(d.confidence * 100)}%` : ""}{d.unsure ? " (unsure: not taken as it said)" : ""}
+      </p>
+      <p className="text-neutral-500">{d.model}{d.askedNow ? "" : " · answer kept from before"} · asked about {d.candidates.length} picture(s)
+        {d.call && onCall ? <> · <button className="text-sky-300 hover:underline" onClick={() => onCall(d.call!)}>its call</button></> : null}</p>
+      {d.error && <p className="text-red-300">{d.error}</p>}
+      {d.pickedUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img alt="the picture it chose" src={d.pickedUrl} onClick={() => onBig(d.pickedUrl!)} className="mt-0.5 h-12 cursor-zoom-in rounded bg-neutral-900 object-contain" title={d.candidates.find((c) => c.key === d.picked)?.what} />
+      )}
+      <details>
+        <summary className="cursor-pointer text-neutral-500">what it was asked</summary>
+        <ol className="mt-0.5 space-y-0.5 text-neutral-400">
+          {d.candidates.map((c, i) => (
+            <li key={c.key} className={c.key === d.picked ? "text-neutral-100" : ""}>{i}. {c.what}{c.reusable ? "" : " (only to match)"}</li>
+          ))}
+        </ol>
+        {top.length > 0 && <p className="mt-0.5 text-neutral-500">{top.map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" · ")}</p>}
+      </details>
+    </div>
+  );
+}
+
+function BeatPictures({ pictures, onRetry, busy, onCall }: { pictures: BeatPicture[]; onRetry: () => void; busy: boolean; onCall?: (id: string) => void }) {
   const [big, setBig] = useState<string | null>(null);
   const sorted = [...pictures].sort((a, b) => ROLE_ORDER(a.role) - ROLE_ORDER(b.role));
   const groups = [...new Set(sorted.map((p) => (p.status === "failed" ? "not made" : p.role ?? "on the beat")))];
@@ -413,6 +454,7 @@ function BeatPictures({ pictures, onRetry, busy }: { pictures: BeatPicture[]; on
                 <p className={p.status === "failed" ? "text-red-300" : p.status === "made" ? "text-emerald-300" : "text-neutral-400"}>
                   {p.status === "failed" ? "not made" : p.status === "made" ? `made now${p.usd ? ` · ${money(p.usd)}` : ""}` : "made before (reused)"}{p.model ? ` · ${p.model}` : ""}</p>
                 {p.error && <p className="whitespace-pre-wrap text-red-200">{p.error}</p>}
+                {p.decision && <Decision d={p.decision} onBig={setBig} onCall={onCall} />}
                 {p.prompt && <details><summary className="cursor-pointer text-neutral-500">the prompt</summary><p className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap text-neutral-300">{p.prompt}</p></details>}
               </div>
             ))}
@@ -735,7 +777,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
           )}
         </div>
       </div>
-      {sb?.pictures?.length ? <BeatPictures pictures={sb.pictures} onRetry={() => act({ action: "compile", lecture: lecture.n })} busy={busy} /> : null}
+      {sb?.pictures?.length ? <BeatPictures pictures={sb.pictures} onRetry={() => act({ action: "compile", lecture: lecture.n })} busy={busy} onCall={onCall} /> : null}
       <AgentSection run={run} lecture={lecture} n={n} sb={sb} busy={busy} act={act} onCall={onCall}
         manimOn={(ownKinds ?? inherited).includes("manim")} />
     </div>

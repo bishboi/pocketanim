@@ -404,7 +404,7 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
     prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
-      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false }) });
+      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n) }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -418,10 +418,16 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
   }
   const answered = new Map<number, unknown[]>();
-  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; do?: unknown }[] : []) {
+  const extras = new Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>();
+  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; do?: unknown; paragraph?: unknown; pause?: unknown; about?: unknown }[] : []) {
     const k = Math.round(Number(b?.beat));
-    if (targets.includes(k) && !answered.has(k)) answered.set(k, Array.isArray(b.do) ? b.do : []);
+    if (!targets.includes(k) || answered.has(k)) continue;
+    answered.set(k, Array.isArray(b.do) ? b.do : []);
+    const pause = Number(b.pause);
+    extras.set(k, { paragraph: b.paragraph === true || undefined, pause: Number.isFinite(pause) && pause > 0 ? Math.min(pause, 4) : undefined,
+      about: typeof b.about === "string" && b.about.trim() ? b.about.trim().slice(0, 120) : undefined });
   }
+  if (typeof reply.emblem === "string" && reply.emblem.trim() && (!sl.emblem || ask.what === "lecture")) sl.emblem = reply.emblem.trim().slice(0, 160);
   let droppedAll = 0;
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -432,7 +438,8 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     }
     const kept = filterOps(ops as Record<string, unknown>[], kindsFor(run, sl, t));
     droppedAll += kept.dropped.length;
-    Object.assign(b, { ops: kept.ops, dropped: kept.dropped, status: "done", edited: false, errors: undefined, notes: undefined });
+    Object.assign(b, { ops: kept.ops, dropped: kept.dropped, status: "done", edited: false, errors: undefined, notes: undefined,
+      paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
   }
   const missing = targets.filter((t) => !answered.has(t));
   check(call, "Beats", missing.length ? "fail" : "pass", missing.length ? `${missing.length} of ${targets.length} beat(s) not answered: ${missing.slice(0, 12).map((t) => `#${t}`).join(", ")}`
@@ -551,7 +558,11 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   const region = script.chapters.some((c) => c.map) && sl.region ? sl.region : null;
   let chapters = script.chapters.map((c) => ({
     n: c.n, title: c.title, narration: c.narration, map: c.map && !!region,
-    beats: c.beats.map((b) => ({ n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sl.beats[b.n]?.ops ?? [] })),
+    beats: c.beats.map((b) => {
+      const sb = sl.beats[b.n];
+      return { n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sb?.ops ?? [],
+        ...(sb?.paragraph ? { paragraph: true } : {}), ...(sb?.pause ? { pause: sb.pause } : {}), ...(sb?.about ? { about: sb.about } : {}) };
+    }),
   }));
   if (only) {
     chapters = chapters.filter((c) => c.n === only.chapter).map((c) => ({ ...c, beats: only.upTo === undefined ? c.beats
@@ -559,9 +570,36 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   }
   return {
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
+    ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
-    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration, map: c.map, beats: c.beats.map((b) => ({ say: b.say, do: b.do })) })),
+    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration, map: c.map,
+      beats: c.beats.map(({ n: _, ...b }) => b) })),
   };
+}
+
+/** The engine's subjects (genre.py), as v1's page offers them; another subject is decided from the lecture's words. */
+const GENRES = ["mathematics", "physics", "chemistry", "biology", "history", "geography", "economics", "general"];
+
+/**
+ * A lecture's subject and its kit, as v1 tells its writer (the engine's genre.py): the run's subject when it names
+ * one of the engine's, else decided from the lecture's words. Kept on the lecture.
+ */
+export async function subjectOf(run: Run, n: number): Promise<NonNullable<SceneLecture["subject"]> | undefined> {
+  const sl = lectureState(run, n);
+  if (sl.subject) return sl.subject;
+  const chosen = String(run.options.subject ?? "").trim().toLowerCase();
+  const text = run.lectures.find((l) => l.n === n)?.text ?? "";
+  const out = GENRES.includes(chosen)
+    ? await runPython([path.join(engineDir(), "genre.py"), "--genre", chosen], engineDir(), {}, undefined, 60_000)
+    : await runPython([path.join(engineDir(), "genre.py")], engineDir(), {}, text.slice(0, 20000), 60_000);
+  try {
+    const j = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as NonNullable<SceneLecture["subject"]>;
+    if (!j.genre) return undefined;
+    sl.subject = { genre: j.genre, label: j.label ?? j.genre, guidance: j.guidance, map: j.map, kit: j.kit };
+    return sl.subject;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The images the Manim agent made for a lecture, by name (the engine's image("name") reads it). */

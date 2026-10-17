@@ -303,6 +303,11 @@ export type SceneBeat = {
   n: number;
   status: "waiting" | "running" | "done" | "failed";
   ops: Record<string, unknown>[];
+  /** The rest of the beat as v1's beat script has it: a paragraph's first beat, extra seconds after the line, whom
+   * or what it is about (its English name). */
+  paragraph?: boolean;
+  pause?: number;
+  about?: string;
   /** What code took out of the model's answer (a kind switched off, an op the engine does not know). */
   dropped?: string[];
   /** The compiler's errors on this beat (it does not compile), and its notes (warnings, what it mended). */
@@ -432,6 +437,9 @@ export type SceneLecture = {
   /** What it is doing now, in words ("chapter 2 of 4", "compiling", "mending 3 beats"). */
   doing?: string;
   region?: Record<string, unknown> | null;
+  /** The lecture's emblem (one object for the topic) and its subject (the engine's genre.py), as v1 has them. */
+  emblem?: string;
+  subject?: { genre: string; label: string; guidance?: string; map?: string; kit?: string[] };
   beats: Record<string, SceneBeat>;
   compile?: SceneCompile;
   chapters?: Record<string, SceneChapterRender>;

@@ -345,7 +345,8 @@ assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
 assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
 assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "define", "clear"].includes(o.op))), "only the kinds switched on");
 const scenesCall = run.calls.find((c) => c.step === "scenes");
-assert.ok(scenesCall.prompt.system.some((p) => p.key === "kinds" && /DIAGRAM/.test(p.text) && !/AI ILLUSTRATIONS/.test(p.text)), "only the kinds on are told");
+const offAll = scenesCall.prompt.system.find((p) => p.key === "off");
+assert.ok(offAll && /AI illustrations/.test(offAll.text) && !/Diagrams/.test(offAll.text), "the kinds switched off are named as such");
 // A beat's kinds of its own, its operations by hand, one beat built again.
 const firstBeat = sceneBeats[0].n;
 await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: ["define"] });
@@ -444,7 +445,14 @@ await scenesAction(run.id, { action: "build", scope: "chapter", lecture: 1, chap
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.ok(kc.beats.every((b) => run.scenes.lectures[1].beats[b.n].ops.every((o) => ["panel", "fact", "define", "clear"].includes(o.op))), "only the chapter's kinds");
 const kcCall = run.calls.filter((c) => c.step === "scenes" && /chapter/.test(c.label)).at(-1);
-assert.ok(kcCall.prompt.system.some((p) => p.key === "kinds" && /HARD WORD/.test(p.text) && !/A DIAGRAM/.test(p.text)), "the chapter's kinds are what is told");
+const offPart = kcCall.prompt.system.find((p) => p.key === "off");
+assert.ok(offPart && /Diagrams/.test(offPart.text) && !/Definitions/.test(offPart.text), "the kinds the chapter may not use are named as switched off");
+// The instructions are v1's, word for word, in v1's order; the subject's guidance as v1 tells it.
+const { V1_LECTURE, V1_MANIM_PLAN } = await import(path.resolve(here, "../lib/prompts/v1-lecture.ts"));
+const sysText = render(kcCall.prompt.system);
+for (const key of Object.keys(V1_LECTURE)) assert.ok(sysText.includes(V1_LECTURE[key].join("\n").trim()), `v1's ${key} section, verbatim`);
+assert.ok(sysText.includes(V1_MANIM_PLAN.join("\n").trim()), "v1's Manim plan rules (the agent builds the figures)");
+assert.ok(kcCall.prompt.system.some((p) => p.key === "subject" && /^SUBJECT\. This is a /.test(p.text)), "the subject, as v1 tells it");
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: null });
 assert.ok(!(await loadRun(run.id)).scenes.lectures[1].chapterKinds?.[kc.n]);
 

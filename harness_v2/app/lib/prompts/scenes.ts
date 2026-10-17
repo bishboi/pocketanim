@@ -9,7 +9,7 @@
  * the whole lecture, for one chapter, or for one beat (the rest of its chapter given as it is, for context).
  */
 
-import { part, type Part } from "./parts";
+import { part, render, type Part } from "./parts";
 import { V1_FREE_DRAWINGS_HEAD, V1_LECTURE, V1_MANIM_PLAN, V1_MANIM_RULES } from "./v1-lecture";
 
 const ROLE = [
@@ -163,4 +163,41 @@ export function scenesPrompt(x: {
         `"paragraph": true on the first beat of each paragraph.`),
     ],
   };
+}
+
+/** The role when the instructions are given to any chat model by hand (the Voice tab's editor). */
+const HAND_ROLE = [
+  "You design the visuals of ONE chapter of a narrated lecture video, beat by beat, as the beat script that a compiler",
+  "turns into Manim for a phone renderer. You are given the chapter's beat script as JSON (below the instructions)",
+  "and what to change; you return the whole chapter's beat script, changed. Each beat's sentences (\"say\") are the",
+  "lecture's transcript: keep them as they are unless you are asked to change the words. Everything below is how the",
+  "beat script is written.",
+].join("\n");
+
+/** How the answer is given when the instructions are used by hand: the whole chapter, in the editor's shape. */
+const HAND_SHAPE = [
+  "THE ANSWER: the whole chapter's beat script as ONE JSON object, in exactly this shape, and nothing else (no words",
+  "before or after it):",
+  '{"style": "<the look, as given>", "art": "<as given>",',
+  ' "region": {"country": "India", "view": "ind"} | {"state": "Rajasthan", "country": "India"} |',
+  '   {"area": "World" | a continent ("Asia", "Europe", "Africa") | a world region ("South Asia", "Middle East",',
+  '   "Western Europe", "Southern Africa", "Indian subcontinent")} | null,  (an area\'s "state" op fills a country)',
+  ' "emblem": "<one simple object that stands for the whole topic>" | null, "genre": "<as given>",',
+  ' "chapter": {"title", "narration": "Chapter one. ...", "map": true | false,',
+  '   "beats": [{"beat": <its number, as given>, "say": "...", "paragraph"?: true, "pause"?: 2, "about"?: "<English name>",',
+  '              "do": [ops]}]}}',
+  "Keep every beat's \"beat\" number as given (a beat you add has none). Map operations only in a chapter with",
+  '"map": true and a region. Free-form Manim is written as code ("code"), never as a plan: nothing writes it after you.',
+].join("\n");
+
+/**
+ * The scene writer's instructions as one text to give any chat model by hand, with a chapter's beat script, to have
+ * it change the chapter (the Voice tab's editor): v1's instructions as the scene writer gets them, its subject and
+ * the kinds switched off, with the role and the answer's shape for a whole chapter, and Manim written as code.
+ */
+export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject }): string {
+  const system = scenesPrompt({ lecture: { n: 0, title: "" }, look: x.look, kinds: x.kinds, labels: x.labels, chapters: [], beats: [],
+    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject }).system
+    .map((p) => (p.key === "role" ? { ...p, text: HAND_ROLE } : p.key === "shape" ? { ...p, text: HAND_SHAPE } : p));
+  return [render(system), "", `THE LOOK: the lecture is drawn in ${x.look}. Do not choose colours outside it.`].join("\n");
 }

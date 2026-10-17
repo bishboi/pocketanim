@@ -200,7 +200,7 @@ function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: numb
   let parsed: unknown;
   let parseError: string | null = null;
   try {
-    parsed = text.trim() ? JSON.parse(text) : undefined;
+    parsed = text.trim() ? JSON.parse(unfence(text)) : undefined;
   } catch (error) {
     parseError = (error as Error).message;
   }
@@ -216,7 +216,7 @@ function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: numb
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button data-testid="voice-try" disabled={!!parseError || !parsed || running} className={`${btn} border-emerald-700 text-emerald-200 hover:bg-emerald-950`}
-          onClick={() => void act({ action: "try", lecture: n, chapter, script: parsed })}>{running ? `${trial?.phase ?? "trying"}…` : "Speak and play this"}</button>
+          onClick={() => { if (text.trim().startsWith("```")) setText(JSON.stringify(parsed, null, 2)); void act({ action: "try", lecture: n, chapter, script: parsed }); }}>{running ? `${trial?.phase ?? "trying"}…` : "Speak and play this"}</button>
         <button disabled={!!parseError || !parsed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => setText(JSON.stringify(parsed, null, 2))}>Format</button>
         <button disabled={loading || running} className={`${btn} border-neutral-700 hover:bg-neutral-800`}
           onClick={() => { if (!trial?.edited || confirm("Replace what is here with the scenes' beat script as it is now?")) void load(); }}>Back to the scenes&apos; script</button>
@@ -228,6 +228,7 @@ function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: numb
           {loading ? "reading the beat script…" : parseError ? `not JSON: ${parseError}` : Array.isArray(beats) ? `${beats.length} beat(s)` : "no beats"}</span>
       </div>
       {loadError && <p className="text-red-300">{loadError}</p>}
+      <Instructions run={run} n={n} chapter={chapter} json={parseError ? text : JSON.stringify(parsed, null, 2)} />
       {trial?.applied && (
         <p className="text-amber-200">Applied {new Date(trial.applied.at).toLocaleTimeString()}: {trial.applied.beats} beat(s) put into the scenes (compiling on the Scenes tab)
           {trial.applied.notes.length ? <>; {trial.applied.notes.join("; ")}</> : null}. Speak the chapter again for its own voice.</p>
@@ -241,6 +242,70 @@ function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: numb
         </div>
       )}
     </section>
+  );
+}
+
+/** An answer pasted from a chat model, its code fence taken off (```json ... ```). */
+function unfence(text: string): string {
+  const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  return m ? m[1] : text;
+}
+
+async function copy(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The scene writer's instructions (v1's, as it gets them; Manim written as code), to copy into any chat model with
+ * this chapter's beat script and what to change, and paste its answer into the editor.
+ */
+function Instructions({ run, n, chapter, json }: { run: Run; n: number; chapter: number; json: string }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ask, setAsk] = useState("");
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || text !== null) return;
+    void (async () => {
+      const res = await fetch(`/api/runs/${run.id}/voice?lecture=${n}&chapter=${chapter}&instructions=1`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) setText(j.instructions ?? "");
+      else setError(j.error ?? "the instructions could not be read");
+    })();
+  }, [open, text, run.id, n, chapter]);
+  const prompt = () => [text ?? "", "", "THE CHAPTER'S BEAT SCRIPT NOW:", json, "",
+    "WHAT TO CHANGE:", ask.trim() || "Make this chapter's visuals teach better, following the instructions above.", "",
+    "Reply with the whole chapter's beat script, changed, as one JSON object in the shape above, and nothing else."].join("\n");
+  const done = async (what: string, value: string) => setCopied((await copy(value)) ? what : "copy failed: select the text and copy it");
+  return (
+    <details className="rounded border border-violet-900/60 bg-violet-950/10 p-2" data-testid="voice-instructions" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="cursor-pointer text-violet-200">Instructions for an LLM: copy them with this JSON, ask any chat model, paste its answer in the editor</summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-neutral-400">
+          The scene writer&apos;s own instructions (v1&apos;s beat-script rules, the lecture&apos;s subject, the kinds switched off; free-form Manim
+          written as code, since nothing builds it after the model here). Say what to change, copy the prompt, and paste the model&apos;s answer
+          into the editor above (a <code>```json</code> block is fine), then <b>Speak and play this</b>.
+        </p>
+        <textarea data-testid="voice-ask" value={ask} onChange={(e) => setAsk(e.target.value)} rows={2} placeholder="What to change (e.g. make beat 3 a flowchart of the surplus, add a timeline on beat 5)"
+          className="w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-neutral-100" />
+        <div className="flex flex-wrap items-center gap-2">
+          <button data-testid="voice-copy-prompt" disabled={text === null} className={`${btn} border-violet-700 text-violet-200 hover:bg-violet-950`}
+            onClick={() => void done("the prompt (instructions, this chapter's JSON, what to change)", prompt())}>Copy the prompt: instructions + this JSON + what to change</button>
+          <button disabled={text === null} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void done("the instructions", text ?? "")}>Copy the instructions only</button>
+          {copied && <span className="text-emerald-300" data-testid="voice-copied">copied: {copied}</span>}
+          {text !== null && <span className="ml-auto text-neutral-500">{text.length.toLocaleString()} characters</span>}
+        </div>
+        {error && <p className="text-red-300">{error}</p>}
+        <textarea readOnly data-testid="voice-instructions-text" value={text ?? "reading the instructions…"}
+          className="mono h-64 w-full resize-y rounded border border-neutral-800 bg-neutral-950 p-2 text-[11px] leading-snug text-neutral-300" />
+      </div>
+    </details>
   );
 }
 

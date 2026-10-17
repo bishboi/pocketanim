@@ -25,13 +25,15 @@ import { engineDir } from "./maps";
 import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
+import { handInstructions } from "./prompts/scenes";
 import { check, newCall } from "./run";
-import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf } from "./scenes";
+import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf } from "./scenes";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
-import { cleanLook } from "./styles";
+import { cleanLook, lookWords } from "./styles";
 import type { ChapterScript, ChapterVoice, Run, VoiceCue, VoiceLine, VoiceSettings, VoiceState } from "./types";
 import { ENGINES, scenesKey } from "./voice-engines";
+import { VISUAL_KINDS } from "./visual-kinds";
 
 export { ENGINES, scenesKey };
 
@@ -83,6 +85,13 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
   return { style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
     emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
     chapter: { title: ch.title, narration: ch.narration, map: ch.map, beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
+}
+
+/** The scene writer's instructions, to give any chat model with this chapter's beat script (the editor's copy). */
+export async function editInstructions(run: Run, n: number): Promise<string> {
+  const st = scenesOf(run);
+  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n),
+    labels: Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label])) });
 }
 
 /** An edited beat script read as one: what is wrong with it said plainly, so the page can show it. */

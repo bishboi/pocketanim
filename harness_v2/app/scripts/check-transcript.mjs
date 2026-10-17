@@ -441,6 +441,13 @@ console.log(`voice: chapter ${ch1.n}, ${cv.lines.length} lines, ${cv.cues.filter
 // The chapter's beat script edited by hand on the Voice tab and tried (spoken and played apart), then applied.
 const { chapterScript } = await import(path.resolve(here, "../lib/voice.ts"));
 const base = await chapterScript(run, 1, ch1.n);
+// The scene writer's instructions to give a chat model by hand: v1's, word for word, the whole chapter's shape, Manim as code.
+const { editInstructions } = await import(path.resolve(here, "../lib/voice.ts"));
+const { V1_LECTURE: V1L, V1_MANIM_RULES } = await import(path.resolve(here, "../lib/prompts/v1-lecture.ts"));
+const hand = await editInstructions(run, 1);
+for (const key of Object.keys(V1L)) assert.ok(hand.includes(V1L[key].join("\n").trim()), `the copy has v1's ${key} section`);
+assert.ok(hand.includes(V1_MANIM_RULES.join("\n").trim()) && !/write_scenes/.test(hand), "Manim written as code; no tool named");
+assert.ok(/THE ANSWER: the whole chapter's beat script as ONE JSON object/.test(hand) && /"beat": <its number, as given>/.test(hand));
 assert.equal(base.chapter.beats.length, ch1.beats.length);
 assert.deepEqual(base.chapter.beats.map((b) => b.beat), ch1.beats.map((b) => b.n), "each beat with its number");
 assert.ok(base.chapter.beats.every((b) => typeof b.say === "string" && Array.isArray(b.do)) && base.style, "the compiler's own script");

@@ -469,8 +469,8 @@ export type ScenesState = {
    * matching words; and that model. */
   reuseJudge?: boolean;
   reuseModel?: string;
-  /** How busy the visuals are: operations a beat (4 as v1; 0: no limit), and whether they change a paragraph at a
-   * time (v1) or on every beat. */
+  /** How busy the visuals are: operations a beat (left out: no limit, the default; v1 said four), and whether they
+   * change a paragraph at a time (v1) or on every beat. */
   maxOps?: number;
   visualChange?: "paragraph" | "beat";
   /** The images the Manim agent made, by lecture, by name. */

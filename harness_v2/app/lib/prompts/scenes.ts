@@ -66,25 +66,33 @@ export const SCENES_TOOL = {
   },
 };
 
-/** How busy the visuals are: operations a beat (0: no limit), and whether they change a paragraph at a time (v1) or
- * on every beat. */
+/** How busy the visuals are: operations a beat (left out or 0: no limit, the default; v1 said four), and whether they
+ * change a paragraph at a time (v1) or on every beat. */
 export type ScenePace = { maxOps?: number; change?: "paragraph" | "beat" };
 
-const opsWords = (p?: ScenePace) => (p?.maxOps === 0 ? "as many operations as it needs" : `0-${p?.maxOps ?? 4} operations`);
+const opsWords = (p?: ScenePace) => (!p?.maxOps ? "as many operations as its line needs" : `0-${p.maxOps} operations`);
+
+/**
+ * v1's section on a beat, with its limit on operations as this run has it: none (the default: "at most four
+ * operations" is taken out) or the number chosen. The rest of v1's words are as they are.
+ */
+function beatSection(p?: ScenePace): string[] {
+  const limit = p?.maxOps ? `, at most ${p.maxOps === 1 ? "one operation" : `${p.maxOps} operations`}.` : ".";
+  return V1_LECTURE.beat.map((line) => line.replace(", at most four operations.", limit));
+}
 
 /**
  * The pace chosen for this run, when it is not v1's: told after v1's instructions, and said to override them where
- * they differ ("at most four operations", "a paragraph at a time").
+ * they differ ("a paragraph at a time"). The limit on operations is in v1's own beat section (beatSection); with no
+ * limit, a line says so here too.
  */
 function pacePart(p?: ScenePace): Part | undefined {
-  const ops = p?.maxOps ?? 4;
+  const free = !p?.maxOps;
   const beat = p?.change === "beat";
-  if (ops === 4 && !beat) return undefined;
+  if (!free && !beat) return undefined;
   return part("pace", "This run's pace (overrides v1's where they differ)", "rules", [
     "THIS RUN'S PACE, overriding what the instructions above say where they differ:",
-    ...(ops !== 4 ? [ops === 0
-      ? "  - OPERATIONS: no limit to the operations on a beat (not \"at most four\"): give a beat as many as its line needs, built on its words."
-      : `  - OPERATIONS: at most ${ops} operations on a beat (not four).`] : []),
+    ...(free ? ["  - OPERATIONS: no limit to the operations on a beat: give a beat as many as its line needs, each built on its words."] : []),
     ...(beat ? [
       "  - THE VISUALS MOVE ON EVERY BEAT, not a paragraph at a time: every beat brings something new on screen -- a new",
       "    picture, the next part of a diagram, a focus or a zoom, a label, a marker, a step of working -- so the screen",
@@ -163,7 +171,7 @@ export function scenesPrompt(x: {
       v1("question", "A question for the class"),
       v1("pauses", "Pauses"),
       v1("pictures", "Every picture is made one of three ways"),
-      v1("beat", "A beat"),
+      part("v1-beat", x.pace?.maxOps ? `A beat (at most ${x.pace.maxOps} operations)` : "A beat (no limit to its operations)", "rules", beatSection(x.pace)),
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),

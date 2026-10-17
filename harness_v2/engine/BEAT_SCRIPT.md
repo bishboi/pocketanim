@@ -148,8 +148,8 @@ A beat is one narration line and what goes with it on screen.
    the lecture goes on.
 
 How many operations a beat may carry: the compiler sets **no limit**. Above 5 it warns ("the eye cannot follow more
-than about four"); nothing is refused. The writer's instructions (v1's) ask for at most four; the v2 Scenes tab's
-pace setting can raise that or remove it. One rule is hard: **a `manim` beat carries only its `manim` operation**.
+than about four"); nothing is refused. v1's instructions asked for at most four; v2's scene writer is told no limit by
+default (the Scenes tab's pace can set one). One rule is hard: **a `manim` beat carries only its `manim` operation**.
 
 ---
 

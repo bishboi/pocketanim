@@ -113,11 +113,11 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="scenes-pace">
           <span className="text-amber-300">Pace</span>
-          <label className="flex items-center gap-1 text-neutral-300" title="v1's instructions say at most four; a larger number (or none) is told after them as this run's pace">
+          <label className="flex items-center gap-1 text-neutral-300" title="No limit by default: v1's &quot;at most four operations&quot; is taken out of the instructions; a number puts that limit in its place">
             operations a beat
-            <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5" value={String(st?.maxOps ?? 4)} data-testid="scenes-max-ops"
+            <select className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5" value={String(st?.maxOps ?? 0)} data-testid="scenes-max-ops"
               onChange={(e) => act({ action: "pace", maxOps: Number(e.target.value) })}>
-              <option value="4">up to 4 (v1)</option><option value="6">up to 6</option><option value="8">up to 8</option><option value="0">no limit</option>
+              <option value="0">no limit</option><option value="4">up to 4 (v1)</option><option value="6">up to 6</option><option value="8">up to 8</option>
             </select></label>
           <label className="flex items-center gap-1 text-neutral-300" title="v1 plans a visual a paragraph at a time (3-5 beats on one picture); every beat brings something new on screen">
             visuals change

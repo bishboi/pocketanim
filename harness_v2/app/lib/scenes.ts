@@ -133,7 +133,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (a.maxOps !== undefined) {
       const k = Math.round(Number(a.maxOps));
       if (!(k >= 0 && k <= 20)) throw new Error("operations a beat: 0 (no limit) to 20");
-      st.maxOps = k === 4 ? undefined : k;
+      st.maxOps = k === 0 ? undefined : k;                  // left out: no limit (the default)
     }
     if (a.change) st.visualChange = a.change === "beat" ? "beat" : undefined;
     saveRun(run, true);

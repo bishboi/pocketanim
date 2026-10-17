@@ -445,7 +445,8 @@ const base = await chapterScript(run, 1, ch1.n);
 const { editInstructions } = await import(path.resolve(here, "../lib/voice.ts"));
 const { V1_LECTURE: V1L, V1_MANIM_RULES } = await import(path.resolve(here, "../lib/prompts/v1-lecture.ts"));
 const hand = await editInstructions(run, 1);
-for (const key of Object.keys(V1L)) assert.ok(hand.includes(V1L[key].join("\n").trim()), `the copy has v1's ${key} section`);
+for (const key of Object.keys(V1L).filter((k) => k !== "beat")) assert.ok(hand.includes(V1L[key].join("\n").trim()), `the copy has v1's ${key} section`);
+assert.ok(!/at most four operations/.test(hand), "the copy has no limit to a beat's operations either");
 assert.ok(hand.includes(V1_MANIM_RULES.join("\n").trim()) && !/write_scenes/.test(hand), "Manim written as code; no tool named");
 assert.ok(/THE ANSWER: the whole chapter's beat script as ONE JSON object/.test(hand) && /"beat": <its number, as given>/.test(hand));
 // With it, what the scene writer is told of the lecture: its chapters, the region, its figures by id, each beat's plan.
@@ -499,7 +500,14 @@ assert.ok(offPart && /Diagrams/.test(offPart.text) && !/Definitions/.test(offPar
 // The instructions are v1's, word for word, in v1's order; the subject's guidance as v1 tells it.
 const { V1_LECTURE, V1_MANIM_PLAN } = await import(path.resolve(here, "../lib/prompts/v1-lecture.ts"));
 const sysText = render(kcCall.prompt.system);
-for (const key of Object.keys(V1_LECTURE)) assert.ok(sysText.includes(V1_LECTURE[key].join("\n").trim()), `v1's ${key} section, verbatim`);
+for (const key of Object.keys(V1_LECTURE).filter((k) => k !== "beat")) assert.ok(sysText.includes(V1_LECTURE[key].join("\n").trim()), `v1's ${key} section, verbatim`);
+// No limit to a beat's operations by default: v1's "at most four operations" is taken out, the rest of its words kept.
+assert.ok(!/at most four operations/.test(sysText) && sysText.includes(V1_LECTURE.beat.join("\n").replace(", at most four operations.", ".").trim()), "no limit to a beat's operations");
+assert.ok(kcCall.prompt.system.some((p) => p.key === "pace" && /no limit to the operations on a beat/.test(p.text)));
+const { scenesPrompt: sp } = await import(path.resolve(here, "../lib/prompts/scenes.ts"));
+const limited = render(sp({ lecture: { n: 1, title: "" }, look: "", kinds: [], labels: {}, chapters: [], beats: [], figures: [], ask: { what: "lecture" },
+  pace: { maxOps: 6 } }).system);
+assert.ok(/at most 6 operations\./.test(limited) && !/at most four operations/.test(limited), "a limit chosen is put in its place");
 assert.ok(sysText.includes(V1_MANIM_PLAN.join("\n").trim()), "v1's Manim plan rules (the agent builds the figures)");
 assert.ok(kcCall.prompt.system.some((p) => p.key === "subject" && /^SUBJECT\. This is a /.test(p.text)), "the subject, as v1 tells it");
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: null });

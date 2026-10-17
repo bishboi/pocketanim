@@ -229,6 +229,7 @@ class _Palette(SimpleNamespace):
 
 
 P = _Palette()
+builtins_range = range          # range(), where a parameter is called range (big_timeline)
 TH: dict = {}
 STYLE = ""
 
@@ -4792,56 +4793,189 @@ class Lecture(Scene):
 
         return exit_point(a, 1), exit_point(b, -1)
 
-    def big_timeline(self, events, title: str | None = None):
-        """A timeline across the stage: a track, a ringed node on it for each event, the date in a pill on a short
-        stem, the event's words beyond it, alternately above and below, each event's picture (a photo, a figure, a
-        drawing: (date, label, picture)) beyond its words. Events on the same side are two slots apart, so each
-        one's words and picture are kept narrower than that, and shrunk until no two touch. It is still: it appears
-        whole, and its pictures do not move."""
+    TIMELINE_MOST = 10       # events on one timeline
+    SPAN_TONES = ("GOLD", "RIVER", "ROSE", "GREEN", "VIOLET", "TEAL")
+
+    def big_timeline(self, events, title: str | None = None, range=None, spans=None, scale: str | None = None):
+        """A timeline across the stage: a track, a ringed node on it for each event, the date in a pill on a stem,
+        the event's words beyond it, alternately above and below, each event's picture (a photo, a figure, a
+        drawing: (date, label, picture)) beyond its words. It is still: it appears whole.
+
+        v2: in PROPORTION when every date reads as a year (timeline_dates.year: "1526", "500 BC", "1920s", "16th
+        century"...): each event sits at its date, with a scale of round years under the track; `range` (from, to)
+        sets the years the track covers (events outside it are left out); `spans` [(from, to, label)] shade periods
+        along the track (a reign, an era, a war), overlapping ones in lanes. Events too close for their words are
+        spread apart along their side, each with a slanted stem back to its true date. `scale` "even": evenly
+        spaced, as before (steps with no real dates)."""
+        import timeline_dates as td
+
         cx, cy, w, h = self.STAGE
-        events = [tuple(e) + (None,) * (3 - len(e)) for e in list(events)[:7]]
-        n = max(len(events), 1)
+        events = [tuple(e) + (None,) * (3 - len(e)) for e in list(events)[:self.TIMELINE_MOST]]
         width = w - 0.6
-        slot = width / n
-        room = (2 * slot if n > 1 else width) - 0.3        # what one event may take across, clear of its neighbours
+        years = [td.year(e[0]) for e in events]
+        wanted = (td.year(range[0]), td.year(range[1])) if range and len(range) == 2 else (None, None)
+        if wanted[0] is not None and wanted[1] is not None and wanted[0] > wanted[1]:
+            wanted = (wanted[1], wanted[0])
+        proportional = scale != "even" and len(events) >= 2 and all(y is not None for y in years) \
+            and len(set(years)) > 1
+        span_list = []
+        if proportional:
+            for sp in spans or []:
+                if not isinstance(sp, (list, tuple)) or len(sp) < 2:
+                    continue
+                a, b = td.year(sp[0]), td.year(sp[1])
+                if a is not None and b is not None and a != b:
+                    span_list.append((min(a, b), max(a, b), str(sp[2]) if len(sp) > 2 and sp[2] else ""))
+            span_list = span_list[:6]
+            if wanted[0] is not None and wanted[1] is not None and wanted[1] > wanted[0]:
+                lo, hi = wanted
+                kept = [(e, y) for e, y in zip(events, years) if lo <= y <= hi]
+                if len(kept) < len(events):
+                    self._log("skipped", what="timeline events outside its range",
+                              error=", ".join(str(e[0]) for e, y in zip(events, years) if not lo <= y <= hi))
+                events, years = [e for e, _ in kept], [y for _, y in kept]
+                span_list = [(max(a, lo), min(b, hi), t) for a, b, t in span_list if b > lo and a < hi]
+            else:
+                ends = years + [v for a, b, _ in span_list for v in (a, b)]
+                lo, hi = min(ends), max(ends)
+                pad = max((hi - lo) * 0.06, 0.5)
+                lo, hi = lo - pad, hi + pad
+            order = sorted(builtins_range(len(events)), key=lambda k: years[k])
+            events, years = [events[k] for k in order], [years[k] for k in order]
+            if len(events) < 1:
+                return None
+
+            def at(y):
+                return -width / 2 + (y - lo) / max(hi - lo, 1e-9) * width
+            xs = [at(y) for y in years]
+        else:
+            slot = width / max(len(events), 1)
+            xs = [-width / 2 + slot * (k + 0.5) for k in builtins_range(len(events))]
+        n = max(len(events), 1)
         pictured = any(e[2] for e in events)
         tone = P.SAND
         track = _flat(Line(LEFT * width / 2, RIGHT * width / 2, color=P.MUTED, stroke_width=9, stroke_opacity=0.35))
         lit = _flat(Line(LEFT * width / 2, RIGHT * width / 2, color=tone, stroke_width=3, stroke_opacity=0.9))
+        extras = []
+        scale_drop = 0.0
+        if proportional:
+            # The scale of round years under the track: a tick on it and the year beneath.
+            any_bc = lo < 0
+            marks_ = []
+            for t in td.ticks(lo, hi, 7 if width > 9 else 5):
+                x = at(t)
+                if not -width / 2 - 1e-6 <= x <= width / 2 + 1e-6:
+                    continue
+                tick = Line([x, -0.13, 0], [x, 0.13, 0], color=P.MUTED, stroke_width=2.5, stroke_opacity=0.8)
+                word = T(td.label(t, any_bc), 15, P.MUTED, fine=True).move_to([x, -0.36, 0])
+                marks_.append(_flat(VGroup(tick, word)))
+            if marks_:
+                extras.append(VGroup(*marks_))
+                scale_drop = 0.42
+            # Periods (spans): each a tint on the track over its years, and a labelled bar in a strip under the scale
+            # (clear of the event nodes on the track), in lanes where they (or their words) would overlap.
+            strip_top = -(0.36 + 0.22) if marks_ else -0.3
+            lanes: list[float] = []
+            placed = []
+            for k, (a, b, text) in enumerate(sorted(span_list)):
+                x0, x1 = at(a), at(b)
+                word = T(text, 16, P.CREAM, weight=BOLD) if text else None
+                if word is not None and word.width > 2.6:
+                    word.scale_to_fit_width(2.6)
+                reach = (min(x0, (x0 + x1) / 2 - word.width / 2), max(x1, (x0 + x1) / 2 + word.width / 2)) \
+                    if word is not None else (x0, x1)
+                lane = next((m for m, end in enumerate(lanes) if reach[0] >= end + 0.15), len(lanes))
+                if lane == len(lanes):
+                    lanes.append(reach[1])
+                else:
+                    lanes[lane] = reach[1]
+                placed.append((x0, x1, text, word, lane, k))
+            lane_h = 0.5
+            for x0, x1, text, word, lane, k in placed:
+                colour = getattr(P, self.SPAN_TONES[k % len(self.SPAN_TONES)], tone)
+                y = strip_top - 0.1 - lane * lane_h
+                tint = Line([x0, 0, 0], [x1, 0, 0], color=colour, stroke_width=7, stroke_opacity=0.55)
+                bar = RoundedRectangle(corner_radius=0.06, width=max(x1 - x0, 0.06), height=0.13, stroke_width=0,
+                                       fill_color=colour, fill_opacity=0.8).move_to([(x0 + x1) / 2, y, 0])
+                ends = VGroup(*[Line([x, y - 0.1, 0], [x, y + 0.1, 0], color=colour, stroke_width=2.5) for x in (x0, x1)])
+                parts = [tint, bar, ends]
+                if word is not None:
+                    word.move_to([(x0 + x1) / 2, y - 0.1 - word.height / 2 - 0.04, 0])
+                    lo_x, hi_x = -width / 2 + word.width / 2, width / 2 - word.width / 2
+                    word.set_x(min(max(word.get_x(), lo_x), hi_x))
+                    parts.append(word)
+                    self.name_part(text, bar)
+                extras.append(_flat(VGroup(*parts)))
+            if placed:
+                scale_drop = -strip_top - 0.45 + 0.1 + len(lanes) * lane_h + 0.05
 
-        def build(picture_height):
-            marks = []
-            for i, (date, label, picture) in enumerate(events):
-                x = -width / 2 + slot * (i + 0.5)
-                up = i % 2 == 0
-                sign = 1 if up else -1
-                ring = Circle(radius=0.17, stroke_color=tone, stroke_width=4, fill_color=P.BG, fill_opacity=1)
-                node = _flat(VGroup(ring, Dot(radius=0.075, color=tone)).move_to([x, 0, 0]))
-                stem = _flat(Line([x, sign * 0.19, 0], [x, sign * 0.45, 0], color=tone, stroke_width=2.5,
-                                  stroke_opacity=0.7))
+        def build(picture_height, cap):
+            """Each event's pieces at their natural size, the words no wider than `cap`."""
+            out = []
+            for k, (date, label, picture) in enumerate(events):
+                up = k % 2 == 0
                 chip = ui_chip(str(date), tone, 23)
-                fit(chip, room)
-                chip.next_to(stem, UP if up else DOWN, buff=0.04)
-                lab = fit(T(wrap(str(label), 16 if pictured else 16), 20, P.CREAM, weight=BOLD, line_spacing=0.85),
-                          room)
-                lab.next_to(chip, UP if up else DOWN, buff=0.12)
-                parts = [node, stem, chip, lab]
-                pic = self._picture(picture, picture_height, room, motion="none") if picture else None
+                fit(chip, cap)
+                lab = fit(T(wrap(str(label), 16), 20, P.CREAM, weight=BOLD, line_spacing=0.85), cap)
+                VGroup(chip, lab).arrange(UP if up else DOWN, buff=0.12)      # the date by the track, the words beyond
+                pieces = [chip, lab]
+                pic = self._picture(picture, picture_height, cap, motion="none") if picture else None
                 if pic is not None:
-                    pic.next_to(lab, UP if up else DOWN, buff=0.12).set_x(x)
-                    parts.append(pic)
-                marks.append(group_of(*parts))
-            return marks
+                    pic.next_to(lab, UP if up else DOWN, buff=0.12).set_x(lab.get_x())
+                    pieces.append(pic)
+                out.append((up, group_of(*pieces)))
+            return out
 
+        def spread(items):
+            """Centres for the heads on one side: as near their dates as they can be without touching."""
+            gap = 0.22
+            centres = []
+            for k, (x, head) in enumerate(items):
+                half = head.width / 2
+                c = max(x, -width / 2 + half)
+                if centres:
+                    px, pw = centres[-1]
+                    c = max(c, px + pw / 2 + gap + half)
+                centres.append((c, head.width))
+            # Pulled back inside the track from the right, keeping the gaps.
+            for k in builtins_range(len(centres) - 1, -1, -1):
+                c, wd = centres[k]
+                limit = width / 2 - wd / 2 if k == len(centres) - 1 else centres[k + 1][0] - centres[k + 1][1] / 2 - gap - wd / 2
+                centres[k] = (min(c, limit), wd)
+            return [c for c, _ in centres]
+
+        side_count = max(sum(1 for k in builtins_range(n) if k % 2 == 0), sum(1 for k in builtins_range(n) if k % 2))
+        cap = min(2.6, (width - 0.22 * side_count) / max(side_count, 1))
         height = min(1.5, (h - 1.6) / 2 - 0.9) if pictured else 0
-        marks = build(height)
-        for _ in range(6):
-            # Two events on the same side that touch (a wide picture, a long label): smaller pictures.
-            if not pictured or not _touching([m[2:] for m in marks]):
+        heads = build(height, cap)
+        for _ in builtins_range(6):
+            # Too wide together for their side: everything a little smaller.
+            widest = max(sum(hd.width for up, hd in heads if up), sum(hd.width for up, hd in heads if not up))
+            if widest + 0.22 * side_count <= width or cap < 0.9:
                 break
-            height *= 0.8
-            marks = build(height)
-        drawing = Group(track, lit, *marks)
+            cap *= 0.85
+            height *= 0.85
+            heads = build(height, cap)
+        marks = []
+        placed_x = [0.0] * n
+        for up in (True, False):
+            idx = [k for k in builtins_range(n) if (k % 2 == 0) == up]
+            for k, c in zip(idx, spread([(xs[k], heads[k][1]) for k in idx])):
+                placed_x[k] = c
+        for k, (date, label, picture) in enumerate(events):
+            up, head = heads[k]
+            sign = 1 if up else -1
+            x, c = xs[k], placed_x[k]
+            base = 0.45 if up else 0.45 + scale_drop
+            ring = Circle(radius=0.17, stroke_color=tone, stroke_width=4, fill_color=P.BG, fill_opacity=1)
+            node = _flat(VGroup(ring, Dot(radius=0.075, color=tone)).move_to([x, 0, 0]))
+            head.move_to([c, 0, 0])
+            head.shift(UP * (sign * base) + UP * (sign * head.height / 2))
+            # The stem: from the node to the head, slanted when the head was moved along to make room.
+            stem = _flat(Line([x, sign * 0.19, 0], [c, sign * (base - 0.02), 0], color=tone, stroke_width=2.5,
+                              stroke_opacity=0.7))
+            marks.append(group_of(node, stem, head))
+        drawing = Group(track, lit, *extras, *marks)
         for (date, label, _picture), mark in zip(events, marks):
             self.name_part(date, mark)
             self.name_part(label, mark)

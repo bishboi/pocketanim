@@ -413,11 +413,33 @@ A ring round the node; the rest dims while it is talked about.
 
 #### `timeline`: dated events across the stage
 ```json
-{"op": "timeline", "title": "The Mughals",
- "events": [["1526", "Panipat"], ["1556", "Akbar", {"generate": "Akbar, an illustrated portrait"}]]}
+{"op": "timeline", "title": "The Mughals", "range": ["1500", "1870"],
+ "events": [["1526", "Panipat"], ["1556", "Akbar crowned", {"generate": "Akbar, an illustrated portrait"}],
+            ["1707", "Aurangzeb dies"], ["1857", "The revolt"]],
+ "spans": [["1526", "1857", "Mughal Empire"], ["1556", "1605", "Akbar"], ["1757", "1857", "Company rule"]]}
 ```
-`events` takes at least two `[date, label, picture?]` (or `{date, label}`). With one event it becomes a card. The
-dates are named as they are said.
+| Arg | | |
+|---|---|---|
+| `events` | 2-10 | `[date, label, picture?]` (or `{date, label, picture}`). With one event it becomes a card. Past ten, the first ten are kept. |
+| `title`? | | Over the timeline. |
+| `range`? | `[from, to]` | v2: the years the track covers, to zoom in on a period. Events outside it are left out (with a note). |
+| `spans`? | up to 6 | v2: periods `[from, to, label]` (a reign, an era, a war, a dynasty), shaded on the track and drawn as labelled bars in a strip under the scale. Overlapping periods (or their names) are stacked in lanes. A span whose dates are not years is left out. |
+| `scale`? | `"even"` | v2: events evenly spaced, for steps with no real dates. |
+
+How it is drawn (v2's engine, `pocket_lecture.big_timeline`, `timeline_dates.py`):
+
+- **In proportion**: when every date reads as a year, each event sits at its date and a scale of round years
+  (decades, centuries or millennia, as fits) runs under the track. Without a `range`, the track covers the events and
+  spans with a little margin. Dates are read in these forms: `"1526"`, `"500 BC"`, `"320 BCE"`, `"AD 78"`,
+  `"c. 1500"`, `"1920s"`, `"1500s"`, `"16th century"`, `"early 18th century"` (early/mid/late), `"3rd millennium BC"`,
+  `"15 August 1947"`, `"1947-48"` (its first year), `"10,000 years ago"`.
+- **Not every date is a year** ("Stone Age", "Step 2"): evenly spaced, as before; its `range` and `spans` are left
+  out with a note.
+- **Events and their words**: the events alternate above and below the track, each with its date in a pill and its
+  words beyond (and its picture beyond them). Events too close for their words are spread apart along their side,
+  each with a slanted stem back to its true date; when a side is too full everything is made a little smaller.
+- **Pointing**: the dates, labels and period names are pointed at as they are said. The timeline appears whole and
+  holds still.
 
 #### `equation`: a law or a reaction, large
 ```json

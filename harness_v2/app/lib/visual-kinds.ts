@@ -29,7 +29,7 @@ export const VISUAL_KINDS: VisualKind[] = [
   { id: "gallery", label: "Gallery", about: "Several pictures of one kind of thing, one in the spotlight or in a grid, each brought up as it is named.", ops: ["gallery"] },
   { id: "diagram", label: "Diagrams", about: "Boxes and arrows built as they are named: flow, cycle, hub, pyramid, hierarchy, flowchart; reveal, focus, zoom.",
     ops: ["diagram", "reveal", "focus", "zoom"] },
-  { id: "timeline", label: "Timeline", about: "Dated events across the stage.", ops: ["timeline"] },
+  { id: "timeline", label: "Timeline", about: "Dated events across the stage, in proportion to their dates with a scale of years; a range of years, periods shaded along it.", ops: ["timeline"] },
   { id: "manim", label: "Manim (free-form)", about: "A figure written as Manim code: graphs, geometry, apparatus, anything that moves.", ops: ["manim"] },
   { id: "equation", label: "Equations", about: "A law or a reaction, large, in TeX.", ops: ["equation"] },
   { id: "molecule", label: "Molecules", about: "A structural formula in CPK colours.", ops: ["molecule"] },

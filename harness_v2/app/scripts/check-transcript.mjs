@@ -271,6 +271,34 @@ assert.ok(gmn.code.includes("self.play"));
 const mcall = run.calls.find((c) => c.id === gmn.calls.at(-1));
 assert.ok(mcall.prompt.system.some((p) => p.key === "rules" && p.text.includes("PALETTE")) && mcall.prompt.user.some((p) => p.text.includes("to rebuild exactly")), "v1's Manim rules");
 assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), JSON.stringify(mcall.checks));
+// Timelines in proportion (v2's engine): dates read as years; a range, periods (spans); drawn by a real render.
+{
+  const { runPython: rp } = await import(path.resolve(here, "../lib/manim.ts"));
+  const engine = process.env.V2_ENGINE;
+  const env = { PYTHONPATH: engine, PANIM_VOICE: "silent", PANIM_IMAGES: "0" };
+  const dates = await rp(["-c", "import json,timeline_dates as t; print(json.dumps([t.year(x) for x in ['1526','500 BC','AD 78','1920s','16th century','early 18th century','15 August 1947','Stone Age','Step 2']]))"], engine, env);
+  assert.deepEqual(JSON.parse(dates.stdout.trim().split("\n").pop()).map((y) => (y === null ? null : Math.round(y))), [1526, -500, 78, 1925, 1550, 1720, 1948, null, null], "dates read as years");
+  const tlScript = (op) => ({ title: "T", style: "atlas", teaching_rules: false, place_figures: false, auto_visuals: false,
+    chapters: [{ title: "A", narration: "Chapter one.", map: false, beats: [{ say: "From 1905 to 1947.", do: [op] }] }] });
+  const compileTl = async (op) => {
+    const r = await rp([path.join(engine, "compile_lecture.py"), "-", "--json"], engine, env, JSON.stringify(tlScript(op)), 300000);
+    return JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
+  };
+  const tl = await compileTl({ op: "timeline", title: "India", range: ["1900", "1950"], events: [["1885", "Congress"], ["1905", "Bengal"], ["1930", "Dandi March"], ["1947", "Independence"]],
+    spans: [["1914", "1918", "World War I"], ["x", "y", "bad"]] });
+  assert.deepEqual(tl.errors, []);
+  assert.ok(/range=\("1900", "1950"\)/.test(tl.source) && /spans=\[\("1914", "1918", "World War I"\)\]/.test(tl.source), "range and spans passed to the engine");
+  assert.ok(tl.warnings.some((w) => /outside its range/.test(w)) && tl.warnings.some((w) => /span is \[from, to, label\]/.test(w)), tl.warnings.join("; "));
+  const even = await compileTl({ op: "timeline", events: [["Stone Age", "Stone tools"], ["Bronze Age", "Bronze"]], spans: [["1", "2", "x"]] });
+  assert.ok(even.warnings.some((w) => /spaced evenly/.test(w)), "undated: spaced evenly");
+  // Drawn: the timeline's beat rendered (its last frame), nothing skipped by the engine's guard.
+  const dir = mkdtempSync(path.join(tmpdir(), "v2-timeline-"));
+  writeFileSync(path.join(dir, "scene.py"), tl.source.split("\n").filter((l) => !/self\.(outro_fade|title_slide|credits)\(/.test(l)).join("\n"));
+  const drawn = await rp(["-m", "manim", "-ql", "-s", "--disable_caching", "-o", "tl", "scene.py", "GeneratedScene"], dir, env, undefined, 600000);
+  assert.ok(!/picture skipped|Traceback/.test(drawn.out), `the timeline is drawn: ${drawn.out.slice(-600)}`);
+  assert.ok(readFileSync(path.join(dir, "media", "images", "scene", "tl.png")).length > 1000, "its frame");
+}
+
 // Maps: written by the map model from the book's map, in one call, compiled and rendered by v2's engine.
 const { mapScript, compileMap, mapProblems, engineDir } = await import(path.resolve(here, "../lib/maps.ts"));
 assert.ok(engineDir().endsWith(path.join("harness_v2", "engine")), `v2's own engine: ${engineDir()}`);

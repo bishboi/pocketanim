@@ -455,6 +455,8 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                     events = [e for e in (op.get("events") if isinstance(op.get("events"), list) else [])
                               if (isinstance(e, (list, tuple)) and len(e) >= 2) or (isinstance(e, dict) and e.get("label"))]
                     op["events"] = events
+                    _fix_timeline(op, at, notes)
+                    events = op["events"]
                     if len(events) == 1:
                         # One date is not a timeline: the date and what happened, as a card.
                         e = events[0]
@@ -493,6 +495,57 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                         notes.append(f"{FIXED}{at}: {where}: picture left out ({problem}); its words stand alone")
     _purge(script)
     return notes
+
+
+TIMELINE_MOST = 10       # events on one timeline (pocket_lecture.big_timeline)
+
+
+def _fix_timeline(op: dict, at: str, notes: list[str]) -> None:
+    """v2: a timeline's range, spans and scale read as years (timeline_dates), and what will not do left out with a
+    note: a range that names no two years, a span that does not, events outside the range, events past ten."""
+    import timeline_dates as td
+
+    years = [td.year(e[0] if isinstance(e, (list, tuple)) else e.get("date")) for e in op["events"]]
+    rng = op.get("range")
+    if rng is not None:
+        a, b = (td.year(rng[0]), td.year(rng[1])) if isinstance(rng, (list, tuple)) and len(rng) == 2 else (None, None)
+        if a is None or b is None or a == b:
+            notes.append(f"{FIXED}{at}: a timeline's range is two dates [from, to]; {rng!r} left out")
+            op.pop("range")
+        else:
+            lo, hi = min(a, b), max(a, b)
+            op["range"] = [str(rng[0]), str(rng[1])] if a <= b else [str(rng[1]), str(rng[0])]
+            if all(y is not None for y in years):
+                kept = [e for e, y in zip(op["events"], years) if lo <= y <= hi]
+                if len(kept) < len(op["events"]):
+                    notes.append(f"{FIXED}{at}: {len(op['events']) - len(kept)} timeline event(s) outside its range "
+                                 f"{op['range'][0]}-{op['range'][1]} left out")
+                    op["events"] = kept
+                    years = [y for y in years if lo <= y <= hi]
+    if op.get("spans") is not None:
+        spans = []
+        for sp in op["spans"] if isinstance(op["spans"], list) else []:
+            if isinstance(sp, dict):
+                sp = [sp.get("from"), sp.get("to"), sp.get("label") or ""]
+            if isinstance(sp, (list, tuple)) and len(sp) >= 2 and td.year(sp[0]) is not None \
+                    and td.year(sp[1]) is not None and td.year(sp[0]) != td.year(sp[1]):
+                spans.append([str(sp[0]), str(sp[1]), str(sp[2]) if len(sp) > 2 and sp[2] else ""])
+            else:
+                notes.append(f"{FIXED}{at}: a timeline span is [from, to, label] with two dates; {sp!r} left out")
+        op["spans"] = spans[:6]
+        if not spans:
+            op.pop("spans")
+    if op.get("scale") not in (None, "even", "years"):
+        notes.append(f"{FIXED}{at}: a timeline's scale is \"even\" or left out; {op['scale']!r} left out")
+        op.pop("scale")
+    if (op.get("range") or op.get("spans")) and (not years or any(y is None for y in years) or op.get("scale") == "even"):
+        notes.append(f"{FIXED}{at}: not every date of this timeline reads as a year, so it is spaced evenly and its "
+                     "range and spans are left out")
+        op.pop("range", None)
+        op.pop("spans", None)
+    if len(op["events"]) > TIMELINE_MOST:
+        notes.append(f"{FIXED}{at}: a timeline shows at most {TIMELINE_MOST} events; the first {TIMELINE_MOST} kept")
+        op["events"] = op["events"][:TIMELINE_MOST]
 
 
 def _card_op(head: str, body: str) -> dict:
@@ -2921,7 +2974,15 @@ def _op_call(op: dict) -> str:
     if kind == "timeline":
         events = ", ".join(f"({_q(d)}, {_q(lab)}, {_picture_arg(pic)})" for d, lab, pic in _timeline_events(op))
         title = f", {_q(op['title'])}" if op.get("title") else ""
-        return f"self.big_timeline([{events}]{title})"
+        # v2: the years the track covers, periods shaded along it, even spacing (timeline_dates, big_timeline).
+        extra = ""
+        if op.get("range"):
+            extra += f", range=({_q(op['range'][0])}, {_q(op['range'][1])})"
+        if op.get("spans"):
+            extra += ", spans=[" + ", ".join(f"({_q(a)}, {_q(b)}, {_q(t)})" for a, b, t in op["spans"]) + "]"
+        if op.get("scale") == "even":
+            extra += ', scale="even"'
+        return f"self.big_timeline([{events}]{title}{extra})"
     if kind == "quote":
         return f"self.quote({_q(op['text'])}, {_q(op.get('who', ''))})"
     if kind == "illustration":

@@ -21,6 +21,23 @@ const ROLE = [
   "the beat, and a figure named on a beat is shown on it. Everything below is how the beat script is written.",
 ].join("\n");
 
+/** What v2's engine adds to v1's timeline (pocket_lecture.big_timeline, timeline_dates.py). */
+const TIMELINE_ADDITIONS = [
+  "TIMELINES, what this engine adds to the timeline op above:",
+  "  - IN PROPORTION: when every date reads as a year, each event sits at its date along the track, with a scale of",
+  "    round years under it, so the gaps between events are the real gaps. Dates may be \"1526\", \"500 BC\", \"320 BCE\",",
+  "    \"AD 78\", \"c. 1500\", \"1920s\", \"16th century\", \"early 18th century\", \"3rd millennium BC\", \"15 August 1947\",",
+  "    \"10,000 years ago\". Events close together are spread apart along their side, each with a slanted stem to its date.",
+  '  - "range": ["1500", "1900"]: the years the timeline covers (to zoom in on a period); events outside it are left out.',
+  '  - "spans": [["1526", "1857", "Mughal Empire"], ["1556", "1605", "Akbar"]]: periods shaded along the track and named',
+  "    in a strip under the scale (reigns, eras, wars, dynasties), up to 6; overlapping ones are stacked.",
+  '  - "scale": "even": events evenly spaced, for steps with no real dates ("Stone Age", "Bronze Age"); a timeline whose',
+  "    dates are not all years is spaced evenly by itself.",
+  "  - Up to 10 events.",
+  '  {"op":"timeline","title":"The Mughals","range":["1500","1870"],"events":[["1526","Panipat"],["1556","Akbar"],',
+  '   ["1857","The revolt"]],"spans":[["1526","1857","Mughal Empire"]]}',
+].join("\n");
+
 /** How the answer is given: v1's script shape with the narration fixed (v2's own). */
 const SHAPE = [
   "THE ANSWER (write_scenes): the beat script's parts that are yours, by the beats' numbers; the say of each beat",
@@ -175,6 +192,7 @@ export function scenesPrompt(x: {
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
+      part("v2-timeline", "Timelines (v2's additions)", "rules", TIMELINE_ADDITIONS),
       part("v1-free", "Free-form drawings, worked solutions and problems", "rules", V1_FREE_DRAWINGS_HEAD),
       v1("concept", "Concept maps and chains"),
       v1("camera", "Camera"),

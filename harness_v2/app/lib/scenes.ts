@@ -36,7 +36,7 @@ import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
-import type { Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
+import type { ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
 import { ALL_KINDS, VISUAL_KINDS, filterOps } from "./visual-kinds";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
@@ -569,7 +569,33 @@ export function engineEnv(run: Run, n?: number): Record<string, string> {
     ...(n !== undefined && existsSync(agentRegistry(run.id, n)) ? { PANIM_BLOCK_IMAGES: agentRegistry(run.id, n) } : {}) };
 }
 
-type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[] };
+type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[];
+  /** The engine's image model's report (genimage.report): asked, made, cached, and each picture it could not get. */
+  images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[] } };
+
+/** The engine's words for a picture it could not get (compile_lecture: "no reusable illustration for '...'; it is left out"). */
+const LEFT_OUT = /no reusable illustration for (['"])(.*?)\1;? it is left out/i;
+
+/**
+ * The AI pictures a compile could not get, each with the image model's error and its beat (from the engine's
+ * warning). With no request made at all, why: the image model is off here.
+ */
+function missingPictures(c: Compiled, beatOf: (warning: string) => number | undefined): { missing: MissingPicture[]; report?: ImageReport } {
+  const failed = c.images?.failed ?? [];
+  const asked = c.images?.asked ?? 0;
+  const missing: MissingPicture[] = [];
+  for (const w of c.warnings) {
+    const m = LEFT_OUT.exec(w);
+    if (!m) continue;
+    const what = m[2];
+    const why = failed.find((f) => f.what === what)?.error
+      ?? (asked === 0 ? "the image model was not asked: pictures are off here (no OPENROUTER_API_KEY, or PANIM_IMAGES=0)" : undefined);
+    if (!missing.some((x) => x.what === what && x.beat === beatOf(w))) missing.push({ what, error: why, beat: beatOf(w) });
+  }
+  const report = c.images ? { model: c.images.model, asked, made: c.images.made ?? 0, cached: c.images.cached ?? 0,
+    failed: new Set(failed.map((f) => f.what)).size } : undefined;
+  return { missing, report };
+}
 
 export async function compile(run: Run, script: Record<string, unknown>, dir: string, n?: number): Promise<Compiled> {
   await mkdir(dir, { recursive: true });
@@ -600,7 +626,9 @@ async function compileLecture(run: Run, n: number) {
   sl.compile = { status: "running", errors: [], warnings: [], at: began };
   saveRun(run);
   const c = await compile(run, await engineScript(run, n, st.look), path.join(scenesDir(run.id), `L${n}`, "compile"), n);
-  for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined });
+  for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined, missing: undefined });
+  const lost = missingPictures(c, (w) => beatNamed(run, n, w));
+  for (const m of lost.missing) if (m.beat !== undefined) (beatState(sl, m.beat).missing ??= []).push(m);
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const e of c.errors) {
@@ -614,7 +642,8 @@ async function compileLecture(run: Run, n: number) {
     else warnings.push(w);
   }
   const pictures = (c.generated ?? []).map((g) => ({ prompt: String(g.prompt ?? ""), model: g.model, usd: Number(g.usd) || 0 }));
-  sl.compile = { status: c.errors.length ? "failed" : "done", errors, warnings, pictures, minutes: c.minutes, seconds: (Date.now() - began) / 1000, at: Date.now() };
+  sl.compile = { status: c.errors.length ? "failed" : "done", errors, warnings, pictures, minutes: c.minutes, seconds: (Date.now() - began) / 1000, at: Date.now(),
+    ...(lost.missing.length ? { missing: lost.missing } : {}), ...(lost.report ? { images: lost.report } : {}) };
   const cost = pictures.reduce((k, p) => k + (p.usd ?? 0), 0);
   if (pictures.length) {
     // The pictures the image model made while compiling, as a call, so the Costs tab counts them.
@@ -723,6 +752,11 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
     const p = await playable(run, n, dir, source);
     const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;
+    // The script rendered is one chapter: the engine's "chapter 1" is this one.
+    const lost = missingPictures(compiled, (w) => {
+      const m = /chapter \d+ beat (\d+)/i.exec(w);
+      return m ? sc.beats[Number(m[1]) - 1]?.n : undefined;
+    });
     const wanted = beat !== undefined ? sc.beats.slice(0, sc.beats.findIndex((b) => b.n === beat) + 1) : sc.beats;
     const offset = p.said.length > wanted.length ? p.said.length - wanted.length : 0;
     const lines = linesOf(run.lectures.find((l) => l.n === n)!.text ?? "");
@@ -737,6 +771,7 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
         issues: found.flatMap((c) => c.issues ?? []), fixed: found.flatMap((c) => c.fixed ?? []) };
     };
     const common = { status: "done", ir: p.ir, assets: p.assets, fps: p.fps, frames: p.frames, blockers: p.blockers.length ? p.blockers : undefined,
+      missing: lost.missing.length ? lost.missing : undefined, images: lost.report,
       still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined };
     if (beat !== undefined) {
       const me = at(wanted.length - 1);

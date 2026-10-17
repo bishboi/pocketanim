@@ -423,6 +423,29 @@ assert.ok(kcCall.prompt.system.some((p) => p.key === "kinds" && /HARD WORD/.test
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: null });
 assert.ok(!(await loadRun(run.id)).scenes.lectures[1].chapterKinds?.[kc.n]);
 
+// A gallery whose AI pictures cannot be made: the engine leaves it out, and the beat, the compile and a render say
+// which pictures and why (here: the image model is off).
+const galleryBeat = run.script.lectures[1].chapters[0].beats[0].n;
+const gallery = [{ op: "picture", title: "Rocks", items: [{ generate: "a piece of granite", caption: "granite" }, { generate: "a piece of basalt", caption: "basalt" }] }];
+await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: galleryBeat, kinds: ["gallery", "illustration"] });
+process.env.PANIM_IMAGES = "0";
+await scenesAction(run.id, { action: "edit", lecture: 1, beat: galleryBeat, ops: gallery });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+let gb = run.scenes.lectures[1].beats[galleryBeat];
+assert.deepEqual(gb.missing?.map((m) => m.what).sort(), ["a piece of basalt", "a piece of granite"], JSON.stringify(run.scenes.lectures[1].compile));
+assert.ok(gb.missing.every((m) => /pictures are off/.test(m.error)), "why: the image model is off");
+assert.equal(run.scenes.lectures[1].compile.missing.length, 2);
+await scenesAction(run.id, { action: "render", lecture: 1, chapter: run.script.lectures[1].chapters[0].n, beat: galleryBeat });
+run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
+assert.equal(run.scenes.lectures[1].beats[galleryBeat].render.missing?.length, 2, "the render says what it left out");
+delete process.env.PANIM_IMAGES;
+await scenesAction(run.id, { action: "compile", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
+gb = run.scenes.lectures[1].beats[galleryBeat];
+assert.ok(!gb.missing?.length, "made once the image model is on");
+assert.ok(run.scenes.lectures[1].compile.images.asked >= 2);
+await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: galleryBeat, kinds: null });
+
 // Reset: a chapter's scenes, then the lecture's.
 const resetCh = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "reset", lecture: 1, chapter: resetCh.n });

@@ -271,6 +271,9 @@ export type SceneRender = {
   range?: [number, number];
   /** What the exporter could not carry into the program (it plays without it). */
   blockers?: string[];
+  /** AI pictures the image model could not make for it: left out of what plays. */
+  missing?: MissingPicture[];
+  images?: ImageReport;
   /** What the engine's check found on screen, and mended by itself. */
   issues?: string[];
   fixed?: string[];
@@ -293,6 +296,8 @@ export type SceneBeat = {
   dropped?: string[];
   /** The compiler's errors on this beat (it does not compile), and its notes (warnings, what it mended). */
   errors?: string[];
+  /** AI pictures of this beat the image model could not make: left out of the scene. */
+  missing?: MissingPicture[];
   notes?: string[];
   /** Its own visual kinds, when they differ from the run's. */
   kinds?: string[];
@@ -350,10 +355,20 @@ export type ManimAgentState = {
   ended?: number;
 };
 
+/** A picture the engine asked the image model for and could not get, so it was left out of the scene (a gallery with
+ * none of its pictures is left out whole): what was asked, the image model's error, the beat it was for. */
+export type MissingPicture = { what: string; error?: string; beat?: number };
+
+/** What the engine's image model did in a compile: pictures asked for, made now, found made already. */
+export type ImageReport = { model?: string; asked: number; made: number; cached: number; failed: number };
+
 export type SceneCompile = {
   status: "running" | "done" | "failed";
   errors: string[];
   warnings: string[];
+  /** AI pictures it could not get (left out of the scene), and the image model's work. */
+  missing?: MissingPicture[];
+  images?: ImageReport;
   /** Pictures the image model made for it, and what each cost. */
   pictures?: { prompt: string; model?: string; usd?: number }[];
   minutes?: number;

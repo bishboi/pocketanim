@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { Call, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
+import type { Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
 import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
@@ -259,6 +259,8 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
         {sl?.compile && <span className={sl.compile.status === "failed" ? "text-red-300" : sl.compile.status === "running" ? "text-sky-300" : "text-neutral-400"}>
           compile: {sl.compile.status}{sl.compile.seconds ? ` in ${sl.compile.seconds.toFixed(0)} s` : ""}{sl.compile.minutes ? ` · about ${sl.compile.minutes} min of video` : ""}</span>}
         {pictures.length > 0 && <span className="text-neutral-400">{pictures.length} AI picture(s) · {money(pictures.reduce((k, p) => k + (p.usd ?? 0), 0))}</span>}
+        {sl?.compile?.missing?.length ? <button className="text-red-300 hover:underline" onClick={() => setView("Compiler")} data-testid="scenes-missing-count">
+          ✗ {sl.compile.missing.length} AI picture(s) not made</button> : null}
         {sl?.region && <span className="mono text-emerald-300" title="the map region">{JSON.stringify(sl.region)}</span>}
         <span className="ml-auto flex gap-1.5">
           <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={busy} data-testid="scenes-build-lecture"
@@ -329,6 +331,7 @@ function Outline({ run, lecture, lines, pick, setPick }: { run: Run; lecture: Le
                       <span className="w-6 shrink-0 text-neutral-500">#{b.n}</span>
                       <span className="min-w-0 flex-1 truncate">{lines[b.lines[0] - 1]}</span>
                       {sb?.errors?.length ? <span className="text-red-400" title={sb.errors.join("\n")}>✗</span> : null}
+                      {sb?.missing?.length ? <span className="text-red-400" title={`AI picture(s) not made: ${sb.missing.map((m) => m.what).join(", ")}`}>⊘</span> : null}
                       {sb?.kinds ? <span className="text-amber-300" title="its own visual kinds">◐</span> : null}
                       {sb?.edited ? <span className="text-violet-300" title="changed by hand">✎</span> : null}
                       {sb?.agent ? <span className={sb.agent.status === "running" ? "animate-pulse text-sky-300" : sb.agent.status === "failed" ? "text-red-400" : "text-cyan-300"} title={`the Manim agent: ${sb.agent.status}`}>◆</span> : null}
@@ -363,11 +366,32 @@ function LookSelect({ style, art, setStyle, setArt }: { style: string; art: stri
 function RenderState({ r, what }: { r?: SceneRender; what: string }) {
   if (!r) return <p className="text-xs text-neutral-500">Not rendered yet: render {what} to see it (silent, low quality, a few seconds a beat).</p>;
   return (
-    <p className="text-[11px] text-neutral-400">
-      <span className={TONE[r.status]}>{r.status === "running" ? "rendering…" : r.status}</span> · {styleOf(r.style).name}, {artOf(r.art).name} art
-      {r.seconds ? ` · ${r.seconds.toFixed(0)} s` : r.started && r.status === "running" ? ` · ${seconds(r.started, Date.now())}` : ""}
-      {r.error && <span className="block whitespace-pre-wrap text-red-300">{r.error}</span>}
-    </p>
+    <div>
+      <p className="text-[11px] text-neutral-400">
+        <span className={TONE[r.status]}>{r.status === "running" ? "rendering…" : r.status}</span> · {styleOf(r.style).name}, {artOf(r.art).name} art
+        {r.seconds ? ` · ${r.seconds.toFixed(0)} s` : r.started && r.status === "running" ? ` · ${seconds(r.started, Date.now())}` : ""}
+        {r.images && r.images.asked > 0 ? ` · AI pictures: ${r.images.made} made, ${r.images.cached} already made${r.images.failed ? `, ${r.images.failed} failed` : ""}` : ""}
+        {r.error && <span className="block whitespace-pre-wrap text-red-300">{r.error}</span>}
+      </p>
+      {r.status === "done" && <MissingPictures missing={r.missing} note="left out of this render" />}
+    </div>
+  );
+}
+
+/** AI pictures the image model could not make, so the engine left them out of the scene (a gallery none of whose
+ * pictures were made is left out whole), each with the image model's error. */
+function MissingPictures({ missing, note, compact }: { missing?: MissingPicture[]; note: string; compact?: boolean }) {
+  if (!missing?.length) return null;
+  return (
+    <div className="mt-1 rounded border border-red-900 bg-red-950/30 p-1.5 text-[11px] text-red-200" data-testid="scenes-missing">
+      <p className="font-semibold">{missing.length} AI picture(s) not made: {note}{compact ? "" : " (a gallery with none of its pictures is left out whole)"}</p>
+      <ul className="mt-0.5 space-y-0.5">
+        {missing.map((m, i) => (
+          <li key={i}>✗ “{m.what}”{m.beat !== undefined ? <span className="text-red-300/70"> (beat #{m.beat})</span> : null}: <span className="text-red-100">{m.error ?? "the image model gave no picture (no reason given)"}</span></li>
+        ))}
+      </ul>
+      {!compact && <p className="mt-0.5 text-red-300/80">Compile (or render) again to ask the image model again; check the image model in the Models tab if it keeps failing.</p>}
+    </div>
   );
 }
 
@@ -579,6 +603,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
             </ol>
           ) : <p className="text-xs text-neutral-500">{sb?.status === "running" ? "Being written…" : sb ? "Nothing new on screen: the last visual stays up." : "Not built yet."}</p>}
           {sb?.dropped?.length ? <ul className="text-[11px] text-amber-300">{sb.dropped.map((d, i) => <li key={i}>✂ taken out: {d}</li>)}</ul> : null}
+          <MissingPictures missing={sb?.missing} note="left out of the scene" />
           {sb?.errors?.length ? <ul className="rounded border border-red-900 bg-red-950/30 p-1.5 text-[11px] text-red-200" data-testid="scenes-errors">{sb.errors.map((e, i) => <li key={i}>✗ {e}</li>)}</ul> : null}
           {sb?.notes?.length ? <ul className="text-[11px] text-neutral-400">{sb.notes.map((e, i) => <li key={i}>{/^fixed/i.test(e) ? "✎" : "i"} {e.replace(/^fixed:\s*/i, "")}</li>)}</ul> : null}
 
@@ -834,6 +859,8 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
           <ul className="space-y-0.5 text-neutral-400">{c.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
         </div>
       )}
+      <MissingPictures missing={c.missing} note="left out of the scene" />
+      {c.images && c.images.asked > 0 && <p className="text-neutral-400">The image model ({c.images.model}): {c.images.asked} picture request(s), {c.images.made} made now, {c.images.cached} made already{c.images.failed ? `, ${c.images.failed} could not be made` : ""}.</p>}
       {c.pictures?.length ? (
         <div>
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">AI pictures made ({c.pictures.length})</p>

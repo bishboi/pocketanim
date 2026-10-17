@@ -15,6 +15,8 @@ v1 (`harness/`) is left as it is; v2 shares nothing with it at run time. v2 has 
 `harness_v2/engine/` (from v1's `harness/lecture/`, see `engine/ENGINE.md`), which draws its maps; changes to it are
 v2's own.
 
+The JSON each lecture's video is rendered from (the beat script: chapters, beats, every operation with its arguments and what it does, what the compiler mends or refuses) is documented in [engine/BEAT_SCRIPT.md](engine/BEAT_SCRIPT.md).
+
 ## The transcript step
 
 | Step | What | Calls |

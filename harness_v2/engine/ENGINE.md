@@ -1,5 +1,7 @@
 # v2's lecture engine
 
+The JSON a lecture is rendered from (the beat script), every operation and its arguments: [BEAT_SCRIPT.md](BEAT_SCRIPT.md).
+
 A copy of v1's lecture engine (`harness/lecture/`, at commit b94dd84), so v2 renders with its own engine and never
 reaches into v1's folders. v2 uses it to render maps (`compile_lecture.py` turns a map script into a scene on
 `pocket_lecture.py`'s map engine; `app/lib/maps.ts`). Changes made here are v2's own; v1's copy is left as it is.

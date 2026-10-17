@@ -939,7 +939,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         # The lecture's emblem: one small picture, made like any other (optional: no emblem if it cannot be made).
         photos.append(("the lecture's emblem", _emblem_op(script)))
     errors += _unfetched_photos(photos, script.get("genre"), script.get("style"), contexts)
-    warnings += [f"{at}: no reusable illustration for {op.get('image') or op.get('query')!r}; it is left out "
+    warnings += [f"{at}: no reusable illustration for {' '.join(str(op.get('query') or op.get('image') or '').split())!r}; it is left out "
                  "(try another description with find_illustration)" for at, op in photos
                  if op.get("op") == "illustration" and _photo_key(op) not in script_photos]
     if script.get("teaching_rules") is False:

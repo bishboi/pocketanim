@@ -889,7 +889,9 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     import mapguard
 
     if mapguard.is_map(what):
-        return None              # a map is drawn on the map (Cartopy), never imagined by a model
+        # A map is drawn on the map (Cartopy), never imagined by a model: said, so the picture is not lost unexplained.
+        _failed(what, "not asked: its description reads as a map (mapguard), and maps are drawn only on the map")
+        return None
     aspect = _shape()
     look = "child" if look == "child" and not scene and not realistic else None
     _LOCAL.look = look

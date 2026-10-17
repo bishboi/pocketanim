@@ -619,7 +619,8 @@ function missingPictures(c: Compiled, beatOf: (warning: string) => number | unde
     const m = LEFT_OUT.exec(w);
     if (!m) continue;
     const what = m[2];
-    const why = failed.find((f) => f.what === what)?.error
+    const same = (x?: string) => String(x ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    const why = failed.find((f) => same(f.what) === same(what))?.error
       ?? (asked === 0 ? "the image model was not asked: pictures are off here (no OPENROUTER_API_KEY, or PANIM_IMAGES=0)" : undefined);
     if (!missing.some((x) => x.what === what && x.beat === beatOf(w))) missing.push({ what, error: why, beat: beatOf(w) });
   }

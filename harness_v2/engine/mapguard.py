@@ -24,7 +24,7 @@ _NOT_GEO_MAP = re.compile(rf"\b(?:{_NOT_GEO})[\s-]*maps?\b", re.I)
 # Saying there is no map ("no maps, no writing", "without a map") is not asking for one.
 _NO_MAP = re.compile(r"\b(?:no|not\s+an?|without\s+(?:an?\s+)?|never\s+an?)\s+(?:\w+\s+)?maps?\b", re.I)
 _GEO = re.compile(
-    r"\b(?:atlas(?![\s-]+(?:style|lecture|look|template|theme))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
+    r"\b(?:atlas(?![\s-]+(?:style|styled|lecture|look|template|theme|board|palette|colou?rs?|art|illustrations?|drawings?|paintings?|pictures?|cutouts?|portraits?|figures?|images?|version|rendering))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
     r"trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)", re.I)
 _DIVISIONS = re.compile(r"\b(?:[Ss]tates|[Pp]rovinces|[Dd]istricts|[Cc]ountries|[Kk]ingdoms|[Cc]olonies) (?:of|in) "
                         r"(?:the )?[A-Z]\w+")

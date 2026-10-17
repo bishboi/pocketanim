@@ -67,6 +67,8 @@ def fetch(image: str | None = None, query: str | None = None, subject: str | Non
                             parts=parts, context=context, scene=scene, match=match, kind=kind, aspect=aspect,
                             look=look)
     if row and is_map_row(row):
+        genimage._failed(str(what or ""), "left out: what it shows reads as a map (mapguard), and maps are drawn "
+                                          "only on the map")
         return None
     return row
 

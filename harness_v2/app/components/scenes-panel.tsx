@@ -391,6 +391,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
   const [style, setStyle] = useState(st?.look.style ?? "atlas");
   const [art, setArt] = useState(st?.look.art ?? "auto");
   const built = ch.beats.filter((b) => sl?.beats[b.n]?.ops.length).length;
+  const ownKinds = sl?.chapterKinds?.[c];
   const [only, setOnly] = useState<NonNullable<NonNullable<typeof r>["beats"]>[number] | null>(null);
   return (
     <div className="space-y-2" data-testid="scenes-chapter-detail">
@@ -401,6 +402,14 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
           <span className="text-[11px] text-neutral-500">{ch.beats.length} beats · {built} with visuals</span>
         </div>
         <p className="text-[11px] italic text-neutral-400">title card: “{ch.narration}”</p>
+        <div className="mt-2 rounded border border-neutral-800 p-2" data-testid="scenes-chapter-kinds">
+          <div className="mb-1 flex items-center gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Visuals this chapter may use</p>
+            <span className="text-[11px] text-neutral-500">{ownKinds ? `its own (${ownKinds.length})` : `the run's (${st?.kinds.length ?? 0})`} · a beat&apos;s own choice wins</span>
+            {ownKinds && <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => act({ action: "chapterKinds", lecture: lecture.n, chapter: c, kinds: null })}>same as the run</button>}
+          </div>
+          <KindToggles compact kinds={ownKinds ?? st?.kinds ?? []} onChange={(k) => act({ action: "chapterKinds", lecture: lecture.n, chapter: c, kinds: k })} />
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
           <button className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} disabled={busy} data-testid="scenes-build-chapter"
             onClick={() => act({ action: "build", scope: "chapter", lecture: lecture.n, chapter: c, model })}>{built ? "Build this chapter again" : "Build this chapter"}</button>
@@ -513,6 +522,8 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
   const r = sb?.render;
   const figure = b?.figure ? lectureFigures(run, lecture.n).find((f) => f.id === b.figure) : undefined;
   const ownKinds = sb?.kinds;
+  const chapterKinds = b ? sl?.chapterKinds?.[b.chapter.n] : undefined;
+  const inherited = chapterKinds ?? st?.kinds ?? [];
   if (!b) return null;
   return (
     <div className="space-y-2.5" data-testid="scenes-beat-detail">
@@ -574,10 +585,10 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
           <div className="rounded border border-neutral-800 p-2">
             <div className="mb-1 flex items-center gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Visuals this beat may use</p>
-              {ownKinds ? <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: null })}>same as the run</button>
-                : <span className="ml-auto text-[11px] text-neutral-500">the run&apos;s ({st?.kinds.length ?? 0})</span>}
+              {ownKinds ? <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: null })}>same as the {chapterKinds ? "chapter" : "run"}</button>
+                : <span className="ml-auto text-[11px] text-neutral-500">{chapterKinds ? `the chapter's (${chapterKinds.length})` : `the run's (${st?.kinds.length ?? 0})`}</span>}
             </div>
-            <KindToggles compact kinds={ownKinds ?? st?.kinds ?? []} onChange={(k) => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: k })} />
+            <KindToggles compact kinds={ownKinds ?? inherited} onChange={(k) => act({ action: "beatKinds", lecture: lecture.n, beat: n, kinds: k })} />
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <input className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100" placeholder="a note for the model (optional): “a timeline instead”, “show the granary”"
@@ -630,7 +641,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
         </div>
       </div>
       <AgentSection run={run} lecture={lecture} n={n} sb={sb} busy={busy} act={act} onCall={onCall}
-        manimOn={(ownKinds ?? st?.kinds ?? []).includes("manim")} />
+        manimOn={(ownKinds ?? inherited).includes("manim")} />
     </div>
   );
 }

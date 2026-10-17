@@ -369,6 +369,8 @@ export type SceneLecture = {
   beats: Record<string, SceneBeat>;
   compile?: SceneCompile;
   chapters?: Record<string, SceneChapterRender>;
+  /** A chapter's own visual kinds (by chapter number), when they differ from the run's; a beat's own win over them. */
+  chapterKinds?: Record<string, string[]>;
   /** When the script it was built from was made (a newer script: rebuild). */
   scriptAt?: number;
   error?: string;

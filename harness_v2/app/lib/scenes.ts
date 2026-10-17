@@ -49,6 +49,7 @@ export type ScenesAction =
   | { action: "look"; style?: string; art?: string }
   | { action: "kinds"; kinds: string[] }
   | { action: "beatKinds"; lecture: number; beat: number; kinds: string[] | null }
+  | { action: "chapterKinds"; lecture: number; chapter: number; kinds: string[] | null }
   | { action: "edit"; lecture: number; beat: number; ops: unknown }
   | { action: "build"; scope: Scope; lecture?: number; chapter?: number; beat?: number; model?: string; oneAtATime?: boolean; note?: string }
   | { action: "fix"; lecture: number; model?: string }
@@ -99,7 +100,16 @@ export function beatState(sl: SceneLecture, n: number): SceneBeat {
   return sl.beats[n];
 }
 
-const kindsFor = (run: Run, sl: SceneLecture, beat: number) => sl.beats[beat]?.kinds ?? stateOf(run).kinds;
+/** The chapter a beat is in (its number), from the script. */
+function chapterOf(run: Run, sl: SceneLecture, beat: number): number | undefined {
+  return scriptOf(run, sl.lecture)?.chapters.find((c) => c.beats.some((b) => b.n === beat))?.n;
+}
+
+/** The kinds a beat may use: its own, else its chapter's, else the run's. */
+export const kindsFor = (run: Run, sl: SceneLecture, beat: number) => {
+  const c = chapterOf(run, sl, beat);
+  return sl.beats[beat]?.kinds ?? (c !== undefined ? sl.chapterKinds?.[c] : undefined) ?? stateOf(run).kinds;
+};
 
 export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   const run = await loadRun(id);
@@ -135,6 +145,15 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const b = beatState(sl, a.beat);
     if (a.kinds === null) delete b.kinds;
     else b.kinds = ALL_KINDS.filter((k) => a.kinds!.includes(k));
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "chapterKinds") {
+    const sl = lectureOf(a.lecture);
+    if (!scriptOf(run, a.lecture)!.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    sl.chapterKinds ??= {};
+    if (a.kinds === null) delete sl.chapterKinds[a.chapter];
+    else sl.chapterKinds[a.chapter] = ALL_KINDS.filter((k) => a.kinds!.includes(k));
     saveRun(run, true);
     return run;
   }
@@ -176,7 +195,8 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       // the Manim agent's work and pictures, and their files.
       const kinds = Object.fromEntries(Object.values(sl.beats).filter((b) => b.kinds).map((b) => [b.n, b.kinds!]));
       st.lectures[a.lecture] = { lecture: a.lecture, status: "waiting", beats: Object.fromEntries(Object.entries(kinds)
-        .map(([n, k]) => [n, { n: Number(n), status: "waiting", ops: [], kinds: k, calls: [] } as SceneBeat])), calls: [] };
+        .map(([n, k]) => [n, { n: Number(n), status: "waiting", ops: [], kinds: k, calls: [] } as SceneBeat])), calls: [],
+        ...(sl.chapterKinds ? { chapterKinds: sl.chapterKinds } : {}) };
       if (st.agentImages) delete st.agentImages[a.lecture];
       await rm(dir, { recursive: true, force: true });
       log(run, `Scenes of lecture ${a.lecture} reset.`);
@@ -352,7 +372,7 @@ function beatInputs(run: Run, n: number): SceneBeatInput[] {
     const f = b.figure ? figures.get(b.figure) : undefined;
     return { n: b.n, chapter: c.n, text: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim(), show: b.show,
       ...(f ? { figure: { id: f.id, way: f.way, caption: f.caption, ready: f.ready } } : {}),
-      ...(sl.beats[b.n]?.kinds ? { kinds: sl.beats[b.n].kinds } : {}),
+      kinds: kindsFor(run, sl, b.n),
       ...(sl.beats[b.n]?.ops.length ? { ops: sl.beats[b.n].ops } : {}) };
   }));
 }
@@ -368,7 +388,9 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     || (ask.what === "beat" && b.n === ask.beat) || (ask.what === "fix" && ask.beats.includes(b.n))).map((b) => b.n);
   const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
   // The kinds told: the run's, and any a target beat has of its own (its line says which it may use).
-  const kinds = [...new Set([...st.kinds, ...targets.flatMap((t) => sl.beats[t]?.kinds ?? [])])];
+  const kinds = targets.length ? ALL_KINDS.filter((k) => targets.some((t) => kindsFor(run, sl, t).includes(k))) : st.kinds;
+  // A beat's line says what it may use only when that is less than what the prompt tells.
+  for (const b of beats) if (b.kinds && (!targets.includes(b.n) || kinds.every((k) => b.kinds!.includes(k)))) delete b.kinds;
   const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
   const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
     : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;

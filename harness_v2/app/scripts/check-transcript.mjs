@@ -410,6 +410,17 @@ assert.equal(chRender.status, "done", chRender.error);
 assert.equal(chRender.beats.length, ch1.beats.length);
 assert.ok(chRender.beats.every((b, i, all) => b.to >= b.from && (i === 0 || b.from > all[i - 1].from)), "each beat's frames, in order");
 
+// A chapter's own kinds: its beats built with only those (a beat's own still wins).
+const kc = run.script.lectures[1].chapters[0];
+await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: ["define"] });
+await scenesAction(run.id, { action: "build", scope: "chapter", lecture: 1, chapter: kc.n });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.ok(kc.beats.every((b) => run.scenes.lectures[1].beats[b.n].ops.every((o) => ["panel", "fact", "define", "clear"].includes(o.op))), "only the chapter's kinds");
+const kcCall = run.calls.filter((c) => c.step === "scenes" && /chapter/.test(c.label)).at(-1);
+assert.ok(kcCall.prompt.system.some((p) => p.key === "kinds" && /HARD WORD/.test(p.text) && !/A DIAGRAM/.test(p.text)), "the chapter's kinds are what is told");
+await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: null });
+assert.ok(!(await loadRun(run.id)).scenes.lectures[1].chapterKinds?.[kc.n]);
+
 // Reset: a chapter's scenes, then the lecture's.
 const resetCh = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "reset", lecture: 1, chapter: resetCh.n });

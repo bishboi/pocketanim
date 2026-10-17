@@ -703,8 +703,9 @@ class BoardMixin:
         bare = re.sub(r"\\(?:rm|it|bf)\s+\w+|[_^]\{[^{}]*\}|\\[a-zA-Z]+", "", bare)
         if re.search(r"[\u0900-\u097F]", bare):
             return True
-        # Three words in a row is a sentence; a lone unit or name (total, max) is not.
-        return bool(re.search(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}\s+[A-Za-z]{2,}", bare))
+        # Two words in a row is a sentence ("Geography → human history", "Shared attitudes + collective behaviour":
+        # typeset as maths their spaces went and they read in italics); a lone unit or name (total, max) is not.
+        return bool(re.search(r"[A-Za-z]{3,}\s+[A-Za-z]{3,}", bare))
 
     def _work_line(self, line: str, width: float):
         """One line of working: typeset maths (MathTex, drawn as text without LaTeX), or a sentence."""
@@ -797,7 +798,11 @@ class BoardMixin:
                         getattr(body, "free_area", None) != "left":
                     # A wide, flat picture (a timeline, a chain across the board) halved beside the working had
                     # labels too small to read: it keeps the board's width along the top, the working goes below.
-                    top_h = min(sh * 0.42, whole.height * sw / whole.width + 0.2)
+                    # At the size it was drawn (smaller only when wider than the board): squeezed into a band of
+                    # the stage's height, a timeline shrank to half while the column below had room to spare.
+                    # The column below keeps room for its title and this beat's lines (later ones scroll).
+                    room = 0.3 + (0.45 if title else 0) + 0.55 * max(len(lines or []), 2)
+                    top_h = min(whole.height * min(1.0, (sw - 0.3) / whole.width), sh - room)
                     top = (cx, cy + sh / 2 - top_h / 2, sw - 0.3, top_h)
                     moved = self._stage_aside(top)
                     if moved:

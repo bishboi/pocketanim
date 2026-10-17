@@ -91,6 +91,7 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
 | `narration`? | text | What is said over the chapter card. Default: the title. |
 | `map`? | true/false | Taught on the map (`true`, needs the script's `region`) or on a board / with the side panel (`false`). Left out, the chapter is on the map when it uses a map operation. A chapter with a `manim` beat is drawn on the board (the compiler says so). |
 | `beats` | list | The beats (§3), in order. |
+| `section`? | text | Which part of the source the chapter comes from. Not drawn; carried into the compile's report of the pictures used (their context). |
 
 Where it is taught:
 
@@ -237,7 +238,8 @@ One operation for every picture on the stage: `picture`. Its keys decide what it
 | `items` | a gallery of several pictures | each item one of the three above |
 
 The older operation names still work: `illustration` (= `generate`), `photo` (`subject` / `query` / `image`),
-`figure` (`id`), `draw` (`what`, `parts`).
+`figure` (`id`), `draw` (`what`, `parts`), `gallery` (`items`, `title`, `layout`: the same as a `picture` with
+`items`).
 
 #### `picture` with `generate`: a real person, place, thing or scene
 ```json
@@ -501,12 +503,14 @@ On a later beat: reveals the answer of the question up. It needs a question earl
 | Arg | | |
 |---|---|---|
 | `id` | required | The same id on later beats adds lines under the last ones. |
-| `lines` | required | TeX for maths (`\frac{a}{b}`, `v^2`, `\text{m/s}`); a line with words is shown as a sentence. One or two a beat, as they are said. |
+| `lines` | required | TeX for maths (`\frac{a}{b}`, `v^2`, `\text{m/s}`); a line with two words in a row (`"Geography → human history"`) is shown as a sentence, in the lecture's font. One or two a beat, as they are said. |
 | `title`? | | |
 | `box`? | true | Rings the answer. |
 
 Beside any picture on the stage (a figure, a diagram, a timeline): the picture moves into the left half and the
-working takes the right. A wide picture keeps the top and the working goes below. With a `manim` figure, give the
+working takes the right. A wide picture (a timeline, a long chain: more than 2.4 times as wide as tall) moves to the
+top at the size it was drawn (smaller only when wider than the board, or when the column would have no room for its
+title and this beat's lines) and the working goes below. With a `manim` figure, give the
 figure `"area": "left"` so both stay put.
 
 #### `problem`: a long question and its solution

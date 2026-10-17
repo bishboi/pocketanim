@@ -13,7 +13,8 @@ export const ENGINES: { id: VoiceSettings["engine"]; label: string; key: string;
 
 /** Whether any chapter of the run is being spoken now (the page follows the run while it is). */
 export function voiceRunning(run: Run | null | undefined): boolean {
-  return Object.values(run?.voice?.lectures ?? {}).some((l) => Object.values(l).some((c) => c.status === "running"));
+  return [...Object.values(run?.voice?.lectures ?? {}), ...Object.values(run?.voice?.trials ?? {})]
+    .some((l) => Object.values(l).some((c) => c.status === "running"));
 }
 
 /** What a chapter's scenes are (the look, each beat's words and visuals), as a short key: a voice made from other

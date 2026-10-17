@@ -534,6 +534,9 @@ export type ChapterVoice = {
   /** Each beat in the narrated chapter: where it starts and ends (seconds, frames). */
   beats?: { n: number; start: number; end: number; from: number; to: number }[];
   blockers?: string[];
+  /** A trial: the beat script it was made from (edited by hand), and what applying it to the scenes did. */
+  edited?: ChapterScript;
+  applied?: { at: number; beats: number; notes: string[] };
   /** The scenes it was made from (a key of their visuals and words): other scenes now mean the voice is behind them. */
   scenesKey?: string;
   error?: string;
@@ -546,4 +549,17 @@ export type VoiceState = {
   settings: VoiceSettings;
   /** By lecture, by chapter. */
   lectures: Record<string, Record<string, ChapterVoice>>;
+  /** A chapter's beat script edited by hand on the Voice tab and tried (spoken and played) apart from its real voice. */
+  trials?: Record<string, Record<string, ChapterVoice>>;
+};
+
+/** A chapter's beat script as the Voice tab edits it: what the compiler is given for it (its figures added). */
+export type ChapterScript = {
+  style?: string;
+  art?: string;
+  region?: Record<string, unknown> | null;
+  emblem?: string | null;
+  genre?: string | null;
+  chapter: { title: string; narration?: string; map?: boolean;
+    beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string }[] };
 };

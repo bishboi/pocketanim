@@ -155,24 +155,108 @@ export function VoicePanel({ run, ready, timingModel, onCall, act }: {
         </section>
       )}
 
-      {lecture !== undefined && chapter !== undefined && <ChapterView run={run} n={lecture} chapter={chapter} v={open} onCall={onCall} />}
+      {lecture !== undefined && chapter !== undefined && <ChapterView run={run} n={lecture} chapter={chapter} v={open} onCall={onCall} act={act} />}
     </div>
   );
 }
 
-function ChapterView({ run, n, chapter, v, onCall }: { run: Run; n: number; chapter: number; v?: ChapterVoice; onCall: (id: string) => void }) {
+/** One chapter: its voice as made from its scenes, or its beat script edited by hand and tried. */
+function ChapterView({ run, n, chapter, v, onCall, act }: { run: Run; n: number; chapter: number; v?: ChapterVoice; onCall: (id: string) => void; act: Act }) {
+  const [tab, setTab] = useState<"voice" | "edit">("voice");
+  const trial = run.voice?.trials?.[n]?.[chapter];
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-1">
+        <button data-testid="voice-tab-voice" className={`${btn} ${tab === "voice" ? "border-white/60 bg-neutral-800" : "border-neutral-700"}`} onClick={() => setTab("voice")}>Its voice</button>
+        <button data-testid="voice-tab-edit" className={`${btn} ${tab === "edit" ? "border-white/60 bg-neutral-800" : "border-neutral-700"}`} onClick={() => setTab("edit")}>
+          Edit its beat script (JSON) and try it{trial?.edited ? " ·" : ""}{trial?.status === "running" ? " (trying…)" : ""}</button>
+      </div>
+      {tab === "voice"
+        ? <VoiceResult run={run} n={n} chapter={chapter} v={v} onCall={onCall} />
+        : <EditAndTry key={`${run.id}|${n}|${chapter}`} run={run} n={n} chapter={chapter} trial={trial} onCall={onCall} act={act} />}
+    </div>
+  );
+}
+
+/**
+ * The chapter's beat script as JSON, the compiler's own (look, region, emblem, genre; the chapter, each beat with its
+ * number, its words said and its operations), to change and try: spoken and played apart from the chapter's voice,
+ * as often as wanted. Applying puts the visuals into the scenes (the words said stay the transcript's).
+ */
+function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: number; chapter: number; trial?: ChapterVoice; onCall: (id: string) => void; act: Act }) {
+  const [text, setText] = useState<string>(trial?.edited ? JSON.stringify(trial.edited, null, 2) : "");
+  const [loading, setLoading] = useState(!trial?.edited);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const load = async () => {
+    setLoading(true);
+    setLoadError(null);
+    const res = await fetch(`/api/runs/${run.id}/voice?lecture=${n}&chapter=${chapter}`, { cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) setText(JSON.stringify(json.script, null, 2));
+    else setLoadError(json.error ?? "the beat script could not be read");
+    setLoading(false);
+  };
+  useEffect(() => { if (!trial?.edited) void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  let parsed: unknown;
+  let parseError: string | null = null;
+  try {
+    parsed = text.trim() ? JSON.parse(text) : undefined;
+  } catch (error) {
+    parseError = (error as Error).message;
+  }
+  const beats = (parsed as { chapter?: { beats?: unknown[] } } | undefined)?.chapter?.beats;
+  const running = trial?.status === "running";
+  return (
+    <section className="space-y-2 rounded border border-neutral-800 p-3 text-xs" data-testid="voice-edit">
+      <p className="text-neutral-400">
+        The chapter as the compiler is given it: change any beat&apos;s <code>do</code> (its operations), <code>paragraph</code>, <code>pause</code>,{" "}
+        <code>about</code>, or its words (<code>say</code>), the <code>style</code> and <code>art</code>, the <code>region</code> or the <code>emblem</code>;
+        add or take out beats. <b>Speak and play this</b> compiles it, speaks it with the voice above, times its animations to the words and plays it here,
+        apart from the chapter&apos;s own voice. Lines already spoken are not paid for again.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button data-testid="voice-try" disabled={!!parseError || !parsed || running} className={`${btn} border-emerald-700 text-emerald-200 hover:bg-emerald-950`}
+          onClick={() => void act({ action: "try", lecture: n, chapter, script: parsed })}>{running ? `${trial?.phase ?? "trying"}…` : "Speak and play this"}</button>
+        <button disabled={!!parseError || !parsed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => setText(JSON.stringify(parsed, null, 2))}>Format</button>
+        <button disabled={loading || running} className={`${btn} border-neutral-700 hover:bg-neutral-800`}
+          onClick={() => { if (!trial?.edited || confirm("Replace what is here with the scenes' beat script as it is now?")) void load(); }}>Back to the scenes&apos; script</button>
+        <button data-testid="voice-apply" disabled={!!parseError || !parsed || running} className={`${btn} border-amber-700 text-amber-200 hover:bg-amber-950`}
+          onClick={() => { if (confirm("Put these visuals into the chapter's scenes (each beat by its number), and compile? The words said stay the transcript's.")) void act({ action: "apply", lecture: n, chapter, script: parsed }); }}>
+          Apply to the scenes</button>
+        {trial && !running && <button className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "resetTrial", lecture: n, chapter })}>Forget the trial</button>}
+        <span className={`ml-auto ${parseError ? "text-red-300" : "text-neutral-500"}`} data-testid="voice-json-state">
+          {loading ? "reading the beat script…" : parseError ? `not JSON: ${parseError}` : Array.isArray(beats) ? `${beats.length} beat(s)` : "no beats"}</span>
+      </div>
+      {loadError && <p className="text-red-300">{loadError}</p>}
+      {trial?.applied && (
+        <p className="text-amber-200">Applied {new Date(trial.applied.at).toLocaleTimeString()}: {trial.applied.beats} beat(s) put into the scenes (compiling on the Scenes tab)
+          {trial.applied.notes.length ? <>; {trial.applied.notes.join("; ")}</> : null}. Speak the chapter again for its own voice.</p>
+      )}
+      <textarea data-testid="voice-json" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)}
+        className="mono h-[28rem] w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] leading-snug text-neutral-100" />
+      {trial && trial.status !== "running" && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">The edit, tried</p>
+          <VoiceResult run={run} n={n} chapter={chapter} v={trial} onCall={onCall} tried />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function VoiceResult({ run, n, chapter, v, onCall, tried }: { run: Run; n: number; chapter: number; v?: ChapterVoice; onCall: (id: string) => void; tried?: boolean }) {
   const [beat, setBeat] = useState<number | undefined>();
   const [view, setView] = useState<"lines" | "timing">("lines");
   const c = run.script?.lectures[n]?.chapters.find((x) => x.n === chapter);
-  if (!v) return <p className="text-xs text-neutral-400">Chapter {chapter} is not spoken yet.</p>;
+  if (!v || !v.status || (!v.ir && v.status === "done" && v.applied)) return <p className="text-xs text-neutral-400">{tried ? "Not tried yet." : `Chapter ${chapter} is not spoken yet.`}</p>;
   if (v.status === "running") return <p className="text-xs text-sky-300" data-testid="voice-running">Chapter {chapter}: {v.phase ?? "running"}…</p>;
-  if (v.status === "failed") return <p className="whitespace-pre-wrap text-xs text-red-300" data-testid="voice-error">Chapter {chapter} could not be spoken: {v.error}</p>;
+  if (v.status === "failed") return <p className="whitespace-pre-wrap text-xs text-red-300" data-testid="voice-error">Chapter {chapter} could not be {tried ? "tried" : "spoken"}: {v.error}</p>;
   const range = beat !== undefined ? v.beats?.find((b) => b.n === beat) : undefined;
   const estimated = (v.lines ?? []).some((l) => l.wordsFrom === "estimated");
   return (
-    <section className="space-y-3 rounded border border-neutral-800 p-3 text-xs" data-testid="voice-chapter">
+    <section className="space-y-3 rounded border border-neutral-800 p-3 text-xs" data-testid={tried ? "voice-tried" : "voice-chapter"}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h4 className="text-sm text-neutral-100">Chapter {chapter}: {c?.title}</h4>
+        <h4 className="text-sm text-neutral-100">Chapter {chapter}: {tried ? v.edited?.chapter.title ?? c?.title : c?.title}{tried ? " (edited)" : ""}</h4>
         <span className="text-neutral-400">{v.mode} · {v.style}/{v.art} · {seconds(length(v))} · made in {seconds(v.seconds)}</span>
         <span className="ml-auto text-neutral-400">voice {money(v.cost?.spoken ?? 0)}{v.cost?.director ? ` · delivery marking ${money(v.cost.director)}` : ""} · timing {money(v.cost?.timing ?? 0)}</span>
       </div>

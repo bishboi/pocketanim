@@ -438,6 +438,42 @@ assert.ok(!(await loadRun(run.id)).voice.lectures[1][ch1.n], "the chapter's voic
 await assert.rejects(voiceAction(run.id, { action: "speak", lecture: 99 }), /no chapter with its scenes/);
 console.log(`voice: chapter ${ch1.n}, ${cv.lines.length} lines, ${cv.cues.filter((c) => c.cues).length} beats timed, ${(cv.frames / cv.fps).toFixed(1)} s`);
 
+// The chapter's beat script edited by hand on the Voice tab and tried (spoken and played apart), then applied.
+const { chapterScript } = await import(path.resolve(here, "../lib/voice.ts"));
+const base = await chapterScript(run, 1, ch1.n);
+assert.equal(base.chapter.beats.length, ch1.beats.length);
+assert.deepEqual(base.chapter.beats.map((b) => b.beat), ch1.beats.map((b) => b.n), "each beat with its number");
+assert.ok(base.chapter.beats.every((b) => typeof b.say === "string" && Array.isArray(b.do)) && base.style, "the compiler's own script");
+const edit = JSON.parse(JSON.stringify(base));
+edit.chapter.beats[0].do = [{ op: "panel", title: "Tried by hand" }, { op: "fact", text: "An edit, tried" }];
+edit.chapter.beats[0].pause = 1;
+edit.chapter.beats[1].say = "These are new words, said only in the trial.";
+await assert.rejects(voiceAction(run.id, { action: "try", lecture: 1, chapter: ch1.n, script: { beats: [] } }), /needs "chapter"/);
+await assert.rejects(voiceAction(run.id, { action: "try", lecture: 1, chapter: ch1.n, script: { chapter: { title: "x", beats: [{ say: "s", do: [{ title: "no op" }] }] } } }), /each with "op"/);
+await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
+run = await slow(run.id, (r) => voiceRunning(r), 3000);
+const realBefore = run.voice.lectures[1][ch1.n].ir;
+await voiceAction(run.id, { action: "try", lecture: 1, chapter: ch1.n, script: edit });
+run = await slow(run.id, (r) => voiceRunning(r), 3000);
+const tv = run.voice.trials[1][ch1.n];
+assert.equal(tv.status, "done", tv.error);
+assert.ok(tv.ir && tv.audio && tv.frames > 0 && tv.beats.length === edit.chapter.beats.length, "played with its narration");
+assert.ok(tv.lines.some((l) => l.text === "These are new words, said only in the trial." && l.beat === ch1.beats[1].n), "the edited words spoken, under their beat");
+assert.ok(readFileSync(path.join(fileOf(tv.ir), "..", "scene.py"), "utf8").includes("Tried by hand"), "the edited visuals compiled");
+assert.equal(run.voice.lectures[1][ch1.n].ir, realBefore, "the chapter's own voice untouched");
+assert.deepEqual(tv.edited.chapter.beats[0].do[0], { op: "panel", title: "Tried by hand" });
+// Applied: the visuals into the scenes (compiled there); the edited words are the transcript's, so not applied.
+await voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: edit });
+run = await slow(run.id, (r) => r.scenes.status === "running" || voiceRunning(r), 3000);
+const appliedBeat = run.scenes.lectures[1].beats[ch1.beats[0].n];
+assert.deepEqual(appliedBeat.ops.map((o) => o.op), ["panel", "fact"]);
+assert.ok(appliedBeat.edited && appliedBeat.pause === 1, "edited by hand, with its pause");
+assert.ok(run.voice.trials[1][ch1.n].applied.notes.some((x) => /transcript/.test(x)), "says the words were not applied");
+assert.notEqual(run.voice.lectures[1][ch1.n].scenesKey, scenesKey(run, 1, ch1.n), "the chapter's voice is now behind its scenes");
+await voiceAction(run.id, { action: "resetTrial", lecture: 1, chapter: ch1.n });
+assert.ok(!(await loadRun(run.id)).voice.trials[1][ch1.n], "the trial forgotten");
+await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
+
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).
 const kc = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: ["define"] });

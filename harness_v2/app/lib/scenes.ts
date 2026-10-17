@@ -51,6 +51,8 @@ export type ScenesAction =
   | { action: "beatKinds"; lecture: number; beat: number; kinds: string[] | null }
   | { action: "chapterKinds"; lecture: number; chapter: number; kinds: string[] | null }
   | { action: "edit"; lecture: number; beat: number; ops: unknown }
+  | { action: "editChapter"; lecture: number; chapter: number; beats: { beat: number; ops: unknown; paragraph?: boolean; pause?: number; about?: string }[];
+      emblem?: string | null; region?: Record<string, unknown> | null }
   | { action: "build"; scope: Scope; lecture?: number; chapter?: number; beat?: number; model?: string; oneAtATime?: boolean; note?: string }
   | { action: "fix"; lecture: number; model?: string }
   | { action: "compile"; lecture: number }
@@ -171,6 +173,28 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const b = beatState(sl, a.beat);
     const kept = filterOps(a.ops as Record<string, unknown>[], kindsFor(run, sl, a.beat));
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
+    lock(run, [a.lecture], async () => {
+      await compileLecture(run, a.lecture);
+    });
+    return run;
+  }
+  if (a.action === "editChapter") {
+    // A chapter's beats set by hand at once (the Voice tab's edited beat script): each beat's operations (only the
+    // kinds switched on for it), paragraph, pause and about; the lecture's emblem and region when given. Compiled.
+    const sl = lectureOf(a.lecture);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
+    const chapter = scriptOf(run, a.lecture)!.chapters.find((c) => c.n === a.chapter);
+    if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    for (const e of a.beats) {
+      if (!chapter.beats.some((b) => b.n === e.beat)) throw new Error(`beat ${e.beat} is not in chapter ${a.chapter}`);
+      if (!Array.isArray(e.ops)) throw new Error(`beat ${e.beat}: its do must be a JSON list of operations`);
+      const b = beatState(sl, e.beat);
+      const kept = filterOps(e.ops as Record<string, unknown>[], kindsFor(run, sl, e.beat));
+      Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined,
+        paragraph: e.paragraph || undefined, pause: e.pause || undefined, about: e.about || undefined });
+    }
+    if (a.emblem !== undefined) sl.emblem = a.emblem || undefined;
+    if (a.region !== undefined) sl.region = a.region;
     lock(run, [a.lecture], async () => {
       await compileLecture(run, a.lecture);
     });
@@ -522,7 +546,7 @@ async function agentsOn(run: Run, n: number, needs: (b: SceneBeat) => boolean) {
 // ---------------- the engine's script ----------------
 
 /** The lecture's figures as files the engine shows (a generated one when it is made, else the book's), by id. */
-async function figureFiles(run: Run, n: number): Promise<Record<string, { file: string; caption: string }>> {
+export async function figureFiles(run: Run, n: number): Promise<Record<string, { file: string; caption: string }>> {
   const out: Record<string, { file: string; caption: string }> = {};
   const figures = lectureFigures(run, n);
   if (!figures.length) return out;

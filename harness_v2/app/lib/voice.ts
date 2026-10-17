@@ -26,11 +26,11 @@ import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { check, newCall } from "./run";
-import { compile, engineScript, fileUrl, playable, renderSlot, scenesDir, scriptOf, stateOf as scenesOf } from "./scenes";
+import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf } from "./scenes";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { cleanLook } from "./styles";
-import type { ChapterVoice, Run, VoiceCue, VoiceLine, VoiceSettings, VoiceState } from "./types";
+import type { ChapterScript, ChapterVoice, Run, VoiceCue, VoiceLine, VoiceSettings, VoiceState } from "./types";
 import { ENGINES, scenesKey } from "./voice-engines";
 
 export { ENGINES, scenesKey };
@@ -69,7 +69,60 @@ const busy = ((globalThis as { __v2voiceBusy?: Set<string> }).__v2voiceBusy ??= 
 export type VoiceAction =
   | { action: "settings"; engine?: VoiceSettings["engine"]; voice?: string; pace?: VoiceSettings["pace"]; timingModel?: string }
   | { action: "speak"; lecture: number; chapter?: number }
-  | { action: "reset"; lecture: number; chapter?: number };
+  | { action: "reset"; lecture: number; chapter?: number }
+  | { action: "try"; lecture: number; chapter: number; script: unknown }
+  | { action: "apply"; lecture: number; chapter: number; script: unknown }
+  | { action: "resetTrial"; lecture: number; chapter: number };
+
+/** A chapter's beat script as the compiler is given it (its figures aside), each beat with its number: to edit. */
+export async function chapterScript(run: Run, n: number, chapter: number): Promise<ChapterScript> {
+  const sc = scriptOf(run, n)?.chapters.find((c) => c.n === chapter);
+  if (!sc) throw new Error(`lecture ${n} has no chapter ${chapter}`);
+  const full = await engineScript(run, n, cleanLook(scenesOf(run).look), { chapter });
+  const ch = (full.chapters as ChapterScript["chapter"][])[0];
+  return { style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
+    emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
+    chapter: { title: ch.title, narration: ch.narration, map: ch.map, beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
+}
+
+/** An edited beat script read as one: what is wrong with it said plainly, so the page can show it. */
+export function readChapterScript(x: unknown): ChapterScript {
+  const fail = (why: string): never => { throw new Error(`the beat script: ${why}`); };
+  if (!x || typeof x !== "object" || Array.isArray(x)) fail("it must be a JSON object");
+  const o = x as Record<string, unknown>;
+  const ch = o.chapter as Record<string, unknown> | undefined;
+  if (!ch || typeof ch !== "object" || Array.isArray(ch)) fail('it needs "chapter": {"title", "narration", "map", "beats": [...]}');
+  if (typeof ch!.title !== "string" || !ch!.title.trim()) fail('"chapter.title" must be a text');
+  if (!Array.isArray(ch!.beats) || !(ch!.beats as unknown[]).length) fail('"chapter.beats" must be a list of at least one beat');
+  const beats = (ch!.beats as unknown[]).map((raw, i) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail(`beat ${i + 1} must be an object`);
+    const b = raw as Record<string, unknown>;
+    if (typeof b.say !== "string" || !b.say.trim()) fail(`beat ${i + 1}: "say" must be the words said`);
+    const ops = b.do ?? [];
+    if (!Array.isArray(ops) || ops.some((op) => !op || typeof op !== "object" || Array.isArray(op) || typeof (op as Record<string, unknown>).op !== "string"))
+      fail(`beat ${i + 1}: "do" must be a list of operations, each with "op"`);
+    if (b.pause !== undefined && !(Number(b.pause) >= 0)) fail(`beat ${i + 1}: "pause" must be a number of seconds`);
+    if (b.beat !== undefined && !Number.isInteger(b.beat)) fail(`beat ${i + 1}: "beat" must be the beat's number`);
+    return { ...(b.beat !== undefined ? { beat: b.beat as number } : {}), say: (b.say as string).trim(), do: ops as Record<string, unknown>[],
+      ...(b.paragraph === true ? { paragraph: true } : {}), ...(b.pause ? { pause: Number(b.pause) } : {}),
+      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim() } : {}) };
+  });
+  const text = (k: string) => (typeof o[k] === "string" && (o[k] as string).trim() ? (o[k] as string).trim() : undefined);
+  if (o.region !== undefined && o.region !== null && (typeof o.region !== "object" || Array.isArray(o.region))) fail('"region" must be an object or null');
+  return { style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
+    genre: text("genre") ?? null,
+    chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "", map: ch!.map === true, beats } };
+}
+
+/** The engine's script for an edited chapter: the lecture's title and its figures, the chapter as edited. */
+async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
+  const look = cleanLook({ ...scenesOf(run).look, ...(s.style ? { style: s.style } : {}), ...(s.art ? { art: s.art } : {}) });
+  const region = s.region && Object.keys(s.region).length ? s.region : null;
+  return { title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
+    ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),
+    chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", map: !!s.chapter.map && !!region,
+      beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
+}
 
 /** The chapters of a lecture whose scenes are built (every beat has its visuals), in order. */
 export function chaptersWithScenes(run: Run, n: number): number[] {
@@ -99,6 +152,64 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
       delete lv[c];
       await rm(path.join(scenesDir(id), `L${a.lecture}`, `voice-${c}`), { recursive: true, force: true });
     }
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "try") {
+    const edited = readChapterScript(a.script);
+    if (!scriptOf(run, a.lecture)?.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    const key = `${id}|${a.lecture}|${a.chapter}|try`;
+    if (busy.has(key)) throw new Error("this chapter's edit is being tried already");
+    const trials = ((vs.trials ??= {})[a.lecture] ??= {});
+    const target: ChapterVoice = trials[a.chapter] = { status: "running", phase: "waiting", edited, started: Date.now() };
+    busy.add(key);
+    saveRun(run, true);
+    void (async () => {
+      try {
+        await speakChapter(run, a.lecture, a.chapter, target, edited);
+      } catch (error) {
+        Object.assign(target, { status: "failed", phase: undefined, error: (error as Error).message, at: Date.now() });
+      } finally {
+        busy.delete(key);
+        saveRun(run, true);
+      }
+    })();
+    return run;
+  }
+  if (a.action === "apply") {
+    // The edited visuals put into the scenes (the Scenes tab's beats), and compiled: each beat named by its number in
+    // this chapter. The words said are the transcript's: an edited say is tried, never applied.
+    const edited = readChapterScript(a.script);
+    const chapter = scriptOf(run, a.lecture)?.chapters.find((c) => c.n === a.chapter);
+    if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    const notes: string[] = [];
+    const known = new Set(chapter.beats.map((b) => b.n));
+    const beats = edited.chapter.beats.filter((b) => {
+      if (b.beat !== undefined && known.has(b.beat)) return true;
+      notes.push(`"${b.say.slice(0, 50)}…": ${b.beat === undefined ? "no beat number" : `beat ${b.beat} is not in this chapter`}, so not applied`);
+      return false;
+    });
+    if (!beats.length) throw new Error("no beat of this chapter in it (each beat needs its \"beat\" number) : nothing to apply");
+    const fresh = await chapterScript(run, a.lecture, a.chapter);
+    for (const b of beats) {
+      const was = fresh.chapter.beats.find((x) => x.beat === b.beat);
+      if (was && was.say !== b.say) notes.push(`beat ${b.beat}: its words are the transcript's, so the edited say was not applied`);
+    }
+    if (edited.style && edited.style !== fresh.style || edited.art && edited.art !== fresh.art) notes.push("the look is the run's (Scenes tab), so the edited style and art were not applied");
+    await scenesAction(id, { action: "editChapter", lecture: a.lecture, chapter: a.chapter,
+      beats: beats.map((b) => ({ beat: b.beat!, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })),
+      emblem: edited.emblem ?? null, region: edited.region ?? null });
+    const after = await loadRun(id);
+    if (!after) return run;
+    const trials = ((voiceOf(after).trials ??= {})[a.lecture] ??= {});
+    trials[a.chapter] = { ...(trials[a.chapter] ?? { status: "done" }), applied: { at: Date.now(), beats: beats.length, notes } };
+    saveRun(after, true);
+    return after;
+  }
+  if (a.action === "resetTrial") {
+    if (busy.has(`${id}|${a.lecture}|${a.chapter}|try`)) throw new Error("this chapter's edit is being tried");
+    delete vs.trials?.[a.lecture]?.[a.chapter];
+    await rm(path.join(scenesDir(id), `L${a.lecture}`, `voice-${a.chapter}-try`), { recursive: true, force: true });
     saveRun(run, true);
     return run;
   }
@@ -151,19 +262,21 @@ function lastJson<T>(r: Tool, what: string): T {
   }
 }
 
-async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice) {
+async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice, edited?: ChapterScript) {
   const began = Date.now();
   const settings = { ...voiceOf(run).settings };
   const env = voiceEnv(settings);
-  const look = cleanLook(scenesOf(run).look);
-  const dir = path.join(scenesDir(run.id), `L${n}`, `voice-${chapter}`);
+  const look = cleanLook({ ...scenesOf(run).look, ...(edited?.style ? { style: edited.style } : {}), ...(edited?.art ? { art: edited.art } : {}) });
+  const dir = path.join(scenesDir(run.id), `L${n}`, edited ? `voice-${chapter}-try` : `voice-${chapter}`);
   const tools = path.join(engineDir(), "tools");
   const phase = (p: string) => {
     target.phase = p;
     saveRun(run);
   };
   Object.assign(target, { status: "running", engine: settings.engine, style: look.style, art: look.art, error: undefined,
-    scenesKey: scenesKey(run, n, chapter), started: began });
+    ...(edited ? {} : { scenesKey: scenesKey(run, n, chapter) }), started: began });
+  // Each line to its beat: by the edited script's words (a trial), else by the transcript's.
+  const beatOf = edited ? editedBeats(edited) : beatsByText(run, n, chapter);
   const release = await renderSlot();
   try {
     await rm(dir, { recursive: true, force: true });
@@ -171,7 +284,7 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
     await mkdir(voiceCache(), { recursive: true });
 
     phase("compiling the chapter");
-    const compiled = await compile(run, await engineScript(run, n, look, { chapter }), dir, n);
+    const compiled = await compile(run, edited ? await engineScriptOf(run, n, edited) : await engineScript(run, n, look, { chapter }), dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
     const scene = path.join(dir, "scene.py");
@@ -190,7 +303,6 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
         words?: VoiceLine["words"]; words_from?: string }[] };
     const said = lastJson<Lines>(await runPython([path.join(tools, "voice_scene.py"), "lines", scene], dir, pyEnv, undefined, SPEAK_TIMEOUT), "the word times");
     if (!said.ok) throw new Error(said.error ?? "the lines could not be read");
-    const beatOf = beatsByText(run, n, chapter);
     const lines: VoiceLine[] = [];
     for (const [i, l] of (said.lines ?? []).entries()) {
       let url: string | undefined;
@@ -211,7 +323,7 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
     target.calls = [];
     if ((spoke.spoken ?? 0) > 0) {
       // The lines spoken now (and the director's marking of them), as a call, so the Costs tab counts the voice.
-      const call = newCall(run, { step: "voice", label: `Voice for lecture ${n}, chapter ${chapter} (${spoke.spoken} line(s) spoken)`, lecture: n,
+      const call = newCall(run, { step: "voice", label: `Voice for lecture ${n}, chapter ${chapter}${edited ? " (edited, tried)" : ""} (${spoke.spoken} line(s) spoken)`, lecture: n,
         model: said.mode ?? settings.engine, effort: "off",
         prompt: { system: [], user: lines.map((l, i) => part(`l${i + 1}`, `Line ${i + 1}`, "items", l.delivery ?? l.spoken ?? l.text)) } });
       Object.assign(call, { api: "voice", status: "done", ended: Date.now(), cost: Number(spoke.voice?.usd ?? 0),
@@ -221,16 +333,16 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
     }
 
     phase("timing the animations to the words");
-    const { cues, aligned } = await timeAnimations(run, n, chapter, scene, dir, pyEnv, settings, target);
+    const { cues, aligned } = await timeAnimations(run, n, chapter, scene, dir, pyEnv, settings, target, beatOf);
     target.cues = cues;
 
     phase("rendering with the voice");
     const p = await playable(run, n, dir, aligned, env);
     if (!p.narration || !existsSync(p.narration)) throw new Error("the render has no narration track: the voice was not heard in it");
-    const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;
-    const offset = p.said.length > sc.beats.length ? p.said.length - sc.beats.length : 0;
+    const list = edited ? edited.chapter.beats.map((b, i) => ({ n: b.beat ?? i + 1 })) : scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!.beats;
+    const offset = p.said.length > list.length ? p.said.length - list.length : 0;
     const last = Math.max(0, p.frames - 1);
-    const beats = sc.beats.map((b, i) => {
+    const beats = list.map((b, i) => {
       const start = p.said[offset + i]?.start ?? 0;
       const end = p.said[offset + i + 1]?.start ?? last / p.fps;
       return { n: b.n, start, end, from: Math.min(last, Math.round(start * p.fps)), to: Math.min(last, Math.max(0, Math.round(end * p.fps) - 1)) };
@@ -241,6 +353,16 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
   } finally {
     release();
   }
+}
+
+/** A line of an edited chapter to its beat (by the edited words): its number, else its place in the list. */
+function editedBeats(s: ChapterScript): (text: string) => number | undefined {
+  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const said = s.chapter.beats.map((b, i) => ({ n: b.beat ?? i + 1, text: norm(b.say) }));
+  return (text) => {
+    const t = norm(text);
+    return t ? said.find((b) => b.text === t)?.n ?? said.find((b) => b.text.startsWith(t.slice(0, 40)) || t.startsWith(b.text.slice(0, 40)))?.n : undefined;
+  };
 }
 
 /** A line of the chapter to its beat (by its words), so the page shows each line under its beat. */
@@ -293,11 +415,10 @@ const TIME_TOOL = {
  * animations together as its line begins).
  */
 async function timeAnimations(run: Run, n: number, chapter: number, scene: string, dir: string, env: Record<string, string>,
-  settings: VoiceSettings, target: ChapterVoice): Promise<{ cues: VoiceCue[]; aligned: string }> {
+  settings: VoiceSettings, target: ChapterVoice, beatOf: (text: string) => number | undefined): Promise<{ cues: VoiceCue[]; aligned: string }> {
   const tools = path.join(engineDir(), "tools");
   const items = lastJson<Items>(await runPython([path.join(tools, "voice_scene.py"), "items", scene], dir, env, undefined, SPEAK_TIMEOUT), "reading the beats");
   if (!items.ok) throw new Error(items.error ?? "the beats could not be read");
-  const beatOf = beatsByText(run, n, chapter);
   const cues: VoiceCue[] = items.beats.map((b) => ({ beat: beatOf(b.text), kind: b.kind, text: b.text, parts: b.parts, seconds: b.seconds ?? undefined,
     ...(b.why ? { why: b.why } : {}) }));
   const todo = items.beats.filter((b) => b.item);

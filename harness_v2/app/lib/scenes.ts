@@ -56,6 +56,7 @@ export type ScenesAction =
   | { action: "render"; lecture: number; chapter: number; beat?: number; style?: string; art?: string }
   | { action: "agent"; lecture: number; beat: number; instruction?: string; model?: string }
   | { action: "agentSettings"; on?: boolean; model?: string }
+  | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
 const shared = globalThis as unknown as { __v2scenesBusy?: Set<string>; __v2scenesActive?: Map<string, number>; __v2renderBusy?: Set<string>;
@@ -159,6 +160,42 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       await runManimAgent(run, a.lecture, a.beat, { instruction: a.instruction, model: a.model, stop: () => stopRequested(`${id}:scenes`) });
       await compileLecture(run, a.lecture);
     });
+    return run;
+  }
+  if (a.action === "reset") {
+    const sl = lectureOf(a.lecture);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: stop it first`);
+    const script = scriptOf(run, a.lecture)!;
+    const chapter = a.chapter === undefined ? undefined : script.chapters.find((c) => c.n === a.chapter);
+    if (a.chapter !== undefined && !chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    const keys = `${id}|${a.lecture}|`;
+    if ([...renderBusy].some((k) => k.startsWith(keys) && (!chapter || k.startsWith(`${keys}${chapter.n}|`)))) throw new Error("a render of it is going: wait for it to end");
+    const dir = path.join(scenesDir(id), `L${a.lecture}`);
+    if (!chapter) {
+      // The whole lecture back to not built: its beats (their kinds of their own are kept), region, compile, renders,
+      // the Manim agent's work and pictures, and their files.
+      const kinds = Object.fromEntries(Object.values(sl.beats).filter((b) => b.kinds).map((b) => [b.n, b.kinds!]));
+      st.lectures[a.lecture] = { lecture: a.lecture, status: "waiting", beats: Object.fromEntries(Object.entries(kinds)
+        .map(([n, k]) => [n, { n: Number(n), status: "waiting", ops: [], kinds: k, calls: [] } as SceneBeat])), calls: [] };
+      if (st.agentImages) delete st.agentImages[a.lecture];
+      await rm(dir, { recursive: true, force: true });
+      log(run, `Scenes of lecture ${a.lecture} reset.`);
+    } else {
+      // One chapter: its beats' visuals, agent work and renders; the lecture's compile is then out of date.
+      for (const b of chapter.beats) {
+        const kinds = sl.beats[b.n]?.kinds;
+        if (kinds) sl.beats[b.n] = { n: b.n, status: "waiting", ops: [], kinds, calls: [] };
+        else delete sl.beats[b.n];
+        await rm(path.join(dir, `beat-${b.n}`), { recursive: true, force: true });
+        await rm(path.join(dir, "agent", `beat-${b.n}`), { recursive: true, force: true });
+      }
+      if (sl.chapters) delete sl.chapters[chapter.n];
+      await rm(path.join(dir, `chapter-${chapter.n}`), { recursive: true, force: true });
+      sl.compile = undefined;
+      if (!Object.values(sl.beats).some((b) => b.ops.length)) sl.status = "waiting";
+      log(run, `Scenes of lecture ${a.lecture}, chapter ${chapter.n} reset.`);
+    }
+    saveRun(run, true);
     return run;
   }
   if (a.action === "compile") {
@@ -601,9 +638,55 @@ export async function duration(file: string): Promise<number> {
   });
 }
 
+/** Where a scene's playable program is, as the page's player loads it: its geometry and its pictures. */
+export type Playable = { ir: string; assets: string; fps: number; frames: number; blockers: string[];
+  /** Each line said, in order: where it starts (seconds), its words (the chapter's title card first). */
+  said: { start: number; text?: string }[];
+  checks: { say: string; issues: string[]; fixed: string[] }[] };
+
 /**
- * A chapter rendered silent (up to `beat`, when one is asked for), in `look`; each beat found in the engine's beat
- * log, and cut out: its clip and its last frame. A beat's render keeps the beat; a chapter's keeps them all.
+ * A compiled scene made playable as v1's web player plays it: recorded by the exporter into the program the phone
+ * plays (engine/tools/export_scene.py, v2's copy of v1's, on v2's engine), then expanded into the geometry the
+ * browser draws (engine/tools/scene_ir.py). Silent; the engine's beat log says where each line starts.
+ */
+export async function playable(run: Run, n: number, dir: string, source: string): Promise<Playable> {
+  const scene = path.join(dir, "scene.py");
+  await writeFile(scene, source, "utf8");
+  const out = path.join(dir, "out");
+  const beatLog = path.join(dir, "beats.jsonl");
+  const checkLog = path.join(dir, "checks.jsonl");
+  await rm(beatLog, { force: true });
+  await rm(checkLog, { force: true });
+  const tools = path.join(engineDir(), "tools");
+  const exported = await runPython([path.join(tools, "export_scene.py"), scene, "GeneratedScene", out], dir,
+    { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
+  let summary: { blockers?: string[]; error?: string } = {};
+  try {
+    summary = JSON.parse(exported.stdout.slice(exported.stdout.indexOf("{")));
+  } catch {
+    throw new Error(/No module named ['"]?manim/.test(exported.out) ? "Manim is not installed for this Python: run harness/scripts/setup-python.sh"
+      : `the export failed: ${errorOf(exported.out)}`);
+  }
+  if (summary.error) throw new Error(`the export failed: ${summary.error}`);
+  const expanded = await runPython([path.join(tools, "scene_ir.py"), out, "GeneratedScene"], dir, {}, undefined, RENDER_TIMEOUT);
+  let ir: { fps?: number; frames?: number; error?: string } = {};
+  try {
+    ir = JSON.parse(expanded.stdout.trim().split("\n").pop() ?? "{}");
+  } catch {
+    throw new Error(`the player's geometry could not be made: ${errorOf(expanded.out)}`);
+  }
+  if (ir.error) throw new Error(`the player's geometry could not be made: ${ir.error}`);
+  const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number; text?: string }) : [];
+  const checks = existsSync(checkLog) ? (await readFile(checkLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Playable["checks"][number]) : [];
+  const rel = (f: string) => encodeURIComponent(path.relative(scenesDir(run.id), f));
+  return { ir: `/api/runs/${run.id}/scenes/ir?p=${rel(out)}&v=${Date.now()}`, assets: `/api/runs/${run.id}/scenes/file?p=${rel(path.join(out, "dsl", "generated", "images"))}${encodeURIComponent("/")}`,
+    fps: ir.fps ?? 30, frames: ir.frames ?? 0, blockers: summary.blockers ?? [], said: rows.filter((r) => r.kind === "beat"), checks };
+}
+
+/**
+ * A chapter made playable (up to `beat`, when one is asked for), in `look`, for v1's web player: each beat found in
+ * the engine's beat log, as the frames it plays. A beat's render plays the beat (the chapter before it is there,
+ * recorded); a chapter's plays it all, with each beat's frames for its strip.
  */
 async function renderPart(run: Run, n: number, chapter: number, beat: number | undefined, look: Look, target: SceneRender) {
   const release = await renderSlot();
@@ -616,47 +699,29 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     const compiled = await compile(run, script, dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
-    await writeFile(path.join(dir, "scene.py"), source, "utf8");
-    const beatLog = path.join(dir, "beats.jsonl");
-    const checkLog = path.join(dir, "checks.jsonl");
-    const out = await runPython(["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "scene.py", "GeneratedScene"], dir,
-      { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog, PANIM_CHECK_LOG: checkLog }, undefined, RENDER_TIMEOUT);
-    const video = path.join(dir, "media", "videos", "scene", "480p15", "GeneratedScene.mp4");
-    if (out.code !== 0 || !existsSync(video)) {
-      throw new Error(/No module named ['"]?manim/.test(out.out) ? "Manim is not installed for this Python: run harness/scripts/setup-python.sh"
-        : `the render failed: ${errorOf(out.out)}`);
-    }
+    const p = await playable(run, n, dir, source);
     const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;
     const wanted = beat !== undefined ? sc.beats.slice(0, sc.beats.findIndex((b) => b.n === beat) + 1) : sc.beats;
-    // The beat log: a "beat" row as each line is said, the chapter's title card first.
-    const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number; text?: string }) : [];
-    const said = rows.filter((r) => r.kind === "beat");
-    const offset = said.length > wanted.length ? said.length - wanted.length : 0;
-    const total = await duration(video);
-    const checks = existsSync(checkLog) ? (await readFile(checkLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { say: string; issues: string[]; fixed: string[] }) : [];
+    const offset = p.said.length > wanted.length ? p.said.length - wanted.length : 0;
     const lines = linesOf(run.lectures.find((l) => l.n === n)!.text ?? "");
-    const cut = async (i: number) => {
+    const last = Math.max(0, p.frames - 1);
+    const at = (i: number) => {
       const b = wanted[i];
-      const start = said[offset + i]?.start ?? 0;
-      const end = said[offset + i + 1]?.start ?? total;
-      const still = path.join(dir, `beat-${b.n}.png`);
-      const clip = path.join(dir, `beat-${b.n}.mp4`);
-      await ffmpeg(["-ss", String(Math.max(0, end - 0.12)), "-i", video, "-frames:v", "1", still]);
-      await ffmpeg(["-ss", String(start), "-to", String(end), "-i", video, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", clip]);
+      const start = p.said[offset + i]?.start ?? 0;
+      const end = p.said[offset + i + 1]?.start ?? last / p.fps;
       const text = b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim().slice(0, 200);
-      const found = checks.filter((c) => c.say && text.startsWith(c.say.slice(0, 60)));
-      return { n: b.n, start, end, still: existsSync(still) ? fileUrl(run.id, still) : undefined, clip: existsSync(clip) ? fileUrl(run.id, clip) : undefined,
+      const found = p.checks.filter((c) => c.say && text.startsWith(c.say.slice(0, 60)));
+      return { n: b.n, start, end, from: Math.min(last, Math.round(start * p.fps)), to: Math.min(last, Math.max(0, Math.round(end * p.fps) - 1)),
         issues: found.flatMap((c) => c.issues ?? []), fixed: found.flatMap((c) => c.fixed ?? []) };
     };
+    const common = { status: "done", ir: p.ir, assets: p.assets, fps: p.fps, frames: p.frames, blockers: p.blockers.length ? p.blockers : undefined,
+      still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined };
     if (beat !== undefined) {
-      const last = await cut(wanted.length - 1);
-      Object.assign(target, { status: "done", still: last.still, clip: last.clip, video: fileUrl(run.id, video), issues: last.issues, fixed: last.fixed,
-        seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined });
+      const me = at(wanted.length - 1);
+      Object.assign(target, { ...common, range: [me.from, last], issues: me.issues, fixed: me.fixed });
     } else {
-      const beats = [];
-      for (let i = 0; i < wanted.length; i++) beats.push(await cut(i));
-      Object.assign(target, { status: "done", video: fileUrl(run.id, video), still: beats.at(-1)?.still, beats,
-        issues: beats.flatMap((b) => b.issues), fixed: beats.flatMap((b) => b.fixed), seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined });
+      const beats = wanted.map((_, i) => at(i));
+      Object.assign(target, { ...common, beats, issues: beats.flatMap((b) => b.issues), fixed: beats.flatMap((b) => b.fixed) });
     }
   } finally {
     release();

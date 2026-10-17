@@ -1,0 +1,290 @@
+"""Expand a built program into the geometry a browser can draw, as JSON.
+
+The harness previews a scene by playing it, not by asking a server for a
+picture per frame. So the interpretation -- Manim's animation semantics, which
+took this repo a corpus and a fidelity harness to get right -- stays in Python,
+and only the rasterising crosses to the browser. That split is the existing
+`PathSink` seam: whoever draws needs paths and colours, nothing more.
+
+What comes back:
+
+    fps      the program's frame rate
+    mode     "2d" or "3d"
+    shapes   the atlas, each a flat [x, y, x, y, ...] of 2D anchor/handle
+             points, four points to a cubic, exactly as Manim stores them
+    frames   per frame, a flat list of instance records:
+             [shapeIndex, a,b,c,d,e,f, fillRGBA, strokeRGBA, strokeWidth]
+             where a..f is the 2D affine already composed
+    pieceZ   each piece's z, for slotting images into the draw order
+    images   raster images (photos, figures): [{asset, width, height, z,
+             keys: [[frame, alpha, ulx, uly, urx, ury, dlx, dly], ...]}],
+             served from <build>/dsl/generated/images/<asset>
+
+A long lecture's geometry is cut into segments of SEGMENT_SECONDS (scene_ir_<k>.json, each a whole 2D
+scene of its own frames, with its own atlas and pieces), and scene_ir.json is then only their index:
+{"mode": "2d", "fps", "background", "frames", "segments": [{"start", "frames"}], "images"}. The player loads
+the segment it is in and the next, so an hour of lecture never has to be parsed at once.
+
+A 3D program returns `mode: "3d"` and no geometry: projection, depth sorting
+and shading would all have to be reimplemented in the browser to draw it
+faithfully, and a wrong preview is worse than an honest fallback.
+
+Usage:
+    python harness_v2/engine/tools/scene_ir.py <build_dir> <SceneClass>
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+# v2's copy (harness_v2/engine/tools): the repo's exporter (dsl/, exporter/) is read from the root, the lecture
+# engine is v2's own (harness_v2/engine), never v1's.
+REPO = Path(__file__).resolve().parents[3]
+ENGINE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+
+def _from_container(path: Path) -> dict:
+    """The sampled container, in the same shape a program expands to.
+
+    Records in the file are snapshots and keyframes. The preview wants one
+    picture per frame, which is what ``frame`` reconstructs.
+    """
+    from exporter.decode import load
+
+    ir = load(path.read_bytes())
+    if ir.cameras:
+        return {"mode": "3d", "fps": ir.fps, "frames": len(ir.records)}
+
+    shapes = [
+        [round(float(v), 4) for point in shape for v in point[:2]]
+        for shape in ir.shapes
+    ]
+    pieces = []
+    piece_of = {}
+    runs = []
+    previous_signature = None
+    for index in range(len(ir.records)):
+        flat = _flatten(ir.frame(index))
+        signature = tuple(
+            (row[0], *row[1:7], tuple(row[7]), tuple(row[8]), row[9]) for row in flat
+        )
+        if signature == previous_signature:
+            runs[-1][0] += 1
+            continue
+        previous_signature = signature
+        key = signature
+        piece = piece_of.get(key)
+        if piece is None:
+            piece = len(pieces)
+            piece_of[key] = piece
+            pieces.append(flat)
+        runs.append([1, [piece]])
+    return {
+        "mode": "2d",
+        "fps": ir.fps,
+        "shapes": shapes,
+        "pieces": pieces,
+        "runs": runs,
+        "frames": len(ir.records),
+    }
+
+
+def _images(scene_class: str) -> list:
+    """The exporter's image track (dsl/generated/<Scene>.images.json), if the scene showed any images."""
+    track = Path(f"dsl/generated/{scene_class}.images.json")
+    return json.loads(track.read_text()) if track.is_file() else []
+
+
+def _flatten(instances) -> list:
+    flat = []
+    for inst in instances:
+        t = inst.transform
+        flat.append([
+            inst.atlas_id,
+            round(float(t[0][0]), 5), round(float(t[0][1]), 5),
+            round(float(t[1][0]), 5), round(float(t[1][1]), 5),
+            round(float(t[0][3]), 5), round(float(t[1][3]), 5),
+            list(int(c) for c in inst.fill),
+            list(int(c) for c in inst.stroke),
+            round(float(inst.stroke_width), 3),
+        ])
+    return flat
+
+
+def build(build_dir: Path, scene_class: str) -> dict:
+    import os
+
+    container = build_dir / f"{scene_class}.panm"
+    if container.is_file():
+        return _from_container(container)
+
+    previous = Path.cwd()
+    os.chdir(build_dir)
+    try:
+        from dsl.interpret import load_program
+
+        ir = load_program(f"dsl/generated/{scene_class}.panim")
+
+        if ir.cameras:
+            return {"mode": "3d", "fps": ir.fps, "frames": len(ir.records)}
+
+        # The atlas is shared across every frame, which is the whole reason a
+        # program is small: ship it once.
+        shapes = [
+            [round(float(v), 4) for point in shape for v in point[:2]]
+            for shape in ir.shapes
+        ]
+
+        def flatten(group):
+            return _flatten(group)
+
+        # Each object is drawn once and reused. A run is how many frames that
+        # combination stays on screen, which is the whole wait in a lecture.
+        pieces = []
+        piece_z = []
+        piece_of = {}
+        runs = []
+        total = 0
+        previous_signature = None
+        for _, instances in ir.records:
+            total += 1
+            groups = getattr(instances, "groups", None)
+            zs = getattr(instances, "zs", ()) or ()
+            if not groups:
+                groups = (instances,)
+            signature = tuple(id(group) for group in groups)
+            if signature == previous_signature:
+                runs[-1][0] += 1
+                continue
+            previous_signature = signature
+            indexes = []
+            for position, group in enumerate(groups):
+                key = id(group)
+                index = piece_of.get(key)
+                if index is None:
+                    index = len(pieces)
+                    piece_of[key] = index
+                    pieces.append(flatten(group))
+                    piece_z.append(float(zs[position]) if position < len(zs) else 0.0)
+                indexes.append(index)
+            runs.append([1, indexes])
+
+        return {
+            "mode": "2d",
+            "fps": ir.fps,
+            "background": "#%02X%02X%02X" % tuple(ir.background),
+            "shapes": shapes,
+            "pieces": pieces,
+            "runs": runs,
+            "frames": total,
+            # Photos and figures, which the program cannot carry: drawn by the
+            # player between the pieces, by z (pieceZ), at their recorded places.
+            "pieceZ": piece_z,
+            "images": _images(scene_class),
+        }
+    finally:
+        os.chdir(previous)
+
+
+# Past this, the preview renders a frame at a time (a sampled container only: a program is cut into segments).
+MAX_GEOMETRY_BYTES = 256 * 1024 * 1024
+# Past this, a program's geometry goes to the browser in segments: one JSON of hundreds of megabytes was more
+# than a tab could parse ("This film is too long to send as one picture").
+SEGMENT_OVER_BYTES = int(os.environ.get("PANIM_IR_SEGMENT_OVER", str(32 * 1024 * 1024)))
+SEGMENT_SECONDS = 120
+
+
+def segments(payload: dict, frames_per_segment: int) -> list[dict]:
+    """A 2D scene cut into scenes of `frames_per_segment` frames, each with only the shapes and pieces it draws
+    (renumbered from 0), and the frame it starts at. Images stay with the index: their keys are whole-scene frames."""
+    out: list[dict] = []
+    current: dict | None = None
+    shape_of: dict[int, int] = {}
+    piece_of: dict[int, int] = {}
+
+    def start(at: int) -> dict:
+        shape_of.clear()
+        piece_of.clear()
+        return {"mode": "2d", "fps": payload["fps"], "background": payload.get("background"), "start": at,
+                "shapes": [], "pieces": [], "pieceZ": [], "runs": [], "frames": 0, "images": []}
+
+    def local_piece(piece: int) -> int:
+        index = piece_of.get(piece)
+        if index is None:
+            rows = []
+            for row in payload["pieces"][piece]:
+                shape = shape_of.get(row[0])
+                if shape is None:
+                    shape = shape_of[row[0]] = len(current["shapes"])
+                    current["shapes"].append(payload["shapes"][row[0]])
+                rows.append([shape, *row[1:]])
+            index = piece_of[piece] = len(current["pieces"])
+            current["pieces"].append(rows)
+            current["pieceZ"].append((payload.get("pieceZ") or [0.0] * len(payload["pieces"]))[piece])
+        return index
+
+    at = 0
+    for count, indexes in payload["runs"]:
+        left = count
+        while left:
+            if current is None or current["frames"] >= frames_per_segment:
+                if current is not None:
+                    out.append(current)
+                current = start(at)
+            take = min(left, frames_per_segment - current["frames"])
+            current["runs"].append([take, [local_piece(i) for i in indexes]])
+            current["frames"] += take
+            at += take
+            left -= take
+    if current is not None:
+        out.append(current)
+    return out
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        print("usage: scene_ir.py <build_dir> <SceneClass>", file=sys.stderr)
+        return 2
+    build_dir = Path(sys.argv[1])
+    try:
+        payload = build(build_dir, sys.argv[2])
+        count = payload["frames"] if isinstance(payload["frames"], int) else len(payload.get("runs", []))
+        encoded = json.dumps(payload, separators=(",", ":")).encode()
+        summary = {"mode": payload["mode"], "fps": payload["fps"], "frames": count, "bytes": len(encoded)}
+        for old in build_dir.glob("scene_ir_*.json"):
+            old.unlink()
+        if payload["mode"] == "2d" and len(encoded) > SEGMENT_OVER_BYTES and "pieceZ" in payload:
+            parts = segments(payload, max(1, int(payload["fps"] * SEGMENT_SECONDS)))
+            for k, part in enumerate(parts):
+                (build_dir / f"scene_ir_{k}.json").write_text(json.dumps(part, separators=(",", ":")))
+            index = {"mode": "2d", "fps": payload["fps"], "background": payload.get("background"),
+                     "frames": count, "images": payload.get("images") or [], "shapes": [], "pieces": [], "runs": [],
+                     "segments": [{"start": part["start"], "frames": part["frames"]} for part in parts]}
+            (build_dir / "scene_ir.json").write_text(json.dumps(index, separators=(",", ":")))
+            summary.update(geometry=True, segments=len(parts))
+        elif payload["mode"] == "2d" and len(encoded) <= MAX_GEOMETRY_BYTES:
+            (build_dir / "scene_ir.json").write_bytes(encoded)
+            summary["geometry"] = True
+        else:
+            summary["geometry"] = False
+            if payload["mode"] == "2d":
+                summary["mode"] = "frames"
+        print(json.dumps(summary))
+    except Exception as error:  # noqa: BLE001
+        # Where it failed, so a report names the step: the innermost frame, and
+        # the scene line being replayed when the interpreter was in it.
+        import traceback
+        frames = traceback.extract_tb(error.__traceback__)
+        where = f" (at {Path(frames[-1].filename).name}:{frames[-1].lineno})" if frames else ""
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": f"{type(error).__name__}: {error}{where}"}))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

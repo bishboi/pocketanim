@@ -5,7 +5,7 @@ import { scenesDir } from "@/lib/scenes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const TYPES: Record<string, string> = { ".png": "image/png", ".mp4": "video/mp4", ".py": "text/plain; charset=utf-8", ".json": "application/json" };
+const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4", ".py": "text/plain; charset=utf-8", ".json": "application/json" };
 
 /** A file the scenes made (a render's frame, clip or video), by its path under the run's scenes folder (?p=). */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {

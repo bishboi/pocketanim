@@ -11,3 +11,6 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 
 - `free_check.image(name, height, width, labels)`: in a Manim block, a picture the v2 Manim agent made, by its name,
   read from the JSON registry `PANIM_BLOCK_IMAGES` names (name to file); a labelled stand-in frame when it is missing.
+- `tools/export_scene.py`, `tools/scene_ir.py`, `tools/layout_guard.py`: copies of v1's `harness/scripts/` ones, with this
+  engine on the path instead of v1's (the repo's `dsl/` and `exporter/` are used as they are): a compiled scene recorded
+  into the program the phone plays, and expanded into the geometry v1's web player draws.

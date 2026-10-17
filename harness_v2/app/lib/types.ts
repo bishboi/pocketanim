@@ -258,10 +258,19 @@ export type SceneRender = {
   /** The look it was rendered in. */
   style: string;
   art: string;
-  /** URLs: the last frame, the beat's own clip, the whole video rendered (the chapter, or the chapter so far). */
+  /** URLs (older renders): the last frame, the beat's own clip, the whole video rendered. */
   still?: string;
   clip?: string;
   video?: string;
+  /** For v1's web player: the scene's geometry (scene_ir.json) and its pictures (a base the asset name goes on). */
+  ir?: string;
+  assets?: string;
+  fps?: number;
+  frames?: number;
+  /** A beat's render: the frames that are the beat [first, last] (the chapter before it is recorded too). */
+  range?: [number, number];
+  /** What the exporter could not carry into the program (it plays without it). */
+  blockers?: string[];
   /** What the engine's check found on screen, and mended by itself. */
   issues?: string[];
   fixed?: string[];
@@ -272,7 +281,8 @@ export type SceneRender = {
 };
 
 /** A chapter's render: the video, and each beat in it (its last frame, its clip, where it is in the video). */
-export type SceneChapterRender = SceneRender & { beats?: { n: number; still?: string; clip?: string; start: number; end: number; issues?: string[]; fixed?: string[] }[] };
+export type SceneChapterRender = SceneRender & { beats?: { n: number; still?: string; clip?: string; start: number; end: number; from?: number; to?: number;
+  issues?: string[]; fixed?: string[] }[] };
 
 /** One beat's visuals: the engine's operations, and what was made of them. */
 export type SceneBeat = {
@@ -309,6 +319,10 @@ export type AgentStep = {
   image?: string;
   still?: string;
   video?: string;
+  /** A preview for v1's web player: its geometry, its pictures, the beat's frames. */
+  ir?: string;
+  assets?: string;
+  range?: [number, number];
   errors?: string[];
   seconds?: number;
   at: number;

@@ -26,7 +26,7 @@ import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part, render, type Part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
-import { agentRegistry, compile, duration, engineEnv, engineScript, ffmpeg, fileUrl, lectureState, renderSlot, scenesDir, scriptOf, stateOf } from "./scenes";
+import { agentRegistry, compile, duration, engineEnv, engineScript, ffmpeg, fileUrl, lectureState, playable, renderSlot, scenesDir, scriptOf, stateOf } from "./scenes";
 import { lectureFigures } from "./script-figures";
 import { figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
@@ -222,7 +222,7 @@ async function makeImage(run: Run, n: number, beat: number, state: ManimAgentSta
 
 /** The code rendered in the beat's place: the earlier beats of the figure, then it. Errors, or the last frame. */
 async function preview(run: Run, n: number, beat: number, id: string, code: string, area: string | undefined, tag: string):
-  Promise<{ errors: string[]; still?: string; video?: string; stillData?: string; seconds: number }> {
+  Promise<{ errors: string[]; still?: string; video?: string; stillData?: string; ir?: string; assets?: string; range?: [number, number]; seconds: number }> {
   const began = Date.now();
   const release = await renderSlot();
   try {
@@ -258,8 +258,17 @@ async function preview(run: Run, n: number, beat: number, id: string, code: stri
     const clip = path.join(dir, "beat.mp4");
     await ffmpeg(["-ss", String(Math.max(0, total - 0.12)), "-i", video, "-frames:v", "1", still]);
     await ffmpeg(["-ss", String(start), "-i", video, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", clip]);
+    // For the page: the same scene made playable as v1's web player plays it (the agent itself looks at the frame).
+    let play: { ir?: string; assets?: string; range?: [number, number] } = {};
+    try {
+      const p = await playable(run, n, dir, source);
+      const from = Math.round((p.said.at(-1)?.start ?? 0) * p.fps);
+      play = { ir: p.ir, assets: p.assets, range: [Math.min(from, Math.max(0, p.frames - 1)), Math.max(0, p.frames - 1)] };
+    } catch {
+      // The video stays: the player is a nicety here.
+    }
     return { errors: [], still: existsSync(still) ? fileUrl(run.id, still) : undefined, video: existsSync(clip) ? fileUrl(run.id, clip) : fileUrl(run.id, video),
-      stillData: existsSync(still) ? await imageData(still) : undefined, seconds: (Date.now() - began) / 1000 };
+      stillData: existsSync(still) ? await imageData(still) : undefined, ...play, seconds: (Date.now() - began) / 1000 };
   } finally {
     release();
   }
@@ -382,7 +391,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
           previews += 1;
           const p = await preview(run, n, beat, state.id, code, area, `p${previews}`);
           step({ turn: t, kind: c.function.name === "finish" ? "finish" : "preview", call: call.id, args: { code, area, ...(args.summary ? { summary: args.summary } : {}) },
-            still: p.still, video: p.video, errors: p.errors.length ? p.errors : undefined, seconds: p.seconds });
+            still: p.still, video: p.video, ir: p.ir, assets: p.assets, range: p.range, errors: p.errors.length ? p.errors : undefined, seconds: p.seconds });
           if (!p.errors.length) lastGood = { code, area };
           if (c.function.name === "finish" && !p.errors.length) {
             finished = { code, area, summary: String(args.summary ?? "") };

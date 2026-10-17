@@ -383,6 +383,7 @@ const agentBeat = run.scenes.lectures[1].beats[firstBeat];
 assert.equal(agentBeat.agent.status, "done", agentBeat.agent.error);
 assert.deepEqual(agentBeat.agent.steps.map((x) => x.kind).filter((k) => k !== "think"), ["image", "preview", "finish"]);
 assert.ok(agentBeat.agent.steps.find((x) => x.kind === "preview").still, "the preview's last frame");
+assert.ok(agentBeat.agent.steps.find((x) => x.kind === "preview").ir, "the preview playable in the player");
 const madeImage = Object.values(run.scenes.agentImages[1])[0];
 assert.equal(madeImage.status, "done");
 assert.ok(agentBeat.ops.some((o) => o.op === "manim" && /image\("/.test(o.code)), "the beat is its figure, using the picture by name");
@@ -398,7 +399,30 @@ run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
 const rendered = run.scenes.lectures[1].beats[renderBeat].render;
 assert.equal(rendered.status, "done", rendered.error);
 assert.equal(rendered.style, "blueprint");
-assert.ok(rendered.still && rendered.clip && rendered.video, "a frame, a clip and the video");
+assert.ok(rendered.ir && rendered.assets && rendered.range && rendered.frames > rendered.range[0], "playable in v1's web player: its geometry, and the beat's frames");
+const { scenesDir } = await import(path.resolve(here, "../lib/scenes.ts"));
+const irOf = (url) => JSON.parse(readFileSync(path.join(scenesDir(run.id), new URL(`http://x${url}`).searchParams.get("p"), "scene_ir.json"), "utf8"));
+assert.equal(irOf(rendered.ir).frames, rendered.frames, "the geometry is there, every frame");
+await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n });
+run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
+const chRender = run.scenes.lectures[1].chapters[ch1.n];
+assert.equal(chRender.status, "done", chRender.error);
+assert.equal(chRender.beats.length, ch1.beats.length);
+assert.ok(chRender.beats.every((b, i, all) => b.to >= b.from && (i === 0 || b.from > all[i - 1].from)), "each beat's frames, in order");
+
+// Reset: a chapter's scenes, then the lecture's.
+const resetCh = run.script.lectures[1].chapters[0];
+await scenesAction(run.id, { action: "reset", lecture: 1, chapter: resetCh.n });
+run = await loadRun(run.id);
+assert.ok(resetCh.beats.every((b) => !run.scenes.lectures[1].beats[b.n]?.ops.length), "the chapter's beats have no visuals");
+assert.ok(!run.scenes.lectures[1].chapters?.[resetCh.n] && !run.scenes.lectures[1].compile, "its render and the compile are gone");
+await scenesAction(run.id, { action: "reset", lecture: 1 });
+run = await loadRun(run.id);
+assert.equal(run.scenes.lectures[1].status, "waiting");
+assert.ok(!run.scenes.agentImages?.[1], "the agent's pictures are gone with the lecture");
+await assert.rejects(scenesAction(run.id, { action: "reset", lecture: 1, chapter: 99 }), /no chapter 99/);
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);

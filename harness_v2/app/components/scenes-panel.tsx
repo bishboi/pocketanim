@@ -21,6 +21,7 @@ import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type Preview
 import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
 import { lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
+import { FrameStill, IRPlayer } from "./player";
 import { PromptView } from "./script-panel";
 import type { Selection } from "./panels";
 
@@ -265,6 +266,9 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
           <button className={`${btn} border-neutral-700 text-neutral-200`} disabled={busy || !sl} onClick={() => act({ action: "compile", lecture: lecture.n })}>Compile</button>
           <button className={`${btn} border-red-800 text-red-200`} disabled={busy || !refused} data-testid="scenes-fix"
             onClick={() => act({ action: "fix", lecture: lecture.n, model })}>Mend {refused || ""} refused</button>
+          <button className={`${btn} border-red-900 text-red-300 hover:bg-red-950`} disabled={busy || !sl || (!Object.keys(sl.beats).length && !sl.compile)} data-testid="scenes-reset-lecture"
+            onClick={() => confirm(`Reset lecture ${lecture.n}'s scenes? Every beat's visuals, the Manim agent's work and pictures, the compile and the renders are deleted (a beat's own visual kinds are kept).`)
+              && act({ action: "reset", lecture: lecture.n })}>Reset</button>
         </span>
       </div>
       {stale && <p className="text-xs text-amber-300">The script was rebuilt after these scenes: rebuild them so their beats match.</p>}
@@ -387,6 +391,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
   const [style, setStyle] = useState(st?.look.style ?? "atlas");
   const [art, setArt] = useState(st?.look.art ?? "auto");
   const built = ch.beats.filter((b) => sl?.beats[b.n]?.ops.length).length;
+  const [only, setOnly] = useState<NonNullable<NonNullable<typeof r>["beats"]>[number] | null>(null);
   return (
     <div className="space-y-2" data-testid="scenes-chapter-detail">
       <div className="rounded border border-neutral-800 bg-neutral-900/40 p-2">
@@ -399,6 +404,9 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
           <button className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} disabled={busy} data-testid="scenes-build-chapter"
             onClick={() => act({ action: "build", scope: "chapter", lecture: lecture.n, chapter: c, model })}>{built ? "Build this chapter again" : "Build this chapter"}</button>
+          <button className={`${btn} border-red-900 text-red-300 hover:bg-red-950`} disabled={busy || (!built && !r) || r?.status === "running"} data-testid="scenes-reset-chapter"
+            onClick={() => confirm(`Reset chapter ${c}'s scenes? Its beats' visuals, the Manim agent's work on them and its renders are deleted (pictures stay for the lecture; a beat's own visual kinds are kept).`)
+              && act({ action: "reset", lecture: lecture.n, chapter: c })}>Reset this chapter</button>
           <span className="mx-1 h-4 w-px bg-neutral-700" />
           <LookSelect style={style} art={art} setStyle={setStyle} setArt={setArt} />
           <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={!built || r?.status === "running"} data-testid="scenes-render-chapter"
@@ -406,15 +414,25 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
         </div>
       </div>
       <RenderState r={r} what="the chapter" />
-      {r?.video && r.status === "done" && <video key={r.video} src={r.video} controls className="w-full max-w-3xl rounded border border-neutral-800 bg-black" data-testid="scenes-chapter-video" />}
+      {r?.status === "done" && r.ir && r.assets && (
+        <div className="max-w-3xl" data-testid="scenes-chapter-player">
+          {only && <p className="mb-1 text-[11px] text-sky-300">Playing beat #{only.n} only · <button className="underline" onClick={() => setOnly(null)}>the whole chapter</button></p>}
+          <IRPlayer src={r.ir} assets={r.assets} range={only ? [only.from ?? 0, only.to ?? (r.frames ?? 1) - 1] : undefined} />
+        </div>
+      )}
+      {r?.status === "done" && !r.ir && r.video && <video key={r.video} src={r.video} controls className="w-full max-w-3xl rounded border border-neutral-800 bg-black" data-testid="scenes-chapter-video" />}
       {r?.beats?.length ? (
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-3" data-testid="scenes-filmstrip">
           {r.beats.map((b) => (
-            <button key={b.n} onClick={() => setPick({ kind: "beat", n: b.n })} className="rounded border border-neutral-800 p-1 text-left hover:border-sky-600">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {b.still ? <img alt={`beat ${b.n}`} src={b.still} className="w-full rounded" /> : <div className="aspect-video rounded bg-neutral-900" />}
-              <span className="text-[10px] text-neutral-400">#{b.n} · {b.start.toFixed(1)}–{b.end.toFixed(1)} s{b.issues?.length ? <span className="text-amber-300"> · ⚠ {b.issues.length}</span> : null}</span>
-            </button>
+            <div key={b.n} className={`rounded border p-1 text-left ${only?.n === b.n ? "border-sky-500" : "border-neutral-800 hover:border-sky-600"}`}>
+              <button className="block w-full" title="play this beat in the player above" onClick={() => setOnly(b)}>
+                {r.ir && r.assets && b.to !== undefined ? <FrameStill src={r.ir} assets={r.assets} frame={b.to} />
+                  // eslint-disable-next-line @next/next/no-img-element
+                  : b.still ? <img alt={`beat ${b.n}`} src={b.still} className="w-full rounded" /> : <div className="aspect-video rounded bg-neutral-900" />}
+              </button>
+              <span className="flex items-center gap-1 text-[10px] text-neutral-400">▶ #{b.n} · {b.start.toFixed(1)}–{b.end.toFixed(1)} s{b.issues?.length ? <span className="text-amber-300"> · ⚠ {b.issues.length}</span> : null}
+                <button className="ml-auto text-sky-300 hover:underline" onClick={() => setPick({ kind: "beat", n: b.n })}>open</button></span>
+            </div>
           ))}
         </div>
       ) : null}
@@ -490,7 +508,8 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
   const [json, setJson] = useState("");
   const [note, setNote] = useState("");
   const [bad, setBad] = useState<string | null>(null);
-  const fromChapter = b ? sl?.chapters?.[b.chapter.n]?.beats?.find((x) => x.n === n) : undefined;
+  const chapterRender = b ? sl?.chapters?.[b.chapter.n] : undefined;
+  const fromChapter = chapterRender?.status === "done" ? chapterRender.beats?.find((x) => x.n === n) : undefined;
   const r = sb?.render;
   const figure = b?.figure ? lectureFigures(run, lecture.n).find((f) => f.id === b.figure) : undefined;
   const ownKinds = sb?.kinds;
@@ -577,22 +596,34 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
               data-testid="scenes-render-beat" onClick={() => act({ action: "render", lecture: lecture.n, chapter: b.chapter.n, beat: n, style, art })}>
               {r?.status === "running" ? "Rendering…" : r ? "Render again" : "Render this beat"}</button>
           </div>
-          <p className="text-[10px] text-neutral-500">The chapter is rendered up to this beat (so what is on the board before it is there), and this beat cut out.</p>
+          <p className="text-[10px] text-neutral-500">The chapter is recorded up to this beat (so what is on the board before it is there) and played from this beat, in v1&apos;s web player.</p>
           <RenderState r={r} what="this beat" />
           {r?.status === "done" && (
             <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {r.still && <img alt={`beat ${n}, last frame`} src={r.still} className="w-full rounded border border-neutral-800" data-testid="scenes-still" />}
-              {r.clip && <video key={r.clip} src={r.clip} controls loop className="w-full rounded border border-neutral-800 bg-black" />}
+              {r.ir && r.assets ? (
+                <div data-testid="scenes-beat-player">
+                  <IRPlayer src={r.ir} assets={r.assets} range={r.range} compact />
+                  {r.range && r.range[0] > 0 && <details className="mt-1"><summary className="cursor-pointer text-[11px] text-sky-300">the chapter up to here</summary>
+                    <IRPlayer src={r.ir} assets={r.assets} compact /></details>}
+                </div>
+              ) : (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {r.still && <img alt={`beat ${n}, last frame`} src={r.still} className="w-full rounded border border-neutral-800" data-testid="scenes-still" />}
+                  {r.clip && <video key={r.clip} src={r.clip} controls loop className="w-full rounded border border-neutral-800 bg-black" />}
+                </>
+              )}
+              {r.blockers?.length ? <p className="text-[11px] text-amber-300">The program leaves out: {r.blockers.join("; ")}</p> : null}
               <Issues issues={r.issues} fixed={r.fixed} />
-              {r.video && <a className="text-[11px] text-sky-300 hover:underline" href={r.video} target="_blank" rel="noreferrer">the chapter up to here (video)</a>}
             </>
           )}
-          {(!r || r.status !== "done") && fromChapter?.still && (
+          {(!r || r.status !== "done") && fromChapter && (chapterRender?.ir || fromChapter.still) && (
             <div>
               <p className="text-[11px] text-neutral-500">From the chapter&apos;s render:</p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={`beat ${n} in the chapter`} src={fromChapter.still} className="w-full rounded border border-neutral-800" />
+              {chapterRender?.ir && chapterRender.assets && fromChapter.from !== undefined
+                ? <IRPlayer src={chapterRender.ir} assets={chapterRender.assets} range={[fromChapter.from, fromChapter.to ?? fromChapter.from]} compact />
+                // eslint-disable-next-line @next/next/no-img-element
+                : <img alt={`beat ${n} in the chapter`} src={fromChapter.still} className="w-full rounded border border-neutral-800" />}
               <Issues issues={fromChapter.issues} fixed={fromChapter.fixed} />
             </div>
           )}
@@ -671,8 +702,9 @@ function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
                       <div className="mt-1 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                         <div>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {x.still && <img alt="the preview's last frame" src={x.still} onClick={() => setBig(x.still!)} className="w-full cursor-zoom-in rounded border border-neutral-800" />}
-                          {x.video && <video src={x.video} controls loop className="mt-1 w-full rounded border border-neutral-800 bg-black" />}
+                          {x.ir && x.assets ? <IRPlayer src={x.ir} assets={x.assets} range={x.range} compact />
+                            : x.video ? <video src={x.video} controls loop className="w-full rounded border border-neutral-800 bg-black" /> : null}
+                          {x.still && <button className="mt-1 text-[10px] text-neutral-400 hover:underline" onClick={() => setBig(x.still!)}>the frame the agent looked at</button>}
                           {x.args?.summary ? <p className="mt-1 text-[11px] text-emerald-200">{String(x.args.summary)}</p> : null}
                         </div>
                         <details open={!!x.errors?.length}>

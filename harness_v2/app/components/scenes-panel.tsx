@@ -92,8 +92,8 @@ export function ScenesPanel({ run, defaultModel, manimModel, select, onCall, act
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-cyan-300">Manim figures</span>
-          <label className="flex items-center gap-1 text-neutral-300" title="The scene writer plans a Manim figure; the Manim agent builds it: makes the pictures it needs, previews and mends its code">
-            <input type="radio" checked={st?.manimAgent !== false} onChange={() => act({ action: "agentSettings", on: true })} data-testid="scenes-agent-on" /> built by the Manim agent (pictures, previews)</label>
+          <label className="flex items-center gap-1 text-neutral-300" title="The scene writer plans a Manim figure; the Manim agent builds it: makes the pictures it needs, writes the code, checks it with the compiler (no render) and mends it">
+            <input type="radio" checked={st?.manimAgent !== false} onChange={() => act({ action: "agentSettings", on: true })} data-testid="scenes-agent-on" /> built by the Manim agent (pictures, code checks)</label>
           <label className="flex items-center gap-1 text-neutral-300" title="The scene writer writes the Manim code itself, in its answer">
             <input type="radio" checked={st?.manimAgent === false} onChange={() => act({ action: "agentSettings", on: false })} /> written by the scene writer</label>
           <span className="text-neutral-500">agent model</span>
@@ -646,11 +646,12 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
   );
 }
 
-const STEP_LOOK = { think: { icon: "💭", tone: "text-neutral-300" }, image: { icon: "🖼", tone: "text-pink-300" }, preview: { icon: "▶", tone: "text-sky-300" },
+const STEP_LOOK = { think: { icon: "💭", tone: "text-neutral-300" }, image: { icon: "🖼", tone: "text-pink-300" }, check: { icon: "⚙", tone: "text-sky-300" }, preview: { icon: "▶", tone: "text-sky-300" },
   finish: { icon: "✓", tone: "text-emerald-300" }, error: { icon: "✗", tone: "text-red-300" } } as const;
 
 /** The Manim agent on this beat: ask it (with words of your own), and every step it took: its words, the pictures it
- * made, each preview (its frame, its clip, the compiler's errors, the code), the code it settled on. */
+ * made, each check of its code (the compiler's errors or "it runs", the code; nothing is rendered in its loop), the code
+ * it settled on. Render the beat (above) to see the figure. */
 function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
   run: Run; lecture: Lecture; n: number; sb?: SceneBeat; busy: boolean; act: Act; onCall: (id: string) => void; manimOn: boolean;
 }) {
@@ -667,11 +668,11 @@ function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
         {a ? (
           <>
             <span className={a.status === "failed" ? "text-red-300" : a.status === "running" ? "animate-pulse text-sky-300" : a.status === "done" ? "text-emerald-300" : "text-amber-300"}>{a.status === "running" ? "working…" : a.status}</span>
-            <span className="text-neutral-400">figure “{a.id}” · {a.turns} turn(s) · {a.images.length} picture(s) · {a.steps.filter((x) => x.kind === "preview" || (x.kind === "finish" && x.still)).length} preview(s)</span>
+            <span className="text-neutral-400">figure “{a.id}” · {a.turns} turn(s) · {a.images.length} picture(s) · {a.steps.filter((x) => x.kind === "check" || x.kind === "preview" || (x.kind === "finish" && x.args?.code !== undefined && x.seconds !== undefined)).length} code check(s)</span>
             <span className="mono text-neutral-500">{a.model} · images {a.imageModel}</span>
             <span className="text-neutral-400">{seconds(a.started, a.ended ?? Date.now())} · {money(a.cost)}</span>
           </>
-        ) : <span className="text-neutral-500">{manimOn ? "Builds this beat as a Manim figure: decides which pictures it needs and has them made, previews its code, looks at the frame, mends it." : "Manim is switched off for this beat."}</span>}
+        ) : <span className="text-neutral-500">{manimOn ? "Builds this beat as a Manim figure: decides which pictures it needs and has them made, writes the code, has the compiler check it (nothing is rendered in its loop), mends it, finishes. Render the beat to see it." : "Manim is switched off for this beat."}</span>}
       </div>
       {(plan || a?.instruction) && (
         <div className="mt-1 space-y-0.5 text-[11px]">
@@ -700,7 +701,8 @@ function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
               <div className="space-y-1">
                 {a.steps.filter((x) => x.turn === t).map((x, i) => (
                   <div key={i} className="text-xs">
-                    <span className={STEP_LOOK[x.kind].tone}>{STEP_LOOK[x.kind].icon} {x.kind === "think" ? "" : x.kind === "image" ? `made the picture “${x.args?.name}” (${x.args?.kind})` : x.kind === "preview" ? `previewed${x.seconds ? ` (${x.seconds.toFixed(0)} s)` : ""}` : x.kind === "finish" ? "finished" : "error"}</span>
+                    <span className={STEP_LOOK[x.kind].tone}>{STEP_LOOK[x.kind].icon} {x.kind === "think" ? "" : x.kind === "image" ? `made the picture “${x.args?.name}” (${x.args?.kind})` : x.kind === "check" ? `checked the code${x.seconds ? ` (${x.seconds.toFixed(0)} s)` : ""}: ${x.errors?.length ? "it does not run" : "it runs"}`
+                      : x.kind === "preview" ? `previewed${x.seconds ? ` (${x.seconds.toFixed(0)} s)` : ""}` : x.kind === "finish" ? `finished${x.seconds !== undefined ? ` (checked in ${x.seconds.toFixed(0)} s${x.errors?.length ? ": it does not run" : ""})` : ""}` : "error"}</span>
                     {x.kind === "think" && <span className="whitespace-pre-wrap text-neutral-300">{x.text}</span>}
                     {x.kind === "image" && (
                       <div className="mt-1 flex items-start gap-2">
@@ -709,7 +711,7 @@ function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
                         <span className="text-[11px] text-neutral-400">{String(x.args?.what ?? "")}</span>
                       </div>
                     )}
-                    {(x.kind === "preview" || x.kind === "finish") && (
+                    {(x.kind === "check" || x.kind === "preview" || x.kind === "finish") && (
                       <div className="mt-1 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                         <div>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -717,6 +719,8 @@ function AgentSection({ run, lecture, n, sb, busy, act, onCall, manimOn }: {
                             : x.video ? <video src={x.video} controls loop className="w-full rounded border border-neutral-800 bg-black" /> : null}
                           {x.still && <button className="mt-1 text-[10px] text-neutral-400 hover:underline" onClick={() => setBig(x.still!)}>the frame the agent looked at</button>}
                           {x.args?.summary ? <p className="mt-1 text-[11px] text-emerald-200">{String(x.args.summary)}</p> : null}
+                          {x.kind !== "preview" && x.text ? <p className="mt-1 whitespace-pre-wrap text-[11px] text-neutral-400">compiler notes: {x.text}</p> : null}
+                          {x.kind === "check" && !x.errors?.length && !x.text ? <p className="text-[11px] text-emerald-300">✓ the compiler ran it in a probe: no errors</p> : null}
                         </div>
                         <details open={!!x.errors?.length}>
                           <summary className="cursor-pointer text-[11px] text-neutral-400">the code ({String(x.args?.code ?? "").split("\n").length} lines){x.args?.area === "left" ? " · left half" : ""}</summary>

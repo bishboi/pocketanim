@@ -311,7 +311,8 @@ export type AgentImage = { name: string; what: string; kind: "cutout" | "scene";
 /** One thing the agent did: a turn of the model (its words), an image made, a preview rendered, the end. */
 export type AgentStep = {
   turn: number;
-  kind: "think" | "image" | "preview" | "finish" | "error";
+  /** "preview" (a render): older runs only; the agent now checks its code and renders nothing. */
+  kind: "think" | "image" | "check" | "preview" | "finish" | "error";
   call?: string;
   text?: string;
   args?: Record<string, unknown>;

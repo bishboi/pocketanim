@@ -381,9 +381,11 @@ await scenesAction(run.id, { action: "agent", lecture: 1, beat: firstBeat, instr
 run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
 const agentBeat = run.scenes.lectures[1].beats[firstBeat];
 assert.equal(agentBeat.agent.status, "done", agentBeat.agent.error);
-assert.deepEqual(agentBeat.agent.steps.map((x) => x.kind).filter((k) => k !== "think"), ["image", "preview", "finish"]);
-assert.ok(agentBeat.agent.steps.find((x) => x.kind === "preview").still, "the preview's last frame");
-assert.ok(agentBeat.agent.steps.find((x) => x.kind === "preview").ir, "the preview playable in the player");
+assert.deepEqual(agentBeat.agent.steps.map((x) => x.kind).filter((k) => k !== "think"), ["image", "check", "finish"]);
+const checked = agentBeat.agent.steps.find((x) => x.kind === "check");
+assert.ok(!checked.errors && !checked.still && !checked.video && !checked.ir, "the code checked, nothing rendered in the agent's loop");
+const turnCalls = run.calls.filter((c) => c.step === "manim-agent" && c.api !== "image");
+assert.ok(turnCalls.every((c) => !JSON.stringify(c.request ?? {}).includes("last frame")), "no frame goes back to the agent");
 const madeImage = Object.values(run.scenes.agentImages[1])[0];
 assert.equal(madeImage.status, "done");
 assert.ok(agentBeat.ops.some((o) => o.op === "manim" && /image\("/.test(o.code)), "the beat is its figure, using the picture by name");

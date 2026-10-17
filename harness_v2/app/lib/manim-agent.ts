@@ -6,27 +6,26 @@
  *   - make_image: has the image model draw a picture it wants in the figure (a cutout of a thing or a person, or a
  *     whole scene behind), in the lecture's look, with no words in it; it is shown the picture made, and uses it in
  *     its code by name: image("farmer", height=2.5) (the engine's free_check.image, v2's own);
- *   - preview: its code rendered in the beat's place (the earlier beats of the same figure first), silent, by v2's
- *     engine: the compiler's checks (the block is run before it is accepted), and the last frame, shown to it;
+ *   - check: its code checked in the beat's place (the earlier beats of the same figure first) by v2's engine's
+ *     compile: the sandbox's rules, and a run of the blocks in a probe scene; nothing is rendered, no frame or video
+ *     goes back to it (a render each turn was too slow): only the errors, or that it runs;
  *   - finish: the code it settles on (and whether the figure keeps the left half for a working beside it).
  *
- * So it decides itself whether pictures help, makes them, looks at them, places them, and looks at its own frame
- * before it is done. Every turn is a call; every picture is a call of the image model; every step is kept on the
+ * So it decides itself whether pictures help, makes them, looks at them (the pictures it makes are shown to it),
+ * places them by numbers, and gets its code to run before it is done; the beat is rendered on the page when asked. Every turn is a call; every picture is a call of the image model; every step is kept on the
  * beat (SceneBeat.agent) for the page.
  */
 
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { bookOf } from "./docs";
 import { callImage } from "./images";
 import { usingFixture } from "./llm";
-import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part, render, type Part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
-import { agentRegistry, compile, duration, engineEnv, engineScript, ffmpeg, fileUrl, lectureState, playable, renderSlot, scenesDir, scriptOf, stateOf } from "./scenes";
+import { agentRegistry, compile, engineScript, fileUrl, lectureState, scenesDir, scriptOf, stateOf } from "./scenes";
 import { lectureFigures } from "./script-figures";
 import { figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
@@ -46,12 +45,12 @@ const TOOLS = [
       what: { type: "string", description: "What it shows, in English, and how it is seen (\"a farmer ploughing with two oxen, side view\"). No words in it." },
       kind: { type: "string", enum: ["cutout", "scene"], description: "cutout: one thing or person, cut out with no background, a sticker on the board; scene: a whole picture edge to edge (a place, an event), to put behind or beside." },
     }, required: ["name", "what", "kind"] } } },
-  { type: "function", function: { name: "preview", description: "Render the code in the beat's place (after the earlier beats of the same figure), silent. Returns the compiler's errors, or the last frame to look at.",
+  { type: "function", function: { name: "check", description: "Check the code in the beat's place (after the earlier beats of the same figure): the compiler reads it and runs it in a probe, nothing is rendered. Returns its errors, or that it runs.",
     parameters: { type: "object", properties: {
       code: { type: "string", description: "The body of construct() for this beat." },
       area: { type: "string", enum: ["full", "left"], description: "left: the figure keeps the board's left half (x -6.9..-0.4) for a working beside it." },
     }, required: ["code"] } } },
-  { type: "function", function: { name: "finish", description: "Settle on the code for this beat (preview it first).",
+  { type: "function", function: { name: "finish", description: "Settle on the code for this beat (it is checked again if it is not the code last checked).",
     parameters: { type: "object", properties: {
       code: { type: "string" }, area: { type: "string", enum: ["full", "left"] },
       summary: { type: "string", description: "One line: what the figure shows on this beat, and the pictures in it." },
@@ -60,7 +59,7 @@ const TOOLS = [
 
 const ROLE = "You are the Manim agent of a narrated lecture video. You build ONE beat's Manim figure: the animation on screen " +
   "while the beat's sentences are said. You work in turns with tools: make the pictures the figure needs (make_image), " +
-  "preview your code (preview) and look at the frame, mend it, and finish (finish) with the code you settle on.";
+  "check your code (check: the compiler reads it and runs it, nothing is rendered), mend what it says, and finish (finish) with the code you settle on.";
 
 const RULES = [
   "THE CODE is the body of construct() for this beat: build objects and self.play(...) them. Beats with the same figure id",
@@ -85,9 +84,9 @@ const RULES = [
   `only the pictures the figure needs (at most ${MAX_IMAGES}); reuse one already made (listed) by its name. A diagram of`,
   "exact things (axes, forces, geometry) is drawn in Manim, not as a picture. Leave pictures out when they do not help.",
   "",
-  "WORK LIKE THIS: plan the layout (what goes where, sizes), make the pictures, preview, look at the frame you are shown",
-  "(is everything on the board, readable, not overlapping, the pictures where they belong?), mend and preview again, then",
-  "finish. Finish only code that previewed without errors.",
+  "WORK LIKE THIS: plan the layout first, in numbers (what goes where, its size, the gaps), since you will not see it: keep",
+  "everything inside the board, words clear of lines and pictures, nothing overlapping. Make the pictures, write the code,",
+  "check it, mend what the compiler says, check again, then finish. Finish only code that checked without errors.",
 ].join("\n");
 
 type Msg = { role: "system" | "user" | "assistant" | "tool"; content: unknown; tool_calls?: unknown[]; tool_call_id?: string };
@@ -220,58 +219,37 @@ async function makeImage(run: Run, n: number, beat: number, state: ManimAgentSta
   return row;
 }
 
-/** The code rendered in the beat's place: the earlier beats of the figure, then it. Errors, or the last frame. */
-async function preview(run: Run, n: number, beat: number, id: string, code: string, area: string | undefined, tag: string):
-  Promise<{ errors: string[]; still?: string; video?: string; stillData?: string; ir?: string; assets?: string; range?: [number, number]; seconds: number }> {
+/**
+ * The code checked in the beat's place, nothing rendered: the earlier beats of the figure, then it, through the
+ * engine's compile, which reads each block against the sandbox's rules and runs the figure's blocks in a probe scene
+ * (free_check.verify: no frames are drawn, no video is made). Its errors, or none.
+ */
+async function checkCode(run: Run, n: number, beat: number, id: string, code: string, area: string | undefined, tag: string):
+  Promise<{ errors: string[]; notes: string[]; seconds: number }> {
   const began = Date.now();
-  const release = await renderSlot();
-  try {
-    const script = scriptOf(run, n)!;
-    const chapter = script.chapters.find((c) => c.beats.some((b) => b.n === beat))!;
-    const sl = lectureState(run, n);
-    const st = stateOf(run);
-    const full = await engineScript(run, n, st.look, { chapter: chapter.n, upTo: beat });
-    const ch = (full.chapters as { beats: { say: string; do: unknown[] }[] }[])[0];
-    // Only this figure: its earlier beats' blocks, then this one; the other visuals are not the agent's to look at.
-    ch.beats = chapter.beats.slice(0, chapter.beats.findIndex((b) => b.n === beat) + 1).map((b, i, all) => {
-      const say = ch.beats[i].say;
-      if (i === all.length - 1) return { say, do: [{ op: "manim", id, code, ...(area === "left" ? { area: "left" } : {}) }] };
-      const own = (sl.beats[b.n]?.ops ?? []).filter((o) => o.op === "manim" && String(o.id) === id && o.code);
-      return { say, do: own };
-    }).filter((b, i, all) => i === all.length - 1 || b.do.length);
-    const dir = path.join(scenesDir(run.id), `L${n}`, "agent", `beat-${beat}`, tag);
-    await rm(dir, { recursive: true, force: true });
-    const compiled = await compile(run, full, dir, n);
-    if (!compiled.source) return { errors: compiled.errors.length ? compiled.errors.map((e) => e.replace(/^chapter \d+ beat \d+:\s*/i, "")) : ["the engine made no scene of it"], seconds: (Date.now() - began) / 1000 };
-    const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
-    await writeFile(path.join(dir, "scene.py"), source, "utf8");
-    const beatLog = path.join(dir, "beats.jsonl");
-    const out = await runPython(["-m", "manim", "render", "-ql", "--disable_caching", "--media_dir", "media", "scene.py", "GeneratedScene"], dir,
-      { ...engineEnv(run, n), PANIM_BEAT_LOG: beatLog }, undefined, 600_000);
-    const video = path.join(dir, "media", "videos", "scene", "480p15", "GeneratedScene.mp4");
-    if (out.code !== 0 || !existsSync(video)) return { errors: [`the render failed: ${errorOf(out.out)}`], seconds: (Date.now() - began) / 1000 };
-    const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number }) : [];
-    const said = rows.filter((r) => r.kind === "beat");
-    const total = await duration(video);
-    const start = said.at(-1)?.start ?? 0;
-    const still = path.join(dir, "last.png");
-    const clip = path.join(dir, "beat.mp4");
-    await ffmpeg(["-ss", String(Math.max(0, total - 0.12)), "-i", video, "-frames:v", "1", still]);
-    await ffmpeg(["-ss", String(start), "-i", video, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", clip]);
-    // For the page: the same scene made playable as v1's web player plays it (the agent itself looks at the frame).
-    let play: { ir?: string; assets?: string; range?: [number, number] } = {};
-    try {
-      const p = await playable(run, n, dir, source);
-      const from = Math.round((p.said.at(-1)?.start ?? 0) * p.fps);
-      play = { ir: p.ir, assets: p.assets, range: [Math.min(from, Math.max(0, p.frames - 1)), Math.max(0, p.frames - 1)] };
-    } catch {
-      // The video stays: the player is a nicety here.
-    }
-    return { errors: [], still: existsSync(still) ? fileUrl(run.id, still) : undefined, video: existsSync(clip) ? fileUrl(run.id, clip) : fileUrl(run.id, video),
-      stillData: existsSync(still) ? await imageData(still) : undefined, ...play, seconds: (Date.now() - began) / 1000 };
-  } finally {
-    release();
-  }
+  const script = scriptOf(run, n)!;
+  const chapter = script.chapters.find((c) => c.beats.some((b) => b.n === beat))!;
+  const sl = lectureState(run, n);
+  const st = stateOf(run);
+  const full = await engineScript(run, n, st.look, { chapter: chapter.n, upTo: beat });
+  const ch = (full.chapters as { beats: { say: string; do: unknown[] }[] }[])[0];
+  // Only this figure: its earlier beats' blocks, then this one.
+  ch.beats = chapter.beats.slice(0, chapter.beats.findIndex((b) => b.n === beat) + 1).map((b, i, all) => {
+    const say = ch.beats[i].say;
+    if (i === all.length - 1) return { say, do: [{ op: "manim", id, code, ...(area === "left" ? { area: "left" } : {}) }] };
+    const own = (sl.beats[b.n]?.ops ?? []).filter((o) => o.op === "manim" && String(o.id) === id && o.code);
+    return { say, do: own };
+  }).filter((b, i, all) => i === all.length - 1 || b.do.length);
+  const dir = path.join(scenesDir(run.id), `L${n}`, "agent", `beat-${beat}`, tag);
+  await rm(dir, { recursive: true, force: true });
+  const compiled = await compile(run, full, dir, n);
+  const strip = (e: string) => e.replace(/^(fixed:\s*)?chapter \d+ beat \d+:\s*/i, "");
+  const errors = compiled.errors.map(strip);
+  if (!errors.length && !compiled.source) errors.push("the engine made no scene of it");
+  // A block the engine left out (rather than refused) is as good as broken for the agent.
+  const dropped = compiled.warnings.filter((w) => /manim/i.test(w) && /left out|dropped|removed/i.test(w)).map(strip);
+  return { errors: [...errors, ...dropped], notes: compiled.warnings.filter((w) => /manim/i.test(w) && !dropped.includes(strip(w))).map(strip).slice(0, 6),
+    seconds: (Date.now() - began) / 1000 };
 }
 
 /** The beat's figure id: its manim op's, else a new one. */
@@ -330,7 +308,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
     ...(after.length ? [part("after", "What comes next (not yours: leave it for those beats)", "context", after.map((x) => `#${x.n}: ${x.lines.map((k) => lines[k - 1]).join(" ")}`))] : []),
     part("images", `Pictures already made for this lecture (${made.length})`, "items", made.length ? made.map((i) => `${i.name} (${i.kind}): ${i.what}`) : "None yet."),
     ...(figure ? [part("bookfigure", "The book's figure on this beat (attached)", "items", `${figure.id}: ${figure.caption || "(no caption)"} - ${figure.way}${figureData ? "" : " (its picture could not be read)"}`)] : []),
-    part("ask", "Request", "ask", "Build this beat's figure: make the pictures it needs, preview, look, mend, finish."),
+    part("ask", "Request", "ask", "Build this beat's figure: make the pictures it needs, write the code, check it, mend it, finish."),
   ];
   const system: Part[] = [part("role", "Role", "rules", ROLE), part("rules", "Code, pictures, how to work", "rules", RULES)];
   const messages: Msg[] = [
@@ -340,7 +318,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
 
   let lastGood: { code: string; area?: string } | undefined;
   let finished: { code: string; area?: string; summary?: string } | undefined;
-  let previews = 0;
+  let checks = 0;
   try {
     for (let t = 1; t <= MAX_TURNS && !finished; t++) {
       if (o.stop?.()) {
@@ -348,7 +326,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
         break;
       }
       state.turns = t;
-      const history = state.steps.filter((s) => s.kind !== "think" || s.text).map((s) => `turn ${s.turn}: ${s.kind}${s.args?.name ? ` "${s.args.name}"` : ""}${s.errors?.length ? ` -> errors: ${s.errors.join("; ")}` : s.kind === "preview" ? " -> rendered" : ""}`);
+      const history = state.steps.filter((s) => s.kind !== "think" || s.text).map((s) => `turn ${s.turn}: ${s.kind}${s.args?.name ? ` "${s.args.name}"` : ""}${s.errors?.length ? ` -> errors: ${s.errors.join("; ")}` : s.kind === "check" ? " -> it runs" : ""}`);
       const call = newCall(run, { step: "manim-agent", label: `Manim agent: lecture ${n}, beat ${beat}, turn ${t}`, lecture: n, model: state.model,
         prompt: { system, user: t === 1 ? userParts : [...userParts, part("sofar", `So far (${history.length} steps)`, "context", history), part("next", "This turn", "ask", "Go on: the next tool.")] } });
       sl.calls.push(call.id);
@@ -360,7 +338,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
       if (reply.text?.trim()) step({ turn: t, kind: "think", call: call.id, text: reply.text.trim().slice(0, 1500) });
       if (!reply.calls.length) {
         messages.push({ role: "assistant", content: reply.text ?? "" });
-        messages.push({ role: "user", content: "Use a tool: make_image, preview or finish." });
+        messages.push({ role: "user", content: "Use a tool: make_image, check or finish." });
         continue;
       }
       messages.push({ role: "assistant", content: reply.text ?? null, tool_calls: reply.calls.map((c) => ({ id: c.id, type: "function", function: c.function })) });
@@ -379,42 +357,42 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
           messages.push({ role: "tool", tool_call_id: c.id, content: img.status === "done"
             ? `Made "${img.name}" (${img.kind}). Use it as image("${img.name}", height=...). It is shown to you below.` : `It could not be made: ${img.error}. Do without it, or ask again in other words.` });
           if (img.file && img.status === "done") seen.push({ url: (await imageData(img.file))!, what: `The picture "${img.name}" you made:` });
-        } else if (c.function.name === "preview" || c.function.name === "finish") {
+        } else if (c.function.name === "check" || c.function.name === "preview" || c.function.name === "finish") {
           const code = String(args.code ?? "");
           const area = args.area === "left" ? "left" : undefined;
-          if (c.function.name === "finish" && lastGood?.code === code) {
+          const finishing = c.function.name === "finish";
+          if (finishing && lastGood?.code === code) {
             finished = { code, area, summary: String(args.summary ?? "") };
             step({ turn: t, kind: "finish", call: call.id, args: { code, area, summary: args.summary } });
             messages.push({ role: "tool", tool_call_id: c.id, content: "Done." });
             continue;
           }
-          previews += 1;
-          const p = await preview(run, n, beat, state.id, code, area, `p${previews}`);
-          step({ turn: t, kind: c.function.name === "finish" ? "finish" : "preview", call: call.id, args: { code, area, ...(args.summary ? { summary: args.summary } : {}) },
-            still: p.still, video: p.video, ir: p.ir, assets: p.assets, range: p.range, errors: p.errors.length ? p.errors : undefined, seconds: p.seconds });
-          if (!p.errors.length) lastGood = { code, area };
-          if (c.function.name === "finish" && !p.errors.length) {
+          checks += 1;
+          const k = await checkCode(run, n, beat, state.id, code, area, `c${checks}`);
+          step({ turn: t, kind: finishing ? "finish" : "check", call: call.id, args: { code, area, ...(args.summary ? { summary: args.summary } : {}) },
+            errors: k.errors.length ? k.errors : undefined, text: k.notes.length ? k.notes.join("\n") : undefined, seconds: k.seconds });
+          if (!k.errors.length) lastGood = { code, area };
+          if (finishing && !k.errors.length) {
             finished = { code, area, summary: String(args.summary ?? "") };
             messages.push({ role: "tool", tool_call_id: c.id, content: "Done." });
           } else {
-            messages.push({ role: "tool", tool_call_id: c.id, content: p.errors.length
-              ? `It does not run. The compiler says:\n${p.errors.join("\n")}\nMend it and preview again.`
-              : `It rendered (${p.seconds.toFixed(0)} s). The last frame of the beat is shown below: look at it and mend what is wrong, or finish.` });
-            if (p.stillData) seen.push({ url: p.stillData, what: `The last frame of your preview ${previews}:` });
+            messages.push({ role: "tool", tool_call_id: c.id, content: k.errors.length
+              ? `It does not run. The compiler says:\n${k.errors.join("\n")}\nMend it and check again.`
+              : `It runs (checked in ${k.seconds.toFixed(0)} s)${k.notes.length ? `; the compiler notes: ${k.notes.join("; ")}` : ""}. Finish, or improve it and check again.` });
           }
         } else {
-          messages.push({ role: "tool", tool_call_id: c.id, content: `No tool "${c.function.name}": make_image, preview or finish.` });
+          messages.push({ role: "tool", tool_call_id: c.id, content: `No tool "${c.function.name}": make_image, check or finish.` });
         }
       }
       if (seen.length) messages.push({ role: "user", content: seen.flatMap((s) => [{ type: "text", text: s.what }, { type: "image_url", image_url: { url: s.url } }]) });
       saveRun(run);
     }
     const kept = finished ?? lastGood;
-    if (!kept) throw new Error(state.status === "stopped" ? "stopped before any code ran" : `no code previewed without errors in ${MAX_TURNS} turns`);
+    if (!kept) throw new Error(state.status === "stopped" ? "stopped before any code ran" : `no code checked without errors in ${MAX_TURNS} turns`);
     const op: Record<string, unknown> = { op: "manim", id, code: kept.code, ...(kept.area === "left" ? { area: "left" } : {}), ...(plan ? { plan } : {}) };
     // The figure is the beat's visual: its heading stays, the rest makes way for it (a manim block is the only visual on its beat).
     b.ops = [...b.ops.filter((x) => x.op === "panel"), op];
-    Object.assign(state, { status: state.status === "stopped" ? "stopped" : "done", code: kept.code, area: kept.area, summary: finished?.summary ?? "(the last code that previewed: it did not finish)",
+    Object.assign(state, { status: state.status === "stopped" ? "stopped" : "done", code: kept.code, area: kept.area, summary: finished?.summary ?? "(the last code that checked: it did not finish)",
       ended: Date.now() });
     Object.assign(b, { status: "done", errors: undefined, edited: false });
   } catch (error) {
@@ -425,7 +403,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   saveRun(run);
 }
 
-/** The stand-in's turns (no key): a picture, a preview with it, then finish. */
+/** The stand-in's turns (no key): a picture, a check of the code using it, then finish. */
 function fakeTurn(t: number, state: ManimAgentState, said: string, made: string[]) {
   const name = made[0] ?? "subject";
   const words = said.replace(/[^\p{L}\s]/gu, "").split(/\s+/).filter((w) => w.length > 4).slice(0, 2).join(" ") || "the idea";
@@ -438,6 +416,6 @@ function fakeTurn(t: number, state: ManimAgentState, said: string, made: string[
     "self.play(Write(title), GrowArrow(arrow), run_time=1.5)",
   ].join("\n");
   if (t === 1 && !made.length) return { text: "A picture of the subject will help: I make it first.", calls: [{ name: "make_image", args: { name, what: `an illustration of ${words}`, kind: "cutout" } }] };
-  if (!state.steps.some((s) => s.kind === "preview" && !s.errors?.length)) return { text: "Placing the picture on the left and the words on the right.", calls: [{ name: "preview", args: { code } }] };
-  return { text: "The frame reads well.", calls: [{ name: "finish", args: { code, summary: `the picture "${name}" with its idea beside it` } }] };
+  if (!state.steps.some((s) => s.kind === "check" && !s.errors?.length)) return { text: "Placing the picture on the left and the words on the right.", calls: [{ name: "check", args: { code } }] };
+  return { text: "It runs.", calls: [{ name: "finish", args: { code, summary: `the picture "${name}" with its idea beside it` } }] };
 }

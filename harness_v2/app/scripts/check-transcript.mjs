@@ -448,6 +448,12 @@ const hand = await editInstructions(run, 1);
 for (const key of Object.keys(V1L)) assert.ok(hand.includes(V1L[key].join("\n").trim()), `the copy has v1's ${key} section`);
 assert.ok(hand.includes(V1_MANIM_RULES.join("\n").trim()) && !/write_scenes/.test(hand), "Manim written as code; no tool named");
 assert.ok(/THE ANSWER: the whole chapter's beat script as ONE JSON object/.test(hand) && /"beat": <its number, as given>/.test(hand));
+// With it, what the scene writer is told of the lecture: its chapters, the region, its figures by id, each beat's plan.
+const { editContext } = await import(path.resolve(here, "../lib/voice.ts"));
+const { lectureFigures: lf } = await import(path.resolve(here, "../lib/script-figures.ts"));
+const ctx = editContext(run, 1, ch1.n);
+assert.ok(lf(run, 1).every((f) => ctx.includes(`  ${f.id}: `)), "every figure of the lecture, by id");
+assert.ok(ch1.beats.every((b) => ctx.includes(`  #${b.n} "`)) && /on screen: /.test(ctx) && /<- the chapter to write/.test(ctx), "each beat as the script planned it");
 assert.equal(base.chapter.beats.length, ch1.beats.length);
 assert.deepEqual(base.chapter.beats.map((b) => b.beat), ch1.beats.map((b) => b.n), "each beat with its number");
 assert.ok(base.chapter.beats.every((b) => typeof b.say === "string" && Array.isArray(b.do)) && base.style, "the compiler's own script");

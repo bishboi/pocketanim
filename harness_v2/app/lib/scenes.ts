@@ -393,7 +393,7 @@ export function buildingScenes(runId: string): number[] {
 }
 
 /** The lecture's beats as the prompt gives them. */
-function beatInputs(run: Run, n: number): SceneBeatInput[] {
+export function beatInputs(run: Run, n: number): SceneBeatInput[] {
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
   const lines = linesOf(lecture.text ?? "");

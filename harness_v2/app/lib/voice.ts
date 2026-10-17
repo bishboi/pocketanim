@@ -27,7 +27,8 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { handInstructions } from "./prompts/scenes";
 import { check, newCall } from "./run";
-import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf } from "./scenes";
+import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
+import { lectureFigures } from "./script-figures";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { cleanLook, lookWords } from "./styles";
@@ -92,6 +93,35 @@ export async function editInstructions(run: Run, n: number): Promise<string> {
   const st = scenesOf(run);
   return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n),
     labels: Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label])) });
+}
+
+/**
+ * What the scene writer is told with the instructions, for one chapter, as text to give a chat model by hand: the
+ * lecture and its chapters, the map region chosen, the lecture's figures (by id, to show with {"op":"picture","figure"}),
+ * and each beat of the chapter as the script planned it (what is on screen, its figures, the kinds it may use).
+ */
+export function editContext(run: Run, n: number, chapter: number): string {
+  const script = scriptOf(run, n);
+  if (!script) throw new Error(`lecture ${n} has no script`);
+  const st = scenesOf(run);
+  const sl = run.scenes?.lectures[n];
+  const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
+  const figures = lectureFigures(run, n);
+  const beats = beatInputs(run, n).filter((b) => b.chapter === chapter);
+  return [
+    `THE LECTURE: lecture ${n}, "${run.lectures.find((l) => l.n === n)?.title ?? ""}". Its chapters:`,
+    ...script.chapters.map((c) => `  Chapter ${c.n}: ${c.title} (${c.map ? "on a map" : "on a board"})${c.n === chapter ? "  <- the chapter to write" : ""}`),
+    `The map region already chosen: ${sl?.region ? JSON.stringify(sl.region) : "none"}.`,
+    "",
+    `THE LECTURE'S FIGURES (${figures.length}), the book's own, shown by id: {"op":"picture","figure":"<id>"}:`,
+    ...(figures.length ? figures.map((f) => `  ${f.id}: ${f.caption || "(no caption)"} (${f.way}${f.ready ? "" : "; not made yet: the book's picture is shown"})`) : ["  none"]),
+    "",
+    "THIS CHAPTER'S BEATS AS THE SCRIPT PLANNED THEM (its writer's note of what is on screen; a figure named on a beat is shown on it):",
+    ...beats.map((b) => [`  #${b.n} "${b.text}"`, `     on screen: ${b.show || "-"}`,
+      ...(b.figures ?? []).map((f) => `     figure: ${f.id} - ${f.caption || "(no caption)"}`),
+      ...(b.kinds && b.kinds.length !== st.kinds.length ? [`     this beat may use only: ${b.kinds.map((k) => labels[k] ?? k).join(", ") || "the heading and key point"}`] : []),
+    ].join("\n")),
+  ].join("\n");
 }
 
 /** An edited beat script read as one: what is wrong with it said plainly, so the page can show it. */

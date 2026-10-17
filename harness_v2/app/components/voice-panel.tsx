@@ -275,11 +275,11 @@ function Instructions({ run, n, chapter, json }: { run: Run; n: number; chapter:
     void (async () => {
       const res = await fetch(`/api/runs/${run.id}/voice?lecture=${n}&chapter=${chapter}&instructions=1`, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
-      if (res.ok) setText(j.instructions ?? "");
+      if (res.ok) setText([j.instructions ?? "", "", j.context ?? ""].join("\n"));
       else setError(j.error ?? "the instructions could not be read");
     })();
   }, [open, text, run.id, n, chapter]);
-  const prompt = () => [text ?? "", "", "THE CHAPTER'S BEAT SCRIPT NOW:", json, "",
+  const prompt = () => [text ?? "", "", "THE CHAPTER'S BEAT SCRIPT NOW (the JSON to change and return whole):", json, "",
     "WHAT TO CHANGE:", ask.trim() || "Make this chapter's visuals teach better, following the instructions above.", "",
     "Reply with the whole chapter's beat script, changed, as one JSON object in the shape above, and nothing else."].join("\n");
   const done = async (what: string, value: string) => setCopied((await copy(value)) ? what : "copy failed: select the text and copy it");
@@ -288,8 +288,9 @@ function Instructions({ run, n, chapter, json }: { run: Run; n: number; chapter:
       <summary className="cursor-pointer text-violet-200">Instructions for an LLM: copy them with this JSON, ask any chat model, paste its answer in the editor</summary>
       <div className="mt-2 space-y-2">
         <p className="text-neutral-400">
-          The scene writer&apos;s own instructions (v1&apos;s beat-script rules, the lecture&apos;s subject, the kinds switched off; free-form Manim
-          written as code, since nothing builds it after the model here). Say what to change, copy the prompt, and paste the model&apos;s answer
+          Everything the scene writer is told: its instructions (v1&apos;s beat-script rules, the lecture&apos;s subject, the kinds switched off;
+          free-form Manim written as code, since nothing builds it after the model here) and the lecture&apos;s context (its chapters, the map
+          region, its figures by id, each beat as the script planned it). Say what to change, copy the prompt, and paste the model&apos;s answer
           into the editor above (a <code>```json</code> block is fine), then <b>Speak and play this</b>.
         </p>
         <textarea data-testid="voice-ask" value={ask} onChange={(e) => setAsk(e.target.value)} rows={2} placeholder="What to change (e.g. make beat 3 a flowchart of the surplus, add a timeline on beat 5)"
@@ -297,7 +298,7 @@ function Instructions({ run, n, chapter, json }: { run: Run; n: number; chapter:
         <div className="flex flex-wrap items-center gap-2">
           <button data-testid="voice-copy-prompt" disabled={text === null} className={`${btn} border-violet-700 text-violet-200 hover:bg-violet-950`}
             onClick={() => void done("the prompt (instructions, this chapter's JSON, what to change)", prompt())}>Copy the prompt: instructions + this JSON + what to change</button>
-          <button disabled={text === null} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void done("the instructions", text ?? "")}>Copy the instructions only</button>
+          <button disabled={text === null} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void done("the instructions and the lecture's context", text ?? "")}>Copy the instructions and context only</button>
           {copied && <span className="text-emerald-300" data-testid="voice-copied">copied: {copied}</span>}
           {text !== null && <span className="ml-auto text-neutral-500">{text.length.toLocaleString()} characters</span>}
         </div>

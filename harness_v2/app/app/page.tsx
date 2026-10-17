@@ -41,6 +41,28 @@ export default function Page() {
   const [selection, setSelection] = useState<Selection>(null);
   const [callId, setCallId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  // The PDF's share of the width (%), dragged on the divider; 0 hides it. Kept in this browser.
+  const [pdfWidth, setPdfWidth] = useState(44);
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem("v2.pdfWidth"));
+      if (saved >= 0 && saved <= 80 && localStorage.getItem("v2.pdfWidth") !== null) setPdfWidth(saved);
+    } catch { /* no storage: the default */ }
+  }, []);
+  const widen = (w: number) => {
+    const next = w < 12 ? 0 : Math.min(75, w);
+    setPdfWidth(next);
+    try { localStorage.setItem("v2.pdfWidth", String(next)); } catch { /* not kept */ }
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => widen((e.clientX / window.innerWidth) * 100);
+    const up = () => setDragging(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  }, [dragging]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     const [d, r] = await Promise.all([fetch("/api/documents").then((x) => x.json()), fetch("/api/runs").then((x) => x.json())]);
@@ -279,22 +301,35 @@ export default function Page() {
         {run?.error && <p className="mt-1 text-xs text-red-300">{run.error}</p>}
       </header>
 
-      <main className="flex min-h-0 flex-1">
-        <div className="w-[44%] min-w-[360px] border-r border-neutral-800">
-          {docId ? <PdfView url={`/api/documents/${docId}/pdf`} marks={marks} focusKey={JSON.stringify(selection)}
-            onPick={(id) => setSelection({ kind: "block", id })} />
-            : <div className="p-6 text-sm text-neutral-400">Upload a book's PDF, or choose one, to begin.</div>}
+      <main className={`flex min-h-0 flex-1 ${dragging ? "cursor-col-resize select-none" : ""}`}>
+        {pdfWidth > 0 && (
+          <div className="min-w-[220px] shrink-0" style={{ width: `${pdfWidth}%` }} data-testid="pdf-pane">
+            {docId ? <PdfView url={`/api/documents/${docId}/pdf`} marks={marks} focusKey={JSON.stringify(selection)}
+              onPick={(id) => setSelection({ kind: "block", id })} />
+              : <div className="p-6 text-sm text-neutral-400">Upload a book's PDF, or choose one, to begin.</div>}
+          </div>
+        )}
+        <div onPointerDown={(e) => { e.preventDefault(); setDragging(true); }} onDoubleClick={() => widen(pdfWidth ? 0 : 44)} data-testid="divider"
+          title="Drag to make the panels wider or narrower; double-click to hide or show the PDF"
+          className={`group relative w-1.5 shrink-0 cursor-col-resize border-x border-neutral-800 ${dragging ? "bg-sky-600" : "bg-neutral-900 hover:bg-sky-800"}`}>
+          <span className="absolute left-1/2 top-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-neutral-600 group-hover:bg-sky-300" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <nav className="flex items-center gap-1 border-b border-neutral-800 px-3 pt-2">
+          <nav className="flex flex-wrap items-center gap-1 border-b border-neutral-800 px-3 pt-2">
             {TABS.map((t) => (
               <button key={t} onClick={() => setTab(t)} data-testid={`tab-${t}`}
                 className={`rounded-t px-3 py-1.5 text-sm ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-400 hover:text-neutral-200"}`}>{t}
                 {t === "Calls" && run ? <span className="ml-1 text-[10px] text-neutral-500">{run.calls.length}</span> : null}
               </button>
             ))}
+            <span className="ml-auto flex items-center gap-1 pb-1 text-[11px] text-neutral-400" data-testid="layout">
+              <span className="text-neutral-500">PDF</span>
+              {([["hide", 0], ["narrow", 25], ["half", 44], ["wide", 60]] as const).map(([label, w]) => (
+                <button key={label} onClick={() => widen(w)} className={`rounded border px-1.5 ${Math.round(pdfWidth) === w ? "border-sky-600 text-sky-200" : "border-neutral-700 hover:bg-neutral-800"}`}>{label}</button>
+              ))}
+            </span>
             {selection && (
-              <span className="ml-auto flex items-center gap-2 pb-1 text-xs text-neutral-400" data-testid="selection">
+              <span className="flex items-center gap-2 pb-1 text-xs text-neutral-400" data-testid="selection">
                 Showing {selection.kind === "lecture" ? `lecture ${selection.n}` : selection.kind === "goal" ? `goal ${selection.id}`
                   : selection.kind === "blocks" ? `${selection.label} (${selection.ids.length} blocks)` : `block ${selection.id}`} in the PDF
                 <button className="rounded border border-neutral-700 px-1.5" onClick={() => setSelection(null)}>clear</button>

@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
+import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
 import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
@@ -373,7 +373,75 @@ function RenderState({ r, what }: { r?: SceneRender; what: string }) {
         {r.images && r.images.asked > 0 ? ` · AI pictures: ${r.images.made} made, ${r.images.cached} already made${r.images.failed ? `, ${r.images.failed} failed` : ""}` : ""}
         {r.error && <span className="block whitespace-pre-wrap text-red-300">{r.error}</span>}
       </p>
-      {r.status === "done" && <MissingPictures missing={r.missing} note="left out of this render" />}
+      {r.status === "done" && (r.pictures?.length ? <PictureStrip pictures={r.pictures} /> : <MissingPictures missing={r.missing} note="left out of this render" />)}
+    </div>
+  );
+}
+
+const ROLE_ORDER = (role?: string) => (role?.includes("gallery") ? 0 : role?.includes("stage") ? 1 : 2);
+
+/** The AI pictures of a beat, as the last compile got them, like the Manim agent's: each picture (enlarged on a click),
+ * what it shows, its caption and place (a gallery's first), made now (and its cost), made before, or not made and the
+ * image model's error; the prompt the image model was sent and its model. */
+function BeatPictures({ pictures, onRetry, busy }: { pictures: BeatPicture[]; onRetry: () => void; busy: boolean }) {
+  const [big, setBig] = useState<string | null>(null);
+  const sorted = [...pictures].sort((a, b) => ROLE_ORDER(a.role) - ROLE_ORDER(b.role));
+  const groups = [...new Set(sorted.map((p) => (p.status === "failed" ? "not made" : p.role ?? "on the beat")))];
+  const failed = pictures.filter((p) => p.status === "failed").length;
+  const made = pictures.filter((p) => p.status === "made");
+  return (
+    <section className="rounded border border-pink-900/60 bg-pink-950/10 p-2" data-testid="scenes-beat-pictures">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-pink-300">AI pictures</span>
+        <span className="text-neutral-400">{pictures.length - failed} on the beat{made.length ? ` · ${made.length} made now (${money(made.reduce((k, p) => k + (p.usd ?? 0), 0))})` : ""}
+          {pictures.length - failed - made.length ? ` · ${pictures.length - failed - made.length} made before` : ""}</span>
+        {failed > 0 && <span className="text-red-300">✗ {failed} not made: left out of the scene (a gallery with none made is left out whole)</span>}
+        {failed > 0 && <button className={`${btn} ml-auto border-pink-800 text-pink-200`} disabled={busy} onClick={onRetry}>Ask the image model again (compile)</button>}
+      </div>
+      {groups.map((g) => (
+        <div key={g} className="mt-2">
+          <p className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">{g === "in a gallery" ? `the gallery (${sorted.filter((p) => p.role === g && p.status !== "failed").length})` : g}</p>
+          <div className="flex flex-wrap gap-2">
+            {sorted.filter((p) => (p.status === "failed" ? "not made" : p.role ?? "on the beat") === g).map((p, i) => (
+              <div key={i} className={`w-44 rounded border p-1 text-[10px] ${p.status === "failed" ? "border-red-900 bg-red-950/30" : "border-neutral-800"}`} data-testid="scenes-beat-picture">
+                {p.url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img alt={p.what} src={p.url} onClick={() => setBig(p.url!)} className="h-28 w-full cursor-zoom-in rounded bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:16px_16px] object-contain" />
+                  : <div className="flex h-28 items-center justify-center rounded bg-red-950/40 text-center text-red-300">✗ not made</div>}
+                <p className="mt-0.5 line-clamp-2 font-medium text-neutral-200" title={p.what}>{p.what}</p>
+                {p.caption && <p className="text-neutral-400">caption: “{p.caption}”</p>}
+                <p className={p.status === "failed" ? "text-red-300" : p.status === "made" ? "text-emerald-300" : "text-neutral-400"}>
+                  {p.status === "failed" ? "not made" : p.status === "made" ? `made now${p.usd ? ` · ${money(p.usd)}` : ""}` : "made before (reused)"}{p.model ? ` · ${p.model}` : ""}</p>
+                {p.error && <p className="whitespace-pre-wrap text-red-200">{p.error}</p>}
+                {p.prompt && <details><summary className="cursor-pointer text-neutral-500">the prompt</summary><p className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap text-neutral-300">{p.prompt}</p></details>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {big && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setBig(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img alt="enlarged" src={big} className="max-h-full max-w-full rounded bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:16px_16px]" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A render's AI pictures in a row: each one's thumbnail, or not made and why. */
+function PictureStrip({ pictures }: { pictures: BeatPicture[] }) {
+  const failed = pictures.filter((p) => p.status === "failed");
+  return (
+    <div className="mt-1" data-testid="scenes-render-pictures">
+      <div className="flex flex-wrap gap-1">
+        {pictures.filter((p) => p.url).map((p, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} alt={p.what} title={`${p.what}${p.role ? ` (${p.role})` : ""}: ${p.status === "made" ? "made now" : "made before"}`} src={p.url}
+            className={`h-10 w-14 rounded border object-contain ${p.status === "made" ? "border-emerald-700" : "border-neutral-800"} bg-[repeating-conic-gradient(#262626_0_25%,#171717_0_50%)] bg-[length:8px_8px]`} />
+        ))}
+      </div>
+      {failed.length > 0 && <MissingPictures compact missing={failed.map((p) => ({ what: p.what, error: p.error, beat: p.beat }))} note="left out of this render" />}
     </div>
   );
 }
@@ -603,7 +671,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
             </ol>
           ) : <p className="text-xs text-neutral-500">{sb?.status === "running" ? "Being written…" : sb ? "Nothing new on screen: the last visual stays up." : "Not built yet."}</p>}
           {sb?.dropped?.length ? <ul className="text-[11px] text-amber-300">{sb.dropped.map((d, i) => <li key={i}>✂ taken out: {d}</li>)}</ul> : null}
-          <MissingPictures missing={sb?.missing} note="left out of the scene" />
+          {!sb?.pictures?.length && <MissingPictures missing={sb?.missing} note="left out of the scene" />}
           {sb?.errors?.length ? <ul className="rounded border border-red-900 bg-red-950/30 p-1.5 text-[11px] text-red-200" data-testid="scenes-errors">{sb.errors.map((e, i) => <li key={i}>✗ {e}</li>)}</ul> : null}
           {sb?.notes?.length ? <ul className="text-[11px] text-neutral-400">{sb.notes.map((e, i) => <li key={i}>{/^fixed/i.test(e) ? "✎" : "i"} {e.replace(/^fixed:\s*/i, "")}</li>)}</ul> : null}
 
@@ -665,6 +733,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
           )}
         </div>
       </div>
+      {sb?.pictures?.length ? <BeatPictures pictures={sb.pictures} onRetry={() => act({ action: "compile", lecture: lecture.n })} busy={busy} /> : null}
       <AgentSection run={run} lecture={lecture} n={n} sb={sb} busy={busy} act={act} onCall={onCall}
         manimOn={(ownKinds ?? inherited).includes("manim")} />
     </div>

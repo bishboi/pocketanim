@@ -36,7 +36,7 @@ import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
-import type { ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
+import type { BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
 import { ALL_KINDS, VISUAL_KINDS, filterOps } from "./visual-kinds";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
@@ -571,7 +571,38 @@ export function engineEnv(run: Run, n?: number): Record<string, string> {
 
 type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[];
   /** The engine's image model's report (genimage.report): asked, made, cached, and each picture it could not get. */
-  images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[] } };
+  images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[] };
+  /** Every picture the scene shows (compile_lecture.pictures_used): its file, what it shows, where. */
+  pictures?: { file?: string; description?: string; role?: string; context?: { chapter?: number; beat?: number; caption?: string } }[] };
+
+/**
+ * A compile's AI pictures, by beat: each picture the scene shows (copied beside the run's scenes so the page can
+ * show it), made now or found made before, with the prompt the image model was sent (the engine keeps it beside each
+ * picture), its model and cost; and each one the image model could not make, with its error.
+ */
+async function picturesByBeat(run: Run, n: number, c: Compiled, beatAt: (chapter: number, beat: number) => number | undefined,
+  missing: MissingPicture[]): Promise<BeatPicture[]> {
+  const out: BeatPicture[] = [];
+  const now = new Set((c.generated ?? []).map((g) => String((g as { path?: string }).path ?? "")));
+  const dir = path.join(scenesDir(run.id), `L${n}`, "pictures");
+  for (const p of c.pictures ?? []) {
+    if (!p.file || !/\/gen-[^/]*\.png$/.test(p.file) || !existsSync(p.file)) continue;
+    const beat = p.context?.chapter && p.context.beat ? beatAt(p.context.chapter, p.context.beat) : undefined;
+    let side: { prompt?: string; model?: string; usd?: number } = {};
+    try {
+      side = JSON.parse(await readFile(p.file.replace(/\.png$/, ".json"), "utf8"));
+    } catch {}
+    const copy = path.join(dir, path.basename(p.file));
+    if (!existsSync(copy)) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(copy, await readFile(p.file));
+    }
+    out.push({ what: String(p.description ?? ""), caption: p.context?.caption, role: p.role, status: now.has(p.file) ? "made" : "cached",
+      url: fileUrl(run.id, copy), prompt: side.prompt, model: side.model, usd: Number(side.usd) || undefined, beat });
+  }
+  for (const m of missing) out.push({ what: m.what, status: "failed", error: m.error, beat: m.beat });
+  return out;
+}
 
 /** The engine's words for a picture it could not get (compile_lecture: "no reusable illustration for '...'; it is left out"). */
 const LEFT_OUT = /no reusable illustration for (['"])(.*?)\1;? it is left out/i;
@@ -629,6 +660,11 @@ async function compileLecture(run: Run, n: number) {
   for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined, missing: undefined });
   const lost = missingPictures(c, (w) => beatNamed(run, n, w));
   for (const m of lost.missing) if (m.beat !== undefined) (beatState(sl, m.beat).missing ??= []).push(m);
+  for (const b of Object.values(sl.beats)) b.pictures = undefined;
+  const script = scriptOf(run, n)!;
+  for (const p of await picturesByBeat(run, n, c, (ci, bi) => script.chapters[ci - 1]?.beats[bi - 1]?.n, lost.missing)) {
+    if (p.beat !== undefined) (beatState(sl, p.beat).pictures ??= []).push(p);
+  }
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const e of c.errors) {
@@ -770,7 +806,10 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
       return { n: b.n, start, end, from: Math.min(last, Math.round(start * p.fps)), to: Math.min(last, Math.max(0, Math.round(end * p.fps) - 1)),
         issues: found.flatMap((c) => c.issues ?? []), fixed: found.flatMap((c) => c.fixed ?? []) };
     };
+    const shown = await picturesByBeat(run, n, compiled, (_, bi) => sc.beats[bi - 1]?.n, lost.missing);
+    const pictures = beat !== undefined ? shown.filter((x) => x.beat === beat) : shown;
     const common = { status: "done", ir: p.ir, assets: p.assets, fps: p.fps, frames: p.frames, blockers: p.blockers.length ? p.blockers : undefined,
+      pictures: pictures.length ? pictures : undefined,
       missing: lost.missing.length ? lost.missing : undefined, images: lost.report,
       still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined };
     if (beat !== undefined) {

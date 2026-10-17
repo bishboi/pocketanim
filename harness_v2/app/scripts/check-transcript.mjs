@@ -434,6 +434,7 @@ run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
 let gb = run.scenes.lectures[1].beats[galleryBeat];
 assert.deepEqual(gb.missing?.map((m) => m.what).sort(), ["a piece of basalt", "a piece of granite"], JSON.stringify(run.scenes.lectures[1].compile));
 assert.ok(gb.missing.every((m) => /pictures are off/.test(m.error)), "why: the image model is off");
+assert.ok(gb.pictures.length === 2 && gb.pictures.every((x) => x.status === "failed" && x.error), "each picture shown as not made, with why");
 assert.equal(run.scenes.lectures[1].compile.missing.length, 2);
 await scenesAction(run.id, { action: "render", lecture: 1, chapter: run.script.lectures[1].chapters[0].n, beat: galleryBeat });
 run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
@@ -443,6 +444,8 @@ await scenesAction(run.id, { action: "compile", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running", 3000);
 gb = run.scenes.lectures[1].beats[galleryBeat];
 assert.ok(!gb.missing?.length, "made once the image model is on");
+assert.deepEqual(gb.pictures.map((x) => x.role), ["in a gallery", "in a gallery"]);
+assert.ok(gb.pictures.every((x) => ["made", "cached"].includes(x.status) && x.url && x.prompt), "each picture: its file to show, the prompt it was made from");
 assert.ok(run.scenes.lectures[1].compile.images.asked >= 2);
 await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: galleryBeat, kinds: null });
 

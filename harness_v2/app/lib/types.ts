@@ -274,6 +274,8 @@ export type SceneRender = {
   /** AI pictures the image model could not make for it: left out of what plays. */
   missing?: MissingPicture[];
   images?: ImageReport;
+  /** The AI pictures in it (the rendered beat's, or the chapter's), made or not. */
+  pictures?: BeatPicture[];
   /** What the engine's check found on screen, and mended by itself. */
   issues?: string[];
   fixed?: string[];
@@ -298,6 +300,8 @@ export type SceneBeat = {
   errors?: string[];
   /** AI pictures of this beat the image model could not make: left out of the scene. */
   missing?: MissingPicture[];
+  /** Every AI picture of this beat (a gallery's, the stage's, a node's...), made or not, from the last compile. */
+  pictures?: BeatPicture[];
   notes?: string[];
   /** Its own visual kinds, when they differ from the run's. */
   kinds?: string[];
@@ -358,6 +362,22 @@ export type ManimAgentState = {
 /** A picture the engine asked the image model for and could not get, so it was left out of the scene (a gallery with
  * none of its pictures is left out whole): what was asked, the image model's error, the beat it was for. */
 export type MissingPicture = { what: string; error?: string; beat?: number };
+
+/** One AI picture of a beat, as the engine's compile got it: made now, made before (the cache), or not made. */
+export type BeatPicture = {
+  what: string;
+  caption?: string;
+  /** Where it is: "in a gallery", "shown on the stage", "beside a diagram label"... */
+  role?: string;
+  status: "made" | "cached" | "failed";
+  url?: string;
+  /** The prompt the image model was sent (the engine's, with what the picture is for), its model and cost. */
+  prompt?: string;
+  model?: string;
+  usd?: number;
+  error?: string;
+  beat?: number;
+};
 
 /** What the engine's image model did in a compile: pictures asked for, made now, found made already. */
 export type ImageReport = { model?: string; asked: number; made: number; cached: number; failed: number };

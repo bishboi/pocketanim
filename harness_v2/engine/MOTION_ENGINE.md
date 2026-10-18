@@ -363,7 +363,8 @@ Everything compile_lecture checks and mends, and for the templates (a note start
 
 Nothing new. Every motion is a verb the exporter writes for the players (fades with shift, scale and rate, create,
 write, grow, `.animate` moves, scales and colours, lagged groups), or a play baked into a clip (§7); idle motion is
-the players' own drift; textures and dressed pictures are images. Checked: the paper chart scene exports at **tier 1
+the players' own drift; textures and dressed pictures are images. A motion scene says `# panim: fixed-layout`, so the
+exporter's label pass (for placements a model guessed) leaves the engine's own layout alone. Checked: the paper chart scene exports at **tier 1
 with no blockers** (`tools/export_scene.py`), and `dsl.verify_dsl` draws the program frame by frame against Manim's
 (mean 1% of pixels off; a lagged group's parts can run a little later in the players than in Manim's render).
 

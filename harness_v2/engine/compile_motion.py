@@ -403,7 +403,10 @@ def _patched_compile_script(script: dict, scene_class: str = "GeneratedScene", e
     if marker not in source:
         raise ValueError("motion: the compiled scene does not set its style where expected")
     source = source.replace(marker, "\n".join([marker, *head]), 1)
+    # The engine lays out its own words (as a lecture scene does): the exporter's label pass, for placements a
+    # model guessed, must not move them (tools/export_scene.FIXED_LAYOUT reads this line).
     source = source.replace("from pocket_lecture import *  # noqa: E402,F403",
+                            "# panim: fixed-layout (the motion engine lays out its own words)\n"
                             "from motion import *  # noqa: E402,F403 -- the motion engine (beta), over pocket_lecture", 1)
     source = source.replace(f"class {scene_class}(MapLecture):", f"class {scene_class}(MotionLecture):", 1)
     source = source.replace("compiled from a beat script by harness/lecture/compile_lecture.py",

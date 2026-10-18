@@ -67,12 +67,12 @@ GAP = 0.3                   # between elements stacked in one slot
 
 TEXT_STYLES = {
     # size, colour role, weight, font key
-    "title": (44, "TITLE", BOLD, "serif"),
-    "heading": (34, "SAND", BOLD, "serif"),
-    "body": (27, "CREAM", None, None),
-    "callout": (30, "GOLD", BOLD, None),
+    "title": (38, "TITLE", BOLD, "serif"),
+    "heading": (30, "SAND", BOLD, "serif"),
+    "body": (24, "CREAM", None, None),
+    "callout": (27, "GOLD", BOLD, None),
     "caption": (21, "MUTED", None, None),
-    "quote": (30, "CREAM", None, "serif"),
+    "quote": (27, "CREAM", None, "serif"),
     "label": (22, "SAND", BOLD, None),
 }
 ELEMENT_KINDS = ("text", "list", "image", "icon", "number", "shape", "equation", "bars", "arrow", "timeline")
@@ -222,7 +222,7 @@ class BetaLecture(MapLecture):
         numbered = spec.get("numbered")
         rows = VGroup()
         for i, item in enumerate(items):
-            mark = T(f"{i + 1}." if numbered else "•", 27, _colour(spec.get("color"), P.SAND), weight=BOLD)
+            mark = T(f"{i + 1}." if numbered else "•", 24, _colour(spec.get("color"), P.SAND), weight=BOLD)
             words = self._text_mob(item, spec.get("style", "body"), max(0.6, w - 0.55))
             row = VGroup(mark, words).arrange(RIGHT, buff=0.22, aligned_edge=UP)
             rows.add(row)
@@ -295,14 +295,22 @@ class BetaLecture(MapLecture):
         """A picture in its box; with labels, each name beside it (left-half parts to its left, the rest to its
         right) with a line to its part, the part's box kept for a highlight (id.<label>)."""
         labels = [x for x in spec.get("labels") or [] if isinstance(x, (list, tuple)) and len(x) >= 3]
-        side = min(2.2, w * 0.24) if labels else 0.0
+        # Room for the names only on the sides that have them, as wide as the longest name there: a column
+        # kept on both sides, whatever the names, left a wide picture half its box.
+        cap = w * 0.3
+        widths = {True: 0.0, False: 0.0}
+        for row in labels:
+            name_w = min(T(str(row[0]), 22, P.SAND, weight=BOLD).width, cap)
+            widths[float(row[1]) < 0.5] = max(widths[float(row[1]) < 0.5], name_w + 0.45)
+        side = cap
+        room = max(0.6, w - widths[True] - widths[False])
         if spec.get("scene"):
             picture = ImageMobject(str(spec["file"]))
             picture.scale_to_fit_height(h)
-            if picture.width > w - 2 * side:
-                picture.scale_to_fit_width(w - 2 * side)
+            if picture.width > room:
+                picture.scale_to_fit_width(room)
         else:
-            picture = pl.cutout_mob(spec["file"], max(0.6, w - 2 * side), h)
+            picture = pl.cutout_mob(spec["file"], room, h)
         parts = {}
         group = Group(picture)
         if labels:

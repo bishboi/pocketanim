@@ -109,7 +109,7 @@ its content: `{"id": "t", "text": "..."}` is a text, `{"id": "l", "list": [...]}
 |---|---|---|---|
 | `text` | `"text": "words"` | | `style`: `title`, `heading`, `body` (default), `callout` (in a box), `caption`, `quote`, `label`; `color` |
 | `list` | `"list": ["...", ...]` (up to 8) | each item by number: `pts.0`, `pts.1` | `numbered`: true; `style` of its words |
-| `image` | `"image": {"generate": "what it shows, in English"}`, or `{"figure": "<the book's figure id>"}`, or `{"file": "<path>"}` | each label by name, lower case, spaces as `-`: `pic.boiler`, `pic.left-ventricle` | `labels`: up to 6 parts really in the picture (a vision model finds each; the name is written beside the picture with a line to it); `scene`: true for a whole scene edge to edge |
+| `image` | `"image": {"generate": "what it shows, in English"}`, or `{"figure": "<the book's figure id>"}`, or `{"file": "<path>"}` | each label by name, lower case, spaces as `-`: `pic.boiler`, `pic.left-ventricle` | `labels`: up to 6 parts really in the picture (a vision model finds each; the name is written beside the picture with a line to it, on the side its part is on; the picture takes the rest of its box); `scene`: true for a whole scene edge to edge |
 | `icon` | `"icon": "seed"` | | `label` under it |
 | `number` | `"number": {"value": "2,525 km", "label": "length of the Ganga"}` | | `color` |
 | `shape` | `"shape": "box"` \| `"circle"` \| `"pill"` | | `text` inside it, `color` |

@@ -142,9 +142,11 @@ class BetaLecture(MapLecture):
             key = spec.get("box") and f"box:{spec['id']}" or (spec.get("slot") if spec.get("slot") in slots
                                                                 else next(iter(slots)))
             groups.setdefault(key, []).append(spec)
+        # On a slide with arrows, what they join keeps clear of its slot's sides, so the arrows between have room.
+        joined = any(spec.get("kind") == "arrow" for spec in elements)
         for key, specs in groups.items():
             box = self._board_box(specs[0]["box"]) if key.startswith("box:") else self._board_box(slots[key])
-            self._lay_out(specs, box)
+            self._lay_out(specs, box, 0.66 if joined else 0.92)
         # Arrows last: they join elements laid out above.
         for spec in elements:
             if spec.get("kind") == "arrow":
@@ -152,7 +154,7 @@ class BetaLecture(MapLecture):
                 if mob is not None:
                     self._register(spec, mob)
 
-    def _lay_out(self, specs: list, box: tuple) -> None:
+    def _lay_out(self, specs: list, box: tuple, fill: float = 0.92) -> None:
         """Elements sharing a box stacked down it: each fitted to the box's width and a share of its height by its
         own shape, the stack centred in the box."""
         cx, cy, w, h = box
@@ -169,9 +171,13 @@ class BetaLecture(MapLecture):
             return
         stack = Group(*[m for _, m in built]).arrange(DOWN, buff=GAP, aligned_edge=LEFT if all(
             s.get("kind") in ("text", "list") and s.get("align", "left") == "left" for s, _ in built) else ORIGIN)
-        k = min(inner_w / max(stack.width, 0.01), inner_h / max(stack.height, 0.01), 1.0)
-        if k < 1:
-            stack.scale(k)
+        # Smaller than its slot, a stack grows into it, as far as its least growable element allows: shapes, numbers
+        # and equations a lot, headings some, sentences and pictures not at all (they are sized for reading, or fill
+        # their box already). A heading alone in a column was a word in an empty board.
+        grow = min(_grow(s) for s, _ in built)
+        k = min(inner_w * fill / max(stack.width, 0.01), inner_h * 0.85 / max(stack.height, 0.01), grow)
+        if k < 1 or grow > 1:
+            stack.scale(min(k, inner_w / max(stack.width, 0.01), inner_h / max(stack.height, 0.01)))
         stack.move_to([cx, cy, 0])
         for spec, mob in built:
             self._register(spec, mob)
@@ -628,6 +634,18 @@ class BetaLecture(MapLecture):
         if spot < 0:
             return None
         return seconds * spot / max(len(text), 1)
+
+
+# How much an element may grow to fill its slot (1: not at all).
+GROW = {"shape": 1.8, "equation": 1.7, "number": 1.5, "bars": 1.3, "icon": 1.3, "list": 1.45, "arrow": 1.0, "image": 1.0,
+        "timeline": 1.0}
+TEXT_GROW = {"title": 1.3, "heading": 1.5, "callout": 1.3, "quote": 1.25, "label": 1.4}
+
+
+def _grow(spec: dict) -> float:
+    if spec.get("kind") == "text":
+        return TEXT_GROW.get(spec.get("style", "body"), 1.0)
+    return GROW.get(spec.get("kind"), 1.0)
 
 
 def _region(mob):

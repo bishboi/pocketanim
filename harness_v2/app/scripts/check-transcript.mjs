@@ -536,53 +536,53 @@ await voiceAction(run.id, { action: "resetTrial", lecture: 1, chapter: ch1.n });
 assert.ok(!(await loadRun(run.id)).voice.trials[1][ch1.n], "the trial forgotten");
 await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
 
-// The Lab: every preset and every snippet compiles; an experiment from a preset is spoken, timed and played; one from a
-// lecture's chapter; duplicated, renamed, removed.
+// The Lab: an experiment from a lecture's chapter (the current engine's beat script, spoken as an edit is tried);
+// duplicated, renamed, removed. (Its examples are the beta engine's, checked below.)
 {
-  const { LAB_PRESETS, LAB_SNIPPETS } = await import(path.resolve(here, "../lib/lab-presets.ts"));
   const { labAction } = await import(path.resolve(here, "../lib/lab.ts"));
-  const { compile: compileScript } = await import(path.resolve(here, "../lib/scenes.ts"));
-  const { readChapterScript, engineScriptOf } = await import(path.resolve(here, "../lib/voice.ts"));
-  const all = { region: null, chapter: { title: "Snippets", beats: LAB_SNIPPETS.map((x) => ({ say: x.say, do: [x.do] })) } };
-  for (const [name, script] of [...LAB_PRESETS.map((p) => [p.id, p.script]), ["snippets", all]]) {
-    const c = await compileScript(run, await engineScriptOf(run, 1, readChapterScript(script)), path.join(scenesDir(run.id), "lab-check", name));
-    assert.ok(c.source && !c.errors.length, `the Lab's ${name} compiles: ${c.errors.join("; ")}`);
-    assert.deepEqual(c.warnings.filter((w) => /left out|unknown/i.test(w)), [], `the Lab's ${name}: nothing left out`);
-  }
-  const added = await labAction(run.id, { action: "add", preset: "diagram-build" });
-  assert.equal(added.name, "Diagram built over beats");
-  await labAction(run.id, { action: "try", id: added.id });
-  run = await slow(run.id, (r) => voiceRunning(r), 3000);
-  const lv = run.lab.items.find((i) => i.id === added.id).result;
-  assert.equal(lv.status, "done", lv.error);
-  assert.ok(lv.ir && lv.audio && lv.frames > 0 && lv.beats.length === 4, "the experiment played with its narration, its four beats placed");
-  assert.ok(lv.cues.some((c) => c.cues?.length), "its animations timed to the words");
-  assert.ok(lv.lines.filter((l) => l.beat !== undefined).length === 4, "each line under its beat");
-  assert.ok(fileOf(lv.ir).includes(`${path.sep}lab${path.sep}${added.id}`), "its files the Lab's own");
-  assert.ok(run.calls.some((c) => /the Lab's "Diagram built over beats"/.test(c.label)), "its calls named for it");
   const fromChapter = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
   assert.ok(fromChapter.script.chapter.beats.length === ch1.beats.length && fromChapter.script.chapter.beats.every((b) => b.beat === undefined), "a lecture's chapter, its beats the experiment's own");
-  const copy = await labAction(run.id, { action: "duplicate", id: added.id });
+  assert.ok(!fromChapter.script.engine, "a lecture's chapter is the current engine's");
+  await labAction(run.id, { action: "try", id: fromChapter.id });
+  run = await slow(run.id, (r) => voiceRunning(r), 3000);
+  const lv = run.lab.items.find((i) => i.id === fromChapter.id).result;
+  assert.equal(lv.status, "done", lv.error);
+  assert.ok(lv.ir && lv.audio && lv.frames > 0 && lv.beats.length === ch1.beats.length, "the experiment played with its narration, its beats placed");
+  assert.ok(fileOf(lv.ir).includes(`${path.sep}lab${path.sep}${fromChapter.id}`), "its files the Lab's own");
+  assert.ok(run.calls.some((c) => /the Lab's "Lecture 1, chapter/.test(c.label)), "its calls named for it");
+  const copy = await labAction(run.id, { action: "duplicate", id: fromChapter.id });
   assert.ok(!copy.result && copy.name.endsWith("(copy)"));
-  await labAction(run.id, { action: "save", id: copy.id, name: "Variant", script: { chapter: { title: "V", beats: [{ say: "One beat.", do: [{ op: "fact", text: "a variant" }] }] } } });
+  await labAction(run.id, { action: "save", id: copy.id, name: "Variant", script: { engine: "beta", chapter: { title: "V", beats: [{ say: "One beat.", layout: "center", elements: [{ id: "t", text: "a variant", slot: "main" }] }] } } });
   run = await loadRun(run.id);
   assert.equal(run.lab.items.find((i) => i.id === copy.id).name, "Variant");
+  assert.equal(run.lab.items.find((i) => i.id === copy.id).script.engine, "beta");
   await assert.rejects(labAction(run.id, { action: "save", id: copy.id, script: { beats: [] } }), /needs "chapter"/);
-  for (const i of [copy, fromChapter, added]) await labAction(run.id, { action: "remove", id: i.id });
+  const blank = await labAction(run.id, { action: "add" });
+  assert.equal(blank.script.engine, "beta", "a blank experiment is the beta engine's");
+  for (const i of [copy, fromChapter, blank]) await labAction(run.id, { action: "remove", id: i.id });
   assert.equal((await loadRun(run.id)).lab.items.length, 0, "removed");
-  console.log(`lab: ${LAB_PRESETS.length} presets and ${LAB_SNIPPETS.length} snippets compile; an experiment played in ${(lv.frames / lv.fps).toFixed(1)} s`);
+  console.log(`lab: a lecture's chapter played in ${(lv.frames / lv.fps).toFixed(1)} s`);
 }
 
-// The beta engine (engine/BETA_ENGINE.md): every beta preset and snippet compiles with nothing left out; one is
+// The beta engine (engine/BETA_ENGINE.md): every Lab example and snippet compiles with nothing left out; one is
 // exported for the phones with nothing blocked; one is spoken and played on the Lab; a beta script is not applied.
 {
-  const { LAB_BETA_PRESETS, LAB_BETA_SNIPPETS } = await import(path.resolve(here, "../lib/lab-presets.ts"));
+  const { LAB_EXAMPLES, LAB_SNIPPETS, LAB_GROUPS } = await import(path.resolve(here, "../lib/lab-presets.ts"));
+  assert.ok(LAB_EXAMPLES.every((p) => p.script.engine === "beta" && LAB_GROUPS.includes(p.group)), "every example is the beta's, in a group");
+  assert.equal(new Set(LAB_EXAMPLES.map((p) => p.id)).size, LAB_EXAMPLES.length, "examples' ids unique");
+  // Every entrance, emphasis and exit, every layout and every kind of element is shown by some example.
+  const used = JSON.stringify(LAB_EXAMPLES.map((p) => p.script));
+  const engineLists = JSON.parse((await (await import(path.resolve(here, "../lib/manim.ts"))).runPython(["-c",
+    "import json, beta_engine as b; print(json.dumps({'in': b.ENTRANCES, 'emphasis': b.EMPHASES, 'out': b.EXITS, 'layout': list(b.LAYOUTS), 'kind': b.ELEMENT_KINDS}))"],
+    process.env.V2_ENGINE, { PYTHONPATH: process.env.V2_ENGINE })).stdout.trim().split("\n").pop());
+  for (const [key, names] of Object.entries(engineLists))
+    for (const n of names) assert.ok(key === "kind" ? used.includes(`"${n}":`) : used.includes(`"${key}":"${n}"`), `an example shows ${key} ${n}`);
   const { labAction } = await import(path.resolve(here, "../lib/lab.ts"));
   const { compile: compileScript } = await import(path.resolve(here, "../lib/scenes.ts"));
   const { readChapterScript, engineScriptOf } = await import(path.resolve(here, "../lib/voice.ts"));
-  const snippets = { engine: "beta", region: null, chapter: { title: "Snippets", beats: [LAB_BETA_PRESETS[0].script.chapter.beats[0], ...LAB_BETA_SNIPPETS.map((x) => x.beat)] } };
+  const snippets = { engine: "beta", region: null, chapter: { title: "Snippets", beats: [LAB_EXAMPLES[0].script.chapter.beats[0], ...LAB_SNIPPETS.map((x) => x.beat)] } };
   let firstSource = "";
-  for (const [name, script] of [...LAB_BETA_PRESETS.map((p) => [p.id, p.script]), ["beta-snippets", snippets]]) {
+  for (const [name, script] of [...LAB_EXAMPLES.map((p) => [p.id, p.script]), ["beta-snippets", snippets]]) {
     const engineScript = await engineScriptOf(run, 1, readChapterScript(script));
     assert.equal(engineScript.engine, "beta");
     const c = await compileScript(run, engineScript, path.join(scenesDir(run.id), "lab-check", name));
@@ -607,7 +607,7 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   assert.equal(summary.tier, 1, JSON.stringify(summary.blockers ?? summary.error));
   assert.deepEqual(summary.blockers, [], "every beta animation written for the phones");
   // Spoken and played on the Lab, each animation on its words.
-  const added = await labAction(run.id, { action: "add", preset: "beta-process" });
+  const added = await labAction(run.id, { action: "add", preset: "s-economics" });
   assert.equal(added.script.engine, "beta");
   await labAction(run.id, { action: "try", id: added.id });
   run = await slow(run.id, (r) => voiceRunning(r), 3000);
@@ -616,9 +616,9 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   assert.ok(bv.ir && bv.audio && bv.frames > 0 && bv.beats.length === 2, "the beta experiment played with its narration, its two beats placed");
   assert.ok(bv.lines.filter((l) => l.beat !== undefined).length === 2, "each line under its beat");
   assert.ok(readFileSync(path.join(fileOf(bv.ir), "..", "scene.py"), "utf8").includes("BetaLecture"), "drawn by the beta engine");
-  await assert.rejects(voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: LAB_BETA_PRESETS[0].script }), /beta-engine script is tried, not applied/);
+  await assert.rejects(voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: LAB_EXAMPLES[0].script }), /beta-engine script is tried, not applied/);
   await labAction(run.id, { action: "remove", id: added.id });
-  console.log(`beta: ${LAB_BETA_PRESETS.length} presets and ${LAB_BETA_SNIPPETS.length} snippets compile; exported at tier 1; an experiment played in ${(bv.frames / bv.fps).toFixed(1)} s`);
+  console.log(`beta: ${LAB_EXAMPLES.length} examples and ${LAB_SNIPPETS.length} snippets compile; exported at tier 1; an experiment played in ${(bv.frames / bv.fps).toFixed(1)} s`);
 }
 
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).

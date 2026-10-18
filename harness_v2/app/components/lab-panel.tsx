@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { LAB_BETA_PRESETS, LAB_BETA_SNIPPETS, LAB_PRESETS, LAB_SNIPPETS } from "@/lib/lab-presets";
+import { LAB_EXAMPLES, LAB_GROUPS, LAB_SNIPPETS } from "@/lib/lab-presets";
 import type { LabItem, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
 import { unfence, VoiceResult } from "./voice-panel";
@@ -59,16 +59,15 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-neutral-400">New experiment from a preset</span>
-            <select data-testid="lab-preset" className="w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
+            <span className="text-neutral-400">New experiment from an example ({LAB_EXAMPLES.length})</span>
+            <select data-testid="lab-preset" className="w-72 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
               onChange={(e) => { if (e.target.value) void act({ action: "add", preset: e.target.value }); }}>
               <option value="">pick one…</option>
-              <optgroup label="The current engine">
-                {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
-              </optgroup>
-              <optgroup label="The beta engine: slides of boxes, animations on their words">
-                {LAB_BETA_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
-              </optgroup>
+              {LAB_GROUPS.map((g) => (
+                <optgroup key={g} label={g}>
+                  {LAB_EXAMPLES.filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
           {chapters.length > 0 && (
@@ -121,15 +120,9 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
   const addBeat = (k: number) => {
     if (parseError || !parsed) return;
     const next = structuredClone(parsed) as { chapter: { beats: unknown[] } };
-    if (beta) {
-      const s = LAB_BETA_SNIPPETS[k];
-      if (!s) return;
-      next.chapter.beats.push(structuredClone(s.beat));
-    } else {
-      const s = LAB_SNIPPETS[k];
-      if (!s) return;
-      next.chapter.beats.push({ say: s.say, do: [s.do] });
-    }
+    const s = LAB_SNIPPETS[k];
+    if (!s || !beta) return;
+    next.chapter.beats.push(structuredClone(s.beat));
     setText(JSON.stringify(next, null, 2));
   };
   return (
@@ -155,11 +148,13 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
         <button data-testid="lab-save" disabled={!changed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "save", id: item.id, script: parsed })}>Save</button>
         <button disabled={!!parseError || !parsed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => setText(JSON.stringify(parsed, null, 2))}>Format</button>
         <button className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "duplicate", id: item.id })}>Duplicate (to try a variant)</button>
-        <select data-testid="lab-snippet" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value="" disabled={!!parseError || !parsed}
-          onChange={(e) => addBeat(Number(e.target.value))}>
-          <option value="">Add a beat with…</option>
-          {(beta ? LAB_BETA_SNIPPETS : LAB_SNIPPETS).map((s, k) => <option key={k} value={k}>{s.op}</option>)}
-        </select>
+        {beta && (
+          <select data-testid="lab-snippet" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value="" disabled={!!parseError || !parsed}
+            onChange={(e) => addBeat(Number(e.target.value))}>
+            <option value="">Add a beat with…</option>
+            {LAB_SNIPPETS.map((s, k) => <option key={k} value={k}>{s.op}</option>)}
+          </select>
+        )}
         <button disabled={running} className={`${btn} ml-auto border-red-900 text-red-300 hover:bg-red-950`}
           onClick={() => { if (confirm(`Delete "${item.name}"?`)) void act({ action: "remove", id: item.id }); }}>Delete</button>
       </div>

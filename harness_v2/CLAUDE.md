@@ -10,4 +10,4 @@
 - v1 (`harness/`) is not modified; v2's engine is its own copy (`engine/ENGINE.md` lists v2's changes).
 - The beta engine (`engine/beta_engine.py`, `engine/compile_beta.py`: slides of boxes, animations on their words) is
   documented in `engine/BETA_ENGINE.md`; a change to its layouts, elements, presets or checks updates that file in
-  the same commit, and its Lab presets (`app/lib/lab-presets.ts`) must compile with no warnings (`npm run check`).
+  the same commit, and the Lab's examples (`app/lib/lab-presets.ts`, all on the beta engine) must compile with no warnings and cover every entrance, emphasis, exit, layout and kind of element (`npm run check`).

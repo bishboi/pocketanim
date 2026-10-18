@@ -17,7 +17,9 @@ beta script (JSON) ─▶ compile_beta.py ─▶ Manim scene on beta_engine.Beta
                         makes the pictures    plays each step on its words              every beta animation is one they play)
 ```
 
-Try it on the app's **Lab** tab: pick a "Beta:" preset, change its JSON, **Speak and play**. It is a beta: it is
+Try it on the app's **Lab** tab: pick one of its examples (one for every entrance, emphasis, exit and timing rule,
+every layout and every kind of element, and whole lesson scenes in several looks), change its JSON, **Speak and
+play**. It is a beta: it is
 tried on the Lab, not applied to a lecture's scenes (those are the current engine's).
 
 ---
@@ -90,6 +92,10 @@ The board is the frame below the chapter's heading and above the caption. A layo
 | `grid-2x2` | `tl`, `tr`, `bl`, `br` |
 | `focus-side` | `main` (70%), `side` |
 
+- A stack smaller than its slot **grows into it**, as far as its least growable element allows: shapes (×1.8),
+  equations (×1.7), headings (×1.5), numbers (×1.5), lists (×1.45), labels, titles, callouts, quotes, charts and
+  icons a little; body text, captions, pictures and timelines keep their size (they are sized for reading, or fill
+  their box already). On a slide with arrows, what they join keeps clear of its slot's sides, so the arrows have room.
 - An element goes in a `slot` of its slide's layout. One with no slot (or a slot the layout lacks) goes in the
   first slot, with a note.
 - **Several elements in one slot are stacked down it** in the order given, each as wide as the slot, the stack
@@ -218,4 +224,4 @@ and lagged. `npm run check` exports a beta scene and requires tier 1 with nothin
 |---|---|
 | `engine/beta_engine.py` | The runtime: layouts, elements, presets, a beat's plan on its words (`BetaLecture`). |
 | `engine/compile_beta.py` | The compiler: checks and mends, makes the pictures, writes the scene. |
-| `app/lib/lab-presets.ts` | The Lab's beta presets and "add a beat with" snippets (`LAB_BETA_PRESETS`, `LAB_BETA_SNIPPETS`), each compiled by `npm run check`. |
+| `app/lib/lab-presets.ts` | The Lab's examples, by group (`LAB_EXAMPLES`, `LAB_GROUPS`), and its "add a beat with" snippets (`LAB_SNIPPETS`). `npm run check` compiles every one with no warnings, and fails when an entrance, emphasis, exit, layout or kind of element has no example. |

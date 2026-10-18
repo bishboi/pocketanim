@@ -17,10 +17,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 }
 
-/** GET: the beat script's reference (engine/BEAT_SCRIPT.md), to read beside the editor. */
-export async function GET() {
+/** GET [?engine=beta]: the beat script's reference (engine/BEAT_SCRIPT.md), or the beta engine's (BETA_ENGINE.md). */
+export async function GET(request: NextRequest) {
+  const beta = new URL(request.url).searchParams.get("engine") === "beta";
   try {
-    return NextResponse.json({ reference: await readFile(path.join(engineDir(), "BEAT_SCRIPT.md"), "utf8") });
+    return NextResponse.json({ reference: await readFile(path.join(engineDir(), beta ? "BETA_ENGINE.md" : "BEAT_SCRIPT.md"), "utf8") });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }

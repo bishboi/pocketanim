@@ -8,7 +8,7 @@
 
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { LAB_PRESETS } from "./lab-presets";
+import { LAB_BETA_PRESETS, LAB_PRESETS } from "./lab-presets";
 import { scenesDir } from "./scenes";
 import { loadRun, saveRun } from "./store";
 import type { ChapterScript, LabItem, LabState, Run } from "./types";
@@ -60,7 +60,7 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
     let from: string | undefined;
     let lecture = a.lecture;
     if (a.preset) {
-      const p = LAB_PRESETS.find((x) => x.id === a.preset);
+      const p = [...LAB_PRESETS, ...LAB_BETA_PRESETS].find((x) => x.id === a.preset);
       if (!p) throw new Error(`no preset "${a.preset}"`);
       script = readChapterScript(p.script);
       name ||= p.name;

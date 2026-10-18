@@ -133,6 +133,8 @@ export function readChapterScript(x: unknown): ChapterScript {
   if (!ch || typeof ch !== "object" || Array.isArray(ch)) fail('it needs "chapter": {"title", "narration", "map", "beats": [...]}');
   if (typeof ch!.title !== "string" || !ch!.title.trim()) fail('"chapter.title" must be a text');
   if (!Array.isArray(ch!.beats) || !(ch!.beats as unknown[]).length) fail('"chapter.beats" must be a list of at least one beat');
+  const beta = o.engine === "beta";
+  if (o.engine !== undefined && !beta) fail('"engine" is "beta" or left out');
   const beats = (ch!.beats as unknown[]).map((raw, i) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail(`beat ${i + 1} must be an object`);
     const b = raw as Record<string, unknown>;
@@ -142,13 +144,20 @@ export function readChapterScript(x: unknown): ChapterScript {
       fail(`beat ${i + 1}: "do" must be a list of operations, each with "op"`);
     if (b.pause !== undefined && !(Number(b.pause) >= 0)) fail(`beat ${i + 1}: "pause" must be a number of seconds`);
     if (b.beat !== undefined && !Number.isInteger(b.beat)) fail(`beat ${i + 1}: "beat" must be the beat's number`);
+    const list = (k: string) => {
+      if (b[k] === undefined) return undefined;
+      if (!Array.isArray(b[k]) || (b[k] as unknown[]).some((x) => !x || typeof x !== "object" || Array.isArray(x))) fail(`beat ${i + 1}: "${k}" must be a list of objects`);
+      return b[k] as Record<string, unknown>[];
+    };
+    const betaFields = beta ? { ...(typeof b.layout === "string" ? { layout: b.layout } : {}), ...(list("elements") ? { elements: list("elements") } : {}),
+      ...(list("animate") ? { animate: list("animate") } : {}), ...(b.clear === true ? { clear: true } : {}) } : {};
     return { ...(b.beat !== undefined ? { beat: b.beat as number } : {}), say: (b.say as string).trim(), do: ops as Record<string, unknown>[],
       ...(b.paragraph === true ? { paragraph: true } : {}), ...(b.pause ? { pause: Number(b.pause) } : {}),
-      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim() } : {}) };
+      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim() } : {}), ...betaFields };
   });
   const text = (k: string) => (typeof o[k] === "string" && (o[k] as string).trim() ? (o[k] as string).trim() : undefined);
   if (o.region !== undefined && o.region !== null && (typeof o.region !== "object" || Array.isArray(o.region))) fail('"region" must be an object or null');
-  return { style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
+  return { ...(beta ? { engine: "beta" as const } : {}), style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
     genre: text("genre") ?? null,
     chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "", map: ch!.map === true, beats } };
 }
@@ -157,7 +166,7 @@ export function readChapterScript(x: unknown): ChapterScript {
 export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
   const look = cleanLook({ ...scenesOf(run).look, ...(s.style ? { style: s.style } : {}), ...(s.art ? { art: s.art } : {}) });
   const region = s.region && Object.keys(s.region).length ? s.region : null;
-  return { title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
+  return { ...(s.engine ? { engine: s.engine } : {}), title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),
     chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", map: !!s.chapter.map && !!region,
       beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
@@ -219,6 +228,7 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     // The edited visuals put into the scenes (the Scenes tab's beats), and compiled: each beat named by its number in
     // this chapter. The words said are the transcript's: an edited say is tried, never applied.
     const edited = readChapterScript(a.script);
+    if (edited.engine === "beta") throw new Error("a beta-engine script is tried, not applied: the lecture's scenes are the current engine's");
     const chapter = scriptOf(run, a.lecture)?.chapters.find((c) => c.n === a.chapter);
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const notes: string[] = [];

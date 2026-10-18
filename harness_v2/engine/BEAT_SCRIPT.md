@@ -18,6 +18,9 @@ To try any of it with the voice, use the app's **Lab** tab: a chapter's beat scr
 animation, a lecture's chapter, or blank) is compiled, spoken, its animations timed to the words, and played. Its
 presets and "add a beat with" snippets are `app/lib/lab-presets.ts`, and `npm run check` compiles every one of them.
 
+A second, **beta** engine describes visuals as slides of boxes animated on their words (layouts and slots, elements
+with ids, entrance / emphasis / exit steps `on` a word): [BETA_ENGINE.md](BETA_ENGINE.md). It is tried on the Lab.
+
 Contents: [the whole script](#1-the-whole-script) · [a chapter](#2-a-chapter) · [a beat](#3-a-beat) ·
 [how a beat plays](#4-how-a-beat-plays) · [operations](#5-operations): [board words](#51-the-boards-words) ·
 [pictures](#52-pictures) · [diagrams](#53-diagrams) · [kits](#54-cards-kits-and-questions) ·

@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
-import { VISUAL_KINDS, betaKind, builtFor, kindById, kindOfOp } from "@/lib/visual-kinds";
+import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
 import { beatFigures, lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
 import { FrameStill, IRPlayer } from "./player";
@@ -56,9 +56,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
   const look = st?.look ?? { style: "atlas", art: "auto" };
   const kinds = st?.kinds ?? VISUAL_KINDS.map((k) => k.id);
   const cost = run.calls.filter((c) => c.step === "scenes").reduce((k, c) => k + c.cost, 0);
-  const engine = st?.engine;
-  const beatsBuilt = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => builtFor(b.ops, engine)).length, 0);
-  const otherEngine = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.ops.length && !builtFor(b.ops, engine)).length, 0);
+  const beatsBuilt = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.ops.length).length, 0);
   const refused = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.errors?.length).length, 0);
   const lecture = open === "all" ? undefined : scripted.find((l) => l.n === open);
   const buildOne = (n: number) => { setOpen(n); return act({ action: "build", scope: "lecture", lecture: n, model }); };
@@ -76,16 +74,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
           refuses are sent back with what it said, and any beat or chapter can be rendered (silent) to see it, in this look or another.</p>
         {showLook && <LookPicker look={look} act={act} />}
         {showLook && <KindToggles kinds={kinds} onChange={(k) => act({ action: "kinds", kinds: k })} />}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-2 text-xs" data-testid="scenes-engine">
-          <span className="text-violet-300">Engine</span>
-          <label className="flex items-center gap-1 text-neutral-300" title="v1's beat script: operations (panel, picture, diagram, timeline, map...) laid out and timed by the engine">
-            <input type="radio" checked={engine !== "beta"} onChange={() => act({ action: "engine", engine: "current" })} data-testid="scenes-engine-current" /> current (v1&apos;s operations)</label>
-          <label className="flex items-center gap-1 text-neutral-300" title="engine/BETA_ENGINE.md: each beat as slides of boxes (layouts and slots), its elements animated on the words that bring them">
-            <input type="radio" checked={engine === "beta"} onChange={() => act({ action: "engine", engine: "beta" })} data-testid="scenes-engine-beta" /> <span className="rounded bg-violet-900/70 px-1 text-[10px] text-violet-100">beta</span> slides of boxes, each thing on its words</label>
-          {otherEngine > 0 && <span className="text-amber-300" data-testid="scenes-other-engine">{otherEngine} beat(s) written for the {engine === "beta" ? "current" : "beta"} engine: build them again to draw them on this one</span>}
-          {engine === "beta" && <span className="text-neutral-500">no maps or free-form Manim on the beta; its reference: engine/BETA_ENGINE.md</span>}
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-2 text-xs">
           <span className="text-neutral-400">Model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" value={model}
             onChange={(e) => setModel(e.target.value)} data-testid="scenes-model" />
@@ -101,7 +90,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
             <input type="checkbox" checked={inTurn} onChange={(e) => setInTurn(e.target.checked)} /> one at a time</label>
           {running && <button className={`${btn} border-red-700 text-red-200`} onClick={() => act({ action: "stop" })}>Stop</button>}
         </div>
-        {engine !== "beta" && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-cyan-300">Manim figures</span>
           <label className="flex items-center gap-1 text-neutral-300" title="The scene writer plans a Manim figure; the Manim agent builds it: makes the pictures it needs, writes the code, checks it with the compiler (no render) and mends it">
             <input type="radio" checked={st?.manimAgent !== false} onChange={() => act({ action: "agentSettings", on: true })} data-testid="scenes-agent-on" /> built by the Manim agent (pictures, code checks)</label>
@@ -110,7 +99,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
           <span className="text-neutral-500">agent model</span>
           <input className="mono w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100" defaultValue={st?.manimModel ?? manimModel} key={st?.manimModel ?? manimModel}
             onBlur={(e) => e.target.value !== (st?.manimModel ?? manimModel) && act({ action: "agentSettings", model: e.target.value })} title="the Manim role's model (V2_MANIM_MODEL); changed here for this run" />
-        </div>}
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-pink-300">AI pictures made before</span>
           <label className="flex items-center gap-1 text-neutral-300" title="For each AI picture a scene asks for, the decision model is shown the pictures made before that could be it (their words and the prompts they were drawn from) and chooses: show one again, draw a new one that matches one (the same person or place, sent as its reference), or draw fresh">
@@ -253,7 +242,7 @@ function Overview({ run, lectures, busy, openLecture, build }: {
         {lectures.map((l) => {
           const sl = run.scenes?.lectures[l.n];
           const all = run.script!.lectures[l.n].chapters.flatMap((c) => c.beats);
-          const withOps = all.filter((b) => builtFor(sl?.beats[b.n]?.ops, run.scenes?.engine)).length;
+          const withOps = all.filter((b) => sl?.beats[b.n]?.ops.length).length;
           const refused = all.filter((b) => sl?.beats[b.n]?.errors?.length).length;
           const rendered = all.filter((b) => sl?.beats[b.n]?.render?.status === "done").length + Object.values(sl?.chapters ?? {}).filter((c) => c.status === "done").length;
           const cost = run.calls.filter((c) => c.step === "scenes" && c.lecture === l.n).reduce((k, c) => k + c.cost, 0);
@@ -338,9 +327,7 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
 
 /** The kinds a beat's operations are, as coloured dots. */
 function KindDots({ ops }: { ops: Record<string, unknown>[] }) {
-  // A beta beat's kinds are its elements'.
-  const ks = [...new Set(ops.flatMap((o) => o.op === "beta" ? ((o.elements ?? []) as Record<string, unknown>[]).map(betaKind) : [kindOfOp(o) ?? "base"])
-    .filter((k) => k !== "base"))];
+  const ks = [...new Set(ops.map((o) => kindOfOp(o) ?? "base").filter((k) => k !== "base"))];
   return <span className="flex gap-0.5">{ks.map((k) => <span key={k} title={kindById(k)?.label} className="inline-block h-2 w-2 rounded-full" style={{ background: KIND_COLOR[k] }} />)}</span>;
 }
 
@@ -553,7 +540,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
   const r = sl?.chapters?.[c];
   const [style, setStyle] = useState(st?.look.style ?? "atlas");
   const [art, setArt] = useState(st?.look.art ?? "auto");
-  const built = ch.beats.filter((b) => builtFor(sl?.beats[b.n]?.ops, st?.engine)).length;
+  const built = ch.beats.filter((b) => sl?.beats[b.n]?.ops.length).length;
   const ownKinds = sl?.chapterKinds?.[c];
   const [only, setOnly] = useState<NonNullable<NonNullable<typeof r>["beats"]>[number] | null>(null);
   return (
@@ -715,7 +702,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
       <div className="grid gap-3 xl:grid-cols-2">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{st?.engine === "beta" ? "On screen (beta: its slide work)" : `On screen (${sb?.ops.length ?? 0} operations)`}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">On screen ({sb?.ops.length ?? 0} operations)</p>
             {sb?.edited && <span className="text-[10px] text-violet-300">✎ changed by hand</span>}
             <button className="ml-auto text-[11px] text-sky-300 hover:underline" onClick={() => { setJson(JSON.stringify(sb?.ops ?? [], null, 2)); setBad(null); setEditing(!editing); }}>
               {editing ? "cancel" : "edit as JSON"}</button>
@@ -730,8 +717,6 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
                 if (await act({ action: "edit", lecture: lecture.n, beat: n, ops })) setEditing(false);
               }}>Save and compile</button>
             </div>
-          ) : sb?.ops.length && sb.ops[0]?.op === "beta" ? (
-            <BetaBeatView op={sb.ops[0]} other={st?.engine !== "beta"} />
           ) : sb?.ops.length ? (
             <ol className="space-y-1" data-testid="scenes-ops">
               {sb.ops.map((o, i) => {
@@ -771,7 +756,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Render</p>
             <LookSelect style={style} art={art} setStyle={setStyle} setArt={setArt} />
-            <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={!b.chapter.beats.some((x) => builtFor(sl?.beats[x.n]?.ops, st?.engine)) || r?.status === "running"}
+            <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={!sb?.ops.length && !b.chapter.beats.some((x) => sl?.beats[x.n]?.ops.length) || r?.status === "running"}
               data-testid="scenes-render-beat" onClick={() => act({ action: "render", lecture: lecture.n, chapter: b.chapter.n, beat: n, style, art })}>
               {r?.status === "running" ? "Rendering…" : r ? "Render again" : "Render this beat"}</button>
           </div>
@@ -1011,61 +996,6 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
           <ul className="space-y-0.5 text-neutral-400">{c.pictures.map((p, i) => <li key={i}>{p.prompt} <span className="text-neutral-500">· {p.model} · {money(p.usd ?? 0)}</span></li>)}</ul>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/** A beta beat (engine/BETA_ENGINE.md) as words: the slide it starts, the elements it brings, each step and its word. */
-function BetaBeatView({ op, other }: { op: Record<string, unknown>; other: boolean }) {
-  const elements = (Array.isArray(op.elements) ? op.elements : []) as Record<string, unknown>[];
-  const steps = (Array.isArray(op.animate) ? op.animate : []) as Record<string, unknown>[];
-  const content = (el: Record<string, unknown>) => {
-    for (const k of ["text", "list", "number", "equation", "icon", "shape", "bars", "arrow", "timeline", "image"]) {
-      const v = el[k];
-      if (v === undefined) continue;
-      if (k === "image" && v && typeof v === "object") {
-        const img = v as Record<string, unknown>;
-        return `image: ${img.figure ? `figure ${img.figure}` : String(img.generate ?? img.file ?? "")}${Array.isArray(img.labels) && img.labels.length ? ` (labels: ${(img.labels as string[]).join(", ")})` : ""}`;
-      }
-      if (k === "list" && Array.isArray(v)) return `list: ${(v as string[]).join(" · ")}`;
-      if (k === "number" && v && typeof v === "object") return `number: ${(v as Record<string, unknown>).value} ${(v as Record<string, unknown>).label ?? ""}`;
-      if (k === "arrow" && v && typeof v === "object") return `arrow: ${(v as Record<string, unknown>).from} → ${(v as Record<string, unknown>).to}`;
-      if (k === "timeline" && v && typeof v === "object") return `timeline: ${((v as Record<string, unknown>).events as unknown[] | undefined)?.length ?? 0} events`;
-      if (k === "bars" && v && typeof v === "object") return `bars: ${((v as Record<string, unknown>).items as unknown[] | undefined)?.length ?? 0}`;
-      return `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`;
-    }
-    return "?";
-  };
-  const what = (st: Record<string, unknown>) => st.in ? `in: ${st.in}${st.from ? ` from ${st.from}` : ""}` : st.emphasis ? `emphasis: ${st.emphasis}`
-    : st.out ? `out: ${st.out}` : st.move ? `move to ${st.move}` : "in: fade";
-  const when = (st: Record<string, unknown>) => st.on ? `on “${st.on}”` : st.with ? `with ${st.with}` : st.after ? `after ${st.after}` : "after the step before";
-  return (
-    <div className="space-y-1 text-xs" data-testid="scenes-beta-beat">
-      {other && <p className="text-amber-300">Written for the beta engine: not drawn while the run is on the current one.</p>}
-      <p className="text-violet-200">{op.layout ? <>new slide: <b>{String(op.layout)}</b></> : "adds to the slide up"}{op.clear ? " · clears the board" : ""}</p>
-      {elements.length > 0 && (
-        <ol className="space-y-0.5">
-          {elements.map((el, i) => {
-            const k = betaKind(el);
-            return (
-              <li key={i} className="rounded border-l-2 bg-neutral-900 px-2 py-0.5" style={{ borderColor: KIND_COLOR[k] ?? "#8b5cf6" }}>
-                <span className="mono mr-1.5 text-violet-300">{String(el.id)}</span>
-                <span className="mr-1.5 text-neutral-500">{String(el.slot ?? (el.box ? `box ${JSON.stringify(el.box)}` : ""))}</span>
-                <span className="text-neutral-200">{content(el)}</span>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      {steps.length > 0 && (
-        <ol className="space-y-0.5" data-testid="scenes-beta-steps">
-          {steps.map((st, i) => (
-            <li key={i} className="text-neutral-300"><span className="mono text-violet-300">{String(st.id)}</span> {what(st)} <span className="text-sky-300">{when(st)}</span>
-              {st.delay ? <span className="text-neutral-500"> +{String(st.delay)}s</span> : null}</li>
-          ))}
-        </ol>
-      )}
-      {!elements.length && !steps.length && !op.clear && <p className="text-neutral-500">Nothing new on screen: the slide stays up.</p>}
     </div>
   );
 }

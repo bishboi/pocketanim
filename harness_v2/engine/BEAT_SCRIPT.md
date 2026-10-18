@@ -14,12 +14,9 @@ beat script (JSON) ─▶ compile_lecture.py ─▶ Manim scene (Python) ─▶ 
 Everything here is read from the compiler and the engine as they are (v1's, copied into `harness_v2/engine`). Where
 a field is optional it is marked `?`.
 
-To try a lecture's chapter with the voice, use the app's **Lab** tab ("from a lecture's chapter"): its beat script
-is compiled, spoken, its animations timed to the words, and played, and can be changed and tried again. (The Lab's
-examples are the beta engine's.)
-
-A second, **beta** engine describes visuals as slides of boxes animated on their words (layouts and slots, elements
-with ids, entrance / emphasis / exit steps `on` a word): [BETA_ENGINE.md](BETA_ENGINE.md). A lecture's scenes are built on it when the Scenes tab's Engine is set to beta.
+To try any of it with the voice, use the app's **Lab** tab: a chapter's beat script (from a preset for each kind of
+animation, a lecture's chapter, or blank) is compiled, spoken, its animations timed to the words, and played. Its
+presets and "add a beat with" snippets are `app/lib/lab-presets.ts`, and `npm run check` compiles every one of them.
 
 Contents: [the whole script](#1-the-whole-script) · [a chapter](#2-a-chapter) · [a beat](#3-a-beat) ·
 [how a beat plays](#4-how-a-beat-plays) · [operations](#5-operations): [board words](#51-the-boards-words) ·

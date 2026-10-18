@@ -471,9 +471,6 @@ export type ScenesState = {
    * matching words; and that model. */
   reuseJudge?: boolean;
   reuseModel?: string;
-  /** The engine the scenes are written for and drawn by: the beta (engine/BETA_ENGINE.md: slides of boxes, animations
-   * on their words; each beat's visuals one {"op": "beta", ...}), or the current one (left out). */
-  engine?: "beta";
   /** How busy the visuals are: operations a beat (left out: no limit, the default; v1 said four), and whether they
    * change a paragraph at a time (v1) or on every beat. */
   maxOps?: number;
@@ -579,15 +576,11 @@ export type LabState = { items: LabItem[] };
 
 /** A chapter's beat script as the Voice tab edits it: what the compiler is given for it (its figures added). */
 export type ChapterScript = {
-  /** "beta": drawn by the beta engine (engine/BETA_ENGINE.md: slides of boxes, animations on their words). */
-  engine?: "beta";
   style?: string;
   art?: string;
   region?: Record<string, unknown> | null;
   emblem?: string | null;
   genre?: string | null;
   chapter: { title: string; narration?: string; map?: boolean;
-    beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string;
-      /** The beta engine's: a new slide's layout, the elements it brings, how and when each animates, clearing. */
-      layout?: string; elements?: Record<string, unknown>[]; animate?: Record<string, unknown>[]; clear?: boolean }[] };
+    beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string }[] };
 };

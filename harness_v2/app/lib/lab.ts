@@ -8,14 +8,16 @@
 
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { LAB_PRESETS } from "./lab-presets";
+import { LAB_MOTION_PRESETS, LAB_PRESETS } from "./lab-presets";
 import { scenesDir } from "./scenes";
 import { loadRun, saveRun } from "./store";
 import type { ChapterScript, LabItem, LabState, Run } from "./types";
 import { chapterScript, readChapterScript, speakChapter } from "./voice";
 
 export type LabAction =
-  | { action: "add"; preset?: string; lecture?: number; chapter?: number; name?: string; script?: unknown }
+  | { action: "add"; preset?: string; lecture?: number; chapter?: number; name?: string; script?: unknown;
+      /** From a lecture's chapter: drawn by the motion engine (beta), in this look. */
+      motion?: boolean; look?: string }
   | { action: "save"; id: string; name?: string; lecture?: number; script?: unknown }
   | { action: "try"; id: string; script?: unknown }
   | { action: "duplicate"; id: string }
@@ -60,7 +62,7 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
     let from: string | undefined;
     let lecture = a.lecture;
     if (a.preset) {
-      const p = LAB_PRESETS.find((x) => x.id === a.preset);
+      const p = [...LAB_PRESETS, ...LAB_MOTION_PRESETS].find((x) => x.id === a.preset);
       if (!p) throw new Error(`no preset "${a.preset}"`);
       script = readChapterScript(p.script);
       name ||= p.name;
@@ -70,8 +72,9 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
       script = await chapterScript(run, n, a.chapter);
       // Beat numbers belong to the lecture's scenes; an experiment's beats are its own.
       script.chapter.beats = script.chapter.beats.map(({ beat: _, ...b }) => b);
-      name ||= `Lecture ${n}, chapter ${a.chapter}: ${script.chapter.title}`;
+      name ||= `Lecture ${n}, chapter ${a.chapter}: ${script.chapter.title}${a.motion ? ` (motion: ${a.look || "its style"})` : ""}`;
       from = `L${n}c${a.chapter}`;
+      if (a.motion) script = { ...script, engine: "motion", ...(a.look ? { look: a.look } : {}) };
       lecture = n;
     } else {
       script = readChapterScript(a.script ?? { chapter: { title: "An experiment", beats: [{ say: "Write the words said here.", do: [] }] } });

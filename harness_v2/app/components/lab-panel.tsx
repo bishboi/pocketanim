@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { LAB_PRESETS, LAB_SNIPPETS } from "@/lib/lab-presets";
+import { LAB_MOTION_PRESETS, LAB_MOTION_SNIPPETS, LAB_PRESETS, LAB_SNIPPETS } from "@/lib/lab-presets";
 import type { LabItem, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
 import { unfence, VoiceResult } from "./voice-panel";
@@ -32,6 +32,9 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
   const engine = ENGINES.find((e) => e.id === settings.engine) ?? ENGINES[0];
   const item = items.find((i) => i.id === open);
   const chapters = run.lectures.flatMap((l) => (run.script?.lectures[l.n]?.chapters ?? []).map((c) => ({ n: l.n, c })));
+  // A lecture's chapter may be added as it is, or on the motion engine (beta) in one of its looks.
+  const [motionLook, setMotionLook] = useState("");
+  const groups = [...new Set(LAB_MOTION_PRESETS.map((p) => p.group))];
 
   return (
     <div className="space-y-3" data-testid="lab">
@@ -63,16 +66,35 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
             <select data-testid="lab-preset" className="w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
               onChange={(e) => { if (e.target.value) void act({ action: "add", preset: e.target.value }); }}>
               <option value="">pick one…</option>
-              {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+              <optgroup label="Current engine">
+                {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+              </optgroup>
+              {groups.map((g) => (
+                <optgroup key={g} label={`Motion engine (beta): ${g}`}>
+                  {LAB_MOTION_PRESETS.filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
           {chapters.length > 0 && (
             <label className="flex flex-col gap-1">
               <span className="text-neutral-400">…or from a lecture&apos;s chapter</span>
               <select data-testid="lab-chapter" className="w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
-                onChange={(e) => { const [n, c] = e.target.value.split("|").map(Number); if (e.target.value) void act({ action: "add", lecture: n, chapter: c }); }}>
+                onChange={(e) => { const [n, c] = e.target.value.split("|").map(Number);
+                  if (e.target.value) void act({ action: "add", lecture: n, chapter: c, ...(motionLook ? { motion: true, look: motionLook === "own" ? undefined : motionLook } : {}) }); }}>
                 <option value="">pick one…</option>
                 {chapters.map(({ n, c }) => <option key={`${n}|${c.n}`} value={`${n}|${c.n}`}>Lecture {n}, chapter {c.n}: {c.title}</option>)}
+              </select>
+            </label>
+          )}
+          {chapters.length > 0 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-neutral-400">…drawn by</span>
+              <select data-testid="lab-chapter-engine" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={motionLook}
+                onChange={(e) => setMotionLook(e.target.value)}>
+                <option value="">the current engine</option>
+                <option value="own">the motion engine (beta), its own style</option>
+                {["paper", "newsroom", "chalk", "data", "studio", "sketch"].map((l) => <option key={l} value={l}>the motion engine (beta), look: {l}</option>)}
               </select>
             </label>
           )}
@@ -93,7 +115,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
       )}
       {!items.length && <p className="text-xs text-neutral-400">No experiment yet: pick a preset above.</p>}
       {item && <Experiment key={item.id} run={run} item={item} onCall={onCall} act={act} />}
-      <Reference />
+      <Reference motion={(item?.script as { engine?: string } | undefined)?.engine === "motion"} />
     </div>
   );
 }
@@ -111,8 +133,10 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
   const beats = (parsed as { chapter?: { beats?: unknown[] } } | undefined)?.chapter?.beats;
   const running = item.result?.status === "running";
   const changed = !parseError && JSON.stringify(parsed) !== JSON.stringify(item.script);
+  const motion = (parsed as { engine?: string } | undefined)?.engine === "motion";
+  const snippets = motion ? [...LAB_MOTION_SNIPPETS, ...LAB_SNIPPETS] : LAB_SNIPPETS;
   const addBeat = (k: number) => {
-    const s = LAB_SNIPPETS[k];
+    const s = snippets[k];
     if (!s || parseError || !parsed) return;
     const next = structuredClone(parsed) as { chapter: { beats: unknown[] } };
     next.chapter.beats.push({ say: s.say, do: [s.do] });
@@ -144,11 +168,17 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
         <select data-testid="lab-snippet" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value="" disabled={!!parseError || !parsed}
           onChange={(e) => addBeat(Number(e.target.value))}>
           <option value="">Add a beat with…</option>
-          {LAB_SNIPPETS.map((s, k) => <option key={k} value={k}>{s.op}</option>)}
+          {snippets.map((s, k) => <option key={k} value={k}>{s.op}</option>)}
         </select>
         <button disabled={running} className={`${btn} ml-auto border-red-900 text-red-300 hover:bg-red-950`}
           onClick={() => { if (confirm(`Delete "${item.name}"?`)) void act({ action: "remove", id: item.id }); }}>Delete</button>
       </div>
+      {motion && (
+        <p className="text-violet-300" data-testid="lab-motion-note">
+          Motion engine (beta): <code>look</code>, <code>energy</code>, <code>transition</code> and <code>timeline</code> set how it looks and moves; its
+          templates (<code>counter</code>, <code>chart</code>, <code>units</code>, <code>cards</code>, <code>stamp</code>…) take <code>on</code>, the words they land on.
+        </p>
+      )}
       <p className="text-neutral-500">
         The JSON is a chapter: <code>chapter.beats</code>, each <code>{"{say, do: [operations], paragraph?, pause?}"}</code>; <code>style</code>/<code>art</code> change
         the look, <code>region</code> (with <code>chapter.map: true</code>) draws a map. The reference is under the editor.
@@ -165,21 +195,24 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
   );
 }
 
-/** engine/BEAT_SCRIPT.md, every operation and its arguments, to read beside the editor. */
-function Reference() {
+/** engine/BEAT_SCRIPT.md (or, for a motion experiment, engine/MOTION_ENGINE.md), to read beside the editor. */
+function Reference({ motion }: { motion: boolean }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
+  useEffect(() => setText(null), [motion]);
   useEffect(() => {
     if (!open || text !== null) return;
     void (async () => {
-      const res = await fetch("/api/runs/_/lab", { cache: "no-store" });
+      const res = await fetch(`/api/runs/_/lab${motion ? "?engine=motion" : ""}`, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       setText(j.reference ?? j.error ?? "the reference could not be read");
     })();
-  }, [open, text]);
+  }, [open, text, motion]);
   return (
     <details className="rounded border border-neutral-800 p-2 text-xs" data-testid="lab-reference" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="cursor-pointer text-neutral-200">The beat script&apos;s reference: every operation and its arguments (engine/BEAT_SCRIPT.md)</summary>
+      <summary className="cursor-pointer text-neutral-200">{motion
+        ? "The motion engine's reference (beta): its templates, looks, moments, transitions and timeline styles (engine/MOTION_ENGINE.md)"
+        : "The beat script's reference: every operation and its arguments (engine/BEAT_SCRIPT.md)"}</summary>
       <pre className="mono mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap text-[11px] leading-snug text-neutral-300">{text ?? "reading…"}</pre>
     </details>
   );

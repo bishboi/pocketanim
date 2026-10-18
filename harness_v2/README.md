@@ -17,6 +17,8 @@ v2's own.
 
 The JSON each lecture's video is rendered from (the beat script: chapters, beats, every operation with its arguments and what it does, what the compiler mends or refuses) is documented in [engine/BEAT_SCRIPT.md](engine/BEAT_SCRIPT.md).
 
+The **motion engine (beta)** draws the same beat scripts the way a modern explainer does: six looks (paper, newsroom, chalk, data, studio, sketch), templates that animate themselves part by part on the words that name them (counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines), the timeline in five styles, transitions, idle motion and sound. It is tried in the **Lab** (its own presets, and any lecture's chapter in any look) and documented in [engine/MOTION_ENGINE.md](engine/MOTION_ENGINE.md); `scripts/motion-rerun.mjs` compiles the lectures already built on it, beside what they made.
+
 ## The transcript step
 
 | Step | What | Calls |

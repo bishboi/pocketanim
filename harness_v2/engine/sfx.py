@@ -24,7 +24,9 @@ VERSION = 1            # bump to remake every sound
 
 # How loud each sits under the voice (dB, before PANIM_SFX_GAIN): the voice is near full scale.
 GAIN = {"pop": -19, "tick": -21, "ping": -17, "whoosh": -18, "out": -22, "zoom": -16, "draw": -24, "type": -25,
-        "question": -15, "answer": -14, "chapter": -13, "intro": -12}
+        "question": -15, "answer": -14, "chapter": -13, "intro": -12,
+        # The motion engine's (motion.py): a stamp landing, a number counting up, a quick swish of a slide or wipe.
+        "stamp": -14, "count": -24, "swish": -19}
 
 
 def enabled() -> bool:
@@ -148,6 +150,22 @@ def make(kind: str) -> np.ndarray:
         riser = _whoosh(1.8, 150, 8000, True, 8) * p
         shimmer = sum(_bell(f, 1.8, 0.5) for f in (1046.5, 1568.0, 2093.0)) * np.clip((p - 0.55) * 3, 0, 1)
         return riser + 0.4 * shimmer
+    if kind == "stamp":
+        thud = _sweep(150, 55, 0.22) * _env(int(RATE * 0.22), 0.002, 0.06)
+        slap = _lowpass(_noise(0.05, 9), 3000) * _env(int(RATE * 0.05), 0.0005, 0.012)
+        out = np.zeros(int(RATE * 0.25))
+        out[: len(thud)] += thud
+        out[: len(slap)] += 0.7 * slap
+        return out
+    if kind == "count":
+        out = np.zeros(int(RATE * 0.8))
+        for k in range(12):
+            at = int(RATE * 0.8 * (1 - (1 - k / 12) ** 1.6))
+            tick = np.sin(2 * np.pi * (1800 + 40 * k) * _t(0.018)) * _env(int(RATE * 0.018), 0.0005, 0.004)
+            out[at:at + len(tick)] += tick[: max(0, len(out) - at)]
+        return out
+    if kind == "swish":
+        return _whoosh(0.28, 600, 6500, True, 10)
     raise KeyError(kind)
 
 

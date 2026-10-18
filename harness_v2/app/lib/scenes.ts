@@ -781,7 +781,10 @@ function recordJudged(run: Run, n: number, judged: Judged[]): Record<string, str
 
 export async function compile(run: Run, script: Record<string, unknown>, dir: string, n?: number): Promise<Compiled> {
   await mkdir(dir, { recursive: true });
-  const out = await runPython([path.join(engineDir(), "compile_lecture.py"), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
+  // A script for the motion engine (beta: engine/MOTION_ENGINE.md) is compiled by its own compiler, which is the
+  // lecture compiler extended; the rest of the way (voice, timing, export, player) is the same.
+  const compiler = script.engine === "motion" ? "compile_motion.py" : "compile_lecture.py";
+  const out = await runPython([path.join(engineDir(), compiler), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
   try {
     const json = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as Compiled & { source?: string | null };
     const judgedCalls = n !== undefined ? recordJudged(run, n, json.images?.judged ?? []) : {};

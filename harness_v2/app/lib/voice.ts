@@ -148,7 +148,11 @@ export function readChapterScript(x: unknown): ChapterScript {
   });
   const text = (k: string) => (typeof o[k] === "string" && (o[k] as string).trim() ? (o[k] as string).trim() : undefined);
   if (o.region !== undefined && o.region !== null && (typeof o.region !== "object" || Array.isArray(o.region))) fail('"region" must be an object or null');
-  return { style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
+  if (o.engine !== undefined && o.engine !== "motion") fail('"engine" is "motion" (the motion engine, beta) or left out');
+  // The motion engine's own settings (engine/MOTION_ENGINE.md); its compiler checks their values.
+  const motion = o.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+    .filter((k) => text(k)).map((k) => [k, text(k)])) } : {};
+  return { ...motion, style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
     genre: text("genre") ?? null,
     chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "", map: ch!.map === true, beats } };
 }
@@ -157,7 +161,9 @@ export function readChapterScript(x: unknown): ChapterScript {
 export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
   const look = cleanLook({ ...scenesOf(run).look, ...(s.style ? { style: s.style } : {}), ...(s.art ? { art: s.art } : {}) });
   const region = s.region && Object.keys(s.region).length ? s.region : null;
-  return { title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
+  const motion = s.engine === "motion" ? { engine: "motion", ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+    .filter((k) => s[k]).map((k) => [k, s[k]])) } : {};
+  return { ...motion, title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),
     chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", map: !!s.chapter.map && !!region,
       beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
@@ -219,6 +225,7 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     // The edited visuals put into the scenes (the Scenes tab's beats), and compiled: each beat named by its number in
     // this chapter. The words said are the transcript's: an edited say is tried, never applied.
     const edited = readChapterScript(a.script);
+    if (edited.engine === "motion") throw new Error("a motion-engine script (beta) is tried, not applied: the lecture's scenes are the current engine's");
     const chapter = scriptOf(run, a.lecture)?.chapters.find((c) => c.n === a.chapter);
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const notes: string[] = [];

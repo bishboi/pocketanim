@@ -30,3 +30,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures
   (`judge-<key>.json`) and reported in `genimage.report()["judged"]`. `genimage._words` and `_names` leave out colour
   codes, look words and titles.
+- **The motion engine (beta)**: `compile_motion.py`, `motion.py`, `motion_kit.py`, `motion_timeline.py`,
+  `motion_looks.py`, `tools/motion_strip.py`, documented in [MOTION_ENGINE.md](MOTION_ENGINE.md). Its own files: a
+  script is drawn by it only when it says `"engine": "motion"`; compile_lecture and pocket_lecture are imported and
+  extended in its process, not changed. `sfx.py` gains three sounds only it uses (`stamp`, `count`, `swish`).

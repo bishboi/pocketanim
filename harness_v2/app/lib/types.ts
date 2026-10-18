@@ -576,6 +576,13 @@ export type LabState = { items: LabItem[] };
 
 /** A chapter's beat script as the Voice tab edits it: what the compiler is given for it (its figures added). */
 export type ChapterScript = {
+  /** "motion": drawn by the motion engine (beta: engine/MOTION_ENGINE.md), in `look`, every template animated. */
+  engine?: "motion";
+  /** The motion engine's: its look (paper, newsroom, chalk, data, studio, sketch), energy, transition, timeline style. */
+  look?: string;
+  energy?: string;
+  transition?: string;
+  timeline?: string;
   style?: string;
   art?: string;
   region?: Record<string, unknown> | null;

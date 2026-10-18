@@ -89,6 +89,10 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
     if (!raw || typeof raw !== "object") continue;
     const op: Op = JSON.parse(JSON.stringify(raw));
     const name = String(op.op ?? "");
+    if (name === "beta") {
+      out.push(filterBeta(op, on, dropped));
+      continue;
+    }
     const kind = kindOfOp(op);
     if (!kind) {
       dropped.push(`"${name || "(no op)"}": not an operation the engine knows`);
@@ -120,4 +124,43 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
     out.push(op);
   }
   return { ops: out, dropped };
+}
+
+/** The kind a beta element is (engine/BETA_ENGINE.md), or "base" for what is always allowed (text, lists, shapes, icons, arrows). */
+export function betaKind(el: Op): string {
+  const image = (el.image && typeof el.image === "object" ? el.image : el.kind === "image" ? el : undefined) as Op | undefined;
+  if (image) return image.figure !== undefined ? "figure" : image.generate !== undefined ? "illustration" : "base";
+  if (el.timeline !== undefined || el.kind === "timeline") return "timeline";
+  if (el.equation !== undefined || el.formula !== undefined || el.kind === "equation") return "equation";
+  if (el.number !== undefined || el.bars !== undefined || el.stat !== undefined || el.chart !== undefined || ["number", "bars"].includes(String(el.kind))) return "numbers";
+  return "base";
+}
+
+/** A beta beat (one {"op": "beta", layout, elements, animate, clear}) with its elements of a kind switched off taken
+ * out, and the steps (and arrows) that name them. */
+function filterBeta(op: Op, on: Set<string>, dropped: string[]): Op {
+  const gone = new Set<string>();
+  const elements = (Array.isArray(op.elements) ? op.elements as Op[] : []).filter((el) => {
+    if (!el || typeof el !== "object") return false;
+    const k = betaKind(el);
+    if (k === "base" || on.has(k)) return true;
+    gone.add(String(el.id));
+    dropped.push(`element "${el.id}": ${kindById(k)?.label ?? k} is switched off`);
+    return false;
+  }).filter((el) => {
+    const arrow = (el.arrow && typeof el.arrow === "object" ? el.arrow : el.kind === "arrow" ? el : undefined) as Op | undefined;
+    if (arrow && (gone.has(String(arrow.from)) || gone.has(String(arrow.to)))) {
+      gone.add(String(el.id));
+      return false;
+    }
+    return true;
+  });
+  const animate = (Array.isArray(op.animate) ? op.animate as Op[] : []).filter((st) => st && typeof st === "object" && !gone.has(String(st.id ?? "").split(".")[0]));
+  return { ...op, elements, animate };
+}
+
+/** Whether a beat's visuals are written for `engine`: one {"op": "beta"} on the beta, operations on the current one. */
+export function builtFor(ops: Record<string, unknown>[] | undefined, engine?: "beta"): boolean {
+  const beta = !!ops?.length && ops.every((o) => o?.op === "beta");
+  return engine === "beta" ? beta : !!ops?.length && !beta;
 }

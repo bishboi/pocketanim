@@ -19,7 +19,7 @@ is compiled, spoken, its animations timed to the words, and played, and can be c
 examples are the beta engine's.)
 
 A second, **beta** engine describes visuals as slides of boxes animated on their words (layouts and slots, elements
-with ids, entrance / emphasis / exit steps `on` a word): [BETA_ENGINE.md](BETA_ENGINE.md). It is tried on the Lab.
+with ids, entrance / emphasis / exit steps `on` a word): [BETA_ENGINE.md](BETA_ENGINE.md). A lecture's scenes are built on it when the Scenes tab's Engine is set to beta.
 
 Contents: [the whole script](#1-the-whole-script) · [a chapter](#2-a-chapter) · [a beat](#3-a-beat) ·
 [how a beat plays](#4-how-a-beat-plays) · [operations](#5-operations): [board words](#51-the-boards-words) ·

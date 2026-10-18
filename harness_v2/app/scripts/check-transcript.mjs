@@ -616,7 +616,7 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   assert.ok(bv.ir && bv.audio && bv.frames > 0 && bv.beats.length === 2, "the beta experiment played with its narration, its two beats placed");
   assert.ok(bv.lines.filter((l) => l.beat !== undefined).length === 2, "each line under its beat");
   assert.ok(readFileSync(path.join(fileOf(bv.ir), "..", "scene.py"), "utf8").includes("BetaLecture"), "drawn by the beta engine");
-  await assert.rejects(voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: LAB_EXAMPLES[0].script }), /beta-engine script is tried, not applied/);
+  await assert.rejects(voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: LAB_EXAMPLES[0].script }), /applied only to scenes on the beta engine/);
   await labAction(run.id, { action: "remove", id: added.id });
   console.log(`beta: ${LAB_EXAMPLES.length} examples and ${LAB_SNIPPETS.length} snippets compile; exported at tier 1; an experiment played in ${(bv.frames / bv.fps).toFixed(1)} s`);
 }
@@ -805,6 +805,62 @@ await generateAction(bare.id, { action: "one", block: "/page/0/Picture/0" });
 r2 = await wait(bare.id, (r) => r.generation.status === "running");
 assert.equal(r2.generation.figures["/page/0/Picture/0"].status, "done", r2.generation.figures["/page/0/Picture/0"].error);
 await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9/Nothing/1", kind: "map" }), /no such figure/);
+
+// Scenes on the beta engine: the scene writer told the beta's instructions, each beat's slide kept as one {"op": "beta"},
+// compiled by the beta's compiler, rendered, spoken with each animation on its words, edited and applied; the beats
+// written for the other engine counted as such.
+{
+  run = await loadRun(run.id);
+  await scenesAction(run.id, { action: "engine", engine: "beta" });
+  run = await loadRun(run.id);
+  assert.equal(run.scenes.engine, "beta");
+  await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+  run = await slow(run.id, (r) => r.scenes.status === "running" || Object.values(r.scenes.lectures).some((l) => l.status === "running" || l.status === "waiting" && l.doing));
+  const bsl = run.scenes.lectures[1];
+  const lecture1 = run.script.lectures[1].chapters.flatMap((c) => c.beats);
+  assert.ok(lecture1.every((b) => bsl.beats[b.n].ops.length === 1 && bsl.beats[b.n].ops[0].op === "beta"), "every beat's slide kept as one beta op");
+  const betaCall = run.calls.filter((c) => c.step === "scenes" && /beta engine/.test(c.label)).at(-1);
+  assert.ok(betaCall && betaCall.tool?.function?.name === "write_slides", "the scene writer answered with write_slides");
+  const sys = betaCall.prompt.system.map((p) => p.text).join("\n");
+  assert.ok(/LAYOUTS AND THEIR SLOTS/.test(sys) && /EVERYTHING ON ITS WORDS/.test(sys) && !/PALETTE/.test(sys), "the beta's instructions, not v1's");
+  assert.equal(bsl.compile.status, "done", JSON.stringify(bsl.compile.errors));
+  assert.ok(lecture1.every((b) => !bsl.beats[b.n].errors?.length), "nothing refused");
+  const { builtFor } = await import(path.resolve(here, "../lib/visual-kinds.ts"));
+  assert.ok(builtFor([{ op: "beta", elements: [] }], "beta") && !builtFor([{ op: "beta" }]) && builtFor([{ op: "panel" }]) && !builtFor([{ op: "panel" }], "beta") && !builtFor([], "beta"),
+    "a beat counts as built only for the engine it was written for");
+  // Rendered (silent) as the beta draws it.
+  await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n });
+  run = await slow(run.id, (r) => (r.scenes.renders ?? 0) > 0, 3000);
+  const br = run.scenes.lectures[1].chapters[ch1.n];
+  assert.equal(br.status, "done", br.error);
+  assert.ok(readFileSync(path.join(fileOf(br.ir), "..", "scene.py"), "utf8").includes("BetaLecture"), "drawn by the beta engine");
+  // Spoken: the chapter's beats timed by their words (the timing model not asked).
+  await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
+  run = await slow(run.id, (r) => voiceRunning(r), 3000);
+  const bcv = run.voice.lectures[1][ch1.n];
+  assert.equal(bcv.status, "done", bcv.error);
+  assert.ok(bcv.audio && bcv.frames > 0 && bcv.beats.length === ch1.beats.length, "spoken and played on the beta");
+  // The chapter's script (the Voice tab's editor) is the beta's; edited and applied, it goes back in as beta beats.
+  const { chapterScript: cs } = await import(path.resolve(here, "../lib/voice.ts"));
+  const bscript = await cs(run, 1, ch1.n);
+  assert.equal(bscript.engine, "beta");
+  bscript.chapter.beats[0].layout = "center";
+  bscript.chapter.beats[0].elements = [{ id: "z", text: "Applied by hand", style: "title", slot: "main" }];
+  bscript.chapter.beats[0].animate = [{ id: "z", in: "type" }];
+  await voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: bscript });
+  run = await slow(run.id, (r) => r.scenes.status === "running" || Object.values(r.scenes.lectures).some((l) => l.status === "running"), 3000);
+  assert.equal(run.scenes.lectures[1].beats[ch1.beats[0].n].ops[0].elements[0].text, "Applied by hand");
+  const { editInstructions } = await import(path.resolve(here, "../lib/voice.ts"));
+  assert.ok(/SLIDES OF BOXES/.test(await editInstructions(run, 1)), "the Voice tab's instructions are the beta's");
+  // Back to the current engine: the beta beats are not drawn by it (and a beta script is not applied to it).
+  await scenesAction(run.id, { action: "engine", engine: "current" });
+  run = await loadRun(run.id);
+  const { engineScript: es } = await import(path.resolve(here, "../lib/scenes.ts"));
+  const back = await es(run, 1, run.scenes.look);
+  assert.ok(!back.engine && back.chapters[0].beats.every((b) => Array.isArray(b.do) && !b.do.length), "the beta's beats are left out by the current engine");
+  await assert.rejects(voiceAction(run.id, { action: "apply", lecture: 1, chapter: ch1.n, script: bscript }), /applied only to scenes on the beta engine/);
+  console.log(`scenes on the beta: ${lecture1.length} beats written, compiled, a chapter rendered and spoken in ${(bcv.frames / bcv.fps).toFixed(1)} s`);
+}
 
 console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${allChapters.length} chapters, ${allBeats.length} beats, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

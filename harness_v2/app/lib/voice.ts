@@ -26,6 +26,7 @@ import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { handInstructions } from "./prompts/scenes";
+import { betaHandInstructions } from "./prompts/scenes-beta";
 import { check, newCall } from "./run";
 import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
 import { lectureFigures } from "./script-figures";
@@ -34,7 +35,7 @@ import { DATA, loadRun, saveRun } from "./store";
 import { cleanLook, lookWords } from "./styles";
 import type { ChapterScript, ChapterVoice, Run, VoiceCue, VoiceLine, VoiceSettings, VoiceState } from "./types";
 import { ENGINES, scenesKey } from "./voice-engines";
-import { VISUAL_KINDS } from "./visual-kinds";
+import { VISUAL_KINDS, builtFor } from "./visual-kinds";
 
 export { ENGINES, scenesKey };
 
@@ -83,15 +84,15 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
   if (!sc) throw new Error(`lecture ${n} has no chapter ${chapter}`);
   const full = await engineScript(run, n, cleanLook(scenesOf(run).look), { chapter });
   const ch = (full.chapters as ChapterScript["chapter"][])[0];
-  return { style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
-    emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
+  return { ...(full.engine === "beta" ? { engine: "beta" as const } : {}), style: full.style as string, art: full.art as string,
+    region: (full.region as ChapterScript["region"]) ?? null, emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
     chapter: { title: ch.title, narration: ch.narration, map: ch.map, beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
 }
 
 /** The scene writer's instructions, to give any chat model with this chapter's beat script (the editor's copy). */
 export async function editInstructions(run: Run, n: number): Promise<string> {
   const st = scenesOf(run);
-  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange },
+  return (st.engine === "beta" ? betaHandInstructions : handInstructions)({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange },
     labels: Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label])) });
 }
 
@@ -177,7 +178,8 @@ export function chaptersWithScenes(run: Run, n: number): number[] {
   const script = scriptOf(run, n);
   const sl = run.scenes?.lectures[n];
   if (!script || !sl) return [];
-  return script.chapters.filter((c) => c.beats.length && c.beats.every((b) => sl.beats[b.n]?.ops?.length)).map((c) => c.n);
+  const engine = run.scenes?.engine;
+  return script.chapters.filter((c) => c.beats.length && c.beats.every((b) => builtFor(sl.beats[b.n]?.ops, engine))).map((c) => c.n);
 }
 
 export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
@@ -228,7 +230,11 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     // The edited visuals put into the scenes (the Scenes tab's beats), and compiled: each beat named by its number in
     // this chapter. The words said are the transcript's: an edited say is tried, never applied.
     const edited = readChapterScript(a.script);
-    if (edited.engine === "beta") throw new Error("a beta-engine script is tried, not applied: the lecture's scenes are the current engine's");
+    // A script is applied to scenes on its own engine: a beta script to a run on the beta (Scenes tab), and so on.
+    const runBeta = run.scenes?.engine === "beta";
+    if ((edited.engine === "beta") !== runBeta) throw new Error(edited.engine === "beta"
+      ? "a beta-engine script is applied only to scenes on the beta engine: switch the Scenes tab's engine to the beta first"
+      : "the scenes are on the beta engine: this script is the current engine's (give it \"engine\": \"beta\" and its slides)");
     const chapter = scriptOf(run, a.lecture)?.chapters.find((c) => c.n === a.chapter);
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const notes: string[] = [];
@@ -246,7 +252,8 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     }
     if (edited.style && edited.style !== fresh.style || edited.art && edited.art !== fresh.art) notes.push("the look is the run's (Scenes tab), so the edited style and art were not applied");
     await scenesAction(id, { action: "editChapter", lecture: a.lecture, chapter: a.chapter,
-      beats: beats.map((b) => ({ beat: b.beat!, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })),
+      beats: beats.map((b) => ({ beat: b.beat!, ops: runBeta ? [{ op: "beta", ...(b.layout ? { layout: b.layout } : {}), elements: b.elements ?? [],
+        animate: b.animate ?? [], ...(b.clear ? { clear: true } : {}) }] : b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })),
       emblem: edited.emblem ?? null, region: edited.region ?? null });
     const after = await loadRun(id);
     if (!after) return run;

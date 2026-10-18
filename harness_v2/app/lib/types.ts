@@ -471,6 +471,9 @@ export type ScenesState = {
    * matching words; and that model. */
   reuseJudge?: boolean;
   reuseModel?: string;
+  /** The engine the scenes are written for and drawn by: the beta (engine/BETA_ENGINE.md: slides of boxes, animations
+   * on their words; each beat's visuals one {"op": "beta", ...}), or the current one (left out). */
+  engine?: "beta";
   /** How busy the visuals are: operations a beat (left out: no limit, the default; v1 said four), and whether they
    * change a paragraph at a time (v1) or on every beat. */
   maxOps?: number;

@@ -17,10 +17,19 @@ beta script (JSON) ─▶ compile_beta.py ─▶ Manim scene on beta_engine.Beta
                         makes the pictures    plays each step on its words              every beta animation is one they play)
 ```
 
-Try it on the app's **Lab** tab: pick one of its examples (one for every entrance, emphasis, exit and timing rule,
-every layout and every kind of element, and whole lesson scenes in several looks), change its JSON, **Speak and
-play**. It is a beta: it is
-tried on the Lab, not applied to a lecture's scenes (those are the current engine's).
+Two ways to use it in the app:
+
+- **Build a lecture's scenes on it**: on the **Scenes** tab, set *Engine* to **beta**, then build as before. The
+  scene writer is given the beta's own instructions (`app/lib/prompts/scenes-beta.ts`: this format, how to design the
+  slides, the lecture's chapters, beats, figures, look, subject and the kinds switched off) and answers with each
+  beat's `layout`, `elements` and `animate` (`write_slides`). Each beat's slide work is kept as one
+  `{"op": "beta", ...}` on the beat, compiled by `compile_beta.py`, rendered, spoken on the Voice tab (every step on
+  its words; the timing model is not asked), edited by hand (as JSON on the Scenes tab, or the chapter on the Voice
+  tab, whose "instructions for an LLM" are then the beta's) and applied. Beats written for one engine are not drawn
+  by the other: switching the engine shows how many to build again.
+- **Try things on the Lab tab**: pick one of its examples (one for every entrance, emphasis, exit and timing rule,
+  every layout and every kind of element, and whole lesson scenes in several looks), change its JSON, **Speak and
+  play**. It is a beta: the current engine stays the default.
 
 ---
 
@@ -215,8 +224,10 @@ and lagged. `npm run check` exports a beta scene and requires tier 1 with nothin
 - Diagrams with nodes and edges, maps, galleries, worked solutions and free-form Manim are the current engine's;
   the beta has shapes and arrows, and the timeline. More of the current engine's pieces will become elements.
 - The camera does not move (`move` resizes an element instead).
-- The scene writer still writes beat scripts; beta scripts are written by hand (or by a chat model given this file)
-  and tried on the Lab.
+- Maps are not drawn: a chapter the script puts on a map is drawn on the board (the writer is told so).
+- The visual kinds switched off take out the elements of their kind: AI illustrations (`image` with `generate`), book
+  figures (`image` with `figure`), timelines, equations, stats and bars (`number`, `bars`); the steps that name them go
+  with them.
 
 ## 8. Files
 
@@ -224,4 +235,5 @@ and lagged. `npm run check` exports a beta scene and requires tier 1 with nothin
 |---|---|
 | `engine/beta_engine.py` | The runtime: layouts, elements, presets, a beat's plan on its words (`BetaLecture`). |
 | `engine/compile_beta.py` | The compiler: checks and mends, makes the pictures, writes the scene. |
+| `app/lib/prompts/scenes-beta.ts` | The scene writer's instructions on the beta (`betaScenesPrompt`, `write_slides`), and the Voice tab's copy to give a chat model by hand (`betaHandInstructions`). |
 | `app/lib/lab-presets.ts` | The Lab's examples, by group (`LAB_EXAMPLES`, `LAB_GROUPS`), and its "add a beat with" snippets (`LAB_SNIPPETS`). `npm run check` compiles every one with no warnings, and fails when an entrance, emphasis, exit, layout or kind of element has no example. |

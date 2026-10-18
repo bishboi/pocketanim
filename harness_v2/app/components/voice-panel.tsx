@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 import type { ChapterVoice, Run, VoiceCue, VoiceLine } from "@/lib/types";
 import { ENGINES, scenesKey } from "@/lib/voice-engines";
+import { builtFor } from "@/lib/visual-kinds";
 import { money } from "./call-inspector";
 import { IRPlayer } from "./player";
 
@@ -28,7 +29,7 @@ const TONE = { running: "text-sky-300", done: "text-emerald-300", failed: "text-
 function chapterRows(run: Run, n: number) {
   const script = run.script?.lectures[n];
   const sl = run.scenes?.lectures[n];
-  return (script?.chapters ?? []).map((c) => ({ c, built: c.beats.filter((b) => sl?.beats[b.n]?.ops?.length).length, total: c.beats.length }));
+  return (script?.chapters ?? []).map((c) => ({ c, built: c.beats.filter((b) => builtFor(sl?.beats[b.n]?.ops, run.scenes?.engine)).length, total: c.beats.length }));
 }
 
 function length(v?: ChapterVoice): number | undefined {

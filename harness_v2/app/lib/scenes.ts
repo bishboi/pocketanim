@@ -29,6 +29,7 @@ import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
+import { BETA_SCENES_TOOL, betaScenesPrompt } from "./prompts/scenes-beta";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
 import { beatFigures, lectureFigures } from "./script-figures";
@@ -37,7 +38,9 @@ import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
 import type { BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
-import { ALL_KINDS, VISUAL_KINDS, filterOps } from "./visual-kinds";
+import { ALL_KINDS, VISUAL_KINDS, builtFor, filterOps } from "./visual-kinds";
+
+export { builtFor };
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
 const RENDERS_AT_ONCE = Math.max(1, Number(process.env.V2_RENDER_PARALLEL) || 2);
@@ -61,6 +64,7 @@ export type ScenesAction =
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
+  | { action: "engine"; engine: "current" | "beta" }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -136,6 +140,13 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       st.maxOps = k === 0 ? undefined : k;                  // left out: no limit (the default)
     }
     if (a.change) st.visualChange = a.change === "beat" ? "beat" : undefined;
+    saveRun(run, true);
+    return run;
+  }
+  if (a.action === "engine") {
+    // The beats already written for the other engine stay as they are (shown as such, not drawn) until built again.
+    st.engine = a.engine === "beta" ? "beta" : undefined;
+    log(run, `Scenes: the ${st.engine === "beta" ? "beta" : "current"} engine.`);
     saveRun(run, true);
     return run;
   }
@@ -274,7 +285,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const chapter = script.chapters.find((c) => c.n === a.chapter);
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     if (a.beat !== undefined && !chapter.beats.some((b) => b.n === a.beat)) throw new Error(`beat ${a.beat} is not in chapter ${a.chapter}`);
-    if (!chapter.beats.some((b) => sl.beats[b.n]?.ops.length)) throw new Error(`chapter ${a.chapter} has no visuals yet: build its scenes first`);
+    if (!chapter.beats.some((b) => builtFor(sl.beats[b.n]?.ops, st.engine))) throw new Error(`chapter ${a.chapter} has no visuals ${st.engine === "beta" ? "on the beta engine " : ""}yet: build its scenes first`);
     const key = `${id}|${a.lecture}|${a.chapter}|${a.beat ?? "all"}`;
     if (renderBusy.has(key)) throw new Error("that is being rendered already");
     const look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
@@ -415,7 +426,7 @@ export function beatInputs(run: Run, n: number): SceneBeatInput[] {
     return { n: b.n, chapter: c.n, text: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim(), show: b.show,
       ...(shown.length ? { figures: shown.map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready })) } : {}),
       kinds: kindsFor(run, sl, b.n),
-      ...(sl.beats[b.n]?.ops.length ? { ops: sl.beats[b.n].ops } : {}) };
+      ...(builtFor(sl.beats[b.n]?.ops, stateOf(run).engine) ? { ops: sl.beats[b.n].ops } : {}) };
   }));
 }
 
@@ -436,11 +447,12 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
   const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
     : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;
-  const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
-    prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
-      chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
-      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
-      pace: { maxOps: st.maxOps, change: st.visualChange } }) });
+  const beta = st.engine === "beta";
+  const context = { lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
+    chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
+    beats, figures, ask, problems, note, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange } };
+  const call = newCall(run, { step: "scenes", label: beta ? `${label} (beta engine)` : label, lecture: n, model: st.model,
+    prompt: beta ? betaScenesPrompt(context) : scenesPrompt({ ...context, region: sl.region, manimAgent: st.manimAgent !== false }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -448,17 +460,22 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     b.calls.push(call.id);
   }
   saveRun(run);
-  const reply = await callTool({ call, tool: SCENES_TOOL, onChange: () => saveRun(run), fake: () => fakeScenes(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
+  const reply = await callTool({ call, tool: beta ? BETA_SCENES_TOOL : SCENES_TOOL, onChange: () => saveRun(run),
+    fake: () => (beta ? fakeBetaScenes : fakeScenes)(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
   if (!reply) {
     for (const t of targets) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
   }
   const answered = new Map<number, unknown[]>();
   const extras = new Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>();
-  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; do?: unknown; paragraph?: unknown; pause?: unknown; about?: unknown }[] : []) {
+  type Answer = { beat?: unknown; do?: unknown; paragraph?: unknown; pause?: unknown; about?: unknown; layout?: unknown; elements?: unknown; animate?: unknown; clear?: unknown };
+  for (const b of Array.isArray(reply.beats) ? reply.beats as Answer[] : []) {
     const k = Math.round(Number(b?.beat));
     if (!targets.includes(k) || answered.has(k)) continue;
-    answered.set(k, Array.isArray(b.do) ? b.do : []);
+    // On the beta engine a beat's visuals are kept as one op: its slide work, as the compiler reads it.
+    answered.set(k, beta ? [{ op: "beta", ...(typeof b.layout === "string" && b.layout ? { layout: b.layout } : {}),
+      elements: Array.isArray(b.elements) ? b.elements : [], animate: Array.isArray(b.animate) ? b.animate : [], ...(b.clear === true ? { clear: true } : {}) }]
+      : Array.isArray(b.do) ? b.do : []);
     const pause = Number(b.pause);
     extras.set(k, { paragraph: b.paragraph === true || undefined, pause: Number.isFinite(pause) && pause > 0 ? Math.min(pause, 4) : undefined,
       about: typeof b.about === "string" && b.about.trim() ? b.about.trim().slice(0, 120) : undefined });
@@ -481,8 +498,8 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   check(call, "Beats", missing.length ? "fail" : "pass", missing.length ? `${missing.length} of ${targets.length} beat(s) not answered: ${missing.slice(0, 12).map((t) => `#${t}`).join(", ")}`
     : `all ${targets.length} beat(s) answered`);
   if (droppedAll) check(call, "Switched off", "fixed", `${droppedAll} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
-  const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
-  const needsMap = script.chapters.some((c) => c.map);
+  const region = !beta && reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
+  const needsMap = !beta && script.chapters.some((c) => c.map);
   if (region && needsMap && (!sl.region || ask.what === "lecture")) {
     sl.region = region;
     check(call, "Region", "pass", JSON.stringify(region));
@@ -591,13 +608,20 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   const lecture = run.lectures.find((l) => l.n === n)!;
   const lines = linesOf(lecture.text ?? "");
   const sl = lectureState(run, n);
-  const region = script.chapters.some((c) => c.map) && sl.region ? sl.region : null;
+  const beta = stateOf(run).engine === "beta";
+  const region = !beta && script.chapters.some((c) => c.map) && sl.region ? sl.region : null;
   let chapters = script.chapters.map((c) => ({
     n: c.n, title: c.title, narration: c.narration, map: c.map && !!region,
     beats: c.beats.map((b) => {
       const sb = sl.beats[b.n];
-      return { n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sb?.ops ?? [],
-        ...(sb?.paragraph ? { paragraph: true } : {}), ...(sb?.pause ? { pause: sb.pause } : {}), ...(sb?.about ? { about: sb.about } : {}) };
+      const say = b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…";
+      const extra = { ...(sb?.paragraph ? { paragraph: true } : {}), ...(sb?.pause ? { pause: sb.pause } : {}), ...(sb?.about ? { about: sb.about } : {}) };
+      if (beta) {
+        // The beta's beat: its slide work (written for the beta), or only its words (written for the other engine, or not yet).
+        const { op: _, ...slide } = (builtFor(sb?.ops, "beta") ? sb!.ops[0] : {}) as Record<string, unknown>;
+        return { n: b.n, say, ...slide, ...extra };
+      }
+      return { n: b.n, say, do: builtFor(sb?.ops) ? sb!.ops : [], ...extra };
     }),
   }));
   if (only) {
@@ -605,6 +629,7 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
       : c.beats.slice(0, c.beats.findIndex((b) => b.n === only.upTo) + 1) }));
   }
   return {
+    ...(beta ? { engine: "beta" } : {}),
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
@@ -1002,4 +1027,38 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
     return { beat: b.n, do: ops };
   });
   return { region: null, beats: out };
+}
+
+/** The stand-in's slides on the beta engine (no key): a heading and three key words on a chapter's first beat and on
+ * every third, the beat's figure beside them when it has one; the beats between point at the words as they are said. */
+function fakeBetaScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[]) {
+  const on = new Set(kinds);
+  const script = scriptOf(run, n)!;
+  const first = new Set(script.chapters.map((c) => c.beats[0]?.n));
+  const words = (t: string) => (t.match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 3);
+  const slideOf = new Map<number, string[]>();
+  let current: string[] = [];
+  for (const c of script.chapters) for (const [i, b] of c.beats.entries()) {
+    const text = beatInputs(run, n).find((x) => x.n === b.n)?.text ?? "";
+    if (i % 3 === 0) current = words(text).slice(0, 3);
+    slideOf.set(b.n, current);
+  }
+  const out = beats.map((b) => {
+    const chapter = script.chapters.find((c) => c.n === b.chapter)!;
+    const own = words(b.text);
+    const index = chapter.beats.findIndex((x) => x.n === b.n);
+    if (index % 3 === 0 || first.has(b.n)) {
+      const items = (own.length ? own : ["…"]).slice(0, 3);
+      const figure = b.figures?.length && on.has("figure") ? b.figures[0].id : undefined;
+      return { beat: b.n, layout: figure ? "wide-left" : "title-body", paragraph: true,
+        elements: figure ? [{ id: "f", image: { figure }, slot: "left" }, { id: "h", text: (b.show || chapter.title).slice(0, 40), style: "heading", slot: "right" },
+          { id: "p", list: items, slot: "right" }]
+          : [{ id: "h", text: (b.show || chapter.title).slice(0, 40), style: "heading", slot: "title" }, { id: "p", list: items, slot: "body" }],
+        animate: [{ id: "h", in: "write" }, ...(figure ? [{ id: "f", in: "grow", with: "h" }] : []), ...items.map((w, k) => ({ id: `p.${k}`, in: "slide", from: "left", ...(own.includes(w) ? { on: w } : {}) }))] };
+    }
+    const slide = slideOf.get(b.n) ?? [];
+    const named = slide.findIndex((w) => own.includes(w));
+    return { beat: b.n, animate: [{ id: `p.${named >= 0 ? named : 0}`, emphasis: "highlight", ...(named >= 0 ? { on: slide[named] } : {}) }] };
+  });
+  return { beats: out };
 }

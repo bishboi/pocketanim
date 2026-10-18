@@ -17,6 +17,7 @@ import { GenerationPanel } from "@/components/generation-panel";
 import { ScriptPanel } from "@/components/script-panel";
 import { ScenesPanel } from "@/components/scenes-panel";
 import { VoicePanel } from "@/components/voice-panel";
+import { LabPanel } from "@/components/lab-panel";
 import { voiceRunning } from "@/lib/voice-engines";
 import { choiceOf } from "@/lib/triage-kinds";
 
@@ -24,7 +25,7 @@ type Config = { hasKey: boolean; datalab: boolean; voices?: Record<string, boole
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Lab", "Calls", "Costs", "Models"] as const;
 
 export default function Page() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -370,6 +371,8 @@ export default function Page() {
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
             {run && tab === "Voice" && <VoicePanel run={run} ready={config?.voices} timingModel={config?.models.timing?.model || ""}
               onCall={setCallId} act={(body) => act("/voice", body)} />}
+            {run && tab === "Lab" && <LabPanel run={run} ready={config?.voices} onCall={setCallId}
+              act={(body) => act("/lab", body)} voiceAct={(body) => act("/voice", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}
             {run && tab === "Costs" && <CostsPanel run={run} />}
             {tab === "Models" && config && <ModelsPanel roles={Object.values(config.models)}

@@ -121,6 +121,8 @@ export type Run = {
   scenes?: ScenesState;
   /** The voice: each chapter with scenes spoken, its animations timed to the words, and played with its narration. */
   voice?: VoiceState;
+  /** The Lab tab: beat scripts written or picked to try an animation with the voice, apart from the lectures. */
+  lab?: LabState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -556,6 +558,21 @@ export type VoiceState = {
   /** A chapter's beat script edited by hand on the Voice tab and tried (spoken and played) apart from its real voice. */
   trials?: Record<string, Record<string, ChapterVoice>>;
 };
+
+/** One experiment on the Lab tab: a chapter's beat script, its name, and what speaking and playing it last gave. */
+export type LabItem = {
+  id: string;
+  name: string;
+  /** The preset it started from (lib/lab-presets.ts), if any. */
+  from?: string;
+  /** The lecture whose figures and look it is compiled with. */
+  lecture?: number;
+  script: ChapterScript;
+  result?: ChapterVoice;
+  at: number;
+};
+
+export type LabState = { items: LabItem[] };
 
 /** A chapter's beat script as the Voice tab edits it: what the compiler is given for it (its figures added). */
 export type ChapterScript = {

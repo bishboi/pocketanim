@@ -246,7 +246,7 @@ function EditAndTry({ run, n, chapter, trial, onCall, act }: { run: Run; n: numb
 }
 
 /** An answer pasted from a chat model, its code fence taken off (```json ... ```). */
-function unfence(text: string): string {
+export function unfence(text: string): string {
   const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   return m ? m[1] : text;
 }
@@ -310,7 +310,7 @@ function Instructions({ run, n, chapter, json }: { run: Run; n: number; chapter:
   );
 }
 
-function VoiceResult({ run, n, chapter, v, onCall, tried }: { run: Run; n: number; chapter: number; v?: ChapterVoice; onCall: (id: string) => void; tried?: boolean }) {
+export function VoiceResult({ run, n, chapter, v, onCall, tried }: { run: Run; n: number; chapter: number; v?: ChapterVoice; onCall: (id: string) => void; tried?: boolean }) {
   const [beat, setBeat] = useState<number | undefined>();
   const [view, setView] = useState<"lines" | "timing">("lines");
   const c = run.script?.lectures[n]?.chapters.find((x) => x.n === chapter);
@@ -322,7 +322,7 @@ function VoiceResult({ run, n, chapter, v, onCall, tried }: { run: Run; n: numbe
   return (
     <section className="space-y-3 rounded border border-neutral-800 p-3 text-xs" data-testid={tried ? "voice-tried" : "voice-chapter"}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h4 className="text-sm text-neutral-100">Chapter {chapter}: {tried ? v.edited?.chapter.title ?? c?.title : c?.title}{tried ? " (edited)" : ""}</h4>
+        <h4 className="text-sm text-neutral-100">{chapter ? `Chapter ${chapter}: ` : ""}{tried ? v.edited?.chapter.title ?? c?.title : c?.title}{tried && chapter ? " (edited)" : ""}</h4>
         <span className="text-neutral-400">{v.mode} · {v.style}/{v.art} · {seconds(length(v))} · made in {seconds(v.seconds)}</span>
         <span className="ml-auto text-neutral-400">voice {money(v.cost?.spoken ?? 0)}{v.cost?.director ? ` · delivery marking ${money(v.cost.director)}` : ""} · timing {money(v.cost?.timing ?? 0)}</span>
       </div>

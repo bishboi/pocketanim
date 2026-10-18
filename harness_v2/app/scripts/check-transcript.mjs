@@ -536,6 +536,43 @@ await voiceAction(run.id, { action: "resetTrial", lecture: 1, chapter: ch1.n });
 assert.ok(!(await loadRun(run.id)).voice.trials[1][ch1.n], "the trial forgotten");
 await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
 
+// The Lab: every preset and every snippet compiles; an experiment from a preset is spoken, timed and played; one from a
+// lecture's chapter; duplicated, renamed, removed.
+{
+  const { LAB_PRESETS, LAB_SNIPPETS } = await import(path.resolve(here, "../lib/lab-presets.ts"));
+  const { labAction } = await import(path.resolve(here, "../lib/lab.ts"));
+  const { compile: compileScript } = await import(path.resolve(here, "../lib/scenes.ts"));
+  const { readChapterScript, engineScriptOf } = await import(path.resolve(here, "../lib/voice.ts"));
+  const all = { region: null, chapter: { title: "Snippets", beats: LAB_SNIPPETS.map((x) => ({ say: x.say, do: [x.do] })) } };
+  for (const [name, script] of [...LAB_PRESETS.map((p) => [p.id, p.script]), ["snippets", all]]) {
+    const c = await compileScript(run, await engineScriptOf(run, 1, readChapterScript(script)), path.join(scenesDir(run.id), "lab-check", name));
+    assert.ok(c.source && !c.errors.length, `the Lab's ${name} compiles: ${c.errors.join("; ")}`);
+    assert.deepEqual(c.warnings.filter((w) => /left out|unknown/i.test(w)), [], `the Lab's ${name}: nothing left out`);
+  }
+  const added = await labAction(run.id, { action: "add", preset: "diagram-build" });
+  assert.equal(added.name, "Diagram built over beats");
+  await labAction(run.id, { action: "try", id: added.id });
+  run = await slow(run.id, (r) => voiceRunning(r), 3000);
+  const lv = run.lab.items.find((i) => i.id === added.id).result;
+  assert.equal(lv.status, "done", lv.error);
+  assert.ok(lv.ir && lv.audio && lv.frames > 0 && lv.beats.length === 4, "the experiment played with its narration, its four beats placed");
+  assert.ok(lv.cues.some((c) => c.cues?.length), "its animations timed to the words");
+  assert.ok(lv.lines.filter((l) => l.beat !== undefined).length === 4, "each line under its beat");
+  assert.ok(fileOf(lv.ir).includes(`${path.sep}lab${path.sep}${added.id}`), "its files the Lab's own");
+  assert.ok(run.calls.some((c) => /the Lab's "Diagram built over beats"/.test(c.label)), "its calls named for it");
+  const fromChapter = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
+  assert.ok(fromChapter.script.chapter.beats.length === ch1.beats.length && fromChapter.script.chapter.beats.every((b) => b.beat === undefined), "a lecture's chapter, its beats the experiment's own");
+  const copy = await labAction(run.id, { action: "duplicate", id: added.id });
+  assert.ok(!copy.result && copy.name.endsWith("(copy)"));
+  await labAction(run.id, { action: "save", id: copy.id, name: "Variant", script: { chapter: { title: "V", beats: [{ say: "One beat.", do: [{ op: "fact", text: "a variant" }] }] } } });
+  run = await loadRun(run.id);
+  assert.equal(run.lab.items.find((i) => i.id === copy.id).name, "Variant");
+  await assert.rejects(labAction(run.id, { action: "save", id: copy.id, script: { beats: [] } }), /needs "chapter"/);
+  for (const i of [copy, fromChapter, added]) await labAction(run.id, { action: "remove", id: i.id });
+  assert.equal((await loadRun(run.id)).lab.items.length, 0, "removed");
+  console.log(`lab: ${LAB_PRESETS.length} presets and ${LAB_SNIPPETS.length} snippets compile; an experiment played in ${(lv.frames / lv.fps).toFixed(1)} s`);
+}
+
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).
 const kc = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, kinds: ["define"] });

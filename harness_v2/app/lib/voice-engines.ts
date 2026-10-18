@@ -11,10 +11,11 @@ export const ENGINES: { id: VoiceSettings["engine"]; label: string; key: string;
   { id: "espeak", label: "espeak-ng (offline, free, robotic)", key: "", voices: ["en-gb", "en-us", "en-in", "hi"] },
 ];
 
-/** Whether any chapter of the run is being spoken now (the page follows the run while it is). */
+/** Whether any chapter of the run (or a Lab experiment) is being spoken now (the page follows the run while it is). */
 export function voiceRunning(run: Run | null | undefined): boolean {
   return [...Object.values(run?.voice?.lectures ?? {}), ...Object.values(run?.voice?.trials ?? {})]
-    .some((l) => Object.values(l).some((c) => c.status === "running"));
+    .some((l) => Object.values(l).some((c) => c.status === "running"))
+    || (run?.lab?.items ?? []).some((i) => i.result?.status === "running");
 }
 
 /** What a chapter's scenes are (the look, each beat's words and visuals), as a short key: a voice made from other

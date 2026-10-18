@@ -154,7 +154,7 @@ export function readChapterScript(x: unknown): ChapterScript {
 }
 
 /** The engine's script for an edited chapter: the lecture's title and its figures, the chapter as edited. */
-async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
+export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
   const look = cleanLook({ ...scenesOf(run).look, ...(s.style ? { style: s.style } : {}), ...(s.art ? { art: s.art } : {}) });
   const region = s.region && Object.keys(s.region).length ? s.region : null;
   return { title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
@@ -301,12 +301,16 @@ function lastJson<T>(r: Tool, what: string): T {
   }
 }
 
-async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice, edited?: ChapterScript) {
+/** A Lab experiment (lib/lab.ts): where its files go and what its calls are named; spoken as a trial is. */
+export type LabWhere = { dir: string; name: string };
+
+export async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice, edited?: ChapterScript, lab?: LabWhere) {
   const began = Date.now();
   const settings = { ...voiceOf(run).settings };
   const env = voiceEnv(settings);
   const look = cleanLook({ ...scenesOf(run).look, ...(edited?.style ? { style: edited.style } : {}), ...(edited?.art ? { art: edited.art } : {}) });
-  const dir = path.join(scenesDir(run.id), `L${n}`, edited ? `voice-${chapter}-try` : `voice-${chapter}`);
+  const dir = lab?.dir ?? path.join(scenesDir(run.id), `L${n}`, edited ? `voice-${chapter}-try` : `voice-${chapter}`);
+  const what = lab ? `the Lab's "${lab.name}"` : `lecture ${n}, chapter ${chapter}`;
   const tools = path.join(engineDir(), "tools");
   const phase = (p: string) => {
     target.phase = p;
@@ -362,7 +366,7 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
     target.calls = [];
     if ((spoke.spoken ?? 0) > 0) {
       // The lines spoken now (and the director's marking of them), as a call, so the Costs tab counts the voice.
-      const call = newCall(run, { step: "voice", label: `Voice for lecture ${n}, chapter ${chapter}${edited ? " (edited, tried)" : ""} (${spoke.spoken} line(s) spoken)`, lecture: n,
+      const call = newCall(run, { step: "voice", label: `Voice for ${what}${edited && !lab ? " (edited, tried)" : ""} (${spoke.spoken} line(s) spoken)`, lecture: n,
         model: said.mode ?? settings.engine, effort: "off",
         prompt: { system: [], user: lines.map((l, i) => part(`l${i + 1}`, `Line ${i + 1}`, "items", l.delivery ?? l.spoken ?? l.text)) } });
       Object.assign(call, { api: "voice", status: "done", ended: Date.now(), cost: Number(spoke.voice?.usd ?? 0),
@@ -372,7 +376,7 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
     }
 
     phase("timing the animations to the words");
-    const { cues, aligned } = await timeAnimations(run, n, chapter, scene, dir, pyEnv, settings, target, beatOf);
+    const { cues, aligned } = await timeAnimations(run, n, what, scene, dir, pyEnv, settings, target, beatOf);
     target.cues = cues;
 
     phase("rendering with the voice");
@@ -398,8 +402,11 @@ async function speakChapter(run: Run, n: number, chapter: number, target: Chapte
 function editedBeats(s: ChapterScript): (text: string) => number | undefined {
   const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const said = s.chapter.beats.map((b, i) => ({ n: b.beat ?? i + 1, text: norm(b.say) }));
+  // The chapter card's line (its narration, else its title) is no beat's, though a beat's words may start with it.
+  const card = norm(s.chapter.narration || s.chapter.title);
   return (text) => {
     const t = norm(text);
+    if (t === card && !said.some((b) => b.text === t)) return undefined;
     return t ? said.find((b) => b.text === t)?.n ?? said.find((b) => b.text.startsWith(t.slice(0, 40)) || t.startsWith(b.text.slice(0, 40)))?.n : undefined;
   };
 }
@@ -453,7 +460,7 @@ const TIME_TOOL = {
  * written into the scene. The scene as it was when no beat has its words timed (it then plays each beat's
  * animations together as its line begins).
  */
-async function timeAnimations(run: Run, n: number, chapter: number, scene: string, dir: string, env: Record<string, string>,
+async function timeAnimations(run: Run, n: number, what: string, scene: string, dir: string, env: Record<string, string>,
   settings: VoiceSettings, target: ChapterVoice, beatOf: (text: string) => number | undefined): Promise<{ cues: VoiceCue[]; aligned: string }> {
   const tools = path.join(engineDir(), "tools");
   const items = lastJson<Items>(await runPython([path.join(tools, "voice_scene.py"), "items", scene], dir, env, undefined, SPEAK_TIMEOUT), "reading the beats");
@@ -467,7 +474,7 @@ async function timeAnimations(run: Run, n: number, chapter: number, scene: strin
   const answers: { id: number; cues?: unknown; starts?: unknown }[] = [];
   for (let i = 0; i < todo.length; i += CHUNK) {
     const chunk = todo.slice(i, i + CHUNK);
-    const call = newCall(run, { step: "voice", label: `Time the animations to the words: lecture ${n}, chapter ${chapter}` +
+    const call = newCall(run, { step: "voice", label: `Time the animations to the words: ${what}` +
       (todo.length > CHUNK ? ` (beats ${i + 1}-${i + chunk.length})` : ""), lecture: n, model, effort: "low",
       prompt: { system: [part("timing", "How to time the animations (align_cues.py)", "rules", items.system)],
         user: [part("beats", "Each beat: its line, its words with their times, its animations", "items", chunk.map((b) => b.item!).join("\n\n")),

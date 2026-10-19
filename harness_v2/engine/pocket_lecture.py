@@ -2843,7 +2843,7 @@ class Lecture(Scene):
         made, last = [], -9.0
         # Built in the order they are said: a camera move starts from where the one before it left the camera.
         for at, mob, act in out[:POINT_MOST]:
-            anim = act() if act is not None and at - last >= self.LOOK_GAP * 0.6 else None
+            anim = act() if act is not None else None
             if anim is not None:
                 last = at
                 anim.panim_camera = True
@@ -3146,6 +3146,7 @@ class Lecture(Scene):
         out = self._with_looks(out, seconds)
         pointers = self._pointers(words, seconds, hinted)
         out += pointers
+        out += self._lifts(out, seconds)
         counts["looked"] = counts.get("looked", 0) + sum(1 for a, _ in out if getattr(a, "panim_camera", False))
         if timed or pointers or late:
             start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
@@ -3162,9 +3163,8 @@ class Lecture(Scene):
         return []
 
     def _with_looks(self, given: list, seconds: float) -> list:
-        """A labelled picture's labels, each built now, in the order they come on: where the narration stays on a
-        part long enough (LOOK_GAP, to the next part said or the line's end), its label comes on and the camera
-        moves in on it; else the label alone."""
+        """A labelled picture's labels, each built now, in the order they come on: a part the line says has its
+        label come on and the light moved to it, on its word; a part it does not say, its label alone, in turn."""
         queued = sorted((float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0, i)
                         for i, (a, c) in enumerate(given) if isinstance(a, SimpleNamespace))
         if not queued:
@@ -3181,9 +3181,9 @@ class Lecture(Scene):
             view, name = holder.panim_look
             look = None
             if holder.panim_heard and not view.get("still") and self._view_on(view):
-                following = [t for t, j in heard if t > at and given[j][0].panim_look[0] is view]
-                if (following[0] if following else seconds) - at >= self.LOOK_GAP:
-                    look = self._look(view, name)
+                # Every part said gets the light, however soon the next is said (the move is cut to fit): lit only
+                # where the narration stayed a moment, the light stayed on the sheep while the goats were named.
+                look = self._look(view, name)
             if look is not None:
                 look.panim_camera = True
                 out[i] = (look, [cue[0], self.LOOK_RUN])
@@ -4318,10 +4318,10 @@ class Lecture(Scene):
     # ---------------- a labelled picture: each part named as it is said, the rest shaded ----------------
     # A picture with labels is shown whole. Each label comes on as its part is said: a box round the part and its
     # name. Where the narration stays on a part a moment, the rest of the picture is shaded dark and the part left
-    # lit; the light moves to the next part named, and lifts when the narration moves on. A heading lying over the
+    # lit; the light moves to each part as it is named, and lifts once every part has been talked about (LOOK_HOLD
+    # after the last) or when the narration moves on; the labels and boxes stay. A heading lying over the
     # part steps aside while it is talked about. Shapes fading in and out: the phone plays it as the video does.
     LOOK_RUN = 0.6           # seconds the shade takes to come on or move
-    LOOK_GAP = 1.8           # seconds the narration stays on a part for the shade to come on round it
     SHADE = 0.62             # how dark the rest of the picture goes
     Z_LOOK = Z_LABEL - 0.7   # the shade: over the picture, under the parts' boxes, lines and names
 
@@ -4564,8 +4564,36 @@ class Lecture(Scene):
         hidden = self._overlays_over(view, name)
         moves += [FadeOut(m, run_time=self.LOOK_RUN) for m in hidden]
         view.update(zoom=name, lens=shade, hidden=hidden)
+        view.setdefault("spoken", set()).add(name)
         steps.append(AnimationGroup(*moves))
-        return AnimationGroup(*steps, lag_ratio=1.0)
+        look = AnimationGroup(*steps, lag_ratio=1.0)
+        look.panim_view = view
+        return look
+
+    LOOK_HOLD = 1.4          # seconds the light stays on the last part before the whole picture comes back
+
+    def _lifts(self, given: list, seconds: float) -> list:
+        """The light lifted from a labelled picture once every one of its parts has been talked about: LOOK_HOLD after
+        the last part's light came on (in this line, or as the next line begins when this one ends first). The labels
+        and their boxes stay; the whole picture is clear again."""
+        out = []
+        for view in self.__dict__.get("_views", []):
+            if view.get("zoom") is None or not view["parts"] or not set(view["parts"]) <= view.get("spoken", set()):
+                continue
+            lit = [c for a, c in given if getattr(a, "panim_view", None) is view and isinstance(c, (list, tuple)) and c]
+            if not lit:
+                continue
+            last = max(float(c[0]) + float(c[1] or self.LOOK_RUN) for c in lit)
+            at = last + self.LOOK_HOLD
+            if at > seconds - self.LOOK_RUN:
+                if last + 0.4 > seconds - self.LOOK_RUN:
+                    view["lift_next"] = True     # lifted as the next line begins (_looks_away)
+                    continue
+                at = seconds - self.LOOK_RUN
+            back = self._look_out(view)
+            if back is not None:
+                out.append((back, [round(at, 3), self.LOOK_RUN]))
+        return out
 
     def _look_out(self, view):
         """The shade lifted (and a heading that stepped aside back)."""
@@ -4585,7 +4613,8 @@ class Lecture(Scene):
         for view in self.__dict__.get("_views", []):
             if view["zoom"] is None:
                 continue
-            if self._view_on(view) and words and any(said_at(words, n) is not None for n in view["parts"]):
+            if self._view_on(view) and words and any(said_at(words, n) is not None for n in view["parts"]) \
+                    and not view.pop("lift_next", False):
                 continue
             if not self._view_on(view):
                 hidden, lens = view.get("hidden") or [], view.get("lens")

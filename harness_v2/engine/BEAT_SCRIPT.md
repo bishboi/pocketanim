@@ -144,7 +144,9 @@ A beat is one narration line and what goes with it on screen.
    - Things built to the voice come on as their names are said: a picture's labels, a gallery's next picture, a
      diagram's next node.
 4. **Pointing**: something already on screen whose name the line says (a diagram node, a picture's part, a place) is
-   pointed at on those words. A labelled picture is shaded round the part. At most 4 things are pointed at in one
+   pointed at on those words. A labelled picture is shaded round each part as it is named, however quickly the next
+   follows; once every labelled part has been talked about, the shade lifts (about a second and a half after the
+   last) and the whole picture is clear again, its labels and boxes kept. At most 4 things are pointed at in one
    line.
 5. **Holds**: a short hold after the line, and a longer one at a paragraph's end (by the pace: `natural`, `relaxed`,
    `slow`), plus the beat's `pause`.

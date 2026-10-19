@@ -533,7 +533,9 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   await agentsOn(run, n, (b) => !b.ops.some((o) => o.op === "manim" && o.code));
   if (stopRequested(key)) return;
   await compileLecture(run, n);
-  if (Object.values(sl.beats).some((b) => b.errors?.length) && !stopRequested(key)) await fixLecture(run, n);
+  const unwritten = stateOf(run).manimAgent !== false &&
+    Object.values(sl.beats).some((b) => b.ops.some((o) => o.op === "manim" && !String(o.code ?? "").trim()));
+  if ((Object.values(sl.beats).some((b) => b.errors?.length) || unwritten) && !stopRequested(key)) await fixLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
   saveRun(run);
 }
@@ -544,15 +546,18 @@ async function fixLecture(run: Run, n: number) {
   const agent = stateOf(run).manimAgent !== false;
   // A refused Manim figure goes back to the Manim agent (told what the compiler said); the rest to the scene writer.
   const isFigure = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim");
+  // A figure the agent never finished (no code: the compiler leaves it out) is tried again too.
+  const unwritten = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim" && !String(o.code ?? "").trim());
   const broken = Object.values(sl.beats).filter((b) => b.errors?.length && !isFigure(b));
-  const figures = Object.values(sl.beats).filter((b) => b.errors?.length && isFigure(b));
+  const figures = Object.values(sl.beats).filter((b) => (b.errors?.length && isFigure(b)) || unwritten(b));
   if (!broken.length && !figures.length) return;
   sl.doing = `mending ${broken.length + figures.length} beat(s)`;
   saveRun(run);
   if (broken.length) await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
   for (const b of figures) {
     if (stopRequested(`${run.id}:scenes`)) break;
-    await runManimAgent(run, n, b.n, { instruction: `The compiler refused this beat's figure: ${b.errors!.join("; ")}. Mend it.`, stop: () => stopRequested(`${run.id}:scenes`) });
+    await runManimAgent(run, n, b.n, { instruction: b.errors?.length ? `The compiler refused this beat's figure: ${b.errors.join("; ")}. Mend it.` : undefined,
+      stop: () => stopRequested(`${run.id}:scenes`) });
   }
   await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code));
   await compileLecture(run, n);

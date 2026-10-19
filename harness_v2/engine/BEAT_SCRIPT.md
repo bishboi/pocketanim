@@ -548,7 +548,7 @@ figure `"area": "left"` so both stay put.
 | `id` | required | Beats with the same id share their variables, in order. Build the figure on one beat, then point at, label or move its parts on the next ones. |
 | `code` | required | The body of `construct()` for this beat: build objects and `self.play(...)` them, about as long as the line. |
 | `area`? | `left` \| `full` | `left`: the figure stays in the board's left half (x -6.9 to -0.4) so a `work`, question or card can sit beside it. The first beat of the id decides. |
-| `plan`? | | v2 only: what to draw, in words, for the Manim agent, which writes the `code` (the op is not compiled until it has code). |
+| `plan`? | | v2 only: what to draw, in words, for the Manim agent, which writes the `code`. A `manim` op still without code when the lecture compiles (the agent did not finish it) is left out with a note, and the beat plays without it; the Scenes tab asks the agent for it again. |
 
 Rules (the compiler test-runs each block in a probe scene and refuses one that breaks them, with the reason):
 

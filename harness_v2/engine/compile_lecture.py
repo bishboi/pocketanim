@@ -381,6 +381,11 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                 if kind not in known:
                     _drop(op, at, "no such op", notes)
                     continue
+                if kind == "manim" and not (isinstance(op.get("code"), str) and op["code"].strip()):
+                    # Planned but never written (the Manim agent did not finish it, or was stopped): the beat plays
+                    # without it. Refused, it stopped the whole chapter from compiling.
+                    _drop(op, at, "its code was never written (the Manim agent did not finish this figure)", notes)
+                    continue
                 if kind in MAP_OPS and not has_map:
                     _drop(op, at, "it needs a map and the script has no region", notes)
                     continue

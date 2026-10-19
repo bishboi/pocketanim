@@ -251,6 +251,15 @@ def _drawn_picture(op: dict) -> dict:
 
 
 def _canonical_diagram(op: dict) -> None:
+    if op.get("drawn") == "picture":
+        # Drawn as one picture (picture_flow): what each step shows is told to the image model with the rest, not
+        # made as a picture of its own.
+        for node in op.get("nodes") or []:
+            if isinstance(node, dict):
+                picture = node.pop("picture", None)
+                said = (picture.get("generate") if isinstance(picture, dict) else None) or node.pop("entity", None)
+                node["_show"] = node.get("_show") or str(said or node.get("label") or node.get("id") or "").strip()
+        return
     # A node's drawing is a picture the image model makes (a library drawing or an emoji is not used any more).
     for node in op.get("nodes") or []:
         if isinstance(node, dict) and node.get("entity"):
@@ -983,6 +992,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
         errors.append(region_problem)
     else:
         errors += _unknown_places(places, home, script.get("region"))
+    # A flow drawn as one picture: made now and cut into its parts (or built as a diagram, said why).
+    warnings += _picture_flows(script)
     # An icon is a picture of the thing it names, made by the illustration model now (the engine finds it made).
     photos.extend((at, _thing_op(name)) for at, name in icon_names)
     if isinstance(script.get("emblem"), str) and script["emblem"].strip():
@@ -2598,6 +2609,58 @@ def _icon_spots(op: dict) -> list:
     return []
 
 
+def _picture_flows(script: dict) -> list[str]:
+    """Each diagram drawn as one picture ("drawn": "picture", a flow or a cycle of 2 to MOST_STEPS steps): the
+    image model draws it whole (picture_flow.make), and it is cut into its steps and arrows (picture_flow.split),
+    kept on the op for the engine (`_parts`). One that cannot be drawn so -- another kind, too many steps, a
+    picture not made, or one whose parts cannot be told apart -- is built as a diagram instead, and said so."""
+    import picture_flow
+
+    notes = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            for op in beat.get("do") or []:
+                if not (isinstance(op, dict) and op.get("op") == "diagram" and op.get("drawn") == "picture"):
+                    continue
+                at = f"chapter {c + 1} beat {b + 1}"
+                nodes = [n for n in op.get("nodes") or [] if isinstance(n, dict) and n.get("id") is not None]
+                kind = str(op.get("kind") or "flow")
+                ids = [str(n["id"]) for n in nodes]
+                edges = [[str(e[0]), str(e[1]), *([str(e[2])] if len(e) > 2 and e[2] else [])]
+                         for e in op.get("edges") or [] if isinstance(e, (list, tuple)) and len(e) >= 2
+                         and str(e[0]) in ids and str(e[1]) in ids] or picture_flow.default_edges(ids, kind)
+                why = None
+                if kind not in ("flow", "cycle"):
+                    why = f"a {kind} is built, not drawn as one picture (only a flow or a cycle is)"
+                elif not 2 <= len(nodes) <= picture_flow.MOST_STEPS:
+                    why = f"{len(nodes)} steps (one picture holds 2 to {picture_flow.MOST_STEPS})"
+                parts = None
+                if why is None:
+                    steps = [str(n.get("_show") or n.get("label") or n["id"]) for n in nodes]
+                    pairs = [(ids.index(e[0]), ids.index(e[1])) for e in edges]
+                    made = picture_flow.make(str(op.get("about") or op.get("title") or ""), steps, pairs, kind,
+                                             script.get("style"), context=str(beat.get("say") or ""))
+                    if made is None or not made.get("file"):
+                        why = "its picture could not be made"
+                    else:
+                        parts = picture_flow.split(made["file"], [str(n.get("label") or n["id"]) for n in nodes],
+                                                   pairs, kind)
+                        if parts is None:
+                            why = "its picture's steps and arrows could not be told apart"
+                if parts is None:
+                    op.pop("drawn", None)
+                    op.pop("_parts", None)
+                    for node in nodes:
+                        show = node.pop("_show", None)
+                        if show and not node.get("picture"):
+                            node["picture"] = {"generate": _thing_op(show)["query"]}
+                    notes.append(f"{FIXED}{at}: diagram {op.get('id')!r} built as a diagram: {why}")
+                    continue
+                op["_parts"] = parts
+                op["_edges"] = edges
+    return notes
+
+
 def _thing_op(name: str) -> dict:
     """The picture op that makes the picture of a thing an icon names (pocket_lecture.thing_picture makes the same
     one, so the scene finds it made): an old library id's words only ("coco:7-cow" -> "cow")."""
@@ -3065,6 +3128,13 @@ def _op_call(op: dict) -> str:
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         layout = f", layout={_q(op['layout'])}" if op.get("layout") in GALLERY_LAYOUTS else ""
         return f"self.gallery([{items}]{title}{layout})"
+    if kind == "diagram" and op.get("_parts"):
+        # Drawn as one picture, cut into its parts (picture_flow).
+        nodes = [{"id": str(n["id"]), "label": str(n.get("label") or n["id"])} for n in op["nodes"]]
+        show = f", show={[str(x) for x in op['show']]!r}" if op.get("show") else ""
+        title = f", title={_q(op['title'])}" if op.get("title") else ""
+        return (f"self.picture_flow({_q(str(op['id']))}, {nodes!r}, {op['_edges']!r}, {op['_parts']!r}"
+                f"{title}{show})")
     if kind == "diagram":
         _edges_as_lists(op)
         nodes = [{"id": str(n["id"]), "label": str(n["label"]), **({"entity": str(n["entity"])} if n.get("entity") else {}),

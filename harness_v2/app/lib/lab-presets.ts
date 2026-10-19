@@ -38,6 +38,17 @@ export const LAB_PRESETS: LabPreset[] = [
     ]),
   },
   {
+    id: "picture-flow", name: "Flow drawn as one picture", note: "The image model draws the whole flow at once; it is cut into its steps and arrows, each brought on as it is said.",
+    script: board("From wheat to bread", [
+      { say: "Bread begins with wheat, harvested in the field.", do: [{ op: "diagram", id: "bread", kind: "flow", drawn: "picture", about: "how bread is made", title: "From wheat to bread",
+        nodes: [{ id: "wheat", label: "Wheat", entity: "a sheaf of golden wheat" }, { id: "mill", label: "Mill", entity: "a stone windmill" },
+          { id: "flour", label: "Flour", entity: "a sack of flour" }, { id: "loaf", label: "Bread", entity: "a round loaf of bread" }],
+        edges: [["wheat", "mill", "harvested"], ["mill", "flour", "ground"], ["flour", "loaf", "baked"]] }] },
+      { say: "The grain goes to the mill, where it is ground into flour.", do: [] },
+      { say: "And the baker turns the flour into a loaf of bread.", do: [] },
+    ]),
+  },
+  {
     id: "timeline", name: "Timeline with periods", note: "Events in proportion to their dates, a range, and shaded periods.",
     script: board("The Mughals", [
       { say: "The Mughal empire began at Panipat in 1526 and lasted until the revolt of 1857.", do: [{ op: "timeline", title: "The Mughals", range: ["1500", "1870"],

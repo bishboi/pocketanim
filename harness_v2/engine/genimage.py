@@ -245,6 +245,12 @@ ASPECTS = {"16:9": "a wide 16:9 landscape picture", "4:3": "a 4:3 picture", "1:1
 # How the Image API is asked for a shape (the sizes it makes).
 SIZES = {"16:9": "1536x1024", "4:3": "1536x1024", "1:1": "1024x1024", "3:4": "1024x1536"}
 
+FLOW_FRAME = ("EVERY picture stands ALONE, with wide empty white space all round it: no picture touches another "
+              "picture or an arrow. EVERY arrow is one simple, thick, solid arrow in the same single dark colour, "
+              "straight or gently curved, with a clear gap at both of its ends: it never touches a picture or another "
+              "arrow. Everything on a plain, flat, pure white background: no border, no frame, no boxes or cards "
+              "round the pictures, no scenery, no floor, no shadows joining things. No words, letters, numbers or "
+              "labels anywhere in the image. For a school lesson.")
 SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a wide 16:9 landscape composition (the "
                "place, its ground and sky, the people in it doing what the lesson tells of), a clear main subject near "
                "the centre, few small details at the edges. No border or frame. No words, letters, numbers or labels "
@@ -253,7 +259,7 @@ SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a
 
 def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None,
                context: str | None = None, scene: bool = False, like: str | None = None,
-               aspect: str | None = None, look: str | None = None) -> str:
+               aspect: str | None = None, look: str | None = None, flow: bool = False) -> str:
     """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
     the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
     shown clearly where it can be pointed at."""
@@ -273,6 +279,11 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
             "face, hair, beard, build, clothing and colours, in the same art style), only as this picture asks."
             if like else "")
     shape = f" Make it {ASPECTS[aspect]}." if aspect in ASPECTS else ""
+    if flow:
+        # A picture-diagram (picture_flow.py): `what` lists its pictures and its arrows; each must stand apart, so
+        # the board can cut the one picture into its parts and bring each in as it is spoken of.
+        return (f"{what.strip()} Drawn {look[3:] if look.startswith('in ') else look}, richly detailed and accurate, "
+                f"like a picture-diagram in a good textbook.{purpose}{shape} {FLOW_FRAME}")
     if child:
         return (f"{what.strip()}, {CHILD_LOOK}.{purpose}{same}{show}{shape} One subject only, whole and centred, "
                 "isolated as a CUTOUT on a plain, flat, pure white background: no border, no frame, no background "
@@ -801,18 +812,18 @@ def reference_for(what: str, style: str | None, realistic: bool) -> dict | None:
 
 def generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
              context: str | None = None, scene: bool = False, match: bool = True, kind: str | None = None,
-             aspect: str | None = None, look: str | None = None) -> dict | None:
+             aspect: str | None = None, look: str | None = None, flow: bool = False) -> dict | None:
     """A picture of `what` (see _generate), by the illustration model, or by the diagram model when it names parts
     to label (or kind="diagram"): a labelled picture's parts must be there and right."""
     kind = kind or ("diagram" if any(str(p).strip() for p in parts or []) else "illustration")
     if _COLLECT is not None:
         return _collected(dict(what=what, style=style, realistic=realistic, parts=parts, context=context,
-                               scene=scene, match=match, kind=kind, aspect=aspect, look=look))
+                               scene=scene, match=match, kind=kind, aspect=aspect, look=look, flow=flow))
     before = getattr(_LOCAL, "aspect", None)
     _LOCAL.aspect = aspect if aspect in ASPECTS else None
     try:
         with using(kind), about(what):
-            return _generate(what, style, realistic, parts, context, scene, match, look)
+            return _generate(what, style, realistic, parts, context, scene, match, look, flow)
     finally:
         _LOCAL.aspect = before
 
@@ -936,7 +947,7 @@ def prefetch(requests: list[dict]) -> None:
 
 def _generate(what: str, style: str | None = None, realistic: bool = False, parts=None,
               context: str | None = None, scene: bool = False, match: bool = True,
-              look: str | None = None) -> dict | None:
+              look: str | None = None, flow: bool = False) -> dict | None:
     """A cutout picture of `what`, made by the image model (or found made already): its row, with `file` (a
     transparent PNG), `title`, `description`, `credit`, `source` "generated", `prompt`, `model`, and `usd` (what
     it cost now) or `paid` (what it cost when it was made). None when it cannot be made."""
@@ -952,13 +963,13 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     aspect = _shape()
     look = "child" if look == "child" and not scene and not realistic else None
     _LOCAL.look = look
-    prompt = prompt_for(what, style, realistic, parts, context, scene, aspect=aspect, look=look)
+    prompt = prompt_for(what, style, realistic, parts, context, scene, aspect=aspect, look=look, flow=flow)
     # Kept by what it shows (not by the lines said over it, which the prompt also carries): the same thing asked
     # for again, in the same words or others, is the picture already made.
     named = sorted({str(p).strip().lower() for p in parts or [] if str(p).strip()})
     key = hashlib.sha256(f"{model()}|{style or ''}|{bool(realistic)}|{' '.join(sorted(_words(what)))}|"
                          f"{','.join(named)}{'|scene' if scene else ''}{'|' + aspect if aspect else ''}"
-                         f"{'|' + _look_tag(look) if look else ''}".encode()).hexdigest()[:20]
+                         f"{'|' + _look_tag(look) if look else ''}{'|flow' if flow else ''}".encode()).hexdigest()[:20]
     # A child's drawing is named so the board knows to draw it on (pocket_lecture.draw_on).
     target = CACHE / (f"gen-child-{key}.png" if look == "child" else f"gen-{key}.png")
     judged = None
@@ -969,7 +980,7 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
            f"{', labelled: ' + ', '.join(map(str, parts)) if parts else ''}{', ' + aspect if aspect else ''}")
     if target.exists() and picture_judge.enabled():
         picture_judge.recall(what, how, CACHE)
-    if not target.exists():
+    if not target.exists() and not flow:
         if picture_judge.enabled():
             # v2: a decision model says whether a picture made before is this one, or one to match, or neither.
             shortlist = _shortlist(what, style, realistic, parts, scene, aspect, look)
@@ -1001,7 +1012,9 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
     if model() in REFUSED and not fallbacks():
         _failed(what, REFUSED[model()])          # refused already this run: not asked again
         return None
-    if judged is not None or (match and _judging()):
+    if flow:
+        like = None                         # a picture-diagram is its own: never matched to a picture made before
+    elif judged is not None or (match and _judging()):
         # The decision model's match, or none: the words are not matched to a reference besides.
         like = judged["row"] if judged is not None and judged["action"] == "match" and match \
             and model() not in NO_REFERENCE else None
@@ -1026,6 +1039,10 @@ def _generate(what: str, style: str | None = None, realistic: bool = False, part
         if model() in REFUSED:
             raise RuntimeError(REFUSED[model()])
         try:
+            if _fake() and flow:
+                import picture_flow
+
+                return picture_flow.stand_in(what), 0.0
             return (_stand_in(what), 0.0) if _fake() else _ask(prompt, reference if model() not in NO_REFERENCE
                                                               else None)
         except RuntimeError as error:

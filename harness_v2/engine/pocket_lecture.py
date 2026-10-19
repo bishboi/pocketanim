@@ -6036,6 +6036,103 @@ class Lecture(Scene):
                 self.queue_on_words(names.get(i, i), lambda heard, i=i: self.reveal_nodes(key, [i]))
         return shown_now
 
+    @staticmethod
+    def _edge_in(mob):
+        """An arrow coming on: drawn along its length, or, a picture's arrow (picture_flow), slid in the way it
+        points as it fades in."""
+        if isinstance(mob, VMobject) and all(isinstance(m, VMobject) for m in mob.get_family()):
+            return Create(mob, rate_func=ease_out_cubic)
+        way = getattr(mob, "_panim_dir", None)
+        return FadeIn(mob, shift=np.array(way, dtype=float) * 0.3 if way is not None else ORIGIN,
+                      rate_func=ease_out_cubic)
+
+    # ---------------- a flow drawn as one picture (picture_flow.py) ----------------
+    def picture_flow(self, key: str, nodes, edges, parts: dict, title: str | None = None, show=None):
+        """A flow diagram the image model drew as ONE picture, cut into its parts by the compiler
+        (picture_flow.split): each step's picture and each arrow laid out where it was in the whole, a label under
+        each step. It is a diagram like any other from here (_diagram_finish): its first step comes on with it,
+        each other step (the arrow into it first, slid in the way it points) on the words that name it, and
+        reveal and focus work on it by its steps' ids. parts: {"size": [w, h], "nodes": [[file, x0, y0, x1, y1]],
+        "edges": [[file, x0, y0, x1, y1] or None]}, in the picture's pixels; an arrow it has no picture of is
+        drawn."""
+        w_px, h_px = (float(v) for v in parts["size"])
+        # Laid out at the size it will have on the stage (with room for the title and the labels under the steps),
+        # so _diagram_finish's fit leaves the labels at their size.
+        _, _, sw, sh = self.STAGE
+        unit = min((sw - 0.6) / max(w_px, 1.0), (sh - (1.6 if title else 1.0)) / max(h_px, 1.0))
+        nodes = [dict(n) for n in nodes]
+        ids = [str(n["id"]) for n in nodes]
+        labels = {str(n["id"]): str(n.get("label") or n["id"]) for n in nodes}
+        self.__dict__.setdefault("_diagram_labels", {})[key] = labels
+
+        def placed(row):
+            file, x0, y0, x1, y1 = row
+            image = ImageMobject(str(file))
+            image.scale_to_fit_width(max((float(x1) - float(x0)) * unit, 0.05))
+            image.move_to([((float(x0) + float(x1)) / 2 - w_px / 2) * unit,
+                           -((float(y0) + float(y1)) / 2 - h_px / 2) * unit, 0])
+            image._panim_src = str(file)
+            return image
+
+        mobs = {}
+        for k, i in enumerate(ids):
+            image = placed(parts["nodes"][k])
+            tag = self._label_tag(labels[i], max(2.2, image.width + 0.8), size=18)
+            tag.next_to(image, DOWN, buff=0.12)
+            mobs[i] = Group(image, tag)
+        arrows, edge_list = [], []
+        for e, edge in enumerate(edges):
+            a, b = str(edge[0]), str(edge[1])
+            if a not in mobs or b not in mobs:
+                continue
+            start, end = mobs[a][0].get_center(), mobs[b][0].get_center()
+            way = (end - start) / max(float(np.linalg.norm(end - start)), 1e-6)
+            row = parts["edges"][e] if e < len(parts.get("edges") or []) else None
+            if row:
+                mob = placed([self._readable_ink(row[0]), *row[1:]])
+            else:
+                reach = lambda m: 0.5 * min(m.width, m.height)  # noqa: E731 -- from near each picture's edge
+                mob = Arrow(start + way * reach(mobs[a][0]), end - way * reach(mobs[b][0]), buff=0.2,
+                            color=P.MUTED, stroke_width=6, max_tip_length_to_length_ratio=0.15)
+            group = Group(mob)
+            words = str(edge[2]) if len(edge) > 2 and edge[2] else ""
+            if words:
+                label = T(words, 18, P.MUTED)
+                label.is_label = True
+                side = np.array([-way[1], way[0], 0.0])
+                if side[1] < 0:
+                    side = -side
+                label.next_to(mob, side, buff=0.08)
+                group.add(label)
+            group._panim_dir = way
+            arrows.append((a, b, group))
+            edge_list.append([a, b] + ([words] if words else []))
+        return self._diagram_finish(key, ids, mobs, arrows, edge_list, title, show)
+
+    @staticmethod
+    def _readable_ink(path: str) -> str:
+        """A picture's arrow (one ink on transparent) in a shade that reads on this board: the model draws its
+        arrows dark, and on a dark board a dark arrow is not seen. The file itself when it reads already."""
+        from PIL import Image
+
+        with Image.open(path) as im:
+            rgba = np.asarray(im.convert("RGBA")).astype(np.float64)
+        solid = rgba[..., 3] > 128
+        if not solid.any():
+            return path
+        mean = rgba[solid][:, :3].mean(axis=0)
+        ink = "#" + "".join(f"{int(round(v)):02X}" for v in mean)
+        board = str(TH.get("bg") or P.BG)
+        if contrast(ink, board) >= 3.0:
+            return path
+        better = readable(P.MUTED if contrast(P.MUTED, board) >= 3.0 else P.CREAM, board, 3.0)
+        out = Path(path).with_name(f"{Path(path).stem}-ink{better.lstrip('#')}.png")
+        if not out.exists():
+            rgb = [int(better[i:i + 2], 16) for i in (1, 3, 5)]
+            rgba[..., 0], rgba[..., 1], rgba[..., 2] = rgb
+            Image.fromarray(rgba.astype(np.uint8), "RGBA").save(out, optimize=True)
+        return str(out)
+
     def reveal_nodes(self, key: str, nodes):
         """The next part of a diagram: these nodes, and the arrows that now join shown nodes."""
         d = self.diagrams.get(key)
@@ -6058,7 +6155,7 @@ class Lecture(Scene):
         # A sketch or graph draws its parts in, as on a board; a diagram's nodes fade in.
         # The arrow into a part is drawn first, then the part pops in at its tip (a picture, a card) or is written
         # (a sketch's lines are drawn).
-        arrows = [Create(self._stage_add(mob), rate_func=ease_out_cubic) for a, b, mob in d["edges"]
+        arrows = [self._edge_in(self._stage_add(mob)) for a, b, mob in d["edges"]
                   if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
         anims = arrows + [Create(self._stage_add(d["nodes"][i])) if d.get("draw") else
                           write_in(self._stage_add(d["nodes"][i])) for i in new]

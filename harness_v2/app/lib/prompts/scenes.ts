@@ -23,6 +23,19 @@ const ROLE = [
 ].join("\n");
 
 /** What v2's engine adds to v1's timeline (pocket_lecture.big_timeline, timeline_dates.py). */
+const PICTURE_FLOW = [
+  "A FLOW DRAWN AS ONE PICTURE (v2): a diagram of kind \"flow\" or \"cycle\" with 2 to 6 nodes may take",
+  "  \"drawn\": \"picture\": the image model draws the whole flow as ONE rich picture (each step its own picture, an arrow",
+  "  between each pair), and the board cuts it into its steps and arrows and builds it as the narration speaks of it:",
+  "  each step (the arrow into it first) comes on as its label is said. Give each node an \"entity\" (what its picture",
+  "  shows: \"a sheaf of golden wheat\") and a short \"label\", and the diagram an \"about\" (\"how bread is made\").",
+  "  Use it for a process of concrete things one can see (wheat -> mill -> flour -> bread, the water cycle), not for",
+  "  ideas, branches or a flowchart. reveal and focus work on it as on any diagram.",
+  '  {"op": "diagram", "id": "bread", "kind": "flow", "drawn": "picture", "about": "how bread is made",',
+  '   "nodes": [{"id": "wheat", "label": "Wheat", "entity": "a sheaf of golden wheat"}, {"id": "mill", "label": "Mill",',
+  '   "entity": "a stone windmill"}, {"id": "bread", "label": "Bread", "entity": "a round loaf"}], "edges": [["wheat", "mill", "harvested"], ["mill", "bread"]]}',
+];
+
 const TIMELINE_ADDITIONS = [
   "TIMELINES, what this engine adds to the timeline op above:",
   "  - IN PROPORTION: when every date reads as a year, each event sits at its date along the track, with a scale of",
@@ -198,6 +211,7 @@ export function scenesPrompt(x: {
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-timeline", "Timelines (v2's additions)", "rules", TIMELINE_ADDITIONS),
+      ...(x.kinds.includes("diagram") ? [part("v2-picture-flow", "A flow drawn as one picture (v2)", "rules", PICTURE_FLOW)] : []),
       part("v1-free", "Free-form drawings, worked solutions and problems", "rules", V1_FREE_DRAWINGS_HEAD),
       v1("concept", "Concept maps and chains"),
       v1("camera", "Camera"),

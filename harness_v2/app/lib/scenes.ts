@@ -37,7 +37,8 @@ import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
 import type { BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
-import { ALL_KINDS, VISUAL_KINDS, filterOps } from "./visual-kinds";
+import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps } from "./visual-kinds";
+import { MOTION_LOOKS } from "./prompts/scenes-motion";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
 const RENDERS_AT_ONCE = Math.max(1, Number(process.env.V2_RENDER_PARALLEL) || 2);
@@ -61,6 +62,7 @@ export type ScenesAction =
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
+  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; timeline?: string }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -139,6 +141,20 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     saveRun(run, true);
     return run;
   }
+  if (a.action === "engine") {
+    // The beats already built stay as they are: the motion engine draws every current operation too, and the current
+    // engine leaves out the motion templates (with a note) until they are built again.
+    st.engine = a.engine === "motion" ? "motion" : undefined;
+    if (st.engine) {
+      const m = { ...(st.motion ?? {}) };
+      for (const k of ["look", "energy", "transition", "timeline"] as const) if (a[k] !== undefined) m[k] = a[k] || undefined;
+      if (m.look && !(MOTION_LOOKS as readonly string[]).includes(m.look)) throw new Error(`the motion look is one of ${MOTION_LOOKS.join(", ")}`);
+      st.motion = m;
+    }
+    log(run, `Scenes: the ${st.engine === "motion" ? `motion engine (beta)${st.motion?.look ? `, look ${st.motion.look}` : ""}` : "current engine"}.`);
+    saveRun(run, true);
+    return run;
+  }
   if (a.action === "reuseSettings") {
     if (a.on !== undefined) st.reuseJudge = a.on;
     if (a.model !== undefined) st.reuseModel = a.model.trim() || undefined;
@@ -182,7 +198,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
     if (!Array.isArray(a.ops)) throw new Error("the operations must be a JSON list of objects");
     const b = beatState(sl, a.beat);
-    const kept = filterOps(a.ops as Record<string, unknown>[], kindsFor(run, sl, a.beat));
+    const kept = filterOps(a.ops as Record<string, unknown>[], allowedFor(run, sl, a.beat));
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
     lock(run, [a.lecture], async () => {
       await compileLecture(run, a.lecture);
@@ -200,7 +216,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       if (!chapter.beats.some((b) => b.n === e.beat)) throw new Error(`beat ${e.beat} is not in chapter ${a.chapter}`);
       if (!Array.isArray(e.ops)) throw new Error(`beat ${e.beat}: its do must be a JSON list of operations`);
       const b = beatState(sl, e.beat);
-      const kept = filterOps(e.ops as Record<string, unknown>[], kindsFor(run, sl, e.beat));
+      const kept = filterOps(e.ops as Record<string, unknown>[], allowedFor(run, sl, e.beat));
       Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined,
         paragraph: e.paragraph || undefined, pause: e.pause || undefined, about: e.about || undefined });
     }
@@ -436,11 +452,12 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
   const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
     : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;
-  const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
-    prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: lookWords(st.look), kinds, labels,
+  const motion = st.engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
+  const call = newCall(run, { step: "scenes", label: motion ? `${label} (motion engine)` : label, lecture: n, model: st.model,
+    prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: motionLookWords(st), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
       beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
-      pace: { maxOps: st.maxOps, change: st.visualChange } }) });
+      pace: { maxOps: st.maxOps, change: st.visualChange }, motion }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -448,7 +465,8 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     b.calls.push(call.id);
   }
   saveRun(run);
-  const reply = await callTool({ call, tool: SCENES_TOOL, onChange: () => saveRun(run), fake: () => fakeScenes(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
+  const reply = await callTool({ call, tool: SCENES_TOOL, onChange: () => saveRun(run),
+    fake: () => (motion ? fakeMotionScenes : fakeScenes)(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
   if (!reply) {
     for (const t of targets) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
@@ -472,7 +490,7 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
       b.status = b.ops.length ? "done" : "failed";
       continue;
     }
-    const kept = filterOps(ops as Record<string, unknown>[], kindsFor(run, sl, t));
+    const kept = filterOps(ops as Record<string, unknown>[], allowedFor(run, sl, t));
     droppedAll += kept.dropped.length;
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, status: "done", edited: false, errors: undefined, notes: undefined,
       paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
@@ -604,7 +622,10 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
     chapters = chapters.filter((c) => c.n === only.chapter).map((c) => ({ ...c, beats: only.upTo === undefined ? c.beats
       : c.beats.slice(0, c.beats.findIndex((b) => b.n === only.upTo) + 1) }));
   }
+  const st = stateOf(run);
   return {
+    // On the motion engine (beta): compiled by compile_motion.py, in its look (scenes.compile picks the compiler).
+    ...(st.engine === "motion" ? { engine: "motion", ...Object.fromEntries(Object.entries(st.motion ?? {}).filter(([, v]) => v)) } : {}),
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
@@ -1003,4 +1024,36 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
     return { beat: b.n, do: ops };
   });
   return { region: null, beats: out };
+}
+
+/** The kinds a beat may use, and on the motion engine its templates. */
+function allowedFor(run: Run, sl: SceneLecture, n: number): string[] {
+  const kinds = kindsFor(run, sl, n);
+  return stateOf(run).engine === "motion" ? [...kinds, MOTION_KIND.id] : kinds;
+}
+
+/** The look as the scene writer is told it: the run's, and on the motion engine its motion look. */
+function motionLookWords(st: ScenesState): string {
+  const words = lookWords(st.look);
+  return st.engine === "motion" && st.motion?.look ? `the motion engine's ${st.motion.look} look (over ${words})` : words;
+}
+
+/** The stand-in's scenes on the motion engine (no key): the current stand-in's, with a motion template on beats it
+ * suits -- a headline on a chapter's first beat, a counter where the line has a number, a list of the line's words,
+ * and a stamp now and then. */
+function fakeMotionScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[]) {
+  const base = fakeScenes(run, n, beats, kinds);
+  const script = scriptOf(run, n)!;
+  const first = new Set(script.chapters.map((c) => c.beats[0]?.n));
+  return { ...base, beats: base.beats.map((b) => {
+    const input = beats.find((x) => x.n === b.beat)!;
+    const words = input.text.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter((w) => w.length > 3);
+    const number = input.text.match(/\b\d[\d,]*(?:\.\d+)?\b/)?.[0];
+    const chapter = script.chapters.find((c) => c.n === input.chapter)!;
+    if (first.has(b.beat)) return { ...b, do: [{ op: "title", text: chapter.title.slice(0, 50), kicker: `Chapter ${chapter.n}` }] };
+    if (number) return { ...b, do: [{ op: "counter", value: number, label: (input.show || words.slice(0, 4).join(" ")).slice(0, 50), on: number }] };
+    if (b.beat % 4 === 2 && words.length >= 3) return { ...b, do: [{ op: "list", mark: "check", items: words.slice(0, 3).map((w) => ({ text: w, on: w })) }] };
+    if (b.beat % 4 === 3) return { ...b, do: [...b.do, { op: "stamp", text: (words[0] ?? "Noted").slice(0, 14) }] };
+    return b;
+  }) };
 }

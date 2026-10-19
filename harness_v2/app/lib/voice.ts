@@ -83,7 +83,10 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
   if (!sc) throw new Error(`lecture ${n} has no chapter ${chapter}`);
   const full = await engineScript(run, n, cleanLook(scenesOf(run).look), { chapter });
   const ch = (full.chapters as ChapterScript["chapter"][])[0];
-  return { style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
+  // On the motion engine (beta: the Scenes tab's setting), the chapter carries it and its settings, to be tried on it.
+  const motion = full.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+    .filter((k) => typeof full[k] === "string").map((k) => [k, full[k] as string])) } : {};
+  return { ...motion, style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
     emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
     chapter: { title: ch.title, narration: ch.narration, map: ch.map, beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
 }
@@ -91,7 +94,8 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
 /** The scene writer's instructions, to give any chat model with this chapter's beat script (the editor's copy). */
 export async function editInstructions(run: Run, n: number): Promise<string> {
   const st = scenesOf(run);
-  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange },
+  const motion = st.engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
+  return handInstructions({ look: lookWords(st.look), kinds: st.kinds, subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange }, motion,
     labels: Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label])) });
 }
 
@@ -225,7 +229,7 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     // The edited visuals put into the scenes (the Scenes tab's beats), and compiled: each beat named by its number in
     // this chapter. The words said are the transcript's: an edited say is tried, never applied.
     const edited = readChapterScript(a.script);
-    if (edited.engine === "motion") throw new Error("a motion-engine script (beta) is tried, not applied: the lecture's scenes are the current engine's");
+    if (edited.engine === "motion" && scenesOf(run).engine !== "motion") throw new Error("a motion-engine script (beta) is tried, not applied: the lecture's scenes are the current engine's (switch the Scenes tab's engine to motion to apply it)");
     const chapter = scriptOf(run, a.lecture)?.chapters.find((c) => c.n === a.chapter);
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const notes: string[] = [];

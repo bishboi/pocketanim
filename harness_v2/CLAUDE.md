@@ -11,4 +11,4 @@
 - The motion engine (beta) is documented in `engine/MOTION_ENGINE.md`; any change to what `engine/compile_motion.py` or
   `engine/motion*.py` accepts updates that file in the same commit (`npm run check` fails when a template, an argument
   or a script field it reads is missing). It never changes the current engine's files or what they make: a script is
-  drawn by it only with `"engine": "motion"`, and it is tried in the Lab, not applied to a lecture's scenes.
+  drawn by it only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.

@@ -705,6 +705,44 @@ await assert.rejects(scenesAction(run.id, { action: "reset", lecture: 1, chapter
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 
+// The motion engine (beta) in the Scenes tab: a lecture built with its templates, compiled and rendered on it, its
+// chapters tried on it in the Voice tab; then back to the current engine (which leaves the templates out).
+const { engineScript, compile: compileMotion } = await import(path.resolve(here, "../lib/scenes.ts"));
+await assert.rejects(scenesAction(run.id, { action: "engine", engine: "motion", look: "neon" }), /motion look is one of/);
+await scenesAction(run.id, { action: "engine", engine: "motion", look: "newsroom", timeline: "ribbon" });
+run = await loadRun(run.id);
+assert.ok(run.scenes.engine === "motion" && run.scenes.motion.look === "newsroom", "the engine set for the run");
+const callsBefore = run.calls.length;
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+const motionCall = run.calls.slice(callsBefore).find((c) => c.step === "scenes");
+assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.some((p) => p.key === "motion" && /THE TEMPLATES/.test(p.text)), "the scene writer told of the motion templates");
+const motionBeats = Object.values(run.scenes.lectures[1].beats);
+const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
+assert.ok(templateBeats > 0, "motion templates in the beats");
+assert.ok(motionBeats.every((b) => !b.errors?.length), `nothing refused on the motion engine: ${motionBeats.flatMap((b) => b.errors ?? []).join("; ")}`);
+assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
+const motionScript = await engineScript(run, 1, run.scenes.look);
+assert.ok(motionScript.engine === "motion" && motionScript.look === "newsroom" && motionScript.timeline === "ribbon", "its beat script on the motion engine");
+const motionCompiled = await compileMotion(run, motionScript, path.join(scenesDir(run.id), "motion-check"), 1);
+assert.ok(motionCompiled.source?.includes("(MotionLecture)") && !motionCompiled.errors.length, motionCompiled.errors.join("; "));
+await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n, beat: firstBeat });
+run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
+const motionRender = run.scenes.lectures[1].beats[firstBeat].render;
+assert.equal(motionRender.status, "done", motionRender.error);
+assert.ok(readFileSync(path.join(fileOf(motionRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the motion engine");
+const motionChapter = await chapterScript(run, 1, ch1.n);
+assert.ok(motionChapter.engine === "motion" && motionChapter.look === "newsroom", "the Voice tab's chapter carries the engine");
+assert.ok((await editInstructions(run, 1)).includes("THE MOTION ENGINE (BETA)"), "the hand instructions tell of the templates");
+await scenesAction(run.id, { action: "engine", engine: "current" });
+run = await loadRun(run.id);
+assert.ok(!run.scenes.engine && !(await engineScript(run, 1, run.scenes.look)).engine, "back on the current engine");
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+console.log(`scenes (motion beta): lecture 1 built with ${templateBeats} template beats, compiled and a beat rendered`);
+
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
 assert.equal(x.format, "pocketanim.v2.transcript");

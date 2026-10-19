@@ -383,8 +383,16 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
 - **In the app**: the **Lab** tab has the motion presets (each template, each timeline style, each classic operation,
   each look, each transition and energy, and whole scenes), "Add a beat with" its templates, this reference beside
   the editor, and "from a lecture's chapter … drawn by the motion engine" in any look, to see a lecture's own chapter
-  in motion. **Speak and play** compiles, speaks, times and plays it as for any experiment. A motion script is tried,
-  never applied to a lecture's scenes (the Voice tab refuses to apply one).
+  in motion. **Speak and play** compiles, speaks, times and plays it as for any experiment.
+- **In the Scenes tab**: the **Engine** row (current / motion (beta), with the look, energy, transition and timeline
+  style) sets the engine for the run. On motion, the scene writer is also told of the templates (its own instructions
+  part, `motion`, after v1's), each lecture's beat script carries `"engine": "motion"` and its settings, and the
+  compile, the beat and chapter renders and the Voice tab's speak-and-play are all on the motion engine; an edited
+  motion script can be applied there. The beats already built stay as they are when the engine is switched: the motion
+  engine draws every current operation, and the current engine leaves the templates out (with a note) until they are
+  built again. The lectures and videos made before are never touched.
+- **`npm run check`** also builds a lecture on the motion engine from the Scenes tab (stand-in scene writer), checks
+  its templates, compiles and renders a beat of it, and switches back.
 - **`npm run check`** (harness_v2/app) compiles every motion preset and snippet on the motion engine with nothing
   left out, plays one with the voice, and compiles a lecture's chapter in a motion look.
 - `PANIM_IMAGES=1 PANIM_IMAGE_FAKE=1` builds with stand-in pictures, offline.
@@ -400,8 +408,7 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
 - **Pictures for the new templates** (cards, prints, a document's portrait) are made by the image model like any
   picture: with no key they are left out (the template plays without them).
 - **Timing in the players** of a long lagged group can differ slightly from Manim's render (§9).
-- **Applying** a motion script to a lecture's scenes, and the Scenes tab writing motion scripts, are not built: the
-  beta is tried in the Lab.
+- **A run has one engine**: the Scenes tab's setting applies to all its lectures (switching it does not rebuild them).
 
 ---
 

@@ -477,6 +477,12 @@ export type ScenesState = {
   visualChange?: "paragraph" | "beat";
   /** The images the Manim agent made, by lecture, by name. */
   agentImages?: Record<string, Record<string, AgentImage>>;
+  /** "motion": the lectures are built, compiled, rendered and spoken on the motion engine (beta:
+   * engine/MOTION_ENGINE.md); left out, the current engine. */
+  engine?: "motion";
+  /** The motion engine's settings: its look (paper, newsroom, chalk, data, studio, sketch; left out: the style's own
+   * motion), energy, transition and the timeline's style. */
+  motion?: { look?: string; energy?: string; transition?: string; timeline?: string };
   error?: string;
   started?: number;
   ended?: number;

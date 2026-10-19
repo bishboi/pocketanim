@@ -9,6 +9,7 @@
  * the whole lecture, for one chapter, or for one beat (the rest of its chapter given as it is, for context).
  */
 
+import { motionPart } from "./scenes-motion";
 import { part, render, type Part } from "./parts";
 import { V1_FREE_DRAWINGS_HEAD, V1_LECTURE, V1_MANIM_PLAN, V1_MANIM_RULES } from "./v1-lecture";
 
@@ -159,6 +160,8 @@ export function scenesPrompt(x: {
   subject?: SceneSubject;
   /** How many operations a beat, how often the visuals change: v1's (4, a paragraph at a time) unless set. */
   pace?: ScenePace;
+  /** Built on the motion engine (beta): its templates and moments are told after v1's instructions. */
+  motion?: { look?: string; timeline?: string };
 }): { system: Part[]; user: Part[] } {
   const writing = (b: SceneBeatInput) => x.ask.what === "lecture" || (x.ask.what === "chapter" && b.chapter === x.ask.chapter)
     || (x.ask.what === "beat" && b.n === x.ask.beat) || (x.ask.what === "fix" && x.ask.beats.includes(b.n));
@@ -201,6 +204,7 @@ export function scenesPrompt(x: {
       v1("detailed", "Detailed diagrams"),
       v1("map", "Map operations"),
       ...(pacePart(x.pace) ? [pacePart(x.pace)!] : []),
+      ...(x.motion ? [motionPart(x.motion)] : []),
       ...(off.length ? [part("off", `Switched off here (${off.length})`, "choices", [
         "SWITCHED OFF FOR THIS LECTURE: never use these kinds of visual; anything of them is taken out:",
         ...off.map((k) => `  - ${x.labels[k] ?? k}`)])] : []),
@@ -252,9 +256,10 @@ const HAND_SHAPE = [
  * it change the chapter (the Voice tab's editor): v1's instructions as the scene writer gets them, its subject and
  * the kinds switched off, with the role and the answer's shape for a whole chapter, and Manim written as code.
  */
-export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject; pace?: ScenePace }): string {
+export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject; pace?: ScenePace;
+  motion?: { look?: string; timeline?: string } }): string {
   const system = scenesPrompt({ lecture: { n: 0, title: "" }, look: x.look, kinds: x.kinds, labels: x.labels, chapters: [], beats: [],
-    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace }).system
+    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace, motion: x.motion }).system
     .map((p) => (p.key === "role" ? { ...p, text: HAND_ROLE } : p.key === "shape" ? { ...p, text: HAND_SHAPE } : p));
   return [render(system), "", `THE LOOK: the lecture is drawn in ${x.look}. Do not choose colours outside it.`].join("\n");
 }

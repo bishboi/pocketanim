@@ -18,7 +18,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
-import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
+import { MOTION_KIND, VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
+import { MOTION_LOOKS } from "@/lib/prompts/scenes-motion";
 import { beatFigures, lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
 import { FrameStill, IRPlayer } from "./player";
@@ -35,7 +36,7 @@ const DOT = { waiting: "bg-neutral-500", running: "bg-sky-400 animate-pulse", do
 const KIND_COLOR: Record<string, string> = {
   base: "#a3a3a3", map: "#34d399", figure: "#fbbf24", illustration: "#f472b6", drawing: "#fb7185", gallery: "#e879f9", diagram: "#38bdf8",
   timeline: "#a78bfa", manim: "#22d3ee", equation: "#facc15", molecule: "#4ade80", define: "#93c5fd", compare: "#c4b5fd", question: "#fdba74",
-  numbers: "#fca5a5", work: "#5eead4", words: "#d6d3d1",
+  numbers: "#fca5a5", work: "#5eead4", words: "#d6d3d1", motion: "#e879f9",
 };
 const btn = "rounded border px-2.5 py-1 text-xs disabled:opacity-40";
 
@@ -127,6 +128,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
             </select></label>
           <span className="text-neutral-500">used for the next builds (and the Voice tab&apos;s instructions); build again to see it</span>
         </div>
+        <EngineRow st={st} act={act} />
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
           <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
           <span>{done} of {scripted.length} lectures built</span>
@@ -134,6 +136,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
           {refused > 0 && <span className="text-red-300">{refused} refused by the compiler</span>}
           {(st?.renders ?? 0) > 0 && <span className="text-sky-300">{st!.renders} rendering…</span>}
           <span className="text-neutral-500">{styleOf(look.style).name} · {artOf(look.art).name} art</span>
+          {st?.engine === "motion" && <span className="text-fuchsia-300" data-testid="scenes-engine-badge">motion engine (beta){st.motion?.look ? ` · ${st.motion.look}` : ""}</span>}
           <span className="font-semibold">{money(cost)}</span>
         </div>
         {st?.error && <p className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{st.error}</p>}
@@ -996,6 +999,48 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
           <ul className="space-y-0.5 text-neutral-400">{c.pictures.map((p, i) => <li key={i}>{p.prompt} <span className="text-neutral-500">· {p.model} · {money(p.usd ?? 0)}</span></li>)}</ul>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Which engine draws the lecture: the current one, or the motion engine (beta: engine/MOTION_ENGINE.md), which draws
+ * every current operation in motion and adds its templates (the scene writer is told of them); its look, energy,
+ * transition and timeline style. Used for the next builds, compiles, renders and the Voice tab.
+ */
+function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
+  const motion = st?.engine === "motion";
+  const m = st?.motion ?? {};
+  const set = (k: string, v: string) => act({ action: "engine", engine: "motion", [k]: v });
+  const sel = "rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 disabled:opacity-40";
+  const templated = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.ops.some((o) => MOTION_KIND.ops.includes(String(o.op)))).length, 0);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="scenes-engine">
+      <span className="text-fuchsia-300">Engine</span>
+      <label className="flex items-center gap-1 text-neutral-300" title="pocket_lecture: what every lecture has been built with">
+        <input type="radio" checked={!motion} onChange={() => act({ action: "engine", engine: "current" })} data-testid="scenes-engine-current" /> current</label>
+      <label className="flex items-center gap-1 text-neutral-300" title="The motion engine (beta): every operation drawn in motion, each part landing on its words, plus templates (counters, charts, cards, stamps...) the scene writer is told of">
+        <input type="radio" checked={motion} onChange={() => act({ action: "engine", engine: "motion" })} data-testid="scenes-engine-motion" /> motion (beta)</label>
+      <label className="flex items-center gap-1 text-neutral-300">look
+        <select className={sel} disabled={!motion} value={m.look ?? ""} onChange={(e) => set("look", e.target.value)} data-testid="scenes-motion-look">
+          <option value="">the style&apos;s own</option>{MOTION_LOOKS.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select></label>
+      <label className="flex items-center gap-1 text-neutral-300">energy
+        <select className={sel} disabled={!motion} value={m.energy ?? ""} onChange={(e) => set("energy", e.target.value)}>
+          <option value="">the look&apos;s own</option>{["calm", "lively", "punchy"].map((l) => <option key={l} value={l}>{l}</option>)}
+        </select></label>
+      <label className="flex items-center gap-1 text-neutral-300">transition
+        <select className={sel} disabled={!motion} value={m.transition ?? ""} onChange={(e) => set("transition", e.target.value)}>
+          <option value="">the look&apos;s own</option>{["slide", "push", "wipe", "dissolve", "zoom", "page", "cut"].map((l) => <option key={l} value={l}>{l}</option>)}
+        </select></label>
+      <label className="flex items-center gap-1 text-neutral-300">timeline
+        <select className={sel} disabled={!motion} value={m.timeline ?? ""} onChange={(e) => set("timeline", e.target.value)}>
+          <option value="">track</option>{["ribbon", "cards", "road", "vertical"].map((l) => <option key={l} value={l}>{l}</option>)}
+        </select></label>
+      <span className="text-neutral-500">{motion
+        ? "the scene writer is told of the motion templates; builds, renders and the Voice tab use the motion engine"
+        : "the lectures built so far stay as they are either way"}</span>
+      {!motion && templated > 0 && <span className="text-amber-300">{templated} beats use motion templates: the current engine leaves those out</span>}
     </div>
   );
 }

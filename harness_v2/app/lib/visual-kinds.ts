@@ -43,11 +43,18 @@ export const VISUAL_KINDS: VisualKind[] = [
 
 export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
 
+/** The motion engine's templates (engine/MOTION_ENGINE.md, beta): allowed only when the Scenes tab builds on it. */
+export const MOTION_KIND: VisualKind = {
+  id: "motion", label: "Motion templates (beta)",
+  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, callouts, pointing.",
+  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "callout", "emphasis"],
+};
+
 /** Always allowed: the board's words. */
 export const BASE_OPS = ["panel", "fact", "clear", "unstage"];
 
 export function kindById(id: string): VisualKind | undefined {
-  return VISUAL_KINDS.find((k) => k.id === id);
+  return VISUAL_KINDS.find((k) => k.id === id) ?? (id === MOTION_KIND.id ? MOTION_KIND : undefined);
 }
 
 /** The kind of a picture spec ({generate} | {draw} | {figure} | {items}), or of a picture-ish op. */
@@ -65,6 +72,7 @@ export function kindOfOp(op: Record<string, unknown>): string | undefined {
   if (BASE_OPS.includes(name)) return "base";
   if (name === "picture") return pictureKind(op) ?? "illustration";
   if (name === "illustration" && op.diagram === true) return "drawing";
+  if (MOTION_KIND.ops.includes(name)) return MOTION_KIND.id;
   return VISUAL_KINDS.find((k) => k.ops.includes(name))?.id;
 }
 
@@ -109,6 +117,20 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
       op.events = (op.events as unknown[]).map((e) => (Array.isArray(e) && e.length > 2 && !keep(e[2], `timeline event "${e[1]}"`) ? e.slice(0, 2) : e));
     }
     if (op.picture && name !== "picture" && !keep(op.picture, `${name} "${op.label ?? op.place ?? ""}"`)) delete op.picture;
+    // The motion templates' pictures: a card's, a print's, a step's, a side's (a print without one is left out).
+    if (kind === MOTION_KIND.id) {
+      const inner = (x: unknown, where: string) => {
+        const it = x as Op;
+        if (!it || typeof it !== "object") return true;
+        const spec = (it.picture as Op | undefined) ?? (pictureKind(it) ? it : undefined);
+        if (!spec || keep(spec, where)) return true;
+        if (it.picture) delete it.picture;
+        else for (const k of ["generate", "figure", "draw"]) delete it[k];
+        return name !== "polaroids";
+      };
+      for (const key of ["items", "steps"]) if (Array.isArray(op[key])) op[key] = (op[key] as unknown[]).filter((x, i) => inner(x, `${name} ${key} ${i + 1}`));
+      for (const side of ["left", "right"]) if (op[side]) inner(op[side], `${name} ${side}`);
+    }
     if (Array.isArray(op.pictures)) op.pictures = (op.pictures as unknown[]).map((p, i) => (p && !keep(p, `${name} stop ${i + 1}`) ? null : p));
     if (Array.isArray(op.items) && (name === "picture" || name === "gallery")) {
       op.items = (op.items as Op[]).filter((it, i) => keep(it, `gallery item ${i + 1}`));

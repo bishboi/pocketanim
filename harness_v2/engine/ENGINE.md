@@ -43,3 +43,9 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   picture had been, over the card's words.
 - A book's figure is always shown whole (`figure` sets `_keep_whole`; a gallery of one figure goes through `figure`):
   with the screen to itself it was cut to the screen's shape, and a tall page lost its top and bottom.
+- Every chapter is on the board; the map is up only for the runs of beats that point at it
+  (`compile_lecture._map_runs`, `MapLecture.map_in` / `map_away`), each run fitted to its own places. A chapter was
+  put on the map as a whole: its pictures sat over the map, a `manim` beat took the whole chapter off it and every map
+  operation in it was left out.
+- `mapguard.is_map` ignores what follows a negation ("no maps or outlines") and the style's name ("Atlas detailed
+  shaded art"): an atlas is a map only as a book of maps ("an atlas", "the atlas of India", "an atlas page").

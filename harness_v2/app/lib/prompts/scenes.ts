@@ -48,19 +48,21 @@ const SHAPE = [
   '   "Western Europe", "Southern Africa", "Indian subcontinent")} | null,  (an area\'s "state" op fills a country)',
   ' "emblem"?: "<one simple object that stands for the whole topic>",',
   ' "beats": [{"beat": <its number>, "paragraph"?: true, "pause"?: 2, "about"?: "<English name>", "do": [ops]}]}',
-  "Chapter titles and their title cards are the script's. A chapter taught on a map (marked so below) needs the region.",
+  "Chapter titles and their title cards are the script's. Every chapter is drawn on the board. The map is not a chapter's: it",
+  "comes in on a beat that points at it (a map operation) and stays through the beats after it until one puts up a",
+  "picture of its own (a photo, a diagram, a manim figure), when it goes; map operations need the lecture's region.",
 ].join("\n");
 
 export const SCENES_TOOL = {
   type: "function" as const,
   function: {
     name: "write_scenes",
-    description: "Save the beat script's visual parts: each beat's operations (and paragraph, pause, about), by the beat's number; the lecture's map region when a chapter is on a map, and its emblem.",
+    description: "Save the beat script's visual parts: each beat's operations (and paragraph, pause, about), by the beat's number; the lecture's map region when a beat points at the map, and its emblem.",
     parameters: {
       type: "object",
       properties: {
         region: {
-          description: 'The map region, when a chapter is on a map: {"country":"India"} | {"state":"Rajasthan","country":"India"} | {"area":"World" | a continent | a world region}; null for none.',
+          description: 'The map region, when a beat points at the map: {"country":"India"} | {"state":"Rajasthan","country":"India"} | {"area":"World" | a continent | a world region}; null for none.',
           anyOf: [{ type: "object", properties: { country: { type: "string" }, state: { type: "string" }, area: { type: "string" } } }, { type: "null" }],
         },
         emblem: { type: "string", description: "One simple object that stands for the whole topic (the lecture's emblem)." },
@@ -212,7 +214,7 @@ export function scenesPrompt(x: {
     user: [
       part("look", "The look", "context", `The lecture is drawn in ${x.look}. Do not choose colours outside it.`),
       part("lecture", "The lecture and its chapters", "plan", [`Lecture ${x.lecture.n}: ${x.lecture.title}`,
-        ...x.chapters.map((c) => `Chapter ${c.n}: ${c.title} (${c.map ? "on a map" : "on a board"}) - title card: "${c.narration}"`),
+        ...x.chapters.map((c) => `Chapter ${c.n}: ${c.title} (${c.map ? "on the board, the map in for its beats on places" : "on the board"}) - title card: "${c.narration}"`),
         ...(x.region ? [`Map region (already chosen): ${JSON.stringify(x.region)}`] : [])]),
       part("figures", `The lecture's figures (${x.figures.length})`, "items", x.figures.length
         ? x.figures.map((f) => `${f.id}: ${f.way}${f.ready ? "" : " (not made yet)"} - ${f.caption || "(no caption)"}`) : "None."),
@@ -244,11 +246,11 @@ const HAND_SHAPE = [
   '   {"area": "World" | a continent ("Asia", "Europe", "Africa") | a world region ("South Asia", "Middle East",',
   '   "Western Europe", "Southern Africa", "Indian subcontinent")} | null,  (an area\'s "state" op fills a country)',
   ' "emblem": "<one simple object that stands for the whole topic>" | null, "genre": "<as given>",',
-  ' "chapter": {"title", "narration": "Chapter one. ...", "map": true | false,',
+  ' "chapter": {"title", "narration": "Chapter one. ...",',
   '   "beats": [{"beat": <its number, as given>, "say": "...", "paragraph"?: true, "pause"?: 2, "about"?: "<English name>",',
   '              "do": [ops]}]}}',
-  "Keep every beat's \"beat\" number as given (a beat you add has none). Map operations only in a chapter with",
-  '"map": true and a region. Free-form Manim is written as code ("code"), never as a plan: nothing writes it after you.',
+  "Keep every beat's \"beat\" number as given (a beat you add has none). Map operations need a region; the chapter",
+  'is on the board and the map comes in for the beats that point at it. Free-form Manim is written as code ("code"), never as a plan: nothing writes it after you.',
 ].join("\n");
 
 /**

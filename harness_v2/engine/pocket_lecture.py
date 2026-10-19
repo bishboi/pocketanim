@@ -6788,6 +6788,10 @@ class Lecture(Scene):
             self.remove(sheet)
         elif going:
             self.play(*[FadeOut(m) for m in going], run_time=run_time)
+        self._stage_reset()
+
+    def _stage_reset(self) -> None:
+        """Forget what a chapter (or a run of map beats) put up, once it has gone."""
         self.panel_items = Group()
         self.panel_images = Group()
         self.stage_items = Group()
@@ -7012,6 +7016,34 @@ class MapLecture(BoardMixin, Lecture):
         if inset is not None:
             anims.append(FadeIn(inset))
         self.play(*anims, run_time=run_time)
+
+    def map_in(self, bbox: tuple | None = None, places=(), wide: bool = True) -> None:
+        """A run of beats taught on the map, in a chapter on the board: what is up goes, and the map comes in fitted
+        to the places these beats show (use_frame), across the whole frame unless they put facts in a panel."""
+        self.map_away()
+        self.use_frame(bbox)
+        self.show_map(wide=wide)
+        if places:
+            self.reserve_places(list(places))
+
+    def map_away(self, board: bool | None = None, run_time: float = 0.7) -> None:
+        """The map's run of beats is over: the map, its marks and its panel go. `board`: back to the board (True)
+        or to a side panel (False); None leaves the layout to the caller."""
+        going = self.on_stage()
+        if going:
+            self.play(*[FadeOut(m) for m in going], run_time=run_time)
+        self._stage_reset()
+        if getattr(self, "_wide", False):
+            for key in self.WIDE_MAP:
+                self.__dict__.pop(key, None)
+            self._wide = False
+            if hasattr(self, "_frame"):
+                del self._frame
+        self.panel = None
+        if board is True:
+            self.board()
+        elif board is False:
+            self.add_panel()
 
     def region_fill(self, geom, color: str, opacity: float = 0.6, z: float = Z_FILL, clip=None) -> VGroup:
         # Cut to the map's focus (its borders as drawn), or to `clip` (the map's whole window: a neighbouring

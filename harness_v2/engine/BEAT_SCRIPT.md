@@ -83,7 +83,6 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
   "title": "Rivers",
   "sub": "Two great families",
   "narration": "Chapter one. The rivers of India.",
-  "map": true,
   "beats": [ ... ]
 }
 ```
@@ -93,15 +92,21 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
 | `title` | text | The chapter's card and its name in the player's chapter list. |
 | `sub`? | text | A line under the title on the chapter card. |
 | `narration`? | text | What is said over the chapter card. Default: the title. |
-| `map`? | true/false | Taught on the map (`true`, needs the script's `region`) or on a board / with the side panel (`false`). Left out, the chapter is on the map when it uses a map operation. A chapter with a `manim` beat is drawn on the board (the compiler says so). |
+| `map`? | false | `false` keeps the map out of the chapter (its map operations are left out with a note). Left out (or `true`), the chapter's beats that point at the map show it in their turn (below). A chapter is never put on the map as a whole. |
 | `beats` | list | The beats (§3), in order. |
 | `section`? | text | Which part of the source the chapter comes from. Not drawn; carried into the compile's report of the pictures used (their context). |
 
-Where it is taught:
+Where it is taught: every chapter is on the board, or with the side panel when the script says `layout: "panel"`.
 
-- **On the map**: the map takes the left (fitted to the places the chapter marks, or wide), a side panel on the right holds the heading and a few points, and the stage (pictures, diagrams) appears over the map when a beat puts one up.
 - **On a board**: the whole frame is the picture. The words on screen are only the topic heading and one key point.
-- **With the side panel** (no map, `layout: "panel"`): the stage on the left, the panel on the right.
+- **With the side panel** (`layout: "panel"`): the stage on the left, the panel on the right.
+- **The map, beat by beat**: with the script's `region`, the map comes in on a beat that points at it (a map
+  operation, or an icon placed on places) and stays through the beats after it until one puts up a picture of its
+  own with nothing on the map (a photo, a diagram, a template, a `manim` figure): then the map, its marks and its
+  panel go and the chapter is back on the board. The beats just before such a run that show nothing of their own (a
+  panel title, a fact) are on the map too. Each run is fitted to the places it marks; it is across the whole frame,
+  or beside a side panel when its beats put facts, stats or bars in one. A beat that points at the map and shows a
+  picture too keeps the map, the picture over it; the next map beat takes the picture away.
 
 ---
 
@@ -576,7 +581,8 @@ Helpers available in the code:
 
 ### 5.7 The map
 
-Map operations need the script's `region` and a chapter on the map. Otherwise they are left out with a note.
+Map operations need the script's `region` (and a chapter not set to `"map": false`). Otherwise they are left out with
+a note. The map is up for the beats that point at it (§2, "The map, beat by beat"), in any chapter.
 **Name places**; never guess coordinates. The compiler looks names up in real gazetteers (towns and historic sites).
 A place it cannot find, or one off the region's map, is left out with a note (an arrow, path or journey keeps its
 other points, and is left out when fewer than two are left). A `lonlat` given with a label that names a known place

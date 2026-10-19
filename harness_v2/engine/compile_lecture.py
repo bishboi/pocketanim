@@ -923,9 +923,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     if len(ops) > 1:
                         errors.append(f"{at}: a manim beat carries only its manim op; draw the rest in its code, "
                                       "or put the other ops on beats of their own")
-                    if _map_chapter(chapter, has_map):
-                        chapter["map"] = False
-                        warnings.append(f"{FIXED}{at}: a manim figure is drawn on the board, so its chapter is too")
                     if op.get("area") not in (None, "full", "left"):
                         errors.append(f"{at}: a manim op's area is \"left\" (the figure in the left half, a working "
                                       "or card beside it) or \"full\" (the default)")
@@ -1947,10 +1944,13 @@ def _panel_text(script: dict) -> tuple[list[str], list[str]]:
     board a fact is one line in the strip, replaced by the next.)"""
     errors = []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        if not _map_chapter(chapter, bool(script.get("region"))):
-            continue
+        # A side panel is only beside the map, on the beats of a run of them that puts facts in it.
+        paneled = {bi for first, last in _map_runs(chapter, bool(script.get("region")))
+                   if _fills_panel(_run_of(chapter, first, last)) for bi in range(first + 1, last + 1)}
         count = 0
         for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            if bi not in paneled:
+                continue
             for op in beat.get("do") or []:
                 if op.get("op") in ("panel", "clear"):
                     count = 0
@@ -2161,11 +2161,50 @@ def _fills_panel(chapter: dict, figures: dict | None = None) -> bool:
 
 
 def _map_chapter(chapter: dict, has_region: bool) -> bool:
-    """A chapter draws its map only when a beat points at the map, and never when told not to."""
+    """A chapter with beats on the map: one beat points at the map, and the chapter is not told not to."""
     if not has_region or chapter.get("map") is False:
         return False
     return any(op.get("op") in MAP_OPS or (op.get("op") == "icon" and _icon_spots(op))
                for b in chapter.get("beats") or [] for op in b.get("do") or [])
+
+
+def _stages_picture(op: dict) -> bool:
+    """Whether an op puts a picture of its own on the stage (a photo, a diagram, a template, a manim figure)."""
+    kind = op.get("op")
+    return (kind in ("photo", "illustration") and op.get("where", "stage") == "stage" or
+            kind == "figure" and op.get("where") == "stage" or
+            kind in KIT_OPS | BUILD_OPS | STEM_OPS | WORK_OPS | FREE_OPS)
+
+
+def _map_runs(chapter: dict, has_region: bool, fills: list | None = None) -> list[tuple[int, int]]:
+    """The runs of a chapter's beats taught on the map, as (first, last + 1) beat indexes. Every chapter is on the
+    board; the map comes in on a beat that points at it and stays through the beats after it until one puts up a
+    picture of its own with nothing on the map (a diagram, a photo, a manim figure), when it goes. A beat that
+    points at the map and shows a picture too keeps the map, the picture over it. The beats just before a run that
+    show nothing of their own (a panel title, a fact) are on the map too: what they put up is the map's."""
+    if not _map_chapter(chapter, has_region):
+        return []
+    runs, start, floor = [], None, 0       # floor: the first beat after the last picture of the board's own
+    for bi, beat in enumerate(chapter.get("beats") or []):
+        ops = [op for op in beat.get("do") or [] if isinstance(op, dict)]
+        if fills and bi < len(fills) and fills[bi]:
+            ops.append(fills[bi])
+        if any(_points_at_map(op) for op in ops):
+            if start is None:
+                start = floor
+        elif any(_stages_picture(op) for op in ops):
+            if start is not None:
+                runs.append((start, bi))
+                start = None
+            floor = bi + 1
+    if start is not None:
+        runs.append((start, len(chapter.get("beats") or [])))
+    return runs
+
+
+def _run_of(chapter: dict, first: int, last: int) -> dict:
+    """A run of a chapter's beats, as a chapter of its own (for its frame, its places and its panel)."""
+    return {**chapter, "beats": (chapter.get("beats") or [])[first:last]}
 
 
 BARE_OPENING = 3         # beats a chapter may open with before something is on the stage (an error)
@@ -2178,12 +2217,13 @@ def _bare_stretches(script: dict) -> tuple[list[str], list[str]]:
     advice."""
     errors, warnings = [], []
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        if _map_chapter(chapter, bool(script.get("region"))):
-            continue
+        # The map is the picture of the beats on it.
+        on_map = _map_chapter(chapter, bool(script.get("region")))
         beats = chapter.get("beats") or []
         opening = 0
         for beat in beats:
-            if any(op.get("op") in VISUAL_OPS | WORK_OPS or op.get("op") == "manim" for op in beat.get("do") or []):
+            if any(op.get("op") in VISUAL_OPS | WORK_OPS or op.get("op") == "manim" or on_map and _points_at_map(op)
+                   for op in beat.get("do") or []):
                 break
             opening += 1
         # Only where the writer draws the pictures (sciences, mathematics): elsewhere the compiler puts up photos
@@ -2197,7 +2237,8 @@ def _bare_stretches(script: dict) -> tuple[list[str], list[str]]:
         run = 0
         for bi, beat in enumerate(beats, 1):
             # Revealing more of a drawing, or adding to a worked solution, keeps the picture going.
-            if any(op.get("op") in VISUAL_OPS | STEP_OPS | WORK_OPS for op in beat.get("do") or []):
+            if any(op.get("op") in VISUAL_OPS | STEP_OPS | WORK_OPS or on_map and _points_at_map(op)
+                   for op in beat.get("do") or []):
                 run = 0
                 continue
             run += 1
@@ -3142,10 +3183,8 @@ def _stem_call(op: dict) -> str | None:
 
 def board_chapter(script: dict, chapter: dict) -> bool:
     """A chapter taught on the board: the whole frame for its pictures, and a one-line key-point strip instead of
-    a side panel of text. Every chapter without a map is, whatever the style, unless the script sets
-    "layout": "panel" (and then a chapter building STEM drawings still is). A map chapter keeps its panel."""
-    if _map_chapter(chapter, bool(script.get("region"))):
-        return False
+    a side panel of text. Every chapter is, whatever the style, unless the script sets "layout": "panel" (and then
+    a chapter building STEM drawings still is). Its beats on the map show the map in their turn (_map_runs)."""
     if script.get("layout") == "panel":
         return any(op.get("op") in STEM_OPS | WORK_OPS | FREE_OPS for b in chapter.get("beats") or []
                    for op in b.get("do") or [])
@@ -3381,27 +3420,34 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out += ["", f"        # {index:02d}  {' '.join(str(chapter['title']).split())}"]
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter.get('narration') or chapter['title'])})")
-        on_map = _map_chapter(chapter, bool(region))
-        if on_map:
-            # Fitted to the places this chapter shows (or back to the whole map when it shows them all over it).
-            box = _chapter_frame(chapter, script.get("region"))
-            out.append(f"        self.use_frame({box!r})")
-        wide = on_map and not _fills_panel(chapter, script.get("figures"))
-        out.append(("        self.show_map(wide=True)" if wide else "        self.show_map()") if on_map else
-                   "        self.board()" if board_chapter(script, chapter) else "        self.add_panel()")
-        if on_map:
-            # Every place the chapter will mark, spoken for now: no label set early covers a later marker's dot.
-            spots = _chapter_spots(chapter)
-            if spots:
-                out.append(f"        self.reserve_places([{', '.join(spots)}])")
         fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
         AUTO_PICTURES.extend((index, bi + 1, fill) for bi, fill in enumerate(fills) if fill)
+        # Every chapter is on the board (or its side panel); the map comes in for the runs of beats on it.
+        on_board = board_chapter(script, chapter)
+        runs = {first: last for first, last in _map_runs(chapter, bool(region), fills)}
+        if 0 not in runs:
+            out.append("        self.board()" if on_board else "        self.add_panel()")
+        map_until = None                        # the beat the map's run ends at, while the map is up
         staged = False
         parts_named: dict[str, dict] = {}       # a diagram's part ids -> their names, for the words that say them
         asked: list[str] = []                   # the choices of the question up
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
         closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
+            if map_until is not None and bi == map_until:
+                out.append(f"        self.map_away(board={on_board})")
+                map_until, staged = None, False
+            if bi in runs:
+                # Fitted to the places this run shows (or the whole map when they are all over it), across the
+                # whole frame unless it puts facts in a side panel; every place it will mark spoken for now, so
+                # no label set early covers a later marker's dot.
+                run = _run_of(chapter, bi, runs[bi])
+                box = _chapter_frame(run, script.get("region"))
+                spots = _chapter_spots(run)
+                wide = not _fills_panel(run, script.get("figures"))
+                places = f", places=[{', '.join(spots)}]" if spots else ""
+                out.append(f"        self.map_in({box!r}{places}, wide={wide})")
+                map_until, staged = runs[bi], False
             ops = beat_order(list(beat.get("do") or []))
             free = next((op for op in ops if op.get("op") == "manim"), None)
             if free is not None:

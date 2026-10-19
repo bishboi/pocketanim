@@ -19,7 +19,7 @@ export type VisualKind = {
 };
 
 export const VISUAL_KINDS: VisualKind[] = [
-  { id: "map", label: "Map", about: "Natural Earth through Cartopy: markers, rivers, shaded areas, routes, empires, relief (map chapters).",
+  { id: "map", label: "Map", about: "Natural Earth through Cartopy: markers, rivers, shaded areas, routes, empires, relief (the map comes in on the beats that point at it).",
     ops: ["marker", "river", "path", "arrow", "state", "dim", "graticule", "journey", "empire", "relief"] },
   { id: "figure", label: "Book figures", about: "The book's own figures (as redrawn or drawn in Generate, else the book's picture).", ops: ["figure"] },
   { id: "illustration", label: "AI illustrations", about: "Pictures of people, places, things and scenes made by the image model, as cutouts or whole scenes; also on diagram nodes, timeline events and map markers.",

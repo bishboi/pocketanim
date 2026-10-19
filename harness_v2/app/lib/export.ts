@@ -173,7 +173,7 @@ export function transcriptMarkdown(run: Run): string {
       // The lecture as its script: each chapter (its stage and the book's blocks it teaches from), each beat's words.
       out.push("", "### Script", "");
       for (const c of l.script.chapters) {
-        out.push(`#### Chapter ${c.n}: ${c.title} (${c.map ? "on a map" : "on a board"})`, "", `_Title card: ${c.narration}_`, "",
+        out.push(`#### Chapter ${c.n}: ${c.title} (${c.map ? "on the board, the map in for its beats on places" : "on the board"})`, "", `_Title card: ${c.narration}_`, "",
           `Content: ${(c.content ?? []).map((id) => `\`${id}\``).join(", ") || "none named"}`, "");
         for (const b of c.beats) {
           const figures = b.figures ?? (b.figure ? [b.figure] : []);

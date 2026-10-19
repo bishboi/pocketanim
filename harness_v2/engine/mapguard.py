@@ -27,8 +27,14 @@ _NO_MAP = re.compile(r"\b(?:no|not\s+an?|without\s+(?:an?\s+)?|never\s+an?)\s+(?
 # maps or geographical outlines") is not asking for any of them.
 _NEGATED = re.compile(r"\b(?:no|not|never|nor|without|avoid(?:ing)?|exclud(?:e|es|ing)|free of|rather than|"
                       r"instead of)\b[^.;:!?\n]*", re.I)
+# "Atlas" is also the name of a lecture style ("Atlas detailed shaded art"), and "cartographic" its look: either
+# names a map only as a book of maps ("an atlas", "the atlas of India", "an atlas page") or an atlas's drawing
+# ("cartography", "a cartographic survey").
 _GEO = re.compile(
-    r"\b(?:atlas(?![\s-]+(?:style|styled|lecture|look|template|theme|board|palette|colou?rs?|art|illustrations?|drawings?|paintings?|pictures?|cutouts?|portraits?|figures?|images?|version|rendering))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
+    r"\b(?:(?:an?|the|old|world|historical|school)\s+atlas\b(?![\s-]+(?:style|styled|look|template|theme|art|"
+    r"palette|colou?rs?|detailed|shad\w*|illustrations?|drawings?|paintings?|pictures?|portraits?|figures?|"
+    r"images?|rendering|version))|atlas\s+(?:of|page|plate|map)s?\b|cartograph(?:y|ers?|ic\s+(?:survey|"
+    r"projection|record))\b|coastlines?|continents|world map|political (?:divisions|boundaries)|"
     r"trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)", re.I)
 _DIVISIONS = re.compile(r"\b(?:[Ss]tates|[Pp]rovinces|[Dd]istricts|[Cc]ountries|[Kk]ingdoms|[Cc]olonies) (?:of|in) "
                         r"(?:the )?[A-Z]\w+")

@@ -114,7 +114,7 @@ export function editContext(run: Run, n: number, chapter: number): string {
   const beats = beatInputs(run, n).filter((b) => b.chapter === chapter);
   return [
     `THE LECTURE: lecture ${n}, "${run.lectures.find((l) => l.n === n)?.title ?? ""}". Its chapters:`,
-    ...script.chapters.map((c) => `  Chapter ${c.n}: ${c.title} (${c.map ? "on a map" : "on a board"})${c.n === chapter ? "  <- the chapter to write" : ""}`),
+    ...script.chapters.map((c) => `  Chapter ${c.n}: ${c.title} (${c.map ? "on the board, the map in for its beats on places" : "on the board"})${c.n === chapter ? "  <- the chapter to write" : ""}`),
     `The map region already chosen: ${sl?.region ? JSON.stringify(sl.region) : "none"}.`,
     "",
     `THE LECTURE'S FIGURES (${figures.length}), the book's own, shown by id: {"op":"picture","figure":"<id>"}:`,
@@ -158,7 +158,9 @@ export function readChapterScript(x: unknown): ChapterScript {
     .filter((k) => text(k)).map((k) => [k, text(k)])) } : {};
   return { ...motion, style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
     genre: text("genre") ?? null,
-    chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "", map: ch!.map === true, beats } };
+    chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "",
+      // On the board, the map in for its beats that point at it; "map": false keeps the map out of the chapter.
+      ...(ch!.map === false ? { map: false } : {}), beats } };
 }
 
 /** The engine's script for an edited chapter: the lecture's title and its figures, the chapter as edited. */
@@ -169,7 +171,7 @@ export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Pro
     .filter((k) => s[k]).map((k) => [k, s[k]])) } : {};
   return { ...motion, title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),
-    chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", map: !!s.chapter.map && !!region,
+    chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", ...(s.chapter.map === false ? { map: false } : {}),
       beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
 }
 

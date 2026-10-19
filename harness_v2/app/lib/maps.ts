@@ -70,7 +70,7 @@ export async function compileMap(script: Record<string, unknown>, dir: string): 
 export function mapProblems(compiled: { source?: string; errors: string[]; warnings: string[] }): string[] {
   if (compiled.errors.length) return compiled.errors;
   if (!compiled.source) return ["the engine made no scene of it"];
-  if (!/self\.show_map\(/.test(compiled.source)) {
+  if (!/self\.(?:show_map|map_in)\(/.test(compiled.source)) {
     return ["nothing was drawn on a map", ...compiled.warnings.filter((w) => /left out|unknown|not found|no place/i.test(w))];
   }
   return [];

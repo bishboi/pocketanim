@@ -299,7 +299,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
     if (data) figureData.push(data);
   }
   const userParts: Part[] = [
-    part("lecture", "The lecture and chapter", "context", `Lecture ${n}: ${lecture.title}. Chapter ${chapter.n}: ${chapter.title} (${chapter.map ? "on a map" : "on a board"}).`),
+    part("lecture", "The lecture and chapter", "context", `Lecture ${n}: ${lecture.title}. Chapter ${chapter.n}: ${chapter.title} (on the board).`),
     part("look", "The look", "context", `It is drawn in ${look}.`),
     part("beat", `Beat #${beat}: what is said (about ${secs.toFixed(0)} s)`, "book", `"${said}"\nThe script's note of what is on screen: ${sbeat.show || "-"}`),
     ...(plan ? [part("plan", "The scene writer's plan for this figure", "plan", plan)] : []),

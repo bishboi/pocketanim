@@ -38,6 +38,13 @@ import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
 import type { BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
 import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps } from "./visual-kinds";
+
+const MAP_OPS = new Set(VISUAL_KINDS.find((k) => k.id === "map")?.ops ?? []);
+
+/** Whether a lecture's beats point at the map anywhere (a marker, a shaded state, a journey...). */
+function usesMap(sl: { beats: Record<number, { ops: { op?: unknown }[] } | undefined> }): boolean {
+  return Object.values(sl.beats).some((b) => b?.ops.some((o) => MAP_OPS.has(String(o.op))));
+}
 import { MOTION_LOOKS } from "./prompts/scenes-motion";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
@@ -500,12 +507,13 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     : `all ${targets.length} beat(s) answered`);
   if (droppedAll) check(call, "Switched off", "fixed", `${droppedAll} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
   const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
-  const needsMap = script.chapters.some((c) => c.map);
+  // Every chapter is on the board; the map comes in for the beats that point at it, in any chapter.
+  const needsMap = script.chapters.some((c) => c.map) || usesMap(sl);
   if (region && needsMap && (!sl.region || ask.what === "lecture")) {
     sl.region = region;
     check(call, "Region", "pass", JSON.stringify(region));
   } else if (needsMap && !sl.region && st.kinds.includes("map")) {
-    check(call, "Region", "info", "a chapter is on a map but no region was given: its map operations are left out by the compiler");
+    check(call, "Region", "info", "beats point at the map but no region was given: their map operations are left out by the compiler");
   }
   sl.scriptAt = run.script?.lectures[n]?.at;
   saveRun(run);
@@ -637,9 +645,11 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   const lecture = run.lectures.find((l) => l.n === n)!;
   const lines = linesOf(lecture.text ?? "");
   const sl = lectureState(run, n);
-  const region = script.chapters.some((c) => c.map) && sl.region ? sl.region : null;
+  // Every chapter is on the board; with a region, the map comes in for the beats that point at it, in any chapter
+  // (compile_lecture._map_runs). A chapter is never put on the map, or kept off it, as a whole.
+  const region = (script.chapters.some((c) => c.map) || usesMap(sl)) && sl.region ? sl.region : null;
   let chapters = script.chapters.map((c) => ({
-    n: c.n, title: c.title, narration: c.narration, map: c.map && !!region,
+    n: c.n, title: c.title, narration: c.narration,
     beats: c.beats.map((b) => {
       const sb = sl.beats[b.n];
       return { n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sb?.ops ?? [],
@@ -657,7 +667,7 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
-    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration, map: c.map,
+    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration,
       beats: c.beats.map(({ n: _, ...b }) => b) })),
   };
 }

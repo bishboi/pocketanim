@@ -346,7 +346,7 @@ function Outline({ run, lecture, lines, pick, setPick }: { run: Run; lecture: Le
             <button onClick={() => setPick({ kind: "chapter", c: ch.n })} data-testid="scenes-chapter"
               className={`flex w-full items-baseline gap-1 rounded px-1.5 py-1 text-left text-xs ${pick.kind === "chapter" && pick.c === ch.n ? "bg-sky-950 text-sky-100" : "text-neutral-100 hover:bg-neutral-800"}`}>
               <span className="text-neutral-500">{ch.n}.</span><span className="min-w-0 flex-1 truncate font-semibold">{ch.title}</span>
-              <span className={`text-[9px] ${ch.map ? "text-emerald-400" : "text-neutral-500"}`}>{ch.map ? "map" : "board"}</span>
+              <span className={`text-[9px] ${ch.map ? "text-emerald-400" : "text-neutral-500"}`} title="Every chapter is on the board; the map comes in for its beats that point at places">{ch.map ? "board · map" : "board"}</span>
               {cr && <span className={`text-[9px] ${TONE[cr.status]}`} title="chapter render">▶</span>}
             </button>
             <ol className="ml-3 border-l border-neutral-800">

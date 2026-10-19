@@ -166,7 +166,7 @@ function ChapterRow({ run, lecture, chapter, selection, select }: { run: Run; le
       className={`rounded px-1.5 py-1 ${chosen ? "bg-sky-950/70 ring-1 ring-sky-500" : "hover:bg-neutral-800"}`}>
       <div className="flex flex-wrap items-baseline gap-2 text-xs">
         <span className="text-neutral-100"><span className="text-neutral-500">{chapter.n}.</span> {chapter.title}</span>
-        <span className={`rounded px-1 text-[10px] ${chapter.map ? "bg-emerald-950 text-emerald-300" : "bg-neutral-800 text-neutral-400"}`}>{chapter.map ? "map" : "board"}</span>
+        <span className={`rounded px-1 text-[10px] ${chapter.map ? "bg-emerald-950 text-emerald-300" : "bg-neutral-800 text-neutral-400"}`}>{chapter.map ? "board · map beats" : "board"}</span>
         <span className="text-[11px] text-neutral-500">{chapter.beats.length} beats · {content.length} block(s){shared.length ? ` (${shared.length} shared with other chapters)` : ""}
           {figures.length ? ` · ${figures.length} figure(s) on ${chapter.beats.filter((b) => beatFigures(b).length).length} beat(s)` : ""}</span>
       </div>

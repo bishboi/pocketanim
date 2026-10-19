@@ -194,7 +194,7 @@ function ChaptersView({ run, lecture, lines, select }: { run: Run; lecture: Lect
                 onClick={() => { pickChapter(ch); document.getElementById(anchor(ch.n))?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
                 <span className="text-neutral-500">{ch.n}.</span> <span className="text-neutral-100">{ch.title}</span>
                 <span className="block text-[10px] text-neutral-500">
-                  <span className={ch.map ? "text-emerald-400" : ""}>{ch.map ? "map" : "board"}</span> · {ch.beats.length} beats · {(ch.content ?? []).length} blocks</span>
+                  <span className={ch.map ? "text-emerald-400" : ""}>{ch.map ? "board · map beats" : "board"}</span> · {ch.beats.length} beats · {(ch.content ?? []).length} blocks</span>
               </button>
             </li>
           ))}
@@ -359,7 +359,7 @@ function Answer({ output }: { output: unknown }) {
             const figs = [...new Set((c.beats ?? []).flatMap((b) => b.figures ?? (b.figure ? [b.figure] : [])))];
             return (
               <li key={i}><span className="text-neutral-500">{i + 1}.</span> {c.title ?? "(no title)"} <span className="text-neutral-500">
-                · {c.map ? "map" : "board"} · {c.beats?.length ?? 0} beats{c.content ? ` · ${c.content.length} blocks of content` : ""}
+                · {c.map ? "board · map beats" : "board"} · {c.beats?.length ?? 0} beats{c.content ? ` · ${c.content.length} blocks of content` : ""}
                 {figs.length ? ` · figures ${figs.join(", ")}` : ""}</span></li>
             );
           })}

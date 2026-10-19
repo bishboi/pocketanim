@@ -41,8 +41,9 @@ const STRUCTURE = [
   "    and end where a topic is complete and the next begins: never cut an idea, an explanation, a worked example or a",
   "    figure away from the text that explains it. Its length is the topics', about the length given below.",
   "  - CHAPTERS: the lecture's topics in order, a few minutes each (usually 3 to 8 a lecture). Each has a title (a",
-  "    few words), the one short line said on its title card (\"Chapter two. The first cities.\"), its stage (\"map\":",
-  "    true when it is taught on a map, the places being the point, else a board), and its CONTENT: the ids of the",
+  "    few words), the one short line said on its title card (\"Chapter two. The first cities.\"), whether some of",
+  "    its beats point at places on a map (\"map\": true; every chapter is on the board, the map coming in only for",
+  "    those beats), and its CONTENT: the ids of the",
   "    book's blocks it teaches from. Content is not shared out: two chapters (of this lecture or another) may teach",
   "    from the same block, when both need it; and every block this lecture teaches is in some chapter's content.",
   "  - BEATS: a chapter is its beats in order, each the smallest unit of the video: \"say\", 1 or 2 sentences said",
@@ -143,7 +144,7 @@ export const WRITE_TOOL = {
             properties: {
               title: { type: "string" },
               narration: { type: "string", description: "The one line said on the chapter's title card." },
-              map: { type: "boolean", description: "Taught on a map." },
+              map: { type: "boolean", description: "Some of its beats point at places on the map (the chapter itself is on the board)." },
               content: { type: "array", items: { type: "string" }, description: "The ids of the book's blocks it teaches from (others may share them)." },
               beats: {
                 type: "array",

@@ -48,6 +48,7 @@ from manim.utils.rate_functions import ease_in_cubic, ease_out_back, ease_out_cu
 
 import motion_kit as K
 import motion_looks
+from motion_more import MoreTemplates
 import pocket_lecture as pl
 from pocket_lecture import *  # noqa: F403 -- the engine's names, for the compiled scene
 from pocket_lecture import (BEAT_PAD, PARAGRAPH_PAD, Z_MARK, MapLecture, _flat, fit, said_at, set_drift, wrap)
@@ -72,7 +73,7 @@ def _P():
     return pl.P
 
 
-class MotionLecture(MapLecture):
+class MotionLecture(MoreTemplates, MapLecture):
     """A lecture in a look, every template animated (see the module's notes)."""
 
     # ---------------------------------------------------------------- set-up ----------------------------------------

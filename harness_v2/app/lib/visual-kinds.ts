@@ -46,8 +46,9 @@ export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
 /** The motion engine's templates (engine/MOTION_ENGINE.md, beta): allowed only when the Scenes tab builds on it. */
 export const MOTION_KIND: VisualKind = {
   id: "motion", label: "Motion templates (beta)",
-  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, callouts, pointing.",
-  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "callout", "emphasis"],
+  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, callouts, pointing; hierarchies, exchanges, site plans, lineages, lifespans, analogies, myths corrected, rituals, shares, calendars, convergence, tables, questions.",
+  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "callout", "emphasis",
+    "hierarchy", "exchange", "plan", "lineage", "lifespan", "analogy", "myth", "ritual", "share", "calendar", "converge", "table", "ask"],
 };
 
 /** Always allowed: the board's words. */
@@ -128,8 +129,8 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
         else for (const k of ["generate", "figure", "draw"]) delete it[k];
         return name !== "polaroids";
       };
-      for (const key of ["items", "steps"]) if (Array.isArray(op[key])) op[key] = (op[key] as unknown[]).filter((x, i) => inner(x, `${name} ${key} ${i + 1}`));
-      for (const side of ["left", "right"]) if (op[side]) inner(op[side], `${name} ${side}`);
+      for (const key of ["items", "steps", "tiers", "people", "objects"]) if (Array.isArray(op[key])) op[key] = (op[key] as unknown[]).filter((x, i) => inner(x, `${name} ${key} ${i + 1}`));
+      for (const side of ["left", "right", "to"]) if (op[side]) inner(op[side], `${name} ${side}`);
     }
     if (Array.isArray(op.pictures)) op.pictures = (op.pictures as unknown[]).map((p, i) => (p && !keep(p, `${name} stop ${i + 1}`) ? null : p));
     if (Array.isArray(op.items) && (name === "picture" || name === "gallery")) {

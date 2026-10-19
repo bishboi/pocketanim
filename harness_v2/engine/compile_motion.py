@@ -3,7 +3,8 @@
 It is the lecture compiler (compile_lecture.py) with more: everything a beat script says compiles as it does there
 -- the same checks, the same mends, the same pictures -- and plays in motion, in a look; and a beat may also use the
 motion templates (title, counter, chart, units, cards, stamp, kpi, chain, list, versus, donut, document, polaroids,
-callout, emphasis), each with `on`: the words it lands on. The reference is MOTION_ENGINE.md.
+callout, emphasis; and hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar,
+converge, table, ask: motion_more.py), each with `on`: the words it lands on. The reference is MOTION_ENGINE.md.
 
     .venv/bin/python harness_v2/engine/compile_motion.py script.json -o scene.py
     .venv/bin/python harness_v2/engine/compile_motion.py - --json < script.json
@@ -52,6 +53,21 @@ MOTION_OPS: dict[str, dict] = {
     "polaroids": {"need": ["items"], "args": ["items", "title", "kicker", "id"]},
     "callout": {"need": ["text"], "args": ["text", "color", "at"]},
     "emphasis": {"need": ["target"], "args": ["target", "how", "color"]},
+    # The shapes of a history, a society or an argument (motion_more.py).
+    "hierarchy": {"need": ["tiers"], "args": ["tiers", "title", "kicker", "badge", "build", "id"]},
+    "exchange": {"need": ["left", "right", "flows"], "args": ["left", "right", "flows", "title", "kicker", "id"]},
+    "plan": {"need": ["zones"], "args": ["zones", "title", "kicker", "file", "id"]},
+    "lineage": {"need": ["people"], "args": ["people", "title", "kicker", "id"]},
+    "lifespan": {"need": ["people"], "args": ["people", "range", "marks", "title", "kicker", "id"]},
+    "analogy": {"need": ["pairs"], "args": ["pairs", "left", "right", "title", "kicker", "stamp", "id"]},
+    "myth": {"need": ["wrong", "right"], "args": ["wrong", "right", "label", "title", "kicker", "on", "id"]},
+    "ritual": {"need": ["steps"], "args": ["steps", "objects", "seal", "title", "kicker", "id"]},
+    "share": {"need": ["total", "part"], "args": ["total", "part", "unit", "label", "part_label", "rest_label", "on",
+                                                  "title", "kicker", "id"]},
+    "calendar": {"need": [], "args": ["days", "seasons", "title", "kicker", "id"]},
+    "converge": {"need": ["to", "sources"], "args": ["to", "sources", "direction", "title", "kicker", "id"]},
+    "table": {"need": ["columns", "rows"], "args": ["columns", "rows", "title", "kicker", "highlight", "id"]},
+    "ask": {"need": ["text"], "args": ["text", "answer", "kicker", "on", "id"]},
 }
 # Put over what is on the stage (after the beat's pictures go up), not a picture of their own.
 OVERLAY_OPS = {"stamp", "callout", "emphasis"}
@@ -59,11 +75,16 @@ CHART_KINDS = ("column", "bar", "line")
 LIST_MARKS = ("bullet", "number", "check")
 EMPHASES = ("pulse", "circle", "underline", "highlight", "box", "glow", "shake", "dim")
 TIMELINE_STYLES = ("track", "ribbon", "cards", "road", "vertical")
+ZONE_KINDS = ("field", "wood", "water", "pasture", "building", "church", "marsh", "road")
+PLAN_CELLS = ("nw", "n", "ne", "w", "center", "e", "sw", "s", "se")
+UNIT_SHAPES = ("sack", "coin", "box")
 ENERGIES = tuple(motion_looks.ENERGY)
 SIDES = ("center", "top", "bottom", "left", "right")
 # Pictures in these are made large (a print, a page's portrait, a side's picture), not as small pictures by words.
-BIG_PICTURES = {"polaroids", "document", "versus"}
-MOST = {"cards": 6, "chain": 7, "list": 7, "kpi": 4, "polaroids": 5, "chart": 12}
+BIG_PICTURES = {"polaroids", "document", "versus", "plan"}
+MOST = {"cards": 6, "chain": 7, "list": 7, "kpi": 4, "polaroids": 5, "chart": 12, "hierarchy": 6, "exchange": 4,
+        "plan": 12, "lineage": 8, "lifespan": 7, "analogy": 6, "ritual": 6, "calendar": 6, "converge": 8,
+        "table": 5}
 
 
 # ---------------------------------------------------------------- the script's own fields --------------------------
@@ -96,8 +117,18 @@ def _pictures(op: dict) -> list[tuple[str, dict]]:
         for k, step in enumerate(op.get("steps") or []):
             if isinstance(step, dict) and isinstance(step.get("picture"), dict):
                 out.append((f"step {k + 1}", step["picture"]))
-    elif kind == "document" and isinstance(op.get("picture"), dict):
+    elif kind in ("document", "plan") and isinstance(op.get("picture"), dict):
         out.append(("its picture", op["picture"]))
+    elif kind in ("hierarchy", "lineage", "ritual"):
+        key = {"hierarchy": "tiers", "lineage": "people", "ritual": "objects"}[kind]
+        for k, item in enumerate(op.get(key) or []):
+            if isinstance(item, dict) and isinstance(item.get("picture"), dict):
+                out.append((f"{key[:-1]} {k + 1}", item["picture"]))
+    elif kind in ("exchange", "converge"):
+        for side in (("left", "right") if kind == "exchange" else ("to",)):
+            s = op.get(side)
+            if isinstance(s, dict) and isinstance(s.get("picture"), dict):
+                out.append((f"its {side}", s["picture"]))
     elif kind == "versus":
         for side in ("left", "right"):
             s = op.get(side)
@@ -269,6 +300,16 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
                 return f"its {side} side needs a title"
             _picture_in(s)
             s["points"] = [str(p) for p in s.get("points") or []][:4]
+    elif kind == "share":
+        total, part = _num(op.get("total")), _num(op.get("part"))
+        if total is None or part is None or not 0 < part < total:
+            return "its total and part are numbers, the part smaller than the total"
+        if total > 20:
+            notes.append(f"{fixed}{at}: share total kept to 20 pieces (scaled: {int(part)} in {int(total)})")
+            part, total = max(1, round(part * 20 / total)), 20
+        op["total"], op["part"] = int(total), int(part)
+        if op.get("unit") is not None and op["unit"] not in UNIT_SHAPES:
+            op["unit"] = "sack"
     elif kind == "donut":
         if _num(op.get("value")) is None:
             return "its value is a number"
@@ -289,9 +330,124 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
     elif kind in ("stamp", "callout"):
         if op.get("at") is not None and op["at"] not in SIDES:
             op["at"] = "center" if kind == "stamp" else "right"
+    elif kind in ("hierarchy", "lineage", "ritual", "converge", "plan", "lifespan", "calendar", "table", "analogy",
+                  "exchange"):
+        problem = _mend_more(op, kind, at, notes, most)
+        if problem:
+            return problem
     if kind in BIG_PICTURES:
         for _, spec in _pictures(op):
             spec["_big"] = True
+    return None
+
+
+def _mend_more(op: dict, kind: str, at: str, notes: list[str], most: int | None) -> str | None:
+    """The templates of motion_more.py checked and mended (see MOTION_ENGINE.md §3)."""
+    fixed = cl.FIXED
+
+    def cut(key: str, items: list) -> list:
+        if most and len(items) > most:
+            notes.append(f"{fixed}{at}: {kind} cut to its first {most} {key}")
+        return items[:most] if most else items
+    if kind == "hierarchy":
+        tiers = _items(op, "tiers", "label")
+        for t in tiers:
+            _picture_in(t)
+        tiers = [t for t in tiers if t.get("label")]
+        if len(tiers) < 2:
+            return "a hierarchy needs two tiers or more, each with a label"
+        op["tiers"] = cut("tiers", tiers)
+        if op.get("build") not in (None, "up", "down"):
+            op["build"] = "up"
+        if isinstance(op.get("badge"), str):
+            op["badge"] = {"text": op["badge"]}
+    elif kind == "exchange":
+        for side in ("left", "right"):
+            if isinstance(op.get(side), str):
+                op[side] = {"title": op[side]}
+            if not isinstance(op.get(side), dict) or not op[side].get("title"):
+                return f"its {side} party needs a title"
+            _picture_in(op[side])
+        flows = [f for f in op.get("flows") or [] if isinstance(f, dict) and f.get("text")]
+        if not flows:
+            return "its flows are {from: left|right, text, on}"
+        op["flows"] = cut("flows", flows)
+    elif kind == "plan":
+        _picture_in(op)
+        zones = _items(op, "zones", "label")
+        for z in zones:
+            if z.get("kind") is not None and z["kind"] not in ZONE_KINDS:
+                notes.append(f"{fixed}{at}: plan zone kind {z['kind']!r} is not one of {', '.join(ZONE_KINDS)}; field is used")
+                z["kind"] = "field"
+            if z.get("at") is not None and z["at"] not in PLAN_CELLS:
+                z.pop("at")
+        op["zones"] = cut("zones", [z for z in zones if z.get("label")])
+        if not op["zones"]:
+            return "its zones each need a label"
+    elif kind == "lineage":
+        people = _items(op, "people", "name")
+        for p in people:
+            _picture_in(p)
+        people = [p for p in people if p.get("name")]
+        if len(people) < 2:
+            return "a lineage needs two people or more, each with a name"
+        op["people"] = cut("people", people)
+    elif kind == "lifespan":
+        import timeline_dates as td
+
+        people = [p for p in op.get("people") or [] if isinstance(p, dict) and p.get("name")]
+        good = [p for p in people if td.year(p.get("from")) is not None and td.year(p.get("to")) is not None
+                and td.year(p.get("to")) > td.year(p.get("from"))]
+        if len(good) < len(people):
+            notes.append(f"{fixed}{at}: lifespan: a life needs from and to as years (to after from); "
+                         f"{len(people) - len(good)} left out")
+        if not good:
+            return "its people each need a name, from and to (years)"
+        op["people"] = cut("people", good)
+    elif kind == "analogy":
+        pairs = [p for p in op.get("pairs") or [] if (isinstance(p, dict) and p.get("a") and p.get("b"))
+                 or (isinstance(p, (list, tuple)) and len(p) >= 2)]
+        if not pairs:
+            return "its pairs are [a, b] or {a, b, on}"
+        op["pairs"] = cut("pairs", pairs)
+    elif kind == "ritual":
+        steps = _items(op, "steps", "text")
+        if not steps:
+            return "a ritual needs its steps"
+        op["steps"] = cut("steps", steps)
+        objects = _items(op, "objects", "name")
+        for o in objects:
+            _picture_in(o)
+        op["objects"] = objects[:4]
+        if isinstance(op.get("seal"), str):
+            op["seal"] = {"text": op["seal"]}
+    elif kind == "converge":
+        if isinstance(op.get("to"), str):
+            op["to"] = {"label": op["to"]}
+        if not isinstance(op.get("to"), dict) or not op["to"].get("label"):
+            return "its `to` needs a label"
+        _picture_in(op["to"])
+        op["sources"] = cut("sources", _items(op, "sources", "label"))
+        if not op["sources"]:
+            return "it needs its sources"
+        if op.get("direction") not in (None, "in", "out"):
+            op["direction"] = "in"
+    elif kind == "table":
+        cols = [str(c) for c in op.get("columns") or []]
+        if not 2 <= len(cols) <= 4:
+            if len(cols) < 2:
+                return "a table needs two columns or more"
+            notes.append(f"{fixed}{at}: a table has 2 to 4 columns; cut to its first 4")
+        op["columns"] = cols[:4]
+        rows = [r for r in op.get("rows") or [] if isinstance(r, dict) and r.get("label")]
+        if not rows:
+            return "its rows are {label, cells, on}"
+        op["rows"] = cut("rows", rows)
+    elif kind == "calendar":
+        if not (op.get("days") or op.get("seasons")):
+            return "a calendar needs days or seasons"
+        op["days"] = (op.get("days") or [])[:6]
+        op["seasons"] = (op.get("seasons") or [])[:6]
     return None
 
 
@@ -312,9 +468,16 @@ def _patched_picture_fetch(spec: dict):
     return fetch
 
 
+# Templates whose `on` is the moment inside them (the correction, the share lifted out, the answer), not when they
+# come on: they come on with the line (or on their own words, as any picture).
+INNER_ON = {"myth", "share", "ask"}
+
+
 def _patched_op_said(op: dict, parts: dict, asked: list):
-    if op.get("on"):
+    if op.get("on") and op.get("op") not in INNER_ON:
         return str(op["on"])
+    if op.get("op") in INNER_ON:
+        return _ORIG["_op_said"]({k: v for k, v in op.items() if k != "on"}, parts, asked)
     return _ORIG["_op_said"](op, parts, asked)
 
 

@@ -186,6 +186,53 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
     { say: "Italy is next.", do: [{ op: "emphasis", target: "Italy", how: "box" }] },
     { say: "Germany is the lowest.", do: [{ op: "emphasis", target: "Germany", how: "shake" }] },
     { say: "And Japan again, alone.", do: [{ op: "emphasis", target: "Japan", how: "dim" }] }]),
+  // ---- the shapes of a history, a society or an argument (engine/motion_more.py)
+  tpl("hierarchy", "Hierarchy", "Tiers of a pyramid rise from the bottom as each is named, roles beside them; a badge slams on one.", "sketch", [
+    { say: "Some pray, others fight, and still others work: the clergy, the nobility and the peasantry.", do: [{ op: "hierarchy", title: "The three orders",
+      tiers: [{ label: "Clergy", role: "those who pray", on: "clergy" }, { label: "Nobility", role: "those who fight", on: "nobility" }, { label: "Peasantry", role: "those who work", on: "peasantry" }],
+      badge: { tier: "Nobility", text: "controls the land", on: "fight" } }] }]),
+  tpl("exchange", "Exchange", "Two parties sweep in; what each gives the other is drawn across as an arrow on its words.", "paper", [
+    { say: "The lord gives protection, and the vassal gives loyalty in return.", do: [{ op: "exchange", title: "A mutual promise", left: "Lord", right: "Vassal",
+      flows: [{ from: "left", text: "protection", on: "protection" }, { from: "right", text: "loyalty", on: "loyalty" }] }] }]),
+  tpl("plan", "Site plan", "A board laid out zone by zone: buildings, strips of field, woods, pasture, water, each named as said.", "sketch", [
+    { say: "The manor-house and church stand together, with fields in strips, woodland, the common pasture and a stream.", do: [{ op: "plan", title: "A manorial estate",
+      zones: [{ label: "Manor-house", kind: "building", at: "center" }, { label: "Church", kind: "church", at: "n" }, { label: "Fields", kind: "field", at: "w", on: "fields" },
+        { label: "Woodland", kind: "wood", at: "ne" }, { label: "Common pasture", kind: "pasture", at: "s", on: "pasture" }, { label: "Stream", kind: "water", at: "e", on: "stream" }] }] }]),
+  tpl("lineage", "Lineage", "A dynasty joined generation by generation, each link named.", "newsroom", [
+    { say: "Charles Martel was mayor of the palace; his son Pepin became king, and Pepin's son Charlemagne succeeded him.", do: [{ op: "lineage", title: "A dynasty",
+      people: [{ name: "Charles Martel", dates: "714", role: "mayor of the palace" }, { name: "Pepin", dates: "751", role: "king", via: "son" },
+        { name: "Charlemagne", dates: "768", role: "emperor, 800", via: "son" }] }] }]),
+  tpl("lifespan", "Lifespans", "Lives swept as bars on one scale of years; a dashed mark at an event.", "paper", [
+    { say: "Charlemagne lived from 742 to 814, Hildegard from 1098 to 1179, and Marc Bloch from 1886 to 1944.", do: [{ op: "lifespan", title: "Lives",
+      people: [{ name: "Charlemagne", from: 742, to: 814 }, { name: "Hildegard of Bingen", from: 1098, to: 1179, on: "Hildegard" }, { name: "Marc Bloch", from: 1886, to: 1944, on: "Marc Bloch" }],
+      marks: [{ at: 1066, label: "Norman Conquest" }] }] }]),
+  tpl("analogy", "Analogy", "Matched pairs slide in and join, A is to B; a stamp across them.", "sketch", [
+    { say: "Cows, donkeys and sheep are kept apart, and so, she said, are clergy, nobles and peasants.", do: [{ op: "analogy", title: "Hildegard's comparison", left: "In the stable", right: "In society",
+      pairs: [["Cows", "Clergy"], ["Donkeys", "Nobles"], { a: "Sheep", b: "Peasants", on: "sheep" }], stamp: { text: "Separate ranks", on: "peasants" } }] }]),
+  tpl("myth", "Myth corrected", "The wrong idea struck through and stamped; the right one slides in with a tick.", "studio", [
+    { say: "Do not picture three separate worlds. Picture three groups connected by the same land.", do: [{ op: "myth", wrong: "Three separate worlds", right: "Three groups connected by the same land", on: "three groups" }] }]),
+  tpl("ritual", "Ritual", "A ceremony on parchment: steps written in, objects laid out, a seal pressed.", "paper", [
+    { say: "Vows were taken on the Bible in a church, and the vassal received a charter, a staff, or a clod of earth.", do: [{ op: "ritual", title: "Homage and fealty",
+      steps: [{ text: "Kneel before the lord", on: "vows" }, { text: "Swear on the Bible", on: "Bible" }, { text: "Receive the land", on: "received" }],
+      objects: [{ name: "Charter", on: "charter" }, { name: "Staff", on: "staff" }, { name: "Clod of earth", on: "clod" }], seal: { text: "Bound", on: "earth" } }] }]),
+  tpl("share", "Share of a whole", "Ten sacks in a row; one coloured, lifted out and named; 1 in 10 beside it.", "paper", [
+    { say: "The Church claimed a tenth of what peasants produced: out of ten equal shares, one went to the Church.", do: [{ op: "share", label: "The tithe", total: 10, part: 1,
+      part_label: "to the Church", rest_label: "kept by the family", on: "one went" }] }]),
+  tpl("calendar", "Calendar", "A ring of months: seasons swept round it, days pinned on it, a movable date dashed.", "studio", [
+    { say: "Christmas falls on the twenty-fifth of December, while Easter moves each spring, after the sowing.", do: [{ op: "calendar", title: "The village year",
+      seasons: [{ from: "March", to: "May", label: "Sowing", on: "sowing" }, { from: "August", to: "September", label: "Harvest" }],
+      days: [{ at: "December 25", label: "Christmas", on: "Christmas" }, { moves: ["March 22", "April 25"], label: "Easter", on: "Easter" }] }] }]),
+  tpl("converge", "Converge", "Places round one centre, each joined to it by an arrow as it is named.", "newsroom", [
+    { say: "From every shire of England, from Kent, Essex, Sussex and London, travellers make their way to Canterbury.", do: [{ op: "converge", title: "Pilgrimage", to: "Canterbury",
+      sources: ["Kent", "Essex", "Sussex", "London", "Surrey"] }] }]),
+  tpl("table", "Table", "Column headings pop in; each row filled in as it is said; one column highlighted.", "data", [
+    { say: "Compare France, Mesopotamia and Rome: what justified rank, and which resources supported it.", do: [{ op: "table", title: "Hierarchies compared", columns: ["France", "Mesopotamia", "Rome"], highlight: "France",
+      rows: [{ label: "What justified rank", cells: ["Three orders", "Temple and palace", "Law and citizenship"], on: "justified" },
+        { label: "Resources", cells: ["Land", "Temple estates", "Wealth and slaves"], on: "resources" }] }] }]),
+  tpl("ask", "Question and answer", "The central question set large; its answer typed under it with a tick.", "sketch", [
+    { say: "That is our question today: why did power belong not just to kings, but to nobles and churchmen?", do: [{ op: "ask", text: "Why did power belong not just to kings?" }] },
+    { say: "We can now answer it: land, protection and religion made several centres of power.", do: [{ op: "ask", text: "Why did power belong not just to kings?",
+      answer: "Land, protection and religion made several centres of power", on: "land, protection" }] }]),
   // ---- the timeline, in its five styles
   ...(["track", "ribbon", "cards", "road", "vertical"] as const).map((style): LabMotionPreset => ({
     id: `m-timeline-${style}`, group: "Timelines", name: `Timeline: ${style}`,
@@ -268,6 +315,14 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
       { say: "The stock climbed all year, and faster after the summer.", do: [{ op: "chart", kind: "line", kicker: "Share price", marks: [{ at: 7, label: "Summer" }],
         items: [["1", 120], ["2", 128], ["3", 125], ["4", 140], ["5", 150], ["6", 158], ["7", 170], ["8", 196], ["9", 215], ["10", 240]] }] },
       { say: "Before and after: the backlog went from eight to fourteen billion.", do: [{ op: "versus", left: { title: "A year ago", value: "$8.1B" }, right: { title: "Now", value: "$14.1B" } }], paragraph: true }]) },
+  { id: "m-scene-medieval", group: "Scenes", name: "Scene: a medieval society", note: "Sketch look: a question, three orders, an exchange, a manor's plan, a ritual, a tithe.",
+    script: motion("sketch", "Scene: a medieval society", [
+      { say: "Why did power belong not just to kings, but also to nobles and churchmen?", do: [{ op: "ask", text: "Why did power belong not just to kings?" }] },
+      { say: "Some pray, others fight, and still others work.", do: [{ op: "hierarchy", tiers: [{ label: "Clergy", role: "pray", on: "pray" }, { label: "Nobility", role: "fight", on: "fight" }, { label: "Peasantry", role: "work", on: "work" }] }] },
+      { say: "The lord gives protection; the vassal gives loyalty.", do: [{ op: "exchange", left: "Lord", right: "Vassal", flows: [{ from: "left", text: "protection", on: "protection" }, { from: "right", text: "loyalty", on: "loyalty" }] }] },
+      { say: "The estate held a manor-house, a church, fields in strips and woodland.", do: [{ op: "plan", zones: [{ label: "Manor-house", kind: "building", at: "center" }, { label: "Church", kind: "church", at: "n" }, { label: "Fields", kind: "field", at: "w", on: "fields" }, { label: "Woodland", kind: "wood", at: "e", on: "woodland" }] }] },
+      { say: "Vows were sworn on the Bible, and a clod of earth stood for the land.", do: [{ op: "ritual", title: "Homage", steps: [{ text: "Swear on the Bible", on: "Bible" }], objects: [{ name: "Clod of earth", on: "clod" }], seal: { text: "Bound", on: "land" } }] },
+      { say: "And one share in ten went to the Church.", do: [{ op: "share", label: "The tithe", total: 10, part: 1, part_label: "to the Church", on: "one share" }] }]) },
   { id: "m-scene-sketch", group: "Scenes", name: "Scene: a sketchbook", note: "Sketch look: a road of stops, a list, a donut, a stamp.",
     script: motion("sketch", "Babur's road", [
       { say: "Babur marched from Kabul in 1504, to Panipat in 1526, and on to Agra.", do: [{ op: "timeline", style: "road", title: "Babur's road", events: [["1504", "Kabul"], ["1526", "Panipat"], ["1527", "Agra"]] }], paragraph: true },
@@ -294,4 +349,17 @@ export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, 
   { op: "callout", say: "Only a few abroad.", do: { op: "callout", text: "8% abroad", on: "abroad" } },
   { op: "emphasis", say: "Japan stands out.", do: { op: "emphasis", target: "Japan", how: "circle" } },
   { op: "timeline (road)", say: "Kabul, Panipat, Agra.", do: { op: "timeline", style: "road", events: [["1504", "Kabul"], ["1526", "Panipat"], ["1527", "Agra"]] } },
+  { op: "hierarchy", say: "Clergy, nobility, peasantry.", do: { op: "hierarchy", tiers: ["Clergy", "Nobility", "Peasantry"] } },
+  { op: "exchange", say: "Protection for loyalty.", do: { op: "exchange", left: "Lord", right: "Vassal", flows: [{ from: "left", text: "protection" }, { from: "right", text: "loyalty" }] } },
+  { op: "plan", say: "Houses, fields and woods.", do: { op: "plan", zones: [{ label: "Houses", kind: "building" }, { label: "Fields", kind: "field" }, { label: "Woods", kind: "wood" }] } },
+  { op: "lineage", say: "Pepin, then Charlemagne.", do: { op: "lineage", people: [{ name: "Pepin" }, { name: "Charlemagne", via: "son" }] } },
+  { op: "lifespan", say: "Marc Bloch, 1886 to 1944.", do: { op: "lifespan", people: [{ name: "Marc Bloch", from: 1886, to: 1944 }] } },
+  { op: "analogy", say: "Cows are to clergy as sheep are to peasants.", do: { op: "analogy", pairs: [["Cows", "Clergy"], ["Sheep", "Peasants"]] } },
+  { op: "myth", say: "Not separate worlds, but connected groups.", do: { op: "myth", wrong: "Separate worlds", right: "Connected groups" } },
+  { op: "ritual", say: "Kneel, then swear.", do: { op: "ritual", title: "The oath", steps: ["Kneel", "Swear"], seal: "Bound" } },
+  { op: "share", say: "One in ten went to the Church.", do: { op: "share", total: 10, part: 1, part_label: "to the Church" } },
+  { op: "calendar", say: "Christmas, in December.", do: { op: "calendar", days: [{ at: "December 25", label: "Christmas" }] } },
+  { op: "converge", say: "Kent and Essex to Canterbury.", do: { op: "converge", to: "Canterbury", sources: ["Kent", "Essex"] } },
+  { op: "table", say: "France and Rome compared.", do: { op: "table", columns: ["France", "Rome"], rows: [{ label: "Rank", cells: ["Orders", "Law"] }] } },
+  { op: "ask", say: "Who held power, and why?", do: { op: "ask", text: "Who held power, and why?" } },
 ];

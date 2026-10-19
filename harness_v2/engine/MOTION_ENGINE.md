@@ -20,6 +20,7 @@ beat script (JSON, "engine": "motion") ─▶ compile_motion.py ─▶ Manim sce
 | `motion.py` | `MotionLecture`: the engine. Extends `pocket_lecture.MapLecture`; redraws the classic operations in motion and adds the templates (`m_*`). |
 | `motion_kit.py` | The primitives: words, cards, chips, stamps, marks, and the motions (entrances, emphasis, exits, a counter, a spring, a shake). |
 | `motion_timeline.py` | The timeline in five styles. |
+| `motion_more.py` | The templates for the shape of a history, a society or an argument: hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar, converge, table, ask. |
 | `motion_looks.py` | The six looks: design, motion tokens, textures, picture dressing. |
 | `tools/motion_strip.py` | A contact sheet of a rendered video, every N seconds: how a motion plays, at a glance. |
 
@@ -254,6 +255,138 @@ Popped onto what is up (`at`: right, left, top, bottom, center), or alone on the
 At a part of a template on screen (its name, or `<id>.<name>`): `pulse` (default), `circle` (a ring drawn round it by
 hand), `underline`, `highlight` (the highlighter behind it), `box` (the house frame), `glow`, `shake`, `dim` (the
 rest of its template faded back). A name not on screen is left out with a note.
+
+### The shapes of a history, a society or an argument (`motion_more.py`)
+
+#### `hierarchy`: tiers of a pyramid
+```json
+{"op": "hierarchy", "title": "The three orders", "build": "up",
+ "tiers": [{"label": "Clergy", "role": "those who pray", "on": "clergy"}, {"label": "Nobility", "role": "those who fight"},
+           {"label": "Peasantry", "role": "those who work", "picture": {"generate": "a peasant with a plough"}}],
+ "badge": {"tier": "Nobility", "text": "controls the land", "on": "land"}}
+```
+Two to six `tiers`, the first at the top, each a word or `{label, role?, picture?, on?}`: stacked as a pyramid, the
+role beside each on a leader line, its picture to the left. Built from the bottom (`build`: `up`, default) or the top
+(`down`), each tier rising in as it is named. A `badge` (`{tier, text, on}`) is slammed beside its tier. Each tier is
+a part.
+
+#### `exchange`: what two parties give each other
+```json
+{"op": "exchange", "title": "A mutual promise", "left": "Lord", "right": {"title": "Vassal", "picture": {"generate": "a kneeling knight"}},
+ "flows": [{"from": "left", "text": "protection", "on": "protection"}, {"from": "right", "text": "loyalty", "on": "loyalty"}]}
+```
+The two parties (`left`, `right`: a title or `{title, sub?, picture?}`) sweep in from the sides; each of up to four
+`flows` (`{from: left | right, text, on?}`) is drawn across as an arrow from the one who gives it, its words on a chip,
+as the line says it. Each party and each flow is a part.
+
+#### `plan`: a site's plan, zone by zone
+```json
+{"op": "plan", "title": "A manorial estate",
+ "zones": [{"label": "Manor-house", "kind": "building", "at": "center"}, {"label": "Fields", "kind": "field", "at": "w", "on": "strips"},
+           {"label": "Woodland", "kind": "wood", "at": "ne"}, {"label": "Common pasture", "kind": "pasture", "at": "s"}]}
+{"op": "plan", "picture": {"figure": "fig7"}, "zones": [{"label": "Mill", "box": [0.42, 0.55, 0.52, 0.66]}]}
+```
+Up to twelve `zones`, each `{label, kind?, at?, box?, on?}`, drawn on a board as the line names them. `kind`: `field`
+(strips), `wood` (trees), `water`, `pasture`, `building`, `church`, `marsh`, `road`. `at` places a zone on a 3 x 3 grid:
+`nw`, `n`, `ne`, `w`, `center`, `e`, `sw`, `s`, `se` (zones sharing a place share it side by side; without one, the
+free places in turn). With a `picture` (a book's plan), each zone's `box` `[x0, y0, x1, y1]` (0 to 1 across and down
+the picture) is tinted on it instead. Each zone is a part.
+
+#### `lineage`: a family or a dynasty
+```json
+{"op": "lineage", "title": "A dynasty",
+ "people": [{"name": "Charles Martel", "dates": "714", "role": "mayor of the palace"},
+            {"name": "Pepin", "dates": "751", "role": "king", "via": "son"},
+            {"name": "Charlemagne", "dates": "768", "via": "son", "picture": {"generate": "Charlemagne crowned"}}]}
+```
+Two to eight `people`, each `{name, dates?, role?, picture?, parent?, via?, on?}`, a card joined to its `parent` (a
+name given before; by default the one before) by a line named `via` ("son", "succeeds"). A single line of descent
+runs left to right; a family branches down. Each person joins as the line names them, and is a part.
+
+#### `lifespan`: lives on one scale of years
+```json
+{"op": "lifespan", "title": "Lives", "range": ["700", "2000"],
+ "people": [{"name": "Charlemagne", "from": 742, "to": 814}, {"name": "Marc Bloch", "from": 1886, "to": 1944, "on": "Bloch"}],
+ "marks": [{"at": 1066, "label": "Norman Conquest", "on": "conquest"}]}
+```
+Up to seven `people` (`{name, from, to, note?, on?}`, dates as BEAT_SCRIPT.md reads them), each a bar swept from
+birth to death on a shared scale as the line names them (overlaps show who lived at the same time); `range` widens
+the scale; `marks` (`{at, label, on}`) are dashed lines down at a year. A life without both years (or ending before
+it begins) is left out with a note. Each life is a part.
+
+#### `analogy`: matched pairs
+```json
+{"op": "analogy", "title": "Hildegard's comparison", "left": "In the stable", "right": "In society",
+ "pairs": [["Cows", "Clergy"], ["Donkeys", "Nobles"], {"a": "Sheep", "b": "Peasants", "on": "sheep"}],
+ "stamp": {"text": "Separate ranks", "on": "ranks"}}
+```
+Up to six `pairs` (`[a, b]` or `{a, b, on?}`) under two headings (`left`, `right`), each pair sliding in and joined by
+an arrow as the line says it; a `stamp` across them at the end. Each pair is a part (by its `a`).
+
+#### `myth`: the wrong idea, then the right one
+```json
+{"op": "myth", "wrong": "Three separate worlds", "right": "Three groups connected by the same land", "label": "Not quite", "on": "three groups"}
+```
+The `wrong` idea on a card; as the line gives the `right` one (`on`, else its first three words) the wrong one is
+struck through and stamped (`label`, default "Not quite") and the right one slides in under it with a tick.
+
+#### `ritual`: a ceremony, step by step
+```json
+{"op": "ritual", "title": "Homage and fealty",
+ "steps": [{"text": "Kneel before the lord", "on": "kneel"}, {"text": "Swear on the Bible", "on": "Bible"}],
+ "objects": [{"name": "Charter"}, {"name": "Staff"}, {"name": "Clod of earth", "on": "clod", "picture": {"generate": "a clod of earth"}}],
+ "seal": {"text": "Bound", "on": "binding"}}
+```
+A parchment headed with the `title`; up to six `steps` (`{text, on?}`) written in, numbered, as they are said; up to
+four `objects` (`{name, picture?, on?}`) laid out beside it as they are named; a `seal` pressed at the end. Each step
+and object is a part.
+
+#### `share`: one part of a whole
+```json
+{"op": "share", "label": "The tithe", "total": 10, "part": 1, "unit": "sack",
+ "part_label": "to the Church", "rest_label": "kept by the family", "on": "one went"}
+```
+`total` equal pieces (`unit`: `sack`, `coin`, `box`; at most 20, a larger whole scaled) in a row; as the line names
+the share (`on`, else the `part_label`), `part` of them are coloured and lifted out, named (`part_label`), and
+"1 in 10" set beside them. `rest_label` names the rest.
+
+#### `calendar`: a year as a ring
+```json
+{"op": "calendar", "title": "The village year",
+ "seasons": [{"from": "March", "to": "May", "label": "Sowing", "on": "sowing"}, {"from": "August", "to": "September", "label": "Harvest"}],
+ "days": [{"at": "December 25", "label": "Christmas"}, {"moves": ["March 22", "April 25"], "label": "Easter", "on": "Easter"}]}
+```
+A ring of months, January at the top, clockwise. Up to six `seasons` (`{from, to, label, on?}`) swept round inside it,
+and up to six `days` (`{at, label, on?}`, or `moves: [from, to]` for a day whose date moves: its range dashed on the
+ring, "(moves)" on its tag) pinned on it, each tag beside the ring at its height. Dates are a month, with or without
+its day. Each season and day is a part.
+
+#### `converge`: many to one
+```json
+{"op": "converge", "title": "Pilgrimage", "to": {"label": "Canterbury", "picture": {"generate": "Canterbury Cathedral"}},
+ "sources": ["Kent", "Essex", {"label": "London", "on": "London"}], "direction": "in"}
+```
+`to` (a label or `{label, picture?}`) in the middle; up to eight `sources` (`{label, on?}`) round it, each popping in
+with its arrow drawn to the middle (`direction`: `in`, default, or `out`: from the middle) as the line names it. Each
+is a part.
+
+#### `table`: a few columns, row by row
+```json
+{"op": "table", "title": "Hierarchies compared", "columns": ["France", "Mesopotamia", "Rome"], "highlight": "France",
+ "rows": [{"label": "What justified rank", "cells": ["Three orders", "Temple and palace", "Law and citizenship"], "on": "justified"},
+          {"label": "Resources", "cells": ["Land", "Temple estates", "Wealth and slaves"]}]}
+```
+Two to four `columns` (their headings pop in with the template) and up to five `rows` (`{label, cells, on?}`), each
+filled in as the line says it; the `highlight` column in the stamp colour. Each row is a part.
+
+#### `ask`: a question, then its answer
+```json
+{"op": "ask", "text": "Why did power belong not just to kings?", "kicker": "Our question",
+ "answer": "Land, protection and religion made several centres of power", "on": "land, protection"}
+```
+The question set large beside a question mark (its `kicker` typed over it); when the line gives the `answer` (`on`,
+else its first three words) the answer is typed in under it with a tick and the question steps back. Set the
+question at a chapter's start, and ask it again with its answer where the lecture answers it.
 
 ---
 

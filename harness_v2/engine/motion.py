@@ -243,7 +243,7 @@ class MotionLecture(MapLecture):
     def _pointers(self, words, seconds: float, hinted: set) -> list:
         """The engine's pointing at things the line names again, done the look's way for a template's part."""
         out = []
-        coming = self.__dict__.get("_coming") or set()
+        coming = self.__dict__.get("_m_arriving") or set()
         for anim, cue in super()._pointers(words, seconds, hinted):
             mob = getattr(anim, "mobject", None)
             if mob is not None and any(id(x) in coming for x in mob.get_family()):
@@ -335,7 +335,7 @@ class MotionLecture(MapLecture):
     def _on_words(self, given: list, words, seconds: float, text: str) -> list:
         """The engine's; a moment that may be said in more than one way (an event by its words or by its date) is
         timed by whichever the line says."""
-        self._coming = set()
+        self._m_arriving = set()
         if words:
             for anim, _ in given:
                 alts = getattr(anim, "panim_alts", None)
@@ -368,7 +368,7 @@ class MotionLecture(MapLecture):
                         self.stage_pending.remove(m)
                         self.stage_extra.append(m)
                 # Coming on in this line: not pointed at in it too (_pointers).
-                self.__dict__.setdefault("_coming", set()).update(within)
+                self.__dict__.setdefault("_m_arriving", set()).update(within)
             if anim is not None and run is not None and getattr(anim, "panim_run", None) is None:
                 K.timed(anim, run)
             return anim

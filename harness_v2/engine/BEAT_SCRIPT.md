@@ -243,7 +243,7 @@ One operation for every picture on the stage: `picture`. Its keys decide what it
 
 | Key | It is | Made by |
 |---|---|---|
-| `generate` | a picture of a real thing (a cutout, or a whole scene) | the illustration model, in the lecture's look |
+| `generate` | a picture of a real thing (a cutout, or a whole scene) | the illustration model, drawn in the style its words describe |
 | `draw` | a detailed, labelled textbook diagram (a cell, an organ, a machine) | the diagram model (exact drawings) |
 | `figure` | one of the book's figures, by its id in `figures` | the book (or its redrawn copy) |
 | `items` | a gallery of several pictures | each item one of the three above |
@@ -259,7 +259,7 @@ The older operation names still work: `illustration` (= `generate`), `photo` (`s
 ```
 | Arg | | |
 |---|---|---|
-| `generate` | required | What it shows and how it is seen, in English. The image model makes it once (kept by its words) in the lecture's style, as a **cutout** with no background and **no words in it**. |
+| `generate` | required | What it shows, how it is seen and how it is drawn (the medium, art style, colours and mood are the writer's to choose: nothing sets them), in English. The image model makes it once (kept by its words) as a **cutout** with no background and **no words in it**: only that form is added to the words. |
 | `labels`? | 2-6 | Names of parts really in the picture. A vision model finds where each part is, and the board writes each name beside the picture with a line and a box to its part, coming on as the line says the name (§4). |
 | `scene`? | true | A whole scene drawn edge to edge (a market, a battle, a way of life) instead of a cutout. A picture that is its line's only visual becomes a full-screen scene by itself. |
 | `caption`? | text | Under the picture. |

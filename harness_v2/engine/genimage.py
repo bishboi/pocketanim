@@ -75,13 +75,6 @@ FAILED: list[dict] = []
 # Every picture a script asked the image model for, made now or found made already: [{what, cached}].
 ASKED: list[dict] = []
 
-LOOKS = {
-    "parchment": "drawn like an engraved plate in an old textbook, sepia ink",
-    "lab": "in a clean, modern science-textbook style",
-    "cosmos": "in a clean, bright illustration style",
-    "chalkboard": "in a clean, colourful illustration style that reads well on a dark board",
-    "blueprint": "in a clean technical-illustration style",
-}
 
 
 # Models that refused this compile (not available in this region, no access, no such model, not an image model):
@@ -260,12 +253,13 @@ SCENE_FRAME = ("A whole SCENE, not a cutout: the setting drawn edge to edge in a
 def prompt_for(what: str, style: str | None = None, realistic: bool = False, parts=None,
                context: str | None = None, scene: bool = False, like: str | None = None,
                aspect: str | None = None, look: str | None = None, flow: bool = False) -> str:
-    """The words the model is given: the subject alone, richly detailed, as a cutout, no border, no text (labels are
-    the board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be
-    shown clearly where it can be pointed at."""
+    """The words the model is given: the picture as it was described -- its subject AND how it is drawn (its medium,
+    art style, colours and mood are the writer's or the agent's to choose; nothing here sets them) -- with only its
+    form added: a cutout on plain white, a whole scene, or a picture-diagram, its shape, and no text (labels are the
+    board's own, drawn beside it: a model's lettering is garbled). `parts`: what will be labelled, each to be shown
+    clearly where it can be pointed at. `realistic`: the writer asked for a photograph-like picture."""
     child = look == "child" and not realistic and not scene
-    look = ("as a realistic photograph-like image" if realistic
-            else LOOKS.get(style or "", "in a clean, colourful educational illustration style"))
+    how = " As a realistic photograph-like image." if realistic else ""
     named = [str(p).strip() for p in parts or [] if str(p).strip()]
     show = (f" Show each of these clearly and in its true place, easy to point at: {', '.join(named)}." if named else "")
     # What it is for: the lesson, the chapter, what the teacher says while it is on screen (the teacher's words may
@@ -282,21 +276,18 @@ def prompt_for(what: str, style: str | None = None, realistic: bool = False, par
     if flow:
         # A picture-diagram (picture_flow.py): `what` lists its pictures and its arrows; each must stand apart, so
         # the board can cut the one picture into its parts and bring each in as it is spoken of.
-        return (f"{what.strip()} Drawn {look[3:] if look.startswith('in ') else look}, richly detailed and accurate, "
-                f"like a picture-diagram in a good textbook.{purpose}{shape} {FLOW_FRAME}")
+        return f"{what.strip()}{how}{purpose}{shape} {FLOW_FRAME}"
     if child:
         return (f"{what.strip()}, {CHILD_LOOK}.{purpose}{same}{show}{shape} One subject only, whole and centred, "
                 "isolated as a CUTOUT on a plain, flat, pure white background: no border, no frame, no background "
                 "scene, no floor. No words, letters, numbers or labels anywhere in the image. For a school lesson.")
+    what = what.strip().rstrip(".")
     if scene:
-        return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a painted plate in a good "
-                f"textbook.{show}{shape} {SCENE_FRAME}")
-    return (f"{what.strip()}, {look}.{purpose}{same} Richly detailed and accurate, like a plate in a good textbook: the real shapes, "
-            "materials, textures and small features a student should notice, with clean outlines and clear areas of "
-            f"colour.{show}{shape} One subject only, shown whole and centred, isolated as a CUTOUT on a plain, flat, "
-            "pure white background: no border, no frame, no rounded card, no drop shadow box, no background scene, "
-            "no floor or horizon. No words, letters, numbers or labels anywhere in the image. "
-            "For a school lesson. If it is a real person, an illustrated portrait, not a photograph.")
+        return f"{what}.{how}{purpose}{same}{show}{shape} {SCENE_FRAME}"
+    return (f"{what}.{how}{purpose}{same}{show}{shape} One subject only, shown whole and centred, isolated as a CUTOUT "
+            "on a plain, flat, pure white background: no border, no frame, no rounded card, no drop shadow box, no "
+            "background scene, no floor or horizon. No words, letters, numbers or labels anywhere in the image. "
+            "For a school lesson.")
 
 
 def flat_background(data: bytes, tolerance: int = 28) -> bool:

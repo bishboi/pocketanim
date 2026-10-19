@@ -36,6 +36,18 @@ const PICTURE_FLOW = [
   '   "entity": "a stone windmill"}, {"id": "bread", "label": "Bread", "entity": "a round loaf"}], "edges": [["wheat", "mill", "harvested"], ["mill", "bread"]]}',
 ];
 
+const PICTURE_STYLE = [
+  "PICTURES: THEIR STYLE IS YOURS (v2; this overrides what the instructions above say of pictures \"in the lecture's",
+  "style\"). Every picture the image model makes -- an illustration, a scene, a drawing to label, a picture on a",
+  "diagram's node, a timeline's event or a marker, a flow drawn as one picture -- is drawn from your words alone.",
+  "Describe each one whole: what it shows and how it is seen, AND how it is drawn -- the medium and art style (a",
+  "watercolour, an engraving, a flat vector illustration, a realistic painting, a photograph-like image), its colours",
+  "and its mood -- as best suits the subject and that moment of the lesson. Nothing is added to your words but its",
+  "form (a cutout on white, or a whole scene) and no text. Keep pictures that belong together alike (the same",
+  "person drawn the same way each time). The board's look (below) is for the board, its diagrams and its words: do",
+  "not copy its name or its colour codes into a picture's description.",
+];
+
 const TIMELINE_ADDITIONS = [
   "TIMELINES, what this engine adds to the timeline op above:",
   "  - IN PROPORTION: when every date reads as a year, each event sits at its date along the track, with a scale of",
@@ -210,6 +222,7 @@ export function scenesPrompt(x: {
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
+      part("v2-picture-style", "Pictures: their style is yours (v2)", "rules", PICTURE_STYLE),
       part("v2-timeline", "Timelines (v2's additions)", "rules", TIMELINE_ADDITIONS),
       ...(x.kinds.includes("diagram") && x.kinds.includes("drawing") ? [part("v2-picture-flow", "A flow drawn as one picture (v2)", "rules", PICTURE_FLOW)] : []),
       part("v1-free", "Free-form drawings, worked solutions and problems", "rules", V1_FREE_DRAWINGS_HEAD),
@@ -226,7 +239,7 @@ export function scenesPrompt(x: {
         ...off.map((k) => `  - ${x.labels[k] ?? k}`)])] : []),
     ],
     user: [
-      part("look", "The look", "context", `The lecture is drawn in ${x.look}. Do not choose colours outside it.`),
+      part("look", "The look", "context", `The board is drawn in ${x.look}: its diagrams, cards, words and drawn shapes. Do not choose colours outside it for them. The pictures the image model makes are drawn in the style you describe for each.`),
       part("lecture", "The lecture and its chapters", "plan", [`Lecture ${x.lecture.n}: ${x.lecture.title}`,
         ...x.chapters.map((c) => `Chapter ${c.n}: ${c.title} (${c.map ? "on the board, the map in for its beats on places" : "on the board"}) - title card: "${c.narration}"`),
         ...(x.region ? [`Map region (already chosen): ${JSON.stringify(x.region)}`] : [])]),
@@ -277,5 +290,5 @@ export function handInstructions(x: { look: string; kinds: string[]; labels: Rec
   const system = scenesPrompt({ lecture: { n: 0, title: "" }, look: x.look, kinds: x.kinds, labels: x.labels, chapters: [], beats: [],
     figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace, motion: x.motion }).system
     .map((p) => (p.key === "role" ? { ...p, text: HAND_ROLE } : p.key === "shape" ? { ...p, text: HAND_SHAPE } : p));
-  return [render(system), "", `THE LOOK: the lecture is drawn in ${x.look}. Do not choose colours outside it.`].join("\n");
+  return [render(system), "", `THE LOOK: the board is drawn in ${x.look}: its diagrams, cards, words and drawn shapes. Do not choose colours outside it for them. The pictures the image model makes are drawn in the style you describe for each.`].join("\n");
 }

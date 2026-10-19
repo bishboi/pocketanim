@@ -164,26 +164,18 @@ TRANSITIONS = ("slide", "push", "wipe", "dissolve", "zoom", "page", "cut")
 IDLES = ("float", "drift", "boil", "none")
 
 
-# How each look's pictures are drawn (artstyle.py) and asked of the image model (genimage.LOOKS).
+# How each look's drawn shapes are dressed (artstyle.py). Its pictures are asked of the image model in the words
+# their writer chose (genimage.prompt_for): a look sets no picture style.
 # The classic style each look rests on: the scene names it (LECTURE_STYLE) so the voice tools, which read the
 # scene's style before the engine is imported, find a style they know, and the look speaks with its voice.
 BASE = {"paper": "vox", "newsroom": "atlas", "chalk": "chalkboard", "data": "cosmos", "studio": "lab",
         "sketch": "whiteboard"}
 ART = {"paper": "clean", "newsroom": "detailed", "chalk": "chalk", "data": "clean", "studio": "clean",
        "sketch": "sketch"}
-PICTURE_WORDS = {
-    "paper": "in a flat, bold editorial illustration style with clean shapes and a muted, warm palette",
-    "newsroom": "as a realistic, photograph-like documentary image",
-    "chalk": "in a clean, colourful illustration style that reads well on a dark board",
-    "data": "in a clean, modern, softly lit 3D illustration style",
-    "studio": "in a clean, modern, softly lit 3D illustration style",
-    "sketch": "drawn as a lively ink sketch with a light watercolour wash",
-}
 
 
 def register_all() -> None:
-    """Every look as a lecture style (pocket_lecture.THEMES), so a scene can use_style() it by name, and how its
-    pictures are asked for (genimage.LOOKS)."""
+    """Every look as a lecture style (pocket_lecture.THEMES), so a scene can use_style() it by name."""
     import pocket_lecture as pl
 
     for name, look in LOOKS.items():
@@ -194,13 +186,6 @@ def register_all() -> None:
 
     for name, art in ART.items():
         artstyle.TEMPLATE_ART.setdefault(name, art)
-    try:
-        import genimage
-
-        for name, words in PICTURE_WORDS.items():
-            genimage.LOOKS.setdefault(name, words)
-    except Exception:  # noqa: BLE001 -- pictures are asked in the default words
-        pass
 
 
 def motion_of(style: str, energy: str | None = None, overrides: dict | None = None) -> dict:

@@ -4,7 +4,7 @@
  * then works in turns with three tools:
  *
  *   - make_image: has the image model draw a picture it wants in the figure (a cutout of a thing or a person, or a
- *     whole scene behind), in the lecture's look, with no words in it; it is shown the picture made, and uses it in
+ *     whole scene behind), drawn in the style it describes (only the form and no text are added); it is shown the picture made, and uses it in
  *     its code by name: image("farmer", height=2.5) (the engine's free_check.image, v2's own);
  *   - check: its code checked in the beat's place (the earlier beats of the same figure first) by v2's engine's
  *     compile: the sandbox's rules, and a run of the blocks in a probe scene; nothing is rendered, no frame or video
@@ -42,7 +42,7 @@ const TOOLS = [
   { type: "function", function: { name: "make_image", description: "Have the image model draw a picture for the figure. You are shown it; use it in code as image(\"<name>\", height=..., width=..., labels=[...]).",
     parameters: { type: "object", properties: {
       name: { type: "string", description: "A short name for it, letters and _ (\"farmer\", \"indus_city\"). The same name again replaces it." },
-      what: { type: "string", description: "What it shows, in English, and how it is seen (\"a farmer ploughing with two oxen, side view\"). No words in it." },
+      what: { type: "string", description: "The whole picture, in English, as the image model is to draw it: what it shows, how it is seen, and how it is drawn -- the medium and art style, the colours, the mood (\"a farmer ploughing with two oxen, side view, a warm watercolour with soft ink lines\"). Nothing is added to your words but its form (a cutout on white, or a whole scene) and no text, so the style is yours to choose for this moment. No words in it." },
       kind: { type: "string", enum: ["cutout", "scene"], description: "cutout: one thing or person, cut out with no background, a sticker on the board; scene: a whole picture edge to edge (a place, an event), to put behind or beside." },
     }, required: ["name", "what", "kind"] } } },
   { type: "function", function: { name: "check", description: "Check the code in the beat's place (after the earlier beats of the same figure): the compiler reads it and runs it in a probe, nothing is rendered. Returns its errors, or that it runs.",
@@ -189,13 +189,14 @@ async function cutout(bytes: Buffer): Promise<Buffer> {
   return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
-async function makeImage(run: Run, n: number, beat: number, state: ManimAgentState, args: Record<string, unknown>, look: string): Promise<AgentImage> {
+async function makeImage(run: Run, n: number, beat: number, state: ManimAgentState, args: Record<string, unknown>, _look: string): Promise<AgentImage> {
+  // The picture's style is the agent's own, in its words (make_image's "what"): only its form and no text are added.
   const name = String(args.name ?? "").trim().replace(/[^\w]+/g, "_").slice(0, 40) || `image_${Object.keys(imagesOf(run, n)).length + 1}`;
   const kind = args.kind === "scene" ? "scene" : "cutout";
   const what = String(args.what ?? "").trim().slice(0, 600) || name.replace(/_/g, " ");
   const text = kind === "cutout"
-    ? `${what}. One subject alone, isolated on a plain pure white background, no shadow, no border, no frame. NO TEXT at all: no words, letters, numbers or labels. Drawn for a school lesson video in ${look}.`
-    : `${what}. A whole scene filling the image edge to edge, wide (16:9). NO TEXT at all: no words, letters, numbers or labels. Drawn for a school lesson video in ${look}.`;
+    ? `${what}. One subject alone, isolated on a plain pure white background, no shadow, no border, no frame. NO TEXT at all: no words, letters, numbers or labels.`
+    : `${what}. A whole scene filling the image edge to edge, wide (16:9). NO TEXT at all: no words, letters, numbers or labels.`;
   const call = newCall(run, { step: "manim-agent", label: `Manim agent image "${name}" (lecture ${n}, beat ${beat})`, lecture: n, model: state.imageModel, effort: "off",
     prompt: { system: [], user: [part("what", "What it shows", "ask", what), part("rules", "Its form and look", "rules", text.slice(what.length + 2))] } });
   lectureState(run, n).calls.push(call.id);
@@ -300,7 +301,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   }
   const userParts: Part[] = [
     part("lecture", "The lecture and chapter", "context", `Lecture ${n}: ${lecture.title}. Chapter ${chapter.n}: ${chapter.title} (on the board).`),
-    part("look", "The look", "context", `It is drawn in ${look}.`),
+    part("look", "The look", "context", `The board is drawn in ${look}: its colours are INK, MUTED_INK and PALETTE. The pictures you make (make_image) are drawn in the style you describe for each: choose it.`),
     part("beat", `Beat #${beat}: what is said (about ${secs.toFixed(0)} s)`, "book", `"${said}"\nThe script's note of what is on screen: ${sbeat.show || "-"}`),
     ...(plan ? [part("plan", "The scene writer's plan for this figure", "plan", plan)] : []),
     ...(o.instruction ? [part("instruction", "What you are asked (by the person building the video)", "ask", o.instruction)] : []),

@@ -61,3 +61,8 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   arrows (patches of the cut-out picture, named by the label finder or by the layout), and the engine
   (`MapLecture.picture_flow`) lays the parts out as they were and builds them as a diagram is built: each step on the
   words that name it, the arrow into it slid in first. Any other case is built as a diagram, with a note.
+- Pictures are drawn in the style their writer describes: `genimage.prompt_for` adds only a picture's form (a cutout
+  on white, a whole scene, a picture-diagram), its shape, what the lesson needs it for and no text. The lecture
+  style's words (`LOOKS`, "like a plate in a good textbook") and the motion looks' (`PICTURE_WORDS`) are gone; the
+  scene writer and the Manim agent are told the style of each picture is theirs. A "child" art keeps its crayon
+  drawing (the board draws it on).

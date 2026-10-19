@@ -169,7 +169,11 @@ class MotionLecture(MoreTemplates, MapLecture):
             entrance = K.enter(group, how, side="right", run=K.t("base"))
             K.idle(group)
             draw = None
+        # A callout is the moment's: the next picture or template takes it away.
+        callouts = [] if getattr(group, "panim_callout", False) else self._callouts_going()
         anim = super()._to_stage(group, draw=draw, still=still, entrance=entrance)
+        if callouts:
+            anim = AnimationGroup(*callouts, anim) if anim is not None else AnimationGroup(*callouts)
         if anim is not None and entrance is not None and getattr(entrance, "panim_run", None):
             run = float(entrance.panim_run) + (0.35 if isinstance(anim, AnimationGroup) and anim is not entrance
                                                and getattr(anim, "lag_ratio", 0) == 1.0 else 0)
@@ -1279,28 +1283,98 @@ class MotionLecture(MoreTemplates, MapLecture):
     CALLOUT_CHARS = 26          # a line of a callout at most; two lines at most
 
     def m_callout(self, text: str, color: str | None = None, at: str = "right"):
-        """A short line on a block of the accent ("8% ABROAD"), popped onto what is up, at its side: no wider than
-        the room beside it, where it covers least of what is on the screen, the last callout taken away."""
-        words = pl.wrap(str(text), self.CALLOUT_CHARS)
-        if words.count("\n") > 1:
-            first, rest = words.split("\n", 1)
-            words = f"{first}\n{' '.join(rest.split())}"
-        tag = K.chip(words, pl.role(color) if color else K.col("accent"), K.col("accent_ink"), self.CALLOUT_SIZE,
-                     pad=0.18)
+        """A short line on a block of the accent ("8% ABROAD"), popped onto what is up, at its side: never bigger
+        than its words at CALLOUT_SIZE, no wider than the room beside the picture, where it covers least of what is
+        on the screen, clear of the heading strip. It is the moment's: the last callout goes as it comes, and it
+        goes when the next picture or template takes the stage."""
+        tag = self._callout_tag(str(text), pl.role(color) if color else K.col("accent"))
+        going = self._callouts_going()
         body = self.stage_body
-        going = [FadeOut(c) for c in self.__dict__.get("_callouts", []) if any(c is m for m in self.mobjects)]
+        if body is None:
+            # Nothing up to point at: the stage's box stands in for a picture (it is never a template of its own).
+            cx, cy, w, h = self._box()
+            body = Rectangle(width=w, height=h, stroke_width=0, fill_opacity=0).move_to([cx, cy, 0])
+            at = at if at in ("top", "bottom", "left", "right") else "top"
+        most = min(5.2, max(2.6, body.width * 0.6))
+        if tag.width > most:
+            tag.scale_to_fit_width(most)
+        tag.move_to(self._callout_spot(tag, body, at))
+        tag.set_z_index(Z_TEMPLATE + 5)
+        tag.panim_callout = True
+        self._stage_add(tag)
         self._callouts = [tag]
-        if body is not None:
-            most = min(5.2, max(2.6, body.width * 0.6))
-            if tag.width > most:
-                tag.scale_to_fit_width(most)
-            tag.move_to(self._callout_spot(tag, body, at))
-            tag.set_z_index(Z_TEMPLATE + 5)
-            self._stage_add(tag)
-            pop = K.timed(FadeIn(tag, scale=0.4, rate_func=ease_out_back), K.t("fast"), "pop")
-            return AnimationGroup(*going, pop) if going else pop
-        self._fit(tag, self._box(), grow=1.2, margin=4)
-        return self._show(self._next_id("callout"), tag, K.enter(tag, "pop"))
+        pop = K.timed(FadeIn(tag, scale=0.4, rate_func=ease_out_back), K.t("fast"), "pop")
+        return AnimationGroup(*going, pop) if going else pop
+
+    def _callout_tag(self, text: str, fill: str):
+        """The callout's block: its words in at most two lines, each set on its own and centred (a line of
+        Devanagari with its marks above and below kept clear of the next), on the accent."""
+        words = pl.wrap(text, self.CALLOUT_CHARS).split("\n")
+        if len(words) > 2:
+            words = [words[0], " ".join(" ".join(words[1:]).split())]
+        upper = bool(pl.TH.get("upper"))
+        lines = [pl.T(w.upper() if upper else w, self.CALLOUT_SIZE, K.col("accent_ink"), font=K.font("head"),
+                      weight=BOLD) for w in words]
+        gap = 0.2 if any(pl._complex(w) for w in words) else 0.1
+        block = VGroup(*lines).arrange(DOWN, buff=gap, center=True)
+        pad = 0.18
+        back = Rectangle(width=block.width + 2 * pad, height=block.height + 1.4 * pad, stroke_width=0,
+                         fill_color=fill, fill_opacity=1)
+        block.move_to(back)
+        return pl._flat(VGroup(back, block))
+
+    def _callouts_going(self) -> list:
+        """Fade-outs for the callouts still up, taken off the stage's list so they do not leave twice."""
+        live = [c for c in self.__dict__.get("_callouts", []) if any(c is m for m in self.mobjects)]
+        self._callouts = []
+        self.stage_extra = [m for m in self.stage_extra if not any(m is c for c in live)]
+        return [FadeOut(c) for c in live]
+
+    def _callout_obstacles(self, tag) -> list:
+        """What a callout must not cover, as (box, weight): every word (most), picture and solid shape on the
+        screen, and the lines (a timeline's axis, an arrow) a little; not the board, the caption or the callout."""
+        import legible
+
+        kinds = legible._text_kinds()
+        out = []
+        skip = {id(x) for m in (tag, self.cap) if m is not None for x in m.get_family()}
+
+        def walk(m):
+            if id(m) in skip or (getattr(m, "z_index", 0) or 0) <= pl.Z_BACK:
+                return
+            b = legible._box(m)
+            if b is None:
+                return
+            if isinstance(m, kinds):
+                pad = 0.08
+                out.append(((b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad), 3.0))
+                return
+            if isinstance(m, ImageMobject):
+                if legible._area(b) < 60:
+                    out.append((b, 1.5))
+                return
+            if isinstance(m, VMobject) and len(m.points):
+                filled = m.get_fill_opacity() > 0.3 and legible._area(b) < 30
+                if not filled and legible._area(b) > 30:
+                    pass                    # a frame round the whole picture: inside it is room
+                elif filled:
+                    out.append((b, 1.0))
+                else:
+                    # A line (an axis, an arrow, a tick) covers little area but is drawn through: a band round it.
+                    pad = 0.18
+                    out.append(((b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad), 1.5))
+            for sub in m.submobjects:
+                walk(sub)
+
+        # What is up, and the parts of the stage's templates still to come in (a timeline's events arrive as they
+        # are said): the callout must not land where one is about to.
+        holders = [m for m in [self.stage_items, *self.stage_extra, *self.stage_pending] if m is not None]
+        seen: set[int] = set()
+        for m in [*self.on_stage(), *holders]:
+            if id(m) not in seen:
+                seen.add(id(m))
+                walk(m)
+        return out
 
     def _callout_spot(self, tag, body, at: str):
         """Where a callout goes: beside the picture up (right, left, above, below) or on its corners, the one
@@ -1312,6 +1386,10 @@ class MotionLecture(MoreTemplates, MapLecture):
         x0, y0, x1, y1 = body.get_left()[0], body.get_bottom()[1], body.get_right()[0], body.get_top()[1]
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         right_edge, top_edge = config.frame_width / 2 - 0.25, config.frame_height / 2 - 0.95
+        # Below the heading strip (the topic's name and its key point) and the chapter's tag, never on them.
+        for m in [*(getattr(self, "strip", None) or {}).values(), getattr(self, "chrome", None)]:
+            if m is not None and len(m.get_family()) and any(m is x for x in self.mobjects):
+                top_edge = min(top_edge, m.get_bottom()[1] - 0.15)
         bottom_edge = (self.cap.get_top()[1] + 0.12) if self.cap is not None else -config.frame_height / 2 + 0.3
         spots = {
             "right": [(x1 + w / 2 + 0.3, cy), (x1 - w * 0.4, y0 + h / 2 + 0.2)],
@@ -1323,19 +1401,24 @@ class MotionLecture(MoreTemplates, MapLecture):
             "center": [(cx, cy)],
         }
         order = [at] + [k for k in ("right", "left", "top", "bottom", "corners", "center") if k != at]
-        caps = [m for m in (self.cap,) if m is not None]
-        shown = legible.units([m for m in self.on_stage() if m is not tag and all(m is not c for c in caps)
-                               and (getattr(m, "z_index", 0) or 0) > pl.Z_BACK])
-        boxes = [b for b in (legible._box(m) for m in shown) if b is not None and legible._area(b) < 60]
+        boxes = self._callout_obstacles(tag)
+        candidates = [(x, y, 0.08 * rank) for rank, side in enumerate(order) for (x, y) in spots.get(side, [])]
+        # And every spot round the picture, a little dearer the further it is from the side asked for.
+        ax, ay = spots.get(at, spots["right"])[0]
+        for gx in np.arange(x0 - w / 2, x1 + w / 2 + 0.01, 0.35):
+            for gy in np.arange(y0 - h / 2, y1 + h / 2 + 0.01, 0.3):
+                candidates.append((float(gx), float(gy), 0.3 + 0.04 * float(np.hypot(gx - ax, gy - ay))))
         best, best_cost = (cx, cy), None
-        for rank, side in enumerate(order):
-            for (x, y) in spots.get(side, []):
-                box = (x - w / 2, y - h / 2, x + w / 2, y + h / 2)
-                out = max(0.0, -right_edge - box[0]) + max(0.0, box[2] - right_edge) + \
-                    max(0.0, bottom_edge - box[1]) + max(0.0, box[3] - top_edge)
-                cost = sum(legible._inter(box, b) for b in boxes) / max(w * h, 1e-6) + 10 * out + 0.08 * rank
-                if best_cost is None or cost < best_cost:
-                    best, best_cost = (x, y), cost
+        for x, y, extra in candidates:
+            box = (x - w / 2, y - h / 2, x + w / 2, y + h / 2)
+            out = max(0.0, -right_edge - box[0]) + max(0.0, box[2] - right_edge) + \
+                max(0.0, bottom_edge - box[1]) + max(0.0, box[3] - top_edge)
+            covered = sum(weight * legible._inter(box, b) for b, weight in boxes)
+            # Touching words at all is worse than going further: each one touched costs as much as the far side.
+            touched = sum(1 for b, weight in boxes if weight >= 3.0 and legible._inter(box, b) > 0)
+            cost = covered / max(w * h, 1e-6) + touched + 10 * out + extra
+            if best_cost is None or cost < best_cost:
+                best, best_cost = (x, y), cost
         x, y = best
         x = min(max(x, -right_edge + w / 2), right_edge - w / 2)
         y = min(max(y, bottom_edge + h / 2), top_edge - h / 2)

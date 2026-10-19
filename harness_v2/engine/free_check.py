@@ -151,15 +151,16 @@ def picture(what: str, height: float = 2.0, width: float | None = None, labels=N
 
     width = float(width) if width else float(height) * 1.8
     try:
+        import legible
         import pocket_lecture as pl
 
         path = pl.thing_picture(str(what))
-        mob = pl.cutout_mob(path, width, float(height))
+        mob = legible.keep_shape(pl.cutout_mob(path, width, float(height)))
         # Under the block's own lines and words: drawn after them, it hid the lines pointing at it.
         mob.set_z_index(-0.5)
         tags = _named_parts(mob, path, labels) if labels else []
         if tags:
-            named = manim.Group(mob, *tags)
+            named = legible.keep_shape(manim.Group(mob, *tags))
             named.panim_picture = str(what)
             return named
     except Exception:  # noqa: BLE001 -- not made (no image model, refused, offline): a stand-in, not a crash
@@ -185,17 +186,18 @@ def image(name: str, height: float = 2.0, width: float | None = None, labels=Non
 
     width = float(width) if width else float(height) * 1.8
     try:
+        import legible
         import pocket_lecture as pl
 
         registry = _json.loads(Path(os.environ["PANIM_BLOCK_IMAGES"]).read_text(encoding="utf-8"))
         path = str(registry[str(name)])
         if not Path(path).is_file():
             raise KeyError(name)
-        mob = pl.cutout_mob(path, width, float(height))
+        mob = legible.keep_shape(pl.cutout_mob(path, width, float(height)))
         mob.set_z_index(-0.5)
         tags = _named_parts(mob, path, labels) if labels else []
         if tags:
-            named = manim.Group(mob, *tags)
+            named = legible.keep_shape(manim.Group(mob, *tags))
             named.panim_picture = str(name)
             return named
     except Exception:  # noqa: BLE001 -- no such image (not made, renamed): a stand-in, not a crash

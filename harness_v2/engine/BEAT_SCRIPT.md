@@ -572,6 +572,16 @@ Rules (the compiler test-runs each block in a probe scene and refuses one that b
 - **Colours**: `INK`, `MUTED_INK`, and `PALETTE["ROSE"]`, `["GREEN"]`, `["GOLD"]`, `["RIVER"]`, `["TERRA"]`, `["TEAL"]`, `["VIOLET"]`.
 - **Never a map.**
 
+When it plays (`legible.py`):
+
+- **Colours that do not read are fixed.** A colour that does not read on what it sits on (`PALETTE["GOLD"]` words on a
+  cream board, cream words on a white card) is taken to the nearest shade that does.
+- **Old parts are cleared.** A block drawing over what an earlier block of its figure drew takes the old part away
+  as the new one comes: a new picture or filled shape over an old part, new words over old words. A label put on an
+  old picture leaves the picture alone.
+- **Pictures keep their shape.** A picture from `picture()` or `image()` only scales as a whole: stretched to a width
+  or a height, it keeps its proportions, and its labels stay on what they name.
+
 Helpers available in the code:
 
 - `picture("a steam locomotive, side view", height=2, width=?, labels=[...])`: a cutout made by the illustration

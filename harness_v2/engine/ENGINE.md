@@ -49,3 +49,11 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   operation in it was left out.
 - `mapguard.is_map` ignores what follows a negation ("no maps or outlines") and the style's name ("Atlas detailed
   shaded art"): an atlas is a map only as a book of maps ("an atlas", "the atlas of India", "an atlas page").
+- `legible.py`, for the pieces a model writes and the motion engine's templates:
+  - **Readable text.** Each piece of text a play brings on is read against what it sits on, and taken to the nearest
+    shade that reads there. It runs on every play in the motion engine and on a manim block's plays in both engines.
+  - **Clearing a figure.** A manim block drawing over an earlier block's part takes the old part away, out of the
+    figure's group too.
+  - **Pictures keep their shape.** `picture()` and `image()` keep their proportions when stretched.
+- Motion `callout`: smaller (22 pt, two lines), no wider than the room beside the picture, placed where it covers
+  least, and replacing the last callout.

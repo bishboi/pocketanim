@@ -437,6 +437,11 @@ class BoardMixin:
         before = {id(m) for m in self.mobjects}
         start = self.renderer.time
         self._free_ink = _light(pl.P.BG)
+        # What the figure's earlier blocks drew, part by part: a part this block draws over goes as the new one comes
+        # (legible.clearing), so beats do not pile pictures and words on one another.
+        import legible
+
+        earlier = legible.units(self._free_owned)
         # Which of the figure's blocks this is, so a failure names it ("manim block 'fig5' beat 2") and the repair
         # after the build (harness/app/lib/manimcoder.ts repairBuiltManim) knows which block to mend.
         self._free_beat = getattr(self, "_free_beat", 0) + 1
@@ -469,6 +474,21 @@ class BoardMixin:
                         finally:
                             waiting[0] = False
                 backed_text.settle(self, backed_text.arriving_in(animations))
+                legible.legible(self, backed_text.arriving_in(animations))
+                covered = legible.clearing(self, earlier, animations)
+                if covered:
+                    from manim import FadeOut
+
+                    # Out of the figure too: a fade-out leaves its part as it was once off the screen, and the
+                    # figure's group (the stage's holder) would bring it back.
+                    holders = [g for g in (self._free_group, *self.stage_extra) if g is not None]
+                    for m in covered:
+                        earlier.remove(m)
+                        self._free_owned = [x for x in self._free_owned if x is not m]
+                        for g in holders:
+                            if any(x is m for x in g.submobjects):
+                                g.remove(m)
+                    animations = (*[FadeOut(m) for m in covered], *animations)
                 return plays(self, *animations, **kwargs)
 
             def add(*mobjects):

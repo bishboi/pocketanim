@@ -115,6 +115,12 @@ class MotionLecture(MoreTemplates, MapLecture):
 
         for anim in animations:
             walk(anim)
+        # Words in the accent's yellow on a cream board, or a block's GOLD on a white card, made to read on what they
+        # sit on (legible.py).
+        import backed_text
+        import legible
+
+        legible.legible(self, backed_text.arriving_in(animations))
         super().play(*animations, **kwargs)
         # A part brought on by itself (a FadeIn of one word of a heading) went on the screen alone: what it belongs
         # to (the stage's picture, a part added to it) is put on the screen whole instead, so it leaves whole. Only
@@ -1269,21 +1275,71 @@ class MotionLecture(MoreTemplates, MapLecture):
         return self._show(tid, whole, entrance)
 
     # ---------------------------------------------------------------- a callout ------------------------------------
+    CALLOUT_SIZE = 22           # the callout's words (a timeline's or a flow's own labels are about this size)
+    CALLOUT_CHARS = 26          # a line of a callout at most; two lines at most
+
     def m_callout(self, text: str, color: str | None = None, at: str = "right"):
-        """A short line on a block of the accent ("8% ABROAD"), popped onto what is up, at its side."""
-        tag = K.chip(str(text), pl.role(color) if color else K.col("accent"), K.col("accent_ink"), 30, pad=0.22)
+        """A short line on a block of the accent ("8% ABROAD"), popped onto what is up, at its side: no wider than
+        the room beside it, where it covers least of what is on the screen, the last callout taken away."""
+        words = pl.wrap(str(text), self.CALLOUT_CHARS)
+        if words.count("\n") > 1:
+            first, rest = words.split("\n", 1)
+            words = f"{first}\n{' '.join(rest.split())}"
+        tag = K.chip(words, pl.role(color) if color else K.col("accent"), K.col("accent_ink"), self.CALLOUT_SIZE,
+                     pad=0.18)
         body = self.stage_body
+        going = [FadeOut(c) for c in self.__dict__.get("_callouts", []) if any(c is m for m in self.mobjects)]
+        self._callouts = [tag]
         if body is not None:
-            spot = {"right": body.get_corner(DR) + LEFT * tag.width * 0.4 + UP * 0.2,
-                    "left": body.get_corner(DL) + RIGHT * tag.width * 0.4 + UP * 0.2,
-                    "top": body.get_top() + DOWN * 0.3, "bottom": body.get_bottom() + UP * 0.3,
-                    "center": body.get_center()}.get(at, body.get_corner(DR))
-            tag.move_to(spot)
+            most = min(5.2, max(2.6, body.width * 0.6))
+            if tag.width > most:
+                tag.scale_to_fit_width(most)
+            tag.move_to(self._callout_spot(tag, body, at))
             tag.set_z_index(Z_TEMPLATE + 5)
             self._stage_add(tag)
-            return K.timed(FadeIn(tag, scale=0.4, rate_func=ease_out_back), K.t("fast"), "pop")
-        self._fit(tag, self._box(), grow=1.5, margin=4)
+            pop = K.timed(FadeIn(tag, scale=0.4, rate_func=ease_out_back), K.t("fast"), "pop")
+            return AnimationGroup(*going, pop) if going else pop
+        self._fit(tag, self._box(), grow=1.2, margin=4)
         return self._show(self._next_id("callout"), tag, K.enter(tag, "pop"))
+
+    def _callout_spot(self, tag, body, at: str):
+        """Where a callout goes: beside the picture up (right, left, above, below) or on its corners, the one
+        covering least of what is on the screen (and of the frame's edges, the strip and the caption), the side
+        asked for first."""
+        import legible
+
+        w, h = tag.width, tag.height
+        x0, y0, x1, y1 = body.get_left()[0], body.get_bottom()[1], body.get_right()[0], body.get_top()[1]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        right_edge, top_edge = config.frame_width / 2 - 0.25, config.frame_height / 2 - 0.95
+        bottom_edge = (self.cap.get_top()[1] + 0.12) if self.cap is not None else -config.frame_height / 2 + 0.3
+        spots = {
+            "right": [(x1 + w / 2 + 0.3, cy), (x1 - w * 0.4, y0 + h / 2 + 0.2)],
+            "left": [(x0 - w / 2 - 0.3, cy), (x0 + w * 0.4, y0 + h / 2 + 0.2)],
+            "top": [(cx, y1 + h / 2 + 0.2), (cx, y1 - h / 2 - 0.2)],
+            "bottom": [(cx, y0 - h / 2 - 0.2), (cx, y0 + h / 2 + 0.2)],
+            "corners": [(x1 - w / 2 - 0.1, y1 - h / 2 - 0.1), (x0 + w / 2 + 0.1, y1 - h / 2 - 0.1),
+                        (x1 - w / 2 - 0.1, y0 + h / 2 + 0.1), (x0 + w / 2 + 0.1, y0 + h / 2 + 0.1)],
+            "center": [(cx, cy)],
+        }
+        order = [at] + [k for k in ("right", "left", "top", "bottom", "corners", "center") if k != at]
+        caps = [m for m in (self.cap,) if m is not None]
+        shown = legible.units([m for m in self.on_stage() if m is not tag and all(m is not c for c in caps)
+                               and (getattr(m, "z_index", 0) or 0) > pl.Z_BACK])
+        boxes = [b for b in (legible._box(m) for m in shown) if b is not None and legible._area(b) < 60]
+        best, best_cost = (cx, cy), None
+        for rank, side in enumerate(order):
+            for (x, y) in spots.get(side, []):
+                box = (x - w / 2, y - h / 2, x + w / 2, y + h / 2)
+                out = max(0.0, -right_edge - box[0]) + max(0.0, box[2] - right_edge) + \
+                    max(0.0, bottom_edge - box[1]) + max(0.0, box[3] - top_edge)
+                cost = sum(legible._inter(box, b) for b in boxes) / max(w * h, 1e-6) + 10 * out + 0.08 * rank
+                if best_cost is None or cost < best_cost:
+                    best, best_cost = (x, y), cost
+        x, y = best
+        x = min(max(x, -right_edge + w / 2), right_edge - w / 2)
+        y = min(max(y, bottom_edge + h / 2), top_edge - h / 2)
+        return np.array([x, y, 0.0])
 
     # ---------------------------------------------------------------- pointing on purpose ----------------------------
     def m_emphasis(self, target: str, how: str = "pulse", color: str | None = None):

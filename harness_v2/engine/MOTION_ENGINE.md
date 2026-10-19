@@ -245,7 +245,14 @@ captioned in its frame. Each print is a part (its caption).
 ```json
 {"op": "callout", "text": "8% abroad", "at": "right", "on": "abroad"}
 ```
-Popped onto what is up (`at`: right, left, top, bottom, center), or alone on the board.
+Popped onto what is up (`at`: right, left, top, bottom, center), or alone on the board. Its words are 22 pt on two
+lines at most (26 characters a line), no wider than the room beside the picture (at most 5.2 units). It goes where it
+covers least of what is on the screen, keeping clear of the frame's edges, the strip and the caption: beside the
+picture, above or below it, on a corner, the side asked for first. A new callout takes the last one away.
+
+Every play reads each piece of text against what it actually sits on (a card, a chip, the caption bar, else the
+board; `legible.py`). A colour that does not read there is taken to the nearest shade of it that does: 4.5:1 for
+small words, 3.2:1 for large ones, as the accent's yellow on a cream board. Text over a picture is left as drawn.
 
 ### `emphasis`: pointing on purpose
 ```json

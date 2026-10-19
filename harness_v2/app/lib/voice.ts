@@ -27,7 +27,7 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { handInstructions } from "./prompts/scenes";
 import { check, newCall } from "./run";
-import { compile, engineScript, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
+import { compile, engineScript, writeMissingFigures, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
 import { lectureFigures } from "./script-figures";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
@@ -331,6 +331,11 @@ export async function speakChapter(run: Run, n: number, chapter: number, target:
     ...(edited ? {} : { scenesKey: scenesKey(run, n, chapter) }), started: began });
   // Each line to its beat: by the edited script's words (a trial), else by the transcript's.
   const beatOf = edited ? editedBeats(edited) : beatsByText(run, n, chapter);
+  // A Manim figure planned but never written is written now (the agent asked again), not left to stop the compile.
+  if (!edited) {
+    phase("writing the chapter's unwritten Manim figures");
+    await writeMissingFigures(run, n, chapter);
+  }
   const release = await renderSlot();
   try {
     await rm(dir, { recursive: true, force: true });

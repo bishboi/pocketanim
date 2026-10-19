@@ -533,9 +533,7 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   await agentsOn(run, n, (b) => !b.ops.some((o) => o.op === "manim" && o.code));
   if (stopRequested(key)) return;
   await compileLecture(run, n);
-  const unwritten = stateOf(run).manimAgent !== false &&
-    Object.values(sl.beats).some((b) => b.ops.some((o) => o.op === "manim" && !String(o.code ?? "").trim()));
-  if ((Object.values(sl.beats).some((b) => b.errors?.length) || unwritten) && !stopRequested(key)) await fixLecture(run, n);
+  if (Object.values(sl.beats).some((b) => b.errors?.length) && !stopRequested(key)) await fixLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
   saveRun(run);
 }
@@ -546,10 +544,8 @@ async function fixLecture(run: Run, n: number) {
   const agent = stateOf(run).manimAgent !== false;
   // A refused Manim figure goes back to the Manim agent (told what the compiler said); the rest to the scene writer.
   const isFigure = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim");
-  // A figure the agent never finished (no code: the compiler leaves it out) is tried again too.
-  const unwritten = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim" && !String(o.code ?? "").trim());
   const broken = Object.values(sl.beats).filter((b) => b.errors?.length && !isFigure(b));
-  const figures = Object.values(sl.beats).filter((b) => (b.errors?.length && isFigure(b)) || unwritten(b));
+  const figures = Object.values(sl.beats).filter((b) => b.errors?.length && isFigure(b));
   if (!broken.length && !figures.length) return;
   sl.doing = `mending ${broken.length + figures.length} beat(s)`;
   saveRun(run);
@@ -562,6 +558,33 @@ async function fixLecture(run: Run, n: number) {
   await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code));
   await compileLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now() });
+}
+
+/**
+ * Every Manim figure of the lecture (or of one chapter) planned but still without its code, written before it is
+ * compiled: the Manim agent asked again (twice at most), or, with the agent switched off, the scene writer asked to
+ * write the beat again. Never left out: a figure the agent did not finish (an error, a timeout, a stop) stopped the
+ * whole chapter from compiling ("a manim op needs its code").
+ */
+export async function writeMissingFigures(run: Run, n: number, chapter?: number) {
+  const sl = lectureState(run, n);
+  const script = scriptOf(run, n);
+  if (!script) return;
+  const beats = script.chapters.filter((c) => chapter === undefined || c.n === chapter).flatMap((c) => c.beats.map((b) => b.n));
+  const unwritten = (k: number) => !!sl.beats[k]?.ops.some((o) => o.op === "manim" && !String(o.code ?? "").trim());
+  for (const k of beats.filter(unwritten)) {
+    for (let attempt = 1; attempt <= 2 && unwritten(k); attempt++) {
+      if (stopRequested(`${run.id}:scenes`)) return;
+      sl.doing = `writing beat ${k}'s Manim figure (it had no code)${attempt > 1 ? ", again" : ""}`;
+      saveRun(run);
+      if (stateOf(run).manimAgent !== false) {
+        await runManimAgent(run, n, k, { instruction: "This beat's figure was planned but its code was never written: write it.",
+          stop: () => stopRequested(`${run.id}:scenes`) });
+      } else {
+        await writeBeats(run, n, { what: "fix", beats: [k] }, { [k]: ["a manim op needs its code: the Python that draws this beat"] });
+      }
+    }
+  }
 }
 
 /** The Manim agent on each beat whose manim op `needs` it (the scene writer planned it), in beat order. */
@@ -833,6 +856,7 @@ function beatNamed(run: Run, n: number, text: string, chapters?: number[]): numb
 async function compileLecture(run: Run, n: number) {
   const st = stateOf(run);
   const sl = lectureState(run, n);
+  await writeMissingFigures(run, n);
   sl.doing = "compiling (and making its pictures)";
   const began = Date.now();
   sl.compile = { status: "running", errors: [], warnings: [], at: began };
@@ -960,6 +984,7 @@ export async function playable(run: Run, n: number, dir: string, source: string,
  * recorded); a chapter's plays it all, with each beat's frames for its strip.
  */
 async function renderPart(run: Run, n: number, chapter: number, beat: number | undefined, look: Look, target: SceneRender) {
+  await writeMissingFigures(run, n, chapter);
   const release = await renderSlot();
   const began = Date.now();
   try {

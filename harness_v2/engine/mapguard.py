@@ -23,6 +23,10 @@ _MAP = re.compile(r"\bmaps?\b(?!\s+(?:onto|to|into|out|each|every|a\b|an\b|one|t
 _NOT_GEO_MAP = re.compile(rf"\b(?:{_NOT_GEO})[\s-]*maps?\b", re.I)
 # Saying there is no map ("no maps, no writing", "without a map") is not asking for one.
 _NO_MAP = re.compile(r"\b(?:no|not\s+an?|without\s+(?:an?\s+)?|never\s+an?)\s+(?:\w+\s+)?maps?\b", re.I)
+# And what follows a "no" to the end of its clause: a list of things left out ("No cultivated fields, cities, writing,
+# maps or geographical outlines") is not asking for any of them.
+_NEGATED = re.compile(r"\b(?:no|not|never|nor|without|avoid(?:ing)?|exclud(?:e|es|ing)|free of|rather than|"
+                      r"instead of)\b[^.;:!?\n]*", re.I)
 _GEO = re.compile(
     r"\b(?:atlas(?![\s-]+(?:style|styled|lecture|look|template|theme|board|palette|colou?rs?|art|illustrations?|drawings?|paintings?|pictures?|cutouts?|portraits?|figures?|images?|version|rendering))|cartograph\w*|coastlines?|continents|world map|political (?:divisions|boundaries)|"
     r"trade routes?|sea routes?|caravan routes?|migration routes?|(?:the )?silk road)", re.I)
@@ -45,7 +49,7 @@ def is_map(text: str | None) -> bool:
     text = str(text or "")
     if not text.strip():
         return False
-    stripped = _NO_MAP.sub(" ", _NOT_GEO_MAP.sub(" ", text))
+    stripped = _NEGATED.sub(" ", _NO_MAP.sub(" ", _NOT_GEO_MAP.sub(" ", text)))
     if any(p.search(stripped) for p in (_MAP, _GEO, _DIVISIONS, _SHAPE)):
         return True
     return bool(_ROUTE.search(stripped) and _ROUTE_WORDS.search(stripped))

@@ -94,15 +94,31 @@ def _from_container(path: Path) -> dict:
 
 
 def _images(scene_class: str) -> list:
-    """The exporter's image track (dsl/generated/<Scene>.images.json), if the scene showed any images."""
+    """The exporter's image track (dsl/generated/<Scene>.images.json), if the scene showed any images: a key whose
+    place is not a number (NaN, an infinity) is left out, as the player could not read the file with it."""
+    import math
+
     track = Path(f"dsl/generated/{scene_class}.images.json")
-    return json.loads(track.read_text()) if track.is_file() else []
+    if not track.is_file():
+        return []
+    images = json.loads(track.read_text())
+    for image in images:
+        if isinstance(image, dict) and isinstance(image.get("keys"), list):
+            image["keys"] = [k for k in image["keys"]
+                             if not any(isinstance(v, float) and not math.isfinite(v) for v in k)]
+    return images
 
 
 def _flatten(instances) -> list:
+    import math
+
     flat = []
     for inst in instances:
         t = inst.transform
+        # A shape placed by no number (a NaN or an infinity from a degenerate drawing) is not drawn: one such
+        # number made the whole JSON unreadable to the player.
+        if not all(math.isfinite(float(t[r][c])) for r in (0, 1) for c in (0, 1, 3)) or not math.isfinite(float(inst.stroke_width)):
+            continue
         flat.append([
             inst.atlas_id,
             round(float(t[0][0]), 5), round(float(t[0][1]), 5),
@@ -125,6 +141,7 @@ def build(build_dir: Path, scene_class: str) -> dict:
     previous = Path.cwd()
     os.chdir(build_dir)
     try:
+        import numpy as np
         from dsl.interpret import load_program
 
         ir = load_program(f"dsl/generated/{scene_class}.panim")
@@ -135,7 +152,7 @@ def build(build_dir: Path, scene_class: str) -> dict:
         # The atlas is shared across every frame, which is the whole reason a
         # program is small: ship it once.
         shapes = [
-            [round(float(v), 4) for point in shape for v in point[:2]]
+            [round(float(v), 4) if np.isfinite(v) else 0.0 for point in shape for v in point[:2]]
             for shape in ir.shapes
         ]
 

@@ -2309,9 +2309,13 @@ class MapFrame:
 
     def xy(self, lon, lat) -> np.ndarray:
         lon = np.atleast_1d(np.asarray(lon, float))
-        lat = np.atleast_1d(np.asarray(lat, float))
+        # Off the poles: a conic projection sends the pole away from its cone to no number at all (NaN), and one
+        # NaN point made the player's whole film unreadable ("Unexpected token 'N'").
+        lat = np.clip(np.atleast_1d(np.asarray(lat, float)), -85.0, 85.0)
         p = self.crs.transform_points(self.pc, lon, lat)[:, :2]
-        return (p - self.c) * self.s + self.center
+        out = (p - self.c) * self.s + self.center
+        # What the projection still cannot place (far round the globe) is put far off the map, never NaN.
+        return np.where(np.isfinite(out), np.clip(out, -1e3, 1e3), 1e3)
 
     def pt(self, lon, lat) -> np.ndarray:
         x, y = self.xy(lon, lat)[0]
@@ -3001,6 +3005,7 @@ class Lecture(Scene):
         self._beat_revealed = []
         self._beat_asides = []
         self._beat_added = []
+        self._moving = []
         self._check_beat(text)
         spent = self._swap_due(spent, swaps)
         back = self._map_return()
@@ -4075,6 +4080,10 @@ class Lecture(Scene):
                 import stem
 
                 slides.append(stem._moving(m.animate.scale(f, about_point=centre).shift(shift)))
+                # Not there until the beat plays: what is laid out over it later in this beat (a labelled part's
+                # shade) is placed where it is going (_where), not where it was.
+                self.__dict__.setdefault("_moving", []).append(
+                    ({id(x) for x in m.get_family()}, f, np.array(centre, dtype=float), np.array(shift, dtype=float)))
         for m in self.stage_pending:
             m.scale(f, about_point=centre).shift(shift)
         follow_drift([self.stage_items, *self.stage_extra, *self.stage_pending], f, np.array(centre, dtype=float), shift)
@@ -4221,7 +4230,7 @@ class Lecture(Scene):
         # Not while a side panel is up, even an empty one: drawn over it, the picture lay under the panel's words
         # when they came, and the map's cover hid its left part.
         return (not len(self.panel_items) and not self._beat_new and not self._solving() and not self._panel_up()
-                and os.environ.get("PANIM_FULL_SCREEN", "1") != "0")
+                and not self.__dict__.get("_keep_whole") and os.environ.get("PANIM_FULL_SCREEN", "1") != "0")
 
     def _bands(self) -> list:
         """Soft bands of the board's colour along the top and the bottom of a full-screen picture: the heading and
@@ -4348,9 +4357,19 @@ class Lecture(Scene):
         return any(m is view["image"] for top in self.mobjects for m in top.get_family()) or \
             any(m is body for m in self._beat_new)
 
+    def _where(self, mob) -> tuple:
+        """(lower left, upper right) of `mob` once this beat has played: a stage move built this beat (_move_stage)
+        is an animation, so the picture is still where it was until it plays. A shade laid out from where it was
+        lay far off the picture (it had moved aside for a card), over the card's words."""
+        lo, hi = np.array(mob.get_corner(DL), dtype=float), np.array(mob.get_corner(UR), dtype=float)
+        for ids, f, centre, shift in self.__dict__.get("_moving", []):
+            if id(mob) in ids:
+                lo, hi = (lo - centre) * f + centre + shift, (hi - centre) * f + centre + shift
+        return lo, hi
+
     def _part_rect(self, view, box) -> tuple:
         """(x0, y0, x1, y1) on the screen of a box given across and down the picture (0 to 1)."""
-        lo, hi = view["image"].get_corner(DL), view["image"].get_corner(UR)
+        lo, hi = self._where(view["image"])
         u0, v0, u1, v1 = box
         return (lo[0] + u0 * (hi[0] - lo[0]), hi[1] - v1 * (hi[1] - lo[1]),
                 lo[0] + u1 * (hi[0] - lo[0]), hi[1] - v0 * (hi[1] - lo[1]))
@@ -4487,8 +4506,7 @@ class Lecture(Scene):
     def _shade(self, view, name: str):
         """Dark panels over the picture all round a part's box (with a margin): the rest of the picture shaded, the
         part lit."""
-        image = view["image"]
-        (X0, Y0), (X1, Y1) = image.get_corner(DL)[:2], image.get_corner(UR)[:2]
+        (X0, Y0), (X1, Y1) = self._picture_rect(view)
         x0, y0, x1, y1 = self._part_rect(view, view["parts"][name]["box"])
         pad = 0.12
         x0, y0, x1, y1 = max(X0, x0 - pad), max(Y0, y0 - pad), min(X1, x1 + pad), min(Y1, y1 + pad)
@@ -4504,6 +4522,14 @@ class Lecture(Scene):
             part._art_none = True
         set_drift([panels], view.get("drift"))
         return panels
+
+    def _picture_rect(self, view) -> tuple:
+        """(lower left, upper right) of what the shade covers: the picture itself, without a margin round it that
+        is not the picture (a dressed card's edge and shadow: view["content"], 0 to 1 across and down)."""
+        lo, hi = self._where(view["image"])
+        u0, v0, u1, v1 = view.get("content") or (0.0, 0.0, 1.0, 1.0)
+        w, h = hi[0] - lo[0], hi[1] - lo[1]
+        return (lo[0] + u0 * w, hi[1] - v1 * h), (lo[0] + u1 * w, hi[1] - v0 * h)
 
     def _overlays_over(self, view, name: str) -> list:
         """The headings lying over a part of a full-screen picture (the chapter's tag, the board's title)."""
@@ -6401,7 +6427,13 @@ class Lecture(Scene):
         if where == "stage" or is_cutout(path):
             # A picture the image model made (a book's diagram redrawn, a photo made again) is vector shapes,
             # drawn in on the stage, large: a detailed diagram needs the room, and the panel takes only images.
-            return self.stage_image(path, caption, credit=credit)
+            # Always whole (_keep_whole): a book's figure is any shape, and cut to the screen's shape to fill it,
+            # its top and bottom (a tall page) or its sides were lost.
+            self._keep_whole = True
+            try:
+                return self.stage_image(path, caption, credit=credit)
+            finally:
+                self._keep_whole = False
         image = ImageMobject(path)
         if where == "full":
             image.scale_to_fit_height(5.4)

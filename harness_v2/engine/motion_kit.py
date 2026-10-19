@@ -410,9 +410,28 @@ def chain(anims: list, run: float | None = None):
 
 # ---------------------------------------------------------------- emphasis -----------------------------------------
 
+def fresh(anim):
+    """An `.animate` animation whose end is worked out when it starts, not when it was built. Built earlier in a
+    beat that then moved its part (the stage shrunk into half the board for a picture or a card beside it), it took
+    the part back to where it had been: a timeline's pointed-at events jumped back full size over the moved one."""
+    from manim.animation.transform import _MethodAnimation
+
+    class Fresh(_MethodAnimation):
+        def begin(self):
+            target = self.mobject.copy()
+            for item in self.methods:
+                item.method.__func__(target, *item.args, **item.kwargs)
+            self.mobject.target = target
+            super().begin()
+
+    if isinstance(anim, _MethodAnimation):
+        anim.__class__ = Fresh
+    return anim
+
+
 def pulse(mob, k: float = 1.12, run: float | None = None):
     """A beat of attention: up and back."""
-    anim = mob.animate(rate_func=there_and_back).scale(k).build()
+    anim = fresh(mob.animate(rate_func=there_and_back).scale(k).build())
     anim.panim_xform = True
     return timed(anim, run or t("base"), "tick")
 
@@ -458,9 +477,9 @@ class Spring(Animation):
 
 
 def spring_in(mob, run: float | None = None):
-    anim = Spring(mob, rate_func=linear)
-    anim._panim_bake = True
-    return timed(anim, run or t("slow"), "pop")
+    """Scaled in from small with an overshoot (ease_out_back): a verb the players play themselves. Baked (Spring),
+    a sign's words came apart in the players while it sprang (only a letter or two drawn, the chip stretched)."""
+    return timed(FadeIn(mob, scale=0.3, rate_func=ease_out_back), run or t("base"), "pop")
 
 
 def draw(mob, run: float | None = None, sfx: str = "draw"):
@@ -489,21 +508,21 @@ def grow_from(mob, edge, run: float | None = None, overshoot: bool = False):
 
 
 def move_to(mob, point, run: float | None = None, rate=None):
-    anim = mob.animate(rate_func=rate or ease_out_cubic).move_to(point).build()
+    anim = fresh(mob.animate(rate_func=rate or ease_out_cubic).move_to(point).build())
     anim.panim_xform = True
     return timed(anim, run or t("base"))
 
 
 def recolor(mob, colour: str, run: float | None = None):
-    return timed(mob.animate.set_color(colour).build(), run or t("fast"))
+    return timed(fresh(mob.animate.set_color(colour).build()), run or t("fast"))
 
 
 def refill(mob, colour: str, opacity: float = 1.0, run: float | None = None):
-    return timed(mob.animate.set_fill(colour, opacity=opacity).build(), run or t("fast"))
+    return timed(fresh(mob.animate.set_fill(colour, opacity=opacity).build()), run or t("fast"))
 
 
 def fade_to(mob, opacity: float, run: float | None = None):
-    return timed(mob.animate.set_opacity(opacity).build(), run or t("fast"))
+    return timed(fresh(mob.animate.set_opacity(opacity).build()), run or t("fast"))
 
 
 def idle(mob, kind: str | None = None, strength: float = 1.0) -> None:

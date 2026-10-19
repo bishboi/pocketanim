@@ -295,6 +295,9 @@ The older form `{"op": "draw", "id", "what", "parts": [...]}` is read as this.
 | `where`? | `stage` \| `panel` | In the older `figure` form: on the stage, or in the side panel (default). |
 | `show`? | | The figure's named parts to show, when it has `parts`. |
 
+A book's figure is always shown whole, in its own shape (a tall page, a wide chart): never cut to fill the screen, even
+when it is its line's only visual (a gallery of one figure too).
+
 #### `picture` with `items`: a gallery
 ```json
 {"op": "picture", "title": "Kinds of rock", "layout": "spotlight",

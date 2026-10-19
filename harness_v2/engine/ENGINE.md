@@ -34,3 +34,12 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   `motion_looks.py`, `tools/motion_strip.py`, documented in [MOTION_ENGINE.md](MOTION_ENGINE.md). Its own files: a
   script is drawn by it only when it says `"engine": "motion"`; compile_lecture and pocket_lecture are imported and
   extended in its process, not changed. `sfx.py` gains three sounds only it uses (`stamp`, `count`, `swish`).
+- `MapFrame.xy` keeps every point a number: latitudes off the poles (±85°) and a place the projection cannot reach put
+  far off the map. A conic projection sent the pole to NaN, and one NaN in the player's geometry
+  (`tools/scene_ir.py`, which now also leaves out any shape or picture key placed by no number) made the whole video
+  unplayable ("Unexpected token 'N'").
+- A labelled picture's shade (and the boxes round its parts) is laid out where the picture is going this beat
+  (`_where`): a stage moved aside for a card is an animation, so a shade built after it in the same beat lay where the
+  picture had been, over the card's words.
+- A book's figure is always shown whole (`figure` sets `_keep_whole`; a gallery of one figure goes through `figure`):
+  with the screen to itself it was cut to the screen's shape, and a tall page lost its top and bottom.

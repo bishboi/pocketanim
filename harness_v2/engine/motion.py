@@ -123,6 +123,9 @@ class MotionLecture(MapLecture):
             return
         held = {id(x) for h in holders for x in h.get_family()}
         ids = {id(g) for g in containers}
+        # What is on the screen before the containers go: a holder seen only through one (the stage's picture moved
+        # aside by a lagged group) is put back whole below, not taken off with it.
+        seen = {id(x) for m in self.mobjects for x in m.get_family()}
         for g in [m for m in self.mobjects if id(m) in ids]:
             if any(id(x) in held for x in g.get_family()):
                 self.mobjects.remove(g)
@@ -133,6 +136,9 @@ class MotionLecture(MapLecture):
             family = {id(x) for x in h.get_family()}
             members = [m for m in self.mobjects if id(m) in family]
             if not members:
+                if id(h) in seen and not any(id(h) in {id(x) for x in m.get_family()} for m in self.mobjects):
+                    self.mobjects.append(h)
+                    top = {id(m) for m in self.mobjects}
                 continue
             for m in members:
                 self.mobjects.remove(m)
@@ -237,8 +243,13 @@ class MotionLecture(MapLecture):
     def _pointers(self, words, seconds: float, hinted: set) -> list:
         """The engine's pointing at things the line names again, done the look's way for a template's part."""
         out = []
+        coming = self.__dict__.get("_coming") or set()
         for anim, cue in super()._pointers(words, seconds, hinted):
             mob = getattr(anim, "mobject", None)
+            if mob is not None and any(id(x) in coming for x in mob.get_family()):
+                # Brought on by this line (an event on its date, said here): a pulse on it as well fought its
+                # entrance, and the flag never showed.
+                continue
             point = getattr(mob, "_m_point", None)
             if point is not None and type(anim).__name__ == "ScaleInPlace":
                 made = point()
@@ -324,6 +335,7 @@ class MotionLecture(MapLecture):
     def _on_words(self, given: list, words, seconds: float, text: str) -> list:
         """The engine's; a moment that may be said in more than one way (an event by its words or by its date) is
         timed by whichever the line says."""
+        self._coming = set()
         if words:
             for anim, _ in given:
                 alts = getattr(anim, "panim_alts", None)
@@ -355,6 +367,8 @@ class MotionLecture(MapLecture):
                     if any(id(x) in within for x in m.family_members_with_points()):
                         self.stage_pending.remove(m)
                         self.stage_extra.append(m)
+                # Coming on in this line: not pointed at in it too (_pointers).
+                self.__dict__.setdefault("_coming", set()).update(within)
             if anim is not None and run is not None and getattr(anim, "panim_run", None) is None:
                 K.timed(anim, run)
             return anim
@@ -772,8 +786,8 @@ class MotionLecture(MapLecture):
                 label.set_z_index(Z_TEMPLATE + 2)
 
             def colour(heard, members=members, tone=tone, label=label):
-                fills = [K.timed(m.animate.set_fill(tone, opacity=1).build() if isinstance(m, VMobject) and
-                                 not isinstance(m, VGroup) else m[0].animate.set_fill(tone, opacity=1).build(),
+                fills = [K.timed(K.fresh(m.animate.set_fill(tone, opacity=1).build() if isinstance(m, VMobject) and
+                                         not isinstance(m, VGroup) else m[0].animate.set_fill(tone, opacity=1).build()),
                                  K.t("fast")) for m in members]
                 anims = [K.stagger(fills, run=min(1.4, 0.4 + 0.01 * len(fills)), lag=0.05)]
                 if label is not None:
@@ -1400,7 +1414,50 @@ class MotionLecture(MapLecture):
                               K.typewriter(text, run=min(2.0, 0.035 * len(meaning) + 0.4))], lag=0.55)
         tid = self._next_id("define")
         self._part(tid, term, word)
+        beside = self._beside_picture(block)
+        if beside is not None:
+            return beside
         return self._show(tid, block, entrance)
+
+    TAG_KEEP = 0.75   # a picture's label tags shrink no smaller than this when the picture moves aside
+
+    def _move_stage(self, f: float, centre, box):
+        """The engine's, but a labelled picture's tags keep a readable size (TAG_KEEP) as the picture shrinks into
+        half the board: scaled with it they went to a few pixels high."""
+        if f >= self.TAG_KEEP or self.M.get("classic"):
+            return super()._move_stage(f, centre, box)
+        tags = [piece["tag"] for view in self.__dict__.get("_views", []) if self._view_on(view)
+                for piece in view["parts"].values()]
+        shown = [t for t in tags if any(t is m for m in self.stage_extra)]
+        waiting = [t for t in tags if any(t is m for m in self.stage_pending)]
+        self.stage_extra = [m for m in self.stage_extra if all(m is not t for t in shown)]
+        anim = super()._move_stage(f, centre, box)
+        self.stage_extra.extend(shown)
+        if anim is None and not shown:
+            return anim
+        centre = np.array(centre, dtype=float)
+        shift = np.array([box[0], box[1], 0]) - centre
+        grow = self.TAG_KEEP / f
+        for tag in waiting:
+            # Put there already with the picture (not shown yet): grown back about where it now sits.
+            tag.scale(grow)
+        slides = []
+        for tag in shown:
+            to = (np.array(tag.get_center(), dtype=float) - centre) * f + centre + shift
+            slides.append(tag.animate.scale(self.TAG_KEEP).move_to(to))
+        pl.follow_drift(shown, f, centre, shift)
+        return AnimationGroup(*([anim] if anim is not None else []), *slides)
+
+    def _beside_picture(self, card):
+        """A card about the picture on the stage (a definition, a quotation) set beside it, as the engine does: the
+        picture moves into the left half, its labels and the light on its parts with it, and the card takes the
+        right. Put up in the picture's place, the card hid the picture the line was still talking about. None when
+        no picture is up (or this beat brought one: the two are laid out together then)."""
+        body = getattr(self, "stage_body", None)
+        if body is None or self._beat_new or not any(isinstance(m, ImageMobject) for m in body.get_family()):
+            return None
+        card.set_z_index(Z_TEMPLATE)
+        return self._aside(card, grow=1.2)
 
     def quote(self, text: str, who: str = ""):
         """A quotation: big quote marks drop in, the words typed onto a card, the speaker's name slides in."""
@@ -1416,6 +1473,9 @@ class MotionLecture(MapLecture):
         marks.move_to(face.face.get_corner(UL) + RIGHT * 0.45 + DOWN * 0.15)
         whole = VGroup(face, stack, marks)
         self._fit(whole, self._box(), grow=1.1, margin=0.8)
+        beside = self._beside_picture(whole)
+        if beside is not None:
+            return beside
         entrance = K.stagger([K.timed(FadeIn(face, shift=UP * 0.6, rate_func=ease_out_cubic), K.t("base"), "swish"),
                               K.timed(FadeIn(marks, shift=DOWN * 0.5, rate_func=ease_out_back), K.t("fast"), "pop"),
                               K.typewriter(words, run=min(2.6, 0.03 * len(text) + 0.4)),
@@ -1472,7 +1532,94 @@ class MotionLecture(MapLecture):
                 r[5] = x0 + float(r[5]) * (x1 - x0)
                 r[6] = y0 + float(r[6]) * (y1 - y0)
             moved.append(tuple(r))
-        return super().stage_image(dressed, caption, credit, moved, move, points)
+        views = self.__dict__.setdefault("_views", [])
+        before = len(views)
+        shown = super().stage_image(dressed, caption, credit, moved, move, points)
+        if len(views) > before:
+            # The shade round a named part covers the photo only, not the dressed edge and shadow round it (a grey
+            # block over the page): where the photo is in the picture as the engine trims it.
+            _, trim = pl.trim_box(dressed)
+            content = pl.remap_labels([("", 0.5, 0.5, x0, y0, x1, y1)], trim)[0][3:7]
+            for view in views[before:]:
+                view["content"] = tuple(float(v) for v in content)
+        return shown
+
+    # ---------------------------------------------------------------- a picture's labels, in the look ------------
+    def _label_tag(self, text: str, room: float, size: float = 17):
+        """A picture's label as a chip of the look's accent (its heading font), fitted to the room it has."""
+        if self.M.get("classic"):
+            return super()._label_tag(text, room, size)
+        tag = K.chip(text, size=size + 1, pad=0.12)
+        if tag.width > room - 0.2:
+            tag.scale((room - 0.2) / tag.width)
+        return tag
+
+    def _in_look(self, pieces: list) -> list:
+        """A label's box, line and dot in the look's accent instead of the house gold."""
+        if self.M.get("classic"):
+            return pieces
+        accent = K.col("accent")
+        for piece in pieces:
+            frame = piece.get("frame")
+            if frame is not None and len(frame.submobjects) > 1:
+                frame[1].set_stroke(accent)
+            if piece.get("line") is not None:
+                piece["line"].set_stroke(accent)
+            if piece.get("dot") is not None:
+                piece["dot"].set_fill(accent)
+        return pieces
+
+    def _shade(self, view, name: str):
+        """The rest of a labelled picture shaded round the part being talked about, drawn as a picture of its own
+        from the picture's own shape (its alpha): dark wherever the picture is, clear over the part (feathered).
+        Dark panels over its box shaded the transparent corners of a cutout, and a dressed card's edge and shadow,
+        grey on the page."""
+        image = view["image"]
+        pixels = getattr(image, "pixel_array", None)
+        if self.M.get("classic") or pixels is None or pixels.ndim != 3 or pixels.shape[2] < 4:
+            return super()._shade(view, name)
+        import hashlib
+
+        from PIL import Image, ImageFilter
+
+        rows, cols = pixels.shape[:2]
+        u0, v0, u1, v1 = view["parts"][name]["box"]
+        lo, hi = self._where(image)
+        w, h = max(hi[0] - lo[0], 1e-6), max(hi[1] - lo[1], 1e-6)
+        pad_u, pad_v = 0.12 / w, 0.12 / h
+        key = hashlib.sha1(pixels[::7, ::7].tobytes() + repr((rows, cols, u0, v0, u1, v1, self.SHADE)).encode())
+        out = motion_looks.CACHE / f"shade-{key.hexdigest()[:16]}.png"
+        if not out.exists():
+            motion_looks.CACHE.mkdir(parents=True, exist_ok=True)
+            # The lit part: a soft-edged hole, so the light reads as a spotlight rather than a cut.
+            hole = Image.new("L", (cols, rows), 0)
+            from PIL import ImageDraw
+
+            ImageDraw.Draw(hole).rounded_rectangle(
+                [max(0, (u0 - pad_u) * cols), max(0, (v0 - pad_v) * rows), min(cols, (u1 + pad_u) * cols),
+                 min(rows, (v1 + pad_v) * rows)], radius=max(2, int(0.02 * max(rows, cols))), fill=255)
+            hole = np.asarray(hole.filter(ImageFilter.GaussianBlur(max(1.5, 0.008 * max(rows, cols)))), dtype=float) / 255
+            alpha = pixels[..., 3].astype(float) / 255 * self.SHADE * (1 - hole)
+            rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
+            rgba[..., 3] = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+            part = out.with_suffix(f".{os.getpid()}.part.png")
+            Image.fromarray(rgba, "RGBA").save(part)
+            os.replace(part, out)
+        shade = ImageMobject(str(out))
+        shade.stretch_to_fit_width(w)
+        shade.stretch_to_fit_height(h)
+        shade.move_to([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, 0])
+        shade.set_z_index(self.Z_LOOK)
+        shade._panim_z = self.Z_LOOK
+        shade._art_none = True
+        set_drift([shade], view.get("drift"))
+        return Group(shade)
+
+    def _label_layout(self, image, labels, width: float) -> list:
+        return self._in_look(super()._label_layout(image, labels, width))
+
+    def _labels_on(self, image, labels) -> list:
+        return self._in_look(super()._labels_on(image, labels))
 
     # ---------------------------------------------------------------- the timeline, in motion and in styles -------
     def big_timeline(self, events, title: str | None = None, range=None, spans=None, scale: str | None = None,

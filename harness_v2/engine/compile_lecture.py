@@ -3016,6 +3016,9 @@ def _op_call(op: dict) -> str:
         if not shown:
             return None
         if len(shown) == 1:
+            # The book's own figure, alone: shown whole on the stage (figure), never cut to fill the screen.
+            if any(item["op"] == "figure" for item in _gallery_items(op)):
+                return f"self.figure({_q(shown[0][0])}, {_q(shown[0][1])}, where=\"stage\")"
             return f"self.stage_image({_q(shown[0][0])}, {_q(shown[0][1])})"
         items = ", ".join(f"({_q(f)}, {_q(c)}, {_q(w)})" for f, c, w in shown)
         title = f", title={_q(op['title'])}" if op.get("title") else ""

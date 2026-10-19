@@ -267,12 +267,12 @@ Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
 | `bars` | A `chart`: columns (8 or fewer, short labels), else bars. |
 | `fact` | The board's key point, swept in from the left. |
 | `compare` | Two columns: a `versus`. More: `cards`. |
-| `define` | The term set large, the highlighter swept under it, the meaning typed in under it. |
-| `quote` | A card: big quote marks drop in, the words typed on, the speaker slides in. |
+| `define` | The term set large, the highlighter swept under it, the meaning typed in under it. With a picture already up, it goes beside it (the picture moves into the left half, its labels with it) instead of hiding it. |
+| `quote` | A card: big quote marks drop in, the words typed on, the speaker slides in. Beside a picture already up, as `define`. |
 | `process` | A `chain` (`cycle`: its loop). |
 | `equation` | Written on as before; a box drawn round it when it has the board to itself. |
 | `timeline` | The timeline in motion, in its `style` (§5). |
-| `picture` (a photo, a figure, a made picture) | Dressed the look's way (a cutout as a sticker with a white edge and a shadow; a photo as a card, a polaroid, newsprint or a rounded frame), its labels moved onto the dressed picture, brought on the look's way, floating while up. A picture with the screen to itself stays full-bleed. |
+| `picture` (a photo, a figure, a made picture) | Dressed the look's way (a cutout as a sticker with a white edge and a shadow; a photo as a card, a polaroid, newsprint or a rounded frame), its labels moved onto the dressed picture, brought on the look's way, floating while up. A picture with the screen to itself stays full-bleed; a book's figure never does (shown whole, dressed). Its labels are chips of the look's accent with boxes and lines in the accent; the light on a part being talked about is a shade cut from the picture's own shape (its card edge, its shadow, a cutout's clear corners are never greyed), feathered round the part, and it follows the picture when the picture moves aside. Moved into half the board, the labels keep three quarters of their size. |
 | chapter card, title slide | The number springs in, the kicker is typed, the title's words rise, the accent bar is drawn; the card sweeps up and away. |
 
 Diagrams, maps, worked solutions, questions and free-form Manim are drawn as the current engine draws them, in the
@@ -293,9 +293,9 @@ Dates are read as in BEAT_SCRIPT.md (`"1526"`, `"500 BC"`, `"16th century"`...).
 | Style | How it looks and moves |
 |---|---|
 | `track` | The classic layout (in proportion, its scale of years, its periods in lanes, events above and below with their pictures): the track drawn from the left, the periods faded in; then each event: the lit line runs on to it, its ring pops, its stem is drawn, its date and words drop in. |
-| `ribbon` | A thick band of eras (the `spans`, or the stretches between events), each block sweeping in from the left and named inside it; each event planted above as a flag on a pole. |
+| `ribbon` | A thick band of eras (the `spans`, named inside; without them, the unnamed stretches between the events), each block sweeping in from the left, on a thin axis that runs on past them; each event a flag on a pole, above the band or below it, placed so that no flag touches another, no pole runs through a flag and none leaves the board (a date outside every era stands on the axis). |
 | `cards` | A line across the middle; each event a card (its date on a chip, its words, its picture) hung above or below it on a string, a pin popping, the card swinging in. |
-| `road` | A winding road drawn across the board; a marker travels along it to each stop as it is said (a baked clip), the stop's pin pops and its sign springs up. |
+| `road` | A winding road drawn across the board; a marker travels along it to each stop as it is said (a baked clip), the stop's pin pops and its sign springs up (scaled in with an overshoot). |
 | `vertical` | A line down the side; a dot slides down to each event, its date (large) and words sweeping in from both sides. |
 
 A timeline that cannot be drawn in its style falls back to the still one, with a note.
@@ -334,8 +334,8 @@ Seconds, scaled by the energy (calm × 1.3, lively × 1, punchy × 0.8):
 
 Eases (all ones the players have): arrivals `ease_out_cubic` / `ease_out_expo`, pops and drops `ease_out_back` (the
 overshoot), exits `rush_into`, slams `ease_in_cubic`, drawing `rush_from`. Motions the players have no verb for are
-**baked** into small clips by the exporter: a counter counting, a dot riding a line, a marker along a road, a shake, a
-spring (`motion_kit.baked`).
+**baked** into small clips by the exporter: a counter counting, a dot riding a line, a marker along a road, a shake
+(`motion_kit.baked`). A spring is a scale-in with the overshoot ease (baked, a sign's words came apart in the players).
 
 ---
 

@@ -152,38 +152,40 @@ def _ribbon(scene, events, title, range_, spans, scale):
             x1 = -width / 2 + (max(a, b) - lo) / (hi - lo) * width
             blocks.append((x0, x1, str(sp[2]) if len(sp) > 2 else "", tones[k % len(tones)]))
     if not blocks:
+        # No periods given: the band is cut into the stretches between the events, unnamed (an event is a moment,
+        # not an era: named after the events, the band only said the flags' words again, squeezed small).
         edges = [-width / 2] + [(a + b) / 2 for a, b in zip(xs, xs[1:])] + [width / 2]
-        blocks = [(edges[k], edges[k + 1], str(events[k][1]), tones[k % len(tones)]) for k in range(len(events))]
+        blocks = [(edges[k], edges[k + 1], "", tones[k % len(tones)]) for k in range(len(events))]
     band_h = 1.1
     band = VGroup()
     for x0, x1, name, tone in blocks:
         rect = RoundedRectangle(corner_radius=0.06, width=max(0.1, x1 - x0 - 0.04), height=band_h, stroke_width=0,
                                 fill_color=tone, fill_opacity=0.92).move_to([(x0 + x1) / 2, 0, 0])
-        word = pl.T(name.upper() if pl.TH.get("upper") else name, 26, P.BG, weight=BOLD, font=K.font("head"))
+        word = pl.T((name.upper() if pl.TH.get("upper") else name) or " ", 26, P.BG, weight=BOLD, font=K.font("head"))
         if word.width > rect.width - 0.2:
             word.scale_to_fit_width(max(0.2, rect.width - 0.2))
         word.move_to(rect)
         band.add(VGroup(rect, word))
-    flags = []
-    lanes: list[float] = []          # the right edge of the last flag's words on each level
-    for k, (date, label, pic) in enumerate(events):
-        x = xs[k]
+    tags = []
+    for date, label, pic in events:
         chip = pl.ui_chip(str(date), K.col("accent"), 26)
         words = pl.fit(pl.T(pl.wrap(str(label), 18), 24, P.CREAM, weight=BOLD), 3.0)
-        tag = VGroup(chip, words).arrange(DOWN, buff=0.08, aligned_edge=LEFT)
-        # The lowest level its words fit on beside the flags already planted; higher poles for the rest.
-        level = next((i for i, right in enumerate(lanes) if x - 0.04 > right + 0.2), len(lanes))
-        if level == len(lanes):
-            lanes.append(0.0)
-        lanes[level] = x - 0.04 + tag.width
-        pole_h = 0.6 + level * (tag.height + 0.25)
-        pole = Line([x, band_h / 2, 0], [x, band_h / 2 + pole_h, 0], stroke_color=P.CREAM, stroke_width=3)
-        tag.next_to(pole.get_end(), UP, buff=0.05).align_to(pole, LEFT).shift(LEFT * 0.04)
-        flags.append(VGroup(pole, tag))
-    body = VGroup(band, *flags)
+        tags.append(VGroup(chip, words).arrange(DOWN, buff=0.08, aligned_edge=LEFT))
+    # A thin axis the whole width under the band: a flag outside every period (a date after the last one) stands
+    # on it, not on nothing.
+    spans_x = sorted((x0, x1) for x0, x1, _, _ in blocks)
+    axis = VGroup()
+    at = -width / 2 - 0.15
+    for x0, x1 in [*spans_x, (width / 2 + 0.15, width / 2 + 0.15)]:
+        if x0 - at > 0.05:
+            axis.add(Line([at, 0, 0], [x0, 0, 0], stroke_color=P.MUTED, stroke_width=3))
+        at = max(at, x1)
+    flags = [VGroup(pole, tag) for pole, tag in _plant(xs, tags, band_h / 2, -band_h / 2, width, P.CREAM,
+                                                     inside=lambda x: any(a - 0.02 <= x <= b + 0.02 for a, b in spans_x))]
+    body = VGroup(axis, band, *flags)
     whole, top = scene._titled(body, title, None)
     scene._fit(whole, scene._box(), grow=1.15)
-    entrance = K.stagger([scene._title_in(top),
+    entrance = K.stagger([scene._title_in(top), K.draw(axis, run=K.t("base")) if len(axis) else None,
                           K.stagger([K.chain([K.grow_from(b[0], LEFT, run=K.t("base")),
                                               K.enter(b[1], "pop", run=K.t("fast"))]) for b in band], lag=0.35)],
                          lag=0.5)
@@ -191,12 +193,83 @@ def _ribbon(scene, events, title, range_, spans, scale):
     scene._hold_back(whole, flags)
     for k, f in enumerate(flags):
         def plant(heard, f=f):
-            return K.chain([K.grow_from(f[0], DOWN, run=K.t("fast")),
-                            K.timed(FadeIn(f[1], shift=DOWN * 0.3, rate_func=ease_out_back), K.t("base"), "pop")])
+            up = f[1].get_center()[1] > f[0].get_start()[1]
+            return K.chain([K.grow_from(f[0], DOWN if up else UP, run=K.t("fast")),
+                            K.timed(FadeIn(f[1], shift=(DOWN if up else UP) * 0.3, rate_func=ease_out_back), K.t("base"),
+                                    "pop")])
         _on_words(scene, events[k], plant)
         for s in _said(events[k][0], events[k][1]):
             scene._part("tl", s, f)
     return anim
+
+
+def _plant(xs, tags, top: float, bottom: float, width: float, colour, inside=None) -> list:
+    """Each event's flag placed beside the band: its pole from the band's edge at its x, its tag at the pole's end.
+    Tried above the band and below it, ever further out, each to the right of its pole or (near the right end) to
+    its left, and put where its tag touches no tag already placed, its pole crosses none, and no pole crosses it.
+    Each flag was laid on the first level whose last tag it cleared: a later, higher pole ran up through the tags
+    under it, and the tags piled up over each other near the end of the band."""
+    row = max((t.height for t in tags), default=0.5) + 0.22
+    gap = 0.1
+    boxes: list[tuple] = []          # (x0, y0, x1, y1) of each tag placed
+    poles: list[tuple] = []          # (x, y0, y1) of each pole placed
+    out = []
+
+    def clear(box, pole) -> bool:
+        x0, y0, x1, y1 = box
+        if x0 < -width / 2 - 0.3 or x1 > width / 2 + 0.3:
+            return False
+        for a0, b0, a1, b1 in boxes:
+            if x0 < a1 + gap and x1 > a0 - gap and y0 < b1 + gap and y1 > b0 - gap:
+                return False
+            px, p0, p1 = pole
+            if a0 - gap < px < a1 + gap and min(p0, p1) < b1 and max(p0, p1) > b0:
+                return False
+        for px, p0, p1 in poles:
+            if x0 - gap < px < x1 + gap and min(p0, p1) < y1 and max(p0, p1) > y0:
+                return False
+        return True
+
+    order = sorted(range(len(tags)), key=lambda k: xs[k])
+    placed: dict[int, tuple] = {}
+    for k in order:
+        x, tag = xs[k], tags[k]
+        tw, th = tag.width, tag.height
+        choice = None
+        for level in range(8):
+            for up in (True, False):
+                lift = 0.45 + level * row
+                y_base = top + lift if up else bottom - lift
+                y0, y1 = (y_base, y_base + th) if up else (y_base - th, y_base)
+                for right in (True, False):
+                    x0 = x - 0.04 if right else x + 0.04 - tw
+                    box = (x0, y0, x0 + tw, y1)
+                    pole = (x, top if up else bottom, y_base)
+                    if clear(box, pole):
+                        choice = (box, pole, up)
+                        break
+                if choice:
+                    break
+            if choice:
+                break
+        if choice is None:
+            # Nowhere clear (a crowded band): the next level out above, on its own.
+            lift = 0.45 + len(boxes) * row
+            box = (x - 0.04, top + lift, x - 0.04 + tw, top + lift + th)
+            choice = (box, (x, top, top + lift), True)
+        box, pole, up = choice
+        boxes.append(box)
+        poles.append(pole)
+        placed[k] = choice
+    for k in range(len(tags)):
+        box, pole, up = placed[k]
+        tag = tags[k]
+        tag.move_to([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, 0])
+        # From the band's edge; from the axis (y = 0) where no period lies under it.
+        start = pole[1] if inside is None or inside(pole[0]) else 0.0
+        stick = Line([pole[0], start, 0], [pole[0], pole[2], 0], stroke_color=colour, stroke_width=3)
+        out.append((stick, tag))
+    return out
 
 
 # ---------------------------------------------------------------- cards --------------------------------------------

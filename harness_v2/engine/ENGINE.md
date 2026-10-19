@@ -55,8 +55,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   - **Clearing a figure.** A manim block drawing over an earlier block's part takes the old part away, out of the
     figure's group too.
   - **Pictures keep their shape.** `picture()` and `image()` keep their proportions when stretched.
-- Motion `callout`: smaller (22 pt, two lines), no wider than the room beside the picture, placed where it covers
-  least, and replacing the last callout.
+- Motion `callout`: removed. A script that still has one compiles with it left out and a note.
 - `picture_flow.py`, and a diagram's `"drawn": "picture"`: a flow or cycle drawn as ONE picture by the image model
   (`genimage` FLOW_FRAME: every picture and arrow apart, on white). The compiler makes it, cuts it into its steps and
   arrows (patches of the cut-out picture, named by the label finder or by the layout), and the engine

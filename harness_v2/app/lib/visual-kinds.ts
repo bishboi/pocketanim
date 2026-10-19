@@ -46,8 +46,8 @@ export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
 /** The motion engine's templates (engine/MOTION_ENGINE.md, beta): allowed only when the Scenes tab builds on it. */
 export const MOTION_KIND: VisualKind = {
   id: "motion", label: "Motion templates (beta)",
-  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, callouts, pointing; hierarchies, exchanges, site plans, lineages, lifespans, analogies, myths corrected, rituals, shares, calendars, convergence, tables, questions.",
-  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "callout", "emphasis",
+  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, pointing; hierarchies, exchanges, site plans, lineages, lifespans, analogies, myths corrected, rituals, shares, calendars, convergence, tables, questions.",
+  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "emphasis",
     "hierarchy", "exchange", "plan", "lineage", "lifespan", "analogy", "myth", "ritual", "share", "calendar", "converge", "table", "ask"],
 };
 

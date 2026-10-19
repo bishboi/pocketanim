@@ -241,21 +241,11 @@ line. Each phrase is a part.
 Up to 5 photos, dressed as prints (polaroid, or the look's newsprint), dealt in turned a little and overlapping, each
 captioned in its frame. Each print is a part (its caption).
 
-### `callout`: a line on a block of the accent
-```json
-{"op": "callout", "text": "8% abroad", "at": "right", "on": "abroad"}
-```
-Popped onto what is up (`at`: right, left, top, bottom, center); with nothing up, beside the stage's box (never a
-template of its own). Its words are 22 pt on two lines at most (26 characters a line), each line centred and set on its
-own, with more room between lines of Devanagari. It is no wider than the room beside the picture (at most 5.2 units).
-It goes on the spot round the picture that touches no words (those up and those of the template still to come, such
-as a timeline's later events) and covers least of its pictures, shapes and lines. It keeps clear of the frame's edges,
-the heading strip and the caption, and the side asked for comes first. It is the moment's: a new callout takes the
-last one away, and the next picture or template takes it away too.
-
 Every play reads each piece of text against what it actually sits on (a card, a chip, the caption bar, else the
 board; `legible.py`). A colour that does not read there is taken to the nearest shade of it that does: 4.5:1 for
 small words, 3.2:1 for large ones, as the accent's yellow on a cream board. Text over a picture is left as drawn.
+
+There is no `callout` any more: one in a script is left out, with a note.
 
 ### `emphasis`: pointing on purpose
 ```json
@@ -488,7 +478,7 @@ Everything compile_lecture checks and mends, and for the templates (a note start
 
 - A template missing what it shows is left out: `counter` without `value`, `chart` without numeric items (a line
   needs two), `cards`/`list`/`polaroids` without items, `kpi` without values, `chain` with fewer than two steps,
-  `versus` without both titles, `donut` without a number, `document`/`title`/`stamp`/`callout` without text,
+  `versus` without both titles, `donut` without a number, `document`/`title`/`stamp` without text,
   `emphasis` without `target`. A print without a picture is left out.
 - Counts cut to fit: chart 12 (line 60), cards 6, chain 7, list 7, kpi 4, polaroids 5, units 1-400 (groups cut to
   the total).

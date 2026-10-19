@@ -3,7 +3,7 @@
 It is the lecture compiler (compile_lecture.py) with more: everything a beat script says compiles as it does there
 -- the same checks, the same mends, the same pictures -- and plays in motion, in a look; and a beat may also use the
 motion templates (title, counter, chart, units, cards, stamp, kpi, chain, list, versus, donut, document, polaroids,
-callout, emphasis; and hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar,
+emphasis; and hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar,
 converge, table, ask: motion_more.py), each with `on`: the words it lands on. The reference is MOTION_ENGINE.md.
 
     .venv/bin/python harness_v2/engine/compile_motion.py script.json -o scene.py
@@ -51,7 +51,6 @@ MOTION_OPS: dict[str, dict] = {
     "donut": {"need": ["value"], "args": ["value", "total", "label", "sub", "color", "text", "id"]},
     "document": {"need": ["text"], "args": ["text", "title", "highlight", "source", "file", "id"]},
     "polaroids": {"need": ["items"], "args": ["items", "title", "kicker", "id"]},
-    "callout": {"need": ["text"], "args": ["text", "color", "at"]},
     "emphasis": {"need": ["target"], "args": ["target", "how", "color"]},
     # The shapes of a history, a society or an argument (motion_more.py).
     "hierarchy": {"need": ["tiers"], "args": ["tiers", "title", "kicker", "badge", "build", "id"]},
@@ -70,7 +69,9 @@ MOTION_OPS: dict[str, dict] = {
     "ask": {"need": ["text"], "args": ["text", "answer", "kicker", "on", "id"]},
 }
 # Put over what is on the stage (after the beat's pictures go up), not a picture of their own.
-OVERLAY_OPS = {"stamp", "callout", "emphasis"}
+OVERLAY_OPS = {"stamp", "emphasis"}
+# Templates no longer drawn: left out of a script that still has them, with a note.
+RETIRED_MOTION = {"callout": "callouts are no longer drawn"}
 CHART_KINDS = ("column", "bar", "line")
 LIST_MARKS = ("bullet", "number", "check")
 EMPHASES = ("pulse", "circle", "underline", "highlight", "box", "glow", "shake", "dim")
@@ -173,6 +174,9 @@ def motion_fixes(script: dict) -> list[str]:
                     notes.append(f"{fixed}{at}: timeline style {op['style']!r} is not one of "
                                  f"{', '.join(TIMELINE_STYLES)}; track is used")
                     op.pop("style")
+                if kind in RETIRED_MOTION:
+                    notes.append(f"{fixed}{at}: {kind} left out: {RETIRED_MOTION[kind]}")
+                    continue
                 if kind not in MOTION_OPS:
                     kept.append(op)
                     continue
@@ -327,9 +331,9 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
         if op.get("how", "pulse") not in EMPHASES:
             notes.append(f"{fixed}{at}: emphasis how {op['how']!r} is not one of {', '.join(EMPHASES)}; pulse is used")
             op["how"] = "pulse"
-    elif kind in ("stamp", "callout"):
+    elif kind == "stamp":
         if op.get("at") is not None and op["at"] not in SIDES:
-            op["at"] = "center" if kind == "stamp" else "right"
+            op["at"] = "center"
     elif kind in ("hierarchy", "lineage", "ritual", "converge", "plan", "lifespan", "calendar", "table", "analogy",
                   "exchange"):
         problem = _mend_more(op, kind, at, notes, most)

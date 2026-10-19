@@ -34,7 +34,6 @@ export function motionPart(x: { look?: string; timeline?: string }): Part {
     '  cards     {"op":"cards","items":[{"title":"1912","big"?:"✓","sub"?,"picture"?:{"generate":"..."},"mark"?:"check|cross|<a word>","on"?}],',
     '            "stamp"?:{"text":"Debunked","on":"..."}}   2-6 things dealt in a row; claims ticked, crossed or stamped.',
     '  stamp     {"op":"stamp","text":"Cleared","on":"cleared"}   slammed onto what is up: a verdict, a status.',
-    '  callout   {"op":"callout","text":"8% abroad","on":"abroad"}   a short tag popped onto what is up.',
     '  chain     {"op":"chain","steps":["Signed",{"label":"Built","on":"built"},"Paid"],"loop"?:true,"title"?}   steps in order, each on its words.',
     '  list      {"op":"list","items":["Margins",{"text":"Hiring","on":"hiring"}],"mark"?:"bullet|number|check","title"?}   2-7 short points, each as said.',
     '  versus    {"op":"versus","left":{"title":"Himalayan","points":["Snow-fed"],"value"?},"right":{"title":"Peninsular","points":["Rain-fed"]}}',

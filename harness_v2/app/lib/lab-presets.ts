@@ -188,9 +188,6 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
       { generate: "Lord Kitchener in uniform, a portrait photograph", caption: "Kitchener" }] }] }]),
   tpl("title", "Headline", "Big words rise one after another, one marked with the highlighter, a kicker typed over them.", "newsroom", [
     { say: "This is the story of the man who read the hands of kings.", do: [{ op: "title", kicker: "A true story", text: "The man who read the hands of kings", highlight: "kings" }] }]),
-  tpl("callout", "Callout", "A word on a block of the accent pops onto what is up.", "paper", [
-    { say: "Most of the bonds are held at home.", do: [{ op: "units", total: 60, unit: "IOU", groups: [{ n: 55, label: "At home" }] }] },
-    { say: "Only a sliver is held abroad.", do: [{ op: "callout", text: "8% abroad", on: "abroad" }] }]),
   tpl("emphasis", "Pointing on purpose", "A part pointed at on its word: circle, underline, highlight, box, glow, shake, dim, pulse.", "paper", [
     { say: "Here are six countries.", do: [DEBT_CHART] },
     { say: "Japan stands out.", do: [{ op: "emphasis", target: "Japan", how: "circle" }] },
@@ -357,7 +354,6 @@ export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, 
   { op: "donut", say: "Sixty two percent.", do: { op: "donut", value: 62, label: "data centres" } },
   { op: "document", say: "He met a certain sect of Brahmins.", do: { op: "document", text: "While there I came in contact with a certain sect of Brahmins.", highlight: ["a certain sect of Brahmins"] } },
   { op: "title", say: "The man who read the hands of kings.", do: { op: "title", kicker: "A true story", text: "The man who read the hands of kings", highlight: "kings" } },
-  { op: "callout", say: "Only a few abroad.", do: { op: "callout", text: "8% abroad", on: "abroad" } },
   { op: "emphasis", say: "Japan stands out.", do: { op: "emphasis", target: "Japan", how: "circle" } },
   { op: "timeline (road)", say: "Kabul, Panipat, Agra.", do: { op: "timeline", style: "road", events: [["1504", "Kabul"], ["1526", "Panipat"], ["1527", "Agra"]] } },
   { op: "hierarchy", say: "Clergy, nobility, peasantry.", do: { op: "hierarchy", tiers: ["Clergy", "Nobility", "Peasantry"] } },

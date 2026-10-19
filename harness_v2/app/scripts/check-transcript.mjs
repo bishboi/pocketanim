@@ -45,7 +45,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 writeFileSync(path.join(dir, "book.json"), JSON.stringify(book));
 writeFileSync(path.join(dir, "figures.json"), JSON.stringify(figures));
 const wait = async (id, busy) => {
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 1200; i++) {   // two minutes: a map figure renders a video
     const r = await loadRun(id);
     if (!busy(r)) return r;
     await new Promise((res) => setTimeout(res, 100));

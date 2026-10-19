@@ -100,6 +100,7 @@ export const LAB_PRESETS: LabPreset[] = [
 
 /** One operation of each kind, to add to an experiment as a new beat (the Lab's "Add a beat with"). */
 export const LAB_SNIPPETS: { op: string; say: string; do: Record<string, unknown> }[] = [
+  { op: "diagram (drawn as one picture)", say: "Wheat goes to the mill, and the mill's flour becomes bread.", do: { op: "diagram", id: "bread", kind: "flow", drawn: "picture", about: "how bread is made", nodes: [{ id: "wheat", label: "Wheat", entity: "a sheaf of golden wheat, a warm watercolour" }, { id: "mill", label: "Mill", entity: "a stone windmill, a warm watercolour" }, { id: "loaf", label: "Bread", entity: "a round loaf of bread, a warm watercolour" }], edges: [["wheat", "mill", "harvested"], ["mill", "loaf", "ground and baked"]] } },
   { op: "picture (generate, labels)", say: "Here is the boiler, the chimney and the wheels.", do: { op: "picture", generate: "a steam locomotive, side view", labels: ["boiler", "chimney", "driving wheels"] } },
   { op: "picture (scene)", say: "A busy medieval market.", do: { op: "picture", generate: "a busy medieval market square", scene: true } },
   { op: "picture (draw, labels)", say: "The heart has four chambers.", do: { op: "picture", draw: "A human heart in front section: right and left atria above the right and left ventricles", labels: ["right atrium", "left ventricle"] } },
@@ -138,6 +139,13 @@ const tpl = (id: string, name: string, note: string, look: string, beats: Record
   ({ id: `m-${id}`, group: "Templates", name, note, script: motion(look, name, beats, extra) });
 
 export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
+  tpl("picture-flow", "Flow drawn as one picture", "The image model draws the whole flow at once (each step and arrow apart); it is cut into its parts and each step comes on as it is said, the arrow into it first.", "paper", [
+    { say: "Water in the sea warms in the sun and rises as vapour.", do: [{ op: "diagram", id: "water", kind: "cycle", drawn: "picture", about: "the water cycle", title: "The water cycle",
+      nodes: [{ id: "sea", label: "Sea", entity: "blue sea waves, a flat bold editorial illustration" }, { id: "vapour", label: "Vapour", entity: "rising wisps of warm vapour, a flat bold editorial illustration" },
+        { id: "cloud", label: "Cloud", entity: "a heavy grey rain cloud, a flat bold editorial illustration" }, { id: "rain", label: "Rain", entity: "falling rain drops, a flat bold editorial illustration" },
+        { id: "river", label: "River", entity: "a winding river through hills, a flat bold editorial illustration" }] }] },
+    { say: "The vapour gathers into a cloud, and the cloud lets fall its rain.", do: [] },
+    { say: "The river carries the rain back to the sea, and the cycle begins again.", do: [] }]),
   // ---- templates, one each (and their options)
   tpl("counter", "Counter", "A figure counts up, its kicker typed, its change popping beside it.", "paper", [
     { say: "Japan owes more than twice the size of its whole economy.", do: [{ op: "counter", value: "204%", label: "Japan's debt, as a share of its economy", kicker: "Debt · % of GDP", delta: "+12%" }] },
@@ -340,6 +348,7 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
 
 /** One motion template of each kind, to add to a motion experiment as a new beat. */
 export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, unknown> }[] = [
+  { op: "diagram (drawn as one picture)", say: "Wheat goes to the mill, and the mill's flour becomes bread.", do: { op: "diagram", id: "bread", kind: "flow", drawn: "picture", about: "how bread is made", nodes: [{ id: "wheat", label: "Wheat", entity: "a sheaf of golden wheat, a warm watercolour" }, { id: "mill", label: "Mill", entity: "a stone windmill, a warm watercolour" }, { id: "loaf", label: "Bread", entity: "a round loaf of bread, a warm watercolour" }], edges: [["wheat", "mill", "harvested"], ["mill", "loaf", "ground and baked"]] } },
   { op: "counter", say: "Debt is two hundred and four percent.", do: { op: "counter", value: "204%", label: "of the economy", delta: "+12%" } },
   { op: "chart (column)", say: "Japan, Italy and Germany.", do: { op: "chart", items: [["Japan", 204], ["Italy", 138], ["Germany", 65]], unit: "%", highlight: "Japan", reference: { value: 100, label: "The economy" } } },
   { op: "chart (bar)", say: "Data centres lead.", do: { op: "chart", kind: "bar", items: [["Data centres", 8.7], ["Hospitals", 2.1]] } },

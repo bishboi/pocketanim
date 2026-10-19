@@ -211,7 +211,7 @@ export function scenesPrompt(x: {
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-timeline", "Timelines (v2's additions)", "rules", TIMELINE_ADDITIONS),
-      ...(x.kinds.includes("diagram") ? [part("v2-picture-flow", "A flow drawn as one picture (v2)", "rules", PICTURE_FLOW)] : []),
+      ...(x.kinds.includes("diagram") && x.kinds.includes("drawing") ? [part("v2-picture-flow", "A flow drawn as one picture (v2)", "rules", PICTURE_FLOW)] : []),
       part("v1-free", "Free-form drawings, worked solutions and problems", "rules", V1_FREE_DRAWINGS_HEAD),
       v1("concept", "Concept maps and chains"),
       v1("camera", "Camera"),

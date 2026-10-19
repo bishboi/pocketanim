@@ -24,10 +24,10 @@ export const VISUAL_KINDS: VisualKind[] = [
   { id: "figure", label: "Book figures", about: "The book's own figures (as redrawn or drawn in Generate, else the book's picture).", ops: ["figure"] },
   { id: "illustration", label: "AI illustrations", about: "Pictures of people, places, things and scenes made by the image model, as cutouts or whole scenes; also on diagram nodes, timeline events and map markers.",
     ops: ["illustration", "photo"], paid: true },
-  { id: "drawing", label: "AI detailed diagrams", about: "Labelled textbook drawings (a cell, an organ, a machine) made by the image model, labels placed by the board.",
+  { id: "drawing", label: "AI detailed diagrams", about: "Labelled textbook drawings (a cell, an organ, a machine) made by the image model, labels placed by the board; and flows drawn as one picture (a diagram's \"drawn\": \"picture\"), cut into steps and arrows built as they are said.",
     ops: ["draw"], paid: true },
   { id: "gallery", label: "Gallery", about: "Several pictures of one kind of thing, one in the spotlight or in a grid, each brought up as it is named.", ops: ["gallery"] },
-  { id: "diagram", label: "Diagrams", about: "Boxes and arrows built as they are named: flow, cycle, hub, pyramid, hierarchy, flowchart; reveal, focus, zoom.",
+  { id: "diagram", label: "Diagrams", about: "Boxes and arrows built as they are named: flow, cycle, hub, pyramid, hierarchy, flowchart; reveal, focus, zoom. With AI detailed diagrams on, a flow or cycle may be drawn as one picture.",
     ops: ["diagram", "reveal", "focus", "zoom"] },
   { id: "timeline", label: "Timeline", about: "Dated events across the stage, in proportion to their dates with a scale of years; a range of years, periods shaded along it.", ops: ["timeline"] },
   { id: "manim", label: "Manim (free-form)", about: "A figure written as Manim code: graphs, geometry, apparatus, anything that moves.", ops: ["manim"] },
@@ -110,6 +110,11 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
     if (name === "manim" && !on.has("illustration") && /\bpicture\s*\(/.test(String(op.code ?? ""))) {
       dropped.push("manim: its code asks for an AI illustration (picture(...)), switched off");
       continue;
+    }
+    if (name === "diagram" && op.drawn === "picture" && !on.has("drawing")) {
+      // Drawn as one picture by the image model: with AI detailed diagrams off, built as a diagram instead.
+      delete op.drawn;
+      dropped.push(`diagram "${op.id ?? ""}": drawn as one picture needs AI detailed diagrams (switched off): built instead`);
     }
     if (Array.isArray(op.nodes)) {
       for (const node of op.nodes as Op[]) if (node && node.picture && !keep(node.picture, `diagram node "${node.label ?? node.id}"`)) delete node.picture;

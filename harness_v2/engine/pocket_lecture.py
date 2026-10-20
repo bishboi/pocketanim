@@ -594,10 +594,27 @@ POINT_MOST = 4           # things pointed at in one line, at most
 
 
 def _say_tokens(text) -> list[str]:
+    """A line's words for matching, lower case: a Latin letter's accent dropped ("Zürich" is "zurich"), but the
+    marks of other scripts kept inside their words -- a Devanagari vowel sign is a combining mark, and dropping it
+    cut "देता" into "द" and "त", so "दिया" could be heard in it and "को" not at all (Hinglish lines)."""
     import unicodedata
 
-    folded = "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not unicodedata.combining(c))
-    return re.findall(r"[^\W_]+", folded.lower())
+    out, word, base = [], [], ""
+    for c in unicodedata.normalize("NFKD", str(text)):
+        if unicodedata.category(c).startswith("M"):
+            if word and not ("LATIN" in unicodedata.name(base, "")):
+                word.append(c)              # a vowel sign, a nukta, a virama: part of its word
+            continue                        # an accent on a Latin letter (or a stray mark): dropped
+        if c.isalnum():
+            word.append(c)
+            base = c
+        else:
+            if word:
+                out.append("".join(word))
+            word, base = [], ""
+    if word:
+        out.append("".join(word))
+    return [unicodedata.normalize("NFC", w).lower() for w in out]
 
 
 def _same_word(spoken: str, wanted: str) -> bool:
@@ -1422,7 +1439,7 @@ def delivery(mode: str, spoken: str) -> str | None:
 # How batching went this run (narrate_many): batches cut cleanly, batches whose audio could not be cut, batches that
 # failed. When it does not work for this voice (two failures and no more successes than failures), the rest of the
 # run is spoken a line at a time: a failed batch costs its request and then one request a line.
-BATCHES = {"ok": 0, "uncut": 0, "failed": 0}
+BATCHES = {"ok": 0, "uncut": 0, "failed": 0, "take_ok": 0, "take_uncut": 0, "take_failed": 0}
 _BATCH_LOCK = threading.Lock()
 
 
@@ -1431,10 +1448,14 @@ def batching_works() -> bool:
     return bad < 2 or BATCHES["ok"] > bad
 
 
-def narrate_many(texts: list[str]) -> None:
-    """Lines spoken ahead of a build, several in one request where the voice can (gemini_tts.speak_many), into
-    the cache narrate() reads: Google allows only so many requests a minute. A batch whose audio cannot be cut
-    back into its lines, or that fails, is spoken a line at a time (narrate)."""
+def narrate_many(texts: list[str], take: bool = False, fallback: int = 0) -> None:
+    """Lines spoken ahead of a build, several in one request where the voice can (gemini_tts.speak_many,
+    eleven_tts.speak_many), into the cache narrate() reads: Google allows only so many requests a minute.
+
+    `take`: the lines are a chapter's, spoken whole in one take (tools/prespeak.py), and each keeps the pause the
+    voice left after it ("gap" beside its cost), which its beat holds (line_gap). A take that cannot be cut back
+    into its lines, or that fails, is spoken again `fallback` lines at a time; a batch that cannot, a line at a time
+    (narrate)."""
     import tts
 
     mode = voice_mode()
@@ -1444,25 +1465,55 @@ def narrate_many(texts: list[str]) -> None:
     speaker = tts.engine(engine)
     todo = [t for t in dict.fromkeys(texts) if _cached_seconds(audio_file(mode, speechify(t))) is None]
     many = getattr(speaker, "speak_many", None)
-    if many is not None and len(todo) > 1 and batching_works():
+    if many is not None and len(todo) > 1 and (take or batching_works()):
         failed = False
         try:
             # Said as the voice director marked each line, as narrate() says it.
             spoken = many([delivery(mode, speechify(t)) or speechify(t) for t in todo], voice, VOICE_SPEED)
-        except Exception:  # noqa: BLE001 -- spoken one by one below, where the reason is reported
+        except Exception:  # noqa: BLE001 -- spoken again below, where the reason is reported
             spoken, failed = None, True
         with _BATCH_LOCK:
-            BATCHES["ok" if spoken is not None else "failed" if failed else "uncut"] += 1
+            key = "ok" if spoken is not None else "failed" if failed else "uncut"
+            BATCHES[f"take_{key}" if take else key] += 1
         if spoken is not None:
             for text, (wav, spent) in zip(todo, spoken):
                 out = audio_file(mode, speechify(text))
                 raw = _private(out, "raw")
                 raw.write_bytes(wav)
+                said = spent.pop("words", None)
+                if not take:
+                    spent.pop("gap", None)
                 cost_file(out).write_text(json.dumps({**spent, "engine": engine}))
+                if said:
+                    words_file(out).write_text(json.dumps(said))
                 _finish(raw, out)
+            return
+        if fallback and len(todo) > fallback:
+            for i in range(0, len(todo), fallback):
+                narrate_many(todo[i:i + fallback])
             return
     for text in todo:
         narrate(text)
+
+
+def beat_pad(text: str) -> float:
+    """The hold after a line: after a line of a chapter's take, the pause the voice left there (less the breath
+    each line keeps at its ends, _tight), so the chapter plays as it was spoken; else the pace's (BEAT_PAD)."""
+    gap = line_gap(text) if os.environ.get("PANIM_PACE", "natural") == "natural" else None
+    return BEAT_PAD if gap is None else max(0.12, min(1.2, gap - LEAD_KEPT - TAIL_KEPT))
+
+
+def line_gap(text: str) -> float | None:
+    """The pause the voice left after this line when it was spoken in a chapter's take (narrate_many), in seconds;
+    None when it was spoken on its own, or last in its take."""
+    mode = voice_mode()
+    if mode == "silent":
+        return None
+    try:
+        gap = json.loads(cost_file(audio_file(mode, speechify(text))).read_text()).get("gap")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return float(gap) if isinstance(gap, (int, float)) else None
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -2944,7 +2995,7 @@ class Lecture(Scene):
         given, timing each to the words it goes with; the animations then play one after another at those times
         instead of all together as the line begins.
         """
-        pad = BEAT_PAD if pad is None else pad
+        pad = beat_pad(text) if pad is None else pad
         # Live pictures (stem.py: sims, traces, sweeps, continuous motions) stop at the next line unless kept.
         getattr(self, "_live_next", lambda: None)()
         if self._full_figure is not None:

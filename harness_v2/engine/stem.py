@@ -372,7 +372,7 @@ class BoardMixin:
         import pocket_lecture as pl
         from manim import FadeIn, FadeOut, Group
 
-        pad = pl.BEAT_PAD if pad is None else pad
+        pad = pl.beat_pad(text) if pad is None else pad
         if getattr(self, "_free_key", None) != key:
             going = self._stage_leaving()
             if self._full_figure is not None:

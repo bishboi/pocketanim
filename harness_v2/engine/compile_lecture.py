@@ -777,7 +777,8 @@ def _named_in(label: str, said: str) -> bool:
         return False
     if label in said:
         return True
-    words = [w for w in re.findall(r"[\w']+", label) if len(w) > 3]
+    # Words with their vowel signs (Devanagari and the other Indic scripts' marks are not \w): "समाज", not "सम".
+    words = [w for w in re.findall(r"(?:[\w']|[\u0900-\u0DFF])+", label) if len(w) > 3]
     return bool(words) and all(re.search(rf"\b{re.escape(w)}", said) for w in words)
 
 
@@ -3556,6 +3557,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 pad = "PARAGRAPH_PAD" if bi in closing else "BEAT_PAD"
                 if _pause(beat):
                     pad = f"{pad} + {_pause(beat):g}"
+                elif bi not in closing:
+                    pad = "None"                        # the beat's own hold (pocket_lecture.beat_pad)
                 # "left": the figure is drawn in the board's left half, so a working or a card stays beside it
                 # while later blocks explain it (stem.BoardMixin.free).
                 area = ', area="left"' if free.get("area") == "left" else ""

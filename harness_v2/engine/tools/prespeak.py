@@ -4,9 +4,10 @@
 
 Inside Manim each beat's line is spoken when the beat is reached, one after another: a 50-minute lecture is
 hundreds of requests in a row, and the page could only say "Speaking the lecture..." for the whole wait. Here
-every line of the scene (self.beat("...") and the helpers that speak through it) is spoken first,
-PANIM_TTS_THREADS (default 8) at a time, into the same cache pocket_lecture.narrate reads (PANIM_AUDIO_DIR), so
-the render finds each line ready.
+every line of the scene (self.beat("...") and the helpers that speak through it) is spoken first, into the same
+cache pocket_lecture.narrate reads (PANIM_AUDIO_DIR), so the render finds each line ready. A voice that can
+(Gemini, ElevenLabs) speaks the scene -- a chapter -- whole, in one take (PANIM_TTS_WHOLE, on by default), cut back
+into its lines; else a few lines a request, PANIM_TTS_THREADS (default 8) requests at a time.
 
 Progress is written to the progress file as {"phase": "voice", "done": n, "total": N, "beats": B}; the last line
 of stdout is {"ok": true, "lines": N, "spoken": k, "beats": B} or {"ok": false, "error": "..."}.
@@ -125,14 +126,33 @@ def main() -> int:
     # Lines in order, a few to a request (pocket_lecture.narrate_many): Google allows only so many requests a minute.
     batch_lines = max(1, int(os.environ.get("PANIM_TTS_BATCH", "4") or 4))
     batch_bytes = int(os.environ.get("PANIM_TTS_BATCH_BYTES", "700"))
+    # PANIM_TTS_WHOLE (on by default): the scene's lines spoken whole, in one take (a chapter's, up to the voice's
+    # WHOLE_CHARS a take, PANIM_TTS_WHOLE_CHARS), so the voice keeps one tone and pace and runs on from line to line;
+    # each line then keeps the pause the voice left after it (pocket_lecture.beat_pad). A voice that speaks a line
+    # at a time (espeak, Chirp) is asked as before.
+    import tts
+
+    speaker = tts.engine(mode.split(":", 1)[0])
+    one_take = ((os.environ.get("PANIM_TTS_WHOLE") or "on").strip().lower() not in ("off", "0", "no")
+             and hasattr(speaker, "speak_many") and len(left) > 1)
+    take_chars = int(os.environ.get("PANIM_TTS_WHOLE_CHARS") or getattr(speaker, "WHOLE_CHARS", 4000))
     batches: list[list[str]] = []
     for line in left:
+        if one_take:
+            if batches and sum(len(x) + 2 for x in batches[-1]) + len(line) <= take_chars:
+                batches[-1].append(line)
+            else:
+                batches.append([line])
+            continue
         size = len(line.encode())
         if (batches and len(batches[-1]) < batch_lines and size < batch_bytes // 2
                 and sum(len(x.encode()) for x in batches[-1]) + size <= batch_bytes):
             batches[-1].append(line)
         else:
             batches.append([line])
+    if one_take and len(batches) > 1 and len(batches[-1]) < 4:
+        # A short last take is joined to the one before (a little over the limit), not spoken apart.
+        batches[-2] += batches.pop()
     failed: list[str] = []
     timing: list[dict] = []                       # each batch: lines, when, how long, how it ended
 
@@ -142,7 +162,7 @@ def main() -> int:
         start = time.time() * 1000
         outcome = "ok"
         try:
-            pl.narrate_many(batch)
+            pl.narrate_many(batch, take=one_take, fallback=batch_lines if one_take else 0)
         except Exception as error:  # noqa: BLE001 -- recorded, then raised as it was
             outcome = type(error).__name__
             raise
@@ -183,8 +203,13 @@ def main() -> int:
         calls = list(getattr(tts.engine(mode.split(":", 1)[0]), "CALLS", []))
     except Exception:  # noqa: BLE001
         calls = []
-    voice["timing"] = {"batches": timing, "calls": calls, "threads": threads, "batch_lines": batch_lines}
-    if any(pl.BATCHES.values()):
+    voice["timing"] = {"batches": timing, "calls": calls, "threads": threads, "batch_lines": batch_lines,
+                       "whole": one_take, "takes": len(batches) if one_take else 0}
+    if one_take:
+        print(f"prespeak: the chapter in {len(batches)} take(s): {pl.BATCHES['take_ok']} cut into lines, "
+              f"{pl.BATCHES['take_uncut']} not cut and {pl.BATCHES['take_failed']} failed (spoken again "
+              f"{batch_lines} lines at a time)", file=sys.stderr)
+    if any(pl.BATCHES[k] for k in ("ok", "uncut", "failed")):
         print(f"prespeak: batches of up to {batch_lines} lines: {pl.BATCHES['ok']} cut cleanly, "
               f"{pl.BATCHES['uncut']} not cut (spoken line by line), {pl.BATCHES['failed']} failed"
               + ("" if pl.batching_works() else "; batching turned off for the rest of the run"), file=sys.stderr)

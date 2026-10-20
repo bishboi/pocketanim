@@ -25,7 +25,9 @@ from concurrent.futures import ThreadPoolExecutor
 import llm
 from chirp import _env
 
-CHUNK = 25              # beats a request
+# Beats a request: a whole chapter (its voice spoken in one take) is timed in one, the model seeing every line
+# and animation of it together; PANIM_ALIGN_CHUNK for fewer.
+CHUNK = max(1, int(_env("PANIM_ALIGN_CHUNK") or 400))
 PARALLEL = 4
 
 SYSTEM = """You time the animations of a narrated video lecture to its narration, after the voice was \

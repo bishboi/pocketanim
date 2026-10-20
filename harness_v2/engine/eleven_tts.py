@@ -188,6 +188,7 @@ def synthesize(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> tup
     else:
         rate = SAMPLE_RATE
     align = reply.get("alignment") or reply.get("normalized_alignment") or {}
+    _spent.align = align if reply.get("alignment") else None     # by the text's own letters: speak_many cuts by it
     said = words(align.get("characters") or [], align.get("character_start_times_seconds") or [],
                  align.get("character_end_times_seconds") or [])
     return audio, rate, said
@@ -201,6 +202,53 @@ def speak(text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> bytes:
     _spent.line = {"chars": chars, "usd": round(chars * float(price) / 1e6, 6) if price else 0.0}
     _spent.words = said
     return _wav(pcm, rate)
+
+
+# A chapter is spoken whole (tools/prespeak.py, PANIM_TTS_WHOLE): one take of its lines, up to WHOLE_CHARS a take,
+# so the voice keeps one tone and pace across it.
+WHOLE_CHARS = 4000
+
+
+def speak_many(texts: list[str], voice: str = DEFAULT_VOICE, speed: float = 1.0) -> list[tuple[bytes, dict]] | None:
+    """Several lines in one take (a whole chapter's): [(WAV, cost {"chars", "usd", "gap", "words"})] a line, in
+    order. The take is cut between two lines halfway through the silence from the last letter of one to the first
+    of the next, by ElevenLabs' own letter times, so every cut is where the voice is; "gap" is that silence (none
+    after the last line) and "words" the line's words, timed from its own start. None when the letters' times do
+    not match the text (then the lines are spoken again a few at a time)."""
+    texts = [t.strip() for t in texts]
+    if len(texts) < 2 or any(not t for t in texts):
+        return None
+    joined = "\n\n".join(texts)
+    pcm, rate, _ = synthesize(joined, voice, speed)
+    align = getattr(_spent, "align", None) or {}
+    chars = align.get("characters") or []
+    starts = align.get("character_start_times_seconds") or []
+    ends = align.get("character_end_times_seconds") or []
+    if "".join(chars) != joined or not (len(chars) == len(starts) == len(ends)):
+        return None
+    spans, at = [], 0
+    for t in texts:
+        letters = [i for i in range(at, at + len(t)) if not chars[i].isspace()]
+        spans.append((min(starts[i] for i in letters), max(ends[i] for i in letters)))
+        at += len(t) + 2
+    total = len(pcm) // 2 / rate
+    cuts = [0.0] + [(spans[k][1] + spans[k + 1][0]) / 2 for k in range(len(texts) - 1)] + [total]
+    if any(b <= a for a, b in zip(cuts, cuts[1:])):
+        return None
+    price = _env("PANIM_ELEVEN_PRICE")
+    out, at = [], 0
+    for k, t in enumerate(texts):
+        a, b = int(cuts[k] * rate), int(cuts[k + 1] * rate)
+        letters = len(re.sub(r"\[[^\]]*\]", "", t))
+        said = words(chars[at:at + len(t)], [x - cuts[k] for x in starts[at:at + len(t)]],
+                     [x - cuts[k] for x in ends[at:at + len(t)]])
+        spent = {"chars": letters, "usd": round(letters * float(price) / 1e6, 6) if price else 0.0,
+                 "batched": len(texts), "words": said}
+        if k + 1 < len(texts):
+            spent["gap"] = round(max(0.0, spans[k + 1][0] - spans[k][1]), 3)
+        out.append((_wav(pcm[a * 2:b * 2], rate), spent))
+        at += len(t) + 2
+    return out
 
 
 def main() -> int:

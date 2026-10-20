@@ -3,12 +3,14 @@
  * narration in v1's web player. A chapter at a time (or every chapter of a lecture that has scenes), in order:
  *
  *   1. COMPILE the chapter as the scenes step renders it (the run's look, its figures and pictures).
- *   2. SPEAK every line it says with the chosen voice (engine/tools/prespeak.py, v2's copy of v1's: several lines at
- *      once, into one cache, .data/voice, shared by every run, so a line said again is not paid for again). For
- *      Gemini and ElevenLabs the voice director marks the lines for delivery first, as in v1.
+ *   2. SPEAK every line it says with the chosen voice (engine/tools/prespeak.py, v2's copy of v1's): Gemini and
+ *      ElevenLabs speak the whole chapter in one take (one tone and pace, each line running on into the next), cut
+ *      back into its lines, each keeping the pause the voice left after it as its beat's hold; into one cache,
+ *      .data/voice, shared by every run, so a line said again is not paid for again. For Gemini and ElevenLabs the
+ *      voice director marks the lines for delivery first, as in v1.
  *   3. WORDS: when each word is said (engine/tools/voice_scene.py lines): from the voice (ElevenLabs), from the
  *      aligner here (Whisper through faster-whisper, local_align.py), or, when it cannot be had, an estimate.
- *   4. TIME the animations to the words: one call (the timing role's model) with align_cues's own prompt, each beat's
+ *   4. TIME the animations to the words: one call for the whole chapter (the timing role's model) with align_cues's own prompt, each beat's
  *      line, words with their times and the animations that go with it; the answer is checked (in order, inside the
  *      line) and written into the scene as cues= (voice_scene.py cues).
  *   5. RENDER the timed scene with the voice: the exporter places each line where its beat starts and mixes one
@@ -39,8 +41,9 @@ import { VISUAL_KINDS } from "./visual-kinds";
 export { ENGINES, scenesKey };
 
 const SPEAK_TIMEOUT = Math.max(60, Number(process.env.V2_VOICE_TIMEOUT_SECONDS) || 1800) * 1000;
-/** Beats a timing call (align_cues.CHUNK). */
-const CHUNK = 25;
+/** Beats a timing call (align_cues.CHUNK): the whole chapter in one, so its animations are timed against its whole
+ * voice (V2_TIMING_CHUNK for fewer a call). */
+const CHUNK = Math.max(1, Number(process.env.V2_TIMING_CHUNK) || 400);
 
 /** Which voices can speak here: each engine's key set (espeak needs none). */
 export function voicesReady(): Record<VoiceSettings["engine"], boolean> {
@@ -495,7 +498,8 @@ const TIME_TOOL = {
 };
 
 /**
- * The chapter's animations timed to its words: align_cues's prompt, a call a CHUNK of beats, the answer checked and
+ * The chapter's animations timed to its words: align_cues's prompt, one call for the whole chapter (a CHUNK of beats
+ * a call), the answer checked and
  * written into the scene. The scene as it was when no beat has its words timed (it then plays each beat's
  * animations together as its line begins).
  */

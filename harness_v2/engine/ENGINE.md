@@ -25,6 +25,18 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   narration mix needs `narration.py`). `tools/voice_scene.py`: a spoken scene's lines (audio, length, cost, word
   times and their source), the beats to time with `align_cues`'s prompt, and the timing model's answer checked and
   written into the scene as `cues=` (the app makes the timing call itself, so it is recorded).
+- **A chapter spoken in one take** (`PANIM_TTS_WHOLE`, on by default): `tools/prespeak.py` gives a voice that can
+  (`gemini_tts.speak_many`, `eleven_tts.speak_many`) all of a scene's lines at once, up to its `WHOLE_CHARS` (4,000,
+  `PANIM_TTS_WHOLE_CHARS`) a take, so the chapter keeps one tone and pace. Gemini's take is cut back into lines at
+  the pauses between them (`gemini_tts._cut`: the cuts placed in one go, else the take halved at its middle break and
+  each half cut on its own); ElevenLabs' at the silences its own letter times give, with each line's word times. Each
+  line keeps the pause the voice left after it (its cost file's `"gap"`), and `pocket_lecture.beat_pad` holds that
+  long after it (the "natural" pace), so the chapter plays as it was spoken; a take that cannot be cut is spoken
+  again `PANIM_TTS_BATCH` lines at a time. The animations are then timed against the whole chapter in one call
+  (`align_cues.CHUNK`, 400 beats; the app's `V2_TIMING_CHUNK`).
+- Hinglish word matching: `pocket_lecture._say_tokens` keeps a Devanagari word's vowel signs (only Latin letters
+  lose their accents), and `compile_lecture._named_in` reads Indian scripts' letters as word letters, so a word that
+  names a part is found in a line however it is written.
 - `picture_judge.py`: with `PANIM_PICTURE_JUDGE` set (a decision model: Jev), whether a picture asked for is one made
   before is the model's answer (show it again, draw a new one matching it, or draw fresh), from the earlier pictures'
   words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures

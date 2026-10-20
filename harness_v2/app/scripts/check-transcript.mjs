@@ -725,6 +725,8 @@ assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].i
   `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
 assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
 assert.ok(motionCall.prompt.system.some((p) => p.key === "anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the beta writer is told to anchor every visual");
+assert.ok(motionCall.prompt.system.some((p) => p.key === "shape" && /HOW TO BUILD THE JSON/.test(p.text)) &&
+  motionCall.prompt.system.some((p) => p.key === "choose" && /WHICH PRIMITIVE FOR WHAT/.test(p.text)), "the beta writer is told how to build the JSON and which primitive suits what");
 const motionBeats = Object.values(run.scenes.lectures[1].beats);
 assert.ok(run.script.lectures[1].chapters.every((c) => c.beats.every((b) => b.lines.length === 1)), "one sentence a beat on the motion engine");
 const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;

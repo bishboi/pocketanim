@@ -30,16 +30,82 @@ const ROLE = [
   "A beat with nothing new on it should be rare.",
 ].join("\n");
 
-const SHAPE = [
-  "THE ANSWER (write_scenes): by the beats' numbers, each beat's operations; the say is given and is not written again.",
-  '{"region": {"country": "India"} | {"state": "Rajasthan", "country": "India"} | {"area": "World" | a continent |',
-  '   a world region ("South Asia", "Middle East", "Western Europe")} | null,     the map\'s region, if any beat uses the map',
-  ' "emblem"?: "<one simple object for the whole topic>",                          shown on the title and chapter cards',
-  ' "beats": [{"beat": <its number>, "do": [operations], "paragraph"?: true, "pause"?: <seconds>, "about"?: "<English name>"}]}',
-  "  paragraph: a new idea starts here.   pause: extra seconds of silence after the line.",
-  "  about: the person, movement or place the beat is about (in English).",
-  "A beat may have no operations (what is up stays up), one, or many; things stay on screen until something replaces them.",
-].join("\n");
+const SHAPE = String.raw`HOW TO BUILD THE JSON (the answer, write_scenes)
+
+The whole answer is one object. The narration is fixed and given to you beat by beat, each with its number; you
+write only what is on screen. Never write a beat's words ("say") again.
+
+{
+  "region": null,                                  the map's region, only when some beat uses the map:
+                                                   {"country": "India"} | {"state": "Rajasthan", "country": "India"} |
+                                                   {"area": "World" | "Asia" | "South Asia" | "Middle East" | "Western Europe" ...}
+  "emblem": "a golden crown",                      optional: one simple object for the whole topic, on the title and chapter cards
+  "beats": [
+    {"beat": 12,                                   the beat's number, as given
+     "do": [ ...operations... ],                   what comes on, in the order it should come (each lands on its own "on")
+     "paragraph": true,                            optional: a new idea starts on this beat (a longer breath before it)
+     "pause": 1.5,                                 optional: seconds of silence after the line, for a moment to sink in
+     "about": "Akbar"}                             optional: the person, place or movement the beat is about, in English
+  ]
+}
+
+AN OPERATION is one object: {"op": "<its name>", ...its fields..., "on": "<words of this beat's line>"}.
+  - Use the field names exactly as written below; a field not listed is ignored. "?" marks an optional field.
+  - Text is a plain string; numbers are numbers ("value": 62), except where a value is written ("2,525 km").
+  - Colours are names (SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI) or "#RRGGBB"; left out, the look's own.
+  - An unknown operation, or one of a kind switched off for this lecture, is taken out; a field of the wrong shape is
+    mended where it can be (and you are told), otherwise the beat is sent back to you with the reason.
+
+WHAT IS ON SCREEN, BEAT TO BEAT:
+  - THE STAGE holds one main thing at a time: a template, a picture, a diagram, a timeline, a map, a Manim figure.
+    A new main thing replaces the one up (the old leaves the look's way as the new arrives).
+  - OVERLAYS land on what is up without replacing it: stamp, emphasis, reveal, focus, zoom, a picture's labels,
+    a work column beside a figure, a define or quote card beside a picture (the picture moves into the left half).
+  - A beat with "do": [] keeps what is up; nothing leaves on its own. Build across beats on purpose: a diagram's
+    nodes revealed over three lines, a timeline then emphasis on one event, a picture then a define card beside it.
+  - IDS join beats: give a diagram, a work column, a Manim figure or a template an "id", and later beats point at
+    it ("emphasis" target "chart1.Italy", "reveal" diagram "chain", "work" with the same id adds lines).
+  - PARTS: every named thing inside an operation (a node, a step, a point, an event, a column, a card, a tier, a
+    label) is a part. It comes on as its own "on" words are said, and a later line that says its name points at it.
+  - ONE LINE, SEVERAL MOMENTS: a beat may carry many operations; each lands on its own words, in order. A long line
+    can open on a picture, label two of its parts, and end with a stamp.`;
+
+/** Which primitive for which kind of content: a guide to choosing, not a rule. */
+const CHOOSE = String.raw`WHICH PRIMITIVE FOR WHAT (a guide: pick what shows the idea best)
+
+  The line says...                               Use
+  a number that matters                          counter (one figure counting up); kpi (2-4 figures side by side)
+  numbers compared                               chart (column for a few, bar for long names, line for change over time)
+  a share of a whole                             donut (a percentage); units (a grid of things, groups coloured);
+                                                 share (one part lifted out of a few, "1 in 10")
+  steps in order, cause and effect               chain (a row of steps with arrows); diagram flow (branches, a flowchart);
+                                                 diagram cycle / chain "loop" (a cycle); ritual (a ceremony's steps)
+  a set of points, reasons, kinds                list (points coming in as said); cards (a few things dealt in, ticked or crossed)
+  two things against each other                  versus (two sides); table (a few things across several qualities)
+  a pairing, "A is like B"                       analogy
+  ranks, an order of society                     hierarchy (tiers of a pyramid); diagram pyramid
+  what two parties give each other               exchange
+  many places/people to one, or one to many      converge
+  a family, a dynasty, who followed whom         lineage
+  dates, an era, a sequence in time              timeline (style: track, ribbon for eras, cards with pictures, road for a
+                                                 journey, vertical for a few); lifespan (lives side by side in years);
+                                                 calendar (a year's seasons and feasts)
+  a term and its meaning                         define
+  someone's own words                            quote (a sentence); document (a source's passage, phrases highlighted)
+  a person, place, object, scene                 picture (generate); polaroids (several people or things of one kind)
+  a structure with parts (an organ, a machine)   picture draw (a textbook drawing) with labels
+  a place, a route, a territory                  map: marker, state, river, arrow, journey, empire
+  the layout of a site                           plan
+  a headline, a big question                     title; ask (then ask again with its answer)
+  a claim confirmed or overturned                stamp (over what is up); myth (the wrong idea struck out, the right one in)
+  a formula                                      equation; work (a derivation line by line)
+  a worked problem                               problem, then work with its id
+  a check on understanding                       question (choices, time to think), then answer
+  a graph, a field, a mechanism that moves       manim (free-form)
+  pointing at something already up               emphasis (pulse, circle, underline, highlight, box, glow, shake, dim)
+
+  A good chapter mixes them: a picture for the setting, a template for the idea, a timeline for the dates, emphasis on
+  what matters, a question at the turn. The heading of a new topic is "panel"; there is no key point.`;
 
 /** Anchors: the words of its line each visual lands on (both engines: compile_lecture.anchors checks them). */
 export const ANCHORS = [
@@ -72,121 +138,232 @@ const TIMING = [
   "diagram's parts are drawn as their words are said; a part on screen whose name a later line says is pointed at.",
 ].join("\n");
 
-const TEMPLATES = [
-  "MOTION TEMPLATES (op and its fields; ? optional). Each builds itself in a choreography, part by part.",
-  '  title     {"op":"title","text":"The man who read the hands of kings","kicker"?:"A true story","highlight"?:"kings","sub"?}',
-  "            a headline: big words rising, one highlighted.",
-  '  counter   {"op":"counter","value":"204%","label":"Japan\'s debt, as a share of its economy","kicker"?,"delta"?:"+12%","trend"?:"up|down"}',
-  "            a number counting up (keeps $, %, units, commas).",
-  '  chart     {"op":"chart","kind"?:"column|bar|line","items":[["Japan",204],["Italy",138]],"unit"?:"%","highlight"?:"Japan",',
-  '            "reference"?:{"value":100,"label":"The economy"},"marks"?:[{"at":2015,"label":"2015"}],"kicker"?,"title"?,"source"?}',
-  "            columns or bars rising one by one, or a line drawing itself; each item lit as it is named.",
-  '  units     {"op":"units","total":100,"unit"?:"IOU","groups":[{"n":46,"label":"Bank of Japan","on":"Bank of Japan"}],',
-  '            "fly"?:{"n":8,"label":"8% abroad","on":"abroad"},"kicker"?}   a whole as a grid of things, filled group by group.',
-  '  donut     {"op":"donut","value":62,"label":"of the backlog is data centres","total"?:100}   one share swept round a ring.',
-  '  kpi       {"op":"kpi","cards":[{"label":"Sales","value":"+50%","delta":"$3.27B","note"?}],"kicker"?}   figures side by side.',
-  '  cards     {"op":"cards","items":[{"title":"1912","big"?:"✓","sub"?,"picture"?:{"generate":"..."},"mark"?:"check|cross|<a word>","on"?}],',
-  '            "stamp"?:{"text":"Debunked","on":"..."}}   things dealt in a row; each ticked, crossed or marked.',
-  '  stamp     {"op":"stamp","text":"Cleared","color"?,"at"?:"center|left|right|top|bottom","on":"cleared"}   slammed onto what is up.',
-  '  chain     {"op":"chain","steps":["Signed",{"label":"Built","on":"built"},"Paid"],"loop"?:true,"title"?}   steps joined in order.',
-  '  list      {"op":"list","items":["Margins",{"text":"Hiring","on":"hiring"}],"mark"?:"bullet|number|check","title"?}   points as said.',
-  '  versus    {"op":"versus","left":{"title":"Himalayan","points":["Snow-fed"],"value"?},"right":{"title":"Peninsular","points":["Rain-fed"]}}',
-  '  document  {"op":"document","title":"Cheiro\'s memoirs","text":"<the source\'s own words>","highlight":["<a phrase of it>"],',
-  '            "picture"?:{"generate":"..."},"source"?}   a primary source, its phrases highlighted as they are read.',
-  '  polaroids {"op":"polaroids","items":[{"generate":"Mark Twain, a portrait photograph","caption":"Mark Twain"}]}   prints dealt in.',
-  '  emphasis  {"op":"emphasis","target":"Japan","how":"pulse|circle|underline|highlight|box|glow|shake|dim","on":"Japan"}',
-  "            points at a part of what is up (a column, a card, a step, an event) by its name, or <template id>.<name>.",
-  '  hierarchy {"op":"hierarchy","tiers":[{"label":"Clergy","role":"those who pray","on":"clergy"},{"label":"Nobility"},{"label":"Peasantry"}],',
-  '            "badge"?:{"tier":"Nobility","text":"controls the land","on":"land"},"build"?:"up|down","title"?}   ranks, first = top.',
-  '  exchange  {"op":"exchange","left":"Lord","right":"Vassal","flows":[{"from":"left","text":"protection","on":"protection"},',
-  '            {"from":"right","text":"loyalty","on":"loyalty"}],"title"?}   what two parties give each other.',
-  '  plan      {"op":"plan","zones":[{"label":"Manor-house","kind":"building","at":"center"},{"label":"Fields","kind":"field","at":"w","on":"strips"}],',
-  '            "title"?,"picture"?:{"figure":"fig7"}}   a site laid out zone by zone (kind: field|wood|water|pasture|building|church|',
-  '            marsh|road; at: nw|n|ne|w|center|e|sw|s|se; over a book figure, each zone\'s "box":[x0,y0,x1,y1], 0-1).',
-  '  lineage   {"op":"lineage","people":[{"name":"Charles Martel","dates":"714"},{"name":"Pepin","dates":"751","via":"son"}],"title"?}',
-  '            a family or dynasty ("parent":"<name>" to branch).',
-  '  lifespan  {"op":"lifespan","people":[{"name":"Marc Bloch","from":1886,"to":1944}],"range"?,"marks"?:[{"at":1066,"label":"Norman Conquest"}]}',
-  "            lives as bars on one scale of years.",
-  '  analogy   {"op":"analogy","left":"In the stable","right":"In society","pairs":[["Cows","Clergy"],["Sheep","Peasants"]],"stamp"?}',
-  '  myth      {"op":"myth","wrong":"Three separate worlds","right":"Three groups bound by the same land","label"?,"on"?}   struck out, corrected.',
-  '  ritual    {"op":"ritual","title":"Homage and fealty","steps":[{"text":"Swear on the Bible","on":"Bible"}],"objects"?:[{"name":"Charter"}],"seal"?:"Bound"}',
-  '  share     {"op":"share","label":"The tithe","total":10,"part":1,"unit":"sack|coin|box","part_label":"to the Church","rest_label"?,"on"?}',
-  '  calendar  {"op":"calendar","seasons":[{"from":"March","to":"May","label":"Sowing"}],"days":[{"at":"December 25","label":"Christmas"},',
-  '            {"moves":["March 22","April 25"],"label":"Easter"}]}   a year: seasons, feasts, a movable date.',
-  '  converge  {"op":"converge","to":"Canterbury","sources":["Kent","Essex","London"],"direction"?:"in|out"}   many to one, or one to many.',
-  '  table     {"op":"table","columns":["France","Mesopotamia","Rome"],"rows":[{"label":"What justified rank","cells":["...","...","..."]}],"highlight"?}',
-  '  ask       {"op":"ask","text":"Why did power belong not just to kings?","answer"?:"Land, protection and religion","kicker"?,"on"?}',
-  "            a question set large; ask it again with its answer when the lecture answers it.",
-].join("\n");
+const TEMPLATES = String.raw`MOTION TEMPLATES. Each is one operation that builds itself in a choreography, part by part, each part on its
+own words. Every template takes "id" (to point at its parts later as "<id>.<part name>"), "title"? (a heading over it)
+and "kicker"? (a small mono line over the heading), and "on".
 
-const PICTURES = [
-  "PICTURES. Every picture is drawn from your words alone: describe what it shows, how it is seen, and how it is drawn",
-  "(medium, art style, colours, mood). It has no words in it. Nothing is added to your description but its form.",
-  '  {"op":"picture","generate":"a medieval knight on horseback, side view, a detailed engraving","labels"?:["helmet","lance"],',
-  '   "caption"?,"scene"?:true,"move"?:"bob|sway|breathe|drift","points"?:["short lines beside it"]}',
-  "    generate: a cutout of one thing or person (no background); with \"scene\": true, a whole scene edge to edge.",
-  "    labels: parts to name, written on the picture where they really are, each coming on as it is said.",
-  "    move: the picture keeps moving gently (a boat bobs, a flag sways). points: the picture on the left, lines beside it.",
-  '  {"op":"picture","draw":"A human heart in front section: ... (every part, precisely)","labels":["aorta","left ventricle"]}',
-  "    a detailed textbook drawing made by the diagram model (an organ, a cell, a machine, a cross-section).",
-  '  {"op":"picture","figure":"fig2","labels"?}   one of the book\'s own figures (listed with the lecture).',
-  '  {"op":"picture","items":[{"generate":"...","caption":"Taj Mahal","say"?:"Taj Mahal"}],"layout"?:"spotlight|grid","title"?}',
-  "    a gallery: one in the spotlight, the next coming up as its caption is said.",
-  "  A picture of a thing may also sit on a diagram's node, a timeline's event, a card or a map marker:",
-  '  "picture": {"generate":"..."} | {"draw":"..."} | {"figure":"fig3"}. The same person or thing asked for in the same words',
-  "  is the same picture, so describe recurring people and things the same way each time.",
-].join("\n");
+title — a headline: big words rising one after another, one word highlighted, the kicker typed over it.
+  {"op":"title","text":"The man who read the hands of kings","kicker"?:"A true story","highlight"?:"kings","sub"?:"1866-1936"}
+  Use for: a chapter's opening statement, a turn in the story. Not for: plain labels (use panel).
 
-const DIAGRAMS = [
-  "DIAGRAMS: boxes and arrows built as the lines name their parts.",
-  '  {"op":"diagram","id":"chain","kind":"flow|cycle|hub|pyramid","title"?,"steps"?:true,"flow"?:true,',
-  '   "nodes":[{"id":"sun","label":"Sun","picture"?:{"generate":"the sun, a bright watercolour"},"kind"?:"person|place|event|idea",',
-  '             "items"?:["short lines"],"shape"?:"start|end|process|decision|io|store|note","lane"?:"who does it","anim"?:"bob|sway|..."}],',
-  '   "edges"?:[["sun","plants","light","gives|owes|power|dashed|bold"]],"show"?:["sun"]}',
-  "    flow: a chain in order, a hierarchy (edges branching down), or a flowchart (branches, joins, loops, shapes, lanes).",
-  "    cycle: round. hub: the first node in the middle. pyramid: ranks from the top, each with its items.",
-  "    show: the nodes drawn now; the rest come with reveal, or by themselves as the lines name them.",
-  '  {"op":"diagram", ..., "drawn":"picture","about":"how bread is made"}   a flow or cycle (2-6 nodes) drawn as ONE picture by',
-  "    the image model; that picture is revealed in place, each step (and the arrow into it) drawn on as its label is said.",
-  "    Give each node an \"entity\": what its picture shows and how it is drawn.",
-  '  {"op":"reveal","diagram":"chain","nodes":["deer"]}   {"op":"focus","diagram":"chain","node":"plants"}',
-  '  {"op":"zoom","diagram":"c1","node":"R1","scale"?:2}  moves in on one part; {"op":"zoom","diagram":"c1"} moves back out.',
-].join("\n");
+counter — one figure counting up from start, keeping its $, %, units and commas; a change beside it with an arrow.
+  {"op":"counter","value":"204%","label":"debt, as a share of the economy","kicker"?:"Japan","delta"?:"+12%","trend"?:"up|down",
+   "start"?:0,"sub"?,"color"?}
+  Use for: the one number a line is about. Write value as it should read ("2,525 km", "$14.06B", "1 in 3").
 
-const TIMELINES = [
-  "TIMELINES.",
-  '  {"op":"timeline","title"?,"events":[["1526","Panipat"],["1556","Akbar",{"generate":"Akbar, a Mughal miniature portrait"}]],',
-  '   "range"?:["1500","1870"],"spans"?:[["1526","1857","Mughal Empire"]],"scale"?:"even","style"?:"track|ribbon|cards|road|vertical"}',
-  "    events sit at their real dates (\"500 BC\", \"c. 1500\", \"1920s\", \"16th century\" all read); spans shade periods;",
-  "    style: track (a line), ribbon (eras), cards (events with pictures), road (a journey), vertical (a short sequence).",
-].join("\n");
+kpi — two to four data cards side by side, each figure counting up as its card lands.
+  {"op":"kpi","cards":[{"label":"Sales","value":"+50%","delta":"$3.27B","note"?:"in sales","trend"?:"up|down","on"?}],"kicker"?}
+  Use for: a few figures read together (a quarter's results, a country's facts).
 
-const BOARD = [
-  "WORDS AND NUMBERS ON THE BOARD (colour: SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
-  '  {"op":"panel","title","sub"?}  the topic heading     {"op":"clear"}     (there is no key point: the line is its caption)',
-  '  {"op":"stat","value","label","color"?}     {"op":"bars","items":[["label",n]],"unit"?,"color"?}',
-  '  {"op":"define","term":"Biodiversity","meaning":"<plain words>"}     {"op":"quote","text":"...","who":"Akbar"}',
-  '  {"op":"compare","title"?,"columns":[{"title":"Reserved","points":["short lines"]}]}',
-  '  {"op":"process","steps":["Evaporation","Condensation"],"cycle"?:true,"title"?}     {"op":"equation","tex":"E = mc^2","label"?}',
-  '  {"op":"molecule","name":"glucose" | "H2O" | SMILES,"label"?}   a structural formula.',
-  '  {"op":"question","text":"Which is a force?","choices"?:["Kicking a ball","Sleeping"],"answer":"A" | "<words>","think"?:5}',
-  '   then {"op":"answer"} on a later beat; {"op":"option","choice":"B"} marks one choice while it is talked about.',
-  '  {"op":"work","id":"w","title"?,"lines":["N = mg\\\\cos\\\\theta"],"box"?:true}   a column of working or notes built line by',
-  "   line beside what is up (TeX for maths, sentences for words); the same id adds lines.",
-  '  {"op":"problem","id":"p1","title":"Problem 1","text":"<the question>","given"?:[...],"find"?,"think"?:5}   then work with its id.',
-].join("\n");
+chart — columns, bars or a line, built item by item; the highlighted item in the accent.
+  {"op":"chart","kind"?:"column|bar|line","items":[["Japan",204],["Italy",138],{"label":"Germany","value":65,"on":"Germany"}],
+   "unit"?:"%","highlight"?:"Japan","reference"?:{"value":100,"label":"The economy"},"marks"?:[{"at":2015,"label":"2015"}],
+   "source"?:"IMF"}
+  Use for: numbers compared (column up to 12, bar for long names, line up to 60 points for change over time;
+  reference draws a dashed level across, marks dashed years down a line chart).
 
-const MAP = [
-  "THE MAP (with a region): drawn from real geography; the map comes in on a beat that uses it and goes when a picture",
-  "of its own comes up. Name places in English; the compiler finds them.",
-  '  {"op":"marker","place":"Jaipur","label"?,"color"?,"side"?:"left|right|up|down","picture"?}   a point.',
-  '  {"op":"state","name":"Normandy","label"?,"color"?,"opacity"?}   an area shaded, its name on it (a state, a country, a region).',
-  '  {"op":"river","name":"Ganges"}   {"op":"arrow","points":["Delhi","Agra"],"label"?}   {"op":"path","points":[...]}',
-  '  {"op":"journey","stops":["Ahmedabad","Surat",[72.8,20.89]],"labels"?,"pictures"?}   a traveller moving stop to stop.',
-  '  {"op":"empire","name":"Mughal Empire","year":1600,"label"?}   a state as it stood that year.',
-  '  {"op":"relief","names"?:["Himalayas"]}   {"op":"graticule","lat":23.44,"label"?}   {"op":"dim"}',
-  "A map is only ever drawn this way (never as a picture or in Manim).",
-].join("\n");
+units — a grid of things (default 100), groups coloured as they are said, some flying off into a pile.
+  {"op":"units","total":100,"unit"?:"IOU","cols"?:10,"groups":[{"n":46,"label":"Bank of Japan","on":"Bank of Japan","color"?}],
+   "fly"?:{"n":8,"label":"8% abroad","on":"abroad"}}
+  Use for: "how many out of how many" made countable (people, seats, rupees). unit: a word written in each (60 or fewer).
+
+donut — one share swept round a ring, the figure counting up in the middle.
+  {"op":"donut","value":62,"total"?:100,"label":"of the backlog is data centres","text"?:"62%","sub"?,"color"?}
+  Use for: a single percentage or fraction.
+
+share — a few equal pieces in a row; as the line names it, the share is lifted out and named ("1 in 10").
+  {"op":"share","label":"The tithe","total":10,"part":1,"unit":"sack|coin|box","part_label":"to the Church","rest_label"?,"on"?}
+  Use for: a small whole and its part (at most 20 pieces). on: the words that name the share.
+
+cards — up to six cards dealt in a row; each one's mark (tick, cross, a word) lands as it is said; a stamp across all.
+  {"op":"cards","items":[{"title":"Prediction one","big"?:"1912","sub"?,"picture"?:{"generate":"..."},"mark"?:"check|cross|<a word>","on"?}],
+   "stamp"?:{"text":"Debunked","on":"..."}}
+  Use for: a few things judged one by one (claims, candidates, causes). big: a large word or year on the card.
+
+list — up to seven points sliding in as they are said, each with its mark.
+  {"op":"list","items":["Margins",{"text":"Hiring","on":"hiring"}],"mark"?:"bullet|number|check"}
+  Use for: reasons, features, steps without arrows. Short points (a few words each).
+
+chain — two to seven steps in a row joined by arrows; each next step and its arrow drawn as it is said.
+  {"op":"chain","steps":["Signed",{"label":"Built","on":"built","picture"?:{"generate":"..."}},"Paid"],"loop"?:true}
+  Use for: a process or a cause leading to an effect. loop: an arrow from the last back to the first (a cycle).
+
+versus — two cards sweeping in from the edges, a VS badge slammed between them.
+  {"op":"versus","left":{"title":"Himalayan","points":["Snow-fed","Flow all year"],"value"?:"40%","picture"?,"on"?},
+   "right":{"title":"Peninsular","points":["Rain-fed"],"on"?}}
+  Use for: exactly two things contrasted (up to four points a side). A side may be just a title: "left":"Lord".
+
+table — two to four columns, up to five rows filled in as they are said.
+  {"op":"table","columns":["France","Mesopotamia","Rome"],"rows":[{"label":"What justified rank","cells":["...","...","..."],"on"?}],
+   "highlight"?:"France"}
+  Use for: several things compared on several qualities. Cells short.
+
+analogy — matched pairs under two headings, each pair joined by an arrow as it is said.
+  {"op":"analogy","left":"In the stable","right":"In society","pairs":[["Cows","Clergy"],{"a":"Sheep","b":"Peasants","on":"sheep"}],
+   "stamp"?:{"text":"Separate ranks","on":"ranks"}}
+
+hierarchy — tiers of a pyramid built up or down, a badge on one tier.
+  {"op":"hierarchy","tiers":[{"label":"Clergy","role"?:"those who pray","picture"?,"on"?:"clergy"},{"label":"Nobility"},{"label":"Peasantry"}],
+   "badge"?:{"tier":"Nobility","text":"controls the land","on":"land"},"build"?:"up|down"}
+  Use for: ranks and orders, first tier at the top.
+
+exchange — two parties at the sides; each flow drawn across as an arrow from the one who gives it.
+  {"op":"exchange","left":"Lord","right":{"title":"Vassal","picture"?:{"generate":"a kneeling knight"}},
+   "flows":[{"from":"left","text":"protection","on":"protection"},{"from":"right","text":"loyalty","on":"loyalty"}]}
+  Use for: what two sides give each other (up to four flows).
+
+converge — sources round a centre, each arrow drawn in (or out) as it is named.
+  {"op":"converge","to":"Canterbury" | {"label":"Canterbury","picture":{"generate":"..."}},
+   "sources":["Kent",{"label":"London","on":"London"}],"direction"?:"in|out"}
+  Use for: many to one (pilgrims, tributaries, inputs) or one to many (out).
+
+lineage — two to eight people as cards joined parent to child; a line of descent runs across, a family branches down.
+  {"op":"lineage","people":[{"name":"Charles Martel","dates"?:"714","role"?:"mayor of the palace"},
+   {"name":"Pepin","dates":"751","via":"son","parent"?:"Charles Martel","picture"?,"on"?}]}
+
+lifespan — lives as bars on one scale of years (overlaps show who lived at the same time).
+  {"op":"lifespan","people":[{"name":"Marc Bloch","from":1886,"to":1944,"note"?,"on"?}],"range"?:["700","2000"],
+   "marks"?:[{"at":1066,"label":"Norman Conquest","on"?}]}
+
+calendar — a year as a ring of months: seasons swept round, days pinned (a moving feast as a dashed range).
+  {"op":"calendar","seasons":[{"from":"March","to":"May","label":"Sowing","on"?}],
+   "days":[{"at":"December 25","label":"Christmas"},{"moves":["March 22","April 25"],"label":"Easter","on"?}]}
+
+plan — a site laid out zone by zone on a board (kind: field wood water pasture building church marsh road; at: nw n
+  ne w center e sw s se); over a book figure, each zone's "box" [x0,y0,x1,y1] from 0 to 1 is tinted on it.
+  {"op":"plan","zones":[{"label":"Manor-house","kind":"building","at":"center","on"?},{"label":"Fields","kind":"field","at":"w"}],
+   "picture"?:{"figure":"fig7"}}
+
+ritual — a parchment of numbered steps written in as said, objects laid beside it, a seal pressed at the end.
+  {"op":"ritual","title":"Homage and fealty","steps":[{"text":"Swear on the Bible","on":"Bible"}],
+   "objects"?:[{"name":"Charter","picture"?,"on"?}],"seal"?:{"text":"Bound","on"?}}
+
+document — a page of a primary source, its phrases swept with the highlighter as they are read.
+  {"op":"document","title":"Cheiro's memoirs","text":"<the source's own words>","highlight":["<a phrase of it, as written>"],
+   "source"?:"Cheiro, 1931","picture"?:{"generate":"..."}}
+
+polaroids — up to five prints dealt onto the board, each captioned in its frame.
+  {"op":"polaroids","items":[{"generate":"Mark Twain, a portrait photograph","caption":"Mark Twain","on"?},{"figure":"fig2","caption":"..."}]}
+  Use for: several people or things of a kind, seen together.
+
+myth — the wrong idea on a card; as the right one is said, the wrong one is struck through and the right one slides in.
+  {"op":"myth","wrong":"Three separate worlds","right":"Three groups bound by the same land","label"?:"Not quite","on"?:"three groups"}
+  on: the words where the right idea is given.
+
+ask — a question set large; given again with "answer", the answer is typed in under it with a tick.
+  {"op":"ask","text":"Why did power belong not just to kings?","answer"?:"Land, protection and religion","kicker"?,"on"?}
+  Use: once at a chapter's start (no answer), again where the lecture answers it (with answer, on its words).
+
+stamp — a rubber stamp slammed onto what is up (the picture shakes); plays after the beat's other operations.
+  {"op":"stamp","text":"Cleared","on":"cleared","color"?,"angle"?:-10,"at"?:"center|top|bottom|left|right"}
+  Use for: a verdict, a confirmation, a myth busted. One or two words.
+
+emphasis — points at a part of what is up, by its name or "<id>.<name>".
+  {"op":"emphasis","target":"chart1.Italy","how":"pulse|circle|underline|highlight|box|glow|shake|dim","on":"Italy","color"?}
+  Use for: the one thing on screen the line is now about. dim: the rest of its template fades back.`;
+
+const PICTURES = String.raw`PICTURES. Drawn from your words alone: describe what it shows, how it is seen, and how it is drawn (medium, art
+style, colours, mood). A picture has no words in it. The same thing asked for in the same words is the same picture:
+describe a recurring person or thing the same way each time.
+
+picture (generate) — an illustration made by the image model: a cutout of one thing, or a whole scene.
+  {"op":"picture","generate":"a medieval knight on horseback, side view, a detailed engraving","on":"knight",
+   "labels"?:[{"name":"helmet","on":"helmet"},{"name":"lance","on":"lance"}],"caption"?,"scene"?:true,
+   "move"?:"bob|sway|breathe|drift","points"?:["short lines beside it"],"aspect"?:"16:9|4:3|1:1"}
+  labels: 2-6 parts really in the picture, each written beside its part with a box and a line, the camera moving in as
+  it is said. scene: drawn edge to edge (a market, a battle). move: it keeps moving gently. points: the picture on the
+  left, 2-4 short lines on the right (not with labels).
+  Use for: every person, place, object or setting the narration mentions.
+
+picture (draw) — a detailed textbook drawing made by the diagram model.
+  {"op":"picture","draw":"A human heart in front section: the four chambers, the aorta rising from the left ventricle, ...",
+   "labels":[{"name":"aorta","on":"aorta"},{"name":"left ventricle","on":"left ventricle"}],"caption"?}
+  Use for: structures with parts (an organ, a cell, a machine, a cross-section). Describe every part and where it is.
+
+picture (figure) — one of the book's own figures, by its id (listed with the lecture).
+  {"op":"picture","figure":"fig2","caption"?,"labels"?}
+
+picture (gallery) — several pictures: one in the spotlight, the next brought forward as its "say" words are said.
+  {"op":"picture","items":[{"generate":"...","caption":"Taj Mahal","say"?:"Taj Mahal"},{"figure":"fig3","caption":"..."}],
+   "layout"?:"spotlight|grid","title"?}
+
+  A picture of a thing can also sit on a diagram's node, a timeline's event, a card, a chain's step or a map marker:
+  "picture": {"generate":"..."} | {"draw":"..."} | {"figure":"fig3"}.`;
+
+const DIAGRAMS = String.raw`DIAGRAMS: boxes and arrows built as the lines name their parts.
+
+diagram — a flow, a cycle, a hub or a pyramid of nodes and edges.
+  {"op":"diagram","id":"chain","kind":"flow|cycle|hub|pyramid","title"?,"on":"...",
+   "nodes":[{"id":"sun","label":"Sun","on":"sun","picture"?:{"generate":"the sun, a bright watercolour"},
+             "kind"?:"person|place|event|idea","items"?:["short lines"],"shape"?:"start|end|process|decision|io|store|note",
+             "lane"?:"who does it","anim"?:"bob|hop|sway|shake|flicker|spin|pulse|breathe|drift"}],
+   "edges"?:[["sun","plants","light","dashed|bold"]],"show"?:["sun"],"steps"?:true,"flow"?:true}
+  kind: flow (in order; edges branching make a tree; shapes, decisions and lanes make a flowchart), cycle (round),
+  hub (the first node in the middle), pyramid (ranks from the top, each with its items). 2-9 nodes (a flow 16).
+  edges: [from, to, label?, style?]; a flow or cycle with none joins its nodes in order. show: the nodes drawn now;
+  the rest come with reveal or as their own "on" words are said. steps: numbered cards. flow: dots run along arrows.
+  Use for: how things connect, branch or loop, with more than a straight row (a straight row is a chain).
+
+diagram drawn as one picture — a flow or cycle of 2-6 nodes drawn as ONE picture by the image model, then revealed in
+  place, each step and the arrow into it drawn on as its label is said. Give each node an "entity": what its picture
+  shows and how it is drawn.
+  {"op":"diagram","id":"bread","kind":"flow","drawn":"picture","about":"how bread is made",
+   "nodes":[{"id":"wheat","label":"Wheat","entity":"a sheaf of golden wheat, watercolour","on":"wheat"}, ...]}
+
+reveal — draws more nodes of a diagram already up.   {"op":"reveal","diagram":"chain","nodes":["deer"],"on":"deer"}
+focus — lights one node and dims the rest.             {"op":"focus","diagram":"chain","node":"plants","on":"plants"}
+zoom — moves the camera in on one part; without node, back out.  {"op":"zoom","diagram":"c1","node":"R1","scale"?:2}`;
+
+const TIMELINES = String.raw`TIMELINES.
+
+timeline — events at their real dates, periods shaded, built event by event as each is said.
+  {"op":"timeline","title"?,"style"?:"track|ribbon|cards|road|vertical","on":"...",
+   "events":[["1526","Panipat"],{"date":"1556","label":"Akbar","picture":{"generate":"Akbar, a Mughal miniature portrait"},"on":"Akbar"}],
+   "range"?:["1500","1870"],"spans"?:[["1526","1857","Mughal Empire"]],"scale"?:"even"}
+  Dates read: "1526", "500 BC", "320 BCE", "c. 1500", "1920s", "16th century". 2-10 events.
+  style: track (a line in proportion, periods in lanes), ribbon (a band of eras, events as flags), cards (each event a
+  card with its picture), road (a journey, a marker travelling stop to stop), vertical (a short sequence down the side).
+  scale "even": events evenly spaced instead of in proportion. Use for: dates, eras, sequences in time.`;
+
+const BOARD = String.raw`WORDS, NUMBERS, QUESTIONS AND WORKING (classic operations, drawn in motion).
+
+panel — the topic's heading in the strip over the board (a new topic). {"op":"panel","title":"India's rivers","sub"?,"on"?}
+  There is NO key point under it: never use "fact" (it is left out); the line's words are its caption already.
+clear — takes the heading away.                      {"op":"clear"}
+stat — a number with its label (drawn as a counter). {"op":"stat","value":"2,525 km","label":"Ganga: longest river","color"?,"on"?}
+bars — a bar chart (drawn as a chart).               {"op":"bars","items":[["Ganga",2525],["Godavari",1465]],"unit"?:"km","color"?}
+define — the term large, the highlighter swept under it, its meaning typed in; beside a picture already up.
+  {"op":"define","term":"Biodiversity","meaning":"<plain words>","on":"biodiversity"}
+quote — big quote marks, the words typed on, the speaker sliding in.   {"op":"quote","text":"...","who":"Akbar","on"?}
+compare — two columns (drawn as versus), more as cards.  {"op":"compare","title"?,"columns":[{"title":"Reserved","points":["short lines"]}]}
+process — steps (drawn as a chain).                  {"op":"process","steps":["Evaporation","Condensation"],"cycle"?:true,"title"?}
+equation — a formula written on, boxed when alone.   {"op":"equation","tex":"E = mc^2","label"?:"mass-energy","on"?}
+molecule — a structural formula.                     {"op":"molecule","name":"glucose" | "H2O" | "<SMILES>","label"?}
+question — a question to the class, with time to think; then {"op":"answer"} on a later beat reveals it.
+  {"op":"question","text":"Which is a force?","choices"?:["Kicking a ball","Sleeping"],"answer":"A" | "<words>","think"?:5}
+  {"op":"option","choice":"B"} lights one choice while the line talks about it.
+work — a column of working or notes built line by line beside what is up (TeX for maths, sentences for words); the
+  same id adds lines on later beats; box draws a box round the last line (the answer).
+  {"op":"work","id":"w","title"?,"lines":["N = mg\cos\theta"],"box"?:true}
+problem — a problem set out (its given and find), then solved with work under the same id.
+  {"op":"problem","id":"p1","title":"Problem 1","text":"<the question>","given"?:["m = 2 kg"],"find"?:"a","think"?:5}`;
+
+const MAP = String.raw`THE MAP (only with a region): drawn from real geography; it comes in on a beat that uses it and goes when a
+picture of its own comes up. Name places in English; the compiler finds them. A map is only ever drawn this way.
+
+marker — a point with its label.            {"op":"marker","place":"Jaipur","label"?,"color"?,"side"?:"left|right|up|down","picture"?,"on"?}
+state — an area shaded, its name on it.     {"op":"state","name":"Normandy","label"?,"color"?,"opacity"?,"on"?}
+river — a river drawn along its course.     {"op":"river","name":"Ganges","on"?}
+arrow — a movement from place to place.     {"op":"arrow","points":["Delhi","Agra"],"label"?,"on"?}
+path — a route through places.              {"op":"path","points":["Delhi","Agra","Lucknow"]}
+journey — a traveller moving stop to stop.  {"op":"journey","stops":["Ahmedabad","Surat",[72.8,20.89]],"labels"?,"pictures"?}
+empire — a state as it stood in a year.     {"op":"empire","name":"Mughal Empire","year":1600,"label"?}
+relief — mountains shaded.                  {"op":"relief","names"?:["Himalayas"]}
+graticule — a line of latitude.             {"op":"graticule","lat":23.44,"label"?:"Tropic of Cancer"}
+dim — the map steps back under what is put over it.   {"op":"dim"}
+icon — a small made picture of a thing at places on the map (crops, industries).
+  {"op":"icon","name":"wheat","places":["Punjab","Haryana"],"label"?:"Wheat","color"?,"size"?:0.6,"on"?}
+unstage — takes the picture off the stage, back to the map or an empty board.   {"op":"unstage"}`;
 
 function manimPart(agent: boolean): string {
   return [
@@ -237,7 +414,8 @@ const EXAMPLES = [
 export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Record<string, string>; look?: string }): Part[] {
   return [
     part("role", "Role", "rules", ROLE),
-    part("shape", "The answer's shape", "rules", SHAPE),
+    part("shape", "How to build the JSON", "rules", SHAPE),
+    part("choose", "Which primitive for what", "rules", CHOOSE),
     part("anchors", "Anchors: every visual on its words", "rules", ANCHORS),
     part("timing", "Timing to the voice", "rules", TIMING),
     part("templates", "Motion templates", "rules", TEMPLATES),

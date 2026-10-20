@@ -478,6 +478,8 @@ INNER_ON = {"myth", "share", "ask"}
 
 
 def _patched_op_said(op: dict, parts: dict, asked: list):
+    if str(op.get("on") or "").strip() == "start" and op.get("op") not in INNER_ON:
+        return None                                  # as the line begins (compile_lecture.anchors)
     if op.get("on") and op.get("op") not in INNER_ON:
         return str(op["on"])
     if op.get("op") in INNER_ON:

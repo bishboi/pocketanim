@@ -845,6 +845,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     no_icons(script)
     errors: list[str] = []
     warnings: list[str] = []
+    anchors(script, errors, warnings)
     if script.get("style", "atlas") not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
     if str(script.get("art") or "auto").lower().replace("watercolor", "watercolour") not in ARTS:
@@ -903,6 +904,8 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                     errors.append(f"{at}: {wrong_maker}")
                     continue
                 unsaid = _labels_unsaid(op, [say] + [str(b.get("say") or "") for b in beats_here[bi:bi + 2]])
+                # A label with its own anchor (its "on", anchors) is said by those words.
+                unsaid = [x for x in unsaid if x not in (beat.get("_spoken_as") or {})]
                 if unsaid:
                     warnings.append(f"{at}: the picture's labels {', '.join(repr(x) for x in unsaid)} are never said "
                                     "while it is up; say each label's words in this line or the next two (each label "
@@ -2984,6 +2987,10 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | list[str] | None:
     (a card, a chart, a timeline, a new diagram), the words it shows, to come on with the first of them said
     (_shown_words). None for one that acts as the line begins (UNSAID_OPS) or shows no words."""
     kind = op.get("op")
+    on = op.get("on")
+    if isinstance(on, str) and on.strip():
+        # The words the scene writer named for it (anchors); "start": as the line begins.
+        return None if on.strip() == "start" else on.strip()
     if kind in ("marker", "state", "river", "empire"):
         return str(op.get("label") or op.get("place") or op.get("name") or "") or None
     if kind in ("arrow", "path", "graticule"):
@@ -3005,6 +3012,107 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | list[str] | None:
     if kind in UNSAID_OPS:
         return None
     return _shown_words(op) or None
+
+
+# ---------------- anchors: the words each picture lands on ----------------
+# The scene writer names, on each operation and on each part inside one (a node, a step, an event, a label, an
+# item), the words of its line it lands on: "on": "<the words, copied from the line>", or "start" (with the line).
+# They are checked here against the line as the voice will say it, mended to the line's own words when a word or
+# two is off, and refused (the writer asked again) when they are not in the line at all.
+
+NAMED_BY = ("label", "text", "title", "name", "term", "date")
+
+
+def _closest(spoken: list[str], wanted: str) -> str | None:
+    """The run of the line's words most like `wanted` (a word misspelt, a plural, a matra dropped), when it is close
+    enough to be the same words; None when no run is."""
+    import difflib
+
+    size = max(1, len(wanted.split()))
+    target = wanted.lower()
+    best, found = 0.0, None
+    for n in {max(1, size - 1), size, size + 1}:
+        for i in range(0, max(1, len(spoken) - n + 1)):
+            run = " ".join(spoken[i:i + n]).strip(".,;:!?।॥\"'“”‘’()")
+            score = difflib.SequenceMatcher(None, run.lower(), target).ratio()
+            if score > best:
+                best, found = score, run
+    return found if best >= 0.75 else None
+
+
+def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
+    """Each operation's and each part's "on" checked against its line (pocket_lecture.said_at, on the line as it is
+    spoken): kept when the line says it, mended to the line's own words when nearly, refused when not. A part's
+    anchor is kept on the beat (`_spoken_as`, its name to its words) for the engine to time the part by
+    (Lecture.spoken_as); on the current engine it is taken off the part itself, which the engine does not read. A
+    picture's label may be {"name", "on"}: it becomes its name."""
+    import pocket_lecture as pl
+
+    motion = script.get("engine") == "motion"
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            if not isinstance(beat, dict):
+                continue
+            spoken = pl.speechify(str(beat.get("say") or "")).split()
+            words = [{"w": w, "start": float(k)} for k, w in enumerate(spoken)]
+            alias: dict[str, str] = {}
+
+            def check(holder: dict, where: str, name: str | None = None) -> None:
+                on = holder.get("on")
+                if on is None:
+                    return
+                if not isinstance(on, str) or not on.strip():
+                    holder.pop("on", None)
+                    return
+                on = on.strip()
+                if on.lower() == "start":
+                    holder["on"] = "start"
+                    return
+                if pl.said_at(words, on) is None:
+                    near = _closest(spoken, on)
+                    if near is None or pl.said_at(words, near) is None:
+                        errors.append(f"chapter {ci} beat {bi}: {where}: \"on\": {on!r} is not in its line; copy the "
+                                      "words it lands on from the line exactly as written (or \"start\")")
+                        holder.pop("on", None)
+                        return
+                    warnings.append(f"fixed: chapter {ci} beat {bi}: {where}: \"on\": {on!r} is {near!r} in its line")
+                    on = near
+                holder["on"] = on
+                if name:
+                    alias[name] = on
+
+            def inside(value, where: str, depth: int = 0) -> None:
+                if depth > 4:
+                    return
+                if isinstance(value, list):
+                    for k, item in enumerate(value):
+                        if isinstance(item, dict) and set(item) <= {"name", "on"} and "name" in item:
+                            # A picture's label as {"name", "on"}: its name, its words kept by name.
+                            check(item, f"{where} {item['name']!r}", str(item["name"]))
+                            value[k] = str(item["name"])
+                            continue
+                        inside(item, where, depth + 1)
+                elif isinstance(value, dict):
+                    name = next((str(value[k]) for k in NAMED_BY if isinstance(value.get(k), (str, int, float))
+                                 and str(value[k]).strip()), None)
+                    if "on" in value:
+                        check(value, f"{where} {name!r}" if name else where, name)
+                        if not motion:
+                            value.pop("on", None)
+                    for key, inner in value.items():
+                        if key != "on":
+                            inside(inner, where, depth + 1)
+
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                where = str(op.get("op") or "operation")
+                check(op, where)
+                for key, inner in op.items():
+                    if key != "on":
+                        inside(inner, where)
+            if alias:
+                beat["_spoken_as"] = alias
 
 
 # Operations that are not a thing the narration names: they act as the line begins (or as their own `think` says).
@@ -3619,6 +3727,9 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 places = f", places=[{', '.join(spots)}]" if spots else ""
                 out.append(f"        self.map_in({box!r}{places}, wide={wide})")
                 map_until, staged = runs[bi], False
+            if beat.get("_spoken_as"):
+                # The words each part of this line's pictures lands on (its "on"), by the part's name (anchors).
+                out.append(f"        self.spoken_as({beat['_spoken_as']!r})")
             ops = beat_order(list(beat.get("do") or []))
             free = next((op for op in ops if op.get("op") == "manim"), None)
             if free is not None:

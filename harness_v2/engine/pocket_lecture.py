@@ -2890,7 +2890,7 @@ class Lecture(Scene):
                 continue
             if not any(id(x) in held for x in mob.family_members_with_points()):
                 continue
-            at = said_at(words, part["say"])
+            at = self._said(words, part["say"])
             # A thing put up by this line is pointed at only once it has had time to arrive.
             if at is None or at > seconds - 0.4 or (fresh and at < 1.0):
                 continue
@@ -3074,6 +3074,7 @@ class Lecture(Scene):
         spent = self._wait_until(spent, seconds + pad, swaps)
         self._voice_done(pad)
         self._sync_beat = self.__dict__.get("_sync_beat", 0) + 1
+        self._spoken_as = {}                   # a line's anchors are its own (spoken_as)
         return seconds
 
     @staticmethod
@@ -3188,13 +3189,13 @@ class Lecture(Scene):
             alts = getattr(anim, "panim_alts", None)
             if alts:
                 # Timed by whichever of its words the line says first.
-                heard = [(t_, a) for t_, a in ((said_at(words, a), a) for a in alts) if t_ is not None]
+                heard = [(t_, a) for t_, a in ((self._said(words, a), a) for a in alts) if t_ is not None]
                 try:
                     anim.panim_said = min(heard)[1] if heard else None
                 except AttributeError:
                     pass
             said = getattr(anim, "panim_said", None)
-            at = said_at(words, said) if said else None
+            at = self._said(words, said) if said else None
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
                 run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else 1.0
                 cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.5)]
@@ -3255,6 +3256,24 @@ class Lecture(Scene):
             else:
                 out[i] = (self._label_reveal(view, name), cue)
         return out
+
+    def spoken_as(self, table: dict) -> None:
+        """The words the line about to play says for each part of its pictures, by the part's name (the scene
+        writer's "on" anchors, compile_lecture.anchors): a part is timed by those words, not its name, for that
+        line. "Third law" said as "reaction", a node "Craftsmen" said as "कारीगर"."""
+        self._spoken_as = {_norm(k): str(v) for k, v in (table or {}).items() if str(v or "").strip()}
+
+    def _said(self, words, phrase) -> float | None:
+        """When the line says `phrase` (a part's name): by the words its anchor names for this line, else by the
+        phrase itself (said_at)."""
+        if not phrase:
+            return None
+        anchor = (self.__dict__.get("_spoken_as") or {}).get(_norm(phrase))
+        if anchor:
+            at = said_at(words, anchor)
+            if at is not None:
+                return at
+        return said_at(words, phrase)
 
     def queue_on_words(self, say: str, build) -> None:
         """Queue `build(heard)` to make what comes on when `say` is said in the line about to play (beat): heard is
@@ -4678,7 +4697,7 @@ class Lecture(Scene):
         for view in self.__dict__.get("_views", []):
             if view["zoom"] is None:
                 continue
-            if self._view_on(view) and words and any(said_at(words, n) is not None for n in view["parts"]) \
+            if self._view_on(view) and words and any(self._said(words, n) is not None for n in view["parts"]) \
                     and not view.pop("lift_next", False):
                 continue
             if not self._view_on(view):

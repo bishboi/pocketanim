@@ -39,6 +39,7 @@ Give each animation a start and a duration so the picture follows the voice:
 - Start an animation 0.15 to 0.3 s BEFORE the first word that names, introduces or describes what it shows (a \
 diagram part's label, a place, a term being defined, the step of a working). A highlight or focus on a part goes \
 on the part's name. A whole new picture, diagram, map or card that the line is about starts at 0.
+- An animation marked [lands on "<words>"] is anchored to those words: start it 0.2 s before they are said.
 - When the line never names what an animation shows, start it where the idea it shows is being said, or at 0.
 - Never start an animation before one listed above it; start times only stay the same or grow down the list.
 - Durations: a focus, highlight or indicate 0.5 to 0.9 s; a label, reveal, arrow or one item 0.6 to 1.2 s; a new \
@@ -70,6 +71,10 @@ def _describe(source: str, node: ast.AST) -> str:
         label = _literal(node.args[1]) if len(node.args) > 1 else None
         inner = ast.get_source_segment(source, node.args[0].body) or ""
         text = f"{str(label).split(' ')[-1]}: {inner}" if label else inner
+        said = next((_literal(k.value) for k in node.keywords if k.arg == "said"), None)
+        if isinstance(said, str) and said.strip():
+            # Its anchor (the scene writer's "on", compile_lecture.anchors): the engine starts it on these words.
+            text = f"[lands on \"{said}\"] {text}"
     else:
         text = ast.get_source_segment(source, node) or ""
     text = re.sub(r"\s+", " ", text)

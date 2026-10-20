@@ -41,12 +41,35 @@ const SHAPE = [
   "A beat may have no operations (what is up stays up), one, or many; things stay on screen until something replaces them.",
 ].join("\n");
 
+/** Anchors: the words of its line each visual lands on (both engines: compile_lecture.anchors checks them). */
+export const ANCHORS = [
+  "ANCHORS: EVERY VISUAL LANDS ON ITS WORDS. The voice is recorded first and the time of every word it says is known;",
+  "each thing comes on just before the words you name for it, so the screen moves with the voice.",
+  "  - Give EVERY operation \"on\": the words of its own beat's say it lands on, copied EXACTLY as they are written",
+  "    there (the same letters: Devanagari stays Devanagari, an English word stays in Latin letters), one to four",
+  "    words: the words that bring that thing in -- the term as it is defined, the number as it is said, the name of",
+  "    the step, the place, the person. Not the first words of the line unless that is where it belongs.",
+  "  - Give EVERY PART inside an operation its own \"on\" the same way: a diagram's node, a chain's step, a list's",
+  "    point, a timeline's event, a chart's column, a card, a side of a versus, a tier, a group of units; a picture's",
+  "    label as {\"name\": \"<the label>\", \"on\": \"<its words>\"}. Parts come on one by one, each on its own words.",
+  "  - \"on\": \"start\" for what must be up as the line begins: the new scene the line opens on, a title it starts with.",
+  "  - ONLY THE LINE'S OWN WORDS: the words said are the transcript's and are not yours to change. An anchor that is not",
+  "    in its line is refused and sent back to you. A thing its line never names goes on the beat whose line does",
+  "    (reveal it, point at it there), or takes the words of its line that mean it (\"Third law\" on \"reaction\").",
+  "  Examples:",
+  "    say \"Traders went as far as Mesopotamia, more than two thousand kilometres away.\"",
+  "    do  [{\"op\":\"stat\",\"value\":\"2,000 km\",\"label\":\"to Mesopotamia\",\"on\":\"two thousand kilometres\"}]",
+  "    say \"Bus अचानक brake लगाती है, तो आप आगे की तरफ गिरते हो।\"",
+  "    do  [{\"op\":\"chain\",\"on\":\"Bus\",\"steps\":[{\"label\":\"Bus moving\",\"on\":\"Bus\"},{\"label\":\"Brake\",\"on\":\"brake\"},",
+  "          {\"label\":\"You fall forward\",\"on\":\"गिरते\"}]}]",
+  "    say \"The citadel had the Great Bath, a big tank lined with bricks.\"",
+  "    do  [{\"op\":\"picture\",\"generate\":\"...\",\"on\":\"Great Bath\",\"labels\":[{\"name\":\"tank\",\"on\":\"big tank\"},{\"name\":\"bricks\",\"on\":\"bricks\"}]}]",
+].join("\n");
+
 const TIMING = [
-  "TIMING TO THE VOICE. Every operation may carry \"on\": \"<words of its line>\" -- it starts as those words are said.",
-  "Inside a template, items carry their own \"on\" (a column, a step, a card, a point); an item without one lands when",
-  "its own name is said, or in its turn. A picture's labels come on as their names are said, with a box round the part",
-  "and the rest of the picture shaded while the line stays on it. A diagram's parts are drawn as the lines name them.",
-  "So: name things in the narration's words, and the screen follows the voice.",
+  "TIMING TO THE VOICE: every operation and every part inside one lands on its \"on\" words (the anchors above). A",
+  "picture's labels come on with a box round the part and the rest of the picture shaded while the line stays on it; a",
+  "diagram's parts are drawn as their words are said; a part on screen whose name a later line says is pointed at.",
 ].join("\n");
 
 const TEMPLATES = [
@@ -215,6 +238,7 @@ export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Rec
   return [
     part("role", "Role", "rules", ROLE),
     part("shape", "The answer's shape", "rules", SHAPE),
+    part("anchors", "Anchors: every visual on its words", "rules", ANCHORS),
     part("timing", "Timing to the voice", "rules", TIMING),
     part("templates", "Motion templates", "rules", TEMPLATES),
     part("pictures", "Pictures", "rules", PICTURES),

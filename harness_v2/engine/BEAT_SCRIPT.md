@@ -50,6 +50,7 @@ Contents: [the whole script](#1-the-whole-script) · [a chapter](#2-a-chapter) �
 |---|---|---|
 | `title` | text | The lecture's title: the title slide, and the name of the scene's introduction. |
 | `sub`? | text | A line under the title on the title slide. |
+| `engine`? | `"motion"` | Drawn by the motion engine (beta, [MOTION_ENGINE.md](MOTION_ENGINE.md)); left out, this engine. The compiler keeps the parts' own anchors (`on`) for its templates. |
 | `intro`? | text | What is said over the title slide. Default: `"<title>. <sub>"`. |
 | `style`? | name | The **look** (the film's frame, board colour, fonts): `atlas` (default), `parchment`, `lab`, `cosmos`, `vox`, `cardboard`, `whiteboard`, `blueprint`, `chalkboard`, also `friendly`, `ink`, `water`. See §7. |
 | `art`? | name | How pictures are drawn: `auto` (the look's own), `clean`, `detailed`, `blueprint`, `chalk`, `sketch`, `neon`, `watercolour`. |
@@ -133,6 +134,7 @@ A beat is one narration line and what goes with it on screen.
 | `picture`? | text | What to picture for this beat if the paragraph is left without a visual (`auto_illustrations`), in English. |
 | `rt`? | number | The time (seconds) the beat's animations take, instead of the engine's own. |
 | `cues`? | list | Written by the voice step, not by hand: the start (and length) of each animation, timed to the words. |
+| (`do` items) `on`? | text | On any operation or part: the words of `say` it lands on, or `"start"` (§4, Anchors). |
 
 ---
 
@@ -142,12 +144,14 @@ A beat is one narration line and what goes with it on screen.
    times the beat.
 2. **Order**: what goes up (pictures, diagrams, cards, map layers), then what adds to
    them (`work`, `reveal`, `focus`, `zoom`, `answer`, `option`). Otherwise the order is as written.
-3. **Timing**:
-   - Without cues, the animations play together as the line begins, in about the first half of it (1.2 to 3.2 s),
-     and the rest of the line holds.
-   - With cues (the voice step, `align_cues.py`), each one starts on the words it goes with.
-   - Things built to the voice come on as their names are said: a picture's labels, a gallery's next picture, a
-     diagram's next node.
+3. **Timing** (the first that applies, for each animation; each starts 0.2 s before its words):
+   - **Its anchor**: the words its `on` names (below).
+   - Its part's name when the line says it: a picture's labels, a gallery's next picture, a diagram's next node, a
+     place, a term defined.
+   - The words it shows, the first the line says: a card, a chart, a timeline, a new diagram (its title or the
+     nodes it starts with), a picture (its caption or title).
+   - With cues (the voice step, `align_cues.py`), where the timing model puts it.
+   - Otherwise, as the line begins, the animations together in about the first half of it (1.2 to 3.2 s).
 4. **Pointing**: something already on screen whose name the line says (a diagram node, a picture's part, a place) is
    pointed at on those words. A labelled picture is shaded round each part as it is named, however quickly the next
    follows; once every labelled part has been talked about, the shade lifts (about a second and a half after the
@@ -158,6 +162,28 @@ A beat is one narration line and what goes with it on screen.
 6. **Staying up**: a picture stays until the next one replaces it, or until a map beat takes the stage away. A question leaves its seconds of silence after its beat.
 7. **Safety**: each operation is drawn through a guard. One the engine cannot draw is left out with its reason, and
    the lecture goes on.
+
+### Anchors: `on`
+
+Every operation, and every part inside one, may carry `"on"`: the words of its beat's `say` it lands on, copied as
+they are written there (one to four words), or `"start"` (up as the line begins). A part is anything with a name in
+an operation: a diagram's node, a timeline's event, a chart's item, a list's point, a column, a card; a picture's
+label is written `{"name": "<label>", "on": "<words>"}`.
+
+```json
+{"say": "The fields gave more grain than a family could eat, and the extra went into the granary.",
+ "do": [{"op": "diagram", "id": "chain", "kind": "flow", "on": "The fields", "show": ["fields", "granary"],
+         "nodes": [{"id": "fields", "label": "Fields"}, {"id": "granary", "label": "Granary", "on": "granary"},
+                   {"id": "crafts", "label": "Craftsmen"}]}]}
+{"say": "The citadel had the Great Bath, a big tank lined with bricks.",
+ "do": [{"op": "picture", "generate": "the Great Bath of Mohenjo-daro, a brick-lined tank with steps", "on": "Great Bath",
+         "labels": [{"name": "tank", "on": "big tank"}, {"name": "bricks", "on": "bricks"}]}]}
+```
+
+The compiler checks each anchor against the line as the voice will say it (`compile_lecture.anchors`): kept when the
+line says it, mended to the line's own words when a word is a little off (`fixed: ... "on": "Granaries" is
+"granary" in its line`), refused when the line does not say it. A part's anchor is kept by its name for the line
+(`self.spoken_as({...})` before the beat), and the engine times the part by it (`Lecture.spoken_as`, `_said`).
 
 How many operations a beat may carry: the compiler sets **no limit**. Above 5 it warns ("the eye cannot follow more
 than about four"); nothing is refused. v1's instructions asked for at most four; v2's scene writer is told no limit by

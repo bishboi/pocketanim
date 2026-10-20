@@ -9,7 +9,7 @@
  * the whole lecture, for one chapter, or for one beat (the rest of its chapter given as it is, for context).
  */
 
-import { betaSystem } from "./scenes-beta";
+import { ANCHORS, betaSystem } from "./scenes-beta";
 import { part, render, type Part } from "./parts";
 import { V1_FREE_DRAWINGS_HEAD, V1_LECTURE, V1_MANIM_PLAN, V1_MANIM_RULES } from "./v1-lecture";
 
@@ -242,6 +242,7 @@ export function scenesPrompt(x: {
       v1("pictures", "Every picture is made one of three ways"),
       part("v1-beat", x.pace?.maxOps ? `A beat (at most ${x.pace.maxOps} operations)` : "A beat (no limit to its operations)", "rules", beatSection(x.pace)),
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
+      part("v2-anchors", "Anchors: every visual on its words (v2)", "rules", ANCHORS),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-picture-style", "Pictures: their style is yours (v2)", "rules", PICTURE_STYLE),

@@ -12,8 +12,12 @@ its own: the check and a developer can then measure the engine's timing alone, w
 For each line: its words with their times, each play with its start (seconds into the line) and the words it put
 on the screen, and each word matched to the first play that showed it: "lag" is how long after the word the play
 began (negative: before it). A thing should begin a little before its word (SYNC_LEAD) and never long after it.
+Each animation timed to words (the scene writer's "on" anchor, a part's name, a card's own words) is measured too:
+when it began against when its words were said ("anchors").
+
 The last line of stdout is a JSON summary: {"lines", "matched", "on_time", "early", "late", "mean_abs_lag",
-"worst": [...]} (on time: from 0.6 s before the word to 0.35 s after it).
+"worst": [...], "anchors": {"count", "on_time", "early", "late", "worst"}} (on time: from 0.6 s before the word to
+0.35 s after it).
 """
 
 from __future__ import annotations
@@ -180,6 +184,18 @@ def run(scene_file: Path) -> list[dict]:
     lines: list[dict] = []
     state = {"line": None, "shown": {}}
     real_play, real_beat, real_sound = Scene.play, pl.MapLecture.beat, Scene.add_sound
+    real_on_words = pl.MapLecture._on_words
+    pending: dict = {}                    # id(animation) -> its anchor: the words it lands on and when they are said
+
+    def on_words(self, given, words, seconds, text):
+        out = real_on_words(self, given, words, seconds, text)
+        line = state["line"]
+        for anim, _ in out:
+            said = getattr(anim, "panim_said", None)
+            at = self._said(words, said) if (said and words) else None
+            if line is not None and at is not None and id(anim) not in pending:
+                pending[id(anim)] = {"line": line, "word": str(said), "said": round(float(at), 3), "anim": anim}
+        return out
 
     def beat(self, text, *anims, **kw):
         import inspect
@@ -202,6 +218,14 @@ def run(scene_file: Path) -> list[dict]:
         mobs = _anim_mobjects(anims)
         before = _visible_texts(self, mobs)
         added = [w for k, w in before.items() if k not in state["shown"]]
+        todo = list(anims)
+        while todo:
+            a = todo.pop()
+            todo.extend(getattr(a, "animations", None) or [])
+            hit = pending.pop(id(a), None)
+            if hit is not None and hit["line"]["voice"] is not None:
+                hit["line"].setdefault("anchors", []).append(
+                    {"word": hit["word"], "said": hit["said"], "play": round(at - hit["line"]["voice"], 3)})
         result = real_play(self, *anims, **kw)
         after = _visible_texts(self, mobs)
         came = added + [w for k, w in after.items() if k not in before]
@@ -212,7 +236,7 @@ def run(scene_file: Path) -> list[dict]:
         return result
 
     Scene.play, Scene.add_sound = play, add_sound
-    pl.MapLecture.beat = beat
+    pl.MapLecture.beat, pl.MapLecture._on_words = beat, on_words
     _register()
     try:
         spec = importlib.util.spec_from_file_location("probed_scene", scene_file)
@@ -224,6 +248,7 @@ def run(scene_file: Path) -> list[dict]:
             cls().render()
     finally:
         Scene.play, Scene.add_sound, pl.MapLecture.beat = real_play, real_sound, real_beat
+        pl.MapLecture._on_words = real_on_words
     for line in lines:
         line["words"] = pl.line_words(line["text"]) or []
         wav = pl.audio_file(pl.voice_mode(), pl.speechify(line["text"]))
@@ -274,6 +299,14 @@ def measure(lines: list[dict]) -> dict:
                      "plays": [f"{p['at'] - line['voice']:+.2f}s {'+'.join(p['kinds'][:2])} "
                                f"{' / '.join(p['texts'])[:70]}" for p in plays],
                      "matched": kept})
+    # The anchors: each animation timed to words (the writer's "on", a part's name, a picture's own words), when it
+    # began against when its words were said.
+    anchored = [{**a, "lag": round(a["play"] - a["said"], 3), "line": line["text"][:60]}
+                for line in lines if not line.get("card") for a in line.get("anchors") or []]
+    for row in rows:
+        row["anchors"] = next((x.get("anchors") or [] for x in lines if x["text"] == row["line"]), [])
+    a_late = [a for a in anchored if a["lag"] > LATE]
+    a_early = [a for a in anchored if a["lag"] < EARLY]
     early = [m for r in rows for m in r["matched"] if m["lag"] < EARLY]
     late = [m for r in rows for m in r["matched"] if m["lag"] > LATE]
     worst = sorted((m for r in rows for m in r["matched"]), key=lambda m: -abs(m["lag"]))[:8]
@@ -281,7 +314,11 @@ def measure(lines: list[dict]) -> dict:
                                       "on_time": len(lags) - len(early) - len(late), "early": len(early),
                                       "late": len(late),
                                       "mean_abs_lag": round(sum(abs(x) for x in lags) / len(lags), 3) if lags else None,
-                                      "worst": worst}}
+                                      "worst": worst,
+                                      "anchors": {"count": len(anchored),
+                                                  "on_time": len(anchored) - len(a_late) - len(a_early),
+                                                  "early": len(a_early), "late": len(a_late),
+                                                  "worst": sorted(anchored, key=lambda a: -abs(a["lag"]))[:6]}}}
 
 
 STOP = {"the", "and", "for", "with", "that", "this", "are", "was", "from", "its", "his", "her", "their", "into",
@@ -307,6 +344,10 @@ def main() -> int:
             print("   words:", " ".join(row["words"]))
             for p in row["plays"]:
                 print("   play ", p)
+            for a in row.get("anchors") or []:
+                lag = a["play"] - a["said"]
+                flag = "ok " if EARLY <= lag <= LATE else "LATE" if lag > LATE else "EARLY"
+                print(f"   anchor {flag} {a['word']!r} said {a['said']:.2f}, began {a['play']:+.2f} (lag {lag:+.2f})")
             for m in row["matched"]:
                 flag = "ok " if EARLY <= m["lag"] <= LATE else "LATE" if m["lag"] > LATE else "EARLY"
                 print(f"   {flag} {m['word']!r} said {m['said']:.2f}, shown {m['play']:+.2f} (lag {m['lag']:+.2f}): {m['what']}")

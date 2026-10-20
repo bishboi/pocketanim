@@ -411,6 +411,7 @@ assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing ref
 assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "define", "clear"].includes(o.op))), "only the kinds switched on");
 const scenesCall = run.calls.find((c) => c.step === "scenes");
 const offAll = scenesCall.prompt.system.find((p) => p.key === "off");
+assert.ok(scenesCall.prompt.system.some((p) => p.key === "v2-anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the scene writer is told to anchor every visual");
 assert.ok(offAll && /AI illustrations/.test(offAll.text) && !/Diagrams/.test(offAll.text), "the kinds switched off are named as such");
 // A beat's kinds of its own, its operations by hand, one beat built again.
 const firstBeat = sceneBeats[0].n;
@@ -723,6 +724,7 @@ assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.som
 assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].includes(p.key) || p.key.startsWith("v1-")),
   `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
 assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
+assert.ok(motionCall.prompt.system.some((p) => p.key === "anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the beta writer is told to anchor every visual");
 const motionBeats = Object.values(run.scenes.lectures[1].beats);
 assert.ok(run.script.lectures[1].chapters.every((c) => c.beats.every((b) => b.lines.length === 1)), "one sentence a beat on the motion engine");
 const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
@@ -844,6 +846,31 @@ await generateAction(bare.id, { action: "one", block: "/page/0/Picture/0" });
 r2 = await wait(bare.id, (r) => r.generation.status === "running");
 assert.equal(r2.generation.figures["/page/0/Picture/0"].status, "done", r2.generation.figures["/page/0/Picture/0"].error);
 await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9/Nothing/1", kind: "map" }), /no such figure/);
+
+// Sync: the two anchored example lectures (engine/examples/sync, Hinglish on the motion engine and English on the
+// board) compiled and run without drawing, in a voice whose word times are exact (tools/sync_probe.py): every
+// animation tied to words begins on them (from 0.6 s before to 0.35 s after).
+{
+  const { runPython: rp } = await import(path.resolve(here, "../lib/manim.ts"));
+  const engine = process.env.V2_ENGINE;
+  const probes = await Promise.all(["motion-hinglish", "board-english"].map(async (name) => {
+    const dir = mkdtempSync(path.join(tmpdir(), `v2-sync-${name}-`));
+    const env = { PYTHONPATH: engine, PANIM_IMAGE_FAKE: "1", PANIM_IMAGE_MODEL: "stand-in", PANIM_DIAGRAM_MODEL: "stand-in", PANIM_VOICE: "silent" };
+    const compiler = name.startsWith("motion") ? "compile_motion.py" : "compile_lecture.py";
+    const made = await rp([path.join(engine, compiler), "-", "--json"], dir, env, readFileSync(path.join(engine, "examples", "sync", `${name}.json`), "utf8"), 600_000);
+    const compiled = JSON.parse(made.stdout.trim().split("\n").pop());
+    assert.ok(compiled.source && !compiled.errors.length, `${name} compiles: ${compiled.errors?.join("; ")}`);
+    writeFileSync(path.join(dir, "scene.py"), compiled.source);
+    const probed = await rp([path.join(engine, "tools", "sync_probe.py"), "scene.py", "--fake-voice", "--json"], dir, { ...env, PANIM_VOICE: "" }, undefined, 900_000);
+    return [name, JSON.parse(probed.stdout.trim().split("\n").pop())];
+  }));
+  for (const [name, sum] of probes) {
+    const a = sum.anchors;
+    assert.ok(a.count >= 15, `${name}: its anchored animations measured (${a.count})`);
+    assert.equal(a.on_time, a.count, `${name}: every anchored animation on its words: ${JSON.stringify(a.worst)}`);
+    console.log(`sync (${name}): ${a.on_time} of ${a.count} anchored animations on their words`);
+  }
+}
 
 console.log(`ok: ${run.blocks.length} blocks, ${run.lectures.length} lectures, ${allChapters.length} chapters, ${allBeats.length} beats, ${run.calls.length} calls, ${pics.length} figures triaged`);
 process.exit(0);

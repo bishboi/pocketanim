@@ -347,7 +347,7 @@ class MotionLecture(MoreTemplates, MapLecture):
             for anim, _ in given:
                 alts = getattr(anim, "panim_alts", None)
                 if alts:
-                    heard = [(said_at(words, a), a) for a in alts]
+                    heard = [(self._said(words, a), a) for a in alts]
                     heard = [(t_, a) for t_, a in heard if t_ is not None]
                     if heard:
                         anim.panim_said = min(heard)[1]

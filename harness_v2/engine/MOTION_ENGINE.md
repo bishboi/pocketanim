@@ -74,9 +74,11 @@ still holds: the same chapters, beats, operations, pictures, maps and checks.
 | `style`? | a classic style | With a `look`, the pictures are still asked of the image model in this style (so pictures made for a lecture before are found again, not made anew). Left out with a look: the classic style the look rests on (paper → vox, newsroom → atlas, chalk → chalkboard, data → cosmos, studio → lab, sketch → whiteboard). |
 
 **`on`: the words an operation lands on.** Any operation (a template or a classic one) may carry `"on": "<words of
-its line>"`: it starts as those words are said (the voice's word times), not as the line begins. Inside a template,
-items carry their own `on` (a chart's column, a group of units, a chain's step, a card's mark); without one, an item
-lands on its own name when the line says it, or in its turn.
+its line>"`: it starts as those words are said (the voice's word times), not as the line begins; `"start"`: as the line
+begins. Inside a template, items carry their own `on` (a chart's column, a group of units, a chain's step, a card's
+mark); without one, an item lands on its own name when the line says it, or in its turn. Every anchor is checked
+against its line, mended or refused, as on the current engine (BEAT_SCRIPT.md §4, Anchors); a template without one
+lands on the first of its own words the line says.
 
 ---
 

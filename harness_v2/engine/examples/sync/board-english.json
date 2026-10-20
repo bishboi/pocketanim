@@ -1,28 +1,355 @@
 {
- "title": "The first cities", "sub": "How a surplus built towns", "style": "parchment", "region": null,
- "place_figures": false, "figures": {}, "language": "english",
+ "title": "The first cities",
+ "sub": "How a surplus built towns",
+ "style": "parchment",
+ "region": null,
+ "place_figures": false,
+ "figures": {},
+ "language": "english",
  "chapters": [
-  {"title": "The surplus", "narration": "Chapter one. The surplus.", "beats": [
-   {"say": "Okay, a small question first. Why would anyone build a village right next to a river that floods every year?", "do": [{"op": "panel", "title": "Why by the river?"}, {"op": "fact", "text": "The river floods every year"}], "paragraph": true},
-   {"say": "See, when the water goes back, it leaves soft, rich soil behind.", "do": [{"op": "picture", "generate": "a river bank after a flood, dark wet silt, early farmers' fields, warm painted illustration", "labels": ["river", "soil", "fields"]}]},
-   {"say": "The fields gave more grain than a family could eat, and the extra went into the granary.", "do": [{"op": "diagram", "id": "chain", "kind": "flow", "title": "Where the grain went", "nodes": [{"id": "fields", "label": "Fields"}, {"id": "granary", "label": "Granary"}, {"id": "crafts", "label": "Craftsmen"}, {"id": "trade", "label": "Traders"}], "show": ["fields", "granary"]}]},
-   {"say": "That extra grain is called a surplus.", "do": [{"op": "define", "term": "Surplus", "meaning": "more than a family needs to eat"}], "paragraph": true},
-   {"say": "Now one small thing. With a surplus, not everybody had to farm.", "do": [{"op": "reveal", "diagram": "chain", "nodes": ["crafts"]}]},
-   {"say": "Craftsmen made pots and beads, and traders carried them to faraway places.", "do": [{"op": "reveal", "diagram": "chain", "nodes": ["trade"]}, {"op": "focus", "diagram": "chain", "node": "crafts"}]}
-  ]},
-  {"title": "The cities", "narration": "Chapter two. Harappa and Mohenjo-daro.", "beats": [
-   {"say": "Around 2600 BCE, the first cities came up along the Indus.", "do": [{"op": "timeline", "title": "The Harappan cities", "events": [["2600 BCE", "Cities begin"], ["1900 BCE", "Cities decline"]]}], "paragraph": true},
-   {"say": "Harappa was found first, in 1921, and Mohenjo-daro a year later.", "do": [{"op": "timeline", "title": "Finding them", "events": [["1921", "Harappa found"], ["1922", "Mohenjo-daro found"]]}]},
-   {"say": "Both cities had two parts: a raised citadel and a lower town.", "do": [{"op": "compare", "title": "Two parts of a city", "columns": [{"title": "Citadel", "points": ["Raised on a platform", "Special buildings"]}, {"title": "Lower town", "points": ["Houses", "Workshops"]}]}], "paragraph": true},
-   {"say": "The citadel had the Great Bath, a big tank lined with bricks.", "do": [{"op": "picture", "generate": "the Great Bath of Mohenjo-daro, a brick-lined tank with steps, warm painted illustration", "labels": ["steps", "tank", "bricks"]}]},
-   {"say": "And the streets had covered drains, which is amazing for that time.", "do": [{"op": "fact", "text": "Covered drains along the streets"}]},
-   {"say": "The bricks were all in one ratio, four to two to one.", "do": [{"op": "stat", "value": "4 : 2 : 1", "label": "the ratio of every brick"}]}
-  ]},
-  {"title": "Trade", "narration": "Chapter three. Trade and seals.", "beats": [
-   {"say": "Traders went as far as Mesopotamia, more than two thousand kilometres away.", "do": [{"op": "stat", "value": "2,000 km", "label": "to Mesopotamia"}], "paragraph": true},
-   {"say": "They sent beads, cotton and timber, and brought back silver and tin.", "do": [{"op": "diagram", "id": "trade", "kind": "hub", "title": "Trade", "nodes": [{"id": "indus", "label": "Indus cities"}, {"id": "beads", "label": "Beads"}, {"id": "cotton", "label": "Cotton"}, {"id": "timber", "label": "Timber"}, {"id": "silver", "label": "Silver"}, {"id": "tin", "label": "Tin"}]}]},
-   {"say": "Each trader stamped his goods with a seal, usually showing an animal like a unicorn or a bull.", "do": [{"op": "picture", "generate": "an Indus valley seal carved with a unicorn, square steatite seal, museum photograph", "labels": ["unicorn", "script"]}], "paragraph": true},
-   {"say": "So remember: surplus, cities, and trade, one leading to the next.", "do": [{"op": "bars", "items": [["Surplus", 1], ["Cities", 2], ["Trade", 3]]}]}
-  ]}
+  {
+   "title": "The surplus",
+   "narration": "Chapter one. The surplus.",
+   "beats": [
+    {
+     "say": "Okay, a small question first. Why would anyone build a village right next to a river that floods every year?",
+     "do": [
+      {
+       "op": "panel",
+       "title": "Why by the river?",
+       "on": "start"
+      },
+      {
+       "op": "fact",
+       "text": "The river floods every year",
+       "on": "floods every year"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "See, when the water goes back, it leaves soft, rich soil behind.",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "a river bank after a flood, dark wet silt, early farmers' fields, warm painted illustration",
+       "labels": [
+        {
+         "name": "river",
+         "on": "water"
+        },
+        {
+         "name": "soil",
+         "on": "soil"
+        },
+        {
+         "name": "fields",
+         "on": "rich soil"
+        }
+       ],
+       "on": "leaves soft, rich soil"
+      }
+     ]
+    },
+    {
+     "say": "The fields gave more grain than a family could eat, and the extra went into the granary.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "chain",
+       "kind": "flow",
+       "title": "Where the grain went",
+       "nodes": [
+        {
+         "id": "fields",
+         "label": "Fields"
+        },
+        {
+         "id": "granary",
+         "label": "Granary",
+         "on": "granary"
+        },
+        {
+         "id": "crafts",
+         "label": "Craftsmen"
+        },
+        {
+         "id": "trade",
+         "label": "Traders"
+        }
+       ],
+       "show": [
+        "fields",
+        "granary"
+       ],
+       "on": "The fields"
+      }
+     ]
+    },
+    {
+     "say": "That extra grain is called a surplus.",
+     "do": [
+      {
+       "op": "define",
+       "term": "Surplus",
+       "meaning": "more than a family needs to eat",
+       "on": "surplus"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "Now one small thing. With a surplus, not everybody had to farm.",
+     "do": [
+      {
+       "op": "reveal",
+       "diagram": "chain",
+       "nodes": [
+        "crafts"
+       ],
+       "on": "not everybody had to farm"
+      }
+     ]
+    },
+    {
+     "say": "Craftsmen made pots and beads, and traders carried them to faraway places.",
+     "do": [
+      {
+       "op": "reveal",
+       "diagram": "chain",
+       "nodes": [
+        "trade"
+       ],
+       "on": "Craftsmen"
+      },
+      {
+       "op": "focus",
+       "diagram": "chain",
+       "node": "crafts",
+       "on": "traders"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "The cities",
+   "narration": "Chapter two. Harappa and Mohenjo-daro.",
+   "beats": [
+    {
+     "say": "Around 2600 BCE, the first cities came up along the Indus.",
+     "do": [
+      {
+       "op": "timeline",
+       "title": "The Harappan cities",
+       "events": [
+        [
+         "2600 BCE",
+         "Cities begin"
+        ],
+        [
+         "1900 BCE",
+         "Cities decline"
+        ]
+       ],
+       "on": "2600 BCE"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "Harappa was found first, in 1921, and Mohenjo-daro a year later.",
+     "do": [
+      {
+       "op": "timeline",
+       "title": "Finding them",
+       "events": [
+        [
+         "1921",
+         "Harappa found"
+        ],
+        [
+         "1922",
+         "Mohenjo-daro found"
+        ]
+       ],
+       "on": "Harappa"
+      }
+     ]
+    },
+    {
+     "say": "Both cities had two parts: a raised citadel and a lower town.",
+     "do": [
+      {
+       "op": "compare",
+       "title": "Two parts of a city",
+       "columns": [
+        {
+         "title": "Citadel",
+         "points": [
+          "Raised on a platform",
+          "Special buildings"
+         ]
+        },
+        {
+         "title": "Lower town",
+         "points": [
+          "Houses",
+          "Workshops"
+         ]
+        }
+       ],
+       "on": "two parts"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "The citadel had the Great Bath, a big tank lined with bricks.",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "the Great Bath of Mohenjo-daro, a brick-lined tank with steps, warm painted illustration",
+       "labels": [
+        {
+         "name": "steps",
+         "on": "Great Bath"
+        },
+        {
+         "name": "tank",
+         "on": "big tank"
+        },
+        {
+         "name": "bricks",
+         "on": "bricks"
+        }
+       ],
+       "on": "Great Bath"
+      }
+     ]
+    },
+    {
+     "say": "And the streets had covered drains, which is amazing for that time.",
+     "do": [
+      {
+       "op": "fact",
+       "text": "Covered drains along the streets",
+       "on": "covered drains"
+      }
+     ]
+    },
+    {
+     "say": "The bricks were all in one ratio, four to two to one.",
+     "do": [
+      {
+       "op": "stat",
+       "value": "4 : 2 : 1",
+       "label": "the ratio of every brick",
+       "on": "four to two to one"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Trade",
+   "narration": "Chapter three. Trade and seals.",
+   "beats": [
+    {
+     "say": "Traders went as far as Mesopotamia, more than two thousand kilometres away.",
+     "do": [
+      {
+       "op": "stat",
+       "value": "2,000 km",
+       "label": "to Mesopotamia",
+       "on": "Mesopotamia"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "They sent beads, cotton and timber, and brought back silver and tin.",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "trade",
+       "kind": "hub",
+       "title": "Trade",
+       "nodes": [
+        {
+         "id": "indus",
+         "label": "Indus cities"
+        },
+        {
+         "id": "beads",
+         "label": "Beads"
+        },
+        {
+         "id": "cotton",
+         "label": "Cotton"
+        },
+        {
+         "id": "timber",
+         "label": "Timber"
+        },
+        {
+         "id": "silver",
+         "label": "Silver"
+        },
+        {
+         "id": "tin",
+         "label": "Tin"
+        }
+       ],
+       "on": "They sent"
+      }
+     ]
+    },
+    {
+     "say": "Each trader stamped his goods with a seal, usually showing an animal like a unicorn or a bull.",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "an Indus valley seal carved with a unicorn, square steatite seal, museum photograph",
+       "labels": [
+        {
+         "name": "unicorn",
+         "on": "unicorn"
+        },
+        {
+         "name": "script",
+         "on": "stamped"
+        }
+       ],
+       "on": "seal"
+      }
+     ],
+     "paragraph": true
+    },
+    {
+     "say": "So remember: surplus, cities, and trade, one leading to the next.",
+     "do": [
+      {
+       "op": "bars",
+       "items": [
+        [
+         "Surplus",
+         1
+        ],
+        [
+         "Cities",
+         2
+        ],
+        [
+         "Trade",
+         3
+        ]
+       ],
+       "on": "So remember"
+      }
+     ]
+    }
+   ]
+  }
  ]
 }

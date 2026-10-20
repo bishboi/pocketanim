@@ -151,7 +151,11 @@ A beat is one narration line and what goes with it on screen.
    - The words it shows, the first the line says: a card, a chart, a timeline, a new diagram (its title or the
      nodes it starts with), a picture (its caption or title).
    - With cues (the voice step, `align_cues.py`), where the timing model puts it.
-   - Otherwise, as the line begins, the animations together in about the first half of it (1.2 to 3.2 s).
+   - Otherwise, as the line begins, the animations together, quickly (a fifth of the line, 0.6 to 1.2 s).
+
+   The base animations are quick (`PrimitiveRun`): a thing shown 0.6 s, the last picture cleared 0.5 s, none longer than
+   2.5 s; each is sped up to finish before the next one in its line begins. A board's key point and a panel's points
+   are their words alone, with no bullet.
 4. **Pointing**: something already on screen whose name the line says (a diagram node, a picture's part, a place) is
    pointed at on those words. A labelled picture is shaded round each part as it is named, however quickly the next
    follows; once every labelled part has been talked about, the shade lifts (about a second and a half after the

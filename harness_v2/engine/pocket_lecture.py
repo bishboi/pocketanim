@@ -588,6 +588,15 @@ def sync_counts(chapters=None) -> dict:
             for k, v in counts.items():
                 out[k] = out.get(k, 0) + v
     return out
+class PrimitiveRun:
+    """How long the base animations take, in seconds: a thing shown (a card, a label, a point coming on), hidden (the
+    last picture cleared), and the most any one is given. Quick, so each is done before the next begins and the
+    screen keeps up with the voice."""
+    SHOW = 0.6
+    HIDE = 0.5
+    MOST = 2.5
+
+
 SAY_STOP = {"the", "a", "an", "of", "and", "in", "on", "to", "at", "for", "is", "are", "its", "his", "her"}
 SYNC_LEAD = 0.2          # seconds a picture starts before its words: it is there as they are heard
 POINT_MOST = 4           # things pointed at in one line, at most
@@ -3080,11 +3089,12 @@ class Lecture(Scene):
     @staticmethod
     def _quick(anims, seconds: float) -> float:
         """How long a line's animations take: one that knows its own time (panim_run, a gallery's step) that, anything else
-        (a diagram drawing itself, a map moving) a third of the line, 1 to 2.2 seconds."""
+        (a card coming on, a diagram drawing itself, a map moving) a fifth of the line, 0.6 to 1.2 seconds: a thing
+        shown, hidden or swapped is quick, done well before the next."""
         runs = [getattr(a, "panim_run", None) for a in anims]
         if runs and all(r is not None for r in runs):
-            return max(float(r) for r in runs)
-        return min(max(1.0, seconds * 0.35), 2.2)
+            return min(max(float(r) for r in runs), PrimitiveRun.MOST)
+        return min(max(PrimitiveRun.SHOW, seconds * 0.2), 1.2)
 
     # ---------------- one voice at a time ----------------
     # A line's own count of the time it took (its cue plan) can run ahead of the render's clock: a play that turned
@@ -3167,7 +3177,7 @@ class Lecture(Scene):
         queue = self.__dict__.pop("_word_queue", [])
         away = self._clear_strays([a for a, _ in given]) + self._looks_away(words)
         if words:
-            return [*[(a, [0.0, 0.8]) for a in away], *given, *[(a, None) for a in queue]]
+            return [*[(a, [0.0, PrimitiveRun.HIDE]) for a in away], *given, *[(a, None) for a in queue]]
         out = [*[(a, c) for a, c in given], *[(a, None) for a in away]]
         queue = [a for a in (self._from_queue(holder, False) for holder in queue) if a is not None]
         if queue:
@@ -3197,8 +3207,8 @@ class Lecture(Scene):
             said = getattr(anim, "panim_said", None)
             at = self._said(words, said) if said else None
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
-                run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else 1.0
-                cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.5)]
+                run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else PrimitiveRun.SHOW
+                cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.0)]
                 if isinstance(anim, SimpleNamespace):
                     anim.panim_heard = True
                 hinted.add(_norm(said))
@@ -3290,7 +3300,7 @@ class Lecture(Scene):
         return anim if anim is not None else Wait(0.05)
 
     # ---------------- animations timed to the words (cues) ----------------
-    CUE_MIN, CUE_MAX = 0.3, 4.0          # seconds an animation may take when timed to the words
+    CUE_MIN, CUE_MAX = 0.3, 2.5          # seconds an animation may take when timed to the words
 
     def _cue_plan(self, given: list, extra: list, seconds: float, default: float) -> list:
         """[(start, seconds, [animations])] in order: each animation at its cue, never before the one given before
@@ -3686,14 +3696,12 @@ class Lecture(Scene):
         return group
 
     def fact(self, text: str, color: str | None = None, bullet: str | None = None, size: float = 20):
-        """A bulleted line in the panel, wrapped at 36 characters. On a board: the strip's one key point."""
+        """A line in the panel, wrapped at 36 characters. On a board: the strip's one key point."""
         if self.board_mode:
             return self.board_point(text, color)
-        dot = Dot(radius=0.05, color=bullet or P.SAND)
+        # Its words alone (no bullet): the panel's points are set apart by the space between them.
         t = fit(T(wrap(text, 36), tok("fact_size", size), color or P.CREAM, line_spacing=0.85), 4.95)
-        t.next_to(dot, RIGHT, buff=0.18, aligned_edge=UP)
-        dot.shift(DOWN * 0.1)
-        group = self._stack(VGroup(dot, t), 0.22)
+        group = self._stack(VGroup(t), 0.22)
         return self.reveal(group, t)
 
     def big_stat(self, value: str, label: str, color: str | None = None):

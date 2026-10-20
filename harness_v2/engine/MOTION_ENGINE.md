@@ -469,11 +469,14 @@ Seconds, scaled by the energy (calm × 1.3, lively × 1, punchy × 0.8):
 
 | Token | Lively | For |
 |---|---|---|
-| `fast` | 0.35 | a chip, a tick, a label, an exit |
-| `base` | 0.6 | a card, a picture, a heading |
-| `slow` | 1.0 | a chart's columns, a line drawn, a counter, a road |
-| `stagger` | 0.12 | between the items of a row or list (as a share of each one's time) |
-| `hold` | 0.25 | a breath between moments |
+| `fast` | 0.25 | a chip, a tick, a label, an exit |
+| `base` | 0.4 | a card, a picture, a heading |
+| `slow` | 0.7 | a chart's columns, a line drawn, a counter, a road |
+| `stagger` | 0.1 | between the items of a row or list (as a share of each one's time) |
+| `hold` | 0.15 | a breath between moments |
+
+A template's whole entrance takes at most 2.5 s (`motion_looks.TEMPLATE_MOST`); each animation is sped up to finish
+before the next one in its line begins.
 
 Eases (all ones the players have): arrivals `ease_out_cubic` / `ease_out_expo`, pops and drops `ease_out_back` (the
 overshoot), exits `rush_into`, slams `ease_in_cubic`, drawing `rush_from`. Motions the players have no verb for are

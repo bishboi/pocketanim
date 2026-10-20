@@ -35,12 +35,13 @@ TEXTURE_VERSION = 3
 # Seconds and ease per kind of motion; a look scales them by its energy. The rates named are all ones the phones'
 # players have (export_dsl.RATES): ease_out_back is the overshoot, ease_out_expo the fast arrival.
 BASE_TOKENS = dict(
-    fast=0.35,          # a chip, a tick, a label
-    base=0.6,           # a card, a picture, a heading
-    slow=1.0,           # a chart's bars, a line drawn, a map's route
-    stagger=0.12,       # between the items of a list, a row of cards, a chart's bars (as a share of each one's time)
-    hold=0.25,          # a breath between one moment and the next inside a template
+    fast=0.25,          # a chip, a tick, a label
+    base=0.4,           # a card, a picture, a heading
+    slow=0.7,           # a chart's bars, a line drawn, a map's route
+    stagger=0.1,        # between the items of a list, a row of cards, a chart's bars (as a share of each one's time)
+    hold=0.15,          # a breath between one moment and the next inside a template
 )
+TEMPLATE_MOST = 2.5     # seconds a template's whole entrance may take, at most (sped up to fit)
 ENERGY = {"calm": 1.3, "lively": 1.0, "punchy": 0.8}
 
 # ---------------------------------------------------------------- the looks -------------------------------------------

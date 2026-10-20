@@ -296,7 +296,7 @@ def measure(lines: list[dict]) -> dict:
         lags += [m["lag"] for m in kept]
         rows.append({"line": line["text"], "seconds": line["seconds"], "voice": round(line["voice"], 3),
                      "words": [f"{float(w['start']):.2f}:{w['w']}" for w in line["words"]],
-                     "plays": [f"{p['at'] - line['voice']:+.2f}s {'+'.join(p['kinds'][:2])} "
+                     "plays": [f"{p['at'] - line['voice']:+.2f}s ({p['run']:.2f}s) {'+'.join(p['kinds'][:2])} "
                                f"{' / '.join(p['texts'])[:70]}" for p in plays],
                      "matched": kept})
     # The anchors: each animation timed to words (the writer's "on", a part's name, a picture's own words), when it

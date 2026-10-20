@@ -240,6 +240,8 @@ class MotionLecture(MoreTemplates, MapLecture):
         fixed = []
         for anim, cue in given:
             run = getattr(anim, "panim_run", None)
+            if run is not None:
+                run = min(float(run), motion_looks.TEMPLATE_MOST)  # a whole entrance quick enough to finish before the next
             if run is not None and isinstance(cue, (list, tuple)) and cue:
                 cue = [cue[0], float(run)]
             elif run is not None and not cue:

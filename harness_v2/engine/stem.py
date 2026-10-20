@@ -291,10 +291,8 @@ class BoardMixin:
 
         from manim import RoundedRectangle
 
-        # The key point in a soft pill: a dot of the accent, then the words.
-        dot = Dot(radius=0.07, color=color or pl.P.SAND)
-        line = pl.T(str(text), 23, color or pl.P.CREAM)
-        words = VGroup(dot, line).arrange(RIGHT, buff=0.18)
+        # The key point in a soft pill: its words alone (no bullet).
+        words = VGroup(pl.T(str(text), 23, color or pl.P.CREAM))
         pill = pl._flat(RoundedRectangle(corner_radius=(words.height + 0.24) / 2, width=words.width + 0.5,
                                          height=words.height + 0.24, fill_color=pl._tint_on_bg(color or pl.P.SAND, 0.12),
                                          fill_opacity=1, stroke_color=pl._tint_on_bg(color or pl.P.SAND, 0.45),

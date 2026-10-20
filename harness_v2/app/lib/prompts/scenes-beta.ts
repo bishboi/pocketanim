@@ -16,10 +16,8 @@ const ROLE = [
   "NARRATION IS FIXED: each beat's sentences (its \"say\") are spoken exactly as given. Everything on screen is yours:",
   "what to show, how much, how often it changes, how it moves, how pictures are drawn. Below are the elements you can",
   "use, how each works, and examples. Use them freely, combine them, and make each moment as clear and alive as you can.",
-].join("\n");
-
-const RICH = [
-  "MAKE IT RICH AND ALIVE. The screen should never stand still: on every beat something new comes on, builds, moves or",
+  "",
+  "The screen should never stand still: on every beat something new comes on, builds, moves or",
   "is pointed at -- and often several things within one beat, each landing on its own words (\"on\"). Fill the video:",
   "  - Layer moments in a beat: a picture, then its parts labelled as they are said, then a counter or a stamp over it.",
   "  - Build things over beats: a diagram step by step (each step with its picture), a timeline event by event, then",
@@ -217,7 +215,6 @@ export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Rec
   return [
     part("role", "Role", "rules", ROLE),
     part("shape", "The answer's shape", "rules", SHAPE),
-    part("rich", "Make it rich and alive", "rules", RICH),
     part("timing", "Timing to the voice", "rules", TIMING),
     part("templates", "Motion templates", "rules", TEMPLATES),
     part("pictures", "Pictures", "rules", PICTURES),

@@ -36,7 +36,7 @@ import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
-import type { BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
+import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
 import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps } from "./visual-kinds";
 
 const MAP_OPS = new Set(VISUAL_KINDS.find((k) => k.id === "map")?.ops ?? []);
@@ -520,8 +520,43 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
 }
 
 /** A whole lecture (chapter by chapter), one chapter, or one beat; compiled; the refused beats mended once. */
+/**
+ * On the motion engine (beta), before a whole lecture is built: every beat that says several sentences becomes one
+ * beat a sentence, numbered again in order, so the screen can change on every sentence (more beats, each with its own
+ * visuals). Its book figures stay on its first sentence; its own visual kinds go to each of its pieces; whatever else
+ * the scenes held for it is rewritten by the build. Returns how many beats there were and are.
+ */
+function splitBeats(run: Run, n: number): [number, number] | undefined {
+  const script = run.script?.lectures[n];
+  if (!script?.chapters.some((c) => c.beats.some((b) => b.lines.length > 1))) return undefined;
+  const sl = lectureState(run, n);
+  const kinds = new Map<number, string[] | undefined>();
+  let before = 0;
+  let next = 0;
+  for (const c of script.chapters) {
+    const beats: Beat[] = [];
+    for (const b of c.beats) {
+      before += 1;
+      b.lines.forEach((line, k) => {
+        next += 1;
+        kinds.set(next, sl.beats[b.n]?.kinds);
+        beats.push({ n: next, lines: [line], show: b.show, ...(k === 0 && b.figures?.length ? { figures: b.figures } : {}),
+          ...(k === 0 && b.figure ? { figure: b.figure } : {}) });
+      });
+    }
+    c.beats = beats;
+  }
+  sl.beats = {};
+  for (const [k, own] of kinds) if (own) beatState(sl, k).kinds = own;
+  return [before, next];
+}
+
 async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?: number }, note?: string) {
   const sl = lectureState(run, n);
+  if (stateOf(run).engine === "motion" && !what.chapter && !what.beat) {
+    const split = splitBeats(run, n);
+    if (split) log(run, `Lecture ${n}: ${split[0]} beats split into ${split[1]}, one sentence each, for the motion engine.`);
+  }
   const script = scriptOf(run, n)!;
   const key = `${run.id}:scenes`;
   Object.assign(sl, { status: "running", error: undefined });

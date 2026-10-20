@@ -18,6 +18,20 @@ const ROLE = [
   "use, how each works, and examples. Use them freely, combine them, and make each moment as clear and alive as you can.",
 ].join("\n");
 
+const RICH = [
+  "MAKE IT RICH AND ALIVE. The screen should never stand still: on every beat something new comes on, builds, moves or",
+  "is pointed at -- and often several things within one beat, each landing on its own words (\"on\"). Fill the video:",
+  "  - Layer moments in a beat: a picture, then its parts labelled as they are said, then a counter or a stamp over it.",
+  "  - Build things over beats: a diagram step by step (each step with its picture), a timeline event by event, then",
+  "    emphasis on the one that matters; a chart column by column, then the one the line is about circled.",
+  "  - Use pictures generously: the people, places, objects and scenes the narration mentions, each drawn richly, with",
+  "    labels to name as they are spoken of; a scene for a setting, a gallery or polaroids for several of a kind.",
+  "  - Turn every number into a counter, chart, units or donut; every comparison into versus, table or analogy; every",
+  "    sequence into a chain, list or diagram; every claim into a stamp, a myth corrected or an ask answered.",
+  "  - Mix the kinds across a chapter so it keeps changing: templates, pictures, diagrams, maps, timelines, Manim.",
+  "A beat with nothing new on it should be rare.",
+].join("\n");
+
 const SHAPE = [
   "THE ANSWER (write_scenes): by the beats' numbers, each beat's operations; the say is given and is not written again.",
   '{"region": {"country": "India"} | {"state": "Rajasthan", "country": "India"} | {"area": "World" | a continent |',
@@ -171,6 +185,10 @@ function manimPart(agent: boolean): string {
 
 const EXAMPLES = [
   "EXAMPLES (to show how the elements combine, not a pattern to follow):",
+  '  One beat, several moments on its words ("The lord gave the knight a thousand acres, and the knight swore to fight for him."):',
+  '    {"beat":3,"do":[{"op":"picture","generate":"a lord handing a sealed charter to a kneeling knight, a rich oil painting",',
+  '      "scene":true,"labels":["lord","knight","charter"],"on":"lord"},{"op":"counter","value":"1,000 acres","label":"the fief",',
+  '      "on":"thousand acres"},{"op":"stamp","text":"Sworn","on":"swore"}]}',
   '  A number that matters, then the reason, then a verdict:',
   '    {"beat":4,"do":[{"op":"counter","value":"1,000 acres","label":"a knight\'s fief","on":"thousand"}]}',
   '    {"beat":5,"do":[{"op":"exchange","left":"Lord","right":"Knight","flows":[{"from":"left","text":"land","on":"land"},',
@@ -199,6 +217,7 @@ export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Rec
   return [
     part("role", "Role", "rules", ROLE),
     part("shape", "The answer's shape", "rules", SHAPE),
+    part("rich", "Make it rich and alive", "rules", RICH),
     part("timing", "Timing to the voice", "rules", TIMING),
     part("templates", "Motion templates", "rules", TEMPLATES),
     part("pictures", "Pictures", "rules", PICTURES),

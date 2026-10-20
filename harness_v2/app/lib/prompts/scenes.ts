@@ -224,7 +224,8 @@ export function scenesPrompt(x: {
         ...(x.note ? [part("note", "Your note for this", "context", x.note)] : []),
         ...(x.ask.what === "fix" ? [part("retry", "What the compiler refused", "retry",
           "The compiler could not draw these beats (COMPILER lines above). Write them again so they can be drawn.")] : []),
-        part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}: each beat by its number, with its do.`),
+        part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}: each beat by its number, with its do -- rich and alive, ` +
+          "something new on every beat and often several moments in one, each on its words."),
       ],
     };
   }

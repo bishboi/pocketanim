@@ -12,7 +12,9 @@ How to teach is the writer's on it: `compile_motion.py` sets `teaching_rules: fa
 so only what is needed to draw the video is checked (known operations and their fields, real places, Manim blocks
 that run), never the lecture compiler's teaching rules (empty stretches, plain language, text-heavy beats, the panel's
 points). The app's scene writer for it is told the elements, how each is used and examples, and nothing that limits
-how they are chosen (`app/lib/prompts/scenes-beta.ts`).
+how they are chosen (`app/lib/prompts/scenes-beta.ts`), and asked for a rich, moving screen: something new on every
+beat, often several moments in one, each on its words. Before the app builds a whole lecture on it, every beat that
+says several sentences is split into one beat a sentence (`splitBeats`), so the screen can change on each.
 
 ```
 beat script (JSON, "engine": "motion") ─▶ compile_motion.py ─▶ Manim scene on motion.MotionLecture ─▶ export_scene.py ─▶ .panim ─▶ phone / web player

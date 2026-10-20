@@ -723,6 +723,7 @@ assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].i
   `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
 assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
 const motionBeats = Object.values(run.scenes.lectures[1].beats);
+assert.ok(run.script.lectures[1].chapters.every((c) => c.beats.every((b) => b.lines.length === 1)), "one sentence a beat on the motion engine");
 const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
 assert.ok(templateBeats > 0, "motion templates in the beats");
 assert.ok(motionBeats.every((b) => !b.errors?.length), `nothing refused on the motion engine: ${motionBeats.flatMap((b) => b.errors ?? []).join("; ")}`);

@@ -10,7 +10,7 @@
  */
 
 import { blocksJson, bookWords, kindOf, type Block } from "../source/blocks";
-import { NARRATION_EXAMPLES, classVoicePlanned, languagePrompt, type Language } from "./texts";
+import { classVoicePlanned, languagePrompt, type Language } from "./texts";
 import { part, type Part, type Prompt } from "./parts";
 
 /** How a great teacher tells it: v1's rules. */
@@ -32,6 +32,85 @@ const TELLING = [
   "  - When everything is taught, stop: no padding, no extra self-checks or study tips, no summary of what was just said",
   "    except the short close of the lecture.",
 ];
+
+/** v2's own: how a good teacher in India actually talks in class, so the script sounds spoken, not written. */
+function speechPrompt(language: Language): string[] {
+  const hinglish = language === "hinglish" || language === "auto";
+  const english = language === "english" || language === "auto";
+  return [
+    "SOUND LIKE A REAL TEACHER IN AN INDIAN CLASSROOM, talking, not reading. Write the words exactly as such a teacher",
+    "would say them out loud to the class in front of them:",
+    "  - SPOKEN SENTENCES: short, simple, the way people talk. Start a line with \"So\", \"Now\", \"See\", \"Okay\",",
+    "    \"अच्छा\", \"तो\", \"अब\" when a teacher would. A fragment is fine (\"Simple.\", \"बस इतना ही।\", \"Why? Because...\").",
+    "    One idea a sentence; a long explanation broken into small steps said one after another.",
+    "  - TALK TO THEM: \"you\" (in Hindi, one of आप or तुम for the whole lecture, never mixed). Ask, and answer:",
+    "    \"Now tell me, what will happen?\", \"क्या लगता है आपको?\". A question tag where it is natural (\"isn't it?\",",
+    "    \"right?\", \"है ना?\", \"ठीक है?\"), not on every line.",
+    "  - HOW TEACHERS STRESS A POINT: say the key line, then say it again more simply (\"Force is a push or a pull.",
+    "    Just that, a push or a pull.\"); flag it (\"Now listen carefully.\", \"ये point ध्यान से सुनना।\", \"Very",
+    "    important, remember this one.\"); warn where students slip (\"Many students make a mistake here.\", \"यहाँ",
+    "    पे ज़्यादातर बच्चे गड़बड़ करते हैं।\"). Each of these a few times a lecture at most, at the points that deserve it.",
+    "  - EXAMPLES FROM THEIR OWN LIFE in India, the first thing a teacher reaches for: the local train and the auto,",
+    "    cricket, chai and the pressure cooker, the monsoon and the ceiling fan, Diwali, the kirana shop, the school",
+    "    bus, mobile recharge, the village well and the city flyover. Money in rupees; big numbers in lakh and crore",
+    "    when a teacher would say them so.",
+    "  - WARMTH AND A LITTLE HUMOUR: a light joke, a smile in the voice (\"Don't worry, it sounds scary, it isn't.\",",
+    "    \"घबराओ मत, ये बहुत simple है।\"), praise for a good guess (\"Correct! Well done.\").",
+    "  - NEVER TEXTBOOK OR ESSAY LANGUAGE: not \"In this chapter we will learn\", \"Let us now discuss\", \"It is to be",
+    "    noted that\", \"Furthermore\", \"Thus we can conclude\", \"Hence\" at a sentence's start; not presenter clichés",
+    "    (\"Let's dive in\", \"fascinating journey\", \"delve\", \"unlock the secrets\"). And not the book's sentences",
+    "    read out: say the same thing the way you would explain it to a student sitting in front of you.",
+    ...(hinglish ? [
+      "  - HINGLISH AS IT IS SPOKEN: real classroom mixing, Hindi carrying the sentence and the everyday English words",
+      "    Indians say anyway in English (simple, basically, actually, important, point, example, doubt, chapter, topic,",
+      "    tension, problem). Natural connectors: मतलब, यानी, देखो, समझो, एक काम करते हैं, अब यहाँ twist है, अब",
+      "    बताओ, समझ आया? Easy everyday Hindi, never bookish Hindi (not \"अतः\", \"तत्पश्चात\", \"उपरोक्त\").",
+    ] : []),
+    ...(language === "hindi" ? [
+      "  - HINDI AS IT IS SPOKEN in class: easy everyday Hindi, never bookish (not \"अतः\", \"तत्पश्चात\", \"उपरोक्त\").",
+      "    Natural connectors: मतलब, यानी, देखो, समझो, अब बताओ, समझ आया?",
+    ] : []),
+    ...(english ? [
+      "  - INDIAN ENGLISH AS A GOOD TEACHER SPEAKS IT: correct and simple, with its natural turns (\"See, ...\",",
+      "    \"Now one small thing.\", \"Okay, now tell me.\", \"isn't it?\", \"na?\" at most rarely), never American or",
+      "    British presenter talk.",
+    ] : []),
+    "  The facts stay the book's: the warmth is in how it is said, never in invented facts.",
+  ];
+}
+
+/** v2's own examples: how such a teacher sounds (for how it moves and sounds, never to copy). */
+function speechExamples(language: Language): string[] {
+  const out = ["WHAT IT SOUNDS LIKE (for how a teacher talks and moves through an idea; never copy the words or topics):"];
+  if (language !== "hindi" && language !== "hinglish") {
+    out.push(
+      "  English: \"Okay, a small question first. You are standing in a crowded local train, holding nothing. The train",
+      "  suddenly starts. What happens to you? You fall backwards, isn't it? Now why? The train moved. Your feet moved",
+      "  with it. But the rest of your body? It wanted to stay right where it was. That's it. That is inertia. Your",
+      "  body likes to keep doing whatever it was already doing. Standing still? It wants to stay still. Moving? It",
+      "  wants to keep moving. Now listen carefully, because many students get this wrong in the exam. Inertia is not",
+      "  a force. Nobody is pushing you back. You are simply being left behind.\"",
+    );
+  }
+  if (language === "hindi") {
+    out.push(
+      "  Hindi: \"अच्छा, एक छोटा सा सवाल। घर में प्रेशर कुकर तो देखा ही है ना? सीटी बजती है, भाप बाहर आती है। अब बताओ,",
+      "  कुकर में खाना जल्दी क्यों पकता है? सोचो ज़रा। ज़्यादातर लोग कहेंगे, 'आग तेज़ है इसलिए।' नहीं! आग तो वही है।",
+      "  असली बात है दबाव। दबाव बढ़ता है, तो पानी सौ डिग्री पे नहीं, उससे ज़्यादा पे उबलता है। और ज़्यादा गरम पानी,",
+      "  मतलब खाना जल्दी तैयार। बस, इतनी सी बात है।\"",
+    );
+  } else if (language !== "english") {
+    out.push(
+      "  Hinglish: \"अच्छा, एक काम करते हैं। घर में pressure cooker तो देखा ही है ना? सीटी बजती है, steam बाहर आती है।",
+      "  अब बताओ, cooker में खाना जल्दी क्यों पकता है? सोचो ज़रा। ज़्यादातर लोग कहेंगे, 'आग तेज़ है इसलिए।' नहीं! आग",
+      "  तो वही है। असली बात है pressure। Pressure बढ़ता है, तो पानी का boiling point भी ऊपर चला जाता है। मतलब पानी",
+      "  सौ degree पे नहीं, उससे ज़्यादा पे उबलता है। और ज़्यादा गरम पानी, मतलब खाना जल्दी तैयार। Simple! ये point",
+      "  ध्यान से याद रखना: pressure बढ़ा, तो boiling point बढ़ा।\"",
+    );
+  }
+  out.push("");
+  return out;
+}
 
 /** How the lecture is built: lecture, chapters, beats, each a unit of the video. */
 const STRUCTURE = [
@@ -75,7 +154,8 @@ export function lectureSystem(language: Language, subject?: string): Part[] {
     part("structure", "Lecture, chapters, beats", "rules", STRUCTURE),
     part("telling", "How to tell it", "rules", TELLING),
     part("voice", "Voice", "rules", classVoicePlanned(language)),
-    part("examples", "Narration examples", "rules", NARRATION_EXAMPLES),
+    part("speech", "How a teacher in India talks", "rules", speechPrompt(language)),
+    part("examples", "Narration examples", "rules", speechExamples(language)),
     part("use", "How the transcript is used", "rules", [
       "HOW THE TRANSCRIPT IS USED (facts, not rules of style):",
       "  - A voice speaks each beat's say, so write only the words said: no headings, bullet lists, [brackets] or stage",

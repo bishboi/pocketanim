@@ -110,6 +110,7 @@ const previous = second.prompt.user.find((p) => p.key === "previous").text;
 assert.ok(previous.includes(linesOfText(run.lectures[0].text)[0]), "lecture 2 sees lecture 1's transcript");
 assert.ok(second.prompt.user.find((p) => p.key === "book").text.includes('"taught":"in lecture 1"'), "lecture 2 sees what lecture 1 taught");
 assert.ok(!/at most about|words \(\d+ min\)/.test(render(second.prompt.system) + render(second.prompt.user)), "no length ceiling");
+assert.ok(second.prompt.system.some((p) => p.key === "speech" && p.text.includes("INDIAN CLASSROOM")) && second.prompt.system.some((p) => p.key === "examples" && p.text.includes("WHAT IT SOUNDS LIKE")), "the script is told how a teacher in India talks");
 // Figures: both described, then triaged from the ways allowed.
 const { triageAction } = await import(path.resolve(here, "../lib/triage.ts"));
 const { checkExport, exportTranscript, exportWhole, importTranscript, transcriptMarkdown } = await import(path.resolve(here, "../lib/export.ts"));

@@ -6038,21 +6038,20 @@ class Lecture(Scene):
 
     @staticmethod
     def _edge_in(mob):
-        """An arrow coming on: drawn along its length, or, a picture's arrow (picture_flow), slid in the way it
-        points as it fades in."""
+        """An arrow coming on: drawn along its length; a picture's own arrow (picture_flow) drawn on where it is
+        in the picture (draw_on: its outline traced, then its colour)."""
         if isinstance(mob, VMobject) and all(isinstance(m, VMobject) for m in mob.get_family()):
             return Create(mob, rate_func=ease_out_cubic)
-        way = getattr(mob, "_panim_dir", None)
-        return FadeIn(mob, shift=np.array(way, dtype=float) * 0.3 if way is not None else ORIGIN,
-                      rate_func=ease_out_cubic)
+        return write_in(mob)
 
     # ---------------- a flow drawn as one picture (picture_flow.py) ----------------
     def picture_flow(self, key: str, nodes, edges, parts: dict, title: str | None = None, show=None):
-        """A flow diagram the image model drew as ONE picture, cut into its parts by the compiler
-        (picture_flow.split): each step's picture and each arrow laid out where it was in the whole, a label under
-        each step. It is a diagram like any other from here (_diagram_finish): its first step comes on with it,
-        each other step (the arrow into it first, slid in the way it points) on the words that name it, and
-        reveal and focus work on it by its steps' ids. parts: {"size": [w, h], "nodes": [[file, x0, y0, x1, y1]],
+        """A flow the image model drew as ONE picture, revealed in that picture itself: the compiler found where
+        each step and each arrow is in it (picture_flow.split), and each is drawn on exactly where it is in the
+        picture (its outline traced, then its colour: draw_on), a label under each step, so the picture builds up
+        as it is spoken of and ends as the picture the model drew. Nothing is moved or laid out again: the whole
+        is only fitted to the stage (_diagram_finish). Its first step comes on with it, each other step (the arrow
+        into it first) on the words that name it; reveal and focus work on it by its steps' ids. parts: {"size": [w, h], "nodes": [[file, x0, y0, x1, y1]],
         "edges": [[file, x0, y0, x1, y1] or None]}, in the picture's pixels; an arrow it has no picture of is
         drawn."""
         w_px, h_px = (float(v) for v in parts["size"])
@@ -6068,6 +6067,7 @@ class Lecture(Scene):
         def placed(row):
             file, x0, y0, x1, y1 = row
             image = ImageMobject(str(file))
+            image._panim_child = True           # drawn on in place (write_in -> draw_on), not faded in
             image.scale_to_fit_width(max((float(x1) - float(x0)) * unit, 0.05))
             image.move_to([((float(x0) + float(x1)) / 2 - w_px / 2) * unit,
                            -((float(y0) + float(y1)) / 2 - h_px / 2) * unit, 0])

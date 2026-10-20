@@ -24,7 +24,7 @@ export const VISUAL_KINDS: VisualKind[] = [
   { id: "figure", label: "Book figures", about: "The book's own figures (as redrawn or drawn in Generate, else the book's picture).", ops: ["figure"] },
   { id: "illustration", label: "AI illustrations", about: "Pictures of people, places, things and scenes made by the image model, as cutouts or whole scenes; also on diagram nodes, timeline events and map markers.",
     ops: ["illustration", "photo"], paid: true },
-  { id: "drawing", label: "AI detailed diagrams", about: "Labelled textbook drawings (a cell, an organ, a machine) made by the image model, labels placed by the board; and flows drawn as one picture (a diagram's \"drawn\": \"picture\"), cut into steps and arrows built as they are said.",
+  { id: "drawing", label: "AI detailed diagrams", about: "Labelled textbook drawings (a cell, an organ, a machine) made by the image model, labels placed by the board; and flows drawn as one picture (a diagram's \"drawn\": \"picture\"), each step and arrow drawn on in that picture as it is said.",
     ops: ["draw"], paid: true },
   { id: "gallery", label: "Gallery", about: "Several pictures of one kind of thing, one in the spotlight or in a grid, each brought up as it is named.", ops: ["gallery"] },
   { id: "diagram", label: "Diagrams", about: "Boxes and arrows built as they are named: flow, cycle, hub, pyramid, hierarchy, flowchart; reveal, focus, zoom. With AI detailed diagrams on, a flow or cycle may be drawn as one picture.",

@@ -57,10 +57,10 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   - **Pictures keep their shape.** `picture()` and `image()` keep their proportions when stretched.
 - Motion `callout`: removed. A script that still has one compiles with it left out and a note.
 - `picture_flow.py`, and a diagram's `"drawn": "picture"`: a flow or cycle drawn as ONE picture by the image model
-  (`genimage` FLOW_FRAME: every picture and arrow apart, on white). The compiler makes it, cuts it into its steps and
-  arrows (patches of the cut-out picture, named by the label finder or by the layout), and the engine
-  (`MapLecture.picture_flow`) lays the parts out as they were and builds them as a diagram is built: each step on the
-  words that name it, the arrow into it slid in first. Any other case is built as a diagram, with a note.
+  (`genimage` FLOW_FRAME: every picture and arrow apart, on white), revealed in that picture itself: the compiler
+  finds where each step and arrow is in it (picture_flow.split), and the engine (`MapLecture.picture_flow`) draws
+  each on in place (draw_on) on the words that name it, through _diagram_finish's stepping. A picture whose parts
+  touch is shown whole, its steps lit as they are said (stage_image's labels); only one not made is built instead.
 - Pictures are drawn in the style their writer describes: `genimage.prompt_for` adds only a picture's form (a cutout
   on white, a whole scene, a picture-diagram), its shape, what the lesson needs it for and no text. The lecture
   style's words (`LOOKS`, "like a plate in a good textbook") and the motion looks' (`PICTURE_WORDS`) are gone; the

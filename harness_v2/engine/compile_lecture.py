@@ -2643,10 +2643,17 @@ def _picture_flows(script: dict) -> list[str]:
                     if made is None or not made.get("file"):
                         why = "its picture could not be made"
                     else:
-                        parts = picture_flow.split(made["file"], [str(n.get("label") or n["id"]) for n in nodes],
-                                                   pairs, kind)
+                        names = [str(n.get("label") or n["id"]) for n in nodes]
+                        parts = picture_flow.split(made["file"], names, pairs, kind)
                         if parts is None:
-                            why = "its picture's steps and arrows could not be told apart"
+                            # Its parts not apart (drawn touching, or as a whole scene): the picture is still the
+                            # one shown, whole, each step boxed, named and lit in it as it is said.
+                            import genimage
+
+                            op["_whole"] = {"file": made["file"], "labels": genimage.locate(made["file"], names) or []}
+                            notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: its picture's steps could not be "
+                                         "drawn on one by one (they touch); shown whole, each step lit as it is said")
+                            continue
                 if parts is None:
                     op.pop("drawn", None)
                     op.pop("_parts", None)
@@ -3128,6 +3135,11 @@ def _op_call(op: dict) -> str:
         title = f", title={_q(op['title'])}" if op.get("title") else ""
         layout = f", layout={_q(op['layout'])}" if op.get("layout") in GALLERY_LAYOUTS else ""
         return f"self.gallery([{items}]{title}{layout})"
+    if kind == "diagram" and op.get("_whole"):
+        # Its picture, whole, its steps named and lit in it as they are said (stage_image's labels).
+        title = op.get("title") or op.get("about") or ""
+        return (f"self.stage_image({_q(op['_whole']['file'])}, {_q(str(title))}"
+                f"{_labels_arg(op['_whole'])})")
     if kind == "diagram" and op.get("_parts"):
         # Drawn as one picture, cut into its parts (picture_flow).
         nodes = [{"id": str(n["id"]), "label": str(n.get("label") or n["id"])} for n in op["nodes"]]

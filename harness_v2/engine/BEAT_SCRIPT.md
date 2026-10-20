@@ -380,20 +380,22 @@ What each kind draws:
   - Branches, joins, loops, `shape`s or `lane`s: a **flowchart**, laid out in ranks with few crossings and loops
     drawn round the outside.
 - **`cycle`**: round, each node to the next.
-- **`"drawn": "picture"`** (a `flow` or `cycle` of 2-6 nodes):
+- **`"drawn": "picture"`** (a `flow` or `cycle` of 2-6 nodes): the picture the image model draws is the diagram,
+  revealed in that picture itself as it is spoken of.
   - **One picture.** The image model draws the whole flow at once: each node's `entity` (else its `label`) as a
     picture of its own, well apart, in a row (two rows past four, a circle for a cycle), and one thick arrow for each
-    edge (or each pair in order), a gap at both ends, on white, no words.
-  - **Cut into parts.** The background is cut away, and each picture and arrow is a separate patch. A node's patch
-    is the one under the label finder's point for it (`genimage.locate`), else the one where the layout puts it. An
-    arrow's patches lie along the line between the two nodes it joins.
-  - **Built as it is spoken of.** Each part is shown where it was in the whole, a label under each node, an edge's
-    label beside its arrow. The first node comes on with the diagram, each other one on the words that name it,
-    the arrow into it first, slid in the way it points; `show`, `reveal` and `focus` work as on any diagram.
-  - **Arrows read on the board.** An arrow the model drew too dark for the board is redrawn in the board's ink, and
-    one with no patch of its own is drawn.
-  - **Else built.** A picture not made, or one whose parts cannot be told apart, is built as a diagram instead,
-    with a note: each node's `entity` then makes its own picture.
+    edge (or each pair in order), a gap at both ends, on white, no words. Its style is the one the words describe.
+  - **Drawn on where it is.** The compiler finds where each step and each arrow is in the picture (its patches once
+    the white is cut away: a step's under the label finder's point for it, else where the layout puts it; an arrow's
+    along the line between the steps it joins). Each is drawn on exactly there (its outline traced, then its
+    colour), a label under each step: nothing is moved or laid out again, and when every step is said the screen
+    shows the picture the model drew. The first step comes on with it, each other one on the words that name it,
+    the arrow into it first; `show`, `reveal` and `focus` work as on any diagram. An arrow drawn too dark for the
+    board is drawn in the board's ink.
+  - **Shown whole when its parts touch.** A picture whose steps cannot be drawn on one by one (they touch, or it is a
+    whole scene) is shown whole, each step boxed, named and lit in it as it is said (a labelled picture). Only a
+    picture that could not be made is built as a diagram instead (each node's `entity` its own picture), with a
+    note.
 
   ```json
   {"op": "diagram", "id": "bread", "kind": "flow", "drawn": "picture", "about": "how bread is made", "title": "From wheat to bread",

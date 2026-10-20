@@ -38,7 +38,7 @@ export const LAB_PRESETS: LabPreset[] = [
     ]),
   },
   {
-    id: "picture-flow", name: "Flow drawn as one picture", note: "The image model draws the whole flow at once; it is cut into its steps and arrows, each brought on as it is said.",
+    id: "picture-flow", name: "Flow drawn as one picture", note: "The image model draws the whole flow as one picture; each step and arrow is drawn on in that picture, where it is, as it is said.",
     script: board("From wheat to bread", [
       { say: "Bread begins with wheat, harvested in the field.", do: [{ op: "diagram", id: "bread", kind: "flow", drawn: "picture", about: "how bread is made", title: "From wheat to bread",
         nodes: [{ id: "wheat", label: "Wheat", entity: "a sheaf of golden wheat" }, { id: "mill", label: "Mill", entity: "a stone windmill" },
@@ -139,7 +139,7 @@ const tpl = (id: string, name: string, note: string, look: string, beats: Record
   ({ id: `m-${id}`, group: "Templates", name, note, script: motion(look, name, beats, extra) });
 
 export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
-  tpl("picture-flow", "Flow drawn as one picture", "The image model draws the whole flow at once (each step and arrow apart); it is cut into its parts and each step comes on as it is said, the arrow into it first.", "paper", [
+  tpl("picture-flow", "Flow drawn as one picture", "The image model draws the whole cycle as one picture; each step (the arrow into it first) is drawn on in that picture, where it is, as it is said.", "paper", [
     { say: "Water in the sea warms in the sun and rises as vapour.", do: [{ op: "diagram", id: "water", kind: "cycle", drawn: "picture", about: "the water cycle", title: "The water cycle",
       nodes: [{ id: "sea", label: "Sea", entity: "blue sea waves, a flat bold editorial illustration" }, { id: "vapour", label: "Vapour", entity: "rising wisps of warm vapour, a flat bold editorial illustration" },
         { id: "cloud", label: "Cloud", entity: "a heavy grey rain cloud, a flat bold editorial illustration" }, { id: "rain", label: "Rain", entity: "falling rain drops, a flat bold editorial illustration" },

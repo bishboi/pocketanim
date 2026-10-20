@@ -37,6 +37,14 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 - Hinglish word matching: `pocket_lecture._say_tokens` keeps a Devanagari word's vowel signs (only Latin letters
   lose their accents), and `compile_lecture._named_in` reads Indian scripts' letters as word letters, so a word that
   names a part is found in a line however it is written.
+- **Measuring sync**: `tools/sync_probe.py scene.py --fake-voice` runs a compiled scene without drawing (a stand-in
+  voice whose word times are exact) and reports, for each word a line says that something on the screen shows, how
+  long before or after the word it came on. `examples/sync/` holds two full lectures to measure with (Hinglish on
+  the motion engine, English on the board).
+- A picture with words on it that no word was named for (a card, a chart, a timeline, a new diagram) comes on with
+  the first of its own words the line says (`compile_lecture._shown_words`, passed as `said=[...]`;
+  `Lecture._on_words` takes the first said). A picture is timed by its caption or title only: its labels have their
+  own words.
 - `picture_judge.py`: with `PANIM_PICTURE_JUDGE` set (a decision model: Jev), whether a picture asked for is one made
   before is the model's answer (show it again, draw a new one matching it, or draw fresh), from the earlier pictures'
   words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures

@@ -2817,12 +2817,18 @@ class Lecture(Scene):
         expression with nothing to plot) stopped an hour-long render with a bare numpy error and no beat named.
         The narration goes on; the reason, and the beat, are kept in SKIPPED for the build to report.
 
-        `said`: the words the picture shows (a place, a part's name): it starts as they are said (beat)."""
+        `said`: the words the picture shows (a place, a part's name): it starts as they are said (beat); a list:
+        words any of which the line may say, the picture starting with the first said."""
         try:
             made = build()
             if said and made is not None:
                 try:
-                    made.panim_said = str(said)
+                    if isinstance(said, (list, tuple)):
+                        # Its words, any of which may be said: it comes on with the first said (_on_words).
+                        made.panim_alts = [str(w) for w in said if str(w).strip()]
+                        made.panim_said = made.panim_alts[0] if made.panim_alts else None
+                    else:
+                        made.panim_said = str(said)
                 except AttributeError:
                     pass
             return made
@@ -3179,6 +3185,14 @@ class Lecture(Scene):
         counts = SYNC.setdefault(self.__dict__.get("_chapter_no", 0), {"beats": 0, "on_words": 0, "pointed": 0})
         out, hinted, timed = [], set(), 0
         for anim, cue in given:
+            alts = getattr(anim, "panim_alts", None)
+            if alts:
+                # Timed by whichever of its words the line says first.
+                heard = [(t_, a) for t_, a in ((said_at(words, a), a) for a in alts) if t_ is not None]
+                try:
+                    anim.panim_said = min(heard)[1] if heard else None
+                except AttributeError:
+                    pass
             said = getattr(anim, "panim_said", None)
             at = said_at(words, said) if said else None
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)

@@ -1,0 +1,31 @@
+{
+ "engine": "motion", "look": "chalk", "title": "Force और Motion", "sub": "Newton के laws", "style": "chalkboard", "region": null,
+ "place_figures": false, "figures": {}, "language": "hinglish",
+ "chapters": [
+  {"title": "Inertia", "narration": "Chapter one. Inertia.", "beats": [
+   {"say": "अच्छा, एक छोटा सा सवाल।", "do": [{"op": "title", "kicker": "Chapter 1", "text": "Why do we fall forward?", "highlight": "forward"}], "paragraph": true},
+   {"say": "Bus अचानक brake लगाती है, तो आप आगे की तरफ गिरते हो।", "do": [{"op": "chain", "title": "Bus brakes", "steps": [{"label": "Bus moving", "on": "Bus"}, {"label": "Brake", "on": "brake"}, {"label": "You fall forward", "on": "गिरते"}]}]},
+   {"say": "क्यों? क्योंकि आपकी body motion में रहना चाहती है।", "do": [{"op": "emphasis", "target": "You fall forward", "how": "circle", "on": "body"}]},
+   {"say": "इसी को कहते हैं inertia।", "do": [{"op": "define", "term": "Inertia", "meaning": "a body keeps doing what it was doing"}], "paragraph": true},
+   {"say": "Inertia कोई force नहीं है, ये बस एक property है।", "do": [{"op": "stamp", "text": "Not a force", "on": "force"}]},
+   {"say": "जितना ज़्यादा mass, उतना ज़्यादा inertia।", "do": [{"op": "versus", "title": "Mass and inertia", "left": {"title": "Cycle", "points": ["Small mass", "Easy to stop"]}, "right": {"title": "Truck", "points": ["Huge mass", "Hard to stop"]}}]},
+   {"say": "Truck को रोकना cycle से कहीं ज़्यादा मुश्किल है, है ना?", "do": [{"op": "emphasis", "target": "Truck", "how": "box", "on": "Truck"}]}
+  ]},
+  {"title": "Second law", "narration": "Chapter two. Force, mass and acceleration.", "beats": [
+   {"say": "अब ध्यान से सुनना, ये point बहुत important है।", "do": [{"op": "list", "title": "Three things", "mark": "number", "items": [{"text": "Force", "on": "Force"}, {"text": "Mass", "on": "mass"}, {"text": "Acceleration", "on": "acceleration"}]}], "paragraph": true},
+   {"say": "Force बढ़ाओ, तो acceleration बढ़ता है, और mass बढ़ाओ, तो acceleration घटता है।", "do": [{"op": "chain", "title": "The rule", "steps": [{"label": "More force", "on": "Force"}, {"label": "More acceleration", "on": "बढ़ता"}, {"label": "More mass", "on": "mass"}, {"label": "Less acceleration", "on": "घटता"}]}]},
+   {"say": "इसे लिखते हैं: F बराबर m times a।", "do": [{"op": "equation", "tex": "F = ma", "label": "Newton's second law"}]},
+   {"say": "मान लो mass है 10 kilogram और acceleration है 2 meter per second square।", "do": [{"op": "kpi", "kicker": "Given", "cards": [{"label": "Mass", "value": "10 kg"}, {"label": "Acceleration", "value": "2 m/s²"}]}], "paragraph": true},
+   {"say": "तो force होगा 20 newton, simple!", "do": [{"op": "counter", "value": "20 N", "label": "the force needed", "kicker": "F = ma"}]},
+   {"say": "Cricket में catch लेते वक्त हाथ पीछे क्यों खींचते हैं?", "do": [{"op": "title", "text": "Why pull the hands back?", "highlight": "back"}], "paragraph": true},
+   {"say": "क्योंकि time बढ़ता है, तो force कम लगता है, और हाथ में चोट नहीं लगती।", "do": [{"op": "chain", "steps": [{"label": "More time", "on": "time"}, {"label": "Less force", "on": "force"}, {"label": "No injury", "on": "चोट"}]}]}
+  ]},
+  {"title": "Third law", "narration": "Chapter three. Action and reaction.", "beats": [
+   {"say": "हर action का एक बराबर और उल्टा reaction होता है।", "do": [{"op": "define", "term": "Third law", "meaning": "every action has an equal and opposite reaction"}], "paragraph": true},
+   {"say": "Rocket नीचे gas फेंकता है, और gas rocket को ऊपर धकेलती है।", "do": [{"op": "versus", "title": "Rocket", "left": {"title": "Action", "points": ["Gas pushed down"]}, "right": {"title": "Reaction", "points": ["Rocket pushed up"]}}]},
+   {"say": "Swimming में भी यही होता है: आप पानी को पीछे धकेलते हो, पानी आपको आगे।", "do": [{"op": "chain", "steps": [{"label": "Push water back", "on": "पीछे"}, {"label": "Water pushes you", "on": "पानी आपको"}, {"label": "You move forward", "on": "आगे"}]}]},
+   {"say": "1687 में Newton ने ये तीनों laws एक book में लिखे।", "do": [{"op": "timeline", "title": "Newton", "events": [["1643", "Born"], ["1687", "Principia"], ["1727", "Dies"]]}], "paragraph": true},
+   {"say": "तो याद रखो: inertia, F बराबर m a, और action reaction।", "do": [{"op": "list", "title": "Newton's laws", "mark": "check", "items": [{"text": "Inertia", "on": "inertia"}, {"text": "F = ma", "on": "बराबर"}, {"text": "Action and reaction", "on": "reaction"}]}]}
+  ]}
+ ]
+}

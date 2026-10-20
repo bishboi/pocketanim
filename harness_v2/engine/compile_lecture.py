@@ -2978,10 +2978,11 @@ def _diagram_labels(op: dict) -> dict:
             if isinstance(n, dict) and n.get("id") is not None}
 
 
-def _op_said(op: dict, parts: dict, asked: list) -> str | None:
+def _op_said(op: dict, parts: dict, asked: list) -> str | list[str] | None:
     """The words a picture shows, so it starts as the narration says them: a marker's place, a shaded area's name,
-    a diagram part revealed or pointed at, a term defined, a choice marked. None for a picture the line is about as
-    a whole (a new diagram, a timeline, a photo), which starts with the line."""
+    a diagram part revealed or pointed at, a term defined, a choice marked; for any other picture with words on it
+    (a card, a chart, a timeline, a new diagram), the words it shows, to come on with the first of them said
+    (_shown_words). None for one that acts as the line begins (UNSAID_OPS) or shows no words."""
     kind = op.get("op")
     if kind in ("marker", "state", "river", "empire"):
         return str(op.get("label") or op.get("place") or op.get("name") or "") or None
@@ -3001,7 +3002,77 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | None:
     if kind == "option":
         index = _choice_index(asked, op.get("choice")) if asked else None
         return asked[index] if index is not None else None
-    return None
+    if kind in UNSAID_OPS:
+        return None
+    return _shown_words(op) or None
+
+
+# Operations that are not a thing the narration names: they act as the line begins (or as their own `think` says).
+UNSAID_OPS = {"clear", "unstage", "manim", "answer", "emphasis", "zoom", "camera", "pause", "think", "map_in",
+              "map_away", "recap"}
+# Words too common to time a picture by: said anywhere, they would bring it on before the line comes to it.
+COMMON_WORDS = set("""the and for are was were with that this these those from into onto than then them they their
+there here which while whom whose its his her hers our ours your yours has have had not
+but all any each one two very more most less much many some such also just only over under about after before
+between through during without within upon been being will would could should can may might must shall does did
+done make made like way ways part parts thing things kind kinds""".split())
+
+
+def _shown_words(op: dict) -> list[str]:
+    """The words a picture puts on the screen (its title, text, labels, its items' names), as words to time it by:
+    it comes on as the line says the first of them (pocket_lecture.Lecture._on_words), 0.2 s before it. A picture
+    shows what is being said, as it is said: a card that came on as the line began was up seconds before its words.
+    Common words, short words and the image model's prompts are left out."""
+    texts: list[str] = []
+
+    def take(value, depth=0):
+        if depth > 4 or value is None:
+            return
+        if isinstance(value, str):
+            texts.append(value)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            texts.append(str(value))
+        elif isinstance(value, dict):
+            for key, inner in value.items():
+                if key in SHOWN_KEYS:
+                    take(inner, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for inner in value:
+                take(inner, depth + 1)
+
+    kind = op.get("op")
+    if kind in PICTURE_OPS:
+        # A picture is what the line is about: on its caption or title, else as the line begins. Its labels are
+        # its parts, each coming on with its own words.
+        take(op.get("caption"))
+        take(op.get("title"))
+    elif kind == "diagram":
+        # On its title or a node drawn at first; the nodes revealed later have their own words.
+        take(op.get("title"))
+        shown = {str(x) for x in op.get("show") or []}
+        for node in op.get("nodes") or []:
+            if isinstance(node, dict) and (not shown or str(node.get("id")) in shown):
+                take(node.get("label"))
+    else:
+        for key, value in op.items():
+            if key in SHOWN_KEYS:
+                take(value)
+    out: list[str] = []
+    for text in texts:
+        for word in re.findall(r"[\w\u0900-\u0963\u0966-\u0DFF][\w'\u0900-\u0963\u0966-\u0DFF.,]*", text):
+            word = word.strip("'.,")
+            if (len(word) >= 3 or word.isdigit() and len(word) >= 2) and word.lower() not in COMMON_WORDS \
+                    and word not in out:
+                out.append(word)
+    return out[:16]
+
+
+PICTURE_OPS = {"picture", "figure", "draw", "illustration", "photo", "gallery", "polaroids", "image"}
+# The keys whose values are words on the screen (not an image model's prompt, an id or a colour).
+SHOWN_KEYS = {"title", "sub", "text", "label", "labels", "term", "meaning", "caption", "value", "name", "kicker",
+              "items", "steps", "events", "columns", "points", "nodes", "left", "right", "cards", "groups", "big",
+              "wrong", "right", "part_label", "rest_label", "lines", "tex", "date", "highlight", "headline", "stops",
+              "tiers", "rows", "headers", "fly", "quote", "who", "answer_text", "choices"}
 
 
 def _op_call(op: dict) -> str:
@@ -3595,7 +3666,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                 elif call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
                     said = _op_said(op, parts_named, asked)
-                    said = f", said={_q(said)}" if said else ""
+                    said = (f", said={_q(said)}" if isinstance(said, str) else f", said=[{', '.join(_q(w) for w in said)}]") \
+                        if said else ""
                     calls.append(f"self.safe(lambda: {call}, {_q(what)}{said})")
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""

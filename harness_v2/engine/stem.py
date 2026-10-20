@@ -286,19 +286,9 @@ class BoardMixin:
         return self._strip(title=VGroup(mark, head))
 
     def board_point(self, text: str, color: str | None = None):
-        import pocket_lecture as pl
-        from manim import Dot, VGroup, RIGHT
-
-        from manim import RoundedRectangle
-
-        # The key point in a soft pill: its words alone (no bullet).
-        words = VGroup(pl.T(str(text), 23, color or pl.P.CREAM))
-        pill = pl._flat(RoundedRectangle(corner_radius=(words.height + 0.24) / 2, width=words.width + 0.5,
-                                         height=words.height + 0.24, fill_color=pl._tint_on_bg(color or pl.P.SAND, 0.12),
-                                         fill_opacity=1, stroke_color=pl._tint_on_bg(color or pl.P.SAND, 0.45),
-                                         stroke_width=1.2))
-        words.move_to(pill)
-        return self._strip(point=VGroup(pill, words))
+        """The board has no key point: a line's words are its caption, and a key point in the strip over the board
+        only repeated them (v2). Nothing is drawn; a side panel (layout "panel") still lists its points (fact)."""
+        return None
 
     def board_stat(self, value: str, label: str, color: str | None = None):
         import pocket_lecture as pl

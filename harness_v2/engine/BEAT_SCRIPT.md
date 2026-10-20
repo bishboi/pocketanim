@@ -154,8 +154,8 @@ A beat is one narration line and what goes with it on screen.
    - Otherwise, as the line begins, the animations together, quickly (a fifth of the line, 0.6 to 1.2 s).
 
    The base animations are quick (`PrimitiveRun`): a thing shown 0.6 s, the last picture cleared 0.5 s, none longer than
-   2.5 s; each is sped up to finish before the next one in its line begins. A board's key point and a panel's points
-   are their words alone, with no bullet.
+   2.5 s; each is sped up to finish before the next one in its line begins. A panel's points are their words
+   alone, with no bullet; the board has no key point.
 4. **Pointing**: something already on screen whose name the line says (a diagram node, a picture's part, a place) is
    pointed at on those words. A labelled picture is shaded round each part as it is named, however quickly the next
    follows; once every labelled part has been talked about, the shade lifts (about a second and a half after the
@@ -222,7 +222,7 @@ the compiler warns to start a new panel.
 ```
 | Arg | | |
 |---|---|---|
-| `text` | required | A few words (under about 60 characters). On a board it replaces the last key point; in the side panel it is the next bulleted line. |
+| `text` | required | A few words (under about 60 characters). In the side panel (`"layout": "panel"`) it is the next line. **The board has no key point**: on a board chapter a `fact` is left out (`fixed: ... the board has no key point`), and the engine draws none. |
 | `color`? | | |
 
 #### `stat`: a key number

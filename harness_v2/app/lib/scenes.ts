@@ -1096,7 +1096,8 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
       const nodes = words.slice(0, 3).map((w, i) => ({ id: `n${i + 1}`, label: w }));
       ops.push({ op: "diagram", id: `d${b.n}`, kind: "flow", nodes, edges: [["n1", "n2"], ["n2", "n3"]] });
     } else if (on.has("define") && b.n % 3 === 0 && words[0]) ops.push({ op: "define", term: words[0], meaning: b.text.slice(0, 60) });
-    else ops.push({ op: "fact", text: (b.show || b.text).slice(0, 50) });
+    // No key point on the board: a define card of the line's own words instead.
+    else if (words[0]) ops.push({ op: "define", term: words[0], meaning: (b.show || b.text).slice(0, 60) });
     return { beat: b.n, do: ops };
   });
   return { region: null, beats: out };

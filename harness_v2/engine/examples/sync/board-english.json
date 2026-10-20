@@ -18,11 +18,6 @@
        "op": "panel",
        "title": "Why by the river?",
        "on": "start"
-      },
-      {
-       "op": "fact",
-       "text": "The river floods every year",
-       "on": "floods every year"
       }
      ],
      "paragraph": true
@@ -232,8 +227,9 @@
      "say": "And the streets had covered drains, which is amazing for that time.",
      "do": [
       {
-       "op": "fact",
-       "text": "Covered drains along the streets",
+       "op": "define",
+       "term": "Covered drains",
+       "meaning": "channels under the street that carry waste water away",
        "on": "covered drains"
       }
      ]

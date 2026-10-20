@@ -163,7 +163,7 @@ const TIMELINES = [
 
 const BOARD = [
   "WORDS AND NUMBERS ON THE BOARD (colour: SAND RIVER GOLD ROSE TEAL GREEN VIOLET MUTED CREAM HI, or #RRGGBB):",
-  '  {"op":"panel","title","sub"?}  the topic heading     {"op":"fact","text","color"?}  a key point     {"op":"clear"}',
+  '  {"op":"panel","title","sub"?}  the topic heading     {"op":"clear"}     (there is no key point: the line is its caption)',
   '  {"op":"stat","value","label","color"?}     {"op":"bars","items":[["label",n]],"unit"?,"color"?}',
   '  {"op":"define","term":"Biodiversity","meaning":"<plain words>"}     {"op":"quote","text":"...","who":"Akbar"}',
   '  {"op":"compare","title"?,"columns":[{"title":"Reserved","points":["short lines"]}]}',
@@ -218,8 +218,8 @@ const EXAMPLES = [
   '  A scene whose parts are named as they are spoken of, then one of them in close-up:',
   '    {"beat":9,"paragraph":true,"do":[{"op":"picture","generate":"a medieval manor at harvest: the lord\'s house, the church,',
   '      the mill and peasants in strip fields, a warm detailed gouache","scene":true,"labels":["manor house","church","mill","strip fields"]}]}',
-  '    {"beat":11,"do":[{"op":"picture","generate":"a watermill turning, a warm detailed gouache","caption":"The lord\'s mill"},',
-  '      {"op":"fact","text":"Peasants paid to grind their grain","on":"paid"}]}',
+  '    {"beat":11,"do":[{"op":"picture","generate":"a watermill turning, a warm detailed gouache","caption":"The lord\'s mill",',
+  '      "on":"mill"}]}',
   '  A process drawn as one picture, built over three lines:',
   '    {"beat":14,"do":[{"op":"diagram","id":"bread","kind":"flow","drawn":"picture","about":"how bread is made",',
   '      "nodes":[{"id":"wheat","label":"Wheat","entity":"a sheaf of golden wheat, watercolour"},{"id":"mill","label":"Mill",',

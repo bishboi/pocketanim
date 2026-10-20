@@ -4,7 +4,7 @@
  * "AI illustrations off" means no picture the image model makes, anywhere: not on the stage, not on a diagram's
  * node, a timeline's event or a map's marker.
  *
- * The heading and key point (panel, fact, clear) are always there: they are the board's words, not a visual.
+ * The heading (panel, clear) is always there: the board's words, not a visual. ("fact" is a side panel's point; the board has no key point.)
  */
 
 export type VisualKind = {

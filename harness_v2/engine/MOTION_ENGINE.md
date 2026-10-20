@@ -408,7 +408,7 @@ Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
 |---|---|
 | `stat` | A `counter` (the value counts up, the label under it). In the side panel it stays the panel's line. |
 | `bars` | A `chart`: columns (8 or fewer, short labels), else bars. |
-| `fact` | The board's key point, swept in from the left. |
+| `fact` | Left out: the board has no key point (BEAT_SCRIPT.md, `fact`). |
 | `compare` | Two columns: a `versus`. More: `cards`. |
 | `define` | The term set large, the highlighter swept under it, the meaning typed in under it. With a picture already up, it goes beside it (the picture moves into the left half, its labels with it) instead of hiding it. |
 | `quote` | A card: big quote marks drop in, the words typed on, the speaker slides in. Beside a picture already up, as `define`. |

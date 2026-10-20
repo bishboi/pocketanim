@@ -845,6 +845,7 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     no_icons(script)
     errors: list[str] = []
     warnings: list[str] = []
+    no_key_points(script, warnings)
     anchors(script, errors, warnings)
     if script.get("style", "atlas") not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
@@ -3012,6 +3013,23 @@ def _op_said(op: dict, parts: dict, asked: list) -> str | list[str] | None:
     if kind in UNSAID_OPS:
         return None
     return _shown_words(op) or None
+
+
+def no_key_points(script: dict, warnings: list[str]) -> None:
+    """The board has no key point (v2: stem.board_point draws nothing): a "fact" on a board chapter is left out, with
+    a note. A side panel (the script's "layout": "panel") keeps its points."""
+    if script.get("layout") == "panel":
+        return
+    for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        for bi, beat in enumerate(chapter.get("beats") or [], 1):
+            ops = beat.get("do") if isinstance(beat, dict) else None
+            if not isinstance(ops, list):
+                continue
+            kept = [op for op in ops if not (isinstance(op, dict) and op.get("op") == "fact")]
+            if len(kept) < len(ops):
+                warnings.append(f"fixed: chapter {ci} beat {bi}: the board has no key point; its fact left out "
+                                "(the line's words are its caption)")
+                beat["do"] = kept
 
 
 # ---------------- anchors: the words each picture lands on ----------------

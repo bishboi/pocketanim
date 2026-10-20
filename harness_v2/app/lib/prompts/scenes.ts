@@ -49,6 +49,12 @@ const PICTURE_STYLE = [
   "not copy its name or its colour codes into a picture's description.",
 ];
 
+const NO_KEY_POINT = [
+  "NO KEY POINT ON THE BOARD (v2; this overrides what the instructions above say of the key point and \"fact\"): the",
+  "board has no key point under its heading. Never use {\"op\":\"fact\"}: the line's words are its caption already,",
+  "and a fact is left out. Put the idea on the stage instead (a define card, a stat, a picture, a diagram).",
+].join("\n");
+
 const TIMELINE_ADDITIONS = [
   "TIMELINES, what this engine adds to the timeline op above:",
   "  - IN PROPORTION: when every date reads as a year, each event sits at its date along the track, with a scale of",
@@ -243,6 +249,7 @@ export function scenesPrompt(x: {
       part("v1-beat", x.pace?.maxOps ? `A beat (at most ${x.pace.maxOps} operations)` : "A beat (no limit to its operations)", "rules", beatSection(x.pace)),
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
       part("v2-anchors", "Anchors: every visual on its words (v2)", "rules", ANCHORS),
+      part("v2-no-key-point", "No key point on the board (v2)", "rules", NO_KEY_POINT),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-picture-style", "Pictures: their style is yours (v2)", "rules", PICTURE_STYLE),

@@ -9,7 +9,7 @@
  * the whole lecture, for one chapter, or for one beat (the rest of its chapter given as it is, for context).
  */
 
-import { motionPart } from "./scenes-motion";
+import { betaSystem } from "./scenes-beta";
 import { part, render, type Part } from "./parts";
 import { V1_FREE_DRAWINGS_HEAD, V1_LECTURE, V1_MANIM_PLAN, V1_MANIM_RULES } from "./v1-lecture";
 
@@ -98,7 +98,7 @@ export const SCENES_TOOL = {
             type: "object",
             properties: {
               beat: { type: "integer", description: "The beat's number, as given." },
-              do: { type: "array", items: { type: "object", additionalProperties: true }, description: "Its operations (as many as the pace below allows)." },
+              do: { type: "array", items: { type: "object", additionalProperties: true }, description: "Its operations." },
               paragraph: { type: "boolean", description: "The first beat of a paragraph (it gives the paragraph's visual)." },
               pause: { type: "number", description: "Extra seconds after the line, 1-2, rarely." },
               about: { type: "string", description: "The person, movement or place the beat is about, its English name." },
@@ -208,6 +208,26 @@ export function scenesPrompt(x: {
         : `beats ${x.ask.beats.map((n) => `#${n}`).join(", ")} only, mending what the compiler says of each`;
   const off = Object.keys(x.labels).filter((k) => !x.kinds.includes(k));
   const v1 = (key: string, label: string, kind: Part["kind"] = "rules") => part(`v1-${key}`, label, kind, V1_LECTURE[key]);
+  if (x.motion) {
+    // The motion engine (beta): the elements, how to use them and examples, and nothing that limits how (no subject
+    // tuning, no pace, no rules for choosing a visual): prompts/scenes-beta.ts.
+    return {
+      system: betaSystem({ manimAgent: x.manimAgent, off, labels: x.labels, look: x.motion.look }),
+      user: [
+        part("look", "The look", "context", `The board is drawn in ${x.look}. The pictures the image model makes are drawn in the style you describe for each.`),
+        part("lecture", "The lecture and its chapters", "plan", [`Lecture ${x.lecture.n}: ${x.lecture.title}`,
+          ...x.chapters.map((c) => `Chapter ${c.n}: ${c.title} - title card: "${c.narration}"`),
+          ...(x.region ? [`Map region (already chosen): ${JSON.stringify(x.region)}`] : [])]),
+        part("figures", `The lecture's figures (${x.figures.length})`, "items", x.figures.length
+          ? x.figures.map((f) => `${f.id}: ${f.way}${f.ready ? "" : " (not made yet)"} - ${f.caption || "(no caption)"}`) : "None."),
+        part("script", `The beats (${x.beats.length})`, "book", x.beats.map(beatLine)),
+        ...(x.note ? [part("note", "Your note for this", "context", x.note)] : []),
+        ...(x.ask.what === "fix" ? [part("retry", "What the compiler refused", "retry",
+          "The compiler could not draw these beats (COMPILER lines above). Write them again so they can be drawn.")] : []),
+        part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}: each beat by its number, with its do.`),
+      ],
+    };
+  }
   return {
     system: [
       part("role", "Role", "rules", ROLE),
@@ -234,7 +254,6 @@ export function scenesPrompt(x: {
       v1("detailed", "Detailed diagrams"),
       v1("map", "Map operations"),
       ...(pacePart(x.pace) ? [pacePart(x.pace)!] : []),
-      ...(x.motion ? [motionPart(x.motion)] : []),
       ...(off.length ? [part("off", `Switched off here (${off.length})`, "choices", [
         "SWITCHED OFF FOR THIS LECTURE: never use these kinds of visual; anything of them is taken out:",
         ...off.map((k) => `  - ${x.labels[k] ?? k}`)])] : []),

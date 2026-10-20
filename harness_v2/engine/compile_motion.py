@@ -539,6 +539,10 @@ def _patched_op_call(op: dict):
 
 
 def _patched_lint(script: dict, *a, **kw):
+    # How to teach is the writer's on the motion engine: only what is needed to draw the video is checked (the
+    # lecture compiler's teaching rules -- empty stretches, plain language, text-heavy beats, the panel's points --
+    # are off unless the script turns them on).
+    script.setdefault("teaching_rules", False)
     notes = _prepare(script)
     errors, warnings = _ORIG["lint"](script, *a, **kw)
     return errors, notes + warnings

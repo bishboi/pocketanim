@@ -717,7 +717,11 @@ await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
 const motionCall = run.calls.slice(callsBefore).find((c) => c.step === "scenes");
-assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.some((p) => p.key === "motion" && /THE TEMPLATES/.test(p.text)), "the scene writer told of the motion templates");
+assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.some((p) => p.key === "templates" && /MOTION TEMPLATES/.test(p.text)), "the scene writer told of the motion templates");
+// On the beta the scene writer is told the elements, how to use them and examples: nothing that limits its choices.
+assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].includes(p.key) || p.key.startsWith("v1-")),
+  `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
+assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
 const motionBeats = Object.values(run.scenes.lectures[1].beats);
 const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
 assert.ok(templateBeats > 0, "motion templates in the beats");
@@ -734,7 +738,7 @@ assert.equal(motionRender.status, "done", motionRender.error);
 assert.ok(readFileSync(path.join(fileOf(motionRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the motion engine");
 const motionChapter = await chapterScript(run, 1, ch1.n);
 assert.ok(motionChapter.engine === "motion" && motionChapter.look === "newsroom", "the Voice tab's chapter carries the engine");
-assert.ok((await editInstructions(run, 1)).includes("THE MOTION ENGINE (BETA)"), "the hand instructions tell of the templates");
+assert.ok((await editInstructions(run, 1)).includes("MOTION TEMPLATES"), "the hand instructions tell of the templates");
 await scenesAction(run.id, { action: "engine", engine: "current" });
 run = await loadRun(run.id);
 assert.ok(!run.scenes.engine && !(await engineScript(run, 1, run.scenes.look)).engine, "back on the current engine");

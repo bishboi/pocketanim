@@ -546,6 +546,10 @@ export type ChapterVoice = {
   /** Each beat in the narrated chapter: where it starts and ends (seconds, frames). */
   beats?: { n: number; start: number; end: number; from: number; to: number }[];
   blockers?: string[];
+  /** The AI pictures its compile showed, each as the image model made it (a flow drawn as one picture whole, with
+   * where each of its steps is), with what it shows, how it is used, and the prompt it was sent. */
+  pictures?: { url: string; what: string; role?: string; beat?: number; prompt?: string; model?: string;
+    parts?: [string, number?, number?, number?, number?][] }[];
   /** A trial: the beat script it was made from (edited by hand), and what applying it to the scenes did. */
   edited?: ChapterScript;
   applied?: { at: number; beats: number; notes: string[] };

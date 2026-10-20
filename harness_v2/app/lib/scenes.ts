@@ -722,7 +722,7 @@ type Judged = { what: string; model?: string; candidates?: { key: string; what: 
   probabilities?: Record<string, number>; confidence?: number | null; seconds?: number; action?: "reuse" | "match" | "fresh";
   picked?: string | null; unsure?: boolean; error?: string };
 
-type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[];
+export type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes?: number; generated?: { prompt?: string; model?: string; usd?: number }[];
   /** The engine's image model's report (genimage.report): asked, made, cached, and each picture it could not get. */
   images?: { model?: string; asked?: number; made?: number; cached?: number; failed?: { what?: string; model?: string; error?: string }[];
     /** The decision model's answers on reusing a picture made before (picture_judge.py). */
@@ -730,7 +730,8 @@ type Compiled = { source?: string; errors: string[]; warnings: string[]; minutes
   /** The call each decision asked now was recorded as, by what was asked. */
   judgedCalls?: Record<string, string>;
   /** Every picture the scene shows (compile_lecture.pictures_used): its file, what it shows, where. */
-  pictures?: { file?: string; description?: string; role?: string; context?: { chapter?: number; beat?: number; caption?: string } }[] };
+  pictures?: { file?: string; description?: string; role?: string; context?: { chapter?: number; beat?: number; caption?: string };
+    parts?: [string, number?, number?, number?, number?][] }[] };
 
 /**
  * A compile's AI pictures, by beat: each picture the scene shows (copied beside the run's scenes so the page can

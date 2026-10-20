@@ -191,7 +191,51 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
           <VoiceResult run={run} n={item.lecture ?? 1} chapter={0} v={item.result} onCall={onCall} tried />
         </div>
       )}
+      {!!item.result?.pictures?.length && <MadePictures pictures={item.result.pictures} />}
     </section>
+  );
+}
+
+type Made = NonNullable<NonNullable<LabItem["result"]>["pictures"]>[number];
+
+/** The AI pictures the experiment's compile showed, as the image model made them: what each shows, how it is used, its
+ * beat and the prompt it was sent; a flow drawn as one picture with a box round each step where it was found in it. */
+function MadePictures({ pictures }: { pictures: Made[] }) {
+  return (
+    <div className="space-y-1" data-testid="lab-pictures">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300">Pictures the image model made ({pictures.length})</p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {pictures.map((p) => <MadePicture key={p.url} p={p} />)}
+      </div>
+    </div>
+  );
+}
+
+function MadePicture({ p }: { p: Made }) {
+  const [size, setSize] = useState<[number, number] | null>(null);
+  return (
+    <figure className="space-y-1 rounded border border-neutral-800 p-2" data-testid="lab-picture">
+      <div className="relative rounded" style={{ background: "repeating-conic-gradient(#2a2a2a 0% 25%, #1f1f1f 0% 50%) 50% / 16px 16px" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={p.url} alt={p.what} className="block w-full" onLoad={(e) => setSize([e.currentTarget.naturalWidth, e.currentTarget.naturalHeight])} />
+        {size && p.parts?.map(([label, x0, y0, x1, y1], k) => x0 === undefined || y0 === undefined || x1 === undefined || y1 === undefined ? null : (
+          <div key={k} className="absolute border-2 border-amber-400" title={label}
+            style={{ left: `${(x0 / size[0]) * 100}%`, top: `${(y0 / size[1]) * 100}%`, width: `${((x1 - x0) / size[0]) * 100}%`, height: `${((y1 - y0) / size[1]) * 100}%` }}>
+            <span className="absolute -top-4 left-0 rounded bg-amber-400 px-1 text-[10px] font-semibold text-black">{k + 1}. {label}</span>
+          </div>
+        ))}
+      </div>
+      <figcaption className="space-y-0.5">
+        <p className="text-neutral-100">{p.what || "(no description)"}{p.beat ? <span className="text-neutral-500"> · beat {p.beat}</span> : null}</p>
+        {p.role && <p className="text-neutral-400">{p.role}</p>}
+        {p.prompt && (
+          <details>
+            <summary className="cursor-pointer text-neutral-400">The prompt it was sent{p.model ? ` (${p.model})` : ""}</summary>
+            <p className="mono mt-1 whitespace-pre-wrap text-[11px] text-neutral-300">{p.prompt}</p>
+          </details>
+        )}
+      </figcaption>
+    </figure>
   );
 }
 

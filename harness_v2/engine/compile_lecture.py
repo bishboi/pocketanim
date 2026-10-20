@@ -2643,6 +2643,7 @@ def _picture_flows(script: dict) -> list[str]:
                     if made is None or not made.get("file"):
                         why = "its picture could not be made"
                     else:
+                        op["_file"] = made["file"]          # the picture itself, for the record (pictures_used)
                         names = [str(n.get("label") or n["id"]) for n in nodes]
                         parts = picture_flow.split(made["file"], names, pairs, kind)
                         if parts is None:
@@ -3417,6 +3418,22 @@ def pictures_used(script: dict) -> list[dict]:
                     for item in _gallery_items(op):
                         if item["op"] != "figure":
                             add(item, ci, bi, "in a gallery")
+                elif kind == "diagram" and op.get("_file"):
+                    # A flow drawn as one picture: the picture itself, and how it is revealed.
+                    parts = op.get("_parts") or {}
+                    steps = len(parts.get("nodes") or [])
+                    arrows = sum(1 for e in parts.get("edges") or [] if e)
+                    how = (f"a flow drawn as one picture: {steps} steps and {arrows} arrows drawn on in it as they are said"
+                           if op.get("_parts") else "a flow drawn as one picture: shown whole, its steps lit as they are "
+                           "said (they touch, so they cannot be drawn on one by one)")
+                    chapter = chapters[ci - 1]
+                    out.append({"file": str(op["_file"]), "kind": "illustration",
+                                "description": str(op.get("about") or op.get("title") or op.get("id") or ""),
+                                "found_by": {}, "source": {"source": "generated"}, "role": how,
+                                "parts": [[str(n.get("label") or n.get("id")), *(row[1:] if row else [])]
+                                          for n, row in zip(op.get("nodes") or [], parts.get("nodes") or [])],
+                                "context": {"chapter": ci, "chapter_title": chapter.get("title"), "beat": bi,
+                                            "line": beat.get("say")}})
                 for where, spec in pictures_of(op):
                     fetch = _picture_fetch(spec) if isinstance(spec, dict) else None
                     if fetch:

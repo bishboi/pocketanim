@@ -27,7 +27,7 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { handInstructions } from "./prompts/scenes";
 import { check, newCall } from "./run";
-import { compile, engineScript, writeMissingFigures, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
+import { compile, type Compiled, engineScript, writeMissingFigures, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
 import { lectureFigures } from "./script-figures";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
@@ -317,6 +317,26 @@ function lastJson<T>(r: Tool, what: string): T {
 /** A Lab experiment (lib/lab.ts): where its files go and what its calls are named; spoken as a trial is. */
 export type LabWhere = { dir: string; name: string };
 
+/** The AI pictures a compile showed, copied beside the result so the page can show them as the image model made
+ * them, with the prompt it was sent (the engine keeps it beside each picture). */
+async function madePictures(run: Run, compiled: Compiled, dir: string): Promise<ChapterVoice["pictures"]> {
+  const out: NonNullable<ChapterVoice["pictures"]> = [];
+  const into = path.join(dir, "pictures");
+  for (const p of compiled.pictures ?? []) {
+    if (!p.file || !/\/gen-[^/]*\.png$/.test(p.file) || !existsSync(p.file) || out.some((o) => o.url.endsWith(path.basename(p.file!)))) continue;
+    let side: { prompt?: string; model?: string } = {};
+    try {
+      side = JSON.parse(await readFile(p.file.replace(/\.png$/, ".json"), "utf8"));
+    } catch {}
+    await mkdir(into, { recursive: true });
+    const copy = path.join(into, path.basename(p.file));
+    await copyFile(p.file, copy);
+    out.push({ url: fileUrl(run.id, copy), what: String(p.description ?? ""), role: p.role, beat: p.context?.beat, prompt: side.prompt,
+      model: side.model, ...(p.parts?.length ? { parts: p.parts } : {}) });
+  }
+  return out;
+}
+
 export async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice, edited?: ChapterScript, lab?: LabWhere) {
   const began = Date.now();
   const settings = { ...voiceOf(run).settings };
@@ -347,6 +367,7 @@ export async function speakChapter(run: Run, n: number, chapter: number, target:
     phase("compiling the chapter");
     const compiled = await compile(run, edited ? await engineScriptOf(run, n, edited) : await engineScript(run, n, look, { chapter }), dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
+    target.pictures = await madePictures(run, compiled, dir);
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
     const scene = path.join(dir, "scene.py");
     await writeFile(scene, source, "utf8");

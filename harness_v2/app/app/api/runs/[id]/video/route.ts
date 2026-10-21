@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { loadRun } from "@/lib/store";
-import { chapterLines, phoneLibrary, settingsOf, timingOf, videoAction, videoBusy, type VideoAction } from "@/lib/video";
+import { LOG_FILE } from "@/lib/video-agent";
+import { chapterLines, phoneLibrary, settingsOf, timingOf, videoAction, videoBusy, workspaceOf, type VideoAction } from "@/lib/video";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +43,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: (error as Error).message }, { status: 400 });
     }
   }
+  if (q.get("lecture") && (q.get("files") || q.get("read") !== null || q.get("log"))) {
+    // The agent's workspace: its files (?files=1), one file's text (?read=<path>), its conversation (?log=1).
+    const ws = workspaceOf(id, Number(q.get("lecture")), Number(q.get("chapter")));
+    try {
+      if (q.get("files")) return NextResponse.json({ files: await listFiles(ws) });
+      if (q.get("log")) {
+        const text = await readFile(path.join(ws, LOG_FILE), "utf8").catch(() => "");
+        return NextResponse.json({ entries: text.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) });
+      }
+      const file = path.resolve(ws, q.get("read") ?? "");
+      if (!file.startsWith(ws + path.sep) || !TEXT.has(path.extname(file).toLowerCase())) return NextResponse.json({ error: "not a text file of the workspace" }, { status: 400 });
+      if ((await stat(file)).size > 3_000_000) return NextResponse.json({ error: "too large to show" }, { status: 400 });
+      return NextResponse.json({ path: path.relative(ws, file), text: await readFile(file, "utf8") });
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    }
+  }
   if (q.get("lecture")) {
     const n = Number(q.get("lecture"));
     const c = Number(q.get("chapter"));
@@ -54,4 +72,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const s = settingsOf(run);
   return NextResponse.json({ busy: videoBusy(id), settings: { model: s.model, imageModel: s.imageModel, turns: s.turns, styleNote: s.styleNote ?? "",
     customStyle: !!run.video?.settings.style } });
+}
+
+const TEXT = new Set([".py", ".md", ".txt", ".json", ".jsonl", ".log", ".csv", ".svg", ".panim"]);
+/** Folders the agent's tools fill (renders' frames, the export, Manim's media): left out of the list but for videos. */
+const SKIP = /^(export|media|library|history|__pycache__)(\/|$)|\/__pycache__\/|^renders\/(draft|final|look)\/|^renders\/sheet-.*_tiles\//;
+
+async function listFiles(ws: string): Promise<{ path: string; size: number; at: number }[]> {
+  const out: { path: string; size: number; at: number }[] = [];
+  for (const e of await readdir(ws, { withFileTypes: true, recursive: true }).catch(() => [])) {
+    if (!e.isFile()) continue;
+    const full = path.join(e.parentPath ?? ws, e.name);
+    const rel = path.relative(ws, full).split(path.sep).join("/");
+    if (SKIP.test(rel) || rel.startsWith("_panim_export_")) continue;
+    const s = await stat(full);
+    out.push({ path: rel, size: s.size, at: s.mtimeMs });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
 }

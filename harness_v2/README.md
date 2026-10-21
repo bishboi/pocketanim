@@ -33,8 +33,16 @@ play exactly as Manim drew it: `phone_check` exports the scene (faithfully: ever
 `engine/ENGINE.md`), draws the phone's frames with the reference renderer the Kotlin and Swift players are held to, and
 compares them with the render's; **finish** is refused until it passes on the scene as it is. The page then plays the
 chapter as the phone does (v1's web player, with the narration as its clock), beside the Manim render it was checked
-against, every line and word of the narration with its time, and every step the agent took (its words, each tool call
-and its answer, the frames and pictures it was shown, the calls). **Phone library (zip)** packs the chapter for the
+against, every line and word of the narration with its time, and what the agent did, in five views
+(`app/components/agent-log.tsx`): **What it did** (the outcome, its summary in its own words, and the counts: time,
+turns, model and tool time, cost, tokens, files and versions, shell commands, renders, looks, pictures, phone checks);
+**Steps** (the turn being written now, live as it streams: its reasoning, its words, the tool it is calling or running;
+then each turn with what the model took, said and reasoned, and each tool call with its answer and how long it took);
+**Commands** (everything it ran, filterable: shell commands with exit codes and output, renders and looks, phone
+checks, pictures, file writes); **Files** (its workspace, each file readable, every version of every file it wrote
+under `history/`, and what changed between versions); **Conversation** (the whole conversation as sent and answered,
+from `agent-log.jsonl` in its workspace: the instructions, the chapter, every reply with its reasoning and tool calls
+in full, every tool answer, every picture shown; a build starts a new log and keeps the one before). **Phone library (zip)** packs the chapter for the
 phone (`tools/build_library.py`: the program, its clips, pictures and glyphs, and the narration as Opus), opened by the
 phone's own code first when the player is built. **Speak and build every chapter** does a lecture's chapters in order;
 a note for the agent goes with a build. Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.

@@ -13,9 +13,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { ChapterVideo, Run, VideoStep } from "@/lib/types";
+import type { ChapterVideo, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
 import { money } from "./call-inspector";
+import { AgentLog } from "./agent-log";
 import { IRPlayer } from "./player";
 
 type Act = (body: Record<string, unknown>) => Promise<boolean>;
@@ -33,44 +34,6 @@ function videoState(cv?: ChapterVideo): { label: string; tone: string } {
     return { label: stale ? "built (out of date)" : "built", tone: stale ? "text-amber-300" : TONE.done };
   }
   return { label: cv.agent.status === "stopped" ? "stopped" : `failed${cv.agent.error ? `: ${cv.agent.error.slice(0, 60)}` : ""}`, tone: TONE[cv.agent.status] };
-}
-
-function StepRow({ s, onCall }: { s: VideoStep; onCall: (id: string) => void }) {
-  const what = s.kind === "think" ? "says" : s.tool ?? s.kind;
-  const args = s.args ?? {};
-  const head = s.tool === "write_file" || s.tool === "edit_file" || s.tool === "read_file" ? String(args.path ?? "")
-    : s.tool === "shell" ? String(args.command ?? "").slice(0, 120)
-    : s.tool === "render" ? String(args.quality ?? "draft")
-    : s.tool === "look" ? (Array.isArray(args.times) ? `at ${(args.times as number[]).join(", ")} s` : "a sheet")
-    : s.tool === "make_image" ? `${args.name}: ${String(args.what ?? "").slice(0, 100)}`
-    : "";
-  return (
-    <li className="rounded border border-neutral-800 p-2" data-testid="video-step">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-neutral-500">turn {s.turn}</span>
-        <span className={`font-semibold ${s.kind === "think" ? "text-neutral-300" : s.ok === false ? "text-red-300" : s.kind === "finish" ? "text-emerald-300" : "text-sky-300"}`}>{what}</span>
-        {head && <span className="truncate text-neutral-400">{head}</span>}
-        {s.call && <button className="ml-auto text-neutral-500 underline" onClick={() => onCall(s.call!)}>call</button>}
-      </div>
-      {s.kind === "think" && s.text && <p className="mt-1 whitespace-pre-wrap text-neutral-300">{s.text}</p>}
-      {s.result && (
-        <details className="mt-1">
-          <summary className="cursor-pointer text-neutral-400">{s.result.split("\n")[0].slice(0, 160)}</summary>
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-neutral-950 p-2 text-[11px] text-neutral-300">{s.result}</pre>
-          {(s.tool === "write_file" || s.tool === "edit_file") && (
-            <pre className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-neutral-950 p-2 text-[11px] text-neutral-400">
-              {s.tool === "write_file" ? String(args.content ?? "") : `- ${String(args.old ?? "")}\n+ ${String(args.new ?? "")}`}</pre>
-          )}
-        </details>
-      )}
-      {s.images?.length ? (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {s.images.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" className="max-h-40 rounded border border-neutral-800" /></a>)}
-        </div>
-      ) : null}
-      {s.video && <a className="mt-1 inline-block text-sky-300 underline" href={s.video} target="_blank" rel="noreferrer">the render ({seconds(s.seconds)})</a>}
-    </li>
-  );
 }
 
 export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
@@ -237,7 +200,6 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
               <IRPlayer key={cv.build.ir} src={cv.build.ir} assets={cv.build.assets} audio={cv.build.audio} />
             </div>
           ) : <p className="text-neutral-400">Not built yet{cv?.agent?.status === "running" ? ": the agent is at work (its steps are below)" : ""}.</p>}
-          {cv?.agent?.summary && <p className="whitespace-pre-wrap text-neutral-300">{cv.agent.summary}</p>}
 
           {cv?.narration?.track && (
             <details open={!cv.build}>
@@ -256,17 +218,7 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
             </details>
           )}
 
-          {cv?.agent && (
-            <div>
-              <div className="mb-1 flex flex-wrap items-baseline gap-2">
-                <span className="font-semibold text-neutral-200">The agent</span>
-                <span className={TONE[cv.agent.status]}>{cv.agent.status}</span>
-                <span className="text-neutral-400">{cv.agent.model} · {cv.agent.turns} turn(s) · {money(cv.agent.cost)}{cv.agent.note ? ` · note: ${cv.agent.note}` : ""}</span>
-                {cv.agent.error && <span className="text-red-300">{cv.agent.error}</span>}
-              </div>
-              <ol className="space-y-1">{cv.agent.steps.map((s, i) => <StepRow key={i} s={s} onCall={onCall} />)}</ol>
-            </div>
-          )}
+          {cv?.agent && <AgentLog key={`${lecture}-${chapter}-${cv.agent.started}`} run={run} n={lecture} c={chapter} agent={cv.agent} built={cv.build} onCall={onCall} />}
         </section>
       )}
     </div>

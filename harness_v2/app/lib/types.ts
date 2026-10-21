@@ -625,6 +625,8 @@ export type VideoStep = {
   tool?: string;
   call?: string;
   text?: string;
+  /** The model's reasoning on the turn, as the provider gave it (on the turn's "think" step). */
+  reasoning?: string;
   args?: Record<string, unknown>;
   /** What the tool answered, as the agent read it. */
   result?: string;
@@ -633,8 +635,18 @@ export type VideoStep = {
   images?: string[];
   video?: string;
   seconds?: number;
+  /** How long the tool took (ms); a shell command's exit code; the file version a write or edit made. */
+  ms?: number;
+  exit?: number | null;
+  version?: number;
+  /** A turn's model call: its tokens, cost and how long the model took (on the turn's first step). */
+  tokens?: { input: number; output: number; reasoning?: number };
+  cost?: number;
   at: number;
 };
+
+/** A file as the agent left it after one of its writes or edits (kept under history/ in its workspace). */
+export type AgentVersion = { v: number; path: string; turn: number; file: string; lines: number; at: number };
 
 /** A chapter's narration: spoken from its transcript lines, every word aligned (engine/tools/chapter_voice.py). */
 export type ChapterNarration = {
@@ -666,6 +678,12 @@ export type ChapterAgent = {
   steps: VideoStep[];
   summary?: string;
   error?: string;
+  /** The turn the model is answering now, as it streams: its words, its reasoning, the tools it is calling. */
+  live?: { turn: number; started: number; text: string; reasoning: string; tools: string[] };
+  /** Every version of every file it wrote, in order. */
+  versions?: AgentVersion[];
+  /** The whole conversation, as sent and answered, a line a message (agent-log.jsonl in its workspace). */
+  log?: string;
 };
 
 /** The chapter's video as the phone plays it: the program, its geometry for the web player, its narration. */

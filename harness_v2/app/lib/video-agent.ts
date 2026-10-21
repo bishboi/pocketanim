@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import sharp from "sharp";
@@ -42,6 +42,8 @@ const MAX_IMAGES = Math.max(0, Number(process.env.V2_VIDEO_AGENT_IMAGES) || 12);
 const KEEP_IMAGES = 3;
 const SCENE_FILE = "scene.py";
 const SCENE_CLASS = "Chapter";
+/** The conversation's log in the workspace. */
+export const LOG_FILE = "agent-log.jsonl";
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []) =>
   ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
@@ -148,38 +150,96 @@ function safeJson(text: string): Record<string, unknown> {
   }
 }
 
-/** One turn of the model: the conversation, the tools; what it said and the tools it called. */
-async function turn(call: Call, messages: Msg[], fake: () => Fake): Promise<{ text?: string; calls: ToolCall[] } | null> {
+type Live = { text: string; reasoning: string; tools: string[] };
+type Answer = { text?: string; reasoning?: string; calls: ToolCall[] };
+
+/**
+ * One turn of the model: the conversation, the tools; what it said, its reasoning, and the tools it called. Streamed,
+ * so the page sees the turn as it is written (`onLive`, called as the words, the reasoning and the tool calls come).
+ */
+async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void): Promise<Answer | null> {
   call.provider = usingFixture(call.model) ? "fixture" : "openrouter";
-  const body = { model: call.model, messages, tools: TOOLS, tool_choice: "required", usage: { include: true },
+  const body = { model: call.model, messages, tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true },
     ...(call.effort && call.effort !== "off" ? { reasoning: { effort: call.effort } } : {}) };
-  // What is kept of the request: its size, not the whole conversation again each turn.
+  // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
   call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
   for (let attempt = 1; attempt <= 3; attempt++) {
     const began = Date.now();
     try {
-      let out: { text?: string; calls: ToolCall[] };
+      let out: Answer;
       if (call.provider === "fixture") {
         const f = fake();
+        // As a real turn streams: its words a few at a time.
+        const words = (f.text ?? "").split(/(?<=\s)/);
+        for (let i = 1; i <= words.length; i++) {
+          onLive({ text: words.slice(0, i).join(""), reasoning: "", tools: [] });
+          await new Promise((r) => setTimeout(r, 60));
+        }
         out = { text: f.text, calls: f.calls.map((c, i) => ({ id: `fake_${Date.now()}_${i}`, function: { name: c.name, arguments: JSON.stringify(c.args) } })) };
+        onLive({ text: f.text ?? "", reasoning: "", tools: f.calls.map((c) => c.name) });
         call.usage = { input: Math.round(JSON.stringify(messages).length / 4), output: Math.round(JSON.stringify(f).length / 4) };
       } else {
         const response = await fetch(URL_, { method: "POST", signal: AbortSignal.timeout(TIMEOUT_MS),
           headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "pocketanim harness v2" },
           body: JSON.stringify(body) });
-        const raw = await response.text();
-        if (!response.ok) throw new Error(`${response.status} ${raw.slice(0, 300)}`);
-        const json = JSON.parse(raw) as { choices?: { message?: { content?: string | null; tool_calls?: ToolCall[] } }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
-        if (json.error) throw new Error(json.error.message ?? "provider error");
-        call.usage = { input: json.usage?.prompt_tokens ?? 0, output: json.usage?.completion_tokens ?? 0 };
-        call.cost += Number(json.usage?.cost ?? 0);
-        const m = json.choices?.[0]?.message;
-        out = { text: m?.content ?? undefined, calls: (m?.tool_calls ?? []).filter((c) => c?.function?.name) };
+        if (!response.ok || !response.body) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`);
+        let text = "";
+        let reasoning = "";
+        const tools: { id: string; name: string; args: string }[] = [];
+        let usage: { prompt_tokens?: number; completion_tokens?: number; cost?: number; completion_tokens_details?: { reasoning_tokens?: number } } | undefined;
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let shown = 0;
+        const reader = response.body.getReader();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let cut: number;
+          while ((cut = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, cut).trim();
+            buffer = buffer.slice(cut + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") continue;
+            let chunk: { error?: { message?: string }; usage?: typeof usage; choices?: { delta?: { content?: string | null; reasoning?: string | null;
+              tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[] };
+            try {
+              chunk = JSON.parse(data);
+            } catch {
+              continue;
+            }
+            if (chunk.error) throw new Error(chunk.error.message ?? "provider error");
+            if (chunk.usage) usage = chunk.usage;
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
+            if (delta.content) text += delta.content;
+            if (delta.reasoning) reasoning += delta.reasoning;
+            for (const t of delta.tool_calls ?? []) {
+              const k = t.index ?? tools.length;
+              tools[k] ??= { id: t.id ?? `call_${k}`, name: "", args: "" };
+              if (t.id) tools[k].id = t.id;
+              if (t.function?.name) tools[k].name += t.function.name;
+              if (t.function?.arguments) tools[k].args += t.function.arguments;
+            }
+            // The page is told every few hundred characters, not every token.
+            const size = text.length + reasoning.length + tools.reduce((n, t) => n + t.args.length, 0);
+            if (size - shown > 300) {
+              shown = size;
+              onLive({ text, reasoning, tools: tools.filter(Boolean).map((t) => t.name) });
+            }
+          }
+        }
+        onLive({ text, reasoning, tools: tools.filter(Boolean).map((t) => t.name) });
+        call.usage = { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0,
+          ...(usage?.completion_tokens_details?.reasoning_tokens ? { reasoning: usage.completion_tokens_details.reasoning_tokens } : {}) };
+        call.cost += Number(usage?.cost ?? 0);
+        out = { text: text || undefined, reasoning: reasoning || undefined,
+          calls: tools.filter((t) => t?.name).map((t) => ({ id: t.id, function: { name: t.name, arguments: t.args } })) };
       }
       call.attempts.push({ started: began, ended: Date.now() });
       call.text = out.text;
-      call.output = { said: out.text, tools: out.calls.map((c) => ({ name: c.function.name, args: brief(safeJson(c.function.arguments)) })) };
+      call.output = { said: out.text, reasoning: out.reasoning?.slice(0, 20000), tools: out.calls.map((c) => ({ name: c.function.name, args: brief(safeJson(c.function.arguments)) })) };
       call.status = "done";
       call.ended = Date.now();
       return out;
@@ -277,7 +337,9 @@ function scriptedAgent(t: Timing): () => Fake {
   const plan = ["# Plan", "", ...t.lines.map((l) => `- [${l.n}] ${l.start.toFixed(1)}-${l.end.toFixed(1)}: the line's first words, underlined in red`)].join("\n");
   const steps: Fake[] = [
     { text: "Planning the chapter.", calls: [{ name: "write_file", args: { path: "plan.md", content: plan } }] },
+    { text: "Which fonts are there?", calls: [{ name: "shell", args: { command: "fc-list : family | sort -u | head -20" } }] },
     { text: "Writing the scene.", calls: [{ name: "write_file", args: { path: "scene.py", content: scene } }] },
+    { text: "Larger words.", calls: [{ name: "edit_file", args: { path: "scene.py", old: "font_size=44", new: "font_size=48" } }] },
     { text: "Rendering a draft.", calls: [{ name: "render", args: { quality: "draft" } }] },
     { text: "Looking at it.", calls: [{ name: "look", args: {} }] },
     { text: "Checking the phone.", calls: [{ name: "phone_check", args: { samples: 6 } }] },
@@ -299,10 +361,28 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   const styleFile = path.join(ws, "style" + path.extname(settings.style));
   await copyFile(settings.style, styleFile);
   const agent: ChapterAgent = { status: "running", model: settings.model, imageModel: settings.imageModel, note: o.note, started: Date.now(),
-    turns: 0, cost: 0, steps: [] };
+    turns: 0, cost: 0, steps: [], versions: [], log: LOG_FILE };
   cv.agent = agent;
   saveRun(run, true);
   const step = (s: Omit<VideoStep, "at">) => { agent.steps.push({ ...s, at: Date.now() }); saveRun(run); };
+  // The whole conversation, as sent and answered, a line a message: what the Conversation view reads. A build
+  // starts a new log (the one before is kept beside it).
+  const logFile = path.join(ws, LOG_FILE);
+  if (existsSync(logFile)) await copyFile(logFile, path.join(ws, `agent-log-${(await stat(logFile)).mtimeMs.toFixed(0)}.jsonl`));
+  await writeFile(logFile, "", "utf8");
+  const log = (entry: Record<string, unknown>) => appendFile(logFile, JSON.stringify({ t: Date.now(), ...entry }) + "\n", "utf8").catch(() => {});
+  let currentTurn = 0;
+  // Every version of every file it writes, under history/: the Files view shows each and what changed.
+  await mkdir(path.join(ws, "history"), { recursive: true });
+  const keepVersion = async (file: string): Promise<number> => {
+    const rel = path.relative(ws, file);
+    const v = agent.versions!.length + 1;
+    const kept = path.join("history", `v${String(v).padStart(3, "0")}-${rel.replace(/[\\/]/g, "__")}`);
+    await copyFile(file, path.join(ws, kept));
+    const lines = (await readFile(file, "utf8").catch(() => "")).split("\n").length;
+    agent.versions!.push({ v, path: rel, turn: currentTurn, file: kept, lines, at: Date.now() });
+    return v;
+  };
 
   const custom = path.resolve(settings.style) !== path.resolve(path.join(engineDir(), "agent", "style-vox.jpg"));
   const system = roleText({ note: settings.styleNote, custom }, settings.turns);
@@ -320,6 +400,9 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     { role: "system", content: system },
     { role: "user", content: [{ type: "text", text: ask }, ...(styleData ? [{ type: "image_url", image_url: { url: styleData } }] : [])] },
   ];
+  await log({ kind: "build", model: settings.model, imageModel: settings.imageModel, note: o.note ?? null, turns: settings.turns });
+  await log({ kind: "system", text: system });
+  await log({ kind: "user", text: ask, images: styleData ? [path.basename(styleFile)] : [] });
   const fake = scriptedAgent(timing);
   let lastRender: { video?: string; hash?: string; seconds?: number } = {};
   let lastCheck: { ok: boolean; hash?: string; result?: Record<string, unknown> } = { ok: false };
@@ -330,6 +413,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   const show = async (label: string, files: string[]) => {
     const data = (await Promise.all(files.map((f) => imageData(f)))).filter((d): d is string => !!d);
     if (!data.length) return;
+    void log({ kind: "images", turn: currentTurn, label, files: files.map((f) => path.relative(ws, f)) });
     messages.push({ role: "user", content: [{ type: "text", text: label }, ...data.map((url) => ({ type: "image_url", image_url: { url } }))] });
     const withImages = messages.map((m, i) => ({ m, i })).filter(({ m, i }) => i > 1 && Array.isArray(m.content)
       && (m.content as { type: string }[]).some((x) => x.type === "image_url"));
@@ -339,13 +423,15 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     }
   };
 
-  const run1 = async (name: string, args: Record<string, unknown>): Promise<{ text: string; ok: boolean; images?: string[]; video?: string; seconds?: number; done?: boolean }> => {
+  const run1 = async (name: string, args: Record<string, unknown>): Promise<{ text: string; ok: boolean; images?: string[]; video?: string; seconds?: number;
+    done?: boolean; exit?: number | null; version?: number }> => {
     switch (name) {
       case "write_file": {
         const file = inside(ws, args.path);
         await mkdir(path.dirname(file), { recursive: true });
         await writeFile(file, String(args.content ?? ""), "utf8");
-        return { ok: true, text: `wrote ${path.relative(ws, file)} (${String(args.content ?? "").split("\n").length} lines)` };
+        const version = await keepVersion(file);
+        return { ok: true, version, text: `wrote ${path.relative(ws, file)} (${String(args.content ?? "").split("\n").length} lines)` };
       }
       case "edit_file": {
         const file = inside(ws, args.path);
@@ -355,7 +441,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         if (!count) return { ok: false, text: `${args.path}: the old text is not in the file (read it again)` };
         if (count > 1 && !args.all) return { ok: false, text: `${args.path}: the old text occurs ${count} times; give more of it, or set all` };
         await writeFile(file, args.all ? text.split(old).join(String(args.new ?? "")) : text.replace(old, () => String(args.new ?? "")), "utf8");
-        return { ok: true, text: `edited ${args.path} (${args.all ? count : 1} place${count > 1 && args.all ? "s" : ""})` };
+        const version = await keepVersion(file);
+        return { ok: true, version, text: `edited ${args.path} (${args.all ? count : 1} place${count > 1 && args.all ? "s" : ""})` };
       }
       case "read_file": {
         const file = inside(ws, args.path);
@@ -370,7 +457,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         for (const e of await readdir(dir, { withFileTypes: true, recursive: true })) {
           const full = path.join(e.parentPath ?? dir, e.name);
           const rel = path.relative(ws, full);
-          if (!e.isFile() || /^(renders|export|media|__pycache__)\b/.test(rel) || rel.includes("__pycache__")) continue;
+          if (!e.isFile() || /^(renders|export|media|history|library|__pycache__)\b/.test(rel) || rel.includes("__pycache__") || /^agent-log/.test(rel)) continue;
           rows.push(`${rel}  ${(await stat(full)).size} B`);
         }
         return { ok: true, text: rows.sort().join("\n") || "(empty)" };
@@ -378,7 +465,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       case "shell": {
         if (!SHELL) return { ok: false, text: "the shell is off here" };
         const r = await sh(String(args.command ?? ""), ws, Math.min(600, Math.max(5, Number(args.timeout) || 120)) * 1000);
-        return { ok: r.code === 0, text: `exit ${r.code}\n${r.out.slice(-6000)}` };
+        return { ok: r.code === 0, exit: r.code, text: `exit ${r.code}\n${r.out.slice(-6000)}` };
       }
       case "render": {
         if (!existsSync(path.join(ws, SCENE_FILE))) return { ok: false, text: `write ${SCENE_FILE} first` };
@@ -481,20 +568,33 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         break;
       }
       agent.turns = k;
+      currentTurn = k;
       const call = newCall(run, { step: "video-agent", label: `Video agent, turn ${k} (lecture ${n}, chapter ${c})`, lecture: n, model: settings.model,
         prompt: firstPrompt
           ? { system: [part("role", "The video agent's instructions", "rules", system)], user: [part("chapter", "The chapter and its narration", "ask", ask)] }
           : { system: [], user: [part("turn", "The turn", "context", `turn ${k}: the conversation so far (${messages.length} messages)`)] } });
       firstPrompt = false;
-      const answer = await turn(call, messages, fake);
+      const asked = Date.now();
+      agent.live = { turn: k, started: asked, text: "", reasoning: "", tools: [] };
+      saveRun(run);
+      const answer = await turn(call, messages, fake, (live) => {
+        agent.live = { turn: k, started: asked, text: live.text.slice(-6000), reasoning: live.reasoning.slice(-6000), tools: live.tools };
+        saveRun(run);
+      });
+      agent.live = undefined;
       agent.cost += call.cost;
       if (!answer) {
-        step({ turn: k, kind: "error", call: call.id, text: call.error ?? "the model did not answer" });
+        step({ turn: k, kind: "error", call: call.id, text: call.error ?? "the model did not answer", ms: Date.now() - asked });
+        await log({ kind: "error", turn: k, text: call.error ?? "the model did not answer" });
         agent.status = "failed";
         agent.error = call.error ?? "the model did not answer";
         break;
       }
-      if (answer.text?.trim()) step({ turn: k, kind: "think", call: call.id, text: answer.text.trim().slice(0, 4000) });
+      await log({ kind: "assistant", turn: k, text: answer.text ?? "", reasoning: answer.reasoning ?? "", ms: Date.now() - asked,
+        usage: call.usage, cost: call.cost, tools: answer.calls.map((t) => ({ id: t.id, name: t.function.name, args: safeJson(t.function.arguments) })) });
+      // The turn itself: what it said and thought, what the model call took.
+      step({ turn: k, kind: "think", call: call.id, text: answer.text?.trim().slice(0, 4000), reasoning: answer.reasoning?.trim().slice(0, 8000),
+        ms: Date.now() - asked, cost: call.cost, tokens: call.usage ? { input: call.usage.input, output: call.usage.output, reasoning: call.usage.reasoning } : undefined });
       messages.push({ role: "assistant", content: answer.text ?? "", tool_calls: answer.calls.map((t) => ({ id: t.id, type: "function", function: t.function })) });
       if (!answer.calls.length) {
         messages.push({ role: "user", content: "Use a tool: carry on building, or finish once phone_check has passed." });
@@ -507,14 +607,21 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       for (const t of answer.calls) {
         const args = safeJson(t.function.arguments);
         let r: Awaited<ReturnType<typeof run1>>;
+        const began = Date.now();
+        agent.live = { turn: k, started: began, text: "", reasoning: "", tools: [`running ${t.function.name}`] };
+        saveRun(run);
         try {
           r = await run1(t.function.name, args);
         } catch (error) {
           r = { ok: false, text: (error as Error).message.slice(0, 1500) };
         }
+        agent.live = undefined;
+        const ms = Date.now() - began;
         pending.push({ role: "tool", tool_call_id: t.id, content: r.text });
+        await log({ kind: "tool", turn: k, id: t.id, name: t.function.name, ok: r.ok, ms, result: r.text, ...(r.exit !== undefined ? { exit: r.exit } : {}),
+          ...(r.version ? { version: r.version } : {}) });
         step({ turn: k, kind: r.done ? "finish" : "tool", tool: t.function.name, call: call.id, args: brief(args), result: r.text.slice(0, 6000), ok: r.ok,
-          images: r.images, video: r.video, seconds: r.seconds });
+          images: r.images, video: r.video, seconds: r.seconds, ms, exit: r.exit, version: r.version });
         if (r.done) finished = true;
       }
       // The pictures `show` added while the tools ran belong after the tool results.
@@ -533,7 +640,9 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     agent.status = "failed";
     agent.error = (error as Error).message.slice(0, 1200);
   } finally {
+    agent.live = undefined;
     agent.ended = Date.now();
+    await log({ kind: "end", status: agent.status, error: agent.error ?? null, summary: agent.summary ?? null, turns: agent.turns, cost: agent.cost });
     saveRun(run, true);
   }
 }

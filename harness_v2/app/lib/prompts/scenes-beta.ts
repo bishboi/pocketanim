@@ -374,8 +374,7 @@ relief — mountains shaded.                  {"op":"relief","names"?:["Himalaya
 graticule — a line of latitude.             {"op":"graticule","lat":23.44,"label"?:"Tropic of Cancer"}
 dim — the map steps back under what is put over it.   {"op":"dim"}
 icon — a small made picture of a thing at places on the map (crops, industries).
-  {"op":"icon","name":"wheat","places":["Punjab","Haryana"],"label"?:"Wheat","color"?,"size"?:0.6,"on"?}
-unstage — takes the picture off the stage, back to the map or an empty board.   {"op":"unstage"}`;
+  {"op":"icon","name":"wheat","places":["Punjab","Haryana"],"label"?:"Wheat","color"?,"size"?:0.6,"on"?}`;
 
 function manimPart(agent: boolean): string {
   return [

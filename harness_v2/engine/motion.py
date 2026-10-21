@@ -914,7 +914,13 @@ class MotionLecture(MoreTemplates, MapLecture):
     def m_stamp(self, text: str, color: str | None = None, angle: float = -10, at: str = "center"):
         """A rubber stamp slammed onto what is up ("CLEARED", "DEFAULT"), with a thud; alone, on the board."""
         mark = K.stamp(str(text), pl.role(color) if color else None, angle=angle, size=60)
+        mark._m_stamp = True
         body = self.stage_body
+        if body is not None and getattr(body, "_m_stamp", False):
+            body = None                     # a stamp alone on the board: the new one replaces it, never lands on it
+        here = {id(x) for m in self.mobjects for x in m.get_family()}
+        old = [m for m in self.__dict__.get("_m_stamps", []) if any(id(x) in here for x in m.get_family())]
+        self._m_stamps = [mark]
         if body is not None:
             fit(mark, max(2.0, body.width * 0.7))
             spot = {"center": body.get_center(), "top": body.get_top() + DOWN * mark.height * 0.7,
@@ -923,8 +929,12 @@ class MotionLecture(MoreTemplates, MapLecture):
             mark.move_to(spot)
             mark.set_z_index(Z_TEMPLATE + 5)
             self._stage_add(mark)
-            return K.chain([K.slam(mark), K.shake(body, run=K.t("fast"))]) if not isinstance(body, Group) or \
+            landed = K.chain([K.slam(mark), K.shake(body, run=K.t("fast"))]) if not isinstance(body, Group) or \
                 isinstance(body, VGroup) else K.slam(mark)
+            if old:
+                # An earlier stamp still on the picture is lifted off as the new one lands: never two on top of each other.
+                landed = K.together([K.together([K.leave(m, "fade") for m in old]), landed])
+            return landed
         self._fit(mark, self._box(), grow=1.0, margin=3)
         return self._show(self._next_id("stamp"), mark, K.slam(mark), idle=False)
 

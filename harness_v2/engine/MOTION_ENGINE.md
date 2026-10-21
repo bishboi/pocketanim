@@ -189,7 +189,8 @@ a part.
 ```json
 {"op": "stamp", "text": "Cleared", "on": "cleared", "color": "ROSE", "angle": -10, "at": "center"}
 ```
-A rubber stamp (double-ruled box, capitals, turned by `angle` degrees, default -10) lands from large with a thud, onto the picture on the stage
+A rubber stamp (double-ruled box, capitals, turned by `angle` degrees, default -10) lands from large with a thud (an
+earlier stamp still up is lifted off as it lands, and a stamp alone on the board is replaced, never stamped over), onto the picture on the stage
 (`at`: center, top, bottom, left, right) and the picture shakes; with nothing up, on the board. Put over what is up:
 it plays after the beat's pictures.
 

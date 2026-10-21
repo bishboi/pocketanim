@@ -857,6 +857,14 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
     region_notes = _fix_region(script)
     warnings += region_notes
     warnings += _use_places(script)
+    if not script.get("region") and any(isinstance(op, dict) and op.get("op") in MAP_OPS
+                                        for chapter in script.get("chapters") or [] for beat in chapter.get("beats") or []
+                                        if isinstance(beat, dict) for op in beat.get("do") or []):
+        # Beats point at the map but no region was given (the scene writer left it out): the world map, each beat's
+        # map zoomed to the places it names, rather than every map operation left out.
+        script["region"] = {"area": "World"}
+        warnings.append("fixed: the beats use the map but the script has no region: the world map, zoomed to each "
+                        "beat's places")
     has_map = bool(script.get("region"))
     # What needs no new words is mended here (and said in the warnings, "fixed: ..."); the rest are errors.
     warnings += mechanical_fixes(script, has_map)

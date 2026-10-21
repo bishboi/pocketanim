@@ -66,8 +66,12 @@ def render(workspace: Path, file: str, scene: str, quality: str) -> dict:
     size = "1280,720" if quality == "final" else "854,480"
     media = workspace / "renders" / quality
     shutil.rmtree(media, ignore_errors=True)
+    audit = workspace / "audit.json"
+    audit.unlink(missing_ok=True)
+    # Manim run with the audit installed first (agent/audit.py): what the render measures about itself.
+    runner = "import sys, audit; audit.install(); from manim.__main__ import main; sys.argv = ['manim'] + sys.argv[1:]; main()"
     proc = subprocess.run(
-        [PY, "-m", "manim", "render", file, scene, "--fps", str(FPS), "-r", size, "--disable_caching",
+        [PY, "-c", runner, "render", file, scene, "--fps", str(FPS), "-r", size, "--disable_caching",
          "--media_dir", str(media), "--progress_bar", "none", "-v", "WARNING"],
         cwd=workspace, env=_env(workspace), capture_output=True, text=True, timeout=int(os.environ.get("PANIM_AGENT_RENDER_SECONDS", "1500")))
     videos = [p for p in media.rglob("*.mp4") if "partial_movie_files" not in p.parts]
@@ -75,7 +79,8 @@ def render(workspace: Path, file: str, scene: str, quality: str) -> dict:
         return {"ok": False, "error": _tail(proc.stderr + proc.stdout) or "the render made no video"}
     video = workspace / "renders" / f"{quality}.mp4"
     shutil.copyfile(videos[0], video)
-    return {"ok": True, "video": str(video), "seconds": _seconds(video),
+    measured = json.loads(audit.read_text()) if audit.is_file() else None
+    return {"ok": True, "video": str(video), "seconds": _seconds(video), "audit": measured,
             "warnings": _tail(proc.stderr, 6) if proc.stderr.strip() else ""}
 
 

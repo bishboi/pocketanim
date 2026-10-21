@@ -63,9 +63,11 @@ export function chapterLines(run: Run, n: number, c: number): string[] {
 }
 
 /** The settings the agent runs with, filled from the run's options and the environment. */
-export function settingsOf(run: Run): Required<Pick<VideoSettings, "model" | "imageModel" | "turns" | "style">> & VideoSettings {
+export function settingsOf(run: Run): Required<Pick<VideoSettings, "model" | "imageModel" | "turns" | "style" | "effort">> & VideoSettings {
   const s = videoOf(run).settings;
-  return { ...s, model: s.model || run.options.videoModel || modelFor("video"), imageModel: s.imageModel || run.options.imageModel || modelFor("image"),
+  // Its own reasoning, not the run's (a run is often started with effort off, for the transcript's sake).
+  const effort = s.effort || (process.env.V2_VIDEO_AGENT_EFFORT as VideoSettings["effort"]) || "high";
+  return { ...s, effort, model: s.model || run.options.videoModel || modelFor("video"), imageModel: s.imageModel || run.options.imageModel || modelFor("image"),
     turns: s.turns || Math.max(4, Number(process.env.V2_VIDEO_AGENT_TURNS) || 60), style: s.style && existsSync(s.style) ? s.style : DEFAULT_STYLE() };
 }
 
@@ -126,7 +128,7 @@ export async function timingOf(runId: string, n: number, c: number): Promise<Tim
 }
 
 export type VideoAction =
-  | { action: "settings"; model?: string; imageModel?: string; turns?: number; styleNote?: string; style?: string | null }
+  | { action: "settings"; model?: string; imageModel?: string; turns?: number; effort?: VideoSettings["effort"]; styleNote?: string; style?: string | null }
   | { action: "narrate"; lecture: number; chapter: number }
   | { action: "build"; lecture: number; chapter: number; note?: string }
   | { action: "all"; lecture: number; note?: string }
@@ -162,6 +164,7 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
     if (a.imageModel !== undefined) vs.settings.imageModel = a.imageModel.trim() || undefined;
     if (a.turns !== undefined) vs.settings.turns = Math.max(4, Math.min(300, Math.round(a.turns))) || undefined;
     if (a.styleNote !== undefined) vs.settings.styleNote = a.styleNote.trim() || undefined;
+    if (a.effort) vs.settings.effort = a.effort;
     if (a.style === null) vs.settings.style = undefined;
     else if (a.style) vs.settings.style = await saveStyle(id, a.style);
     saveRun(run, true);

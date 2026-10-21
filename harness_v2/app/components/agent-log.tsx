@@ -408,7 +408,7 @@ export function AgentLog({ run, n, c, agent, built, onCall }: { run: Run; n: num
     <div className="space-y-2" data-testid="agent-log">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold text-neutral-200">The agent</span>
-        <span className="text-neutral-400">{agent.model} · {agent.turns} turn(s) · {money(agent.cost)}{agent.note ? ` · note: ${agent.note}` : ""}</span>
+        <span className="text-neutral-400">{agent.model}{agent.effort ? ` · reasoning ${agent.effort}` : ""} · {agent.turns} turn(s) · {money(agent.cost)}{agent.note ? ` · note: ${agent.note}` : ""}</span>
         <span className="ml-auto flex gap-1">
           {VIEWS.map((v) => (
             <button key={v} data-testid={`agent-view-${v}`} className={`${btn} ${view === v ? "border-sky-600 text-sky-200" : "border-neutral-700 text-neutral-400"}`} onClick={() => setView(v)}>{v}</button>

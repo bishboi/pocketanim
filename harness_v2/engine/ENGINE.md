@@ -108,3 +108,9 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   `tools/agent_tools.py` renders the agent's scene at 30 fps (`render`), cuts frames and sheets from it (`frames`,
   `sheet`) and exports it as the phone plays it, with the web player's geometry and the phone's frames compared with
   the render's (`phone`).
+- `agent/audit.py`: what a render of the video agent's scene measures about itself (still and empty stretches, words
+  off the frame or on words, the animations used and the share of fades), written as `audit.json`;
+  `agent/vox_example.py`: a chapter built in free Manim (`review/agent-trial/japan_ch4.py`), given to the agent to read.
+- Faithful export: a picture (ImageMobject) sits just under the shapes at its own z (`z - 0.0005`): the players drew
+  it over every shape at its z, so a paper backdrop with no z covered the whole stage on the phone, and a label written
+  on a picture was hidden under it.

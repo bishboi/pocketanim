@@ -613,6 +613,8 @@ export type VideoSettings = {
   imageModel?: string;
   /** Most turns a chapter's agent may take. */
   turns?: number;
+  /** How hard the agent's model reasons each turn (high by default: it plans and writes a whole chapter's motion). */
+  effort?: "low" | "medium" | "high" | "off";
   /** The look to build in: a screenshot of how the visuals look (a file), and words about it. */
   style?: string;
   styleNote?: string;
@@ -669,6 +671,7 @@ export type ChapterNarration = {
 export type ChapterAgent = {
   status: "running" | "done" | "failed" | "stopped";
   model: string;
+  effort?: string;
   imageModel: string;
   note?: string;
   started: number;

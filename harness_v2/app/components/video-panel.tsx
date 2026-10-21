@@ -116,6 +116,13 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
                 onChange={(e) => setImageModel(e.target.value)} onBlur={() => imageModel !== (vset.imageModel ?? "") && void act({ action: "settings", imageModel })} />
             </label>
             <label className="flex flex-col gap-1">
+              <span className="text-neutral-400">Agent reasoning</span>
+              <select data-testid="video-effort" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={vset.effort ?? "high"}
+                onChange={(e) => void act({ action: "settings", effort: e.target.value })}>
+                {["high", "medium", "low", "off"].map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
               <span className="text-neutral-400">Turns at most</span>
               <input className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={turns} placeholder="60"
                 onChange={(e) => setTurns(e.target.value)} onBlur={() => turns !== String(vset.turns ?? "") && void act({ action: "settings", turns: Number(turns) || 0 })} />

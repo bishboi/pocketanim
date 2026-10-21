@@ -1830,6 +1830,11 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     images[id(mob)] = entry
                 ul, ur, dl = (np.asarray(mob.points[i][:2], dtype=float) for i in range(3))
                 entry["z"] = float(getattr(mob, "z_index", 0) or 0)
+                if os.environ.get("PANIM_FAITHFUL") == "1":
+                    # The players draw a picture after every shape at its z; Manim draws it in the stage's order, and
+                    # what is drawn at its z after it is most often what goes on it (its labels, the scene over its
+                    # backdrop). Just under its z, it is under those, as in the video.
+                    entry["z"] -= 0.0005
                 corners = [round(float(v), 4) for v in (*ul, *ur, *dl)]
                 move = timing.get(id(mob))
                 if entry["keys"] and entry["keys"][-1][1] > 0 and before is not None and not samples \

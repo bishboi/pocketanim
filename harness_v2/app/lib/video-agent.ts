@@ -38,6 +38,8 @@ const URL_ = process.env.OPENROUTER_URL || "https://openrouter.ai/api/v1/chat/co
 const TIMEOUT_MS = 600_000;
 const SHELL = (process.env.V2_VIDEO_AGENT_SHELL ?? "on").toLowerCase() !== "off";
 const MAX_IMAGES = Math.max(0, Number(process.env.V2_VIDEO_AGENT_IMAGES) || 12);
+/** Room for a whole scene in one reply: without it a provider's default cut a long file off mid-write. */
+const MAX_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_MAX_TOKENS) || 32000);
 /** Pictures kept in the conversation: older ones are replaced by a note, so a long build stays affordable. */
 const KEEP_IMAGES = 3;
 const SCENE_FILE = "scene.py";
@@ -112,6 +114,33 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "  points (simplify map outlines).",
     "- phone_check must pass before you finish: it exports the scene and compares the phone's frames with the render's.",
     "",
+    "HOW IT SHOULD MOVE (this is what separates a good explainer from a slideshow)",
+    "- A chapter is a few STAGES that evolve, not a stack of slides. Build a stage (a map, a diagram, a timeline, a",
+    "  scene) and keep it while the story stays there: each new line CHANGES it (a region fills, the view zooms to a",
+    "  place, a path is traced, a part is pulled out and enlarged, a number counts up, a label slides to the thing it",
+    "  names, two things are compared side by side). Clear the stage only when the story moves on, with a transition",
+    "  that carries the eye (zoom out, slide, wipe, morph one shape into the next).",
+    "- Every new thing arrives with a motion that says what it is: lines and outlines are DRAWN (Create,",
+    "  DrawBorderThenFill), bars and arrows GROW (GrowFromEdge, GrowArrow), numbers COUNT (ValueTracker or",
+    "  DecimalNumber), text is written or slides in, a picture scales up from its place, a highlight SWEEPS across.",
+    "  Things that exist MOVE and CHANGE: .animate.shift/scale/set_fill/rotate, Transform and ReplacementTransform,",
+    "  TransformMatchingShapes, MoveAlongPath, Indicate/Circumscribe/Flash on the word. Zoom and pan (a MovingCameraScene",
+    "  mixed in, or scaling the stage). FadeIn and FadeOut are for small things; if most of your animations are fades",
+    "  the chapter is a slideshow (the audit counts them: at most 60%).",
+    "- Layer and stagger: LaggedStart for groups (islands one by one, bars in sequence), a little anticipation and",
+    "  ease (rate_func=smooth, there_and_back, ease_out_back for pops), run_time 0.4-1.2 s for most moves. Motion lands on",
+    "  the word that names it; between words, something may keep drifting slowly (a slow push on a map) but",
+    "  never an empty or frozen screen for long (the audit flags more than 8 s with nothing moving).",
+    "- Composition: one focal point per moment, big readable type (headline 44-72, labels 24-32), generous margins,",
+    "  the frame filled with purpose (a map fills the frame, not a stamp in a corner). Labels attach to what they name",
+    "  (a leader line or placed beside it), never float. Use the screenshot's palette consistently; accent colour for",
+    "  the one thing the voice is about.",
+    "- Pictures: make them (make_image) when a real thing is named (a food, a building, a person, a tool) and put them",
+    "  in motion: scale in, slide, sit on the map where they belong, get labelled.",
+    "- reference/vox_example.py in your workspace is a chapter built this way (maps drawn and zoomed, islands drawn in",
+    "  turn, cut-paper labels with leader lines, highlighter headlines, rings, a count, a strip comparison). Read it",
+    "  for the craft and the level of detail, not to copy its layout; its fonts may not be installed here.",
+    "",
     "HOW TO WORK (as a careful engineer works)",
     "1. Read the narration. Write plan.md: the chapter's moments, each with its lines and times, what is on screen and",
     "   which words drive what. One clear idea on screen at a time; something meaningful changes every few seconds.",
@@ -121,8 +150,12 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "3. The frame is x -7.1..7.1, y -4..4 (16:9). Keep everything inside with a margin; text at least font_size 24.",
     "   Fonts: use what is installed (shell: fc-list); the narration may be in Hindi or Hinglish: Devanagari needs a font",
     "   that has it (Noto Sans Devanagari, Hind). Subtitles are your choice.",
-    "4. When it is right, render final, run phone_check, and finish. If the phone differs, find why (an unsupported",
-    "   feature, a camera move) and change the scene.",
+    "4. Every render is audited (it says what it found): stretches with nothing moving, empty screens, words outside",
+    "   the frame or on top of each other, and how many animations are fades. Fix what it lists; finish is refused",
+    "   until it lists nothing and phone_check has passed on the scene as it is.",
+    "5. Iterate: a first draft is never the video. After it, go moment by moment through the narration, look at the",
+    "   frames of each, and make each richer and clearer. Use your turns; finishing early with a plain video is a failure.",
+    "6. When it is right, render final, run phone_check, and finish. If the phone differs, find why and change the scene.",
     `You have at most ${turns} turns: plan, then build steadily; do not stop at a first draft that you have not looked at.`,
     "Every tool call is a turn. Say briefly what you are doing and why as you go.",
   ].join("\n");
@@ -159,7 +192,7 @@ type Answer = { text?: string; reasoning?: string; calls: ToolCall[] };
  */
 async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void): Promise<Answer | null> {
   call.provider = usingFixture(call.model) ? "fixture" : "openrouter";
-  const body = { model: call.model, messages, tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true },
+  const body = { model: call.model, messages, tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
     ...(call.effort && call.effort !== "off" ? { reasoning: { effort: call.effort } } : {}) };
   // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
   call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
@@ -254,6 +287,34 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
   return null;
 }
 
+/** What a render measured about itself (engine/agent/audit.py). */
+type Audit = { plays: number; seconds: number; kinds: Record<string, number>; fade_share: number; dead: number[][]; empty: number[][];
+  off_frame: [number, string][]; overlaps: [number, string, string][] };
+
+/** Most of the animations may be fades, no more: past this the chapter plays as a slideshow. */
+const FADE_SHARE = Math.min(1, Math.max(0, Number(process.env.V2_VIDEO_AGENT_FADE_SHARE) || 0.6));
+
+/** The audit's faults, in words: what stops the chapter from finishing. */
+function auditFaults(a: Audit | undefined): string[] {
+  if (!a) return [];
+  const span = (r: number[]) => `${r[0]}-${r[1]} s`;
+  return [
+    ...(a.dead.length ? [`nothing moves for more than 8 s at ${a.dead.map(span).join(", ")}: something should change on screen as the voice goes on`] : []),
+    ...(a.empty.length ? [`the screen is empty at ${a.empty.map(span).join(", ")}`] : []),
+    ...(a.off_frame.length ? [`words outside the frame: ${a.off_frame.slice(0, 8).map(([t, s]) => `"${s}" at ${t} s`).join("; ")}`] : []),
+    ...(a.overlaps.length ? [`words on top of words: ${a.overlaps.slice(0, 8).map(([t, x, y]) => `"${x}" and "${y}" at ${t} s`).join("; ")}`] : []),
+    ...(a.fade_share > FADE_SHARE ? [`${Math.round(a.fade_share * 100)}% of the animations are FadeIn/FadeOut (at most ${Math.round(FADE_SHARE * 100)}%): it plays as a slideshow. Draw things in, grow them, move, morph and transform what is already there, zoom and pan, highlight, count, trace paths`] : []),
+  ];
+}
+
+function auditText(a: Audit | undefined): string {
+  if (!a) return "";
+  const kinds = Object.entries(a.kinds).slice(0, 12).map(([k, v]) => `${k} ${v}`).join(", ");
+  const faults = auditFaults(a);
+  return `\naudit: ${a.plays} animated plays; animations: ${kinds || "none"}; fades ${Math.round(a.fade_share * 100)}%` +
+    (faults.length ? `\nTO FIX before you can finish:\n- ${faults.join("\n- ")}` : "\nthe audit finds nothing to fix");
+}
+
 /** Arguments as kept on a step: a long text (a whole file) cut, its length said. */
 function brief(args: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" && v.length > 4000 ? `${v.slice(0, 4000)}\n… (${v.length} characters)` : v]));
@@ -328,9 +389,9 @@ function scriptedAgent(t: Timing): () => Fake {
     "                head.scale_to_fit_width(12)",
     "            bar = Rectangle(width=head.width + 0.4, height=0.18, fill_color=RED, fill_opacity=1, stroke_width=0)",
     "            bar.next_to(head, DOWN, buff=0.15)",
-    "            self.play(FadeIn(head, shift=UP * 0.2), GrowFromEdge(bar, LEFT), run_time=0.5)",
+    "            self.play(Write(head), GrowFromEdge(bar, LEFT), run_time=0.5)",
     "            self.wait_until(line[\"end\"], lead=0.3)",
-    "            self.play(FadeOut(head), FadeOut(bar), run_time=0.3)",
+    "            self.play(Unwrite(head), ShrinkToCenter(bar), run_time=0.3)",
     "        self.wait_until_end()",
     "",
   ].join("\n");
@@ -358,9 +419,11 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   const timing = await timingOf(run.id, n, c);
   if (!timing) throw new Error(`chapter ${c} has no narration: speak it first`);
   await copyFile(path.join(engineDir(), "agent", "narrated.py"), path.join(ws, "narrated.py"));
+  await mkdir(path.join(ws, "reference"), { recursive: true });
+  await copyFile(path.join(engineDir(), "agent", "vox_example.py"), path.join(ws, "reference", "vox_example.py"));
   const styleFile = path.join(ws, "style" + path.extname(settings.style));
   await copyFile(settings.style, styleFile);
-  const agent: ChapterAgent = { status: "running", model: settings.model, imageModel: settings.imageModel, note: o.note, started: Date.now(),
+  const agent: ChapterAgent = { status: "running", model: settings.model, effort: settings.effort, imageModel: settings.imageModel, note: o.note, started: Date.now(),
     turns: 0, cost: 0, steps: [], versions: [], log: LOG_FILE };
   cv.agent = agent;
   saveRun(run, true);
@@ -400,11 +463,11 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     { role: "system", content: system },
     { role: "user", content: [{ type: "text", text: ask }, ...(styleData ? [{ type: "image_url", image_url: { url: styleData } }] : [])] },
   ];
-  await log({ kind: "build", model: settings.model, imageModel: settings.imageModel, note: o.note ?? null, turns: settings.turns });
+  await log({ kind: "build", model: settings.model, effort: settings.effort, imageModel: settings.imageModel, note: o.note ?? null, turns: settings.turns });
   await log({ kind: "system", text: system });
   await log({ kind: "user", text: ask, images: styleData ? [path.basename(styleFile)] : [] });
   const fake = scriptedAgent(timing);
-  let lastRender: { video?: string; hash?: string; seconds?: number } = {};
+  let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit } = {};
   let lastCheck: { ok: boolean; hash?: string; result?: Record<string, unknown> } = { ok: false };
   let images = 0;
   let firstPrompt = true;
@@ -472,12 +535,13 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         const quality = args.quality === "final" ? "final" : "draft";
         const r = await tool("render", [ws, SCENE_FILE, SCENE_CLASS, quality], ws);
         if (!r.ok) return { ok: false, text: `the render failed:\n${r.error}` };
-        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds) };
+        const audit = (r.audit ?? undefined) as Audit | undefined;
+        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds), audit };
         const off = Number(r.seconds) - timing.seconds;
         return { ok: true, video: fileUrl(run.id, String(r.video)), seconds: Number(r.seconds),
           text: `rendered (${quality}): ${Number(r.seconds).toFixed(2)} s; the narration is ${timing.seconds.toFixed(2)} s` +
             (Math.abs(off) > 0.5 ? ` (${off > 0 ? "longer" : "shorter"} by ${Math.abs(off).toFixed(1)} s: end with self.wait_until_end(), and do not run past the voice)` : "") +
-            (r.warnings ? `\nwarnings:\n${r.warnings}` : "") };
+            auditText(audit) + (r.warnings ? `\nwarnings:\n${r.warnings}` : "") };
       }
       case "look": {
         if (!lastRender.video) return { ok: false, text: "render first" };
@@ -544,6 +608,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       case "finish": {
         const hash = await hashOf(path.join(ws, SCENE_FILE));
         if (!lastCheck.ok || lastCheck.hash !== hash) return { ok: false, text: "not yet: render the scene as it is now and run phone_check; finish when it passes" };
+        const faults = lastRender.hash === hash ? auditFaults(lastRender.audit) : [];
+        if (faults.length) return { ok: false, text: `not yet: the last render's audit has these to fix:\n- ${faults.join("\n- ")}` };
         agent.summary = String(args.summary ?? "").slice(0, 3000);
         const r = lastCheck.result!;
         const out = path.join(ws, "export");
@@ -569,7 +635,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       }
       agent.turns = k;
       currentTurn = k;
-      const call = newCall(run, { step: "video-agent", label: `Video agent, turn ${k} (lecture ${n}, chapter ${c})`, lecture: n, model: settings.model,
+      const call = newCall(run, { step: "video-agent", label: `Video agent, turn ${k} (lecture ${n}, chapter ${c})`, lecture: n, model: settings.model, effort: settings.effort,
         prompt: firstPrompt
           ? { system: [part("role", "The video agent's instructions", "rules", system)], user: [part("chapter", "The chapter and its narration", "ask", ask)] }
           : { system: [], user: [part("turn", "The turn", "context", `turn ${k}: the conversation so far (${messages.length} messages)`)] } });

@@ -70,7 +70,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
   }
   const s = settingsOf(run);
-  return NextResponse.json({ busy: videoBusy(id), settings: { model: s.model, imageModel: s.imageModel, turns: s.turns, styleNote: s.styleNote ?? "",
+  return NextResponse.json({ busy: videoBusy(id), settings: { model: s.model, imageModel: s.imageModel, turns: s.turns, effort: s.effort, styleNote: s.styleNote ?? "",
     customStyle: !!run.video?.settings.style } });
 }
 

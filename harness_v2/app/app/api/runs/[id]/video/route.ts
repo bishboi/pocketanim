@@ -3,6 +3,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { loadRun } from "@/lib/store";
 import { LOG_FILE } from "@/lib/video-agent";
+import { useOpenAI } from "@/lib/openai-responses";
+import { usingFixture } from "@/lib/llm";
 import { chapterLines, phoneLibrary, settingsOf, timingOf, videoAction, videoBusy, workspaceOf, type VideoAction } from "@/lib/video";
 
 export const runtime = "nodejs";
@@ -70,7 +72,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
   }
   const s = settingsOf(run);
-  return NextResponse.json({ busy: videoBusy(id), settings: { model: s.model, imageModel: s.imageModel, turns: s.turns, effort: s.effort, styleNote: s.styleNote ?? "",
+  return NextResponse.json({ busy: videoBusy(id), settings: { model: s.model, imageModel: s.imageModel, turns: s.turns, effort: s.effort,
+    provider: useOpenAI(s.model) ? "openai" : usingFixture(s.model) ? "fixture" : "openrouter", openaiKey: !!process.env.OPENAI_API_KEY?.trim(), styleNote: s.styleNote ?? "",
     customStyle: !!run.video?.settings.style } });
 }
 

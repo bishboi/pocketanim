@@ -25,6 +25,26 @@ export const took = (n?: number) => n === undefined ? "" : n < 1000 ? `${n} ms` 
   : `${Math.floor(n / 60_000)} min ${Math.round((n % 60_000) / 1000)} s`;
 
 type Entry = Record<string, unknown> & { t: number; kind: string };
+
+const PROVIDER: Record<string, string> = { openai: "OpenAI API", openrouter: "OpenRouter", fixture: "stand-in (no key)" };
+
+/** Where the agent runs and how hard it reasons: the level asked for, and the one it ran at when the model took less. */
+function Engine({ agent }: { agent: ChapterAgent }) {
+  const used = agent.effortUsed ?? agent.effort;
+  const lowered = agent.effort && used && used !== agent.effort;
+  return (
+    <span className="flex flex-wrap items-baseline gap-1" data-testid="agent-engine">
+      <span className="rounded border border-neutral-700 px-1.5 text-neutral-200">{agent.model}</span>
+      {agent.provider && <span className="rounded border border-neutral-700 px-1.5 text-neutral-300">via {PROVIDER[agent.provider] ?? agent.provider}</span>}
+      <span className={`rounded border px-1.5 ${!used || used === "off" ? "border-amber-700 text-amber-200" : "border-violet-700 text-violet-200"}`}
+        title={lowered ? `asked for ${agent.effort}; this model did not take it, so it runs at ${used}` : "how hard the model reasons each turn"}>
+        reasoning {used ?? "off"}{lowered ? ` (asked ${agent.effort})` : ""}</span>
+    </span>
+  );
+}
+
+/** Tokens as said: 12.3k. */
+const kt = (n?: number) => n === undefined ? "0" : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n);
 type FileRow = { path: string; size: number; at: number };
 
 /** A file of the workspace as a URL the page can load (pictures, videos). */
@@ -131,6 +151,7 @@ function Live({ agent, now }: { agent: ChapterAgent; now: number }) {
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="animate-pulse text-sky-300">●</span>
         <span className="font-semibold text-sky-200">turn {live?.turn ?? agent.turns}</span>
+        <span className="text-neutral-500">reasoning {agent.effortUsed ?? agent.effort ?? "off"}</span>
         <span className="text-neutral-300">{live ? (live.tools[0]?.startsWith("running ") ? live.tools[0] : live.tools.length ? `calling ${live.tools.join(", ")}` : "the model is writing") : "between turns"}</span>
         {live && <span className="text-neutral-500">{took(now - live.started)}</span>}
       </div>
@@ -161,7 +182,13 @@ function Steps({ agent, onCall, now }: { agent: ChapterAgent; onCall: (id: strin
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="font-semibold text-neutral-100">turn {k}</span>
               {think?.ms !== undefined && <span className="text-neutral-500">model {took(think.ms)}</span>}
-              {think?.tokens && <span className="text-neutral-500">{think.tokens.input.toLocaleString()} in · {think.tokens.output.toLocaleString()} out{think.tokens.reasoning ? ` (${think.tokens.reasoning.toLocaleString()} reasoning)` : ""}</span>}
+              {think?.tokens && (
+                <span className="text-neutral-500" data-testid="turn-tokens">
+                  {kt(think.tokens.input)} in{think.tokens.cached ? ` (${kt(think.tokens.cached)} cached)` : ""} · {kt(think.tokens.output)} out
+                  {" · "}<span className={think.tokens.reasoning ? "text-violet-300" : ""}>{kt(think.tokens.reasoning)} reasoning</span>
+                </span>
+              )}
+              {think?.effort && <span className="text-neutral-500">reasoning {think.effort}{think.provider ? ` · ${PROVIDER[think.provider] ?? think.provider}` : ""}</span>}
               {think?.cost ? <span className="text-neutral-500">{money(think.cost)}</span> : null}
               <span className="text-neutral-500">{tools.map((t) => t.tool).join(", ")}</span>
               {think?.call && <button className="ml-auto text-neutral-500 underline" onClick={() => onCall(think.call!)}>call</button>}
@@ -357,6 +384,8 @@ function Outcome({ agent, built }: { agent: ChapterAgent; built?: { seconds: num
   const sum = (xs: (number | undefined)[]) => xs.reduce<number>((k, x) => k + (x ?? 0), 0);
   const tokensIn = sum(thinks.map((s) => s.tokens?.input));
   const tokensOut = sum(thinks.map((s) => s.tokens?.output));
+  const tokensReasoning = sum(thinks.map((s) => s.tokens?.reasoning));
+  const tokensCached = sum(thinks.map((s) => s.tokens?.cached));
   const files = [...new Set((agent.versions ?? []).map((v) => v.path))];
   const checks = tools.filter((s) => s.tool === "phone_check");
   const renders = tools.filter((s) => s.tool === "render" && s.ok);
@@ -367,7 +396,10 @@ function Outcome({ agent, built }: { agent: ChapterAgent; built?: { seconds: num
     ["Model time", took(sum(thinks.map((s) => s.ms)))],
     ["Tool time", took(sum(tools.map((s) => s.ms)))],
     ["Cost", money(agent.cost)],
-    ["Tokens", `${tokensIn.toLocaleString()} in · ${tokensOut.toLocaleString()} out`],
+    ["Tokens in", `${kt(tokensIn)}${tokensCached ? ` (${kt(tokensCached)} cached)` : ""}`],
+    ["Tokens out", `${kt(tokensOut)} (${kt(tokensReasoning)} reasoning${tokensOut ? `, ${Math.round(100 * tokensReasoning / tokensOut)}%` : ""})`],
+    ["Reasoning", `${agent.effortUsed ?? agent.effort ?? "off"}${agent.effortUsed && agent.effort && agent.effortUsed !== agent.effort ? ` (asked ${agent.effort})` : ""}`],
+    ["Model", `${agent.model}${agent.provider ? ` via ${PROVIDER[agent.provider] ?? agent.provider}` : ""}`],
     ["Files written", `${files.length} (${(agent.versions ?? []).length} versions)`],
     ["Shell commands", `${count("shell")}${failed("shell") ? ` (${failed("shell")} failed)` : ""}`],
     ["Renders", `${count("render")}${failed("render") ? ` (${failed("render")} failed)` : ""}`],
@@ -408,7 +440,8 @@ export function AgentLog({ run, n, c, agent, built, onCall }: { run: Run; n: num
     <div className="space-y-2" data-testid="agent-log">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold text-neutral-200">The agent</span>
-        <span className="text-neutral-400">{agent.model}{agent.effort ? ` · reasoning ${agent.effort}` : ""} · {agent.turns} turn(s) · {money(agent.cost)}{agent.note ? ` · note: ${agent.note}` : ""}</span>
+        <Engine agent={agent} />
+        <span className="text-neutral-400">{agent.turns} turn(s) · {money(agent.cost)}{agent.note ? ` · note: ${agent.note}` : ""}</span>
         <span className="ml-auto flex gap-1">
           {VIEWS.map((v) => (
             <button key={v} data-testid={`agent-view-${v}`} className={`${btn} ${view === v ? "border-sky-600 text-sky-200" : "border-neutral-700 text-neutral-400"}`} onClick={() => setView(v)}>{v}</button>

@@ -208,7 +208,8 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         let text = "";
         let reasoning = "";
         const tools: { id: string; name: string; args: string }[] = [];
-        let usage: { prompt_tokens?: number; completion_tokens?: number; cost?: number; completion_tokens_details?: { reasoning_tokens?: number } } | undefined;
+        let usage: { prompt_tokens?: number; completion_tokens?: number; cost?: number; completion_tokens_details?: { reasoning_tokens?: number };
+          prompt_tokens_details?: { cached_tokens?: number } } | undefined;
         const decoder = new TextDecoder();
         let buffer = "";
         let shown = 0;
@@ -254,7 +255,8 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         }
         onLive({ text, reasoning, tools: tools.filter(Boolean).map((t) => t.name) });
         call.usage = { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0,
-          ...(usage?.completion_tokens_details?.reasoning_tokens ? { reasoning: usage.completion_tokens_details.reasoning_tokens } : {}) };
+          ...(usage?.completion_tokens_details?.reasoning_tokens ? { reasoning: usage.completion_tokens_details.reasoning_tokens } : {}),
+          ...(usage?.prompt_tokens_details?.cached_tokens ? { cached: usage.prompt_tokens_details.cached_tokens } : {}) };
         call.cost += Number(usage?.cost ?? 0);
         out = { text: text || undefined, reasoning: reasoning || undefined,
           calls: tools.filter((t) => t?.name).map((t) => ({ id: t.id, function: { name: t.name, arguments: t.args } })) };
@@ -414,6 +416,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   await copyFile(settings.style, styleFile);
   const agent: ChapterAgent = { status: "running", model: settings.model, effort: settings.effort, imageModel: settings.imageModel, note: o.note, started: Date.now(),
     turns: 0, cost: 0, steps: [], versions: [], log: LOG_FILE };
+  agent.provider = useOpenAI(settings.model) ? "openai" : usingFixture(settings.model) ? "fixture" : "openrouter";
+  agent.effortUsed = settings.effort;
   cv.agent = agent;
   saveRun(run, true);
   const step = (s: Omit<VideoStep, "at">) => { agent.steps.push({ ...s, at: Date.now() }); saveRun(run); };
@@ -636,10 +640,11 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       });
       agent.live = undefined;
       agent.cost += call.cost;
+      agent.provider = call.provider;
+      agent.effortUsed = call.effort ?? "off";
       if (call.effort && call.effort !== settings.effort) {
         // The level asked for was not taken by this model: the rest of the build at the one that was.
         settings.effort = call.effort as typeof settings.effort;
-        agent.effort = `${call.effort} (${agent.effort} not taken by this model)`;
       }
       if (!answer) {
         step({ turn: k, kind: "error", call: call.id, text: call.error ?? "the model did not answer", ms: Date.now() - asked });
@@ -652,7 +657,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         usage: call.usage, cost: call.cost, tools: answer.calls.map((t) => ({ id: t.id, name: t.function.name, args: safeJson(t.function.arguments) })) });
       // The turn itself: what it said and thought, what the model call took.
       step({ turn: k, kind: "think", call: call.id, text: answer.text?.trim().slice(0, 4000), reasoning: answer.reasoning?.trim().slice(0, 8000),
-        ms: Date.now() - asked, cost: call.cost, tokens: call.usage ? { input: call.usage.input, output: call.usage.output, reasoning: call.usage.reasoning } : undefined });
+        ms: Date.now() - asked, cost: call.cost, provider: call.provider, effort: call.effort ?? "off",
+        tokens: call.usage ? { input: call.usage.input, output: call.usage.output, reasoning: call.usage.reasoning, cached: call.usage.cached } : undefined });
       messages.push({ role: "assistant", content: answer.text ?? "", tool_calls: answer.calls.map((t) => ({ id: t.id, type: "function", function: t.function })),
         ...(answer.output ? { _openai: answer.output } : {}) });
       if (!answer.calls.length) {

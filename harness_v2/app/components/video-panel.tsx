@@ -52,6 +52,11 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
   const [styleNote, setStyleNote] = useState(vset.styleNote ?? "");
   const [speaker, setSpeaker] = useState(voice.voice ?? "");
   const [styleV, setStyleV] = useState(0);
+  // Where the agent will run and how hard it will reason, as the server resolves it (model, keys, settings).
+  const [agentEngine, setAgentEngine] = useState<{ model: string; provider: string; effort: string; openaiKey: boolean } | null>(null);
+  useEffect(() => {
+    fetch(`/api/runs/${run.id}/video`).then((r) => r.json()).then((j) => setAgentEngine(j.settings ?? null)).catch(() => {});
+  }, [run.id, run.video?.settings.model, run.video?.settings.effort]);
   const upload = useRef<HTMLInputElement>(null);
   useEffect(() => { if (lecture === undefined && scripted.length) setLecture(scripted[0].n); }, [scripted.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const cv = lecture !== undefined && chapter !== undefined ? run.video?.chapters[key(lecture, chapter)] : undefined;
@@ -128,6 +133,15 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
                 onChange={(e) => setTurns(e.target.value)} onBlur={() => turns !== String(vset.turns ?? "") && void act({ action: "settings", turns: Number(turns) || 0 })} />
             </label>
           </div>
+          {agentEngine && (
+            <p className="w-full text-neutral-400" data-testid="video-engine">
+              The agent will run on <span className="text-neutral-200">{agentEngine.model}</span> via{" "}
+              <span className="text-neutral-200">{agentEngine.provider === "openai" ? "OpenAI's API" : agentEngine.provider === "fixture" ? "the stand-in (no key)" : "OpenRouter"}</span>
+              {" "}with reasoning <span className={agentEngine.effort === "off" ? "text-amber-300" : "text-violet-300"}>{agentEngine.effort}</span>
+              {agentEngine.model.startsWith("openai/") && !agentEngine.openaiKey ? " (set OPENAI_API_KEY to run OpenAI models on OpenAI's own API, with their reasoning kept between turns)" : ""}
+              {agentEngine.effort === "max" || agentEngine.effort === "xhigh" ? `; a model that does not take ${agentEngine.effort} runs at high` : ""}.
+            </p>
+          )}
           <div className="flex items-start gap-2" data-testid="video-style">
             <img src={`/api/runs/${run.id}/video?style=1&v=${styleV}`} alt="The look" className="h-24 rounded border border-neutral-700" />
             <div className="flex flex-col gap-1">

@@ -644,8 +644,11 @@ export type VideoStep = {
   exit?: number | null;
   version?: number;
   /** A turn's model call: its tokens, cost and how long the model took (on the turn's first step). */
-  tokens?: { input: number; output: number; reasoning?: number };
+  tokens?: { input: number; output: number; reasoning?: number; cached?: number };
   cost?: number;
+  /** Where the turn ran (openai: OpenAI's own API; openrouter; fixture) and the reasoning level it ran at. */
+  provider?: string;
+  effort?: string;
   at: number;
 };
 
@@ -673,7 +676,11 @@ export type ChapterNarration = {
 export type ChapterAgent = {
   status: "running" | "done" | "failed" | "stopped";
   model: string;
+  /** The reasoning level asked for, and the one it ran at (lower when the model did not take the one asked). */
   effort?: string;
+  effortUsed?: string;
+  /** Where its turns run: openai (OpenAI's own API), openrouter, or fixture (no key). */
+  provider?: string;
   imageModel: string;
   note?: string;
   started: number;

@@ -119,7 +119,7 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
               <span className="text-neutral-400">Agent reasoning</span>
               <select data-testid="video-effort" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={vset.effort ?? "high"}
                 onChange={(e) => void act({ action: "settings", effort: e.target.value })}>
-                {["high", "medium", "low", "off"].map((x) => <option key={x}>{x}</option>)}
+                {["max", "xhigh", "high", "medium", "low", "off"].map((x) => <option key={x}>{x}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1">

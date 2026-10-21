@@ -31,8 +31,9 @@ Once the transcript is written, each chapter becomes a video in three steps, on 
 **Every render also says what it measured** (`engine/agent/audit.py`, installed before the scene runs): the
 animations used, stretches with nothing moving or nothing on screen, words outside the frame or on other words. It is
 information for the agent, not a rule. Its workspace has a chapter built in this setup to look at if it wants
-(`reference/vox_example.py`). It reasons at its own effort (**Agent reasoning** on the tab, high by default, not the
-run's effort), with room for a whole scene in one reply (`V2_VIDEO_AGENT_MAX_TOKENS`, 32,000). Its model is
+(`reference/vox_example.py`). It reasons at its own effort (**Agent reasoning** on the tab: max, xhigh, high, medium,
+low or off; else `V2_VIDEO_AGENT_EFFORT` or `PANIM_MANIM_REASONING_EFFORT`; high by default, not the run's effort; a
+level the model does not take is asked again at high, and the rest of the build runs at high), with room for a whole scene in one reply (`V2_VIDEO_AGENT_MAX_TOKENS`, 32,000). Its model is
 `V2_VIDEO_MODEL` (else `V2_MANIM_MODEL`, else `OPENROUTER_MODEL`). An OpenAI model (`openai/...`) is called on
 **OpenAI's own Responses API** when `OPENAI_API_KEY` is set (`app/lib/openai-responses.ts`), not through OpenRouter:
 its reasoning comes back encrypted and is sent back with every turn (nothing is stored at OpenAI), so it keeps its

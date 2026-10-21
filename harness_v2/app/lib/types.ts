@@ -614,8 +614,9 @@ export type VideoSettings = {
   imageModel?: string;
   /** Most turns a chapter's agent may take. */
   turns?: number;
-  /** How hard the agent's model reasons each turn (high by default: it plans and writes a whole chapter's motion). */
-  effort?: "low" | "medium" | "high" | "off";
+  /** How hard the agent's model reasons each turn (high by default: it plans and writes a whole chapter's motion). A
+   * level the model does not take falls back to high. */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | "off";
   /** The look to build in: a screenshot of how the visuals look (a file), and words about it. */
   style?: string;
   styleNote?: string;

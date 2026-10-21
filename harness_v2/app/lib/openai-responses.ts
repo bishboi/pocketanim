@@ -16,7 +16,9 @@ export type ChatMsg = { role: "system" | "user" | "assistant" | "tool"; content:
 export type ChatTool = { type: "function"; function: { name: string; description: string; parameters: unknown } };
 export type Live = { text: string; reasoning: string; tools: string[] };
 export type Answer = { text?: string; reasoning?: string; calls: { id: string; function: { name: string; arguments: string } }[];
-  usage: { input: number; output: number; reasoning?: number; cached?: number }; output: unknown[] };
+  usage: { input: number; output: number; reasoning?: number; cached?: number }; output: unknown[];
+  /** The reasoning level it ran at (high when the one asked was not taken). */
+  effort?: string };
 
 export function useOpenAI(model: string): boolean {
   return model.startsWith("openai/") && !!process.env.OPENAI_API_KEY?.trim();
@@ -55,7 +57,7 @@ export function toInput(messages: ChatMsg[]): { instructions: string; input: unk
 export async function respond(o: { model: string; messages: ChatMsg[]; tools: ChatTool[]; effort?: string; maxTokens: number; timeoutMs: number;
   onLive: (live: Live) => void }): Promise<Answer> {
   const { instructions, input } = toInput(o.messages);
-  const reasoning = o.effort && o.effort !== "off" ? { effort: o.effort, summary: "auto" } : undefined;
+  let reasoning = o.effort && o.effort !== "off" ? { effort: o.effort, summary: "auto" } : undefined;
   const body = (withSummary: boolean) => JSON.stringify({
     model: o.model.replace(/^openai\//, ""), instructions, input, stream: true, store: false, max_output_tokens: o.maxTokens,
     tools: o.tools.map((t) => ({ type: "function", name: t.function.name, description: t.function.description, parameters: t.function.parameters })),
@@ -64,6 +66,15 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
   });
   let response = await fetch(`${BASE()}/responses`, { method: "POST", signal: AbortSignal.timeout(o.timeoutMs),
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
+  if (!response.ok && reasoning && reasoning.effort !== "high" && response.status === 400) {
+    // A reasoning level this model does not take (max, xhigh on an older one): the same turn at high.
+    const said = await response.clone().text();
+    if (/effort/i.test(said)) {
+      reasoning = { ...reasoning, effort: "high" };
+      response = await fetch(`${BASE()}/responses`, { method: "POST", signal: AbortSignal.timeout(o.timeoutMs),
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
+    }
+  }
   if (!response.ok) {
     const said = await response.text();
     // An organisation not verified for reasoning summaries: the same turn, its reasoning kept but not shown.
@@ -133,7 +144,7 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
   const said = output.filter((x) => x.type === "message").flatMap((x) => (x.content ?? []).filter((c) => c.type === "output_text").map((c) => c.text ?? "")).join("") || text;
   const summary = output.filter((x) => x.type === "reasoning").flatMap((x) => (x.summary ?? []).map((s) => s.text ?? "")).join("\n\n") || thought.trim();
   o.onLive({ text: said, reasoning: summary, tools: calls.map((c) => c.function.name) });
-  return { text: said || undefined, reasoning: summary || undefined, calls, output,
+  return { text: said || undefined, reasoning: summary || undefined, calls, output, effort: reasoning?.effort,
     usage: { input: final.usage?.input_tokens ?? 0, output: final.usage?.output_tokens ?? 0,
       ...(final.usage?.output_tokens_details?.reasoning_tokens ? { reasoning: final.usage.output_tokens_details.reasoning_tokens } : {}),
       ...(final.usage?.input_tokens_details?.cached_tokens ? { cached: final.usage.input_tokens_details.cached_tokens } : {}) } };

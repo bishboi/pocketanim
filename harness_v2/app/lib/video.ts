@@ -66,7 +66,7 @@ export function chapterLines(run: Run, n: number, c: number): string[] {
 export function settingsOf(run: Run): Required<Pick<VideoSettings, "model" | "imageModel" | "turns" | "style" | "effort">> & VideoSettings {
   const s = videoOf(run).settings;
   // Its own reasoning, not the run's (a run is often started with effort off, for the transcript's sake).
-  const effort = s.effort || (process.env.V2_VIDEO_AGENT_EFFORT as VideoSettings["effort"]) || "high";
+  const effort = s.effort || ((process.env.V2_VIDEO_AGENT_EFFORT || process.env.PANIM_MANIM_REASONING_EFFORT)?.trim().toLowerCase() as VideoSettings["effort"]) || "high";
   return { ...s, effort, model: s.model || run.options.videoModel || modelFor("video"), imageModel: s.imageModel || run.options.imageModel || modelFor("image"),
     turns: s.turns || Math.max(4, Number(process.env.V2_VIDEO_AGENT_TURNS) || 60), style: s.style && existsSync(s.style) ? s.style : DEFAULT_STYLE() };
 }

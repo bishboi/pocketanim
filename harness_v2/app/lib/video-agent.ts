@@ -167,7 +167,7 @@ type Answer = { text?: string; reasoning?: string; calls: ToolCall[]; output?: u
 async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void): Promise<Answer | null> {
   // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
   call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
-  const body = { model: call.model, messages: messages.map(({ _openai, ...m }) => (void _openai, m)), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
+  const body: Record<string, unknown> = { model: call.model, messages: messages.map(({ _openai, ...m }) => (void _openai, m)), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
     ...(call.effort && call.effort !== "off" ? { reasoning: { effort: call.effort } } : {}) };
   // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
   call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
@@ -178,6 +178,7 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
       if (call.provider === "openai") {
         const r = await respond({ model: call.model, messages, tools: TOOLS as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive });
         call.usage = r.usage;
+        if (r.effort) call.effort = r.effort;
         out = { text: r.text, reasoning: r.reasoning, calls: r.calls, output: r.output };
       } else if (call.provider === "fixture") {
         const f = fake();
@@ -194,7 +195,16 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         const response = await fetch(URL_, { method: "POST", signal: AbortSignal.timeout(TIMEOUT_MS),
           headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "pocketanim harness v2" },
           body: JSON.stringify(body) });
-        if (!response.ok || !response.body) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`);
+        if (!response.ok || !response.body) {
+          const said = await response.text();
+          // A reasoning level this model does not take: the rest of the build at high.
+          if (response.status === 400 && /effort/i.test(said) && call.effort && call.effort !== "high" && call.effort !== "off") {
+            call.effort = "high";
+            body.reasoning = { effort: "high" };
+            throw new Error(`reasoning level not taken by this model, asking again at high: ${said.slice(0, 200)}`);
+          }
+          throw new Error(`${response.status} ${said.slice(0, 300)}`);
+        }
         let text = "";
         let reasoning = "";
         const tools: { id: string; name: string; args: string }[] = [];
@@ -626,6 +636,11 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       });
       agent.live = undefined;
       agent.cost += call.cost;
+      if (call.effort && call.effort !== settings.effort) {
+        // The level asked for was not taken by this model: the rest of the build at the one that was.
+        settings.effort = call.effort as typeof settings.effort;
+        agent.effort = `${call.effort} (${agent.effort} not taken by this model)`;
+      }
       if (!answer) {
         step({ turn: k, kind: "error", call: call.id, text: call.error ?? "the model did not answer", ms: Date.now() - asked });
         await log({ kind: "error", turn: k, text: call.error ?? "the model did not answer" });

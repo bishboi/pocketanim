@@ -81,6 +81,7 @@ class MotionLecture(MoreTemplates, MapLecture):
         super().setup()
         self.M = K.M
         self._mparts: dict[str, dict] = {}      # template id -> {part name: mobject}
+        self._mwhole: dict[str, object] = {}    # template id -> the whole template (emphasis on its id)
         self._wipe_old: list = []               # what a wipe takes away as the next line begins
         self._lead = 0.0                         # seconds a transition took of the line before its pictures
         self._m_count = 0
@@ -319,6 +320,7 @@ class MotionLecture(MoreTemplates, MapLecture):
     def _show(self, tid: str, whole, entrance, on: str | None = None, idle: bool = True):
         """Put a template on the stage with its choreography; it keeps idling while up."""
         whole.set_z_index(Z_TEMPLATE)
+        self._mwhole[tid] = whole
         if idle:
             K.idle(whole)
         anim = self._to_stage(whole, entrance=entrance)
@@ -1341,7 +1343,8 @@ class MotionLecture(MoreTemplates, MapLecture):
         return K.pulse(mob, 1.12)
 
     def _find_part(self, target: str):
-        """A named part on the screen now (an old template's parts are gone with it)."""
+        """A named part on the screen now (an old template's parts are gone with it), by its name or "<id>.<name>";
+        or a whole template by its id."""
         target = str(target or "")
         here = {id(x) for m in self.mobjects for x in m.get_family()}
         live = {tid: {k: m for k, m in parts.items() if any(id(x) in here for x in m.family_members_with_points())}
@@ -1355,6 +1358,10 @@ class MotionLecture(MoreTemplates, MapLecture):
             mob = live[tid].get(_slug(target.split(".")[-1]))
             if mob is not None:
                 return mob, tid
+        # A template's own id: the whole template, while it is up.
+        whole = self.__dict__.get("_mwhole", {}).get(target)
+        if whole is not None and any(id(x) in here for x in whole.family_members_with_points()):
+            return whole, target
         return None, None
 
     # ================================================================ the classic operations, in motion ============

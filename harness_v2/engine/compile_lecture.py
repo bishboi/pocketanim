@@ -3058,6 +3058,23 @@ def _closest(spoken: list[str], wanted: str) -> str | None:
     return found if best >= 0.75 else None
 
 
+def _short_word_phrase(spoken: list[str], wanted: str) -> str | None:
+    """For an anchor of one short word (two letters or fewer, too short to be found on its own) that the line says:
+    the two words it is said with (the word before it and it, or it and the word after), which can be found."""
+    import pocket_lecture as pl
+
+    token = pl._say_tokens(wanted)
+    if len(token) != 1 or len(token[0]) > 2 or token[0].isdigit():
+        return None
+    said = [pl._say_tokens(w) for w in spoken]
+    for k, toks in enumerate(said):
+        if token[0] in toks:
+            pair = spoken[k - 1:k + 1] if k > 0 else spoken[k:k + 2]
+            phrase = " ".join(pair).strip(".,;:!?।॥\"'“”‘’()")
+            return phrase if len(pair) == 2 else None
+    return None
+
+
 def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
     """Each operation's and each part's "on" checked against its line (pocket_lecture.said_at, on the line as it is
     spoken): kept when the line says it, mended to the line's own words when nearly, refused when not. A part's
@@ -3088,6 +3105,10 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                     return
                 if pl.said_at(words, on) is None:
                     near = _closest(spoken, on)
+                    short = _short_word_phrase(spoken, on)
+                    if short is not None:
+                        # A small word (है, थे, गए, "Wu") is too short to find on its own: the words round it.
+                        near = short
                     if near is None or pl.said_at(words, near) is None:
                         errors.append(f"chapter {ci} beat {bi}: {where}: \"on\": {on!r} is not in its line; copy the "
                                       "words it lands on from the line exactly as written (or \"start\")")

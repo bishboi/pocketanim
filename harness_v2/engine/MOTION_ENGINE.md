@@ -262,7 +262,7 @@ There is no `callout` any more: one in a script is left out, with a note.
 {"op": "emphasis", "target": "Japan", "how": "circle", "on": "Japan"}
 {"op": "emphasis", "target": "chart1.Italy", "how": "box"}
 ```
-At a part of a template on screen (its name, or `<id>.<name>`): `pulse` (default), `circle` (a ring drawn round it by
+At a part of a template on screen (its name, or `<id>.<name>`), or at a whole template on screen by its `id`: `pulse` (default), `circle` (a ring drawn round it by
 hand), `underline`, `highlight` (the highlighter behind it), `box` (the house frame), `glow`, `shake`, `dim` (the
 rest of its template faded back). A name not on screen is left out with a note.
 

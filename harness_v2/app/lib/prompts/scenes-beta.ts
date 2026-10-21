@@ -25,7 +25,8 @@ const ROLE = [
   "  - Use pictures generously: the people, places, objects and scenes the narration mentions, each drawn richly, with",
   "    labels to name as they are spoken of; a scene for a setting, a gallery or polaroids for several of a kind.",
   "  - Turn every number into a counter, chart, units or donut; every comparison into versus, table or analogy; every",
-  "    sequence into a chain, list or diagram; every claim into a stamp, a myth corrected or an ask answered.",
+  "    sequence into a chain, list or diagram; a person's dates into a lifespan; a wrong idea into a myth corrected; a",
+  "    question the lecture raises into an ask answered later; a verdict (a claim confirmed or overturned) into a stamp.",
   "  - Mix the kinds across a chapter so it keeps changing: templates, pictures, diagrams, maps, timelines, Manim.",
   "A beat with nothing new on it should be rare.",
 ].join("\n");
@@ -87,6 +88,7 @@ const CHOOSE = String.raw`WHICH PRIMITIVE FOR WHAT (a guide: pick what shows the
   what two parties give each other               exchange
   many places/people to one, or one to many      converge
   a family, a dynasty, who followed whom         lineage
+  a person introduced                            picture (a portrait, its caption the name); with their years, lifespan
   dates, an era, a sequence in time              timeline (style: track, ribbon for eras, cards with pictures, road for a
                                                  journey, vertical for a few); lifespan (lives side by side in years);
                                                  calendar (a year's seasons and feasts)
@@ -97,7 +99,8 @@ const CHOOSE = String.raw`WHICH PRIMITIVE FOR WHAT (a guide: pick what shows the
   a place, a route, a territory                  map: marker, state, river, arrow, journey, empire
   the layout of a site                           plan
   a headline, a big question                     title; ask (then ask again with its answer)
-  a claim confirmed or overturned                stamp (over what is up); myth (the wrong idea struck out, the right one in)
+  a claim confirmed or overturned, a verdict     stamp (over what is up; a verdict, never a summary of the line);
+                                                 myth (the wrong idea struck out, the right one in)
   a formula                                      equation; work (a derivation line by line)
   a worked problem                               problem, then work with its id
   a check on understanding                       question (choices, time to think), then answer
@@ -114,7 +117,9 @@ export const ANCHORS = [
   "  - Give EVERY operation \"on\": the words of its own beat's say it lands on, copied EXACTLY as they are written",
   "    there (the same letters: Devanagari stays Devanagari, an English word stays in Latin letters), one to four",
   "    words: the words that bring that thing in -- the term as it is defined, the number as it is said, the name of",
-  "    the step, the place, the person. Not the first words of the line unless that is where it belongs.",
+  "    the step, the place, the person. Not the first words of the line unless that is where it belongs. Choose words",
+  "    that carry meaning (a name, a number, a term), not small words (है, था, थे, गए, की, the, of, and): a small word",
+  "    comes many times in a line, and is not where a thing belongs.",
   "  - Give EVERY PART inside an operation its own \"on\" the same way: a diagram's node, a chain's step, a list's",
   "    point, a timeline's event, a chart's column, a card, a side of a versus, a tier, a group of units; a picture's",
   "    label as {\"name\": \"<the label>\", \"on\": \"<its words>\"}. Parts come on one by one, each on its own words.",
@@ -222,6 +227,7 @@ lineage — two to eight people as cards joined parent to child; a line of desce
    {"name":"Pepin","dates":"751","via":"son","parent"?:"Charles Martel","picture"?,"on"?}]}
 
 lifespan — lives as bars on one scale of years (overlaps show who lived at the same time).
+  Use for: any line that gives a person's years ("1839 से 1931 तक"), and for several people together (who overlapped).
   {"op":"lifespan","people":[{"name":"Marc Bloch","from":1886,"to":1944,"note"?,"on"?}],"range"?:["700","2000"],
    "marks"?:[{"at":1066,"label":"Norman Conquest","on"?}]}
 
@@ -256,9 +262,13 @@ ask — a question set large; given again with "answer", the answer is typed in 
 
 stamp — a rubber stamp slammed onto what is up (the picture shakes); plays after the beat's other operations.
   {"op":"stamp","text":"Cleared","on":"cleared","color"?,"angle"?:-10,"at"?:"center|top|bottom|left|right"}
-  Use for: a verdict, a confirmation, a myth busted. One or two words.
+  Use for: a VERDICT -- a claim confirmed or overturned, a myth busted, a turning point ("Debunked", "Abolished",
+  "Victory", "Not proven"). One or two words. Not for: a summary of the line ("Urban growth", "Recorded", "More
+  reliable"): the line is its caption already, and a stamp that repeats it is the key point back again. A stamp lands
+  hard: kept for the moments that earn it, it keeps its punch; on beat after beat it is noise. To show what a line
+  says, build the thing it says (a counter, a chain, a picture labelled, a part of what is up pointed at).
 
-emphasis — points at a part of what is up, by its name or "<id>.<name>".
+emphasis — points at a part of what is up, by its name or "<id>.<name>", or at a whole template by its id.
   {"op":"emphasis","target":"chart1.Italy","how":"pulse|circle|underline|highlight|box|glow|shake|dim","on":"Italy","color"?}
   Use for: the one thing on screen the line is now about. dim: the rest of its template fades back.`;
 
@@ -334,6 +344,8 @@ stat — a number with its label (drawn as a counter). {"op":"stat","value":"2,5
 bars — a bar chart (drawn as a chart).               {"op":"bars","items":[["Ganga",2525],["Godavari",1465]],"unit"?:"km","color"?}
 define — the term large, the highlighter swept under it, its meaning typed in; beside a picture already up.
   {"op":"define","term":"Biodiversity","meaning":"<plain words>","on":"biodiversity"}
+  Use for: a TERM and its meaning (a word the student must learn: shogun, daimyo, historiography). Not for: a person
+  (a portrait picture with a caption, a lifespan for their years), a date (timeline), or a sentence of the line.
 quote — big quote marks, the words typed on, the speaker sliding in.   {"op":"quote","text":"...","who":"Akbar","on"?}
 compare — two columns (drawn as versus), more as cards.  {"op":"compare","title"?,"columns":[{"title":"Reserved","points":["short lines"]}]}
 process — steps (drawn as a chain).                  {"op":"process","steps":["Evaporation","Condensation"],"cycle"?:true,"title"?}

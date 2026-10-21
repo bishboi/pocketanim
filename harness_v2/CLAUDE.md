@@ -12,3 +12,6 @@
   `engine/motion*.py` accepts updates that file in the same commit (`npm run check` fails when a template, an argument
   or a script field it reads is missing). It never changes the current engine's files or what they make: a script is
   drawn by it only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
+- The default flow is the Video tab (README "The video step"): transcript, then voice and alignment
+  (`engine/tools/chapter_voice.py`), then the video agent in free Manim (`app/lib/video-agent.ts`), checked against the
+  phone (`engine/tools/agent_tools.py phone`). The older engines' tabs (Scenes, Voice, Lab) are set aside, not removed.

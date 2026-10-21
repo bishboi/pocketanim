@@ -17,6 +17,31 @@ v2's own.
 
 The JSON each lecture's video is rendered from (the beat script: chapters, beats, every operation with its arguments and what it does, what the compiler mends or refuses) is documented in [engine/BEAT_SCRIPT.md](engine/BEAT_SCRIPT.md).
 
+## The video step (the default)
+
+Once the transcript is written, each chapter becomes a video in three steps, on the **Video** tab (`app/lib/video.ts`,
+`app/lib/video-agent.ts`, `app/components/video-panel.tsx`):
+
+| Step | What | Calls |
+| --- | --- | --- |
+| 1. Voice | The chapter's lines, exactly as the transcript has them (its title card's line, then each beat's sentences), are spoken with the chosen voice (Gemini or ElevenLabs say the chapter whole, in one take; Chirp and espeak line by line), into the shared line cache (`engine/tools/chapter_voice.py`). No scenes are needed: the voice comes first. | the voice, per line spoken |
+| 2. Alignment | Every word's time: the voice's own (ElevenLabs), else Whisper here, else an estimate (said so). The lines are laid on one track (`chapter.wav`), each with the pause the voice left after it, and every line and word gets its time on that track (`timing.json`). | none |
+| 3. The video agent | The **video agent** (the Video agent role, `V2_VIDEO_MODEL`) builds the chapter's whole video in free Manim, as a coding agent builds a program: nothing is given to it but the narration (every line and word with its time, and the voice), a **screenshot of the look** wanted (the default is a Vox-like chapter, `engine/agent/style-vox.jpg`; choose another on the tab, with words about it), and a workspace. No primitives, templates or layouts. It works in turns with tools: write, edit, read and list its files; a shell in its workspace (`V2_VIDEO_AGENT_SHELL=off` turns it off); **render** (Manim at 30 fps); **look** (frames of the render at chosen times, or a sheet of them, shown to it); **make_image** (the image model draws into `assets/`, at most `V2_VIDEO_AGENT_IMAGES`, 12); **phone_check**; and **finish**. Its scene subclasses `NarratedScene` (`engine/agent/narrated.py`), which only adds the voice and tells it the time (`self.word(n, "Japan")`, `self.wait_until(t)`). At most `V2_VIDEO_AGENT_TURNS` (60) turns, or the tab's own number. | 1 per turn (+1 per picture) |
+
+**The one hard rule is the phone.** The chapter is shipped as the program the phone plays, not as an MP4, and it must
+play exactly as Manim drew it: `phone_check` exports the scene (faithfully: every play recorded as Manim draws it,
+`engine/ENGINE.md`), draws the phone's frames with the reference renderer the Kotlin and Swift players are held to, and
+compares them with the render's; **finish** is refused until it passes on the scene as it is. The page then plays the
+chapter as the phone does (v1's web player, with the narration as its clock), beside the Manim render it was checked
+against, every line and word of the narration with its time, and every step the agent took (its words, each tool call
+and its answer, the frames and pictures it was shown, the calls). **Phone library (zip)** packs the chapter for the
+phone (`tools/build_library.py`: the program, its clips, pictures and glyphs, and the narration as Opus), opened by the
+phone's own code first when the player is built. **Speak and build every chapter** does a lecture's chapters in order;
+a note for the agent goes with a build. Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.
+
+**The older engines are set aside**: the lecture engine's **Scenes**, **Voice** and **Lab** tabs (and the motion engine
+(beta) in them) are hidden until **Older engines…** is pressed, and work as before.
+
 The **motion engine (beta)** draws the same beat scripts the way a modern explainer does: six looks (paper, newsroom, chalk, data, studio, sketch), templates that animate themselves part by part on the words that name them (counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines), the timeline in five styles, transitions, idle motion and sound. It is tried in the **Lab** (its own presets, and any lecture's chapter in any look), and a run can be built on it from the **Scenes** tab (its Engine row: the scene writer is told of the templates, and compiles, renders and the Voice tab use it), and documented in [engine/MOTION_ENGINE.md](engine/MOTION_ENGINE.md); `scripts/motion-rerun.mjs` compiles the lectures already built on it, beside what they made.
 
 ## The transcript step

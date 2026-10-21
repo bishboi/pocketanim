@@ -6,7 +6,7 @@
  * The page starts from these and can change a run's own; nothing has to be typed.
  */
 
-export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script" | "scenes" | "timing" | "reuse";
+export type ModelRole = "planner" | "writer" | "figure" | "triage" | "triageChat" | "image" | "svg" | "manim" | "map" | "script" | "scenes" | "timing" | "reuse" | "video";
 
 export type RoleInfo = {
   role: ModelRole;
@@ -60,6 +60,9 @@ export const ROLES: RoleInfo[] = [
   { role: "timing", label: "Timing (voice)", kind: "text", used: true, fallback: "google/gemini-2.5-flash",
     what: "Times each beat's animations to the words of its narration, once the voice has said them and each word's time is known (voice).",
     env: ["V2_TIMING_MODEL", "PANIM_ALIGN_MODEL", "OPENROUTER_MODEL"] },
+  { role: "video", label: "Video agent", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
+    what: "Builds each chapter's video in free Manim, as an agent: writes and edits its scene, renders it, looks at its frames, makes pictures, plays it as the phone does, until it is right; timed to the chapter's spoken words (video).",
+    env: ["V2_VIDEO_MODEL", "V2_MANIM_MODEL", "OPENROUTER_MODEL"] },
   { role: "map", label: "Map", kind: "vision", used: true, fallback: "anthropic/claude-sonnet-4.5",
     what: "Draws the figures triaged Map: reads the book's map and writes its map script, in one call; v2's engine renders it (generation).",
     env: ["V2_MAP_MODEL", "PANIM_MAP_MODEL", "PANIM_MANIM_MODEL", "OPENROUTER_MODEL"] },

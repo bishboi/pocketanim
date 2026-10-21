@@ -62,7 +62,7 @@ export function voiceCache(): string {
   return process.env.V2_AUDIO_DIR || path.join(DATA, "voice");
 }
 
-function voiceEnv(s: VoiceSettings): Record<string, string> {
+export function voiceEnv(s: VoiceSettings): Record<string, string> {
   const director = s.engine === "gemini" || s.engine === "eleven";
   return { PANIM_TTS: s.engine, PANIM_VOICE: s.voice?.trim() ? `${s.engine}:${s.voice.trim()}` : "auto", PANIM_AUDIO_DIR: voiceCache(),
     PANIM_PACE: s.pace ?? "natural", PANIM_ALIGN: "off",

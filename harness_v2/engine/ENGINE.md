@@ -100,3 +100,11 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 - `tools/phone_check.py <build> <Scene> <video.mp4|-> <out> <t>...`: the phone's frames (the program played by
   `dsl/interpret.py`, drawn by `exporter/reference_render.py`, the oracle the Kotlin and Swift players are held to)
   beside the Manim video's at the same frames, with how far apart each pair is and whether it is within the limit.
+- **The video step's tools** (the app's Video tab, `harness_v2/README.md`): `tools/chapter_voice.py <lines.json> <dir>`
+  speaks a chapter from its transcript lines (a chapter's take where the voice can, through `narrate_many`), aligns
+  every word (`line_words`) and lays the lines on one track (`chapter.wav`, each followed by `beat_pad`), writing
+  `timing.json` (every line and word with its time on the track); `agent/narrated.py` is all the video agent's scene
+  is given (`NarratedScene`: the voice as its sound, `word`, `phrase`, `wait_until`, `wait_until_end`);
+  `tools/agent_tools.py` renders the agent's scene at 30 fps (`render`), cuts frames and sheets from it (`frames`,
+  `sheet`) and exports it as the phone plays it, with the web player's geometry and the phone's frames compared with
+  the render's (`phone`).

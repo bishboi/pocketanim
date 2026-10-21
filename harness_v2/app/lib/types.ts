@@ -88,6 +88,7 @@ export type Options = {
   svgModel?: string;
   manimModel?: string;
   mapModel?: string;
+  videoModel?: string;
   effort: "low" | "medium" | "high" | "off";
   /** The writer's reasoning (it writes each lecture as its script: longer thinking): "high" by default. */
   writerEffort?: "low" | "medium" | "high" | "off";
@@ -123,6 +124,9 @@ export type Run = {
   voice?: VoiceState;
   /** The Lab tab: beat scripts written or picked to try an animation with the voice, apart from the lectures. */
   lab?: LabState;
+  /** The video (lib/video.ts, the default flow): each chapter spoken from its transcript, its words aligned, and its
+   * video built by the video agent in free Manim, played as the phone plays it. */
+  video?: VideoState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -601,3 +605,85 @@ export type ChapterScript = {
   chapter: { title: string; narration?: string; map?: boolean;
     beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string }[] };
 };
+
+/** The video step's settings (the voice's own are run.voice.settings). */
+export type VideoSettings = {
+  /** The video agent's model (the video role) and the image model it draws pictures with. */
+  model?: string;
+  imageModel?: string;
+  /** Most turns a chapter's agent may take. */
+  turns?: number;
+  /** The look to build in: a screenshot of how the visuals look (a file), and words about it. */
+  style?: string;
+  styleNote?: string;
+};
+
+/** One thing the video agent did: its words, a tool it called and what came back (and any pictures it was shown). */
+export type VideoStep = {
+  turn: number;
+  kind: "think" | "tool" | "finish" | "error";
+  tool?: string;
+  call?: string;
+  text?: string;
+  args?: Record<string, unknown>;
+  /** What the tool answered, as the agent read it. */
+  result?: string;
+  ok?: boolean;
+  /** Pictures shown to the agent (frames, a sheet, a picture it made), as URLs. */
+  images?: string[];
+  video?: string;
+  seconds?: number;
+  at: number;
+};
+
+/** A chapter's narration: spoken from its transcript lines, every word aligned (engine/tools/chapter_voice.py). */
+export type ChapterNarration = {
+  status: "running" | "done" | "failed";
+  at: number;
+  ended?: number;
+  engine?: string;
+  seconds?: number;
+  /** Where the word times came from: the voice, Whisper, an estimate, or a mix. */
+  source?: string;
+  lines?: number;
+  spoken?: number;
+  cost?: number;
+  track?: string;
+  error?: string;
+  progress?: { phase: string; done: number; total: number };
+};
+
+/** The video agent's run on a chapter. */
+export type ChapterAgent = {
+  status: "running" | "done" | "failed" | "stopped";
+  model: string;
+  imageModel: string;
+  note?: string;
+  started: number;
+  ended?: number;
+  turns: number;
+  cost: number;
+  steps: VideoStep[];
+  summary?: string;
+  error?: string;
+};
+
+/** The chapter's video as the phone plays it: the program, its geometry for the web player, its narration. */
+export type ChapterBuild = {
+  at: number;
+  ir: string;
+  assets: string;
+  audio?: string;
+  /** The Manim video it was checked against. */
+  video?: string;
+  seconds: number;
+  bytes: number;
+  tier: number;
+  blockers: string[];
+  /** The phone's frames against Manim's: how many compared and those that differ. */
+  check?: { ok: boolean | null; frames: number; differ: { t: number; mean: number; differ: number }[] };
+};
+
+export type ChapterVideo = { lecture: number; chapter: number; narration?: ChapterNarration; agent?: ChapterAgent; build?: ChapterBuild };
+
+export type VideoState = { settings: VideoSettings; chapters: Record<string, ChapterVideo> };

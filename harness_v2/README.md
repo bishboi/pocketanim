@@ -28,16 +28,12 @@ Once the transcript is written, each chapter becomes a video in three steps, on 
 | 2. Alignment | Every word's time: the voice's own (ElevenLabs), else Whisper here, else an estimate (said so). The lines are laid on one track (`chapter.wav`), each with the pause the voice left after it, and every line and word gets its time on that track (`timing.json`). | none |
 | 3. The video agent | The **video agent** (the Video agent role, `V2_VIDEO_MODEL`) builds the chapter's whole video in free Manim, as a coding agent builds a program: nothing is given to it but the narration (every line and word with its time, and the voice), a **screenshot of the look** wanted (the default is a Vox-like chapter, `engine/agent/style-vox.jpg`; choose another on the tab, with words about it), and a workspace. No primitives, templates or layouts. It works in turns with tools: write, edit, read and list its files; a shell in its workspace (`V2_VIDEO_AGENT_SHELL=off` turns it off); **render** (Manim at 30 fps); **look** (frames of the render at chosen times, or a sheet of them, shown to it); **make_image** (the image model draws into `assets/`, at most `V2_VIDEO_AGENT_IMAGES`, 12); **phone_check**; and **finish**. Its scene subclasses `NarratedScene` (`engine/agent/narrated.py`), which only adds the voice and tells it the time (`self.word(n, "Japan")`, `self.wait_until(t)`). At most `V2_VIDEO_AGENT_TURNS` (60) turns, or the tab's own number. | 1 per turn (+1 per picture) |
 
-**Every render is audited** (`engine/agent/audit.py`, installed before the scene runs): stretches of more than 8 s with
-nothing moving, an empty screen for more than 3 s, words outside the frame or on top of other words, and which
-animations it used, with the share of FadeIn/FadeOut. The render's answer to the agent lists what to fix, and
-**finish** is also refused until the audit lists nothing: fades at most 60% of the animations
-(`V2_VIDEO_AGENT_FADE_SHARE`), since a chapter of fades plays as a slideshow. The agent's instructions say how a good
-explainer moves (stages that evolve, things drawn, grown, moved and transformed, zooms, staggered reveals, labels
-attached to what they name), and its workspace has a chapter built that way to read (`reference/vox_example.py`).
-It reasons at its own effort (**Agent reasoning** on the tab, high by default, not the run's effort), with room for a
-whole scene in one reply (`V2_VIDEO_AGENT_MAX_TOKENS`, 32,000). Its model is `V2_VIDEO_MODEL` (else
-`V2_MANIM_MODEL`, else `OPENROUTER_MODEL`): set it to the strongest coding model you can.
+**Every render also says what it measured** (`engine/agent/audit.py`, installed before the scene runs): the
+animations used, stretches with nothing moving or nothing on screen, words outside the frame or on other words. It is
+information for the agent, not a rule. Its workspace has a chapter built in this setup to look at if it wants
+(`reference/vox_example.py`). It reasons at its own effort (**Agent reasoning** on the tab, high by default, not the
+run's effort), with room for a whole scene in one reply (`V2_VIDEO_AGENT_MAX_TOKENS`, 32,000). Its model is
+`V2_VIDEO_MODEL` (else `V2_MANIM_MODEL`, else `OPENROUTER_MODEL`).
 
 **The one hard rule is the phone.** The chapter is shipped as the program the phone plays, not as an MP4, and it must
 play exactly as Manim drew it: `phone_check` exports the scene (faithfully: every play recorded as Manim draws it,

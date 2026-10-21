@@ -32,7 +32,8 @@ export type Call = {
   usage?: { input: number; output: number; cached?: number; reasoning?: number };
   cost: number;
   /** "openrouter" for a real call, "fixture" for the offline stand-in (no key). */
-  provider: "openrouter" | "fixture";
+  /** "openai": OpenAI's own API, for an OpenAI model when OPENAI_API_KEY is set (the video agent). */
+  provider: "openrouter" | "fixture" | "openai";
   error?: string;
   checks: Check[];
   /** Pictures sent with the prompt (a figure to describe), as URLs the page can show. */

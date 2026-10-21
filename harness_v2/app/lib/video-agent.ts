@@ -25,6 +25,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { callImage } from "./images";
 import { usingFixture } from "./llm";
+import { respond, useOpenAI } from "./openai-responses";
 import { engineDir } from "./maps";
 import { pythonPath, runPython } from "./manim";
 import { part } from "./prompts/parts";
@@ -142,7 +143,7 @@ function narrationText(t: Timing): string {
   return rows.join("\n");
 }
 
-type Msg = { role: "system" | "user" | "assistant" | "tool"; content: unknown; tool_calls?: unknown[]; tool_call_id?: string };
+type Msg = { role: "system" | "user" | "assistant" | "tool"; content: unknown; tool_calls?: unknown[]; tool_call_id?: string; _openai?: unknown[] };
 type ToolCall = { id: string; function: { name: string; arguments: string } };
 type Fake = { text?: string; calls: { name: string; args: Record<string, unknown> }[] };
 
@@ -156,15 +157,17 @@ function safeJson(text: string): Record<string, unknown> {
 }
 
 type Live = { text: string; reasoning: string; tools: string[] };
-type Answer = { text?: string; reasoning?: string; calls: ToolCall[] };
+/** `output`: an OpenAI answer's own items (its encrypted reasoning with them), sent back with the next turn. */
+type Answer = { text?: string; reasoning?: string; calls: ToolCall[]; output?: unknown[] };
 
 /**
  * One turn of the model: the conversation, the tools; what it said, its reasoning, and the tools it called. Streamed,
  * so the page sees the turn as it is written (`onLive`, called as the words, the reasoning and the tool calls come).
  */
 async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void): Promise<Answer | null> {
-  call.provider = usingFixture(call.model) ? "fixture" : "openrouter";
-  const body = { model: call.model, messages, tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
+  // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
+  call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
+  const body = { model: call.model, messages: messages.map(({ _openai, ...m }) => (void _openai, m)), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
     ...(call.effort && call.effort !== "off" ? { reasoning: { effort: call.effort } } : {}) };
   // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
   call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
@@ -172,7 +175,11 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
     const began = Date.now();
     try {
       let out: Answer;
-      if (call.provider === "fixture") {
+      if (call.provider === "openai") {
+        const r = await respond({ model: call.model, messages, tools: TOOLS as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive });
+        call.usage = r.usage;
+        out = { text: r.text, reasoning: r.reasoning, calls: r.calls, output: r.output };
+      } else if (call.provider === "fixture") {
         const f = fake();
         // As a real turn streams: its words a few at a time.
         const words = (f.text ?? "").split(/(?<=\s)/);
@@ -631,7 +638,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       // The turn itself: what it said and thought, what the model call took.
       step({ turn: k, kind: "think", call: call.id, text: answer.text?.trim().slice(0, 4000), reasoning: answer.reasoning?.trim().slice(0, 8000),
         ms: Date.now() - asked, cost: call.cost, tokens: call.usage ? { input: call.usage.input, output: call.usage.output, reasoning: call.usage.reasoning } : undefined });
-      messages.push({ role: "assistant", content: answer.text ?? "", tool_calls: answer.calls.map((t) => ({ id: t.id, type: "function", function: t.function })) });
+      messages.push({ role: "assistant", content: answer.text ?? "", tool_calls: answer.calls.map((t) => ({ id: t.id, type: "function", function: t.function })),
+        ...(answer.output ? { _openai: answer.output } : {}) });
       if (!answer.calls.length) {
         messages.push({ role: "user", content: "Use a tool: carry on building, or finish once phone_check has passed." });
         continue;

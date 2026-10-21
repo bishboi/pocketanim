@@ -33,7 +33,11 @@ animations used, stretches with nothing moving or nothing on screen, words outsi
 information for the agent, not a rule. Its workspace has a chapter built in this setup to look at if it wants
 (`reference/vox_example.py`). It reasons at its own effort (**Agent reasoning** on the tab, high by default, not the
 run's effort), with room for a whole scene in one reply (`V2_VIDEO_AGENT_MAX_TOKENS`, 32,000). Its model is
-`V2_VIDEO_MODEL` (else `V2_MANIM_MODEL`, else `OPENROUTER_MODEL`).
+`V2_VIDEO_MODEL` (else `V2_MANIM_MODEL`, else `OPENROUTER_MODEL`). An OpenAI model (`openai/...`) is called on
+**OpenAI's own Responses API** when `OPENAI_API_KEY` is set (`app/lib/openai-responses.ts`), not through OpenRouter:
+its reasoning comes back encrypted and is sent back with every turn (nothing is stored at OpenAI), so it keeps its
+thread of thought through the whole build, and summaries of it stream to the page; the call says `openai` as its
+provider. Any other model, or no key, goes through OpenRouter as before.
 
 **The one hard rule is the phone.** The chapter is shipped as the program the phone plays, not as an MP4, and it must
 play exactly as Manim drew it: `phone_check` exports the scene (faithfully: every play recorded as Manim draws it,

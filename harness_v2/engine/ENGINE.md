@@ -13,7 +13,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 
 - `free_check.image(name, height, width, labels)`: in a Manim block, a picture the v2 Manim agent made, by its name,
   read from the JSON registry `PANIM_BLOCK_IMAGES` names (name to file); a labelled stand-in frame when it is missing.
-- `tools/export_scene.py`, `tools/scene_ir.py`, `tools/layout_guard.py`: copies of v1's `harness/scripts/` ones, with this
+- `tools/export_scene.py`, `tools/scene_ir.py`: copies of v1's `harness/scripts/` ones, with this
   engine on the path instead of v1's (the repo's `dsl/` and `exporter/` are used as they are): a compiled scene recorded
   into the program the phone plays, and expanded into the geometry v1's web player draws.
 - `espeak_tts.py`: an offline voice (`PANIM_TTS=espeak`, espeak-ng), registered in `tts.py`: free and robotic, for
@@ -86,3 +86,17 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   style's words (`LOOKS`, "like a plate in a good textbook") and the motion looks' (`PICTURE_WORDS`) are gone; the
   scene writer and the Manim agent are told the style of each picture is theirs. A "child" art keeps its crayon
   drawing (the board draws it on).
+- **Manim plays as Manim on the phone (faithful export).** A free-form scene (one not drawn by `pocket_lecture`) is
+  exported with `PANIM_FAITHFUL=1` (`dsl/export_dsl.py`): every play recorded as Manim draws it, frame by frame
+  (a baked clip), never guessed at as verbs; the clock moved as Manim's render moves it (in whole frames, so a scene
+  that reads `self.renderer.time` to wait for a word waits the same in both); each play's length written so the
+  players count exactly Manim's frames; a clip's parts drawn in Manim's order (by `z_index`, stably), and what was
+  above the lowest part that changed taken into the clip and put back in order after it. The scene file is never
+  changed: the exporter prepares a copy beside it and removes it. v1's label pass (`layout_guard.py`) is gone: it
+  moved text a scene placed itself. Measured on a 140 s chapter written freely (`review/agent-trial/`): 128 plays,
+  every one the same number of frames as Manim's video, and the phone's frames within antialiasing of the video's;
+  the one difference left is a thing added or removed between two plays, which the phone shows a frame (33 ms)
+  later.
+- `tools/phone_check.py <build> <Scene> <video.mp4|-> <out> <t>...`: the phone's frames (the program played by
+  `dsl/interpret.py`, drawn by `exporter/reference_render.py`, the oracle the Kotlin and Swift players are held to)
+  beside the Manim video's at the same frames, with how far apart each pair is and whether it is within the limit.

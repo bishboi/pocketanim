@@ -17,6 +17,10 @@ Two things the CLI in `dsl/export_dsl.py` does that a harness cannot live with:
   scene is honest about falling to tier 3, and an empty list with tier 1 is the
   only combination that means the program is faithful.
 
+The scene file itself is never changed: its playback is prepared in a copy beside it, removed afterwards. A
+free-form scene (not drawn by a lecture engine) is recorded faithfully: every play as Manim draws it, frame by
+frame, so the phone and the web player show what the Manim video shows.
+
 Usage:
     python harness_v2/engine/tools/export_scene.py <scene.py> <SceneClass> <out_dir>
 """
@@ -43,43 +47,10 @@ import nolatex  # noqa: E402
 nolatex.install()
 
 
-FIXED_LAYOUT = re.compile(
-    r"^\s*#\s*panim:\s*fixed-layout\b|^\s*def beat\(self|^from\s+pocket_lecture\s+import",
-    re.M,
-)
-
-
-
 def _made_pictures() -> dict:
     """What the image model made in this process (genimage.MADE), as {count, usd, items}."""
     made = [m for m in (getattr(sys.modules.get("genimage"), "MADE", None) or []) if m.get("made")]
     return {"count": len(made), "usd": round(sum(float(m.get("usd") or 0) for m in made), 6), "items": made}
-
-def _install_layout(scene_file: Path) -> None:
-    """Run the label pass before this scene is imported for export.
-
-    The exporter patches ``Scene.play`` and then imports the file, so the
-    import itself is what installs the pass. Corpus scenes never come through
-    here, and a scene that already installed it is left alone.
-    """
-    source = scene_file.read_text()
-    if "layout_guard" in source:
-        return
-    # A lecture engine lays out its own panel, captions and labels on a grid
-    # it computes; the guard is for placements a model guessed. Run over a
-    # designed layout it shrank panel titles and pushed stacked facts apart.
-    if FIXED_LAYOUT.search(source):
-        return
-    guard = Path(__file__).with_name("layout_guard.py")
-    preamble = (
-        "import importlib.util as _layout_util\n"
-        f"_layout_spec = _layout_util.spec_from_file_location('layout_guard', {str(guard)!r})\n"
-        "_layout_mod = _layout_util.module_from_spec(_layout_spec)\n"
-        "_layout_spec.loader.exec_module(_layout_mod)\n"
-        "_layout_mod.install()\n"
-    )
-    scene_file.write_text(preamble + source)
-
 
 def _concrete_scenes(source: str) -> list[str]:
     """Scene classes that actually draw something.
@@ -440,14 +411,22 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
     scene_file = scene_file.resolve()
 
     previous = Path.cwd()
+    prepared = None
     os.chdir(out_dir)
     try:
         share_caches()
         chunk = os.environ.get("PANIM_CHUNK")
         if not chunk:
-            # A window's build finds the scene prepared by the build that started it (and must not write it
-            # while the other windows read it).
-            _install_layout(scene_file)
+            # The scene is prepared in a copy beside it (its own folder, so its relative paths and imports hold),
+            # never in the file itself; a window's build is handed that copy.
+            source = scene_file.read_text()
+            scene_file = scene_file.with_name(f"_panim_export_{scene_file.stem}.py")
+            scene_file.write_text(source)
+            prepared = scene_file
+            # A free-form scene (not one of the lecture engines) plays on the phone as Manim draws it: every play
+            # recorded frame by frame (dsl/export_dsl.py faithful), not guessed at as verbs.
+            if "pocket_lecture" not in source and "PANIM_FAITHFUL" not in os.environ:
+                os.environ["PANIM_FAITHFUL"] = "1"
             scene_class = _prepare_playback(scene_file, scene_class)
         window = tuple(int(x) for x in chunk.split(":")) if chunk else None
         joined = None
@@ -550,6 +529,8 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
         return result
     finally:
         os.chdir(previous)
+        if prepared is not None:
+            prepared.unlink(missing_ok=True)
 
 
 def _where(error: BaseException, scene_file: str) -> str:

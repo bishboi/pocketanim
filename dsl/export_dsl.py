@@ -435,6 +435,40 @@ def z_order(mob) -> float:
     return max(values) if values else float(getattr(mob, "z_index", 0) or 0)
 
 
+def _frames(duration: float) -> int:
+    """The frames Manim draws for a moving play: one per step of np.arange(0, d, 1/fps)."""
+    import numpy as np
+
+    return len(np.arange(0, duration, 1 / PROGRAM_FPS)) if duration > 0 else 0
+
+
+def _seconds(duration: float, kind: str) -> str:
+    """A play's length as the program writes it. Faithful (PANIM_FAITHFUL=1), written so the players count exactly the
+    frames Manim drew for it, whatever rounding the number goes through: Manim draws a still wait int(d/dt) frames
+    and a moving play ceil(d/dt), and the players count a `wait` with int and a `run` with ceil, so the number is
+    written a quarter frame inside that count. `kind`: "still" (a still wait), "moving" (a play written as a wait,
+    nothing having changed) or "run"."""
+    if os.environ.get("PANIM_FAITHFUL") != "1":
+        return f"{duration:g}"
+    frames = int(duration / (1 / PROGRAM_FPS)) if kind == "still" else _frames(duration)
+    if frames <= 0:
+        return "0"
+    return f"{(frames - 0.25 if kind == 'run' else frames + 0.25) / PROGRAM_FPS:.6g}"
+
+
+def _drawn_z(mob) -> list[float]:
+    """The z_index of each member snapshot_family draws, in its order (images and point-less members left out)."""
+    out = []
+    for sub in mob.get_family():
+        if type(sub).__name__ in ("ImageMobject", "AbstractImageMobject"):
+            continue
+        points = getattr(sub, "points", None)
+        if points is None or len(points) < 4:
+            continue
+        out.append(float(getattr(sub, "z_index", 0) or 0))
+    return out
+
+
 def _colour_text(value) -> str:
     text = str(value).upper()
     if hasattr(value, "to_hex"):
@@ -1023,6 +1057,14 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     return True
         return False
 
+    def faithful(animations) -> bool:
+        """PANIM_FAITHFUL=1: every play recorded as Manim draws it, frame by frame, instead of written as verbs.
+        A free-form scene then plays on the phone exactly as in Manim, whatever it animates; only a plain wait (no
+        updater runs during it, so nothing on stage changes) stays a hold."""
+        if os.environ.get("PANIM_FAITHFUL") != "1":
+            return False
+        return not all(type(a).__name__ == "Wait" for a in animations)
+
     def asks_to_bake(animations) -> bool:
         """An animation marked _panim_bake (or one inside a group so marked): the lecture engine's camera moves,
         which move parts nested inside a picture already on stage, where verbs would draw a moved copy over it."""
@@ -1127,7 +1169,8 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             scene_.compile_animation_data(*args, **kw)
             scene_.begin_animations()
             duration = float(scene_.duration)
-            count = int(_math.ceil(duration * PROGRAM_FPS - 1e-9)) if duration > 0 else 0
+            count = (_frames(duration) if os.environ.get("PANIM_FAITHFUL") == "1"
+                     else int(_math.ceil(duration * PROGRAM_FPS - 1e-9)) if duration > 0 else 0)
             mid_play["count"] = count
             for k in range(1, count + 1):
                 scene_.update_to_time(duration * k / count)
@@ -1136,7 +1179,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 animation.finish()
                 animation.clean_up_from_scene(scene_)
             scene_.update_mobjects(0)
-            renderer.time += duration
+            advance(renderer, scene_)
             renderer.num_plays += 1
             timing["t"] = duration
 
@@ -1164,10 +1207,21 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             if key not in member_ids and any(key not in {id(m) for m, _ in row} for row in frames):
                 member_ids.add(key)
                 members.append(mob)
+        if members and os.environ.get("PANIM_FAITHFUL") == "1":
+            # Faithful: the players draw in the order things were put on stage, Manim in the stage's order. So the
+            # clip also takes everything above the lowest thing that changed (drawn as it stood), and all of it is
+            # put back on stage afterwards in Manim's order: a part that changed under a label stays under it.
+            before = list(pre)
+            lowest = min((before.index(key) for key in member_ids if key in before), default=None)
+            if lowest is not None:
+                for key in before[lowest:]:
+                    if key not in member_ids:
+                        member_ids.add(key)
+                        members.append(pre[key][0])
         if not members:
             # Nothing on stage changed (an updater that holds still, a tracker nothing reads): a hold.
             if duration > 0:
-                rec.timeline.append(f"wait t={duration:g}")
+                rec.timeline.append(f"wait t={_seconds(duration, 'moving')}")
             rec.flush(at=emitted_before)
             return result
 
@@ -1182,6 +1236,21 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         atlas = Atlas()
         records = []
         slots: dict = {}
+        if os.environ.get("PANIM_FAITHFUL") == "1":
+            # Faithful: the clip draws its parts as Manim does, every drawn member sorted by its z_index (stably,
+            # in the stage's order), so a caption at z=50 stays over a map that moves under it.
+            seen: list = []
+            for row in frames:
+                for mob, snap in row:
+                    if id(mob) not in member_ids:
+                        continue
+                    entries = snap if snap is not None else pre[id(mob)][2]
+                    zs = _drawn_z(mob)
+                    for index in range(len(entries)):
+                        if (id(mob), index) not in slots:
+                            slots[(id(mob), index)] = None
+                            seen.append(((id(mob), index), zs[index] if index < len(zs) else 0.0))
+            slots = {key: k for k, (key, _) in enumerate(sorted(seen, key=lambda item: item[1]))}
         last_atlas: dict = {}
         previous = None
         for row in frames:
@@ -1196,6 +1265,9 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     atlas_id, transform = atlas.resolve(array, last_atlas.get(slot))
                     last_atlas[slot] = atlas_id
                     current[slot] = Instance(atlas_id, transform, fill, stroke, width)
+            if os.environ.get("PANIM_FAITHFUL") == "1":
+                # A snapshot draws in the order it lists its instances: the slots' (Manim's) order.
+                current = dict(sorted(current.items()))
             if previous is None or current.keys() != previous.keys():
                 records.append((REC_SNAPSHOT, current))
             else:
@@ -1232,7 +1304,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 name = rec.names.get(id(sub))
                 if name and rec.declared(name) and f"hide {name}" not in lines:
                     lines.append(f"hide {name}")
-        lines.append(f"run {clip} t={duration:g}")
+        lines.append(f"run {clip} t={_seconds(duration, 'run')}")
         rec.timeline.extend(lines)
         rec.flush(at=emitted_before)
         # Afterwards: the clip off, each member that stayed declared anew in its final state.
@@ -1255,6 +1327,10 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                         rec.timeline.append(f"hide {name}")
             member_ids.add(id(mob))
             members.append(mob)
+        if os.environ.get("PANIM_FAITHFUL") == "1":
+            # Put back in the stage's order (see above), not the order the clip first saw them in.
+            rank = {id(m): k for k, m in enumerate(entries)}
+            members.sort(key=lambda m: rank.get(id(m), len(rank)))
         for mob in members:
             if id(mob) not in final:
                 continue
@@ -1280,7 +1356,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         emitted_before = len(rec.timeline)
         blockers_before = len(rec.blockers)
         pending_before = list(rec.pending)
-        if can_bake(self) and (asks_to_bake(given) or has_updaters(self, given)):
+        if can_bake(self) and (asks_to_bake(given) or has_updaters(self, given) or faithful(given)):
             return bake(self, given, kwargs, emitted_before)
         flat = []
         sequential = False
@@ -1314,7 +1390,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 if state["spin_rate"] is not None:
                     rec.timeline.append(f"spin rate={state['spin_rate']:g} about={state.get('spin_about', 'theta')} t={duration:g}")
                 else:
-                    rec.timeline.append(f"wait t={duration:g}")
+                    rec.timeline.append(f"wait t={_seconds(duration, 'still')}")
                 continue
 
             animation_blockers(anim)
@@ -2207,9 +2283,26 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
     # thousands of those steps.
     original_cairo_play = CairoRenderer.play
 
+    def advance(renderer, scene) -> None:
+        """Move the renderer's clock past a play. Faithful (PANIM_FAITHFUL=1), as Manim's own render does it: in
+        whole frames (a still wait int(d/dt) of them, a moving play one per step of np.arange(0, d, dt)), so a scene
+        that reads `self.renderer.time` to place its next animation (on a word) sees the clock its video had, and
+        the program stays frame for frame with it. Otherwise by the play's length, as the exporter always has."""
+        duration = float(scene.duration)
+        if os.environ.get("PANIM_FAITHFUL") != "1":
+            renderer.time += duration
+            return
+        dt = 1 / PROGRAM_FPS
+        if scene.is_current_animation_frozen_frame():
+            renderer.time += int(duration / dt) * dt
+        else:
+            # One frame's time added per frame drawn, as add_frame does: the same float, to the last bit.
+            for _ in range(_frames(duration)):
+                renderer.time += dt
+
     def fast_play(self, scene, *args, **kwargs):
         scene.compile_animation_data(*args, **kwargs)
-        self.time += scene.duration
+        advance(self, scene)
         scene.begin_animations()
         for animation in scene.animations:
             animation.finish()

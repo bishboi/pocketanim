@@ -617,6 +617,9 @@ export type VideoSettings = {
   /** How hard the agent's model reasons each turn (high by default: it plans and writes a whole chapter's motion). A
    * level the model does not take falls back to high. */
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | "off";
+  /** lean: the agent only writes its scene (each write rendered and checked on the phone) and looks at frames; agent:
+   * every tool (files, shell, renders of sections, kit previews, pictures). */
+  mode?: "lean" | "agent";
   /** The look to build in: a screenshot of how the visuals look (a file), and words about it. */
   style?: string;
   styleNote?: string;

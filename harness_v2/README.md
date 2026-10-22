@@ -54,6 +54,14 @@ its reasoning comes back encrypted and is sent back with every turn (nothing is 
 thread of thought through the whole build, and summaries of it stream to the page; the call says `openai` as its
 provider. Any other model, or no key, goes through OpenRouter as before.
 
+**Two modes** (the Video tab's "Agent tools", `V2_VIDEO_AGENT_MODE`). **lean** (the default): the agent only writes
+its scene. Its tools are `write_scene` (the whole `scene.py`), `edit_scene` (several replacements in one call), `look`
+(frames at given times, as one picture) and `finish`; every write or edit renders the whole chapter (draft) and checks it
+on the phone in the same turn, so it sees the sheet, the measurements and the phone's verdict (or the error) without a
+turn of its own. No shell, no other files, no image model; the kit's whole catalog (`KIT.md`) is in its instructions
+(fixed, so cached); a scene from an earlier build is put in its first message; finishing renders the video once more at
+full size. At most 20 turns unless set. **agent**: every tool below, at most 60 turns.
+
 **Cost and speed.** The conversation is only ever added to, never edited, so the provider's prompt cache keeps
 everything before the last turn. Every turn of a build goes to the same cache: on OpenAI's API one `prompt_cache_key`
 for the chapter; on OpenRouter the build is pinned to one provider (each provider has its own cache, and a turn sent to
@@ -62,7 +70,7 @@ by default the model's maker for OpenAI's and Anthropic's models; Anthropic's mo
 instructions and the latest message), which they need to cache at all. The first message says what is installed (the
 fonts, the Python, the Natural Earth files, from `agent_tools.py facts`), so no turns go on looking. Pictures are sent once: a turn's pictures ride on one message with the next request
 and are a one-line note in every request after (it looks again if it needs to); frames are 640 px wide
-(`V2_VIDEO_AGENT_FRAME_WIDTH`), and `look` takes `detail: "low"` for a cheap glance. Once a request passes
+(`V2_VIDEO_AGENT_FRAME_WIDTH`), and `look` takes `detail: "low"` for a cheap glance. Frames `look` asks for come as one picture, each stamped with its time. Once a request passes
 `V2_VIDEO_AGENT_COMPACT_TOKENS` (150,000; with the cache a long build is still cheap, and condensing early costs turns of
 re-reading) the conversation is condensed, with no model call, to the instructions, the
 chapter and a summary of what was done (every tool call and its outcome, what it last said, its files, the last render

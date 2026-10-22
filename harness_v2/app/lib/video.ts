@@ -67,12 +67,13 @@ export function chapterLines(run: Run, n: number, c: number): string[] {
 }
 
 /** The settings the agent runs with, filled from the run's options and the environment. */
-export function settingsOf(run: Run): Required<Pick<VideoSettings, "model" | "imageModel" | "turns" | "style" | "effort">> & VideoSettings {
+export function settingsOf(run: Run): Required<Pick<VideoSettings, "model" | "imageModel" | "turns" | "style" | "effort" | "mode">> & VideoSettings {
   const s = videoOf(run).settings;
   // Its own reasoning, not the run's (a run is often started with effort off, for the transcript's sake).
   const effort = s.effort || ((process.env.V2_VIDEO_AGENT_EFFORT || process.env.PANIM_MANIM_REASONING_EFFORT)?.trim().toLowerCase() as VideoSettings["effort"]) || "high";
-  return { ...s, effort, model: s.model || run.options.videoModel || modelFor("video"), imageModel: s.imageModel || run.options.imageModel || modelFor("image"),
-    turns: s.turns || Math.max(4, Number(process.env.V2_VIDEO_AGENT_TURNS) || 60), style: s.style && existsSync(s.style) ? s.style : DEFAULT_STYLE() };
+  const mode = s.mode || (process.env.V2_VIDEO_AGENT_MODE?.trim().toLowerCase() === "agent" ? "agent" : "lean");
+  return { ...s, effort, mode, model: s.model || run.options.videoModel || modelFor("video"), imageModel: s.imageModel || run.options.imageModel || modelFor("image"),
+    turns: s.turns || Math.max(4, Number(process.env.V2_VIDEO_AGENT_TURNS) || (mode === "lean" ? 20 : 60)), style: s.style && existsSync(s.style) ? s.style : DEFAULT_STYLE() };
 }
 
 /** 1. The chapter spoken from its lines and every word aligned: timing.json and chapter.wav in its workspace. */
@@ -132,7 +133,7 @@ export async function timingOf(runId: string, n: number, c: number): Promise<Tim
 }
 
 export type VideoAction =
-  | { action: "settings"; model?: string; imageModel?: string; turns?: number; effort?: VideoSettings["effort"]; styleNote?: string; style?: string | null }
+  | { action: "settings"; model?: string; imageModel?: string; turns?: number; effort?: VideoSettings["effort"]; mode?: VideoSettings["mode"]; styleNote?: string; style?: string | null }
   | { action: "narrate"; lecture: number; chapter: number }
   | { action: "build"; lecture: number; chapter: number; note?: string }
   | { action: "all"; lecture: number; note?: string }
@@ -173,6 +174,7 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
     if (a.turns !== undefined) vs.settings.turns = Math.max(4, Math.min(300, Math.round(a.turns))) || undefined;
     if (a.styleNote !== undefined) vs.settings.styleNote = a.styleNote.trim() || undefined;
     if (a.effort) vs.settings.effort = a.effort;
+    if (a.mode === "lean" || a.mode === "agent") vs.settings.mode = a.mode;
     if (a.style === null) vs.settings.style = undefined;
     else if (a.style) vs.settings.style = await saveStyle(id, a.style);
     saveRun(run, true);

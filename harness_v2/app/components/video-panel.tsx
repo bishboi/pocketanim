@@ -120,6 +120,14 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
               <input className="w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={imageModel} placeholder={defaults.imageModel}
                 onChange={(e) => setImageModel(e.target.value)} onBlur={() => imageModel !== (vset.imageModel ?? "") && void act({ action: "settings", imageModel })} />
             </label>
+            <label className="flex flex-col gap-1" title="lean: it only writes its scene (each write rendered and checked on the phone) and looks at frames; far fewer turns. agent: every tool (files, shell, section renders, kit previews, pictures).">
+              <span className="text-neutral-400">Agent tools</span>
+              <select data-testid="video-mode" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={vset.mode ?? "lean"}
+                onChange={(e) => void act({ action: "settings", mode: e.target.value })}>
+                <option value="lean">lean: scene + look</option>
+                <option value="agent">agent: every tool</option>
+              </select>
+            </label>
             <label className="flex flex-col gap-1">
               <span className="text-neutral-400">Agent reasoning</span>
               <select data-testid="video-effort" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={vset.effort ?? "high"}
@@ -129,7 +137,7 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-neutral-400">Turns at most</span>
-              <input className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={turns} placeholder="60"
+              <input className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={turns} placeholder={(vset.mode ?? "lean") === "lean" ? "20" : "60"}
                 onChange={(e) => setTurns(e.target.value)} onBlur={() => turns !== String(vset.turns ?? "") && void act({ action: "settings", turns: Number(turns) || 0 })} />
             </label>
           </div>

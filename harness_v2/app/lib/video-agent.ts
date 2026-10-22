@@ -94,6 +94,101 @@ const TOOLS = [
     ["summary", "open_issues"]),
 ];
 
+/** NarratedScene's clock, as both modes are told it. */
+const NARRATED_API = [
+  "- narrated.py (in your workspace): `from narrated import NarratedScene`. Subclass it as `class Chapter(NarratedScene)`",
+  "  in scene.py. It adds the voice to the scene and tells you the time; nothing else:",
+  "    self.now                          seconds into the chapter so far",
+  "    self.line(n)                      line n (0-based): {text, start, end, words: [{w, start, end}]}",
+  "    self.word(n, \"Japan\", occurrence=0) when that word is said in line n (matched by its start, case aside)",
+  "    self.phrase(n, \"string of islands\") when that run of words begins in line n",
+  "    self.wait_until(t, lead=0.0)       hold until lead seconds before t (nothing if passed)",
+  "    self.wait_until_end()              hold to the end of the narration; call it last",
+  "  Plays take their run_time; between them, wait_until the next word. Start an animation a little before its word",
+  "  (lead 0.1-0.3) so it lands as the word is said.",
+];
+
+/** What the phone can play, as both modes are told it. */
+const PHONE_RULES = [
+  "THE ONE HARD RULE: THE PHONE",
+  "The video is not shipped as an MP4. The phone (and the web player) play the scene as a program recorded from Manim, and",
+  "it must look exactly as Manim drew it. Every play is recorded as Manim draws it, frame by frame, so almost anything",
+  "Manim does plays, with these limits:",
+  "- 2D: anything goes, except moving the camera: the phone has no 2D camera, so a moved self.camera.frame",
+  "  (MovingCameraScene) is a blocker in the phone check. Zoom and pan by moving the stage instead (KitScene's cam_to,",
+  "  cam_push, cam_pan, cam_reset do, as a camera would look), or move and scale the mobjects yourself.",
+  "- 3D (ThreeDScene) is only partly supported on the phone: see-through solids lose faces and the web player cannot",
+  "  preview it; prefer 2D.",
+  "- Pictures (PNG, JPG) as ImageMobject are fine. Load files by absolute path: Path(__file__).resolve().parent / \"assets\" / ...",
+  "- Size: every frame of motion costs bytes; a still hold costs nothing. Keep the program under about 20 MB for the",
+  "  chapter (phone_check says its size): no endless idle motion, no updaters ticking through long holds, no needless",
+  "  points (simplify map outlines).",
+  "- phone_check must pass before you finish: it exports the scene and compares the phone's frames with the render's.",
+];
+
+/**
+ * The lean mode's tools: the agent only writes its scene and looks at what it makes. Writing or editing renders the
+ * whole chapter and checks it on the phone in the same turn; there is no shell, no other file, no image model.
+ */
+const LEAN_TOOLS = [
+  fn("write_scene", `Write ${SCENE_FILE} whole. It is then rendered (the whole chapter, draft) and checked on the phone in the same turn: you are shown a sheet of frames, what the render measured and whether the phone plays it as Manim drew it, or the error.`, {
+    content: { type: "string", description: "The whole file." } }, ["content"]),
+  fn("edit_scene", `Change parts of ${SCENE_FILE}: each edit replaces \`old\` (which must occur exactly once, or set all) with \`new\`, in order; then it is rendered and checked as write_scene is. Put every change you want into one call: each call renders the whole chapter.`, {
+    edits: { type: "array", items: { type: "object", properties: { old: { type: "string" }, new: { type: "string" }, all: { type: "boolean" } }, required: ["old", "new"] } } },
+    ["edits"]),
+  fn("look", "See the last render closer: frames at the times you give (seconds on the chapter's clock, up to 8), as one picture. Shown to you once.", {
+    times: { type: "array", items: { type: "number" } },
+    detail: { type: "string", enum: ["high", "low"], description: "low: a cheap glance (layout only); high (default): to read text." } }, ["times"]),
+  fn("finish", "The chapter is done. Allowed only when the last render passed the phone check. First look at the video as a viewer would and list honestly what is still wrong with it (open_issues); while turns remain, finishing with open issues sends you back to fix them.", {
+    summary: { type: "string", description: "A few lines: what the video shows, line by line in broad strokes." },
+    open_issues: { type: "array", items: { type: "string" }, description: "What you still see wrong. Empty when nothing is." } },
+    ["summary", "open_issues"]),
+];
+
+function leanRoleText(style: { note?: string; custom: boolean }, turns: number, kit: string): string {
+  return [
+    "You are the video agent of an explainer channel. You build ONE chapter of a narrated lesson as a finished video, in",
+    "Manim Community (Python): you decide what is on screen, how it moves and how it looks, as a motion designer who codes.",
+    "",
+    "WHAT YOU HAVE",
+    "- The narration: the chapter is already spoken; every line and every word with its time (seconds on the chapter's",
+    "  track) is below. The video lasts as long as the narration, and each thing appears or changes on the words that name it.",
+    ...NARRATED_API,
+    `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": six frames of a Vox-like explainer"}). Match its feel: its palette, type,`,
+    "  textures, how labels and highlights look, how busy a frame is. It is a look, not a layout: compose each moment yourself.",
+    ...(style.note ? [`  About the look: ${style.note}`] : []),
+    "- The kit: `from kit import *` gives all of Manim plus building blocks drawn in a look; `class Chapter(KitScene)` is",
+    "  NarratedScene with the look's stage and camera moves. Its whole catalog is at the end of these instructions (the",
+    "  kit_preview tool and the python commands it mentions are not available here). Plain Manim beside it is fine.",
+    "",
+    "HOW IT WORKS",
+    `- You have one file, ${SCENE_FILE}, and three tools. write_scene writes it whole; edit_scene changes parts of it. Each`,
+    "  renders the whole chapter (a draft, about a minute) and checks it on the phone in the same turn: you are shown a",
+    "  sheet of frames stamped with their times, what the render measured (long still or empty stretches, words off the",
+    "  frame or on top of words) and whether the phone plays it as Manim drew it; or the error if it failed.",
+    "- look shows frames of the last render at the times you give, as one picture.",
+    "- finish when it is right. There is no shell and no other file: everything the chapter needs is in the scene.",
+    "",
+    ...PHONE_RULES,
+    "",
+    "HOW TO WORK",
+    "1. Read the narration and plan the chapter's moments in your head: one clear idea on screen at a time; something",
+    "   meaningful changes every few seconds, landing on the words that name it.",
+    "2. Write the whole scene in one write_scene: complete, every line of the narration covered, ending with",
+    "   self.wait_until_end(). The frame is x -7.1..7.1, y -4..4: keep everything inside with a margin; text at least",
+    "   font_size 24; Devanagari in a font that has it (the kit's text() picks one).",
+    "3. Read what comes back: an error first; then the sheet and the measurements. Look closer only where it matters",
+    "   (where things land, where text could overlap or leave the frame).",
+    "4. Fix with edit_scene, every change in one call. Each render costs a minute and each turn costs money: aim to be",
+    "   done in a handful of turns, not dozens.",
+    "5. Finish when the phone check has passed and it looks right; list in open_issues what is still wrong.",
+    `You have at most ${turns} turns. Every reply calls one tool. Say briefly what you are doing as you go.`,
+    "",
+    "THE KIT (KIT.md)",
+    kit,
+  ].join("\n");
+}
+
 function roleText(style: { note?: string; custom: boolean }, turns: number): string {
   return [
     "You are the video agent of an explainer channel. You build ONE chapter of a narrated lesson as a finished video, in",
@@ -104,16 +199,7 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "- The narration: the chapter is already spoken. timing.json in your workspace has every line with its start and end,",
     "  and every word with its own, in seconds on the chapter's track (chapter.wav); they are also below. The video is built",
     "  to the voice: it lasts as long as the narration, and each thing appears or changes on the words that name it.",
-    "- narrated.py (in your workspace): `from narrated import NarratedScene`. Subclass it as `class Chapter(NarratedScene)`",
-    "  in scene.py. It adds the voice to the scene and tells you the time; nothing else:",
-    "    self.now                          seconds into the chapter so far",
-    "    self.line(n)                      line n (0-based): {text, start, end, words: [{w, start, end}]}",
-    "    self.word(n, \"Japan\", occurrence=0) when that word is said in line n (matched by its start, case aside)",
-    "    self.phrase(n, \"string of islands\") when that run of words begins in line n",
-    "    self.wait_until(t, lead=0.0)       hold until lead seconds before t (nothing if passed)",
-    "    self.wait_until_end()              hold to the end of the narration; call it last",
-    "  Plays take their run_time; between them, wait_until the next word. Start an animation a little before its word",
-    "  (lead 0.1-0.3) so it lands as the word is said.",
+    ...NARRATED_API,
     `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": six frames of a Vox-like explainer, a map, an archival collage, a data figure, a document, a timeline and a flow"}). Match its feel: its palette, type,`,
     "  textures, how labels and highlights look, how busy a frame is. It is a look, not a layout: compose each moment yourself.",
     ...(style.note ? [`  About the look: ${style.note}`] : []),
@@ -139,20 +225,7 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "- Tools to write and edit files, render, look at frames, preview kit pieces, make pictures, run commands, and check",
     "  the phone.",
     "",
-    "THE ONE HARD RULE: THE PHONE",
-    "The video is not shipped as an MP4. The phone (and the web player) play the scene as a program recorded from Manim, and",
-    "it must look exactly as Manim drew it. Every play is recorded as Manim draws it, frame by frame, so almost anything",
-    "Manim does plays, with these limits:",
-    "- 2D: anything goes, except moving the camera: the phone has no 2D camera, so a moved self.camera.frame",
-    "  (MovingCameraScene) is a blocker in the phone check. Zoom and pan by moving the stage instead (KitScene's cam_to,",
-    "  cam_push, cam_pan, cam_reset do, as a camera would look), or move and scale the mobjects yourself.",
-    "- 3D (ThreeDScene) is only partly supported on the phone: see-through solids lose faces and the web player cannot",
-    "  preview it; prefer 2D.",
-    "- Pictures (PNG, JPG) as ImageMobject are fine. Load files by absolute path: Path(__file__).resolve().parent / \"assets\" / ...",
-    "- Size: every frame of motion costs bytes; a still hold costs nothing. Keep the program under about 20 MB for the",
-    "  chapter (phone_check says its size): no endless idle motion, no updaters ticking through long holds, no needless",
-    "  points (simplify map outlines).",
-    "- phone_check must pass before you finish: it exports the scene and compares the phone's frames with the render's.",
+    ...PHONE_RULES,
     "",
     "- reference/vox_example.py (plain Manim) and reference/kit_example.py (with the kit) are chapters built in this setup.",
     "",
@@ -254,24 +327,24 @@ function cacheMarks(model: string, messages: Record<string, unknown>[]): Record<
  * One turn of the model: the conversation, the tools; what it said, its reasoning, and the tools it called. Streamed,
  * so the page sees the turn as it is written (`onLive`, called as the words, the reasoning and the tool calls come).
  */
-async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void, cacheKey: string): Promise<Answer | null> {
+async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void, cacheKey: string, tools: typeof TOOLS): Promise<Answer | null> {
   // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
   call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
   const plain = messages.map(({ _openai, ...m }) => (void _openai, m as Record<string, unknown>));
-  const body: Record<string, unknown> = { model: call.model, messages: cacheMarks(call.model, plain), tools: TOOLS,
+  const body: Record<string, unknown> = { model: call.model, messages: cacheMarks(call.model, plain), tools,
     tool_choice: forcedRefused(call.model, call.effort) ? "auto" : "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
     ...providerPin(call.model),
     // Off is asked for: with no reasoning setting, a reasoning model thinks at its own default level.
     // ("default": a model whose reasoning cannot be turned off, at its own level).
     ...(call.effort === "default" ? {} : { reasoning: call.effort && call.effort !== "off" ? { effort: call.effort } : { enabled: false } }) };
   // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
-  call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
+  call.request = { model: call.model, messages: messages.length, tools: tools.map((t) => t.function.name), chars: JSON.stringify(messages).length };
   for (let attempt = 1; attempt <= 3; attempt++) {
     const began = Date.now();
     try {
       let out: Answer;
       if (call.provider === "openai") {
-        const r = await respond({ model: call.model, messages, tools: TOOLS as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive, cacheKey });
+        const r = await respond({ model: call.model, messages, tools: tools as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive, cacheKey });
         call.usage = r.usage;
         if (r.effort) call.effort = r.effort;
         out = { text: r.text, reasoning: r.reasoning, calls: r.calls, output: r.output };
@@ -514,6 +587,22 @@ async function workspaceKey(ws: string): Promise<string> {
   return h.digest("hex");
 }
 
+/** Frames as one picture: 1 across, 2 across up to 4, else 4 across; each stamped with its time in its corner. */
+async function frameSheet(frames: { t: number; file: string }[], out: string): Promise<void> {
+  const cols = frames.length <= 1 ? 1 : frames.length <= 4 ? 2 : 4;
+  const w = cols === 1 ? FRAME_WIDTH : cols === 2 ? 640 : 480;
+  const h = Math.round(w * 9 / 16);
+  const rows = Math.ceil(frames.length / cols);
+  const tiles = await Promise.all(frames.map(async (f, i) => {
+    const stamp = Buffer.from(`<svg width="${w}" height="${h}"><rect width="78" height="26" fill="black"/>` +
+      `<text x="7" y="19" font-family="DejaVu Sans Mono" font-size="16" fill="white">${f.t.toFixed(1)}s</text></svg>`);
+    const tile = await sharp(f.file).resize(w, h, { fit: "contain", background: "#000" }).composite([{ input: stamp, left: 0, top: 0 }]).png().toBuffer();
+    return { input: tile, left: (i % cols) * w, top: Math.floor(i / cols) * h };
+  }));
+  await mkdir(path.dirname(out), { recursive: true });
+  await sharp({ create: { width: cols * w, height: rows * h, channels: 3, background: "#141414" } }).composite(tiles).png().toFile(out);
+}
+
 /** White round a cutout made clear. */
 async function clearWhite(bytes: Buffer): Promise<Buffer> {
   const { data, info } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -523,6 +612,33 @@ async function clearWhite(bytes: Buffer): Promise<Buffer> {
     else if (light > 222) data[i + 3] = Math.round(255 * (238 - light) / 16);
   }
   return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+}
+
+/** The stand-in agent in the lean mode: the scene written (rendered and checked), an edit, a look, finished. */
+function leanScriptedAgent(t: Timing): () => Fake {
+  const scene = [
+    "from kit import *",
+    "",
+    "class Chapter(KitScene):",
+    "    look = \"vox\"",
+    "    def construct(self):",
+    "        for n, line in enumerate(self.lines):",
+    "            self.until(line[\"start\"], lead=0.2)",
+    "            h = headline(\" \".join(w[\"w\"] for w in line[\"words\"][:3]), size=44)",
+    "            self.play(h.appear())",
+    "            self.until(line[\"end\"], lead=0.3)",
+    "            self.play(h.disappear())",
+    "        self.wait_until_end()",
+    "",
+  ].join("\n");
+  const steps: Fake[] = [
+    { text: "Writing the whole scene.", calls: [{ name: "write_scene", args: { content: scene } }] },
+    { text: "Larger headlines.", calls: [{ name: "edit_scene", args: { edits: [{ old: "size=44", new: "size=48" }] } }] },
+    { text: "Looking closer.", calls: [{ name: "look", args: { times: [Math.min(3, t.seconds / 3), t.seconds / 2, t.seconds * 0.8], detail: "low" } }] },
+    { text: "Done.", calls: [{ name: "finish", args: { summary: "Each line's first words as a headline (the stand-in agent: no model key).", open_issues: [] } }] },
+  ];
+  let k = 0;
+  return () => steps[Math.min(k++, steps.length - 1)];
 }
 
 /** The stand-in agent (no key): a plain scene, rendered, looked at, checked on the phone, finished. */
@@ -613,12 +729,16 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   };
 
   const custom = path.resolve(settings.style) !== path.resolve(path.join(engineDir(), "agent", "style-vox.jpg"));
-  const system = roleText({ note: settings.styleNote, custom }, settings.turns);
+  const lean = settings.mode === "lean";
+  const system = lean
+    ? leanRoleText({ note: settings.styleNote, custom }, settings.turns, await readFile(path.join(engineDir(), "agent", "kit", "KIT.md"), "utf8"))
+    : roleText({ note: settings.styleNote, custom }, settings.turns);
   const existing = existsSync(path.join(ws, SCENE_FILE));
   const ask = [
     `Lecture ${n}, chapter ${c}: "${run.script?.lectures[n]?.chapters.find((x) => x.n === c)?.title ?? ""}". Build its video.`,
     `Lesson: ${run.lectures.find((l) => l.n === n)?.title ?? ""}; book: ${run.documentName}.`,
-    existing ? `Your workspace already has a ${SCENE_FILE} from an earlier build: read it, and improve it rather than starting over unless it is wrong.` : "",
+    existing && lean ? `There is already a ${SCENE_FILE} from an earlier build: improve it (edit_scene) rather than starting over unless it is wrong. It is:\n\`\`\`python\n${await readFile(path.join(ws, SCENE_FILE), "utf8")}\n\`\`\`` : "",
+    existing && !lean ? `Your workspace already has a ${SCENE_FILE} from an earlier build: read it, and improve it rather than starting over unless it is wrong.` : "",
     o.note ? `A note from the person you build for: ${o.note}` : "",
     await environmentFacts(ws),
     "",
@@ -632,10 +752,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   await log({ kind: "build", model: settings.model, effort: settings.effort, imageModel: settings.imageModel, note: o.note ?? null, turns: settings.turns });
   await log({ kind: "system", text: system });
   await log({ kind: "user", text: ask, images: styleData ? [path.basename(styleFile)] : [] });
-  const fake = scriptedAgent(timing);
+  const fake = lean ? leanScriptedAgent(timing) : scriptedAgent(timing);
   // One prompt cache for the chapter's whole build.
   const cacheKey = createHash("sha1").update(`video-agent:${run.id}:${n}:${c}`).digest("hex").slice(0, 32);
-  let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit; offset?: number; section?: boolean } = {};
+  let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit; offset?: number; section?: boolean; quality?: string } = {};
   let lastCheck: { ok: boolean; hash?: string; key?: string; result?: Record<string, unknown> } = { ok: false };
   let images = 0;
   let firstPrompt = true;
@@ -719,7 +839,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     await Promise.allSettled([a.render, a.check]);
   };
   const startAhead = async () => {
-    if (!AHEAD || !askedWhole || !existsSync(path.join(ws, SCENE_FILE))) return;
+    if (!AHEAD || lean || !askedWhole || !existsSync(path.join(ws, SCENE_FILE))) return;
     const key = await workspaceKey(ws);
     if (key === renderedKey || ahead?.key === key) return;
     await stopAhead();
@@ -831,7 +951,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         if (!r.ok) return { ok: false, text: `the render failed:\n${r.error}` };
         const audit = (r.audit ?? undefined) as Audit | undefined;
         const offset = Number(r.offset) || 0;
-        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds), audit, offset, section };
+        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds), audit, offset, section, quality };
         const times = (r.sheet_times as number[] | undefined) ?? [];
         if (r.sheet) await show(`The render's sheet: frames at ${times.join(", ")} s`, [String(r.sheet)]);
         const off = Number(r.seconds) - timing.seconds;
@@ -861,15 +981,45 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         const times = Array.isArray(args.times) ? (args.times as unknown[]).map(Number).filter((x) => Number.isFinite(x) && x >= offset).slice(0, 8) : [];
         if (times.length) {
           const r = await tool("frames", [lastRender.video, path.join(ws, "renders", "look"), String(offset), String(FRAME_WIDTH), ...times.map(String)], ws);
-          const files = ((r.frames as { t: number; file: string }[]) ?? []).map((f) => f.file);
-          await show(`Frames at ${times.join(", ")} s${stale}:`, files, detail);
-          return { ok: files.length > 0, text: `${files.length} frame(s) shown${stale}`, images: files.map((f) => fileUrl(run.id, f)) };
+          const frames = (r.frames as { t: number; file: string }[]) ?? [];
+          if (!frames.length) return { ok: false, text: `no frames at those times${stale}` };
+          // One picture of them all, each stamped with its time: one image for the model instead of several.
+          const out = path.join(ws, "renders", "look", `look-${Date.now()}.png`);
+          await frameSheet(frames, out);
+          await show(`Frames at ${frames.map((f) => f.t).join(", ")} s (one picture, each stamped with its time)${stale}:`, [out], detail);
+          return { ok: true, text: `${frames.length} frame(s) shown as one picture${stale}`, images: [fileUrl(run.id, out)] };
         }
         const out = path.join(ws, "renders", `sheet-${Date.now()}.png`);
         const r = await tool("sheet", [lastRender.video, out, String(Number(args.sheet_every) > 0 ? Number(args.sheet_every) : Math.max(0.5, (lastRender.seconds ?? 16) / 16)), String(lastRender.offset ?? 0)], ws);
         if (!r.ok) return { ok: false, text: String(r.error) };
         await show(`A sheet of the render: frames at ${(r.times as number[]).join(", ")} s${stale}:`, [out], detail);
         return { ok: true, text: `sheet shown (${(r.times as number[]).length} frames${stale})`, images: [fileUrl(run.id, out)] };
+      }
+      case "write_scene":
+      case "edit_scene": {
+        const file = path.join(ws, SCENE_FILE);
+        let wrote: string;
+        if (name === "write_scene") {
+          await writeFile(file, String(args.content ?? ""), "utf8");
+          wrote = `wrote ${SCENE_FILE} (${String(args.content ?? "").split("\n").length} lines)`;
+        } else {
+          // Every edit applied in memory first: one that does not fit changes nothing.
+          let text = await readFile(file, "utf8").catch(() => "");
+          const edits = Array.isArray(args.edits) ? args.edits as { old?: string; new?: string; all?: boolean }[] : [];
+          if (!edits.length) return { ok: false, text: "give the edits" };
+          for (const [i, e] of edits.entries()) {
+            const old = String(e.old ?? "");
+            const count = old ? text.split(old).length - 1 : 0;
+            if (!count) return { ok: false, text: `edit ${i + 1}: its old text is not in ${SCENE_FILE} (nothing was changed)` };
+            if (count > 1 && !e.all) return { ok: false, text: `edit ${i + 1}: its old text occurs ${count} times; give more of it, or set all (nothing was changed)` };
+            text = e.all ? text.split(old).join(String(e.new ?? "")) : text.replace(old, () => String(e.new ?? ""));
+          }
+          await writeFile(file, text, "utf8");
+          wrote = `${edits.length} edit${edits.length > 1 ? "s" : ""} made to ${SCENE_FILE}`;
+        }
+        const version = await keepVersion(file);
+        const r = await run1("render", { quality: "draft" });
+        return { ...r, version, text: `${wrote}\n\n${r.text}` };
       }
       case "kit_preview": {
         const code = String(args.code ?? "");
@@ -928,6 +1078,11 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         }
         if (issues.length) agent.summary = `${String(args.summary ?? "")}\n\nStill open: ${issues.join("; ")}`.slice(0, 3000);
         if (!issues.length) agent.summary = String(args.summary ?? "").slice(0, 3000);
+        // The lean mode renders drafts only: the finished video is rendered once more at its full size.
+        if (lean && lastRender.quality !== "final") {
+          const final = await run1("render", { quality: "final", check: false });
+          if (!final.ok) return { ok: false, text: `the final render failed:\n${final.text}` };
+        }
         const r = lastCheck.result!;
         const out = path.join(ws, "export");
         const rel = (f: string) => encodeURIComponent(path.relative(scenesDir(run.id), f));
@@ -965,7 +1120,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       const answer = await turn(call, request(), fake, (live) => {
         agent.live = { turn: k, started: asked, text: live.text.slice(-6000), reasoning: live.reasoning.slice(-6000), tools: live.tools };
         saveRun(run);
-      }, cacheKey);
+      }, cacheKey, lean ? LEAN_TOOLS : TOOLS);
       agent.live = undefined;
       agent.cost += call.cost;
       agent.provider = call.provider;

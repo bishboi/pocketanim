@@ -48,8 +48,10 @@ from manim.utils.rate_functions import ease_in_cubic, ease_out_back, ease_out_cu
 
 import motion_kit as K
 import motion_looks
+from motion_explain import ExplainTemplates
 from motion_forms import FormTemplates
 from motion_more import MoreTemplates
+from motion_story import StoryTemplates
 import pocket_lecture as pl
 from pocket_lecture import *  # noqa: F403 -- the engine's names, for the compiled scene
 from pocket_lecture import (BEAT_PAD, PARAGRAPH_PAD, Z_MARK, MapLecture, _flat, fit, said_at, set_drift, wrap)
@@ -60,7 +62,8 @@ if LOOK in pl.THEMES:
     pl.use_style(LOOK)
     os.environ["LECTURE_STYLE"] = LOOK
 K.M.update(motion_looks.motion_of(pl.STYLE, os.environ.get("MOTION_ENERGY") or None,
-                                  {"transition": os.environ.get("MOTION_TRANSITION") or None}))
+                                  {"transition": os.environ.get("MOTION_TRANSITION") or None,
+                                   "idle": os.environ.get("MOTION_IDLE") or None}))
 
 Z_TEMPLATE = Z_MARK + 10
 TITLE_ROOM = 0.75           # the band at the top of a template its title takes
@@ -82,7 +85,7 @@ def _P():
     return pl.P
 
 
-class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
+class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplates, MapLecture):
     """A lecture in a look, every template animated (see the module's notes)."""
 
     # ---------------------------------------------------------------- set-up ----------------------------------------
@@ -131,7 +134,31 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
         import backed_text
         import legible
 
-        legible.legible(self, backed_text.arriving_in(animations))
+        # Read against what stays: the picture leaving in this same play (fading out under the new one) is not
+        # what the new words will sit on, and words made to read on it came out faint on the bare board.
+        leaving = set()
+
+        def gone(anim):
+            for sub in getattr(anim, "animations", None) or []:
+                gone(sub)
+            if getattr(anim, "remover", False) and getattr(anim, "mobject", None) is not None:
+                leaving.update(id(x) for x in anim.mobject.get_family())
+        for anim in animations:
+            gone(anim)
+        def kept(m):
+            # The scene's tree without what is leaving (a template held in the stage's group goes with its group
+            # kept): a stand-in group over the parts that stay, the parts themselves untouched.
+            if id(m) in leaving:
+                return None
+            if not any(id(x) in leaving for x in m.get_family()):
+                return m
+            return Group(*[k for k in (kept(c) for c in m.submobjects) if k is not None])
+        staying = SimpleNamespace(mobjects=[k for k in (kept(m) for m in self.mobjects) if k is not None]) \
+            if leaving else self
+        arriving = backed_text.arriving_in(animations)
+        if leaving:
+            arriving = [k for k in (kept(m) for m in arriving) if k is not None]
+        legible.legible(staying, arriving)
         super().play(*animations, **kwargs)
         # A part brought on by itself (a FadeIn of one word of a heading) went on the screen alone: what it belongs
         # to (the stage's picture, a part added to it) is put on the screen whole instead, so it leaves whole. Only
@@ -173,11 +200,19 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
         a card), and a slide or push in from the side the old one leaves by."""
         if entrance is None and not still and (not draw or all(isinstance(m, ImageMobject) or
                                                               not isinstance(m, VMobject) for m in draw)):
-            how = {"slide": "slide", "push": "rise", "zoom": "zoom", "page": "slide"}.get(
-                self.M.get("transition"), self.M.get("enter", "pop"))
+            how = {"slide": "slide", "push": "rise", "zoom": "zoom", "page": "slide", "whip": "slide", "stack": "rise",
+                   "flash": "fade", "turn": "flip", "match": "iris"}.get(self.M.get("transition"), self.M.get("enter", "pop"))
             if how == "write":
                 how = "rise"
-            entrance = K.enter(group, how, side="right", run=K.t("base"))
+            if self.__dict__.pop("_m_pullback", False):
+                # A picture that comes on as the camera pulls back from close on it.
+                entrance = K.timed(FadeIn(group, scale=1.5, rate_func=ease_out_cubic), K.t("slow") * 2.2, "whoosh")
+            elif self.M.get("transition") == "whip":
+                entrance = K.timed(FadeIn(group, shift=LEFT * 6, rate_func=ease_out_expo), K.t("fast") * 1.4, "whoosh")
+            elif self.M.get("transition") == "stack":
+                entrance = K.timed(FadeIn(group, shift=UP * 3.2, rate_func=ease_out_cubic), K.t("base"), "swish")
+            else:
+                entrance = K.enter(group, how, side="right", run=K.t("base"))
             K.idle(group)
             draw = None
         leaving = self._carry_from(group) if not still and self._replaces(group) else []
@@ -351,6 +386,16 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
                 out.append(K.timed(FadeOut(mob, scale=1.25, rate_func=rush_into), K.t("fast"), "whoosh"))
             elif kind == "cut":
                 out.append(K.timed(FadeOut(mob, run_time=0.05), 0.05))
+            elif kind == "whip":
+                out.append(K.timed(FadeOut(mob, shift=LEFT * 6, rate_func=rush_into), K.t("fast"), "whoosh"))
+            elif kind == "stack":
+                out.append(K.timed(FadeOut(mob, scale=0.9, rate_func=smooth), K.t("base")))
+            elif kind == "flash":
+                out.append(K.timed(FadeOut(mob, scale=1.03, rate_func=rush_into), 0.12))
+            elif kind == "turn":
+                out.append(K.timed(FadeOut(mob, shift=LEFT * 1.5, scale=0.85, rate_func=rush_into), K.t("fast"), "swish"))
+            elif kind == "match":
+                out.append(K.timed(FadeOut(mob, scale=2.4, rate_func=rush_into), K.t("base"), "whoosh"))
             else:
                 out.append(anim)
         if pending and out:
@@ -691,6 +736,8 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
                 ink = "#111111" if pl._luminance(lit.get_stroke_color().to_hex()) > 0.35 else "#FFFFFF"
                 for m in target:
                     m.set_color(ink)
+                    # Kept: the board's check (legible.py) reads it on the bare board, before its stroke is drawn.
+                    m.panim_keep_colour = True
         rule = K.underline(block, K.col("accent"), 7) if not lit else None
         if rule is not None:
             whole.add(rule)
@@ -1926,6 +1973,57 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
         if how == "dim":
             others = [m for name, m in self._mparts.get(tid, {}).items() if m is not mob]
             return K.together([K.fade_to(m, 0.25) for m in others if isinstance(m, VMobject)] + [K.pulse(mob, 1.08)])
+        if how in ("spotlight", "rack"):
+            # Everything else on the stage stepped back (spotlight: faded; rack: faded further and shrunk a hair, as a
+            # camera racks focus), the part brought forward.
+            fam = {id(x) for x in mob.get_family()}
+            # The template's other named parts (a chart's other columns, a list's other points).
+            pool = [m for m in self._mparts.get(tid, {}).values() if m is not mob]
+            others = [m for m in pool if not ({id(x) for x in m.get_family()} & fam) and isinstance(m, VMobject)]
+            back = [K.fade_to(m, 0.2 if how == "rack" else 0.3) for m in others]
+            if how == "rack":
+                back += [K.timed(K.fresh(m.animate.scale(0.97).build()), K.t("base")) for m in others]
+            self._dimmed = others
+            return K.together(back + [K.pulse(mob, 1.12 if how == "spotlight" else 1.06)])
+        if how == "magnify":
+            # A lens the size of a hand glass: on a tall part (a chart's column), over its top, where its figure is.
+            r = min(max(mob.width, mob.height) * 0.58 + 0.1, 1.3)
+            lens = Circle(radius=r, stroke_color=colour or K.col("accent"), stroke_width=6).move_to(mob)
+            if mob.height > 2.2 * r:
+                lens.move_to([mob.get_center()[0], mob.get_top()[1] - r * 0.9, 0])
+            handle = Line(lens.point_at_angle(-math.pi / 4), lens.point_at_angle(-math.pi / 4) + np.array([0.6, -0.6, 0]),
+                          stroke_color=colour or K.col("accent"), stroke_width=10)
+            glass = VGroup(lens, handle)
+            glass.set_z_index(Z_TEMPLATE + 4)
+            self._stage_add(glass)
+            return marked(K.together([K.timed(FadeIn(glass, scale=1.4, rate_func=ease_out_back), K.t("base"), "pop"),
+                                      K.pulse(mob, 1.3, run=K.t("slow"))]), glass)
+        if how == "wiggle":
+            from manim import Wiggle
+            return K.timed(K.baked(Wiggle(mob, scale_value=1.08, rotation_angle=0.08)), K.t("slow"), "pop")
+        if how == "bounce":
+            up = K.fresh(mob.animate(rate_func=there_and_back).shift(UP * 0.35).build())
+            up.panim_xform = True
+            return K.timed(up, K.t("base"), "pop")
+        if how == "wash":
+            tone = colour or K.col("accent")
+            shapes = [x for x in mob.family_members_with_points() if isinstance(x, VMobject)
+                      and not isinstance(x, Text) and x.get_fill_opacity() > 0.05]
+            return K.together([K.refill(x, tone, opacity=max(0.6, float(x.get_fill_opacity()))) for x in shapes] or
+                              [K.pulse(mob, 1.08)])
+        if how == "strike":
+            # Corner to corner, a little past it: across a narrow column as plainly as across a line of words.
+            line = Line(mob.get_corner(DL) + np.array([-0.12, -0.08, 0]), mob.get_corner(UR) + np.array([0.12, 0.08, 0]),
+                        stroke_color=colour or K.col("stamp"), stroke_width=8)
+            line.set_z_index(Z_TEMPLATE + 4)
+            self._stage_add(line)
+            return marked(K.draw(line, run=K.t("base"), sfx="draw"), line)
+        if how == "sweep":
+            band = Rectangle(width=mob.width + 0.2, height=0.14, stroke_width=0, fill_color=colour or K.col("accent"),
+                             fill_opacity=1).next_to(mob, DOWN, buff=0.06)
+            band.set_z_index(Z_TEMPLATE + 4)
+            self._stage_add(band)
+            return marked(K.grow_from(band, LEFT, run=K.t("base")), band)
         return K.pulse(mob, 1.12)
 
     def _find_part(self, target: str):
@@ -2119,8 +2217,28 @@ class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
                        K.t("slow") + K.t("base"))
 
     # ---------------------------------------------------------------- pictures, dressed --------------------------
+    # The camera on a picture (its `move`, on the motion engine): a drift the players apply (kenburns: a slow push
+    # in and out with a little travel; pan: carried slowly across), or how it comes on (pullback: from close, out).
+    CAMERA_MOVES = {"kenburns": dict(period=22.0, amp=0.16, scale=0.09, turn=0.0),
+                    "pan": dict(period=28.0, amp=0.45, scale=0.04, turn=0.0)}
+
     def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
                     points=()):
+        camera = move if move in (*self.CAMERA_MOVES, "pullback") else None
+        if camera:
+            move = None
+        if camera == "pullback":
+            self._m_pullback = True
+        shown = self._stage_image_look(path, caption, credit, labels, move, points)
+        self.__dict__.pop("_m_pullback", None)
+        body = getattr(self, "stage_body", None)
+        if camera in self.CAMERA_MOVES and body is not None and pl.drifts_on():
+            c = body.get_center()
+            pl.set_drift([body], dict(self.CAMERA_MOVES[camera], cx=float(c[0]), cy=float(c[1])))
+        return shown
+
+    def _stage_image_look(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
+                          points=()):
         """The engine's picture, dressed the look's way first (a sticker's white edge, a card, a polaroid, a
         newsprint duotone), its labels moved onto the dressed picture; it comes on the look's way and floats."""
         if self.M.get("classic") or (self._full_screen() and not pl.is_cutout(path)):

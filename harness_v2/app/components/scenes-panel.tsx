@@ -19,7 +19,7 @@ import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, S
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
 import { MOTION_KIND, VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
-import { MOTION_LOOKS } from "@/lib/prompts/scenes-motion";
+import { MOTION_IDLES, MOTION_LOOKS, MOTION_TRANSITIONS } from "@/lib/prompts/scenes-motion";
 import { beatFigures, lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
 import { FrameStill, IRPlayer } from "./player";
@@ -1033,7 +1033,11 @@ function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">transition
         <select className={sel} disabled={!motion} value={m.transition ?? ""} onChange={(e) => set("transition", e.target.value)}>
-          <option value="">the look&apos;s own</option>{["slide", "push", "wipe", "dissolve", "zoom", "page", "cut"].map((l) => <option key={l} value={l}>{l}</option>)}
+          <option value="">the look&apos;s own</option>{MOTION_TRANSITIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select></label>
+      <label className="flex items-center gap-1 text-neutral-300">idle
+        <select className={sel} disabled={!motion} value={m.idle ?? ""} onChange={(e) => set("idle", e.target.value)}>
+          <option value="">the look&apos;s own</option>{MOTION_IDLES.map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">timeline
         <select className={sel} disabled={!motion} value={m.timeline ?? ""} onChange={(e) => set("timeline", e.target.value)}>

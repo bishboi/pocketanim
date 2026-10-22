@@ -491,9 +491,9 @@ export type ScenesState = {
   /** "motion": the lectures are built, compiled, rendered and spoken on the motion engine (beta:
    * engine/MOTION_ENGINE.md); left out, the current engine. */
   engine?: "motion";
-  /** The motion engine's settings: its look (paper, newsroom, chalk, data, studio, sketch; left out: the style's own
-   * motion), energy, transition and the timeline's style. */
-  motion?: { look?: string; energy?: string; transition?: string; timeline?: string };
+  /** The motion engine's settings: its look (paper, newsroom, chalk, data, studio, sketch, archive, neon, brush, collage, textbook, chalkcolour, isometric, drafting; left out: the style's own
+   * motion), energy, transition, idle motion and the timeline's style. */
+  motion?: { look?: string; energy?: string; transition?: string; idle?: string; timeline?: string };
   error?: string;
   started?: number;
   ended?: number;
@@ -599,10 +599,11 @@ export type LabState = { items: LabItem[] };
 export type ChapterScript = {
   /** "motion": drawn by the motion engine (beta: engine/MOTION_ENGINE.md), in `look`, every template animated. */
   engine?: "motion";
-  /** The motion engine's: its look (paper, newsroom, chalk, data, studio, sketch), energy, transition, timeline style. */
+  /** The motion engine's: its look (one of MOTION_LOOKS), energy, transition, idle, timeline style. */
   look?: string;
   energy?: string;
   transition?: string;
+  idle?: string;
   timeline?: string;
   style?: string;
   art?: string;

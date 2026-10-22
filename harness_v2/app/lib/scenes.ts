@@ -75,7 +75,7 @@ export type ScenesAction =
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
-  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; timeline?: string }
+  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -162,7 +162,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     st.engine = a.engine === "motion" ? "motion" : undefined;
     if (st.engine) {
       const m = { ...(st.motion ?? {}) };
-      for (const k of ["look", "energy", "transition", "timeline"] as const) if (a[k] !== undefined) m[k] = a[k] || undefined;
+      for (const k of ["look", "energy", "transition", "idle", "timeline"] as const) if (a[k] !== undefined) m[k] = a[k] || undefined;
       if (m.look && !(MOTION_LOOKS as readonly string[]).includes(m.look)) throw new Error(`the motion look is one of ${MOTION_LOOKS.join(", ")}`);
       st.motion = m;
     }

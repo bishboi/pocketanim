@@ -16,6 +16,7 @@ import numpy as np
 from manim import (BOLD, DOWN, LEFT, ORIGIN, RIGHT, UP, Animation, AnimationGroup, Circle, Create, Dot,
                    FadeIn, FadeOut, Group, ImageMobject, LaggedStart, Line, Rectangle, RoundedRectangle, Text,
                    VGroup, VMobject, Write, linear, there_and_back)
+from manim.utils import rate_functions
 from manim.utils.rate_functions import (ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_expo, rush_from,
                                         rush_into, smooth)
 
@@ -334,7 +335,8 @@ SIDE = {"left": LEFT, "right": RIGHT, "up": UP, "down": DOWN, "top": UP, "bottom
 # How a template's parts come on when the script chose it (`enter`): set while the template is built, and while its
 # parts said later are (MotionLecture._moment); it overrides each part's own way of coming on.
 FORCE_ENTER: str | None = None
-ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write")
+ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write", "unfold", "typewrite", "ink", "stamp",
+             "spin", "iris")
 
 
 def forced() -> str | None:
@@ -347,6 +349,9 @@ def enter(mob, how: str | None = None, side: str | None = None, run: float | Non
     drop    falls in from above with an overshoot           slide   sweeps in from a side, fast then slow
     zoom    comes from large, settling                      write   written (words) or drawn (lines)
     fade    simply fades in                                 flip    turns in, as a card turned over
+    unfold  opens out from a line, top and bottom apart      typewrite  its frame drawn, then its words typed in
+    ink     bleeds in slowly from a little larger, as ink    stamp   slammed down with a thud
+    spin    turns in a full circle as it grows              iris    opens from a point at its middle
     """
     how = FORCE_ENTER or how or M.get("enter", "pop")
     run = run if run is not None else t("base")
@@ -369,7 +374,63 @@ def enter(mob, how: str | None = None, side: str | None = None, run: float | Non
         return timed(FadeIn(mob, scale=0.85, shift=UP * 0.25, rate_func=ease_out_back), run, "pop")
     if how == "fade":
         return timed(FadeIn(mob, rate_func=smooth), run)
+    if how == "unfold":
+        return timed(baked(Unfold(mob, rate_func=ease_out_cubic)), run, "swish")
+    if how == "typewrite":
+        words = [m for m in mob.get_family() if isinstance(m, Text)]
+        frame = [m for m in mob.submobjects if not any(isinstance(x, Text) for x in m.get_family())]
+        if not words:
+            return timed(FadeIn(mob, shift=UP * 0.35, rate_func=ease_out_cubic), run, "pop")
+        steps = [timed(FadeIn(Group(*frame), scale=0.96, rate_func=smooth), run * 0.6)] if frame else []
+        steps += [typewriter(w, run=max(0.4, run)) for w in words[:6]]
+        return chain(steps)
+    if how == "ink":
+        return timed(FadeIn(mob, scale=1.06, rate_func=rate_functions.ease_in_out_sine), max(run, t("slow") * 1.4))
+    if how == "stamp":
+        return slam(mob, run=run)
+    if how == "spin":
+        return timed(baked(SpinIn(mob, rate_func=ease_out_cubic)), max(run, t("slow")), "whoosh")
+    if how == "iris":
+        return timed(FadeIn(mob, scale=0.02, rate_func=ease_out_cubic), run, "whoosh")
     return timed(FadeIn(mob, shift=UP * 0.35, rate_func=ease_out_cubic), run, "pop")
+
+
+class SpinIn(Animation):
+    """Comes on turning (`turns` times round) and growing from small, settling where it was laid out (baked). One
+    animation, not a fade and a turn together: begun together, the turn took the faded start and kept it hidden.
+    Applied step by step from the last frame's turn and size (a group with a picture in it cannot `become`)."""
+
+    def __init__(self, mob, turns: float = 1.0, start_scale: float = 0.15, **kw):
+        self._turns, self._k0 = turns, start_scale
+        super().__init__(mob, **kw)
+
+    def begin(self):
+        self._centre = self.mobject.get_center().copy()
+        self._now = (1.0, 0.0)
+        super().begin()
+
+    def interpolate_mobject(self, alpha: float) -> None:
+        a = min(max(alpha, 0.0), 1.0)
+        k, turn = self._k0 + (1 - self._k0) * a, 2 * math.pi * self._turns * (1 - a)
+        k0, t0 = self._now
+        self.mobject.rotate(-t0, about_point=self._centre).scale(k / k0, about_point=self._centre)
+        self.mobject.rotate(turn, about_point=self._centre)
+        self._now = (k, turn)
+
+
+class Unfold(Animation):
+    """Opens out from a flat line at its middle, top and bottom moving apart (baked: the players have no verb for a
+    stretch that changes over time). Applied step by step from the last frame's height."""
+
+    def begin(self):
+        self._centre = self.mobject.get_center().copy()
+        self._now = 1.0
+        super().begin()
+
+    def interpolate_mobject(self, alpha: float) -> None:
+        f = max(0.02, min(max(alpha, 0.0), 1.0))
+        self.mobject.stretch(f / self._now, 1, about_point=self._centre)
+        self._now = f
 
 
 def _wordy(mob) -> bool:
@@ -436,15 +497,40 @@ def fresh(anim):
     from manim.animation.transform import _MethodAnimation
 
     class Fresh(_MethodAnimation):
+        def _entering(self) -> bool:
+            # Begun in the same play as the part's own entrance (a short line says its name as it comes on), the
+            # part stands at the entrance's start (unseen, small): a pulse from there, there and back, ended there.
+            for x, (fill, stroke) in zip(self.mobject.get_family(), getattr(self, "_m_settled", None) or []):
+                for now, was in ((x.get_fill_opacity, fill), (x.get_stroke_opacity, stroke)):
+                    try:
+                        if was is not None and float(now()) < was - 0.02:
+                            return True
+                    except Exception:  # noqa: BLE001
+                        pass
+            return False
+
         def begin(self):
-            target = self.mobject.copy()
+            snap = getattr(self, "_m_snap", None)
+            # Its look as it was when this was made (as it will be once in) is the one to start from and end in.
+            base = snap.copy() if snap is not None and self._entering() else self.mobject.copy()
+            target = base.copy()
             for item in self.methods:
                 item.method.__func__(target, *item.args, **item.kwargs)
             self.mobject.target = target
             super().begin()
+            if base is not None and snap is not None and base is not self.mobject:
+                self.starting_mobject = base
 
     if isinstance(anim, _MethodAnimation):
         anim.__class__ = Fresh
+
+        def settled(x):
+            try:
+                return float(x.get_fill_opacity()), float(x.get_stroke_opacity())
+            except Exception:  # noqa: BLE001 -- a picture: no fill or stroke of its own
+                return None, None
+        anim._m_settled = [settled(x) for x in anim.mobject.get_family()]
+        anim._m_snap = anim.mobject.copy()
     return anim
 
 
@@ -514,7 +600,8 @@ def typewriter(text_mob, run: float | None = None):
     """Words typed in, a letter at a time."""
     glyphs = [m for m in text_mob.family_members_with_points() if isinstance(m, VMobject)]
     if len(glyphs) < 2 or len(glyphs) > 300:
-        return enter(text_mob, "fade", run=run)
+        # Faded in directly: through enter(), a template told to come on by typing came back here without end.
+        return timed(FadeIn(text_mob, rate_func=smooth), run or t("base"))
     run = run or min(2.4, max(0.5, 0.04 * len(glyphs)))
     return timed(LaggedStart(*[FadeIn(g, rate_func=linear) for g in glyphs], lag_ratio=1.0), run, "type")
 
@@ -552,6 +639,14 @@ def idle(mob, kind: str | None = None, strength: float = 1.0) -> None:
     c = mob.get_center()
     if kind == "drift":
         spec = dict(period=19.0, amp=0.07 * strength, scale=0.012 * strength, turn=0.0)
+    elif kind == "breathe":     # swelling and settling in place, as a living thing breathes
+        spec = dict(period=6.0, amp=0.0, scale=0.03 * strength, turn=0.0)
+    elif kind == "sway":        # rocking a little about its middle
+        spec = dict(period=5.0, amp=0.0, scale=0.0, turn=0.02 * strength)
+    elif kind == "parallax":    # carried slowly across, as a camera passing a scene
+        spec = dict(period=32.0, amp=0.22 * strength, scale=0.006 * strength, turn=0.0)
+    elif kind == "flicker":     # a quick unsteady tremble, as old film or candlelight
+        spec = dict(period=0.9, amp=0.012 * strength, scale=0.008 * strength, turn=0.002 * strength)
     else:   # float, boil
         spec = dict(period=7.0, amp=0.035 * strength, scale=0.006 * strength, turn=0.003 * strength)
     spec.update(cx=float(c[0]), cy=float(c[1]))

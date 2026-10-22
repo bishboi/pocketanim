@@ -29,7 +29,10 @@ beat script (JSON, "engine": "motion") ─▶ compile_motion.py ─▶ Manim sce
 | `motion_kit.py` | The primitives: words, cards, chips, stamps, marks, and the motions (entrances, emphasis, exits, a counter, a spring, a shake). |
 | `motion_timeline.py` | The timeline in five styles. |
 | `motion_more.py` | The templates for the shape of a history, a society or an argument: hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar, converge, table, ask. |
-| `motion_looks.py` | The six looks: design, motion tokens, textures, picture dressing. |
+| `motion_forms.py` | What overlaps, sits between, narrows, measures, weighs, hides, changes or ranks: venn, quadrant, funnel, gauge, scale, iceberg, before_after, ranking. |
+| `motion_story.py` | History and storytelling: cause_web, portrait_card, source_vs_reality, population_pyramid, migration_flow, quote_reveal, newspaper, letter, countdown. |
+| `motion_explain.py` | Numbers and explanations: race_bars, waterfall, stacked_area, slope, dot_compare, split_number, zoom_in, layers, cycle_wheel, checklist, pros_cons, mind_map. |
+| `motion_looks.py` | The fourteen looks: design, motion tokens, textures, picture dressing. |
 | `tools/motion_strip.py` | A contact sheet of a rendered video, every N seconds: how a motion plays, at a glance. |
 
 Contents: [the script](#1-the-script) · [how a beat plays](#2-how-a-beat-plays-in-motion) ·
@@ -67,9 +70,10 @@ still holds: the same chapters, beats, operations, pictures, maps and checks.
 | Field | | What it does |
 |---|---|---|
 | `engine` | `"motion"` | Drawn by the motion engine. Left out: the current engine. |
-| `look`? | `paper` \| `newsroom` \| `chalk` \| `data` \| `studio` \| `sketch` | The design and the way of moving (§6). Left out: the script's classic `style` keeps its colours and fonts and moves as its nearest look does (vox, parchment, cardboard → paper; atlas, cosmos, blueprint → data; lab, friendly, water → studio; whiteboard, ink → sketch; chalkboard → chalk). |
+| `look`? | `paper` \| `newsroom` \| `chalk` \| `data` \| `studio` \| `sketch` \| `archive` \| `neon` \| `brush` \| `collage` \| `textbook` \| `chalkcolour` \| `isometric` \| `drafting` | The design and the way of moving (§6). Left out: the script's classic `style` keeps its colours and fonts and moves as its nearest look does (vox, parchment, cardboard → paper; atlas, cosmos, blueprint → data; lab, friendly, water → studio; whiteboard, ink → sketch; chalkboard → chalk). |
 | `energy`? | `calm` \| `lively` \| `punchy` | How fast everything moves (§7). Default: the look's own. |
-| `transition`? | `slide` \| `push` \| `wipe` \| `dissolve` \| `zoom` \| `page` \| `cut` | How one picture gives way to the next. Default: the look's own. |
+| `transition`? | `slide` \| `push` \| `wipe` \| `dissolve` \| `zoom` \| `page` \| `cut` \| `whip` \| `stack` \| `flash` \| `turn` \| `match` | How one picture gives way to the next (§6, Transitions). Default: the look's own. |
+| `idle`? | `float` \| `drift` \| `boil` \| `breathe` \| `sway` \| `parallax` \| `flicker` \| `none` | How what is up keeps moving while the voice goes on (§6, Idle). Default: the look's own. |
 | `timeline`? | `track` \| `ribbon` \| `cards` \| `road` \| `vertical` | The default style of a `timeline` (§5). |
 | `style`? | a classic style | With a `look`, the pictures are still asked of the image model in this style (so pictures made for a lecture before are found again, not made anew). Left out with a look: the classic style the look rests on (paper → vox, newsroom → atlas, chalk → chalkboard, data → cosmos, studio → lab, sketch → whiteboard). |
 
@@ -108,8 +112,9 @@ lands on the first of its own words the line says.
    the whole stage until the card is said, then slides to its half as the card comes on (`MotionLecture._beside`);
    its parts still to come on are moved with it as the card comes on (`_room_moves`), so they arrive in its half.
    A part not on the screen yet is never pointed at (no bracket round an empty space).
-7. **Idle.** What is up keeps moving gently (a float or a slow drift, played by the players themselves), so
-   nothing is frozen while the voice goes on.
+7. **Idle.** What is up keeps moving gently (the look's or the script's `idle`: a float, a slow drift, a breath, a
+   sway, a slow parallax, a film's flicker; played by the players themselves), so nothing is frozen while the voice
+   goes on.
 8. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
    scratch (sfx.py).
 
@@ -139,7 +144,9 @@ the same content another way (the first is the default):
 Every template (not `stamp` or `emphasis`) also takes `enter`: how its parts come on, as it is built and as each is
 said later -- `pop` (grows from small with an overshoot), `rise` (comes up as it fades in), `drop` (falls in from
 above), `slide` (sweeps in from a side), `zoom` (comes from large), `fade`, `flip` (turned in like a card), `write`
-(drawn or written). Left out, each part comes on its own way (a card dealt, a line slid in, a step popped). An
+(drawn or written), `unfold` (opened out from a fold, as a paper is), `typewrite` (its frame faded in, its words
+typed letter by letter), `ink` (bleeding in slowly, as ink into paper), `stamp` (slammed down from large), `spin`
+(turning in from small, twice round), `iris` (opening from a point at its middle). Left out, each part comes on its own way (a card dealt, a line slid in, a step popped). An
 unknown `layout` or `enter` is left out, with a note. Vary them across a video: the same content need not look the
 same twice.
 
@@ -306,7 +313,11 @@ Each print's caption is set under it, one size for every print, a long one on tw
 ```
 At a part of a template on screen (its name, or `<id>.<name>`), or at a whole template on screen by its `id`: `pulse` (default), `circle` (a ring drawn round it by
 hand), `underline`, `highlight` (the highlighter behind it), `box` (the house frame), `glow`, `shake`, `dim` (the
-rest of its template faded back). A name not on screen is left out with a note, and so is a part of a template the
+rest of its template faded back), `spotlight` (the other named parts of its template faded far back, the part
+left lit), `rack` (as a camera's focus racks: the others faded and shrunk a little, the part kept sharp),
+`magnify` (a lens with a handle drawn over it), `wiggle` (a quick wiggle), `bounce` (it hops up and lands),
+`wash` (its colour washed to the accent), `strike` (a line struck through it: wrong, gone, refused), `sweep` (a
+bar swept in under it, left to right). A name not on screen is left out with a note, and so is a part of a template the
 same line has already replaced. A mark made on a template the line is moving (aside for a card) moves with it.
 
 ### The shapes of a history, a society or an argument (`motion_more.py`)
@@ -517,6 +528,183 @@ Two to seven places, the first given is first place: each a row with its big pla
 values; `unit` after the figure) or its `note`. They come in from the last place up (`order`: `up`, a countdown) or
 from the first down (`down`), each on its words; the first place (or `highlight`) is crowned.
 
+### History and storytelling (`motion_story.py`)
+
+#### `map_story`: a journey told on the map
+```json
+{"op": "map_story", "stops": [{"place": "Kagoshima", "date": "1867"}, {"place": "Kyoto", "date": "1868"},
+ {"place": "Tokyo", "label": "Edo", "date": "1868"}]}
+```
+Written as the map's `journey` (BEAT_SCRIPT.md): the route drawn behind a traveller, each stop (`{place, date?,
+label?, picture?}`; two or more, `place` a real place) named "label · date" as it is reached. `color` and `on` pass
+through.
+
+#### `cause_web`: many causes, one event
+```json
+{"op": "cause_web", "effect": {"text": "The revolt"}, "causes": [{"text": "Debt", "weight": 3, "on": "Debt"},
+ {"text": "Drought", "weight": 2, "on": "drought"}, {"text": "A weak king", "weight": 1, "on": "weak king"}]}
+```
+The `effect` (a text, or `{text, on, picture?}`) on the right; up to 6 `causes` (`{text, weight 1-3, on}`) slide in
+on the left, each joined to it by an arrow as thick as its weight; the effect pulses as the last lands.
+
+#### `portrait_card`: a person, as a trading card
+```json
+{"op": "portrait_card", "name": "Tokugawa Ieyasu", "dates": "1543 - 1616", "role": "First shogun",
+ "picture": {"generate": "portrait of a samurai lord"}, "facts": [{"text": "Founded the shogunate", "on": "founded"}]}
+```
+The card turned in: the picture, a banner with the `name`, `dates` and `role`; up to 3 `facts` (`{text, on}`) dealt
+beside it as they are said.
+
+#### `source_vs_reality`: what a source says, and what was so
+```json
+{"op": "source_vs_reality", "source": {"text": "The city burned for a month", "by": "A court chronicle"},
+ "reality": {"text": "Records show three days", "on": "in fact"}, "verdict": "Exaggerated"}
+```
+The `source` (`{text, by?}`) as a quoted page on the left; the `reality` (`{text, on}`) slides in on the right on its
+words; `verdict` is stamped at the foot of the source's page (never over the claim it judges).
+
+#### `population_pyramid`: a people by age
+```json
+{"op": "population_pyramid", "unit": "% of people", "left_label": "Men", "right_label": "Women",
+ "groups": [{"label": "60+", "left": 3, "right": 4}, {"label": "20-59", "left": 20, "right": 21}, {"label": "0-19", "left": 24, "right": 23}]}
+```
+Up to 10 `groups` (`{label, left, right}`, the oldest first) as bars both ways from a spine (`left_label`,
+`right_label` over them), growing out row by row from the youngest up.
+
+#### `migration_flow`: who moved where
+```json
+{"op": "migration_flow", "regions": ["Villages", "Edo", "Osaka"],
+ "flows": [{"from": "Villages", "to": "Edo", "value": 5000, "on": "Edo"}, {"from": "Edo", "to": "Osaka", "value": 1200, "on": "Osaka"}]}
+```
+Two to six `regions` (names, or `{name, on}`) as discs; each of up to 8 `flows` (`{from, to, value, label?, on}`)
+an arc as wide as the number who moved, its figure on it, drawn as it is said. Not a map: for real places on a map,
+`map_story` or the map's own arrows.
+
+#### `quote_reveal`: a famous line, word by word
+```json
+{"op": "quote_reveal", "text": "The strong do what they can, and the weak suffer what they must.", "who": "Thucydides",
+ "highlight": ["strong", "weak"], "picture": {"generate": "bust of a Greek historian"}}
+```
+The line set large in a serif, its words coming on one by one as it is spoken, the `highlight` words in the accent;
+the speaker's picture and name (`who`) fading in beside it.
+
+#### `newspaper`: news breaking
+```json
+{"op": "newspaper", "paper": "The Edo Herald", "date": "8 July 1853", "headline": "Black ships in the bay",
+ "sub": "American warships anchor off Uraga", "picture": {"generate": "black steamships"}}
+```
+A front page spun onto the board: masthead (`paper`), `date` line, the `headline` slammed on, `sub`, columns of
+print and the picture.
+
+#### `letter`: a letter, written on
+```json
+{"op": "letter", "to": "Mother", "date": "1853", "text": "The ships are here. Nobody knows what they want.", "sign": "Kenji"}
+```
+A sheet laid on the board: the `date` and greeting (`to`), the `text` written on in a hand as the line reads it,
+signed (`sign`) at the end.
+
+#### `countdown`: the years running down to an event
+```json
+{"op": "countdown", "steps": [{"text": "1850", "on": "Eighteen fifty"}, {"text": "1852", "on": "fifty two"}],
+ "event": {"text": "The ships arrive", "on": "ships arrived"}}
+```
+A big flip display: each of up to 6 `steps` (`{text, note?, on}`) flips in over the last as it is said; then the
+`event` (a text or `{text, on}`) lands with a thud.
+
+### Numbers and explanations (`motion_explain.py`)
+
+#### `race_bars`: a race over time
+```json
+{"op": "race_bars", "unit": "k", "frames": [{"at": "1700", "values": {"Edo": 300, "Kyoto": 350}},
+ {"at": "1750", "values": {"Edo": 800, "Kyoto": 380}, "on": "1750"}]}
+```
+Up to 8 `frames` (`{at, values: {name: number}, on}`); the first is drawn, then at each next one's words the bars
+stretch to their new lengths and re-sort, largest on top, the `at` label rolling over in the corner.
+
+#### `waterfall`: from a start, through gains and losses, to a total
+```json
+{"op": "waterfall", "start": {"label": "Start", "value": 100}, "total": "End",
+ "steps": [{"label": "Taxes", "value": 40, "on": "taxes"}, {"label": "Wars", "value": -60, "on": "wars"}]}
+```
+`start` (`{label, value}`, or a number), then up to 8 `steps` (`{label, value: +n or -n, on}`) stepping up in green or
+down in red from where the last left off; the `total` bar (its label) at the end.
+
+#### `stacked_area`: shares of a whole over time
+```json
+{"op": "stacked_area", "years": [1700, 1750, 1800], "series": [{"label": "Farming", "values": [70, 62, 55]},
+ {"label": "Trade", "values": [30, 38, 45], "on": "trade"}]}
+```
+Up to 6 `series` (`{label, values, on}`, one value a year) stacked over `years` (two or more), each layer swept in
+from the left as it is named.
+
+#### `slope`: then and now
+```json
+{"op": "slope", "left_label": "1700", "right_label": "1800",
+ "items": [{"label": "Rice", "from": 40, "to": 90, "on": "Rice"}, {"label": "Silk", "from": 80, "to": 50, "on": "silk"}]}
+```
+Up to 7 `items` (`{label, from, to, on}`), each a line from one post to the other, green rising or red falling.
+
+#### `dot_compare`: "one in four" against "one in twenty"
+```json
+{"op": "dot_compare", "groups": [{"label": "Towns", "part": 25, "total": 100, "text": "1 in 4", "on": "towns"},
+ {"label": "Villages", "part": 5, "total": 100, "text": "1 in 20", "on": "villages"}]}
+```
+Two to four grids of dots (`{label, part, total: 100 or less, text?, on}`), each grid's part filling in as it is said.
+
+#### `split_number`: a total broken into its parts
+```json
+{"op": "split_number", "value": "3,000,000", "label": "koku of revenue",
+ "parts": [{"label": "Rice", "value": 2000000, "on": "rice"}, {"label": "Silk", "value": 1000000, "on": "silk"}]}
+```
+The big total over a bar; the bar breaks into up to 6 `parts` (`{label, value, on}`), each block sized to its share.
+
+#### `zoom_in`: look closer at one part of a picture
+```json
+{"op": "zoom_in", "picture": {"generate": "a castle with a gate"}, "box": [0.6, 0.5, 0.9, 0.85], "label": "The gate",
+ "note": "Where the guards stood", "on": "gate"}
+```
+The picture; on `on` a box is drawn round `box` (`[x0, y0, x1, y1]` from 0 to 1, across and down; else its middle)
+and the view pushes in on it, its `label` and `note` beside it.
+
+#### `layers`: a stack, lifted apart
+```json
+{"op": "layers", "layers": [{"label": "Shogun", "on": "shogun"}, {"label": "Daimyo", "on": "daimyo"}, {"label": "Farmers", "on": "farmers"}]}
+```
+Two to six `layers` (`{label, note?, on}`, the top first) as slabs seen at an angle, each lifted apart and named as
+it is said.
+
+#### `cycle_wheel`: a cycle that goes round
+```json
+{"op": "cycle_wheel", "center": "The rice year", "steps": [{"label": "Plant", "on": "Plant"}, {"label": "Grow", "on": "grow"},
+ {"label": "Harvest", "on": "harvest"}]}
+```
+Three to eight `steps` (`{label, on}`) round a ring with arrows, `center` in the middle; a pointer travels round to
+each step as it is said, lighting it.
+
+#### `checklist`: a claim tested point by point
+```json
+{"op": "checklist", "claim": "The Meiji Restoration was a revolution", "verdict": "Partly",
+ "criteria": [{"text": "New rulers", "met": true, "on": "rulers"}, {"text": "Land redistributed", "met": false, "on": "land"}]}
+```
+The `claim` at the top; up to 6 `criteria` (`{text, met, on}`) ticked or crossed as they are said; the `verdict`
+stamped at the end.
+
+#### `pros_cons`: for and against
+```json
+{"op": "pros_cons", "pros": [{"text": "Trade", "on": "trade"}, {"text": "New ideas", "on": "ideas"}],
+ "cons": [{"text": "Unequal treaties", "on": "unequal"}], "lean": "even", "verdict": "Mixed blessing"}
+```
+Two columns; each point (up to 5 a side) dropped into its column as it is said; a bar under them leans to the
+stronger side (`lean`: `pros`, `cons` or `even`; else the longer column), the `verdict` on it.
+
+#### `mind_map`: an idea and what grows from it
+```json
+{"op": "mind_map", "center": "Modernisation", "branches": [{"label": "Schools", "on": "schools", "children": ["universal"]},
+ {"label": "Railways", "on": "railways"}, {"label": "Army", "on": "army"}]}
+```
+`center` in the middle; up to 8 `branches` (`{label, on, children?: [text]}`) growing out on curved stems, each in
+a coloured pill, its children budding off it.
+
 ## 4. The classic operations, in motion
 
 Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
@@ -533,6 +721,7 @@ Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
 | `equation` | Written on as before; a box drawn round it when it has the board to itself. |
 | `timeline` | The timeline in motion, in its `style` (§5). |
 | `picture` (a photo, a figure, a made picture) | Dressed the look's way (a cutout as a sticker with a white edge and a shadow; a photo as a card, a polaroid, newsprint or a rounded frame), its labels moved onto the dressed picture, brought on the look's way, floating while up. A picture with the screen to itself stays full-bleed; a book's figure never does (shown whole, dressed). Its labels are chips of the look's accent with boxes and lines in the accent; the light on a part being talked about is a shade cut from the picture's own shape (its card edge, its shadow, a cutout's clear corners are never greyed), feathered round the part, and it follows the picture when the picture moves aside. It moves to each part on its word and lifts once every part has been named, as in BEAT_SCRIPT.md. Moved into half the board, the labels keep three quarters of their size. |
+| `picture`'s `move` | Besides the lecture engine's moves, three cameras: `kenburns` (a slow push in and drift, as a documentary films a still), `pan` (carried slowly across it), `pullback` (opens close in and pulls back to the whole). A picture's camera, not a template's. |
 | chapter card, title slide | The number springs in, the kicker is typed, the title's words rise, the accent bar is drawn; the card sweeps up and away. |
 
 Diagrams, maps, worked solutions, questions and free-form Manim are drawn as the current engine draws them, in the
@@ -572,6 +761,25 @@ A timeline that cannot be drawn in its style falls back to the still one, with a
 | `data` | A dark studio with orange and blue glows; Poppins and Plex Mono; rounded dark cards; orange, green, blue figures. | Lively; things rise in; pictures zoom past. |
 | `studio` | A pale grey studio with a soft light; Poppins; white rounded cards; orange and blue. | Lively; things rise in; pictures push up and away. |
 | `sketch` | A sketchbook page with a dotted grid; Patrick Hand and Permanent Marker; red and blue pencil; photos taped on. | Lines and words written on; pages turn. |
+| `archive` | Sepia paper with foxing; EB Garamond; oxblood accent; photos taped on, as in a box of old papers. | Calm; things bleed in like ink; pictures dissolve; a film's flicker. |
+| `neon` | A night board with glowing pink and cyan; Quicksand; rounded dark cards. | Punchy; things open from a point (iris); a white flash between pictures; a breath while up. |
+| `brush` | Rice paper with fibres; Playfair Display heads; vermilion seals; ink-wash art. | Calm; ink bleeding in; pictures dissolve; a slow drift. |
+| `collage` | Kraft paper; Oswald and Libre Franklin; cut-paper cards; halftone photos. | Punchy; pieces drop in; pictures stack onto the last; a sway. |
+| `textbook` | A white page with a fine grid; Source Sans; blue and violet; rounded figures. | Calm; things rise in; pictures push up; no idle. |
+| `chalkcolour` | A green board with coloured chalk; Caveat and Patrick Hand; polaroids. | Lively; written on; pictures dissolve; a slow drift. |
+| `isometric` | A pale grid of isometric lines; Poppins; teal and coral blocks. | Lively; things rise in; pictures push; a float. |
+| `drafting` | A blueprint sheet; Oswald and Plex Mono; pale yellow lines. | Lively; drawn on; pictures turn like a page; still. |
+
+**Transitions** (`transition`): `slide` (the old picture slides out, the new one in), `push` (pushed up and away),
+`wipe` (a sheet of the accent covers and uncovers), `dissolve`, `zoom` (zoomed past), `page` (as a page turns),
+`cut` (at once), `whip` (a whip pan: the old one flung off sideways, the new one sweeping in fast), `stack` (the new
+picture laid over the old, which sinks back), `flash` (a quick white flash), `turn` (turned over like a card),
+`match` (the old one zooms past as the new opens from a point at its middle; with the match cuts of §2 it carries a
+shared word or figure across).
+
+**Idle** (`idle`): `float` (a gentle bob), `drift` (a slow drift), `boil` (as float, for hand-drawn looks),
+`breathe` (swelling and settling in place), `sway` (rocking a little), `parallax` (carried slowly across, as a
+camera passing), `flicker` (a quick unsteady tremble, as old film), `none` (still).
 
 A look is registered as a style of the lecture engine, so everything the current engine draws (captions, maps,
 diagrams, the panel) is in its colours and fonts. Each rests on a classic style (paper → vox, newsroom → atlas, chalk
@@ -611,12 +819,25 @@ Everything compile_lecture checks and mends, and for the templates (a note start
   `versus` without both titles, `donut` without a number, `document`/`title`/`stamp` without text,
   `emphasis` without `target`. A print without a picture is left out. `venn` with fewer than two sets, `funnel` or
   `ranking` with fewer than two, `gauge` without a number, `scale`/`before_after` without both titles, `iceberg`
-  without `below`, `quadrant` without both axes.
+  without `below`, `quadrant` without both axes. `cause_web` without causes, `source_vs_reality` without both
+  texts, `population_pyramid` with fewer than two `{label, left, right}` groups, `migration_flow` without two regions
+  and a flow, `countdown` without steps and an event, `race_bars` without frames, `waterfall` without a start and
+  steps, `stacked_area` without two years and a series, `slope`/`dot_compare`/`split_number` without their items,
+  `zoom_in` without a picture, `layers` with fewer than two, `cycle_wheel` with fewer than three, `checklist`
+  without criteria, `pros_cons` with neither side, `mind_map` without branches; `map_story` with fewer than two
+  stops.
 - Counts cut to fit: chart 12 (line 60), cards 6, chain 7, list 7, kpi 4, polaroids 5, units 1-400 (groups cut to
   the total).
+- A `waterfall`'s start and a `race_bars` first frame are drawn with the template (`"on": "start"`), never timed by
+  a word of the line their label looks like.
+- Cut to fit: cause_web 6 causes, portrait_card 3 facts, population_pyramid 10, migration_flow 6 regions and 8
+  flows, countdown 6, race_bars 8 frames, waterfall 8, stacked_area 6, slope 7, dot_compare 4, split_number 6, layers
+  6, cycle_wheel 8, checklist 6, pros_cons 5 a side, mind_map 8. A `zoom_in` box that is not four numbers is left out
+  (its middle is used); an unknown `lean` is left out. Lists of words are read as their objects (`"Edo"` as
+  `{"text": "Edo"}` or `{"label": "Edo"}`).
 - An unknown `layout` or `enter` is left out (the default is used), with a note; so is a ranking `order` (up).
 - Unknown values set to the default, with a note: chart `kind` (column), list `mark` (bullet), emphasis `how`
-  (pulse), timeline `style` (track), the script's `energy` (lively), `transition` and `timeline` (the look's own),
+  (pulse), timeline `style` (track), the script's `energy` (lively), `transition`, `idle` and `timeline` (the look's own),
   `look` (the style's own motion).
 - A chart `reference` given as a number is read as `{value}`; one with no value is left out. A highlight phrase not
   in the document's text is left out.

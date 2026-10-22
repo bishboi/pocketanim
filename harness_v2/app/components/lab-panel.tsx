@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { LAB_MOTION_PRESETS, LAB_MOTION_SNIPPETS, LAB_PRESETS, LAB_SNIPPETS } from "@/lib/lab-presets";
+import { MOTION_LOOKS } from "@/lib/prompts/scenes-motion";
 import type { LabItem, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
 import { unfence, VoiceResult } from "./voice-panel";
@@ -94,7 +95,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
                 onChange={(e) => setMotionLook(e.target.value)}>
                 <option value="">the current engine</option>
                 <option value="own">the motion engine (beta), its own style</option>
-                {["paper", "newsroom", "chalk", "data", "studio", "sketch"].map((l) => <option key={l} value={l}>the motion engine (beta), look: {l}</option>)}
+                {MOTION_LOOKS.map((l) => <option key={l} value={l}>the motion engine (beta), look: {l}</option>)}
               </select>
             </label>
           )}

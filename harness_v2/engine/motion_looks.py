@@ -153,6 +153,147 @@ LOOKS: dict[str, dict] = {
             good="#239B56", bad="#C0392B", card="#FFFFFF", card_ink="#1B1B1B", card_stroke="#1B1B1B", radius=0.03,
             shadow=(0.04, -0.05, 0.12), sticker=True, photo="tape", texture="sketch", sfx=True),
     ),
+    # ---- more looks: each its own board, type, colours and way of moving
+    "archive": dict(
+        label="Archive (sepia, typewriter)",
+        theme=dict(
+            pal=dict(SAND="#A0712F", DUNE="#8C5A2B", TERRA="#8E3B2E", RUST="#6E2A20", TEAL="#4C6E66",
+                     RIVER="#3F5F78", GREEN="#56683A", OLIVE="#6B6A3A", CREAM="#2B2116", MUTED="#7A6A55",
+                     ROSE="#9B2D20", GOLD="#B8862D", VIOLET="#5E4A6E", HI="#1A130C", MOUNT="#8F7E66"),
+            bg="#E6D7B8", texture="motion", sans="EB Garamond", serif="EB Garamond", upper=False,
+            title_col="#2B2116", highlight="#D9B65C", panel="#E6D7B8", panel_style="rule", cap_bg="#2B2116",
+            cap_fg="#F3E9D2", cap_op=0.9, nb_fill="#DCCBA6", nb_stroke="#B9A27A", nb_hi="#E9C98A",
+            st_stroke="#B9A27A", st_hi="#7A6A55", track="#D3C19A", anim="fade", land="#EFE4CB",
+            map_stroke="#3A2C1C", voice="am_eric"),
+        motion=dict(
+            energy="calm", enter="ink", exit="fade", transition="dissolve", idle="flicker",
+            kicker_font="IBM Plex Mono", head_font="EB Garamond", number_font="EB Garamond", body_font="EB Garamond",
+            accent="#9B2D20", accent_ink="#F6EEDC", second="#3F5F78", stamp="#9B2D20", good="#56683A",
+            bad="#9B2D20", card="#F3E9D2", card_ink="#2B2116", card_stroke="#B9A27A", radius=0.01,
+            shadow=(0.05, -0.07, 0.25), sticker=False, photo="tape", texture="archive", sfx=True),
+    ),
+    "neon": dict(
+        label="Neon (night, glowing)",
+        theme=dict(
+            pal=dict(SAND="#FFD166", DUNE="#FF8A5B", TERRA="#FF4D6D", RUST="#C9184A", TEAL="#2EE6D6",
+                     RIVER="#4CC9F0", GREEN="#80FFDB", OLIVE="#B5E48C", CREAM="#F2EEFF", MUTED="#9A8FC7",
+                     ROSE="#FF3EA5", GOLD="#FFD166", VIOLET="#B388FF", HI="#FFFFFF", MOUNT="#C3B8F0"),
+            bg="#0B0620", texture="motion", sans="Quicksand", serif="Quicksand", upper=True, title_col="#F2EEFF",
+            panel="#120A30", panel_style="solid", cap_bg="#05020F", cap_fg="#F2EEFF", cap_op=0.85,
+            nb_fill="#170E3A", nb_stroke="#3B2A7A", nb_hi="#2A1A5E", st_stroke="#3B2A7A", st_hi="#7F6CC9",
+            track="#1D1245", anim="fade", map_stroke="#C3B8F0", voice="af_sarah"),
+        motion=dict(
+            energy="punchy", enter="iris", exit="fade", transition="flash", idle="breathe",
+            kicker_font="IBM Plex Mono", head_font="Quicksand", number_font="Quicksand", body_font="Quicksand",
+            accent="#FF3EA5", accent_ink="#0B0620", second="#26E6FF", stamp="#FFD166", good="#80FFDB",
+            bad="#FF4D6D", card="#170E3A", card_ink="#F2EEFF", card_stroke="#FF3EA5", radius=0.14,
+            shadow=(0.0, -0.06, 0.6), sticker=False, photo="rounded", texture="neon", glow=True, sfx=True),
+    ),
+    "brush": dict(
+        label="Brush (ink on rice paper)",
+        theme=dict(
+            pal=dict(SAND="#B08D57", DUNE="#9C6B3E", TERRA="#C23B22", RUST="#8E2A17", TEAL="#3E6B63",
+                     RIVER="#365F7A", GREEN="#4F6B3A", OLIVE="#6E6F45", CREAM="#1B1A18", MUTED="#7B746A",
+                     ROSE="#C23B22", GOLD="#B8892F", VIOLET="#5D4B6B", HI="#0D0C0B", MOUNT="#8C857A"),
+            bg="#F3EEE2", texture="motion", sans="Source Sans 3", serif="Playfair Display", upper=False,
+            title_col="#1B1A18", panel="#F3EEE2", panel_style="rule", cap_bg="#1B1A18", cap_fg="#F7F2E6",
+            cap_op=0.9, nb_fill="#EAE3D2", nb_stroke="#C9BFA9", nb_hi="#F0D3C8", st_stroke="#C9BFA9",
+            st_hi="#8C857A", track="#E2DAC6", anim="write", land="#FAF6EC", map_stroke="#1B1A18",
+            voice="am_adam"),
+        motion=dict(
+            energy="calm", enter="ink", exit="fade", transition="dissolve", idle="drift",
+            kicker_font="Source Sans 3", head_font="Playfair Display", number_font="Playfair Display",
+            body_font="Source Sans 3", accent="#C23B22", accent_ink="#FFFFFF", second="#1B1A18", stamp="#C23B22",
+            good="#4F6B3A", bad="#C23B22", card="#FAF6EC", card_ink="#1B1A18", card_stroke="#C9BFA9", radius=0.02,
+            shadow=(0.03, -0.04, 0.12), sticker=False, photo="plain", texture="washi", sfx=True),
+    ),
+    "collage": dict(
+        label="Collage (cut paper)",
+        theme=dict(
+            pal=dict(SAND="#E0A83A", DUNE="#D9822B", TERRA="#D64933", RUST="#9E2A1F", TEAL="#2A9D8F",
+                     RIVER="#2E6FD8", GREEN="#5A9A3C", OLIVE="#7D8A2E", CREAM="#1F1A14", MUTED="#6D5E4C",
+                     ROSE="#E23B4E", GOLD="#F2B705", VIOLET="#6D4BC2", HI="#111111", MOUNT="#9C8A72"),
+            bg="#D9C3A0", texture="motion", sans="Libre Franklin", serif="Oswald", upper=True, title_col="#1F1A14",
+            highlight="#F2B705", panel="#D9C3A0", panel_style="rule", cap_bg="#1F1A14", cap_fg="#FBF3E4",
+            cap_op=0.92, nb_fill="#E8D7BA", nb_stroke="#B9A07C", nb_hi="#F4D27A", st_stroke="#B9A07C",
+            st_hi="#6D5E4C", track="#CDB590", anim="fade", land="#F1E5CF", map_stroke="#1F1A14",
+            voice="am_michael"),
+        motion=dict(
+            energy="punchy", enter="drop", exit="slide", transition="stack", idle="sway",
+            kicker_font="IBM Plex Mono", head_font="Oswald", number_font="Oswald", body_font="Libre Franklin",
+            accent="#E23B4E", accent_ink="#FFFFFF", second="#2E6FD8", stamp="#1F1A14", good="#5A9A3C",
+            bad="#E23B4E", card="#FBF6EC", card_ink="#1F1A14", card_stroke="#FBF6EC", radius=0.0,
+            shadow=(0.09, -0.12, 0.35), sticker=True, photo="halftone", texture="kraft", sfx=True),
+    ),
+    "textbook": dict(
+        label="Textbook (clean grid)",
+        theme=dict(
+            pal=dict(SAND="#E8A33D", DUNE="#E07A5F", TERRA="#D1495B", RUST="#A23B4A", TEAL="#0F8B8D",
+                     RIVER="#1F6FEB", GREEN="#2DA44E", OLIVE="#7A8B2E", CREAM="#1F2328", MUTED="#656D76",
+                     ROSE="#CF222E", GOLD="#BF8700", VIOLET="#8250DF", HI="#0B0F14", MOUNT="#8C959F"),
+            bg="#FFFFFF", texture="motion", sans="Source Sans 3", serif="Source Sans 3", upper=False,
+            title_col="#1F2328", panel="#F6F8FA", panel_style="solid", cap_bg="#1F2328", cap_fg="#FFFFFF",
+            cap_op=0.92, nb_fill="#F6F8FA", nb_stroke="#D0D7DE", nb_hi="#DDF4FF", st_stroke="#D0D7DE",
+            st_hi="#8C959F", track="#EAEEF2", anim="fade", land="#FFFFFF", map_stroke="#1F2328",
+            voice="af_bella"),
+        motion=dict(
+            energy="calm", enter="rise", exit="fade", transition="push", idle="none",
+            kicker_font="IBM Plex Mono", head_font="Source Sans 3", number_font="Source Sans 3",
+            body_font="Source Sans 3", accent="#1F6FEB", accent_ink="#FFFFFF", second="#8250DF", stamp="#CF222E",
+            good="#2DA44E", bad="#CF222E", card="#F6F8FA", card_ink="#1F2328", card_stroke="#D0D7DE", radius=0.06,
+            shadow=(0.0, -0.03, 0.08), sticker=False, photo="rounded", texture="grid", sfx=True),
+    ),
+    "chalkcolour": dict(
+        label="Coloured chalk (green board)",
+        theme=dict(
+            pal=dict(SAND="#F7D774", DUNE="#F5A962", TERRA="#F28482", RUST="#D9645F", TEAL="#84DCC6",
+                     RIVER="#8EC5FF", GREEN="#B5E48C", OLIVE="#C9D77A", CREAM="#F5F3EA", MUTED="#B9C2B4",
+                     ROSE="#FF9AA2", GOLD="#F7D774", VIOLET="#CDB4FF", HI="#FFFFFF", MOUNT="#DCE3D6"),
+            bg="#24402F", texture="motion", sans="Patrick Hand", serif="Caveat", upper=False, title_col="#F5F3EA",
+            panel="#24402F", panel_style="marker", cap_bg="#132219", cap_fg="#F5F3EA", cap_op=0.85,
+            nb_fill="#2E4D3A", nb_stroke="#567A63", nb_hi="#3F5E4A", st_stroke="#567A63", st_hi="#9FB6A6",
+            track="#335240", anim="write", map_stroke="#F5F3EA", voice="am_adam"),
+        motion=dict(
+            energy="lively", enter="write", exit="fade", transition="dissolve", idle="drift",
+            kicker_font="Patrick Hand", head_font="Caveat", number_font="Caveat", body_font="Patrick Hand",
+            accent="#F7D774", accent_ink="#1E2B22", second="#8EC5FF", stamp="#FF9AA2", good="#B5E48C",
+            bad="#FF9AA2", card="#2E4D3A", card_ink="#F5F3EA", card_stroke="#F5F3EA", radius=0.04,
+            shadow=(0.04, -0.06, 0.3), sticker=False, photo="polaroid", texture="chalkgreen", sfx=True),
+    ),
+    "isometric": dict(
+        label="Isometric (blocks on a grid)",
+        theme=dict(
+            pal=dict(SAND="#F4A259", DUNE="#F28F3B", TERRA="#E4572E", RUST="#B23A2A", TEAL="#17BEBB",
+                     RIVER="#3D7DCA", GREEN="#5BBA6F", OLIVE="#8AA34A", CREAM="#1E2A3A", MUTED="#6B7A8F",
+                     ROSE="#E4572E", GOLD="#F4A259", VIOLET="#7B6CF6", HI="#0E1724", MOUNT="#A3B0C2"),
+            bg="#EEF2F7", texture="motion", sans="Poppins", serif="Poppins", upper=False, title_col="#1E2A3A",
+            panel="#FFFFFF", panel_style="solid", cap_bg="#1E2A3A", cap_fg="#FFFFFF", cap_op=0.92,
+            nb_fill="#FFFFFF", nb_stroke="#D3DBE6", nb_hi="#D6F5F4", st_stroke="#D3DBE6", st_hi="#A3B0C2",
+            track="#DEE5EE", anim="fade", land="#FFFFFF", map_stroke="#1E2A3A", voice="af_bella"),
+        motion=dict(
+            energy="lively", enter="rise", exit="slide", transition="push", idle="float",
+            kicker_font="IBM Plex Mono", head_font="Poppins", number_font="Poppins", body_font="Poppins",
+            accent="#17BEBB", accent_ink="#FFFFFF", second="#F4A259", stamp="#E4572E", good="#5BBA6F",
+            bad="#E4572E", card="#FFFFFF", card_ink="#1E2A3A", card_stroke="#D3DBE6", radius=0.1,
+            shadow=(0.12, -0.12, 0.18), sticker=True, photo="rounded", texture="iso", sfx=True),
+    ),
+    "drafting": dict(
+        label="Drafting (blueprint lines)",
+        theme=dict(
+            pal=dict(SAND="#FFE08A", DUNE="#FFB86B", TERRA="#FF8A80", RUST="#E57373", TEAL="#80DEEA",
+                     RIVER="#B3E5FC", GREEN="#C5E1A5", OLIVE="#DCE775", CREAM="#EAF4FF", MUTED="#9FB8D6",
+                     ROSE="#FF8A80", GOLD="#FFE08A", VIOLET="#D1C4E9", HI="#FFFFFF", MOUNT="#C4D7EE"),
+            bg="#12355B", texture="motion", sans="IBM Plex Mono", serif="Oswald", upper=True, title_col="#EAF4FF",
+            panel="#12355B", panel_style="rule", cap_bg="#0A2140", cap_fg="#EAF4FF", cap_op=0.85,
+            nb_fill="#17406B", nb_stroke="#5B86B8", nb_hi="#225080", st_stroke="#5B86B8", st_hi="#9FB8D6",
+            track="#1B4775", anim="write", map_stroke="#EAF4FF", voice="am_michael"),
+        motion=dict(
+            energy="lively", enter="write", exit="fade", transition="turn", idle="none",
+            kicker_font="IBM Plex Mono", head_font="Oswald", number_font="Oswald", body_font="IBM Plex Mono",
+            accent="#FFE08A", accent_ink="#12355B", second="#80DEEA", stamp="#FF8A80", good="#C5E1A5",
+            bad="#FF8A80", card="#17406B", card_ink="#EAF4FF", card_stroke="#EAF4FF", radius=0.0,
+            shadow=(0.0, 0.0, 0.0), sticker=False, photo="plain", texture="blueprint", sfx=True),
+    ),
 }
 
 # A classic style with no look of its own moves as the nearest look does (its colours and fonts stay its own).
@@ -161,8 +302,9 @@ CLASSIC_MOTION = {"vox": "paper", "parchment": "paper", "cardboard": "paper", "a
                   "friendly": "studio", "ink": "sketch", "water": "studio"}
 ENTRANCES = ("pop", "rise", "drop", "slide", "write", "fade", "zoom", "flip")
 EXITS = ("slide", "fade", "shrink", "drop")
-TRANSITIONS = ("slide", "push", "wipe", "dissolve", "zoom", "page", "cut")
-IDLES = ("float", "drift", "boil", "none")
+TRANSITIONS = ("slide", "push", "wipe", "dissolve", "zoom", "page", "cut", "whip", "stack", "flash", "turn", "match")
+IDLES = ("float", "drift", "boil", "breathe", "sway", "parallax", "flicker", "none")
+ENTRANCES = ENTRANCES + ("unfold", "typewrite", "ink", "stamp", "spin", "iris")
 
 
 # How each look's drawn shapes are dressed (artstyle.py). Its pictures are asked of the image model in the words
@@ -170,9 +312,11 @@ IDLES = ("float", "drift", "boil", "none")
 # The classic style each look rests on: the scene names it (LECTURE_STYLE) so the voice tools, which read the
 # scene's style before the engine is imported, find a style they know, and the look speaks with its voice.
 BASE = {"paper": "vox", "newsroom": "atlas", "chalk": "chalkboard", "data": "cosmos", "studio": "lab",
-        "sketch": "whiteboard"}
+        "sketch": "whiteboard", "archive": "parchment", "neon": "cosmos", "brush": "parchment", "collage": "cardboard",
+        "textbook": "lab", "chalkcolour": "chalkboard", "isometric": "lab", "drafting": "blueprint"}
 ART = {"paper": "clean", "newsroom": "detailed", "chalk": "chalk", "data": "clean", "studio": "clean",
-       "sketch": "sketch"}
+       "sketch": "sketch", "archive": "detailed", "neon": "neon", "brush": "watercolour", "collage": "detailed",
+       "textbook": "clean", "chalkcolour": "chalk", "isometric": "clean", "drafting": "clean"}
 
 
 def register_all() -> None:
@@ -290,6 +434,70 @@ def texture_file(kind: str, bg: str) -> Path | None:
         grid = ((x % 32 == 0) & (y % 32 == 0)).astype(np.float32)
         img -= (grid * 40)[..., None]
         img *= _vignette(0.08)[..., None]
+    elif kind == "archive":
+        # Old paper: blotches and foxing, darker toward the edges as if burnt by years of light.
+        blot = _noise(rng, (H, W), 120) - 0.5
+        fibre = _noise(rng, (H, W), 5) - 0.5
+        spots = (rng.random((H, W)) > 0.9993).astype(np.float32)
+        from PIL import Image as _I, ImageFilter as _F
+        foxing = np.asarray(_I.fromarray((spots * 255).astype(np.uint8)).filter(_F.GaussianBlur(5)), dtype=np.float32)
+        img += (blot * 30 + fibre * 8)[..., None]
+        img -= (foxing * 0.9)[..., None] * np.array([0.6, 0.8, 1.0])
+        img *= _vignette(0.42)[..., None]
+    elif kind == "neon":
+        y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+        for cx, cy, col, k in ((0.15, 0.2, "#FF3EA5", 0.35), (0.88, 0.85, "#26E6FF", 0.32)):
+            d = np.sqrt(((x / W - cx) * 1.4) ** 2 + (y / H - cy) ** 2)
+            glow = np.clip(1 - d / 0.8, 0, 1) ** 2.4 * k
+            img = img * (1 - glow[..., None]) + _hex(col) * 0.5 * glow[..., None]
+        # A faint perspective grid in the lower third, as a synthwave floor.
+        floor = (y / H > 0.72)
+        lines = ((np.abs(((x / W - 0.5) * 40 / np.maximum(y / H - 0.6, 0.05)) % 4) < 0.08) |
+                 (np.abs((1 / np.maximum(y / H - 0.65, 0.02)) % 3) < 0.25)) & floor
+        img += (lines.astype(np.float32) * 22)[..., None] * np.array([1.0, 0.4, 0.9])
+        img += rng.normal(0, 1.4, (H, W, 1)).astype(np.float32)
+    elif kind == "washi":
+        fibre = _noise(rng, (H, W), 3) - 0.5
+        long = _noise(rng, (H // 4, W), 2) - 0.5
+        from PIL import Image as _I
+        streaks = np.asarray(_I.fromarray(((long + 0.5) * 255).astype(np.uint8)).resize((W, H)), dtype=np.float32) / 255 - 0.5
+        blot = _noise(rng, (H, W), 200) - 0.5
+        img += (fibre * 7 + streaks * 9 + blot * 12)[..., None]
+        img *= _vignette(0.1)[..., None]
+    elif kind == "kraft":
+        fibre = _noise(rng, (H, W), 4) - 0.5
+        blot = _noise(rng, (H, W), 90) - 0.5
+        flecks = (rng.random((H, W)) > 0.996).astype(np.float32)
+        img += (fibre * 14 + blot * 22 - flecks * 40)[..., None]
+        img *= _vignette(0.2)[..., None]
+    elif kind == "grid":
+        y, x = np.mgrid[0:H, 0:W]
+        minor = ((x % 24 == 0) | (y % 24 == 0)).astype(np.float32)
+        major = ((x % 120 == 0) | (y % 120 == 0)).astype(np.float32)
+        img -= (minor * 7 + major * 10)[..., None] * np.array([1.0, 0.7, 0.3])
+    elif kind == "chalkgreen":
+        smudge = _noise(rng, (H, W), 110) - 0.5
+        dust = rng.random((H, W)).astype(np.float32)
+        wipes = _noise(rng, (H, W), 36) - 0.5
+        img += (smudge * 36 + wipes * 12 + (dust > 0.978) * 24 + rng.normal(0, 1, (H, W)) * 4)[..., None]
+        img *= _vignette(0.32)[..., None]
+        # A wooden ledge's shadow along the foot of the board.
+        y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+        img *= (1 - 0.25 * np.clip((y / H - 0.93) / 0.07, 0, 1))[..., None]
+    elif kind == "iso":
+        y, x = np.mgrid[0:H, 0:W].astype(np.float32)
+        a = (x * 0.577 + y) % 36
+        b = (-x * 0.577 + y) % 36
+        lines = ((a < 1.2) | (b < 1.2)).astype(np.float32)
+        img -= (lines * 9)[..., None] * np.array([1.0, 0.8, 0.6])
+        img *= _vignette(0.06)[..., None]
+    elif kind == "blueprint":
+        y, x = np.mgrid[0:H, 0:W]
+        minor = ((x % 20 == 0) | (y % 20 == 0)).astype(np.float32)
+        major = ((x % 100 == 0) | (y % 100 == 0)).astype(np.float32)
+        img += (minor * 10 + major * 22)[..., None] * np.array([0.6, 0.8, 1.0])
+        img += (_noise(rng, (H, W), 150) - 0.5)[..., None] * 18
+        img *= _vignette(0.3)[..., None]
     else:
         return None
     pic = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))

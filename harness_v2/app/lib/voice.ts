@@ -87,7 +87,7 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
   const full = await engineScript(run, n, cleanLook(scenesOf(run).look), { chapter });
   const ch = (full.chapters as ChapterScript["chapter"][])[0];
   // On the motion engine (beta: the Scenes tab's setting), the chapter carries it and its settings, to be tried on it.
-  const motion = full.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+  const motion = full.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "idle", "timeline"] as const)
     .filter((k) => typeof full[k] === "string").map((k) => [k, full[k] as string])) } : {};
   return { ...motion, style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
     emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
@@ -157,7 +157,7 @@ export function readChapterScript(x: unknown): ChapterScript {
   if (o.region !== undefined && o.region !== null && (typeof o.region !== "object" || Array.isArray(o.region))) fail('"region" must be an object or null');
   if (o.engine !== undefined && o.engine !== "motion") fail('"engine" is "motion" (the motion engine, beta) or left out');
   // The motion engine's own settings (engine/MOTION_ENGINE.md); its compiler checks their values.
-  const motion = o.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+  const motion = o.engine === "motion" ? { engine: "motion" as const, ...Object.fromEntries((["look", "energy", "transition", "idle", "timeline"] as const)
     .filter((k) => text(k)).map((k) => [k, text(k)])) } : {};
   return { ...motion, style: text("style"), art: text("art"), region: (o.region as ChapterScript["region"]) ?? null, emblem: text("emblem") ?? null,
     genre: text("genre") ?? null,
@@ -170,7 +170,7 @@ export function readChapterScript(x: unknown): ChapterScript {
 export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Promise<Record<string, unknown>> {
   const look = cleanLook({ ...scenesOf(run).look, ...(s.style ? { style: s.style } : {}), ...(s.art ? { art: s.art } : {}) });
   const region = s.region && Object.keys(s.region).length ? s.region : null;
-  const motion = s.engine === "motion" ? { engine: "motion", ...Object.fromEntries((["look", "energy", "transition", "timeline"] as const)
+  const motion = s.engine === "motion" ? { engine: "motion", ...Object.fromEntries((["look", "energy", "transition", "idle", "timeline"] as const)
     .filter((k) => s[k]).map((k) => [k, s[k]])) } : {};
   return { ...motion, title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),

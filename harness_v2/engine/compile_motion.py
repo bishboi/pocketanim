@@ -79,7 +79,33 @@ MOTION_OPS: dict[str, dict] = {
     "iceberg": {"need": ["below"], "args": ["above", "below", "waterline", "title", "kicker", "id"]},
     "before_after": {"need": ["before", "after"], "args": ["before", "after", "change", "title", "kicker", "id"]},
     "ranking": {"need": ["items"], "args": ["items", "order", "unit", "highlight", "title", "kicker", "id"]},
+    # History and storytelling (motion_story.py).
+    "cause_web": {"need": ["causes", "effect"], "args": ["causes", "effect", "title", "kicker", "id"]},
+    "portrait_card": {"need": ["name"], "args": ["name", "dates", "role", "file", "facts", "title", "kicker", "id"]},
+    "source_vs_reality": {"need": ["source", "reality"], "args": ["source", "reality", "verdict", "title", "kicker", "id"]},
+    "population_pyramid": {"need": ["groups"], "args": ["groups", "left_label", "right_label", "unit", "title", "kicker",
+                                                        "id"]},
+    "migration_flow": {"need": ["regions", "flows"], "args": ["regions", "flows", "unit", "title", "kicker", "id"]},
+    "quote_reveal": {"need": ["text"], "args": ["text", "who", "file", "highlight", "title", "kicker", "id"]},
+    "newspaper": {"need": ["headline"], "args": ["headline", "paper", "date", "sub", "file", "title", "kicker", "id"]},
+    "letter": {"need": ["text"], "args": ["text", "to", "sign", "date", "title", "kicker", "id"]},
+    "countdown": {"need": ["steps", "event"], "args": ["steps", "event", "title", "kicker", "id"]},
+    # Numbers and explanations (motion_explain.py).
+    "race_bars": {"need": ["frames"], "args": ["frames", "unit", "title", "kicker", "id"]},
+    "waterfall": {"need": ["start", "steps"], "args": ["start", "steps", "total", "unit", "title", "kicker", "id"]},
+    "stacked_area": {"need": ["series", "years"], "args": ["series", "years", "unit", "title", "kicker", "id"]},
+    "slope": {"need": ["items"], "args": ["items", "left_label", "right_label", "unit", "title", "kicker", "id"]},
+    "dot_compare": {"need": ["groups"], "args": ["groups", "title", "kicker", "id"]},
+    "split_number": {"need": ["value", "parts"], "args": ["value", "parts", "label", "unit", "title", "kicker", "id"]},
+    "zoom_in": {"need": ["picture"], "args": ["file", "box", "label", "note", "on", "title", "kicker", "id"]},
+    "layers": {"need": ["layers"], "args": ["layers", "title", "kicker", "id"]},
+    "cycle_wheel": {"need": ["steps"], "args": ["steps", "center", "title", "kicker", "id"]},
+    "checklist": {"need": ["claim", "criteria"], "args": ["claim", "criteria", "verdict", "title", "kicker", "id"]},
+    "pros_cons": {"need": [], "args": ["pros", "cons", "lean", "verdict", "title", "kicker", "id"]},
+    "mind_map": {"need": ["center", "branches"], "args": ["center", "branches", "title", "kicker", "id"]},
 }
+# Written as another operation: a story on the map is the map's journey, its stops named with their dates.
+SUGAR_OPS = {"map_story"}
 # The ways a template may be laid out (`layout`), the first its default.
 LAYOUTS = {
     "counter": ("big", "ring", "bar", "badge"),
@@ -90,7 +116,11 @@ LAYOUTS = {
     "kpi": ("row", "grid", "column"),
 }
 # How any template's parts may come on (`enter`; motion_kit.ENTRANCES). Left out: each part's own way.
-ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write")
+ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write", "unfold", "typewrite", "ink", "stamp",
+             "spin", "iris")
+IDLES = tuple(motion_looks.IDLES)
+# A picture's camera on the motion engine, beside the lecture engine's moves (bob, sway, breathe, drift).
+CAMERA_MOVES = ("kenburns", "pan", "pullback")
 RANK_ORDERS = ("up", "down")
 for _kind, _spec in MOTION_OPS.items():
     if _kind in LAYOUTS:
@@ -104,7 +134,8 @@ OVERLAY_OPS = {"stamp", "emphasis"}
 RETIRED_MOTION = {"callout": "callouts are no longer drawn"}
 CHART_KINDS = ("column", "bar", "line")
 LIST_MARKS = ("bullet", "number", "check")
-EMPHASES = ("pulse", "circle", "underline", "highlight", "box", "glow", "shake", "dim")
+EMPHASES = ("pulse", "circle", "underline", "highlight", "box", "glow", "shake", "dim", "spotlight", "rack", "magnify",
+            "wiggle", "bounce", "wash", "strike", "sweep")
 TIMELINE_STYLES = ("track", "ribbon", "cards", "road", "vertical")
 ZONE_KINDS = ("field", "wood", "water", "pasture", "building", "church", "marsh", "road")
 PLAN_CELLS = ("nw", "n", "ne", "w", "center", "e", "sw", "s", "se")
@@ -112,7 +143,8 @@ UNIT_SHAPES = ("sack", "coin", "box")
 ENERGIES = tuple(motion_looks.ENERGY)
 SIDES = ("center", "top", "bottom", "left", "right")
 # Pictures in these are made large (a print, a page's portrait, a side's picture), not as small pictures by words.
-BIG_PICTURES = {"polaroids", "document", "versus", "plan", "before_after"}
+BIG_PICTURES = {"polaroids", "document", "versus", "plan", "before_after", "portrait_card", "zoom_in", "quote_reveal",
+                "newspaper"}
 MOST = {"cards": 6, "chain": 7, "list": 7, "kpi": 4, "polaroids": 5, "chart": 12, "hierarchy": 6, "exchange": 4,
         "plan": 12, "lineage": 8, "lifespan": 7, "analogy": 6, "ritual": 6, "calendar": 6, "converge": 8,
         "table": 5, "venn": 3, "quadrant": 8, "funnel": 6, "ranking": 7, "iceberg": 5}
@@ -148,7 +180,8 @@ def _pictures(op: dict) -> list[tuple[str, dict]]:
         for k, step in enumerate(op.get("steps") or []):
             if isinstance(step, dict) and isinstance(step.get("picture"), dict):
                 out.append((f"step {k + 1}", step["picture"]))
-    elif kind in ("document", "plan") and isinstance(op.get("picture"), dict):
+    elif kind in ("document", "plan", "portrait_card", "zoom_in", "quote_reveal", "newspaper") \
+            and isinstance(op.get("picture"), dict):
         out.append(("its picture", op["picture"]))
     elif kind in ("hierarchy", "lineage", "ritual"):
         key = {"hierarchy": "tiers", "lineage": "people", "ritual": "objects"}[kind]
@@ -188,6 +221,9 @@ def motion_fixes(script: dict) -> list[str]:
         notes.append(f"{fixed}transition {script['transition']!r} is not one of {', '.join(motion_looks.TRANSITIONS)}; "
                      "the look's own is used")
         script.pop("transition")
+    if script.get("idle") is not None and script["idle"] not in IDLES:
+        notes.append(f"{fixed}idle {script['idle']!r} is not one of {', '.join(IDLES)}; the look's own is used")
+        script.pop("idle")
     if script.get("timeline") is not None and script["timeline"] not in TIMELINE_STYLES:
         notes.append(f"{fixed}timeline {script['timeline']!r} is not one of {', '.join(TIMELINE_STYLES)}; track is used")
         script.pop("timeline")
@@ -204,6 +240,11 @@ def motion_fixes(script: dict) -> list[str]:
                     notes.append(f"{fixed}{at}: timeline style {op['style']!r} is not one of "
                                  f"{', '.join(TIMELINE_STYLES)}; track is used")
                     op.pop("style")
+                if kind in SUGAR_OPS:
+                    made = _map_story(op, at, notes)
+                    if made is not None:
+                        kept.append(made)
+                    continue
                 if kind in RETIRED_MOTION:
                     notes.append(f"{fixed}{at}: {kind} left out: {RETIRED_MOTION[kind]}")
                     continue
@@ -222,6 +263,24 @@ def motion_fixes(script: dict) -> list[str]:
                 kept.append(op)
             beat["do"] = kept
     return notes
+
+
+def _map_story(op: dict, at: str, notes: list[str]) -> dict | None:
+    """A story on the map (`map_story`: stops [{place, date?, label?}], color?) as the map's journey: the route drawn
+    behind a traveller, each stop named with its date as it is reached."""
+    stops = [s if isinstance(s, dict) else {"place": str(s)} for s in op.get("stops") or []]
+    stops = [s for s in stops if s.get("place")]
+    if len(stops) < 2:
+        notes.append(f"{cl.FIXED}{at}: map_story left out: it needs two stops or more, each with a place")
+        return None
+    labels = [" · ".join(str(x) for x in (s.get("label") or s["place"], s.get("date")) if x) for s in stops]
+    out = {"op": "journey", "stops": [s["place"] for s in stops], "labels": labels}
+    for k in ("color", "on"):
+        if op.get(k) is not None:
+            out[k] = op[k]
+    if any(isinstance(s.get("picture"), dict) for s in stops):
+        out["pictures"] = [s.get("picture") for s in stops]
+    return out
 
 
 def _mend_form(op: dict, kind: str, at: str, notes: list[str]) -> None:
@@ -381,6 +440,10 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
     elif kind == "stamp":
         if op.get("at") is not None and op["at"] not in SIDES:
             op["at"] = "center"
+    elif kind in STORY_KINDS:
+        problem = _mend_story(op, kind, at, notes)
+        if problem:
+            return problem
     elif kind in ("venn", "quadrant", "funnel", "gauge", "scale", "iceberg", "before_after", "ranking"):
         problem = _mend_forms(op, kind, at, notes, most)
         if problem:
@@ -506,6 +569,124 @@ def _mend_more(op: dict, kind: str, at: str, notes: list[str], most: int | None)
     return None
 
 
+STORY_KINDS = ("cause_web", "portrait_card", "source_vs_reality", "population_pyramid", "migration_flow", "quote_reveal",
+               "newspaper", "letter", "countdown", "race_bars", "waterfall", "stacked_area", "slope", "dot_compare",
+               "split_number", "zoom_in", "layers", "cycle_wheel", "checklist", "pros_cons", "mind_map")
+
+
+def _mend_story(op: dict, kind: str, at: str, notes: list[str]) -> str | None:
+    """The templates of motion_story.py and motion_explain.py checked and mended (MOTION_ENGINE.md §3): lists of
+    words or objects read as objects, counts cut to what fits, a template missing what it shows left out."""
+    fixed = cl.FIXED
+
+    def objs(key: str, text_key: str, most: int) -> list:
+        items = _items(op, key, text_key)
+        if len(items) > most:
+            notes.append(f"{fixed}{at}: {kind} cut to its first {most} {key}")
+        return items[:most]
+    if kind == "cause_web":
+        op["causes"] = objs("causes", "text", 6)
+        if not op["causes"]:
+            return "it needs its causes"
+    elif kind == "portrait_card":
+        _picture_in(op)
+        op["facts"] = objs("facts", "text", 3)
+    elif kind == "source_vs_reality":
+        for side in ("source", "reality"):
+            if isinstance(op.get(side), str):
+                op[side] = {"text": op[side]}
+            if not isinstance(op.get(side), dict) or not op[side].get("text"):
+                return f"its {side} needs its text"
+    elif kind == "population_pyramid":
+        groups = [g for g in op.get("groups") or [] if isinstance(g, dict) and g.get("label")
+                  and _num(g.get("left")) is not None and _num(g.get("right")) is not None]
+        if len(groups) < 2:
+            return "its groups are {label, left, right} (two or more)"
+        op["groups"] = groups[:10]
+    elif kind == "migration_flow":
+        op["regions"] = objs("regions", "name", 6)
+        flows = [f for f in op.get("flows") or [] if isinstance(f, dict) and f.get("from") and f.get("to")]
+        if len(op["regions"]) < 2 or not flows:
+            return "it needs two regions or more and flows {from, to, value}"
+        op["flows"] = flows[:8]
+    elif kind in ("quote_reveal", "newspaper"):
+        _picture_in(op)
+    elif kind == "countdown":
+        op["steps"] = objs("steps", "text", 6)
+        if isinstance(op.get("event"), str):
+            op["event"] = {"text": op["event"]}
+        if not op["steps"] or not isinstance(op.get("event"), dict) or not op["event"].get("text"):
+            return "it needs its steps and an event"
+    elif kind == "race_bars":
+        frames = [f for f in op.get("frames") or [] if isinstance(f, dict) and isinstance(f.get("values"), dict)
+                  and f["values"]]
+        if not frames:
+            return "its frames are {at, values: {name: number}, on}"
+        frames[0].setdefault("on", "start")
+        op["frames"] = frames[:8]
+    elif kind == "waterfall":
+        if isinstance(op.get("start"), (int, float, str)):
+            op["start"] = {"label": "Start", "value": op["start"]}
+        steps = [s for s in op.get("steps") or [] if isinstance(s, dict) and _num(s.get("value")) is not None]
+        if not steps or not isinstance(op.get("start"), dict) or _num(op["start"].get("value")) is None:
+            return "it needs a start {label, value} and steps {label, value: +n or -n}"
+        # Drawn with the template: not timed by a word of the line its label happens to look like.
+        op["start"].setdefault("on", "start")
+        op["steps"] = steps[:8]
+    elif kind == "stacked_area":
+        series = [x for x in op.get("series") or [] if isinstance(x, dict) and isinstance(x.get("values"), list)]
+        if not series or len(op.get("years") or []) < 2:
+            return "it needs its years (two or more) and series {label, values}"
+        op["series"] = series[:6]
+    elif kind == "slope":
+        items = [i for i in op.get("items") or [] if isinstance(i, dict) and _num(i.get("from")) is not None
+                 and _num(i.get("to")) is not None]
+        if not items:
+            return "its items are {label, from, to}"
+        op["items"] = items[:7]
+    elif kind == "dot_compare":
+        groups = [g for g in op.get("groups") or [] if isinstance(g, dict) and _num(g.get("part")) is not None]
+        if not groups:
+            return "its groups are {label, part, total}"
+        op["groups"] = groups[:4]
+    elif kind == "split_number":
+        parts = [x for x in op.get("parts") or [] if isinstance(x, dict) and _num(x.get("value")) is not None]
+        if not parts:
+            return "its parts are {label, value}"
+        op["parts"] = parts[:6]
+    elif kind == "zoom_in":
+        _picture_in(op)
+        if not isinstance(op.get("picture"), dict):
+            return "it needs a picture ({\"generate\": ...} or {\"figure\": ...})"
+        box = op.get("box")
+        if box is not None and not (isinstance(box, list) and len(box) == 4 and all(_num(v) is not None for v in box)):
+            notes.append(f"{fixed}{at}: zoom_in box is [x0, y0, x1, y1] from 0 to 1; its middle is used")
+            op.pop("box")
+    elif kind == "layers":
+        op["layers"] = objs("layers", "label", 6)
+        if len(op["layers"]) < 2:
+            return "it needs two layers or more"
+    elif kind == "cycle_wheel":
+        op["steps"] = objs("steps", "label", 8)
+        if len(op["steps"]) < 3:
+            return "a cycle needs three steps or more"
+    elif kind == "checklist":
+        op["criteria"] = objs("criteria", "text", 6)
+        if not op["criteria"]:
+            return "it needs its criteria"
+    elif kind == "pros_cons":
+        op["pros"], op["cons"] = objs("pros", "text", 5), objs("cons", "text", 5)
+        if not op["pros"] and not op["cons"]:
+            return "it needs pros or cons"
+        if op.get("lean") is not None and op["lean"] not in ("pros", "cons", "even"):
+            op.pop("lean")
+    elif kind == "mind_map":
+        op["branches"] = objs("branches", "label", 8)
+        if not op["branches"]:
+            return "it needs its branches"
+    return None
+
+
 def _mend_forms(op: dict, kind: str, at: str, notes: list[str], most: int | None) -> str | None:
     """The templates of motion_forms.py checked and mended (see MOTION_ENGINE.md §3)."""
     fixed = cl.FIXED
@@ -604,7 +785,7 @@ def _patched_picture_fetch(spec: dict):
 
 # Templates whose `on` is the moment inside them (the correction, the share lifted out, the answer), not when they
 # come on: they come on with the line (or on their own words, as any picture).
-INNER_ON = {"myth", "share", "ask"}
+INNER_ON = {"myth", "share", "ask", "zoom_in"}
 
 
 def _inner_on(op: dict) -> bool:
@@ -711,6 +892,8 @@ def _patched_compile_script(script: dict, scene_class: str = "GeneratedScene", e
         head.append(f"os.environ.setdefault(\"MOTION_TRANSITION\", {cl._q(str(script['transition']))})")
     if script.get("timeline"):
         head.append(f"os.environ.setdefault(\"MOTION_TIMELINE\", {cl._q(str(script['timeline']))})")
+    if script.get("idle"):
+        head.append(f"os.environ.setdefault(\"MOTION_IDLE\", {cl._q(str(script['idle']))})")
     marker = f"os.environ.setdefault(\"LECTURE_STYLE\", {cl._q(style)})"
     if marker not in source:
         raise ValueError("motion: the compiled scene does not set its style where expected")
@@ -734,6 +917,7 @@ def install() -> None:
     for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script"):
         _ORIG[name] = getattr(cl, name)
     cl.KIT_OPS.update(MOTION_OPS)
+    cl.PICTURE_MOVES = tuple(dict.fromkeys((*cl.PICTURE_MOVES, *CAMERA_MOVES)))
     cl.RETIRED_OPS.difference_update(MOTION_OPS)        # "counter" was a retired classic op; here it is a template
     pictures = set(MOTION_OPS) - OVERLAY_OPS
     # What counts as a picture for the checks (a paragraph's visual, a chapter's opening, the next picture).

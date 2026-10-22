@@ -4,6 +4,8 @@
  * reads it (lib/voice.ts readChapterScript). check-transcript.mjs compiles every one of them.
  */
 
+import { MOTION_IDLES, MOTION_LOOKS, MOTION_TRANSITIONS } from "./prompts/scenes-motion";
+
 export type LabPreset = { id: string; name: string; note: string; script: Record<string, unknown> };
 
 const board = (title: string, beats: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
@@ -127,10 +129,10 @@ export const LAB_SNIPPETS: { op: string; say: string; do: Record<string, unknown
 
 export type LabMotionPreset = LabPreset & { group: string };
 
-const M_LOOKS = ["paper", "newsroom", "chalk", "data", "studio", "sketch"] as const;
+const M_LOOKS = MOTION_LOOKS;
 
 const motion = (look: string, title: string, beats: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
-  ({ engine: "motion", look, region: null, ...extra, chapter: { title, narration: title, map: false, beats } });
+  ({ engine: "motion", look, region: null, ...extra, chapter: { title, narration: title, map: !!extra.region, beats } });
 
 const DEBT_CHART = { op: "chart", kicker: "Debt · % of the economy", unit: "%", highlight: "Japan", reference: { value: 100, label: "The economy" },
   items: [["Japan", 204], ["Italy", 138], ["USA", 126], ["France", 118], ["Canada", 111], ["Germany", 65]] };
@@ -274,6 +276,68 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
   tpl("ranking", "Ranking", "A leaderboard counting down to first place, which is crowned.", "data", [
     { say: "Osaka was third, Kyoto second, and Edo the largest city of all.", do: [{ op: "ranking", title: "Largest cities", unit: "k",
       items: [{ label: "Edo", value: 1000, on: "Edo" }, { label: "Kyoto", value: 400, on: "Kyoto" }, { label: "Osaka", value: 350, on: "Osaka" }] }] }]),
+  // ---- history and storytelling, numbers and explanations (motion_story.py, motion_explain.py)
+  tpl("cause-web", "Web of causes", "Causes slide in on the left, each arrow into the event as thick as its weight.", "archive", [
+    {"say": "Debt, drought and a weak king all fed the revolt.", "do": [{"op": "cause_web", "effect": {"text": "The revolt"}, "causes": [{"text": "Debt", "weight": 3, "on": "Debt"}, {"text": "Drought", "weight": 2, "on": "drought"}, {"text": "A weak king", "weight": 1, "on": "weak king"}]}]}]),
+  tpl("portrait-card", "Portrait card", "A person as a trading card turned in; facts dealt beside it.", "archive", [
+    {"say": "Tokugawa Ieyasu, born 1543, founded the shogunate and moved power to Edo.", "do": [{"op": "portrait_card", "name": "Tokugawa Ieyasu", "dates": "1543 - 1616", "role": "First shogun", "picture": {"generate": "portrait of a samurai lord"}, "facts": [{"text": "Founded the shogunate", "on": "founded"}, {"text": "Moved power to Edo", "on": "Edo"}]}]}]),
+  tpl("source-vs-reality", "Source against reality", "A chronicle's claim quoted; the evidence slides in; a verdict stamped.", "archive", [
+    {"say": "The chronicle says the city burned for a month; in fact the records show three days.", "do": [{"op": "source_vs_reality", "source": {"text": "The city burned for a month", "by": "A court chronicle"}, "reality": {"text": "Records show the fire lasted three days", "on": "in fact"}, "verdict": "Exaggerated"}]}]),
+  tpl("population-pyramid", "Population pyramid", "Age groups as bars both ways, growing out from the youngest up.", "textbook", [
+    {"say": "Most people were young; few lived past sixty.", "do": [{"op": "population_pyramid", "groups": [{"label": "60+", "left": 3, "right": 4}, {"label": "40-59", "left": 8, "right": 9}, {"label": "20-39", "left": 15, "right": 14}, {"label": "0-19", "left": 24, "right": 23}], "unit": "% of people"}]}]),
+  tpl("migration-flow", "Migration flow", "Regions as discs; each flow an arc as wide as the number who moved.", "isometric", [
+    {"say": "Thousands left the villages for Edo, and some went on to Osaka.", "do": [{"op": "migration_flow", "regions": ["Villages", "Edo", "Osaka"], "flows": [{"from": "Villages", "to": "Edo", "value": 5000, "on": "Edo"}, {"from": "Edo", "to": "Osaka", "value": 1200, "on": "Osaka"}]}]}]),
+  tpl("quote-reveal", "Quote revealed", "A famous line set large, its words lighting up as spoken.", "brush", [
+    {"say": "He wrote: the strong do what they can, and the weak suffer what they must.", "do": [{"op": "quote_reveal", "text": "The strong do what they can, and the weak suffer what they must.", "who": "Thucydides", "highlight": ["strong", "weak"], "picture": {"generate": "bust of a Greek historian"}}]}]),
+  tpl("newspaper", "Front page", "A newspaper spun in, the headline slammed on.", "archive", [
+    {"say": "The next morning every paper said the same thing.", "do": [{"op": "newspaper", "paper": "The Edo Herald", "date": "8 July 1853", "headline": "Black ships in the bay", "sub": "American warships anchor off Uraga", "picture": {"generate": "black steamships"}}]}]),
+  tpl("letter", "Letter", "A letter written on in a hand, then signed.", "brush", [
+    {"say": "His letter home was short.", "do": [{"op": "letter", "to": "Mother", "date": "1853", "text": "The ships are here. Nobody knows what they want. Do not worry.", "sign": "Kenji"}]}]),
+  tpl("countdown", "Countdown", "Years flip in one over another; then the event lands.", "neon", [
+    {"say": "Eighteen fifty, fifty two, fifty three: and then the ships arrived.", "do": [{"op": "countdown", "steps": [{"text": "1850", "on": "Eighteen fifty"}, {"text": "1852", "on": "fifty two"}, {"text": "1853", "on": "fifty three"}], "event": {"text": "The ships arrive", "on": "ships arrived"}}]}]),
+  tpl("race-bars", "Racing bars", "Bars stretch and re-sort at each date, the date rolling over.", "data", [
+    {"say": "In 1700 Kyoto led; by 1750 Edo had passed it; by 1800 Edo was far ahead.", "do": [{"op": "race_bars", "unit": "k", "frames": [{"at": "1700", "values": {"Edo": 300, "Kyoto": 350, "Osaka": 280}}, {"at": "1750", "values": {"Edo": 800, "Kyoto": 380, "Osaka": 320}, "on": "1750"}, {"at": "1800", "values": {"Edo": 1100, "Kyoto": 370, "Osaka": 380}, "on": "1800"}]}]}]),
+  tpl("waterfall", "Waterfall", "Gains step up in green, losses down in red, to the total.", "textbook", [
+    {"say": "From a hundred, taxes added forty, wars took sixty, trade added thirty.", "do": [{"op": "waterfall", "start": {"label": "Start", "value": 100}, "steps": [{"label": "Taxes", "value": 40, "on": "taxes"}, {"label": "Wars", "value": -60, "on": "wars"}, {"label": "Trade", "value": 30, "on": "trade"}], "total": "End"}]}]),
+  tpl("stacked-area", "Stacked area", "Shares of a whole over the years, layer by layer.", "textbook", [
+    {"say": "Farming shrank as trade and crafts grew.", "do": [{"op": "stacked_area", "years": [1700, 1750, 1800, 1850], "series": [{"label": "Farming", "values": [70, 62, 55, 45]}, {"label": "Crafts", "values": [20, 24, 27, 30], "on": "crafts"}, {"label": "Trade", "values": [10, 14, 18, 25], "on": "trade"}]}]}]),
+  tpl("slope", "Slope", "Then and now on two posts; rising green, falling red.", "studio", [
+    {"say": "Rice prices rose while silk fell.", "do": [{"op": "slope", "left_label": "1700", "right_label": "1800", "items": [{"label": "Rice", "from": 40, "to": 90, "on": "Rice"}, {"label": "Silk", "from": 80, "to": 50, "on": "silk"}]}]}]),
+  tpl("dot-compare", "Dot grids", "\"1 in 4\" against \"1 in 20\": grids of dots filling in.", "isometric", [
+    {"say": "One in four could read in the towns, one in twenty in the villages.", "do": [{"op": "dot_compare", "groups": [{"label": "Towns", "part": 25, "total": 100, "text": "1 in 4", "on": "towns"}, {"label": "Villages", "part": 5, "total": 100, "text": "1 in 20", "on": "villages"}]}]}]),
+  tpl("split-number", "Number split", "A total's bar breaks into its parts.", "collage", [
+    {"say": "Of three million koku, rice was two million, the rest silk and salt.", "do": [{"op": "split_number", "value": "3,000,000", "label": "koku of revenue", "parts": [{"label": "Rice", "value": 2000000, "on": "rice"}, {"label": "Silk", "value": 600000, "on": "silk"}, {"label": "Salt", "value": 400000, "on": "salt"}]}]}]),
+  tpl("zoom-in", "Zoom into a picture", "A box drawn on one part; the view pushes in on it.", "archive", [
+    {"say": "Look closely at the gate in the corner.", "do": [{"op": "zoom_in", "picture": {"generate": "a castle with a gate"}, "box": [0.6, 0.5, 0.9, 0.85], "label": "The gate", "note": "Where the guards stood", "on": "gate"}]}]),
+  tpl("layers", "Layers", "Slabs lifted apart one by one, each named.", "drafting", [
+    {"say": "Society had layers: the shogun, the daimyo, the samurai and the farmers.", "do": [{"op": "layers", "layers": [{"label": "Shogun", "on": "shogun"}, {"label": "Daimyo", "on": "daimyo"}, {"label": "Samurai", "on": "samurai"}, {"label": "Farmers", "on": "farmers"}]}]}]),
+  tpl("cycle-wheel", "Cycle wheel", "A pointer travels round the cycle, lighting each step.", "chalkcolour", [
+    {"say": "Plant, grow, harvest, store, and plant again.", "do": [{"op": "cycle_wheel", "center": "The rice year", "steps": [{"label": "Plant", "on": "Plant"}, {"label": "Grow", "on": "grow"}, {"label": "Harvest", "on": "harvest"}, {"label": "Store", "on": "store"}]}]}]),
+  tpl("checklist", "Checklist", "A claim tested: ticks and crosses, then a verdict.", "textbook", [
+    {"say": "Was it a revolution? It changed rulers, yes; it changed the class system, yes; but it did not change land ownership.", "do": [{"op": "checklist", "claim": "The Meiji Restoration was a revolution", "criteria": [{"text": "New rulers", "met": true, "on": "rulers"}, {"text": "Class system ended", "met": true, "on": "class system"}, {"text": "Land redistributed", "met": false, "on": "land ownership"}], "verdict": "Partly"}]}]),
+  tpl("pros-cons", "Pros and cons", "Points dropped into FOR and AGAINST; a bar leans to the stronger.", "collage", [
+    {"say": "Opening the ports brought trade and ideas, but also unequal treaties.", "do": [{"op": "pros_cons", "pros": [{"text": "Trade", "on": "trade"}, {"text": "New ideas", "on": "ideas"}], "cons": [{"text": "Unequal treaties", "on": "unequal"}], "verdict": "Mixed blessing"}]}]),
+  tpl("mind-map", "Mind map", "Branches grow out round an idea, smaller ideas budding off them.", "chalkcolour", [
+    {"say": "Modernisation meant new schools, railways and an army.", "do": [{"op": "mind_map", "center": "Modernisation", "branches": [{"label": "Schools", "on": "schools", "children": ["universal", "western subjects"]}, {"label": "Railways", "on": "railways"}, {"label": "Army", "on": "army", "children": ["conscription"]}]}]}]),
+  tpl("map-story", "Story on the map", "A march told on the map: each stop named with its date.", "paper", [
+    {"say": "From Kagoshima to Kyoto to Edo, the rebels marched.", "do": [{"op": "map_story", "stops": [{"place": "Kagoshima", "date": "1867"}, {"place": "Kyoto", "date": "1868"}, {"place": "Tokyo", "label": "Edo", "date": "1868"}]}]}], { region: { country: "Japan" } }),
+  // ---- how things move: entrances, emphases, a picture's camera, idle motion
+  { id: "m-entrances", group: "Animations", name: "Entrances (enter)", note: "The same cards coming on each way: unfold, typewrite, ink, stamp, spin, iris.",
+    script: motion("neon", "Entrances", ["unfold", "typewrite", "ink", "stamp", "spin", "iris"].map((enter) => (
+      { say: `Rice, silk and tea, coming on with ${enter}.`, do: [{ op: "cards", enter, items: [{ title: "Rice", big: "1", on: "Rice" }, { title: "Silk", big: "2", on: "silk" }, { title: "Tea", big: "3", on: "tea" }] }] }))) },
+  { id: "m-emphases", group: "Animations", name: "Emphases (emphasis how)", note: "One chart, a column pointed at each way: spotlight, rack, magnify, wiggle, bounce, wash, strike, sweep.",
+    script: motion("studio", "Emphases", [
+      { say: "Japan, Italy and Germany compared.", do: [{ op: "chart", id: "c1", items: [["Japan", 204], ["Italy", 138], ["Germany", 65]] }] },
+      ...["spotlight", "rack", "magnify", "wiggle", "bounce", "wash", "strike", "sweep"].map((how) => (
+        { say: `Now Japan, with ${how}.`, do: [{ op: "emphasis", target: "c1.Japan", how, on: "Japan" }] }))]) },
+  { id: "m-cameras", group: "Animations", name: "A picture's camera (move)", note: "A painting filmed three ways: kenburns, pan, pullback.",
+    script: motion("archive", "Cameras", ["kenburns", "pan", "pullback"].map((move) => (
+      { say: `The harbour at Nagasaki, filmed with ${move}.`, do: [{ op: "picture", generate: "the harbour at Nagasaki with Dutch ships, a detailed Edo-period painting", scene: true, move, on: "harbour" }] }))) },
+  ...MOTION_IDLES.map((idle): LabMotionPreset => ({
+    id: `m-idle-${idle}`, group: "Idle motion", name: `Idle: ${idle}`, note: `What is up keeps moving with ${idle} while the voice goes on.`,
+    script: motion("studio", `Idle: ${idle}`, [
+      { say: "Sixty two percent of the backlog is data centres, and it keeps growing every month.", do: [{ op: "donut", value: 62, label: "data centres" }] },
+      { say: "Signed, built and paid, one after another, all year round.", do: [{ op: "chain", steps: ["Signed", "Built", "Paid"] }] }], { idle }) })),
   // ---- the same template in other forms (layout) and other ways of coming on (enter)
   tpl("counter-forms", "Counter: ring, bar, badge", "One figure in a ring filled to its share, over a filling bar, and on a seal.", "paper", [
     { say: "Sixty percent of the land was farmed.", do: [{ op: "counter", value: "60%", max: 100, label: "of the land farmed", layout: "ring", on: "Sixty" }] },
@@ -336,7 +400,7 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
       { say: "That is more than Italy, the United States or Germany.", do: [{ ...DEBT_CHART, items: DEBT_CHART.items.filter(([c]) => ["Japan", "Italy", "USA", "Germany"].includes(c as string)) }] },
       { say: "Yet its bonds still sell.", do: [{ op: "stamp", text: "Sold out", on: "sell" }] }]) })),
   // ---- transitions and energies: one picture giving way to the next
-  ...["slide", "push", "wipe", "dissolve", "zoom", "page", "cut"].map((transition): LabMotionPreset => ({
+  ...MOTION_TRANSITIONS.map((transition): LabMotionPreset => ({
     id: `m-transition-${transition}`, group: "Transitions", name: `Transition: ${transition}`, note: `Three pictures, each giving way to the next with a ${transition}.`,
     script: motion("studio", `Transition: ${transition}`, [
       { say: "First, the number.", do: [{ op: "counter", value: "62%", label: "of the backlog" }] },
@@ -437,4 +501,27 @@ export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, 
   { op: "counter (ring)", say: "Sixty percent.", do: { op: "counter", value: "60%", max: 100, layout: "ring" } },
   { op: "list (pills)", say: "Merchants and farmers.", do: { op: "list", layout: "pills", enter: "drop", items: ["Merchants", "Farmers"] } },
   { op: "versus (split)", say: "North against south.", do: { op: "versus", layout: "split", left: "North", right: "South" } },
+  { op: "cause_web", say: "Debt and drought fed the revolt.", do: {"op": "cause_web", "effect": "The revolt", "causes": [{"text": "Debt", "weight": 3}, {"text": "Drought", "weight": 2}]} },
+  { op: "portrait_card", say: "Ieyasu, the first shogun.", do: {"op": "portrait_card", "name": "Tokugawa Ieyasu", "dates": "1543 - 1616", "role": "First shogun"} },
+  { op: "source_vs_reality", say: "A month, says the chronicle; three days, say the records.", do: {"op": "source_vs_reality", "source": {"text": "It burned for a month", "by": "A chronicle"}, "reality": {"text": "Three days"}, "verdict": "Exaggerated"} },
+  { op: "population_pyramid", say: "Mostly young.", do: {"op": "population_pyramid", "groups": [{"label": "40+", "left": 8, "right": 9}, {"label": "0-39", "left": 40, "right": 38}]} },
+  { op: "migration_flow", say: "Villages to Edo.", do: {"op": "migration_flow", "regions": ["Villages", "Edo"], "flows": [{"from": "Villages", "to": "Edo", "value": 5000}]} },
+  { op: "quote_reveal", say: "Knowledge is power.", do: {"op": "quote_reveal", "text": "Knowledge is power.", "who": "Francis Bacon", "highlight": ["power"]} },
+  { op: "newspaper", say: "The ships arrived.", do: {"op": "newspaper", "paper": "The Edo Herald", "date": "1853", "headline": "Black ships in the bay"} },
+  { op: "letter", say: "He wrote home.", do: {"op": "letter", "to": "Mother", "text": "The ships are here.", "sign": "Kenji"} },
+  { op: "countdown", say: "1852, 1853, and then the ships.", do: {"op": "countdown", "steps": ["1852", "1853"], "event": "The ships arrive"} },
+  { op: "race_bars", say: "Edo overtook Kyoto.", do: {"op": "race_bars", "frames": [{"at": "1700", "values": {"Edo": 300, "Kyoto": 350}}, {"at": "1800", "values": {"Edo": 1100, "Kyoto": 370}}]} },
+  { op: "waterfall", say: "Taxes up, wars down.", do: {"op": "waterfall", "start": 100, "steps": [{"label": "Taxes", "value": 40}, {"label": "Wars", "value": -60}], "total": "End"} },
+  { op: "stacked_area", say: "Farming shrank, trade grew.", do: {"op": "stacked_area", "years": [1700, 1800], "series": [{"label": "Farming", "values": [70, 50]}, {"label": "Trade", "values": [30, 50]}]} },
+  { op: "slope", say: "Rice rose, silk fell.", do: {"op": "slope", "left_label": "1700", "right_label": "1800", "items": [{"label": "Rice", "from": 40, "to": 90}, {"label": "Silk", "from": 80, "to": 50}]} },
+  { op: "dot_compare", say: "One in four, one in twenty.", do: {"op": "dot_compare", "groups": [{"label": "Towns", "part": 25, "total": 100}, {"label": "Villages", "part": 5, "total": 100}]} },
+  { op: "split_number", say: "Rice and silk.", do: {"op": "split_number", "value": "300", "parts": [{"label": "Rice", "value": 200}, {"label": "Silk", "value": 100}]} },
+  { op: "zoom_in", say: "Look at the gate.", do: {"op": "zoom_in", "picture": {"generate": "a castle with a gate, a woodblock print"}, "box": [0.6, 0.5, 0.9, 0.85], "label": "The gate", "on": "gate"} },
+  { op: "layers", say: "Shogun, daimyo, farmers.", do: {"op": "layers", "layers": ["Shogun", "Daimyo", "Farmers"]} },
+  { op: "cycle_wheel", say: "Plant, grow, harvest.", do: {"op": "cycle_wheel", "center": "The rice year", "steps": ["Plant", "Grow", "Harvest"]} },
+  { op: "checklist", say: "New rulers, but no land reform.", do: {"op": "checklist", "claim": "A revolution?", "criteria": [{"text": "New rulers", "met": true}, {"text": "Land reform", "met": false}], "verdict": "Partly"} },
+  { op: "pros_cons", say: "Trade for, treaties against.", do: {"op": "pros_cons", "pros": ["Trade"], "cons": ["Unequal treaties"], "verdict": "Mixed"} },
+  { op: "mind_map", say: "Schools, railways, an army.", do: {"op": "mind_map", "center": "Modernisation", "branches": ["Schools", "Railways", "Army"]} },
+  { op: "cards (enter: unfold)", say: "Rice and silk.", do: {"op": "cards", "enter": "unfold", "items": ["Rice", "Silk"]} },
+  { op: "emphasis (spotlight)", say: "Japan stands out.", do: {"op": "emphasis", "target": "Japan", "how": "spotlight"} },
 ];

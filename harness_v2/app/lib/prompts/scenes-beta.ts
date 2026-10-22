@@ -30,6 +30,15 @@ const ROLE = [
   "    change into a before_after; what is hidden behind what is seen into an iceberg; a person's dates into a lifespan;",
   "    a wrong idea into a myth corrected; a question the lecture raises into an ask answered later; a verdict (a claim",
   "    confirmed or overturned) into a stamp.",
+  "  - Tell history as a story: an event's causes into a cause_web; a person met into a portrait_card; a chronicle",
+  "    checked against the evidence into source_vs_reality; news breaking into a newspaper; someone's words into a",
+  "    quote_reveal or a letter; the years running down to a turning point into a countdown; a march or voyage into a",
+  "    map_story; who moved where into a migration_flow; a people by age into a population_pyramid.",
+  "  - Make numbers move: rivals over time into race_bars; a total built from gains and losses into a waterfall; shares",
+  "    shifting over years into a stacked_area; then-and-now into a slope; \"1 in 4\" against \"1 in 20\" into dot_compare;",
+  "    a total and what it is made of into split_number.",
+  "  - Explain: a detail in a picture into zoom_in; strata or layers of a thing into layers; a cycle into a cycle_wheel;",
+  "    a claim tested point by point into a checklist; a judgement into pros_cons; an idea and its branches into a mind_map.",
   "  - Mix the kinds across a chapter so it keeps changing: templates, pictures, diagrams, maps, timelines, Manim. And",
   "    vary the same template: give it another \"layout\" (a list as pills, a chain as a zigzag, a counter in a ring,",
   "    versus split) and another \"enter\" (drop, zoom, slide, flip...) so no two moments look alike.",
@@ -110,15 +119,37 @@ const CHOOSE = String.raw`WHICH PRIMITIVE FOR WHAT (a guide: pick what shows the
   a worked problem                               problem, then work with its id
   a check on understanding                       question (choices, time to think), then answer
   a graph, a field, a mechanism that moves       manim (free-form)
-  pointing at something already up               emphasis (pulse, circle, underline, highlight, box, glow, shake, dim)
+  pointing at something already up               emphasis (pulse, circle, underline, highlight, box, glow, shake, dim,
+                                                 spotlight, rack, magnify, wiggle, bounce, wash, strike, sweep)
   what two or three things share                 venn (sets, their overlap named)
   things placed between two qualities            quadrant (two axes, four fields, each thing dropped at its place)
-  a whole narrowing stage by stage               funnel (applicants, sat, passed)
+  a whole narrowing stage by stage               funnel (applicants, sat, passed); split_number (a total broken into its parts)
   how far along a scale (a level, a rate)        gauge (a dial, the needle swinging to the value)
   which side weighs more, a trade-off            scale (a balance tipping)
   what is seen, and the larger hidden part       iceberg
   how something changed                          before_after (the old state wiped to the new)
   an order of places, a top three                ranking (a leaderboard, a countdown to first place)
+  why something happened (several causes)        cause_web (causes weighted, each arrow into the event)
+  a person met for the first time                portrait_card (picture, name, dates, role, facts dealt in)
+  what a source claims vs what was so            source_vs_reality (the quoted claim, the evidence, a verdict stamped)
+  a people by age, young and old                 population_pyramid
+  who moved from where to where, how many        migration_flow (regions as discs, flows as arcs); on a real map: map_story
+  a march, a voyage, a campaign across places    map_story (stops with dates, a traveller along the route; needs a region)
+  a famous sentence, said word by word           quote_reveal (set large, words lighting as spoken, the speaker beside)
+  news, an announcement, the day it broke        newspaper (a front page spun in, the headline slammed)
+  a letter, a diary, a private voice             letter (written on in a hand, signed)
+  the years or days running down to an event     countdown (a flip display, then the event lands)
+  rivals changing places over time               race_bars (bars re-sorting at each date)
+  a total built from gains and losses            waterfall (up in green, down in red, the total at the end)
+  how shares of a whole changed over time        stacked_area (layers over years); slope (just then and now)
+  rates compared ("1 in 4" vs "1 in 20")         dot_compare (grids of dots filling)
+  a total and what it is made of                 split_number (the bar breaking into parts)
+  one detail of a picture that matters           zoom_in (a box drawn on it, the view pushing in)
+  strata, layers, a society's levels in depth    layers (slabs lifted apart); hierarchy for a pyramid of ranks
+  a cycle that goes round and round              cycle_wheel (a pointer travelling round); chain "loop" for a short one
+  a claim tested against several tests           checklist (ticks and crosses, a verdict)
+  arguments for and against                      pros_cons (two columns, a bar leaning to the stronger)
+  one idea and the many that grow from it        mind_map
 
   A good chapter mixes them: a picture for the setting, a template for the idea, a timeline for the dates, emphasis on
   what matters, a question at the turn. The heading of a new topic is "panel"; there is no key point.`;
@@ -167,8 +198,10 @@ video varied (a third list in a row should not look like the first two):
     e.g. a percentage as a counter "layout":"ring","max":100; a few one-word kinds as list "pills"; a process of
     six steps as chain "zigzag"; a sequence of instructions as list "steps"; a stark two-sided contrast as versus
     "split"; three wrong predictions as cards "fan".
-  "enter" -- how the template's parts come on, on any template: pop | rise | drop | slide | zoom | fade | flip | write.
-    Left out, each part comes its own way. A calm, reflective passage: fade or rise; a punchy reveal: drop or zoom.
+  "enter" -- how the template's parts come on, on any template (see MOVING WITH INTENT for when to use which):
+    pop | rise | drop | slide | zoom | fade | flip | write | unfold | typewrite | ink | stamp | spin | iris.
+    Left out, each part comes its own way. A calm, reflective passage: fade, rise or ink; a punchy reveal: drop, zoom,
+    stamp or iris; a document or a record: typewrite or unfold.
 
 title — a headline: big words rising one after another, one word highlighted, the kicker typed over it.
   {"op":"title","text":"The man who read the hands of kings","kicker"?:"A true story","highlight"?:"kings","sub"?:"1866-1936"}
@@ -319,6 +352,116 @@ ranking — a leaderboard; places come in from the last up (a countdown, "order"
    "order"?:"up|down","highlight"?}
   The first item given is first place.
 
+HISTORY AND STORYTELLING:
+
+cause_web — the event on the right; its causes slide in on the left, each joined by an arrow as thick as its weight.
+  {"op":"cause_web","effect":{"text":"The revolt","on"?:"revolt"},"causes":[{"text":"Debt","weight":3,"on":"debt"},
+   {"text":"Drought","weight":2,"on":"drought"},{"text":"A weak king","weight":1,"on":"weak king"}]}
+  Use for: "why did it happen" with two to six causes. weight 1-3: how much each mattered (the line's own emphasis).
+
+portrait_card — a person as a trading card turned in: picture, name banner, dates, role; facts dealt beside it.
+  {"op":"portrait_card","name":"Tokugawa Ieyasu","dates"?:"1543 - 1616","role"?:"First shogun",
+   "picture":{"generate":"Tokugawa Ieyasu, an Edo-period ink portrait, seated in court robes"},
+   "facts"?:[{"text":"Founded the shogunate","on":"founded"},{"text":"Moved power to Edo","on":"Edo"}]}
+  Use for: the first time a key person comes in (up to three facts). Later mentions: a picture or emphasis.
+
+source_vs_reality — a source's claim quoted on a page; what the evidence shows slides in beside it; a verdict stamped.
+  {"op":"source_vs_reality","source":{"text":"The city burned for a month","by"?:"A court chronicle"},
+   "reality":{"text":"Records show the fire lasted three days","on":"in fact"},"verdict"?:"Exaggerated"}
+  Use for: historiography -- what a chronicle, a legend or a propagandist said, set against what is known.
+
+population_pyramid — age groups as bars both ways from a spine, growing out from the youngest up.
+  {"op":"population_pyramid","unit"?:"% of people","left_label"?:"Men","right_label"?:"Women",
+   "groups":[{"label":"60+","left":3,"right":4},{"label":"20-59","left":20,"right":21},{"label":"0-19","left":24,"right":23}]}
+  groups: the oldest first (2-10). Use for: a society's shape by age (young, ageing, a lost generation).
+
+migration_flow — regions as discs; each flow an arc as wide as the number who moved, drawn as it is said.
+  {"op":"migration_flow","regions":["Villages","Edo","Osaka"],"unit"?:"people",
+   "flows":[{"from":"Villages","to":"Edo","value":5000,"on":"Edo"},{"from":"Edo","to":"Osaka","value":1200,"label"?:"1,200","on":"Osaka"}]}
+  Use for: who moved where and how many, between groups or regions (no map needed). For a route on a map: map_story.
+
+quote_reveal — a famous line set large in a serif, its words lighting up one by one as it is spoken; the speaker beside.
+  {"op":"quote_reveal","text":"The strong do what they can, and the weak suffer what they must.","who":"Thucydides",
+   "highlight"?:["strong","weak"],"picture"?:{"generate":"a marble bust of Thucydides, soft museum light"}}
+  Use for: a sentence worth hearing whole (a motto, a famous line). text: the words as the narration says them.
+
+newspaper — a front page spun onto the board: masthead, date, the headline slammed on, a sub-headline, a picture.
+  {"op":"newspaper","paper":"The Edo Herald","date"?:"8 July 1853","headline":"Black ships in the bay",
+   "sub"?:"American warships anchor off Uraga","picture"?:{"generate":"black steam warships in a bay, an old engraving"}}
+  Use for: the moment news broke (a war declared, a treaty signed, a discovery). Headline short (2-6 words).
+
+letter — a letter on a sheet, its words written on in a hand as the line reads them, signed at the end.
+  {"op":"letter","to"?:"Mother","date"?:"1853","text":"The ships are here. Nobody knows what they want.","sign"?:"Kenji"}
+  Use for: a private voice -- a letter, a diary entry, a soldier's note. Short (one to three sentences).
+
+countdown — a big flip display: each year or count flips in over the last as said; then the event lands with a thud.
+  {"op":"countdown","steps":[{"text":"1850","on":"Eighteen fifty"},{"text":"1852","on":"fifty two"},{"text":"1853","on":"fifty three"}],
+   "event":{"text":"The ships arrive","on":"ships arrived"}}
+  Use for: tension before a turning point; years leading to a war, days to a deadline (2-6 steps).
+
+NUMBERS AND EXPLANATIONS:
+
+race_bars — bars for each rival at each date; at each next date the bars stretch and re-sort, the date rolling over.
+  {"op":"race_bars","unit"?:"k","frames":[{"at":"1700","values":{"Edo":300,"Kyoto":350,"Osaka":280}},
+   {"at":"1750","values":{"Edo":800,"Kyoto":380,"Osaka":320},"on":"1750"},{"at":"1800","values":{"Edo":1100,"Kyoto":370,"Osaka":380},"on":"1800"}]}
+  Use for: who led when, and who overtook whom (2-8 dates, the same names in each). The first frame is drawn at once.
+
+waterfall — a start, then each gain stepping up in green and each loss down in red, then the total.
+  {"op":"waterfall","start":{"label":"Revenue","value":100},"steps":[{"label":"Taxes","value":40,"on":"taxes"},
+   {"label":"Wars","value":-60,"on":"wars"}],"total"?:"Left","unit"?:"m"}
+  Use for: how a budget, a population or an army got from one figure to another. value: +n gained, -n lost.
+
+stacked_area — shares of a whole stacked over years, each layer swept in as it is named.
+  {"op":"stacked_area","years":[1700,1750,1800,1850],"series":[{"label":"Farming","values":[70,62,55,45]},
+   {"label":"Crafts","values":[20,24,27,30],"on":"crafts"},{"label":"Trade","values":[10,14,18,25],"on":"trade"}],"unit"?:"%"}
+  Use for: a mix changing over time (jobs, faiths, sources of income). One value per year in each series.
+
+slope — then and now on two posts; each thing a line rising (green) or falling (red), drawn as it is said.
+  {"op":"slope","left_label":"1700","right_label":"1800","items":[{"label":"Rice","from":40,"to":90,"on":"rice"},
+   {"label":"Silk","from":80,"to":50,"on":"silk"}],"unit"?}
+  Use for: what rose and what fell between two moments (up to seven things).
+
+dot_compare — grids of dots side by side, each one's share filling in as it is said, "1 in 4" under it.
+  {"op":"dot_compare","groups":[{"label":"Towns","part":25,"total":100,"text"?:"1 in 4","on":"towns"},
+   {"label":"Villages","part":5,"total":100,"text"?:"1 in 20","on":"villages"}]}
+  Use for: rates compared so they are felt (literacy, deaths, voters). 2-4 groups; total 100 or less.
+
+split_number — a big total over a bar; the bar breaks into its parts, each block sized to its share.
+  {"op":"split_number","value":"3,000,000","label"?:"koku of revenue","parts":[{"label":"Rice","value":2000000,"on":"rice"},
+   {"label":"Silk","value":600000,"on":"silk"},{"label":"Salt","value":400000,"on":"salt"}],"unit"?}
+  Use for: a total and what it is made of (a budget, an army, a harvest). Up to six parts.
+
+zoom_in — a picture; on its words a box is drawn round one part and the view pushes in on it, a label beside it.
+  {"op":"zoom_in","picture":{"generate":"a Japanese castle with its main gate, a detailed woodblock print"},
+   "box"?:[0.6,0.5,0.9,0.85],"label"?:"The gate","note"?:"Where the guards stood","on":"gate"}
+  box: [x0, y0, x1, y1] from 0 to 1 across and down the picture (left out: its middle). Use for: one detail that
+  matters in a scene, a map or a source (a seal on a document, a figure in a painting).
+
+layers — slabs stacked at an angle, the top first; each lifted apart and named as it is said.
+  {"op":"layers","layers":[{"label":"Shogun","on":"shogun"},{"label":"Daimyo","note"?:"lords","on":"daimyo"},
+   {"label":"Samurai","on":"samurai"},{"label":"Farmers","on":"farmers"}]}
+  Use for: things in layers (earth's strata, a city's history built on itself, a society's levels). 2-6 layers.
+
+cycle_wheel — steps round a ring with arrows, a word in the middle; a pointer travels round to each as it is said.
+  {"op":"cycle_wheel","center"?:"The rice year","steps":[{"label":"Plant","on":"plant"},{"label":"Grow","on":"grow"},
+   {"label":"Harvest","on":"harvest"},{"label":"Store","on":"store"}]}
+  Use for: a cycle that repeats (seasons, a water cycle, rise and fall of dynasties). 3-8 steps.
+
+checklist — a claim at the top; each test under it ticked or crossed as it is said; the verdict stamped.
+  {"op":"checklist","claim":"The Meiji Restoration was a revolution","criteria":[{"text":"New rulers","met":true,"on":"rulers"},
+   {"text":"Class system ended","met":true,"on":"class system"},{"text":"Land redistributed","met":false,"on":"land"}],"verdict"?:"Partly"}
+  Use for: "was it really X?" judged point by point. met: true (tick) or false (cross).
+
+pros_cons — FOR and AGAINST: each point dropped into its column as said; a bar leans to the stronger side.
+  {"op":"pros_cons","pros":[{"text":"Trade","on":"trade"},{"text":"New ideas","on":"ideas"}],
+   "cons":[{"text":"Unequal treaties","on":"unequal"}],"lean"?:"pros|cons|even","verdict"?:"Mixed blessing"}
+  Use for: weighing a decision, a policy, an era's legacy (up to five a side).
+
+mind_map — an idea in the middle; branches grow out on curved stems as each is said, smaller ideas budding off them.
+  {"op":"mind_map","center":"Modernisation","branches":[{"label":"Schools","on":"schools","children"?:["universal","western subjects"]},
+   {"label":"Railways","on":"railways"},{"label":"Army","on":"army","children"?:["conscription"]}]}
+  Use for: an idea and what it spread into (a reform's parts, a movement's influences). Up to 8 branches.
+
 stamp — a rubber stamp slammed onto what is up (the picture shakes); plays after the beat's other operations.
   {"op":"stamp","text":"Cleared","on":"cleared","color"?,"angle"?:-10,"at"?:"center|top|bottom|left|right"}
   Use for: a VERDICT -- a claim confirmed or overturned, a myth busted, a turning point ("Debunked", "Abolished",
@@ -328,8 +471,38 @@ stamp — a rubber stamp slammed onto what is up (the picture shakes); plays aft
   says, build the thing it says (a counter, a chain, a picture labelled, a part of what is up pointed at).
 
 emphasis — points at a part of what is up, by its name or "<id>.<name>", or at a whole template by its id.
-  {"op":"emphasis","target":"chart1.Italy","how":"pulse|circle|underline|highlight|box|glow|shake|dim","on":"Italy","color"?}
-  Use for: the one thing on screen the line is now about. dim: the rest of its template fades back.`;
+  {"op":"emphasis","target":"chart1.Italy","how":"<see below>","on":"Italy","color"?}
+  Use for: the one thing on screen the line is now about. how:
+    pulse (a beat of attention, the default)   circle (a ring drawn round by hand)   underline   highlight (the marker)
+    box (a frame)   glow   shake (alarm, a failure)   dim (the rest of its template fades back)
+    spotlight (the other parts fade far back: "this one, not the others")   rack (as a camera's focus racks: the
+    others fade and shrink, this one stays sharp)   magnify (a hand lens over it: "look closer")   wiggle (playful,
+    a small surprise)   bounce (a hop: "and this one too")   wash (its colour washed to the accent: it changes side,
+    it wins)   strike (a line struck through: wrong, abolished, crossed off)   sweep (a bar swept under it: the key word)`;
+
+const INTENT = String.raw`MOVING WITH INTENT: how each thing moves is part of what it says. Choose it on purpose.
+
+  "enter" on a template -- how its parts arrive:
+    pop (light, friendly: a list of kinds)          rise (calm, steady: explanation)    fade (quiet, reflective)
+    drop (weight, a fact landing)                   slide (one after another: a sequence)  zoom (a reveal, scale)
+    flip (cards turned over, a reversal)            write (drawn by hand: diagrams, sketches)
+    unfold (a map, a plan, a document opened out)   typewrite (a record, a telegram, a report)
+    ink (old texts, art, memory: it bleeds in)      stamp (decrees, verdicts, official acts: slammed down)
+    spin (a coin, a wheel of fortune, a twist)      iris (opening on a scene, a new chapter, a flashback)
+  Vary it: a run of beats on the same entrance looks mechanical. Match the content: a treaty may unfold, a decree stamp,
+  a memory ink in, a twist spin. Templates with their own choreography (newspaper spins, countdown flips, letter
+  writes) are already shaped; give them "enter" only to change that.
+
+  "emphasis" -- point at what is up, on the word, instead of drawing it again. A chart up, then "Japan was first":
+  spotlight Japan. A wrong prediction among cards: strike it. "Look at the gate": magnify, or a zoom_in.
+
+  A picture's camera ("move" on a picture): kenburns (a slow push in and drift, as a documentary films a painting or
+  an old photo), pan (carried slowly across a wide scene: a battlefield, a skyline), pullback (opens close and pulls
+  back to reveal the whole: "and all around him..."), or a gentle bob | sway | breathe | drift. A long beat on one
+  painting or photograph should have a camera move; a cutout of one object floats on its own.
+
+  The look, the transition between pictures and the idle motion of the whole video are set for the run (not by
+  you): whatever they are, design with them -- the look's colours and fonts are applied to everything you make.`;
 
 const PICTURES = String.raw`PICTURES. Drawn from your words alone: describe what it shows, how it is seen, and how it is drawn (medium, art
 style, colours, mood). A picture has no words in it. The same thing asked for in the same words is the same picture:
@@ -338,9 +511,10 @@ describe a recurring person or thing the same way each time.
 picture (generate) — an illustration made by the image model: a cutout of one thing, or a whole scene.
   {"op":"picture","generate":"a medieval knight on horseback, side view, a detailed engraving","on":"knight",
    "labels"?:[{"name":"helmet","on":"helmet"},{"name":"lance","on":"lance"}],"caption"?,"scene"?:true,
-   "move"?:"bob|sway|breathe|drift","points"?:["short lines beside it"],"aspect"?:"16:9|4:3|1:1"}
+   "move"?:"kenburns|pan|pullback|bob|sway|breathe|drift","points"?:["short lines beside it"],"aspect"?:"16:9|4:3|1:1"}
   labels: 2-6 parts really in the picture, each written beside its part with a box and a line, the camera moving in as
-  it is said. scene: drawn edge to edge (a market, a battle). move: it keeps moving gently. points: the picture on the
+  it is said. scene: drawn edge to edge (a market, a battle). move: a camera on it (kenburns, pan, pullback) or a gentle
+  motion of its own (bob, sway, breathe, drift). points: the picture on the
   left, 2-4 short lines on the right (not with labels).
   Use for: every person, place, object or setting the narration mentions.
 
@@ -428,6 +602,10 @@ river — a river drawn along its course.     {"op":"river","name":"Ganges","on"
 arrow — a movement from place to place.     {"op":"arrow","points":["Delhi","Agra"],"label"?,"on"?}
 path — a route through places.              {"op":"path","points":["Delhi","Agra","Lucknow"]}
 journey — a traveller moving stop to stop.  {"op":"journey","stops":["Ahmedabad","Surat",[72.8,20.89]],"labels"?,"pictures"?}
+map_story — a story told on the map: the route drawn behind a traveller, each stop named with its date as reached.
+  {"op":"map_story","stops":[{"place":"Kagoshima","date":"1867"},{"place":"Kyoto","date":"1868","on":"Kyoto"},
+   {"place":"Tokyo","label":"Edo","date":"1868"}],"color"?,"on"?}
+  Use for: a march, a voyage, an exile, a campaign: where and when, in order. label: the name to show (an old name).
 empire — a state as it stood in a year.     {"op":"empire","name":"Mughal Empire","year":1600,"label"?}
 relief — mountains shaded.                  {"op":"relief","names"?:["Himalayas"]}
 graticule — a line of latitude.             {"op":"graticule","lat":23.44,"label"?:"Tropic of Cancer"}
@@ -483,6 +661,31 @@ const EXAMPLES = [
   '      "value":"40","on":"forty"}]}]}',
   '    {"beat":27,"do":[{"op":"before_after","change":"the reform","before":{"title":"Village rule"},',
   '      "after":{"title":"Capital rule","on":"after it"}}]}',
+  '  A history told as a story: news, the people, why, and what the sources say:',
+  '    {"beat":32,"paragraph":true,"do":[{"op":"newspaper","paper":"The Edo Herald","date":"8 July 1853","headline":"Black ships in the bay",',
+  '      "picture":{"generate":"black steam warships in a bay, an old engraving"},"on":"ships"}]}',
+  '    {"beat":33,"do":[{"op":"portrait_card","name":"Matthew Perry","dates":"1794 - 1858","role":"US commodore",',
+  '      "picture":{"generate":"Commodore Matthew Perry, a 19th-century oil portrait"},"facts":[{"text":"Brought a letter from the president","on":"letter"}]}]}',
+  '    {"beat":34,"do":[{"op":"cause_web","effect":{"text":"Japan opens"},"causes":[{"text":"Warships","weight":3,"on":"warships"},',
+  '      {"text":"Trade pressure","weight":2,"on":"trade"},{"text":"A divided court","weight":1,"on":"divided"}]}]}',
+  '    {"beat":35,"do":[{"op":"source_vs_reality","source":{"text":"Perry came in peace","by":"US newspapers"},',
+  '      "reality":{"text":"He threatened to bombard Edo","on":"threatened"},"verdict":"Half true"}]}',
+  '  Numbers that move, then one pointed at:',
+  '    {"beat":40,"do":[{"op":"race_bars","id":"cities","unit":"k","frames":[{"at":"1700","values":{"Edo":300,"Kyoto":350}},',
+  '      {"at":"1800","values":{"Edo":1100,"Kyoto":370},"on":"1800"}]}]}',
+  '    {"beat":41,"do":[{"op":"emphasis","target":"cities.Edo","how":"spotlight","on":"Edo"}]}',
+  '    {"beat":42,"do":[{"op":"waterfall","start":{"label":"Revenue","value":100},"steps":[{"label":"Taxes","value":40,"on":"taxes"},',
+  '      {"label":"Wars","value":-60,"on":"wars"}],"total":"Left"}]}',
+  '  An old painting looked at slowly, then one detail of it:',
+  '    {"beat":45,"do":[{"op":"picture","generate":"the port of Nagasaki with Dutch ships, a detailed Edo-period painting","scene":true,',
+  '      "move":"kenburns","on":"Nagasaki"}]}',
+  '    {"beat":46,"do":[{"op":"zoom_in","picture":{"generate":"the port of Nagasaki with Dutch ships, a detailed Edo-period painting"},',
+  '      "box":[0.55,0.4,0.9,0.8],"label":"Dejima","note":"the only door to Europe","on":"Dejima"}]}',
+  '  A judgement built point by point, entering in its own way:',
+  '    {"beat":50,"do":[{"op":"checklist","enter":"stamp","claim":"The Meiji Restoration was a revolution","verdict":"Partly",',
+  '      "criteria":[{"text":"New rulers","met":true,"on":"rulers"},{"text":"Land redistributed","met":false,"on":"land"}]}]}',
+  '    {"beat":51,"do":[{"op":"mind_map","enter":"ink","center":"Modernisation","branches":[{"label":"Schools","on":"schools"},',
+  '      {"label":"Railways","on":"railways"},{"label":"Army","on":"army","children":["conscription"]}]}]}',
   '  A place, then where it led:',
   '    {"beat":30,"do":[{"op":"state","name":"Normandy","label":"Normandy","on":"Normandy"},',
   '      {"op":"arrow","points":["Caen","Hastings"],"label":"1066","on":"crossed"}]}',
@@ -497,6 +700,7 @@ export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Rec
     part("anchors", "Anchors: every visual on its words", "rules", ANCHORS),
     part("timing", "Timing to the voice", "rules", TIMING),
     part("templates", "Motion templates", "rules", TEMPLATES),
+    part("intent", "Moving with intent", "rules", INTENT),
     part("pictures", "Pictures", "rules", PICTURES),
     part("diagrams", "Diagrams", "rules", DIAGRAMS),
     part("timelines", "Timelines", "rules", TIMELINES),

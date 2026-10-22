@@ -274,6 +274,20 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         finally:
             fr.path = smooth
 
+    def _log(self, kind: str, **fields) -> None:
+        """The engine's beat log; a spoken line also with its words' times (seconds into the line, as aligned or as
+        the voice timed them; `est` when only estimated), for the app's spoken-words strip under its player."""
+        if kind == "beat" and fields.get("text") and os.environ.get("PANIM_BEAT_LOG"):
+            try:
+                words = pl.line_words(str(fields["text"])) if pl.voice_mode() != "silent" else None
+            except Exception:  # noqa: BLE001 -- no word times: the line is logged as before
+                words = None
+            if words:
+                fields["words"] = [{"w": w.get("w", ""), "start": round(float(w.get("start") or 0), 3),
+                                    "end": round(float(w.get("end") or 0), 3), **({"est": True} if w.get("est") else {})}
+                                   for w in words]
+        super()._log(kind, **fields)
+
     @staticmethod
     def _doubles_back(ps) -> bool:
         """Whether a route through these points turns by more than 110 degrees at any stop."""

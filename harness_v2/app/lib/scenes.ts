@@ -40,7 +40,7 @@ import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
-import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneCompile, SceneLecture, SceneRender, ScenesState } from "./types";
+import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneCompile, SceneLecture, SceneRender, ScenesState, SpokenLine } from "./types";
 import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps } from "./visual-kinds";
 
 const MAP_OPS = new Set(VISUAL_KINDS.find((k) => k.id === "map")?.ops ?? []);
@@ -1252,7 +1252,7 @@ export async function playable(run: Run, n: number, dir: string, source: string,
     throw new Error(`the player's geometry could not be made: ${errorOf(expanded.out)}`);
   }
   if (ir.error) throw new Error(`the player's geometry could not be made: ${ir.error}`);
-  const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number; text?: string }) : [];
+  const rows = existsSync(beatLog) ? (await readFile(beatLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { kind: string; start: number; text?: string; words?: { w: string; start: number; end: number; est?: boolean }[] }) : [];
   const checks = existsSync(checkLog) ? (await readFile(checkLog, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Playable["checks"][number]) : [];
   const rel = (f: string) => encodeURIComponent(path.relative(scenesDir(run.id), f));
   return { ir: `/api/runs/${run.id}/scenes/ir?p=${rel(out)}&v=${Date.now()}`, assets: `/api/runs/${run.id}/scenes/file?p=${rel(path.join(out, "dsl", "generated", "images"))}${encodeURIComponent("/")}`,
@@ -1265,6 +1265,13 @@ export async function playable(run: Run, n: number, dir: string, source: string,
  * the engine's beat log, as the frames it plays. A beat's render plays the beat (the chapter before it is there,
  * recorded); a chapter's plays it all, with each beat's frames for its strip.
  */
+/** Each line of a render where it starts in the video and its words' times (the motion engine's beat log). */
+function spokenLines(said: { start: number; text?: string; words?: { w: string; start: number; end: number; est?: boolean }[] }[]): SpokenLine[] | undefined {
+  const out = said.filter((r) => r.words?.length).map((r) => ({ start: r.start, text: r.text ?? "", est: r.words!.some((w) => w.est) || undefined,
+    words: r.words!.map((w) => ({ w: w.w, start: w.start, end: w.end })) }));
+  return out.length ? out : undefined;
+}
+
 async function renderPart(run: Run, n: number, chapter: number, beat: number | undefined, look: Look, target: SceneRender) {
   await writeMissingFigures(run, n, chapter);
   const release = await renderSlot();
@@ -1310,7 +1317,8 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
       pictures: pictures.length ? pictures : undefined,
       missing: lost.missing.length ? lost.missing : undefined, images: lost.report,
       still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined,
-      audio: env.PANIM_TTS && p.narration && existsSync(p.narration) ? fileUrl(run.id, p.narration) : undefined };
+      audio: env.PANIM_TTS && p.narration && existsSync(p.narration) ? fileUrl(run.id, p.narration) : undefined,
+      spoken: env.PANIM_TTS ? spokenLines(p.said) : undefined };
     if (beat !== undefined) {
       const me = at(wanted.length - 1);
       Object.assign(target, { ...common, range: [me.from, last], issues: me.issues, fixed: me.fixed });

@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SceneIR } from "@/lib/ir";
+import type { SpokenLine } from "@/lib/types";
 import { drawLayered, imagePlacement, type PlacedImage } from "@/lib/draw";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -35,8 +36,11 @@ export function Player({
   segmentUrl,
   range,
   compact = false,
+  spoken,
 }: {
   ir: Scene2D;
+  /** The lines spoken in it, with their words' times: the word being said is lit under the picture. */
+  spoken?: SpokenLine[];
   /** Only these frames [first, last]: a beat in its chapter. */
   range?: [number, number];
   compact?: boolean;
@@ -360,6 +364,7 @@ export function Player({
         </label>
         <button className="rounded border border-neutral-700 px-2 py-0.5 hover:bg-neutral-800" onClick={fullscreen}>{full ? "Exit full screen" : "Full screen"}</button>
       </div>
+      {spoken && <SpokenWords lines={spoken} at={frame / ir.fps} />}
       {waiting && <p className="text-xs text-amber-400">Loading the next part of the lecture…</p>}
       {!compact && <p className="text-xs text-neutral-500">
         Drawn in the browser from the program&apos;s own geometry — no video, and
@@ -369,6 +374,28 @@ export function Player({
   );
 }
 
+
+/** The line being spoken, its word being said lit, as the aligner timed it: a check of the word times the
+ * animations are set to (the caption in the picture comes on with its whole line, so it cannot show them). */
+function SpokenWords({ lines, at }: { lines: SpokenLine[]; at: number }) {
+  let k = -1;
+  for (let i = 0; i < lines.length; i++) if (lines[i].start <= at + 1e-3) k = i;
+  const line = lines[k];
+  if (!line) return <p className="min-h-[2.5rem] rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-600" data-testid="spoken-words">Spoken words appear here as they are said.</p>;
+  const t = at - line.start;
+  // The word being said: the last one begun (held through a pause until the next begins).
+  let now = -1;
+  line.words.forEach((w, i) => { if (w.start <= t + 1e-3) now = i; });
+  return (
+    <div className="min-h-[2.5rem] rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-sm leading-relaxed text-neutral-400" data-testid="spoken-words">
+      {line.words.map((w, i) => (
+        <span key={i} title={`${w.start.toFixed(2)}–${w.end.toFixed(2)} s into the line`}
+          className={i === now ? "rounded bg-amber-400 px-0.5 text-black" : i < now ? "text-neutral-200" : ""}>{w.w}{" "}</span>
+      ))}
+      <span className="ml-1 font-mono text-[10px] text-neutral-600">{t.toFixed(1)} s{line.est ? " · estimated times (no aligner)" : ""}</span>
+    </div>
+  );
+}
 
 // ---------------- v2: loading a scene's geometry, a still, the player from a URL ----------------
 
@@ -388,9 +415,11 @@ export function useIR(src?: string): { ir?: SceneIR; error?: string } {
 }
 
 /** v1's player on a scene's geometry at `src` (its pictures under `assets`), all of it or a range of frames. */
-export function IRPlayer({ src, assets, range, compact, autoPlay, audio }: { src: string; assets: string; range?: [number, number]; compact?: boolean; autoPlay?: boolean;
+export function IRPlayer({ src, assets, range, compact, autoPlay, audio, spoken }: { src: string; assets: string; range?: [number, number]; compact?: boolean; autoPlay?: boolean;
   /** The narration track, played as the clock (a scene spoken with a voice). */
-  audio?: string }) {
+  audio?: string;
+  /** Its lines' word times: the word being said lit under the picture. */
+  spoken?: SpokenLine[] }) {
   const { ir, error } = useIR(src);
   const imageUrl = useCallback((asset: string) => `${assets}${encodeURIComponent(asset)}`, [assets]);
   const segmentUrl = useCallback((k: number) => `${src}&segment=${k}`, [src]);
@@ -398,7 +427,7 @@ export function IRPlayer({ src, assets, range, compact, autoPlay, audio }: { src
   if (!ir) return <div className="flex aspect-video w-full items-center justify-center rounded border border-neutral-800 bg-black text-xs text-neutral-500">loading the scene…</div>;
   if (!("mode" in ir) || ir.mode !== "2d") return <p className="text-xs text-amber-300">This scene has no 2D geometry for the browser player ({"mode" in ir ? ir.mode : "none"}).</p>;
   return <Player key={`${src}|${range?.join("-")}|${audio ?? ""}`} ir={ir} imageUrl={imageUrl} segmentUrl={segmentUrl} range={range} compact={compact} autoPlay={autoPlay}
-    audioSrc={audio ?? null} />;
+    audioSrc={audio ?? null} spoken={spoken} />;
 }
 
 /** One frame of a scene, drawn from its geometry (a beat's last frame in a chapter's strip). */

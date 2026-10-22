@@ -269,6 +269,8 @@ export type DocumentInfo = {
 };
 
 /** A render of part of a lecture's scenes (silent, low quality, for a look): one beat in context, or a chapter. */
+export type SpokenLine = { start: number; text: string; est?: boolean; words: { w: string; start: number; end: number }[] };
+
 export type SceneRender = {
   status: "running" | "done" | "failed";
   /** The look it was rendered in. */
@@ -287,6 +289,9 @@ export type SceneRender = {
   range?: [number, number];
   /** Rendered with the chapter's voice (spoken first, motion engine): the narration track the player plays as its clock. */
   audio?: string;
+  /** With its voice: each line where it starts in the video and its words' aligned times in it (seconds into the
+   * line; `est`: estimated, no aligner), for the player's spoken-words strip. */
+  spoken?: SpokenLine[];
   /** What the exporter could not carry into the program (it plays without it). */
   blockers?: string[];
   /** AI pictures the image model could not make for it: left out of what plays. */

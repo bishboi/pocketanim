@@ -905,6 +905,10 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
 .venv/bin/python harness_v2/engine/tools/export_scene.py scene.py GeneratedScene out         # the program the phones play
 ```
 
+- **Spoken words under the player**: a render with its voice logs each line's words with their times (the beat log's
+  `words`, from `pocket_lecture.line_words`: as aligned, or `est` when only estimated); the Scenes tab's player shows
+  the line being spoken under the picture with the word being said lit, so the word times the animations are set to
+  can be checked by ear (the caption in the picture comes on with its whole line, so it cannot show them).
 - **In the app**: the **Lab** tab has the motion presets (each template, each timeline style, each classic operation,
   each look, each transition and energy, and whole scenes), "Add a beat with" its templates, this reference beside
   the editor, and "from a lecture's chapter … drawn by the motion engine" in any look, to see a lecture's own chapter

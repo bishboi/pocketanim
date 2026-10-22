@@ -84,10 +84,10 @@ mark); without one, an item lands on its own name when the line says it, or in i
 against its line, mended or refused, as on the current engine (BEAT_SCRIPT.md §4, Anchors); a template without one
 lands on the first of its own words the line says.
 
-**Word numbers, `after` and `in_pause`: timing to a voice recorded first.** An `on` (an operation's or a part's) may
+**Word numbers, `delay` and `in_pause`: timing to a voice recorded first.** An `on` (an operation's or a part's) may
 name a word by its number in its line, `"w7"` (w0 its first word, as the line is written, split at spaces): it is made
 the words of the line from it, as few as are said there first (`compile_motion._word_ids`), so it is exact where a word
-comes twice; a number past the line's end is left out, with a note. Any operation may carry `"after": 0.4` (seconds
+comes twice; a number past the line's end is left out, with a note. Any operation may carry `"delay": 0.4` (seconds
 after its words, 0 to 3; `MotionLecture._m_when`, `_cue_plan`), and a `stamp` or an `emphasis` `"in_pause": true`: it
 plays in the quiet after its line, which lasts as long as it did unless it needs more (`MotionLecture.beat`); on any
 other operation it is left out, with a note (a template played after its line would have its parts' moments before it).

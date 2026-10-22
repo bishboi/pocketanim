@@ -316,20 +316,20 @@ def _word_ids(beat: dict, at: str, notes: list[str]) -> None:
 
 
 def _when(op: dict, at: str, notes: list[str]) -> None:
-    """`after` (seconds after its words, 0 to 3) and `in_pause` (a stamp or an emphasis played in the quiet after its
+    """`delay` (seconds after its words, 0 to 3) and `in_pause` (a stamp or an emphasis played in the quiet after its
     line) read and mended."""
-    if "after" in op:
-        v = _num(op.get("after"))
+    if "delay" in op:
+        v = _num(op.get("delay"))
         if v is None or v < 0:
-            notes.append(f"{cl.FIXED}{at}: {op.get('op')} after {op.get('after')!r} is not seconds (0 to 3); left out")
-            op.pop("after")
+            notes.append(f"{cl.FIXED}{at}: {op.get('op')} delay {op.get('delay')!r} is not seconds (0 to 3); left out")
+            op.pop("delay")
         else:
-            op["after"] = round(min(v, 3.0), 2)
+            op["delay"] = round(min(v, 3.0), 2)
     if "in_pause" in op:
         on = op.get("in_pause") in (True, "true", 1)
         if on and op.get("op") not in OVERLAY_OPS:
             notes.append(f"{cl.FIXED}{at}: {op.get('op')} in_pause left out: only a stamp or an emphasis lands in the "
-                         "quiet after a line (a picture comes on with its words; use after)")
+                         "quiet after a line (a picture comes on with its words; use delay)")
             on = False
         if on:
             op["in_pause"] = True
@@ -913,9 +913,9 @@ def _clean(value):
 
 def _patched_op_call(op: dict):
     call = _op_call_motion(op)
-    if call and not call.startswith("*") and (op.get("after") or op.get("in_pause")):
-        # Its moment moved: after its words by `after`, or into the quiet after the line (MotionLecture._m_when).
-        call = f"self._m_when({call}, after={float(op.get('after') or 0):g}, pause={bool(op.get('in_pause'))})"
+    if call and not call.startswith("*") and (op.get("delay") or op.get("in_pause")):
+        # Its moment moved: after its words by `delay`, or into the quiet after the line (MotionLecture._m_when).
+        call = f"self._m_when({call}, after={float(op.get('delay') or 0):g}, pause={bool(op.get('in_pause'))})"
     return call
 
 

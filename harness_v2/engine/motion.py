@@ -428,7 +428,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return seconds
 
     def _m_when(self, anim, after: float = 0.0, pause: bool = False):
-        """An operation's moment moved by its writer (compile_motion._when): `after` seconds after its words, or
+        """An operation's moment moved by its writer (compile_motion._when): `delay` seconds after its words, or
         into the quiet after its line (`pause`)."""
         if anim is not None:
             try:

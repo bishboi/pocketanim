@@ -193,10 +193,10 @@ own entrance takes, so it lands on the word). Give EVERY operation and EVERY par
 column, a chain's step, a list's point, a timeline's event, a card, a label. Point at the word that brings the thing in
 (the number, the name, the term), never a small word. "on": "start" for what must be up as the line begins. The words'
 own text ("on": "twice") still works, but a number is exact: a word said twice in a line is never mistaken.
-  "after": 0.4 -- that many seconds after its word (0 to 3): a verdict after the claim has settled, a second step of a
+  "delay": 0.4 -- that many seconds after its word (0 to 3): a verdict after the claim has settled, a second step of a
      build a breath after the first.
   "in_pause": true -- a stamp or an emphasis played in the quiet after the line, the moment to let it sink in (only
-     these two; a picture comes on with its words).
+     these two; a picture comes on with its words; use delay).
 
 PACE BY THE CLOCK. You can see how long every line is: use it.
   - A new picture (a template, a picture, a diagram, a timeline, a map) needs about 2.5 s to come on and be looked at:

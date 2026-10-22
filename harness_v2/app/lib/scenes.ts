@@ -634,7 +634,7 @@ export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>,
       const o = x as Record<string, unknown>;
       if (top && o.in_pause) return;
       const t = said(o.on);
-      if (t !== undefined || top) times.push((t ?? 0) + (Number(o.after) || 0));
+      if (t !== undefined || top) times.push((t ?? 0) + (Number(o.delay) || 0));
       for (const [key, y] of Object.entries(o)) if (key !== "on" && typeof y === "object") walk(y, false);
     };
     ops.forEach((o) => walk(o, true));

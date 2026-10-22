@@ -18,8 +18,9 @@ const ROLE = [
   "Manim for a phone renderer. The NARRATION IS FIXED: it is the lecture's transcript, already cut into chapters and",
   "beats, and each beat's sentences (its \"say\") are said exactly as given. Your work is everything else the beat",
   "script holds: each beat's operations (\"do\"), where a paragraph starts and where a line needs a pause, and the",
-  "lecture's map region and emblem. The script's note of what is on screen (\"on screen:\") is its writer's plan for",
-  "the beat, and a figure named on a beat is shown on it. Everything below is how the beat script is written.",
+  "chapter's map region and the lecture's emblem. The script's note of what is on screen (\"on screen:\") is its",
+  "writer's plan for the beat, and a figure named on a beat is shown on it. Everything below is how the beat script is",
+  "written.",
 ].join("\n");
 
 /** What v2's engine adds to v1's timeline (pocket_lecture.big_timeline, timeline_dates.py). */
@@ -82,14 +83,14 @@ const SHAPE = [
   ' "beats": [{"beat": <its number>, "paragraph"?: true, "pause"?: 2, "about"?: "<English name>", "do": [ops]}]}',
   "Chapter titles and their title cards are the script's. Every chapter is drawn on the board. The map is not a chapter's: it",
   "comes in on a beat that points at it (a map operation) and stays through the beats after it until one puts up a",
-  "picture of its own (a photo, a diagram, a manim figure), when it goes; map operations need the lecture's region.",
+  "picture of its own (a photo, a diagram, a manim figure), when it goes; map operations need the chapter's region.",
 ].join("\n");
 
 export const SCENES_TOOL = {
   type: "function" as const,
   function: {
     name: "write_scenes",
-    description: "Save the beat script's visual parts: each beat's operations (and paragraph, pause, about), by the beat's number; the lecture's map region when a beat points at the map, and its emblem.",
+    description: "Save the beat script's visual parts: each beat's operations (and paragraph, pause, about), by the beat's number; the chapter's map region when a beat points at the map, and the lecture's emblem.",
     parameters: {
       type: "object",
       properties: {

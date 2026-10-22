@@ -291,7 +291,9 @@ function LectureView({ run, lecture, busy, model, act, select, onCall }: {
         {pictures.length > 0 && <span className="text-neutral-400">{pictures.length} AI picture(s) · {money(pictures.reduce((k, p) => k + (p.usd ?? 0), 0))}</span>}
         {sl?.compile?.missing?.length ? <button className="text-red-300 hover:underline" onClick={() => setView("Compiler")} data-testid="scenes-missing-count">
           ✗ {sl.compile.missing.length} AI picture(s) not made</button> : null}
-        {sl?.region && <span className="mono text-emerald-300" title="the map region">{JSON.stringify(sl.region)}</span>}
+        {sl?.regions && Object.keys(sl.regions).length ? Object.entries(sl.regions).filter(([, r]) => r).map(([c, r]) => (
+          <span key={c} className="mono text-emerald-300" title={`chapter ${c}'s map region`}>ch {c}: {JSON.stringify(r)}</span>))
+          : sl?.region && <span className="mono text-emerald-300" title="the map region">{JSON.stringify(sl.region)}</span>}
         <span className="ml-auto flex gap-1.5">
           <button className={`${btn} border-sky-700 bg-sky-800 text-white`} disabled={busy} data-testid="scenes-build-lecture"
             onClick={() => act({ action: "build", scope: "lecture", lecture: lecture.n, model })}>{sl?.status === "done" ? "Rebuild this lecture" : "Build this lecture"}</button>

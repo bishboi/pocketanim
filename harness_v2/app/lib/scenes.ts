@@ -3,14 +3,18 @@
  * (harness_v2/engine/compile_lecture.py), then compiled by the engine, mended, and rendered a beat or a chapter at a
  * time to be looked at.
  *
- *   - BUILD: one call per chapter (prompts/scenes.ts), in order, so a lecture's region and diagrams carry on; a whole
- *     lecture, one chapter, or one beat (the beats around it given as they are). The narration is the script's: the
- *     model writes only each beat's "do". Code takes out what is switched off (visual-kinds.ts) and says so.
- *   - COMPILE: the lecture as the engine's beat script (the run's look, its figures as files), checked and compiled
- *     by the engine; its errors and notes are put on the beats they name. The image model makes the pictures asked
- *     for while it compiles (the engine's genimage.py; a stand-in picture when there is no key).
- *   - FIX: the beats the compiler refused are asked again with what it said, once by itself after a build, and
- *     whenever the page asks.
+ *   - Each chapter stands alone: it is written, compiled and mended by itself, with its own map region, so a lecture's
+ *     chapters are built side by side (V2_SCENES_CHAPTERS_PARALLEL at once). Its writer sees the other chapters' words,
+ *     never their visuals, so what it is given does not depend on which chapter finished first.
+ *   - BUILD: one call per chapter (prompts/scenes.ts); a whole lecture, one chapter, or one beat (the beats of its
+ *     chapter given as they are). The narration is the script's: the model writes only each beat's "do". Code takes
+ *     out what is switched off (visual-kinds.ts) and says so.
+ *   - COMPILE: each chapter as the engine's beat script (the run's look, its figures as files), checked and compiled
+ *     by the engine; its errors and notes are put on the beats they name; the lecture's compile is its chapters' put
+ *     together. The image model makes the pictures asked for while it compiles (the engine's genimage.py; a stand-in
+ *     picture when there is no key).
+ *   - FIX: a chapter's beats the compiler refused are asked again with what it said, once by itself after a build,
+ *     and whenever the page asks.
  *   - RENDER: one beat in its chapter (the chapter rendered up to it, silent, and the beat cut out: its clip and its
  *     last frame), or a chapter (its video, and each beat's frame and clip), in the run's look or another.
  *
@@ -36,7 +40,7 @@ import { captionOf, figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
-import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneLecture, SceneRender, ScenesState } from "./types";
+import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneCompile, SceneLecture, SceneRender, ScenesState } from "./types";
 import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps } from "./visual-kinds";
 
 const MAP_OPS = new Set(VISUAL_KINDS.find((k) => k.id === "map")?.ops ?? []);
@@ -48,6 +52,8 @@ function usesMap(sl: { beats: Record<number, { ops: { op?: unknown }[] } | undef
 import { MOTION_LOOKS } from "./prompts/scenes-motion";
 
 const AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_PARALLEL) || 3);
+/** A lecture's chapters built at once (each written, compiled and mended by itself). */
+const CHAPTERS_AT_ONCE = Math.max(1, Number(process.env.V2_SCENES_CHAPTERS_PARALLEL) || 4);
 const RENDERS_AT_ONCE = Math.max(1, Number(process.env.V2_RENDER_PARALLEL) || 2);
 const COMPILE_TIMEOUT = Math.max(60, Number(process.env.V2_COMPILE_TIMEOUT_SECONDS) || 900) * 1000;
 const RENDER_TIMEOUT = Math.max(60, Number(process.env.V2_RENDER_TIMEOUT_SECONDS) || 900) * 1000;
@@ -210,7 +216,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const kept = filterOps(a.ops as Record<string, unknown>[], allowedFor(run, sl, a.beat));
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
     lock(run, [a.lecture], async () => {
-      await compileLecture(run, a.lecture);
+      await compileChapter(run, a.lecture, chapterOfBeat(run, a.lecture, a.beat)!);
     });
     return run;
   }
@@ -230,9 +236,9 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
         paragraph: e.paragraph || undefined, pause: e.pause || undefined, about: e.about || undefined });
     }
     if (a.emblem !== undefined) sl.emblem = a.emblem || undefined;
-    if (a.region !== undefined) sl.region = a.region;
+    if (a.region !== undefined) (sl.regions ??= {})[a.chapter] = a.region;
     lock(run, [a.lecture], async () => {
-      await compileLecture(run, a.lecture);
+      await compileChapter(run, a.lecture, a.chapter);
     });
     return run;
   }
@@ -244,7 +250,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     sl.doing = `the Manim agent on beat ${a.beat}`;
     lock(run, [a.lecture], async () => {
       await runManimAgent(run, a.lecture, a.beat, { instruction: a.instruction, model: a.model, stop: () => stopRequested(`${id}:scenes`) });
-      await compileLecture(run, a.lecture);
+      await compileChapter(run, a.lecture, chapterOfBeat(run, a.lecture, a.beat)!);
     });
     return run;
   }
@@ -277,8 +283,11 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
         await rm(path.join(dir, "agent", `beat-${b.n}`), { recursive: true, force: true });
       }
       if (sl.chapters) delete sl.chapters[chapter.n];
+      if (sl.regions) delete sl.regions[chapter.n];
+      if (sl.compiles) delete sl.compiles[chapter.n];
       await rm(path.join(dir, `chapter-${chapter.n}`), { recursive: true, force: true });
-      sl.compile = undefined;
+      await rm(path.join(dir, "compile", `chapter-${chapter.n}`), { recursive: true, force: true });
+      sl.compile = mergedCompile(sl);
       if (!Object.values(sl.beats).some((b) => b.ops.length)) sl.status = "waiting";
       log(run, `Scenes of lecture ${a.lecture}, chapter ${chapter.n} reset.`);
     }
@@ -335,7 +344,8 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (!free(a.lecture)) throw new Error(`lecture ${a.lecture} is being built already`);
     st.rounds += 1;
     lock(run, [a.lecture], async () => {
-      await fixLecture(run, a.lecture);
+      const chapters = [...new Set(broken.map((k) => chapterOfBeat(run, a.lecture, k)).filter((c): c is number => c !== undefined))];
+      await eachAtOnce(chapters, CHAPTERS_AT_ONCE, (c) => fixChapter(run, a.lecture, c));
     });
     return run;
   }
@@ -462,10 +472,15 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
     : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;
   const motion = st.engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
+  // The chapter it writes in: the other chapters' beats are given as words only, never their visuals, so a chapter is
+  // written the same whichever chapters were built before it; its own region is the one already chosen.
+  const own = ask.what === "chapter" ? ask.chapter : ask.what === "lecture" ? undefined : chapterOfBeat(run, n, targets[0] ?? -1);
+  if (own !== undefined) for (const b of beats) if (b.chapter !== own) delete b.ops;
+  const chosen = own !== undefined ? (sl.regions?.[own] ?? sl.region ?? undefined) : sl.region;
   const call = newCall(run, { step: "scenes", label: motion ? `${label} (motion engine)` : label, lecture: n, model: st.model,
     prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: motionLookWords(st), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
-      beats, figures, region: sl.region, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
+      beats, figures, region: chosen, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
       pace: { maxOps: st.maxOps, change: st.visualChange }, motion }) });
   sl.calls.push(call.id);
   for (const t of targets) {
@@ -511,10 +526,13 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
   // Every chapter is on the board; the map comes in for the beats that point at it, in any chapter.
   const needsMap = script.chapters.some((c) => c.map) || usesMap(sl);
-  if (region && needsMap && (!sl.region || ask.what === "lecture")) {
+  if (region && needsMap && own !== undefined && (ask.what === "chapter" || !sl.regions?.[own])) {
+    (sl.regions ??= {})[own] = region;
+    check(call, "Region", "pass", `chapter ${own}: ${JSON.stringify(region)}`);
+  } else if (region && needsMap && own === undefined && (!sl.region || ask.what === "lecture")) {
     sl.region = region;
     check(call, "Region", "pass", JSON.stringify(region));
-  } else if (needsMap && !sl.region && st.kinds.includes("map")) {
+  } else if (needsMap && !chosen && !region && st.kinds.includes("map")) {
     check(call, "Region", "info", "beats point at the map but no region was given: their map operations are left out by the compiler");
   }
   sl.scriptAt = run.script?.lectures[n]?.at;
@@ -562,37 +580,79 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   const script = scriptOf(run, n)!;
   const key = `${run.id}:scenes`;
   Object.assign(sl, { status: "running", error: undefined });
-  const chapters = what.chapter ? [what.chapter] : what.beat ? [] : script.chapters.map((c) => c.n);
   if (what.beat) {
     sl.doing = `beat ${what.beat}`;
     saveRun(run);
     await writeBeats(run, n, { what: "beat", beat: what.beat }, undefined, note);
-  }
-  for (const [i, c] of chapters.entries()) {
-    if (stopRequested(key)) return;
-    sl.doing = chapters.length > 1 ? `chapter ${c} (${i + 1} of ${chapters.length})` : `chapter ${c}`;
-    saveRun(run);
-    await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
+    const c = chapterOfBeat(run, n, what.beat);
+    if (c !== undefined && !stopRequested(key)) await finishChapter(run, n, c);
+  } else {
+    // Each chapter by itself, several at once: written, its Manim figures, compiled, its refused beats mended.
+    const chapters = what.chapter ? [what.chapter] : script.chapters.map((c) => c.n);
+    const going = new Set<number>();
+    let done = 0;
+    const doing = () => {
+      sl.doing = chapters.length > 1 ? `chapters ${[...going].sort((a, b) => a - b).join(", ")} (${done} of ${chapters.length} done)` : `chapter ${chapters[0]}`;
+      saveRun(run);
+    };
+    await eachAtOnce(chapters, CHAPTERS_AT_ONCE, async (c) => {
+      if (stopRequested(key)) return;
+      going.add(c);
+      doing();
+      try {
+        await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
+        if (!stopRequested(key)) await finishChapter(run, n, c);
+      } finally {
+        going.delete(c);
+        done += 1;
+        doing();
+      }
+    });
   }
   if (stopRequested(key)) return;
-  await agentsOn(run, n, (b) => !b.ops.some((o) => o.op === "manim" && o.code));
-  if (stopRequested(key)) return;
-  await compileLecture(run, n);
-  if (Object.values(sl.beats).some((b) => b.errors?.length) && !stopRequested(key)) await fixLecture(run, n);
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
   saveRun(run);
 }
 
-/** The refused beats asked again with what the compiler said, then the lecture compiled again. */
-async function fixLecture(run: Run, n: number) {
+/** A chapter's beats written: its Manim figures, compiled, and its refused beats mended once. */
+async function finishChapter(run: Run, n: number, c: number) {
+  const key = `${run.id}:scenes`;
+  const sl = lectureState(run, n);
+  await agentsOn(run, n, (b) => !b.ops.some((o) => o.op === "manim" && o.code), c);
+  if (stopRequested(key)) return;
+  await compileChapter(run, n, c);
+  if (chapterBeats(run, n, c).some((k) => sl.beats[k]?.errors?.length) && !stopRequested(key)) await fixChapter(run, n, c);
+}
+
+/** `work` for each item, `atOnce` at a time. */
+async function eachAtOnce<T>(items: T[], atOnce: number, work: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items];
+  const worker = async () => {
+    for (let x = queue.shift(); x !== undefined; x = queue.shift()) await work(x);
+  };
+  await Promise.all(Array.from({ length: Math.min(atOnce, queue.length) }, worker));
+}
+
+/** The chapter a beat is in. */
+function chapterOfBeat(run: Run, n: number, beat: number): number | undefined {
+  return scriptOf(run, n)?.chapters.find((c) => c.beats.some((b) => b.n === beat))?.n;
+}
+
+/** A chapter's beats, by number. */
+function chapterBeats(run: Run, n: number, c: number): number[] {
+  return scriptOf(run, n)?.chapters.find((x) => x.n === c)?.beats.map((b) => b.n) ?? [];
+}
+
+/** A chapter's refused beats asked again with what the compiler said, then the chapter compiled again. */
+async function fixChapter(run: Run, n: number, c: number) {
   const sl = lectureState(run, n);
   const agent = stateOf(run).manimAgent !== false;
   // A refused Manim figure goes back to the Manim agent (told what the compiler said); the rest to the scene writer.
   const isFigure = (b: SceneBeat) => agent && b.ops.some((o) => o.op === "manim");
-  const broken = Object.values(sl.beats).filter((b) => b.errors?.length && !isFigure(b));
-  const figures = Object.values(sl.beats).filter((b) => b.errors?.length && isFigure(b));
+  const mine = chapterBeats(run, n, c).map((k) => sl.beats[k]).filter((b): b is SceneBeat => !!b);
+  const broken = mine.filter((b) => b.errors?.length && !isFigure(b));
+  const figures = mine.filter((b) => b.errors?.length && isFigure(b));
   if (!broken.length && !figures.length) return;
-  sl.doing = `mending ${broken.length + figures.length} beat(s)`;
   saveRun(run);
   if (broken.length) await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
   for (const b of figures) {
@@ -600,9 +660,8 @@ async function fixLecture(run: Run, n: number) {
     await runManimAgent(run, n, b.n, { instruction: b.errors?.length ? `The compiler refused this beat's figure: ${b.errors.join("; ")}. Mend it.` : undefined,
       stop: () => stopRequested(`${run.id}:scenes`) });
   }
-  await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code));
-  await compileLecture(run, n);
-  Object.assign(sl, { status: "done", at: Date.now() });
+  await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code), c);
+  await compileChapter(run, n, c);
 }
 
 /**
@@ -633,10 +692,10 @@ export async function writeMissingFigures(run: Run, n: number, chapter?: number)
 }
 
 /** The Manim agent on each beat whose manim op `needs` it (the scene writer planned it), in beat order. */
-async function agentsOn(run: Run, n: number, needs: (b: SceneBeat) => boolean) {
+async function agentsOn(run: Run, n: number, needs: (b: SceneBeat) => boolean, chapter?: number) {
   if (stateOf(run).manimAgent === false) return;
   const sl = lectureState(run, n);
-  const order = scriptOf(run, n)!.chapters.flatMap((c) => c.beats.map((b) => b.n));
+  const order = scriptOf(run, n)!.chapters.filter((c) => chapter === undefined || c.n === chapter).flatMap((c) => c.beats.map((b) => b.n));
   const todo = order.filter((k) => sl.beats[k]?.ops.some((o) => o.op === "manim") && needs(sl.beats[k]));
   for (const [i, k] of todo.entries()) {
     if (stopRequested(`${run.id}:scenes`)) return;
@@ -684,7 +743,8 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   const sl = lectureState(run, n);
   // Every chapter is on the board; with a region, the map comes in for the beats that point at it, in any chapter
   // (compile_lecture._map_runs). A chapter is never put on the map, or kept off it, as a whole.
-  const region = (script.chapters.some((c) => c.map) || usesMap(sl)) && sl.region ? sl.region : null;
+  const own = only ? (sl.regions?.[only.chapter] ?? sl.region) : sl.region;
+  const region = (script.chapters.some((c) => c.map) || usesMap(sl)) && own ? own : null;
   let chapters = script.chapters.map((c) => ({
     n: c.n, title: c.title, narration: c.narration,
     beats: c.beats.map((b) => {
@@ -891,59 +951,86 @@ export async function compile(run: Run, script: Record<string, unknown>, dir: st
   }
 }
 
-/** Which beat (the script's number) a compiler message names ("chapter 2 beat 3: ..."), within `only`'s chapters. */
-function beatNamed(run: Run, n: number, text: string, chapters?: number[]): number | undefined {
-  const m = /chapter (\d+) beat (\d+)/i.exec(text);
-  if (!m) return undefined;
-  const script = scriptOf(run, n)!;
-  const list = chapters ? script.chapters.filter((c) => chapters.includes(c.n)) : script.chapters;
-  return list[Number(m[1]) - 1]?.beats[Number(m[2]) - 1]?.n;
+/** Every chapter of the lecture compiled, each by itself, several at once. */
+async function compileLecture(run: Run, n: number) {
+  await eachAtOnce(scriptOf(run, n)!.chapters.map((c) => c.n), CHAPTERS_AT_ONCE, (c) => compileChapter(run, n, c));
 }
 
-/** The whole lecture checked and compiled by the engine; its messages put on the beats they name. */
-async function compileLecture(run: Run, n: number) {
+/** The lecture's compile: its chapters' compiles put together (running while any is, failed when any did). */
+function mergedCompile(sl: SceneLecture): SceneCompile | undefined {
+  const all = Object.values(sl.compiles ?? {});
+  if (!all.length) return undefined;
+  const sum = (f: (c: SceneCompile) => number | undefined) => all.reduce((k, c) => k + (f(c) ?? 0), 0);
+  const missing = all.flatMap((c) => c.missing ?? []);
+  const reports = all.map((c) => c.images).filter((r): r is ImageReport => !!r);
+  const pictures = all.flatMap((c) => c.pictures ?? []);
+  return {
+    status: all.some((c) => c.status === "running") ? "running" : all.some((c) => c.status === "failed") ? "failed" : "done",
+    errors: all.flatMap((c) => c.errors), warnings: all.flatMap((c) => c.warnings),
+    ...(pictures.length ? { pictures } : {}), ...(missing.length ? { missing } : {}),
+    ...(reports.length ? { images: { model: reports[0].model, asked: reports.reduce((k, r) => k + r.asked, 0), made: reports.reduce((k, r) => k + r.made, 0),
+      cached: reports.reduce((k, r) => k + r.cached, 0), failed: reports.reduce((k, r) => k + r.failed, 0) } } : {}),
+    minutes: Math.round(sum((c) => c.minutes) * 10) / 10 || undefined,
+    // Compiled side by side: the lecture took as long as its slowest chapter.
+    seconds: Math.max(...all.map((c) => c.seconds ?? 0)) || undefined,
+    at: Math.max(...all.map((c) => c.at ?? 0)) || undefined,
+  };
+}
+
+/** One chapter checked and compiled by the engine by itself; its messages put on the beats they name. */
+async function compileChapter(run: Run, n: number, chapter: number) {
   const st = stateOf(run);
   const sl = lectureState(run, n);
-  await writeMissingFigures(run, n);
-  sl.doing = "compiling (and making its pictures)";
+  const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter);
+  if (!sc) return;
+  await writeMissingFigures(run, n, chapter);
   const began = Date.now();
-  sl.compile = { status: "running", errors: [], warnings: [], at: began };
+  const mine: SceneCompile = { status: "running", errors: [], warnings: [], at: began };
+  (sl.compiles ??= {})[chapter] = mine;
+  sl.compile = mergedCompile(sl);
   saveRun(run);
-  const c = await compile(run, await engineScript(run, n, st.look), path.join(scenesDir(run.id), `L${n}`, "compile"), n);
-  for (const b of Object.values(sl.beats)) Object.assign(b, { errors: undefined, notes: undefined, missing: undefined });
-  const lost = missingPictures(c, (w) => beatNamed(run, n, w));
+  const dir = path.join(scenesDir(run.id), `L${n}`, "compile", `chapter-${chapter}`);
+  const c = await compile(run, await engineScript(run, n, st.look, { chapter }), dir, n);
+  // The script compiled is this chapter alone: the engine's "chapter 1" is this one.
+  const named = (text: string) => {
+    const m = /chapter \d+ beat (\d+)/i.exec(text);
+    return m ? sc.beats[Number(m[1]) - 1]?.n : undefined;
+  };
+  for (const b of sc.beats) {
+    const sb = sl.beats[b.n];
+    if (sb) Object.assign(sb, { errors: undefined, notes: undefined, missing: undefined, pictures: undefined });
+  }
+  const lost = missingPictures(c, named);
   for (const m of lost.missing) if (m.beat !== undefined) (beatState(sl, m.beat).missing ??= []).push(m);
-  for (const b of Object.values(sl.beats)) b.pictures = undefined;
-  const script = scriptOf(run, n)!;
-  for (const p of await picturesByBeat(run, n, c, (ci, bi) => script.chapters[ci - 1]?.beats[bi - 1]?.n, lost.missing)) {
+  for (const p of await picturesByBeat(run, n, c, (_, bi) => sc.beats[bi - 1]?.n, lost.missing)) {
     if (p.beat !== undefined) (beatState(sl, p.beat).pictures ??= []).push(p);
   }
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const e of c.errors) {
-    const at = beatNamed(run, n, e);
+    const at = named(e);
     if (at !== undefined) (beatState(sl, at).errors ??= []).push(e.replace(/^chapter \d+ beat \d+:\s*/i, ""));
-    else errors.push(e);
+    else errors.push(`chapter ${chapter}: ${e}`);
   }
   for (const w of c.warnings) {
-    const at = beatNamed(run, n, w);
+    const at = named(w);
     if (at !== undefined) (beatState(sl, at).notes ??= []).push(w.replace(/chapter \d+ beat \d+:\s*/i, ""));
-    else warnings.push(w);
+    else warnings.push(`chapter ${chapter}: ${w}`);
   }
   const pictures = (c.generated ?? []).map((g) => ({ prompt: String(g.prompt ?? ""), model: g.model, usd: Number(g.usd) || 0 }));
-  sl.compile = { status: c.errors.length ? "failed" : "done", errors, warnings, pictures, minutes: c.minutes, seconds: (Date.now() - began) / 1000, at: Date.now(),
-    ...(lost.missing.length ? { missing: lost.missing } : {}), ...(lost.report ? { images: lost.report } : {}) };
+  sl.compiles[chapter] = { status: c.errors.length ? "failed" : "done", errors, warnings, pictures, minutes: c.minutes, seconds: (Date.now() - began) / 1000,
+    at: Date.now(), ...(lost.missing.length ? { missing: lost.missing } : {}), ...(lost.report ? { images: lost.report } : {}) };
+  sl.compile = mergedCompile(sl);
   const cost = pictures.reduce((k, p) => k + (p.usd ?? 0), 0);
   if (pictures.length) {
     // The pictures the image model made while compiling, as a call, so the Costs tab counts them.
-    const call = newCall(run, { step: "scenes", label: `Pictures for lecture ${n} (${pictures.length}, made while compiling)`, lecture: n,
+    const call = newCall(run, { step: "scenes", label: `Pictures for lecture ${n}, chapter ${chapter} (${pictures.length}, made while compiling)`, lecture: n,
       model: pictures[0].model ?? "image model", effort: "off",
       prompt: { system: [], user: pictures.map((p, i) => part(`p${i + 1}`, `Picture ${i + 1}`, "items", p.prompt)) } });
     Object.assign(call, { api: "image", status: "done", ended: Date.now(), cost, provider: usingFixture(call.model) ? "fixture" : "openrouter",
       attempts: [{ started: began, ended: Date.now() }], output: { pictures: pictures.length } });
     sl.calls.push(call.id);
   }
-  sl.doing = undefined;
   saveRun(run);
 }
 

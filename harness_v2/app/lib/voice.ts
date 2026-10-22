@@ -118,7 +118,7 @@ export function editContext(run: Run, n: number, chapter: number): string {
   return [
     `THE LECTURE: lecture ${n}, "${run.lectures.find((l) => l.n === n)?.title ?? ""}". Its chapters:`,
     ...script.chapters.map((c) => `  Chapter ${c.n}: ${c.title} (${c.map ? "on the board, the map in for its beats on places" : "on the board"})${c.n === chapter ? "  <- the chapter to write" : ""}`),
-    `The map region already chosen: ${sl?.region ? JSON.stringify(sl.region) : "none"}.`,
+    `This chapter's map region (chosen already): ${(sl?.regions?.[chapter] ?? sl?.region) ? JSON.stringify(sl?.regions?.[chapter] ?? sl?.region) : "none"}.`,
     "",
     `THE LECTURE'S FIGURES (${figures.length}), the book's own, shown by id: {"op":"picture","figure":"<id>"}:`,
     ...(figures.length ? figures.map((f) => `  ${f.id}: ${f.caption || "(no caption)"} (${f.way}${f.ready ? "" : "; not made yet: the book's picture is shown"})`) : ["  none"]),

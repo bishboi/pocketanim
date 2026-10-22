@@ -47,7 +47,7 @@ export type ExportedLecture = {
   /** Its script, when it has one: chapters, and beats naming the `lines` above by number. */
   script?: { chapters: Chapter[] };
   /** Its scenes, when it has them: the map region, and each beat's operations (and kinds of its own) by beat number. */
-  scenes?: { region?: Record<string, unknown> | null; beats: Record<string, { ops: Record<string, unknown>[]; kinds?: string[]; edited?: boolean }>;
+  scenes?: { region?: Record<string, unknown> | null; regions?: Record<string, Record<string, unknown> | null>; beats: Record<string, { ops: Record<string, unknown>[]; kinds?: string[]; edited?: boolean }>;
     chapterKinds?: Record<string, string[]> };
 };
 export type ExportedBlock = Pick<Block, "id" | "type" | "html" | "text" | "page" | "box"> & {
@@ -114,6 +114,7 @@ export function exportTranscript(run: Run): ExportedTranscript {
       blocksTaught: l.blocksTaught ?? [],
       ...(run.script?.lectures[l.n]?.status === "done" ? { script: { chapters: run.script.lectures[l.n].chapters } } : {}),
       ...(run.scenes?.lectures[l.n] && Object.keys(run.scenes.lectures[l.n].beats).length ? { scenes: { region: run.scenes.lectures[l.n].region,
+        ...(run.scenes.lectures[l.n].regions ? { regions: run.scenes.lectures[l.n].regions } : {}),
         beats: Object.fromEntries(Object.values(run.scenes.lectures[l.n].beats).map((b) => [b.n, { ops: b.ops,
           ...(b.kinds ? { kinds: b.kinds } : {}), ...(b.edited ? { edited: true } : {}) }])),
         ...(run.scenes.lectures[l.n].chapterKinds ? { chapterKinds: run.scenes.lectures[l.n].chapterKinds } : {}) } } : {}),
@@ -282,6 +283,7 @@ export async function importTranscript(data: unknown, file: string): Promise<Run
   if (x.scenes || withScenes.length) {
     run.scenes = { status: "done", model: x.scenes?.model ?? "", look: x.scenes?.look ?? { style: "atlas", art: "auto" }, kinds: x.scenes?.kinds ?? ALL_KINDS,
       rounds: 0, lectures: Object.fromEntries(withScenes.map((l) => [l.n, { lecture: l.n, status: "done", region: l.scenes!.region, calls: [],
+        ...(l.scenes!.regions ? { regions: l.scenes!.regions } : {}),
         ...(l.scenes!.chapterKinds ? { chapterKinds: l.scenes!.chapterKinds } : {}),
         beats: Object.fromEntries(Object.entries(l.scenes!.beats).map(([n, b]) => [n, { n: Number(n), status: "done", ops: b.ops, kinds: b.kinds,
           edited: b.edited, calls: [] }])) }])) };

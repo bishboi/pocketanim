@@ -443,12 +443,18 @@ export type SceneLecture = {
   status: "waiting" | "running" | "done" | "failed";
   /** What it is doing now, in words ("chapter 2 of 4", "compiling", "mending 3 beats"). */
   doing?: string;
+  /** The map region of a lecture built before chapters had their own (used by a chapter without one). */
   region?: Record<string, unknown> | null;
+  /** Each chapter's own map region (by chapter number): chapters are built, compiled and mended apart. */
+  regions?: Record<string, Record<string, unknown> | null>;
   /** The lecture's emblem (one object for the topic) and its subject (the engine's genre.py), as v1 has them. */
   emblem?: string;
   subject?: { genre: string; label: string; guidance?: string; map?: string; kit?: string[] };
   beats: Record<string, SceneBeat>;
+  /** The lecture's compile: its chapters' compiles (each compiled apart) put together. */
   compile?: SceneCompile;
+  /** Each chapter's own compile, by chapter number. */
+  compiles?: Record<string, SceneCompile>;
   chapters?: Record<string, SceneChapterRender>;
   /** A chapter's own visual kinds (by chapter number), when they differ from the run's; a beat's own win over them. */
   chapterKinds?: Record<string, string[]>;

@@ -763,6 +763,17 @@ const motionRender = run.scenes.lectures[1].beats[firstBeat].render;
 assert.equal(motionRender.status, "done", motionRender.error);
 assert.ok(motionRender.audio && existsSync(fileOf(motionRender.audio)), "the Scenes tab's render plays with the chapter's voice (spoken first)");
 assert.ok(readFileSync(path.join(fileOf(motionRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the motion engine");
+// The Scenes tab's chapter JSON: edited (a stamp added on its first beat), saved and the chapter rendered again.
+const asBuilt = await chapterScript(run, 1, mch1.n);
+asBuilt.chapter.beats[0].do = [...asBuilt.chapter.beats[0].do, { op: "stamp", text: "Edited", in_pause: true }];
+await scenesAction(run.id, { action: "editChapter", lecture: 1, chapter: mch1.n, render: true, emblem: asBuilt.emblem, region: asBuilt.region,
+  beats: asBuilt.chapter.beats.map((b) => ({ beat: b.beat, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })) });
+run = await slow(run.id, (r) => !["done", "failed"].includes(r.scenes.lectures[1].chapters?.[mch1.n]?.status), 3000);
+const rerendered = run.scenes.lectures[1].chapters[mch1.n];
+assert.equal(rerendered.status, "done", rerendered.error);
+assert.ok(run.scenes.lectures[1].beats[mch1.beats[0].n].edited && run.scenes.lectures[1].beats[mch1.beats[0].n].ops.some((o) => o.text === "Edited"),
+  "the edited chapter saved into the scenes");
+assert.ok(readFileSync(path.join(fileOf(rerendered.ir), "..", "scene.py"), "utf8").includes("'Edited'"), "and rendered again with the edit");
 const motionChapter = await chapterScript(run, 1, ch1.n);
 assert.ok(motionChapter.engine === "motion" && motionChapter.look === "newsroom", "the Voice tab's chapter carries the engine");
 assert.ok((await editInstructions(run, 1)).includes("MOTION TEMPLATES"), "the hand instructions tell of the templates");

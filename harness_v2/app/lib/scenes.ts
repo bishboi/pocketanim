@@ -64,9 +64,9 @@ export type ScenesAction =
   | { action: "kinds"; kinds: string[] }
   | { action: "beatKinds"; lecture: number; beat: number; kinds: string[] | null }
   | { action: "chapterKinds"; lecture: number; chapter: number; kinds: string[] | null }
-  | { action: "edit"; lecture: number; beat: number; ops: unknown }
+  | { action: "edit"; lecture: number; beat: number; ops: unknown; render?: boolean }
   | { action: "editChapter"; lecture: number; chapter: number; beats: { beat: number; ops: unknown; paragraph?: boolean; pause?: number; about?: string }[];
-      emblem?: string | null; region?: Record<string, unknown> | null }
+      emblem?: string | null; region?: Record<string, unknown> | null; render?: boolean }
   | { action: "build"; scope: Scope; lecture?: number; chapter?: number; beat?: number; model?: string; oneAtATime?: boolean; note?: string }
   | { action: "fix"; lecture: number; model?: string }
   | { action: "compile"; lecture: number }
@@ -217,8 +217,11 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const b = beatState(sl, a.beat);
     const kept = filterOps(a.ops as Record<string, unknown>[], allowedFor(run, sl, a.beat));
     Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined });
+    const chapter = chapterOfBeat(run, a.lecture, a.beat)!;
     lock(run, [a.lecture], async () => {
-      await compileChapter(run, a.lecture, chapterOfBeat(run, a.lecture, a.beat)!);
+      await compileChapter(run, a.lecture, chapter);
+      // Saved and rendered again (the Scenes tab's "Save and re-render"): the beat, as it now is.
+      if (a.render) startRender(run, a.lecture, chapter, a.beat);
     });
     return run;
   }
@@ -241,6 +244,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (a.region !== undefined) (sl.regions ??= {})[a.chapter] = a.region;
     lock(run, [a.lecture], async () => {
       await compileChapter(run, a.lecture, a.chapter);
+      if (a.render) startRender(run, a.lecture, a.chapter);
     });
     return run;
   }
@@ -311,29 +315,10 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (!chapter) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     if (a.beat !== undefined && !chapter.beats.some((b) => b.n === a.beat)) throw new Error(`beat ${a.beat} is not in chapter ${a.chapter}`);
     if (!chapter.beats.some((b) => sl.beats[b.n]?.ops.length)) throw new Error(`chapter ${a.chapter} has no visuals yet: build its scenes first`);
-    const key = `${id}|${a.lecture}|${a.chapter}|${a.beat ?? "all"}`;
-    if (renderBusy.has(key)) throw new Error("that is being rendered already");
-    const look = cleanLook({ ...st.look, ...(a.style ? { style: a.style } : {}), ...(a.art ? { art: a.art } : {}) });
-    const target: SceneRender = { status: "running", style: look.style, art: look.art, started: Date.now() };
-    if (a.beat !== undefined) beatState(sl, a.beat).render = target;
-    else (sl.chapters ??= {})[a.chapter] = target as SceneChapterRender;
-    renderBusy.add(key);
-    st.renders = (st.renders ?? 0) + 1;
-    saveRun(run, true);
-    void (async () => {
-      try {
-        await renderPart(run, a.lecture, a.chapter, a.beat, look, target);
-      } catch (error) {
-        Object.assign(target, { status: "failed", error: (error as Error).message, at: Date.now() });
-      } finally {
-        renderBusy.delete(key);
-        st.renders = Math.max(0, (st.renders ?? 1) - 1);
-        saveRun(run, true);
-      }
-    })();
+    if (renderBusy.has(`${id}|${a.lecture}|${a.chapter}|${a.beat ?? "all"}`)) throw new Error("that is being rendered already");
+    startRender(run, a.lecture, a.chapter, a.beat, a.style, a.art);
     return run;
   }
-
   // Builds and fixes.
   const scripted = run.lectures.filter((l) => scriptOf(run, l.n)).map((l) => l.n);
   if (!scripted.length) throw new Error("no lecture is scripted yet: build the scripts first (Script tab)");
@@ -380,6 +365,33 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   const what = a.scope === "chapter" ? { chapter: a.chapter! } : a.scope === "beat" ? { beat: a.beat! } : {};
   lock(run, todo, (n) => buildLecture(run, n, what, a.note), (a.scope === "all" || a.scope === "rest") && a.oneAtATime ? 1 : AT_ONCE);
   return run;
+}
+
+/** A chapter (or one beat of it) rendered in the background, in the run's look (or `style`/`art`); its state kept on
+ * the beat or the chapter. A second render of the same thing while one is going is not started. */
+function startRender(run: Run, n: number, chapter: number, beat?: number, style?: string, art?: string) {
+  const st = stateOf(run);
+  const sl = lectureState(run, n);
+  const key = `${run.id}|${n}|${chapter}|${beat ?? "all"}`;
+  if (renderBusy.has(key)) return;
+  const look = cleanLook({ ...st.look, ...(style ? { style } : {}), ...(art ? { art } : {}) });
+  const target: SceneRender = { status: "running", style: look.style, art: look.art, started: Date.now() };
+  if (beat !== undefined) beatState(sl, beat).render = target;
+  else (sl.chapters ??= {})[chapter] = target as SceneChapterRender;
+  renderBusy.add(key);
+  st.renders = (st.renders ?? 0) + 1;
+  saveRun(run, true);
+  void (async () => {
+    try {
+      await renderPart(run, n, chapter, beat, look, target);
+    } catch (error) {
+      Object.assign(target, { status: "failed", error: (error as Error).message, at: Date.now() });
+    } finally {
+      renderBusy.delete(key);
+      st.renders = Math.max(0, (st.renders ?? 1) - 1);
+      saveRun(run, true);
+    }
+  })();
 }
 
 /** Run `work` for each lecture, `atOnce` at a time, each lecture locked while it runs; the step's status kept. */

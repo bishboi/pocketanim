@@ -577,6 +577,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
             onClick={() => act({ action: "render", lecture: lecture.n, chapter: c, style, art })}>{r?.status === "running" ? "Rendering…" : r ? "Render the chapter again" : "Render the chapter"}</button>
         </div>
       </div>
+      <ChapterJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy || !built} />
       <RenderState r={r} what="the chapter" />
       {r?.status === "done" && r.audio && <p className="text-[11px] text-emerald-300" data-testid="scenes-render-voiced">With its voice (spoken first): heard as it plays.</p>}
       {r?.status === "done" && r.ir && r.assets && (
@@ -717,11 +718,16 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
             <div className="space-y-1">
               <textarea className="mono h-64 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json} onChange={(e) => setJson(e.target.value)} data-testid="scenes-json" />
               {bad && <p className="text-[11px] text-red-300">{bad}</p>}
-              <button className={`${btn} border-violet-700 bg-violet-800 text-white`} disabled={busy} onClick={async () => {
-                let ops: unknown;
-                try { ops = JSON.parse(json); } catch (e) { setBad(`not JSON: ${(e as Error).message}`); return; }
-                if (await act({ action: "edit", lecture: lecture.n, beat: n, ops })) setEditing(false);
-              }}>Save and compile</button>
+              <div className="flex flex-wrap gap-1.5">
+                {[false, true].map((render) => (
+                  <button key={String(render)} className={`${btn} border-violet-700 ${render ? "bg-emerald-800" : "bg-violet-800"} text-white`} disabled={busy}
+                    data-testid={render ? "scenes-json-rerender" : "scenes-json-save"} onClick={async () => {
+                      let ops: unknown;
+                      try { ops = JSON.parse(json); } catch (e) { setBad(`not JSON: ${(e as Error).message}`); return; }
+                      if (await act({ action: "edit", lecture: lecture.n, beat: n, ops, render })) setEditing(false);
+                    }}>{render ? "Save and re-render this beat" : "Save and compile"}</button>
+                ))}
+              </div>
             </div>
           ) : sb?.ops.length ? (
             <ol className="space-y-1" data-testid="scenes-ops">
@@ -1002,6 +1008,66 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
           <ul className="space-y-0.5 text-neutral-400">{c.pictures.map((p, i) => <li key={i}>{p.prompt} <span className="text-neutral-500">· {p.model} · {money(p.usd ?? 0)}</span></li>)}</ul>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The chapter's beat script as built (each beat's operations, its paragraph, pause and about; the lecture's emblem
+ * and the chapter's region), edited by hand as JSON, saved into the scenes and the chapter rendered again. The words
+ * said are the transcript's: an edited "say" is not applied.
+ */
+function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [json, setJson] = useState("");
+  const [bad, setBad] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    setBad(null);
+    try {
+      const res = await fetch(`/api/runs/${run.id}/voice?lecture=${lecture}&chapter=${c}`, { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      setJson(JSON.stringify(body.script, null, 2));
+      setOpen(true);
+    } catch (e) {
+      setBad((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const save = async () => {
+    let script: { chapter?: { beats?: { beat?: number; do?: unknown; paragraph?: boolean; pause?: number; about?: string }[] }; emblem?: string | null;
+      region?: Record<string, unknown> | null };
+    try { script = JSON.parse(json); } catch (e) { setBad(`not JSON: ${(e as Error).message}`); return; }
+    const beats = script.chapter?.beats;
+    if (!Array.isArray(beats)) { setBad("its chapter.beats must be a list of beats"); return; }
+    const kept = beats.filter((b) => typeof b?.beat === "number");
+    if (!kept.length) { setBad("no beat has its \"beat\" number: nothing to save"); return; }
+    if (await act({ action: "editChapter", lecture, chapter: c, render: true, emblem: script.emblem ?? null, region: script.region ?? null,
+      beats: kept.map((b) => ({ beat: b.beat, ops: Array.isArray(b.do) ? b.do : [], paragraph: b.paragraph, pause: b.pause, about: b.about })) })) {
+      setOpen(false);
+    }
+  };
+  return (
+    <div className="rounded border border-neutral-800 p-2" data-testid="scenes-chapter-json">
+      <div className="flex items-center gap-2 text-xs">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">The chapter as JSON</p>
+        <span className="text-[11px] text-neutral-500">every beat&apos;s operations as built: change them, save, and the chapter is rendered again</span>
+        <button className="ml-auto text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled || loading}
+          onClick={() => (open ? setOpen(false) : void load())} data-testid="scenes-chapter-json-edit">{open ? "close" : loading ? "loading…" : "edit as JSON"}</button>
+      </div>
+      {bad && <p className="mt-1 text-[11px] text-red-300">{bad}</p>}
+      {open && (
+        <div className="mt-1 space-y-1">
+          <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
+            onChange={(e) => setJson(e.target.value)} data-testid="scenes-chapter-json-text" />
+          <p className="text-[10px] text-neutral-500">Each beat keeps its &quot;beat&quot; number. The words said (&quot;say&quot;) are the transcript&apos;s: an edited say is not applied (edit the transcript for that). The look is the run&apos;s.</p>
+          <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save()}
+            data-testid="scenes-chapter-json-rerender">Save and re-render the chapter</button>
+        </div>
+      )}
     </div>
   );
 }

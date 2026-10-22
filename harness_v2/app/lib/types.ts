@@ -128,6 +128,9 @@ export type Run = {
   /** The video (lib/video.ts, the default flow): each chapter spoken from its transcript, its words aligned, and its
    * video built by the video agent in free Manim, played as the phone plays it. */
   video?: VideoState;
+  /** Questions (lib/questions.ts): hard multiple-choice questions on each chapter's video, in English and Hindi, each
+   * with where in the video the answer is taught. */
+  questions?: QuestionsState;
   /** Set on a run file written by an earlier version of v2 (lib/store.ts normalize): why it cannot be continued. */
   legacy?: string;
   /** Where it was imported from, when it came from an exported transcript. */
@@ -740,3 +743,39 @@ export type ChapterBuild = {
 export type ChapterVideo = { lecture: number; chapter: number; narration?: ChapterNarration; agent?: ChapterAgent; build?: ChapterBuild };
 
 export type VideoState = { settings: VideoSettings; chapters: Record<string, ChapterVideo> };
+
+/** One question in one language: the question, its four options (in the same order in both languages) and why the
+ * answer is right and each other option wrong. */
+export type QuestionText = { question: string; options: string[]; explanation: string };
+
+/** A multiple-choice question on a chapter's video. */
+export type Question = {
+  id: string;
+  en: QuestionText;
+  hi: QuestionText;
+  /** The right option (0-3), in both languages. */
+  answer: number;
+  /** What it asks of the student: apply an idea to a new case, analyse, evaluate, infer. */
+  skill: string;
+  /** The beats whose lines teach what the answer rests on. */
+  beats: number[];
+  /** Where those beats play in the chapter's video (seconds, and frames for the player), when it has been rendered. */
+  at?: { start: number; end: number; from?: number; to?: number };
+};
+
+export type ChapterQuestions = {
+  status: "running" | "done" | "failed";
+  questions: Question[];
+  /** The video whose times they carry: the Voice tab's narrated chapter, the Scenes tab's chapter render, or none. */
+  source: "voice" | "scenes" | "none";
+  /** The video to play a question's moment in (as the player takes it). */
+  video?: { ir: string; assets: string; audio?: string; fps?: number };
+  model?: string;
+  calls: string[];
+  notes?: string[];
+  error?: string;
+  started?: number;
+  at?: number;
+};
+
+export type QuestionsState = { model?: string; count?: number; lectures: Record<string, Record<string, ChapterQuestions>> };

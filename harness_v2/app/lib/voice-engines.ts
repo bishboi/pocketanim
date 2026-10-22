@@ -17,7 +17,9 @@ export function voiceRunning(run: Run | null | undefined): boolean {
     .some((l) => Object.values(l).some((c) => c.status === "running"))
     || (run?.lab?.items ?? []).some((i) => i.result?.status === "running")
     // The video step: a chapter being spoken or built by the agent.
-    || Object.values(run?.video?.chapters ?? {}).some((c) => c.narration?.status === "running" || c.agent?.status === "running");
+    || Object.values(run?.video?.chapters ?? {}).some((c) => c.narration?.status === "running" || c.agent?.status === "running")
+    // Questions being written (lib/questions.ts).
+    || Object.values(run?.questions?.lectures ?? {}).some((l) => Object.values(l).some((c) => c.status === "running"));
 }
 
 /** What a chapter's scenes are (the look, each beat's words and visuals), as a short key: a voice made from other

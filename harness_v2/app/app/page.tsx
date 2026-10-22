@@ -17,6 +17,7 @@ import { GenerationPanel } from "@/components/generation-panel";
 import { ScriptPanel } from "@/components/script-panel";
 import { ScenesPanel } from "@/components/scenes-panel";
 import { VoicePanel } from "@/components/voice-panel";
+import { QuestionsPanel } from "@/components/questions-panel";
 import { LabPanel } from "@/components/lab-panel";
 import { VideoPanel } from "@/components/video-panel";
 import { voiceRunning } from "@/lib/voice-engines";
@@ -26,7 +27,7 @@ type Config = { hasKey: boolean; datalab: boolean; voices?: Record<string, boole
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Lab", "Video", "Calls", "Costs", "Models"] as const;
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Questions", "Lab", "Video", "Calls", "Costs", "Models"] as const;
 /** Set aside (the video agent in free Manim): shown only when asked for. */
 const ASIDE = new Set<string>(["Video"]);
 
@@ -392,6 +393,8 @@ export default function Page() {
               select={setSelection} onCall={setCallId} act={(body) => act("/scenes", body)} />}
             {run && tab === "Voice" && <VoicePanel run={run} ready={config?.voices} timingModel={config?.models.timing?.model || ""}
               onCall={setCallId} act={(body) => act("/voice", body)} />}
+            {run && tab === "Questions" && <QuestionsPanel run={run} defaultModel={config?.models.questions?.model || ""}
+              onCall={setCallId} act={(body) => act("/questions", body)} />}
             {run && tab === "Lab" && <LabPanel run={run} ready={config?.voices} onCall={setCallId}
               act={(body) => act("/lab", body)} voiceAct={(body) => act("/voice", body)} />}
             {run && tab === "Calls" && <CallsPanel run={run} onCall={setCallId} lecture={selection?.kind === "lecture" ? selection.n : undefined} />}

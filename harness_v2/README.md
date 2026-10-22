@@ -193,6 +193,13 @@ There is no length ceiling anywhere.
 - **Transcript:** each lecture's chapters, then its beats with their numbered sentences.
 - **Figures:** the triage: the ways a figure may be shown, the model, run / reset and rerun all / stop; every figure
   with its picture, the way chosen, the instruction, its error and its calls. The PDF colours each figure by its way.
+- **Questions:** hard multiple-choice questions on each chapter's video (four options; apply, analyse, evaluate, infer),
+  written by the questions model (`V2_QUESTIONS_MODEL`) from the chapter's narration beat by beat, in English and
+  Hindi side by side (or one of them). Each names the beats that teach its answer, and shows where they play in the
+  video (the Voice tab's narrated chapter, else the Scenes tab's chapter render); press the time to play that moment.
+  Checked as they come back (four different options, a right answer, both languages, beats of the chapter), the right
+  answers spread over A to D; per chapter or the whole lecture, answers shown or hidden, downloadable as JSON
+  (`lib/questions.ts`).
 - **Calls:** every call; open one to see its prompt part by part (click a part to open it), output, checks,
   attempts, tool schema and the request exactly as sent.
 - **Costs:** by step, by model, by lecture (OpenRouter's own `usage.cost`).

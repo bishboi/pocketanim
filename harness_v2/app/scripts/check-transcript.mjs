@@ -502,6 +502,36 @@ cv = run.voice.lectures[1][ch1.n];
 assert.equal(cv.status, "done", cv.error);
 assert.equal(cv.cost.newLines, 0, "the lines found spoken already");
 assert.equal(voiceOf(run).settings.engine, "espeak");
+
+// Questions on the video (the Questions tab): written for the voiced chapter (stand-in model), each with four options
+// in English and Hindi, a right answer, its beats, and where in the narrated video they play.
+const { questionsAction, readQuestions, chapterSource } = await import(path.resolve(here, "../lib/questions.ts"));
+const qRunning = (r) => Object.values(r.questions?.lectures ?? {}).some((l) => Object.values(l).some((c) => c.status === "running"));
+await questionsAction(run.id, { action: "generate", lecture: 1, chapter: ch1.n, count: 4 });
+run = await slow(run.id, qRunning, 1000);
+const cq = run.questions.lectures[1][ch1.n];
+assert.equal(cq.status, "done", cq.error);
+assert.equal(cq.source, "voice", "times from the narrated chapter");
+assert.ok(cq.questions.length >= 2 && cq.questions.every((q) => q.en.options.length === 4 && q.hi.options.length === 4
+  && q.answer >= 0 && q.answer < 4 && q.beats.length && q.en.question && /[\u0900-\u097F]/.test(q.hi.question)), "four options, both languages, a right answer, its beats");
+assert.ok(cq.questions.every((q) => q.at && q.at.start >= 0 && q.at.end <= cv.frames / cv.fps + 0.5 && q.at.end >= q.at.start), "where it is taught, in the video");
+assert.ok(run.calls.some((c) => c.id === cq.calls[0] && c.step === "questions" && /judgment/i.test(c.prompt.system[0].text)), "the question writer's call");
+const qSrc = chapterSource(run, 1, ch1.n);
+const qBad = readQuestions({ questions: [
+  { skill: "apply", beats: [qSrc.beats[0].n], answer: 1, en: { question: "Q?", options: ["a", "b", "c", "d"], explanation: "" }, hi: { question: "प्र?", options: ["क", "ख", "ग", "घ"], explanation: "" } },
+  { skill: "apply", beats: [qSrc.beats[0].n], answer: 0, en: { question: "Q?", options: ["a", "a", "c", "d"], explanation: "" }, hi: { question: "प्र?", options: ["क", "ख", "ग", "घ"], explanation: "" } },
+  { skill: "apply", beats: [999], answer: 0, en: { question: "Q?", options: ["a", "b", "c", "d"], explanation: "" }, hi: { question: "प्र?", options: ["क", "ख", "ग", "घ"], explanation: "" } },
+  { skill: "apply", beats: [qSrc.beats[0].n], answer: 7, en: { question: "Q?", options: ["a", "b", "c", "d"], explanation: "" }, hi: { question: "प्र?", options: ["क", "ख", "ग", "घ"], explanation: "" } },
+] }, qSrc, "t");
+assert.equal(qBad.questions.length, 1, "repeated options, a beat not in the chapter and no right answer are left out");
+assert.equal(qBad.dropped.length, 3);
+const qSame = readQuestions({ questions: Array.from({ length: 4 }, () => ({ skill: "infer", beats: [qSrc.beats[0].n], answer: 2,
+  en: { question: "Q?", options: ["a", "b", "c", "d"], explanation: "" }, hi: { question: "प्र?", options: ["क", "ख", "ग", "घ"], explanation: "" } })) }, qSrc, "s");
+assert.deepEqual(qSame.questions.map((q) => q.answer).sort(), [0, 1, 2, 3], "the right answers spread over the four positions");
+assert.ok(qSame.questions.every((q) => q.en.options[q.answer] === "c" && q.hi.options[q.answer] === "ग"), "the options turned round together, in both languages");
+await questionsAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
+console.log(`questions: chapter ${ch1.n}, ${cq.questions.length} written, each with its time in the video`);
+
 await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
 assert.ok(!(await loadRun(run.id)).voice.lectures[1][ch1.n], "the chapter's voice forgotten");
 await assert.rejects(voiceAction(run.id, { action: "speak", lecture: 99 }), /no chapter with its scenes/);

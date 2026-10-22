@@ -8,13 +8,13 @@ ordinary Manim animation, so plain Manim works beside it everywhere.
 ```python
 from kit import *                       # the kit and all of manim
 
-class Chapter(KitScene):                # NarratedScene + MovingCameraScene + the look's stage
+class Chapter(KitScene):                # NarratedScene + the look's stage + camera moves
     look = "vox"                        # or "blueprint", or look("vox", accent="#2A9D8F")
     def construct(self):
         self.until(self.at(0, "Japan"), lead=0.2)   # hold until 0.2 s before "Japan" in line 0
         m = Map("east asia"); self.play(m.appear())
         self.play(m.shade("Japan"))
-        self.play(self.cam_to(m.view("Japan")))     # the camera frames Japan
+        self.play(self.cam_to(m.view("Japan")))     # the view closes in on Japan
         self.clear_stage()
         self.wait_until_end()
 ```
@@ -33,12 +33,19 @@ and emphasis in the look) and named parts: `piece.part("title")`, `piece.parts`.
 | `self.at(n, word, occurrence=0)` | when `word` is said in line n (seconds) |
 | `self.until(t, lead=0)` | hold until `lead` s before t |
 | `self.word / phrase / line / wait_until / wait_until_end / now` | NarratedScene's own |
-| `self.cam_to(target, width=None, zoom=None, run=1.5)` | camera to a point or mobject (framing it); returns an animation |
+| `self.cam_to(target, width=None, zoom=None, run=1.5)` | the view moves to a point or mobject (where it is now) and frames it; `width` in units of the scene as first laid out, `zoom` 2 = twice as close as at the start; returns an animation |
 | `self.cam_reset(run)` · `self.cam_push(k=1.12, run=4)` · `self.cam_pan(vector)` | back home · slow push in · pan |
-| `self.camera_drift(speed=0.02, zoom=0.004)` | the camera creeps on its own from now on (0 stops); `drift = 0.02` on the class starts it |
-| `self.clear_stage(how="fade", keep=())` | everything off but the stage |
-| `self.wipe(color=None, direction=RIGHT, then=None)` | a panel sweeps across, the stage is cleared (and `then` put on) behind it |
-| `self.frame` · `self.backdrop` | the camera frame · the look's stage (kept on the camera) |
+| `self.camera_drift(speed=0.02, zoom=None)` | the view creeps through every hold from now on (played as slow moves, so the phone has them); `camera_drift(0)` stops it; `drift = 0.02` on the class starts it |
+| `self.clear_stage(how="fade", keep=())` | everything off but the stage; the view is home again |
+| `self.wipe(color=None, direction=RIGHT, then=None)` | a panel sweeps across, the stage is cleared (and `then` put on) behind it; the view is home again |
+| `self.frame` · `self.backdrop` | the frame (it never moves: the screen is always the frame at the origin) · the look's stage |
+
+**Camera moves move the stage.** The phone has no 2D camera (`phone_check` blocks a moved `self.camera.frame`), so
+the `cam_*` moves scale and shift everything on stage but the backdrop, the way a camera move would show it. While
+zoomed, what you place is placed on the screen: `m.point(...)`, `m.place_point(...)`, `piece.get_center()` are where
+things are now, and `self.frame.get_center()` is the middle of the screen. `cam_reset` moves everything on stage back,
+including what you added while zoomed. A move takes what is on stage when you call it: in the same `play`, something that
+appears with it does not move with it, so bring it on before or after the move.
 
 ## Looks
 `use("blueprint")`, `look("vox", accent=..., mark=..., palette=(...))`, `with looking("blueprint"): ...`, `L()` the

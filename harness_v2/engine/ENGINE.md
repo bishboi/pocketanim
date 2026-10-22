@@ -92,7 +92,8 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   that reads `self.renderer.time` to wait for a word waits the same in both); each play's length written so the
   players count exactly Manim's frames; a clip's parts drawn in Manim's order (by `z_index`, stably), and what was
   above the lowest part that changed taken into the clip and put back in order after it. The scene file is never
-  changed: the exporter prepares a copy beside it and removes it. v1's label pass (`layout_guard.py`) is gone: it
+  changed: the exporter prepares a copy beside it and removes it. A moved 2D camera (`self.camera.frame`) is named
+  as a blocker: the program has no 2D camera. v1's label pass (`layout_guard.py`) is gone: it
   moved text a scene placed itself. Measured on a 140 s chapter written freely (`review/agent-trial/`): 128 plays,
   every one the same number of frames as Manim's video, and the phone's frames within antialiasing of the video's;
   the one difference left is a thing added or removed between two plays, which the phone shows a frame (33 ms)
@@ -122,8 +123,8 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   data figure, a highlighted document, a timeline, a flow diagram); no frames from anyone's videos. Run it to remake
   the sheet.
 - `agent/kit/`: the kit, optional building blocks for the video agent's scene (`from kit import *`), in a look (`vox`,
-  `blueprint`): KitScene (NarratedScene + MovingCameraScene, the look's stage kept on the camera, camera moves, clearing
-  and wipes), text in the right font for its script, marks, cards, documents, books, scrolls, portrait cards,
+  `blueprint`): KitScene (NarratedScene, the look's stage, camera moves made by moving the stage as the phone has no 2D
+  camera, clearing and wipes), text in the right font for its script, marks, cards, documents, books, scrolls, portrait cards,
   illustrated people, icons (the engine's Iconify sets, else v1's, read only), photos treated in the look and public
   domain pictures from Wikimedia Commons, maps from Natural Earth with places by name (`pocket_lecture.place`) and
   historical borders (`historical.empire`), timelines, charts and diagrams that lay themselves out. Plain Manim objects
@@ -132,4 +133,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   `agent/kit/gallery.py <dir>` previews every kind of piece in both looks side by side (`review/kit-gallery/`).
   Fonts are chosen for keeping their word spaces: Hind (Latin and Devanagari), Oswald, Playfair Display at normal
   weight, Kalam (handwriting with Devanagari), IBM Plex Mono, Architects Daughter.
-- `agent/narrated.py`: a section render (`PANIM_RENDER_TO` set) is drawn silent, so its video is the section's length.
+- `agent/narrated.py`: a section render (`PANIM_RENDER_TO` set) is drawn silent and stops at its end, holds included
+  (a `wait_until_end()` stops there too), so its video is the section's length.
+- `agent/kit_example.py`: 70 seconds of a chapter (Japan, lines 0-13 of the Hindi narration it was made for) built with
+  the kit, copied into the agent's workspace as `reference/kit_example.py`: an example of how such a chapter moves.

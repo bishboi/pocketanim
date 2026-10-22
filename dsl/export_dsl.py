@@ -1345,7 +1345,23 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         rec.baked += 1
         return result
 
+    def frame_moved(scene) -> None:
+        """Faithful: a 2D camera (MovingCameraScene's frame) moved from where the scene began: the program has no 2D
+        camera, so the phone would show the stage from the still camera. Named once as a blocker; moving the stage itself
+        plays (the kit's KitScene camera moves do that)."""
+        import numpy as np
+
+        frame = getattr(getattr(scene, "camera", None), "frame", None)
+        if frame is None or state.get("frame_blocked") or os.environ.get("PANIM_FAITHFUL") != "1":
+            return
+        home = state.setdefault("frame_home", (np.array(frame.get_center(), dtype=float), float(frame.width)))
+        if np.linalg.norm(np.array(frame.get_center(), dtype=float) - home[0]) > 1e-3 or abs(float(frame.width) - home[1]) > 1e-3:
+            state["frame_blocked"] = True
+            rec.blockers.append("the 2D camera moved (self.camera.frame): the phone keeps the camera still; "
+                                "move the stage instead (the kit's KitScene cam_to / cam_push / cam_pan do)")
+
     def patched_play(self, *animations, **kwargs):
+        frame_moved(self)
         remember_containers(animations)
         given = animations
         run_time = kwargs.get("run_time")

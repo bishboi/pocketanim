@@ -58,19 +58,27 @@ provider. Any other model, or no key, goes through OpenRouter as before.
 everything before the last turn. Pictures are sent once: a turn's pictures ride on one message with the next request
 and are a one-line note in every request after (it looks again if it needs to); frames are 640 px wide
 (`V2_VIDEO_AGENT_FRAME_WIDTH`), and `look` takes `detail: "low"` for a cheap glance. Once a request passes
-`V2_VIDEO_AGENT_COMPACT_TOKENS` (40,000) the conversation is condensed, with no model call, to the instructions, the
+`V2_VIDEO_AGENT_COMPACT_TOKENS` (150,000; with the cache a long build is still cheap, and condensing early costs turns of
+re-reading) the conversation is condensed, with no model call, to the instructions, the
 chapter and a summary of what was done (every tool call and its outcome, what it last said, its files, the last render
 and phone check); its files are as they were. Every **render** shows its sheet of frames, `render` with `check: true`
 also runs the phone check, and `render` with `from`/`to` (seconds) draws only that stretch (the plays before it run
 without drawing a frame; `NarratedScene` stops after it), for a quick look at one part; the phone check needs a whole
-render. The reasoning level is chosen turn by turn: the level set, but low after a turn that only wrote, edited, read
-or listed files or made pictures, all of which went through, or passed the phone check
-(`V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off`: always the level set). The log has a `compact` line each time it condenses.
+render. The reasoning level is chosen turn by turn: the level set, but low after a turn that only read or listed files
+(a turn after writing or editing often writes the next big piece, so it thinks at the level set;
+`V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off`: always the level set). A shell command's long output keeps its first and last
+4,000 characters (the middle is cut, so a file read with `cat` shows its top); the agent is told to read files with
+`read_file`. The system prompt carries a short summary of the kit (KitScene, camera moves, entrances, the pieces), and
+`reference/kit_example.py` (`engine/agent/kit_example.py`: 70 seconds of a chapter built with the kit, camera pans and
+pushes, wipes, word-timed pins, counters, marks drawn on, a diagram built as it is named) shows how a chapter moves. The log has a `compact` line each time it condenses.
 
 **The one hard rule is the phone.** The chapter is shipped as the program the phone plays, not as an MP4, and it must
 play exactly as Manim drew it: `phone_check` exports the scene (faithfully: every play recorded as Manim draws it,
 `engine/ENGINE.md`), draws the phone's frames with the reference renderer the Kotlin and Swift players are held to, and
-compares them with the render's; **finish** is refused until it passes on the scene as it is. The page then plays the
+compares them with the render's; **finish** is refused until it passes on the scene as it is. **finish** also asks the
+agent to look at the video as a viewer would and list what is still wrong (`open_issues`); while three or more turns
+remain, a list that is not empty sends it back to fix them (its own judgement, not a check of ours), and what it
+leaves open on its last turns is kept in its summary. The page then plays the
 chapter as the phone does (v1's web player, with the narration as its clock), beside the Manim render it was checked
 against, every line and word of the narration with its time, and what the agent did, in five views
 (`app/components/agent-log.tsx`): **What it did** (the outcome, its summary in its own words, and the counts: time,

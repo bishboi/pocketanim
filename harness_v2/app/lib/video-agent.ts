@@ -43,12 +43,12 @@ const MAX_IMAGES = Math.max(0, Number(process.env.V2_VIDEO_AGENT_IMAGES) || 12);
 /** Room for a whole scene in one reply: without it a provider's default cut a long file off mid-write. */
 const MAX_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_MAX_TOKENS) || 32000);
 /** Past this many input tokens a turn, the conversation is condensed into a summary (the files stay as they are). */
-const COMPACT_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_COMPACT_TOKENS) || 40000);
+const COMPACT_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_COMPACT_TOKENS) || 150000);
 /** Reasoning chosen turn by turn: the level set for thinking turns, low for the mechanical ones (V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off: always the level set). */
 const ADAPTIVE = (process.env.V2_VIDEO_AGENT_ADAPTIVE_EFFORT ?? "on").toLowerCase() !== "off";
 /** Frames shown to the model are this wide (enough to judge a layout, a third of the tokens of a full frame). */
 /** Tools whose success needs no fresh thinking after it. */
-const EASY = new Set(["write_file", "edit_file", "read_file", "list_files", "make_image"]);
+const EASY = new Set(["read_file", "list_files"]);
 const FRAME_WIDTH = Math.max(320, Number(process.env.V2_VIDEO_AGENT_FRAME_WIDTH) || 640);
 const SCENE_FILE = "scene.py";
 const SCENE_CLASS = "Chapter";
@@ -67,7 +67,7 @@ const TOOLS = [
   fn("read_file", "Read a file of your workspace, with line numbers (a range of lines if long).", {
     path: { type: "string" }, from: { type: "integer" }, to: { type: "integer" } }, ["path"]),
   fn("list_files", "List the files of your workspace (or of a folder in it), with sizes.", { path: { type: "string" } }),
-  ...(SHELL ? [fn("shell", "Run a shell command in your workspace (bash; `python` is the Python that has Manim, numpy, shapely, cartopy, PIL). For what files cannot do: list fonts (fc-list), test a snippet, compute geometry, read map data. Output is cut to its last 6000 characters.", {
+  ...(SHELL ? [fn("shell", "Run a shell command in your workspace (bash; `python` is the Python that has Manim, numpy, shapely, cartopy, PIL). For what files cannot do: list fonts (fc-list), test a snippet, compute geometry, read map data. Long output keeps its first and last 4000 characters (the middle is cut): read files with read_file, not cat.", {
     command: { type: "string" }, timeout: { type: "integer", description: "Seconds, at most 600 (default 120)." } }, ["command"])] : []),
   fn("render", `Render ${SCENE_FILE} (class ${SCENE_CLASS}) with Manim at 30 fps: draft 854x480 (fast, for looking), final 1280x720. You are shown a sheet of about 12 frames of it at once (stamped with their times). from/to render only that stretch of the chapter (seconds on its clock; the plays before it run undrawn), much faster while you work on one moment. check: true also runs phone_check after a whole render, in the same turn.`, {
     quality: { type: "string", enum: ["draft", "final"] }, from: { type: "number" }, to: { type: "number" }, check: { type: "boolean" } }),
@@ -84,8 +84,10 @@ const TOOLS = [
     ["name", "what", "kind"]),
   fn("phone_check", "Export the scene as the phone plays it and compare the phone's frames with the last render's at evenly spread times. Returns whether they match, the program's size and length, and shows you the worst pair (phone left, Manim right). Render the whole chapter first (not a from/to section): it compares against the last render.", {
     samples: { type: "integer", description: "How many times to compare (default 12, at most 40)." } }),
-  fn("finish", "The chapter is done. Allowed only when the last phone_check passed on the scene as it is now.", {
-    summary: { type: "string", description: "A few lines: what the video shows, line by line in broad strokes, and the pictures and maps in it." } }, ["summary"]),
+  fn("finish", "The chapter is done. Allowed only when the last phone_check passed on the scene as it is now. First look at the video as a viewer would and list honestly what is still wrong with it (open_issues); while turns remain, finishing with open issues sends you back to fix them.", {
+    summary: { type: "string", description: "A few lines: what the video shows, line by line in broad strokes, and the pictures and maps in it." },
+    open_issues: { type: "array", items: { type: "string" }, description: "What you still see wrong (overlaps, cut or missing labels, words out of time, empty or static stretches, anything unlike the look). Empty when nothing is." } },
+    ["summary", "open_issues"]),
 ];
 
 function roleText(style: { note?: string; custom: boolean }, turns: number): string {
@@ -111,14 +113,25 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": six frames of a Vox-like explainer, a map, an archival collage, a data figure, a document, a timeline and a flow"}). Match its feel: its palette, type,`,
     "  textures, how labels and highlights look, how busy a frame is. It is a look, not a layout: compose each moment yourself.",
     ...(style.note ? [`  About the look: ${style.note}`] : []),
-    "- The kit (optional): `from kit import *` gives Manim plus building blocks drawn in a look (vox: paper, collage,",
-    "  marker; blueprint: drafting grid, outlines): KitScene (NarratedScene with a moving camera, the look's stage, camera",
-    "  moves, clearing and wipes), headlines and labels in the right font for Hindi/Chinese/Latin, marks (highlight,",
-    "  circle, underline, arrow, callout, stamp, spotlight), cards, documents, clippings, books, scrolls, portrait cards,",
-    "  illustrated people, icons, photos treated in the look (and public-domain pictures from Wikimedia Commons), maps",
-    "  from real data (places by name, routes, historical borders), timelines with lifespans, charts and self-laying-out",
-    "  diagrams, each with its own entrance in the look. KIT.md in your workspace is the catalog. Use any of it, none of",
-    "  it, or take pieces apart; plain Manim beside it is always fine. kit_preview shows you a snippet before you use it.",
+    "- The kit (optional; use any of it, none of it, or take pieces apart; plain Manim beside it is always fine).",
+    "  `from kit import *` gives all of Manim plus building blocks drawn in a look (vox: paper, collage, marker, cutout",
+    "  photos; blueprint: drafting grid, outlines, mono type). Each piece is a plain Manim mobject with .appear(),",
+    "  .disappear(), .emphasize() in its look, and named parts. The main things:",
+    "    class Chapter(KitScene): look = \"vox\"      NarratedScene + camera moves + the look's stage",
+    "    self.at(n, \"word\") / self.until(t, lead)   the narration's clock",
+    "    self.cam_to(mob_or_point, width=), cam_push(k), cam_pan(v), cam_reset(), camera_drift(speed)   camera moves (they move the stage)",
+    "    self.wipe(then=next_scene), self.clear_stage(how)                                            scene changes",
+    "    enter(m, how) / leave(m, how) / emph(m, how) / stagger(items) / later(anim, delay)          motion",
+    "      entrances: rise drop slide pop grow grow_left draw write type unfold zoom spin stamp spring",
+    "    headline, kicker, text (right font for Hindi/Chinese/Latin), label, quote, caption, number + count",
+    "    marks: highlight circle underline strike box arrow callout bracket stamp tick cross dimension spotlight",
+    "    card chip tag sticky document clipping book shelf scroll portrait stat checklist; person crowd icon photo",
+    "    Map(\"east asia\" or bounds, year=) .shade .pin .route .empire .view .point; Timeline .event .span .lifespan",
+    "    bars donut units line_chart versus; Flow Tree Cycle Hub Chain Network Pyramid (.reveal .focus .pulse)",
+    "  KIT.md in your workspace is the full catalog (read it with read_file); kit_preview shows a snippet before you",
+    "  use it. reference/kit_example.py is 70 seconds of a chapter built with it: read it to see how such a chapter",
+    "  moves (camera pans and pushes, wipes, things landing on their words, counters, marks drawn on, a diagram built",
+    "  as the voice names its parts), not to copy it.",
     "- Tools to write and edit files, render, look at frames, preview kit pieces, make pictures, run commands, and check",
     "  the phone.",
     "",
@@ -126,16 +139,18 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "The video is not shipped as an MP4. The phone (and the web player) play the scene as a program recorded from Manim, and",
     "it must look exactly as Manim drew it. Every play is recorded as Manim draws it, frame by frame, so almost anything",
     "Manim does plays, with these limits:",
-    "- 2D: anything goes, camera moves included (mix MovingCameraScene into your class with NarratedScene to zoom and",
-    "  pan with self.camera.frame). 3D (ThreeDScene) is only partly supported on the phone: see-through solids lose faces",
-    "  and the web player cannot preview it; prefer 2D.",
+    "- 2D: anything goes, except moving the camera: the phone has no 2D camera, so a moved self.camera.frame",
+    "  (MovingCameraScene) is a blocker in the phone check. Zoom and pan by moving the stage instead (KitScene's cam_to,",
+    "  cam_push, cam_pan, cam_reset do, as a camera would look), or move and scale the mobjects yourself.",
+    "- 3D (ThreeDScene) is only partly supported on the phone: see-through solids lose faces and the web player cannot",
+    "  preview it; prefer 2D.",
     "- Pictures (PNG, JPG) as ImageMobject are fine. Load files by absolute path: Path(__file__).resolve().parent / \"assets\" / ...",
     "- Size: every frame of motion costs bytes; a still hold costs nothing. Keep the program under about 20 MB for the",
     "  chapter (phone_check says its size): no endless idle motion, no updaters ticking through long holds, no needless",
     "  points (simplify map outlines).",
     "- phone_check must pass before you finish: it exports the scene and compares the phone's frames with the render's.",
     "",
-    "- reference/vox_example.py in your workspace is one chapter someone built in this setup, if you want to see one.",
+    "- reference/vox_example.py (plain Manim) and reference/kit_example.py (with the kit) are chapters built in this setup.",
     "",
     "HOW TO WORK (as a careful engineer works)",
     "1. Read the narration. Write plan.md: the chapter's moments, each with its lines and times, what is on screen and",
@@ -151,7 +166,9 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "   A long build is condensed into a summary now and then; your files stay as they are, so read them when you need.",
     "4. A render also says what it measured (the animations used, long still or empty stretches, words off the frame",
     "   or on top of words): information for you, not rules.",
-    "5. When it is right, render final, run phone_check, and finish. If the phone differs, find why and change the scene.",
+    "5. When it is right, render final, run phone_check, then look at it as a viewer would: list in finish what is still",
+    "   wrong (open_issues). If anything is, fix it first: a passing phone check is not the bar, the video is. If the",
+    "   phone differs, find why and change the scene.",
     `You have at most ${turns} turns: plan, then build steadily; do not stop at a first draft that you have not looked at.`,
     "Every tool call is a turn. Say briefly what you are doing and why as you go.",
   ].join("\n");
@@ -356,6 +373,12 @@ function withoutSecrets(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v !== undefined && !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(k))) as NodeJS.ProcessEnv;
 }
 
+/** A long output as its start and its end, the middle cut (a file read whole shows its top; an error its end). */
+function headTail(out: string, keep = 4000): string {
+  if (out.length <= keep * 2 + 200) return out;
+  return `${out.slice(0, keep)}\n… (${out.length - keep * 2} characters cut here) …\n${out.slice(-keep)}`;
+}
+
 function sh(command: string, cwd: string, timeout: number): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const bin = path.dirname(pythonPath());
@@ -432,7 +455,8 @@ function scriptedAgent(t: Timing): () => Fake {
     { text: "Looking closer.", calls: [{ name: "look", args: { times: [Math.min(3, t.seconds / 3)], detail: "low" } }] },
     { text: "The whole chapter again, for the phone.", calls: [{ name: "render", args: { quality: "draft" } }] },
     { text: "Checking the phone.", calls: [{ name: "phone_check", args: { samples: 6 } }] },
-    { text: "Done.", calls: [{ name: "finish", args: { summary: "Each line's first words, underlined in red, on paper (the stand-in agent: no model key)." } }] },
+    { text: "Done, though one label is tight.", calls: [{ name: "finish", args: { summary: "A first pass.", open_issues: ["the last line's words sit close to the frame's edge"] } }] },
+    { text: "Checked again: it is fine.", calls: [{ name: "finish", args: { summary: "Each line's first words, underlined in red, on paper (the stand-in agent: no model key).", open_issues: [] } }] },
   ];
   let k = 0;
   return () => steps[Math.min(k++, steps.length - 1)];
@@ -450,6 +474,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   await copyFile(path.join(engineDir(), "agent", "kit", "KIT.md"), path.join(ws, "KIT.md"));
   await mkdir(path.join(ws, "reference"), { recursive: true });
   await copyFile(path.join(engineDir(), "agent", "vox_example.py"), path.join(ws, "reference", "vox_example.py"));
+  await copyFile(path.join(engineDir(), "agent", "kit_example.py"), path.join(ws, "reference", "kit_example.py"));
   const styleFile = path.join(ws, "style" + path.extname(settings.style));
   await copyFile(settings.style, styleFile);
   const agent: ChapterAgent = { status: "running", model: settings.model, effort: settings.effort, imageModel: settings.imageModel, note: o.note, started: Date.now(),
@@ -631,7 +656,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       case "shell": {
         if (!SHELL) return { ok: false, text: "the shell is off here" };
         const r = await sh(String(args.command ?? ""), ws, Math.min(600, Math.max(5, Number(args.timeout) || 120)) * 1000);
-        return { ok: r.code === 0, exit: r.code, text: `exit ${r.code}\n${r.out.slice(-6000)}` };
+        return { ok: r.code === 0, exit: r.code, text: `exit ${r.code}\n${headTail(r.out)}` };
       }
       case "render": {
         if (!existsSync(path.join(ws, SCENE_FILE))) return { ok: false, text: `write ${SCENE_FILE} first` };
@@ -725,7 +750,13 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       case "finish": {
         const hash = await hashOf(path.join(ws, SCENE_FILE));
         if (!lastCheck.ok || lastCheck.hash !== hash) return { ok: false, text: "not yet: render the scene as it is now and run phone_check; finish when it passes" };
-        agent.summary = String(args.summary ?? "").slice(0, 3000);
+        const issues = (Array.isArray(args.open_issues) ? args.open_issues : []).map(String).filter((x) => x.trim());
+        const left = settings.turns - currentTurn;
+        if (issues.length && left >= 3) {
+          return { ok: false, text: `not finished: you listed what is still wrong:\n${issues.map((x) => `- ${x}`).join("\n")}\nYou have ${left} turns left: fix these, render, check the phone, and finish again.` };
+        }
+        if (issues.length) agent.summary = `${String(args.summary ?? "")}\n\nStill open: ${issues.join("; ")}`.slice(0, 3000);
+        if (!issues.length) agent.summary = String(args.summary ?? "").slice(0, 3000);
         const r = lastCheck.result!;
         const out = path.join(ws, "export");
         const rel = (f: string) => encodeURIComponent(path.relative(scenesDir(run.id), f));
@@ -829,7 +860,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         break;
       }
       // The next turn thinks at the level set unless this one only did mechanical work that went through.
-      mechanical = results.every((x) => x.ok && (EASY.has(x.name) || (x.name === "phone_check")));
+      mechanical = results.every((x) => x.ok && EASY.has(x.name));
       if (finished) {
         agent.status = "done";
         break;

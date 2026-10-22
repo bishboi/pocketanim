@@ -96,6 +96,13 @@ class NarratedScene(Scene):
         return super().play(*animations, **kwargs)
 
     def wait(self, duration=1.0, *args, **kwargs):
+        # A section ends at TO, holds included (a hold to the end of the narration stops there too).
+        if TO:
+            if self.now >= TO - 1e-6:
+                from manim.utils.exceptions import EndSceneEarlyException
+
+                raise EndSceneEarlyException()
+            duration = min(float(duration), TO - self.now)
         # A hold across a section's start is split there, so the section's video starts where it was asked to.
         if FROM and self.now < FROM < self.now + float(duration) - 1e-6:
             first = FROM - self.now

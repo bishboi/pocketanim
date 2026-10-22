@@ -911,6 +911,12 @@ class MoreTemplates:
         """A question set large beside a question mark; when the line gives its `answer` (`on`, else the answer's
         first words), the answer comes in under it with a tick and the question steps back."""
         P = pl.P
+        if answer and not id:
+            # The same question still up, asked again with its answer and no id: that one is answered, not a second
+            # one typed over it.
+            key = " ".join(str(text).lower().split())
+            id = next((t for t, w in self._mwhole.items() if getattr(w, "_m_ask", None)
+                       and w._m_ask.get("text") == key), None)
         if id and answer:
             answered = self._answer_ask(id, answer, on)
             if answered is not False:
@@ -935,7 +941,7 @@ class MoreTemplates:
         h0 = whole.height
         self._fit(whole, self._box(), grow=1.2, margin=0.9)
         whole._m_ask = {"q": q, "stack": stack, "words": words, "k": whole.height / max(h0, 1e-3),
-                        "answered": a_line is not None}
+                        "answered": a_line is not None, "text": " ".join(str(text).lower().split())}
         entrance = K.stagger([K.timed(FadeIn(mark, scale=0.3, rate_func=ease_out_back), K.t("fast"), "pop"),
                               K.typewriter(kick, run=0.5), K.typewriter(words, run=min(1.6, 0.03 * len(str(text)) + 0.4))],
                              lag=0.4)

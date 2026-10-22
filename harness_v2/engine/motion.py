@@ -48,7 +48,7 @@ from manim.utils.rate_functions import ease_in_cubic, ease_out_back, ease_out_cu
 
 import motion_kit as K
 import motion_looks
-from motion_explain import ExplainTemplates
+from motion_explain import ExplainTemplates, _said
 from motion_forms import FormTemplates
 from motion_more import MoreTemplates
 from motion_story import StoryTemplates
@@ -235,6 +235,49 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
     CARRY_RUN = 0.8          # seconds the carried word takes to reach its new place
     CARRY_MOST = 2           # words carried at one change of picture
 
+    def flow(self, lonlats, color: str | None = None, width: float = 7, label: str | None = None):
+        """The engine's arrow over the map; through three places or more, each leg its own gentle arc, joined, so
+        the route reads as it goes: smoothed through them all, it swung far past the middle place and looped
+        back (France, England, Italy drew a hook over the Channel)."""
+        if len(lonlats) < 3:
+            return super().flow(lonlats, color=color, width=width, label=label)
+        fr = self.frame
+        smooth = fr.path
+        ps = [np.array(fr.pt(*p), dtype=float)[:2] for p in lonlats]
+        if self._doubles_back(ps):
+            # A route that turns back on itself (France to England, then down to Italy) is a spread, not a journey:
+            # an arrow from the first place to each of the others, one after another, the label on the first.
+            arrows = [super(MotionLecture, self).flow([lonlats[0], p], color=color, width=width,
+                                                      label=label if k == 0 else None)
+                      for k, p in enumerate(lonlats[1:])]
+            return AnimationGroup(*arrows, lag_ratio=0.45)
+
+        def legs(points, **style):
+            ps = [np.array(fr.pt(*p), dtype=float) for p in points]
+            path = VMobject(**style)
+            parts = []
+            for a, b in zip(ps, ps[1:]):
+                if np.linalg.norm(b - a) < 1e-6:
+                    continue
+                parts.append(ArcBetweenPoints(a, b, angle=-0.4).points)
+            path.set_points(np.concatenate(parts) if parts else np.array([ps[0]] * 4))
+            return path
+        fr.path = legs
+        try:
+            return super().flow(lonlats, color=color, width=width, label=label)
+        finally:
+            fr.path = smooth
+
+    @staticmethod
+    def _doubles_back(ps) -> bool:
+        """Whether a route through these points turns by more than 110 degrees at any stop."""
+        for a, b, c in zip(ps, ps[1:], ps[2:]):
+            u, v = b - a, c - b
+            nu, nv = np.linalg.norm(u), np.linalg.norm(v)
+            if nu > 1e-6 and nv > 1e-6 and float(np.dot(u, v)) / (nu * nv) < math.cos(math.radians(110)):
+                return True
+        return False
+
     @staticmethod
     def _carry_key(m) -> str:
         text = str(getattr(m, "text", "") or "").strip()
@@ -260,8 +303,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         old_wholes = [w for w in self._mwhole.values() if id(w) not in new_family and id(w) in on_screen]
         if not old_wholes:
             return []
+        # A word or a figure (three words at most, on one line): a whole sentence flying over the new picture while
+        # its own words were typed on stood as a second copy of them, crossing it.
         texts = lambda mobs: [m for w in mobs for m in w.get_family()  # noqa: E731
-                              if isinstance(m, Text) and len(self._carry_key(m)) >= 2 and m.get_fill_opacity() > 0.5]
+                              if isinstance(m, Text) and len(self._carry_key(m)) >= 2 and m.get_fill_opacity() > 0.5
+                              and "\n" not in str(getattr(m, "text", "")) and len(self._carry_key(m).split()) <= 3]
         olds = texts(old_wholes)
         pairs, used = [], set()
         for n in texts([group]):
@@ -656,6 +702,10 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         self._settle_z(whole)
         if anim is not None and on:
             anim.panim_said = str(on)
+        # Its parts' moments come after it (_on_words): a part said before the template's own words came on over
+        # the picture still up, before its template had replaced it.
+        for holder in self.__dict__.pop("_m_open", []):
+            holder._m_owner = anim
         return anim
 
     @staticmethod
@@ -684,7 +734,25 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                     heard = [(t_, a) for t_, a in heard if t_ is not None]
                     if heard:
                         anim.panim_said = min(heard)[1]
-        return super()._on_words(given, words, seconds, text)
+        out = super()._on_words(given, words, seconds, text)
+        # A template's parts never before the template: a part said earlier in the line than the words the
+        # template itself lands on waits for it (and its first breath on the screen).
+        start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+        owners = {id(a): c for a, c in out}
+        moved = False
+        for i, (a, c) in enumerate(out):
+            owner = getattr(a, "_m_owner", None)
+            oc = owners.get(id(owner)) if owner is not None else None
+            if oc is None:
+                continue
+            run = float(oc[1]) if isinstance(oc, (list, tuple)) and len(oc) > 1 and oc[1] else 0.6
+            floor = start(oc) + min(0.6, run * 0.5)
+            if start(c) < floor:
+                out[i] = (a, [round(floor, 3), *(c[1:] if isinstance(c, (list, tuple)) else [None])])
+                moved = True
+        if moved:
+            out.sort(key=lambda g: start(g[1]))
+        return out
 
     def _moment(self, say, build, run: float | None = None) -> None:
         """Something that happens when the line says `say` (or, said nowhere, in its turn after the template); `say`
@@ -693,6 +761,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if alts:
             say = alts[0]
         force = K.FORCE_ENTER
+        holder: list = []
 
         def made(heard):
             # Built as its words come, in the way its template was told to bring its parts on (`enter`).
@@ -718,8 +787,15 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                 self.__dict__.setdefault("_m_arriving", set()).update(within)
             if anim is not None and run is not None and getattr(anim, "panim_run", None) is None:
                 K.timed(anim, run)
+            if anim is not None and holder and getattr(holder[0], "_m_owner", None) is not None:
+                try:
+                    anim._m_owner = holder[0]._m_owner           # its template (_show), which it never comes before
+                except AttributeError:
+                    pass
             return anim
         self.queue_on_words(str(say or ""), made)
+        holder.append(self.__dict__["_word_queue"][-1])
+        self.__dict__.setdefault("_m_open", []).append(holder[0])
         if alts and len(alts) > 1:
             self.__dict__["_word_queue"][-1].panim_alts = alts
 
@@ -1413,7 +1489,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if not any(type(x).__name__ in ("Text", "MarkupText", "Paragraph") for x in body.get_family()):
             return spot
         fit(mark, min(4.2, max(2.0, body.width * 0.5)))
+        # A stamp already in the template (a myth's "Not quite") is kept clear of, whole and before any words.
+        stamps = [x for m in [body, *self.stage_pending] for x in m.get_family() if getattr(x, "panim_stamp", False)]
         boxes = [self._after_moves(x) for x in texts]
+        weights = [1.0] * len(boxes) + [4.0] * len(stamps)
+        boxes += [self._after_moves(x) for x in stamps]
         ends = [self._after_moves(m) for m in [body, *self.stage_pending]]
         lo = np.min([e[0] for e in ends], axis=0)
         hi = np.max([e[1] for e in ends], axis=0)
@@ -1426,8 +1506,8 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
 
         def cover(x, y):
             x0, x1, y0, y1 = x - mw / 2, x + mw / 2, y - mh / 2, y + mh / 2
-            return sum(max(0.0, min(x1, b[1][0]) - max(x0, b[0][0])) * max(0.0, min(y1, b[1][1]) - max(y0, b[0][1]))
-                       for b in boxes)
+            return sum(k * max(0.0, min(x1, b[1][0]) - max(x0, b[0][0])) * max(0.0, min(y1, b[1][1]) - max(y0, b[0][1]))
+                       for b, k in zip(boxes, weights))
         best = None
         for x, y in spots:
             x = float(np.clip(x, cx - w / 2 + mw / 2, cx + w / 2 - mw / 2))
@@ -1723,7 +1803,8 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         for s, tone in ((left or {}, K.col("accent")), (right or {}, K.col("second"))):
             cw = 5.0 if layout == "cards" else 9.0
             name = fit(K.head(str(s.get("title", "")), 34, tone if not self.M.get("classic") else P.TITLE), cw - 0.5)
-            pts = [fit(K.body("• " + str(p), 22, K.col("card_ink"), 32), cw - 0.6) for p in (s.get("points") or [])[:4]]
+            said = [p if isinstance(p, dict) else {"text": str(p)} for p in (s.get("points") or [])[:4]]
+            pts = [fit(K.body("• " + str(p.get("text", "")), 22, K.col("card_ink"), 32), cw - 0.6) for p in said]
             big = K.number(str(s["value"]), 58, tone) if s.get("value") else None
             pic = None
             if s.get("file"):
@@ -1738,7 +1819,12 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             content.move_to(face.face)
             band = Rectangle(width=cw, height=0.12, stroke_width=0, fill_color=tone, fill_opacity=1)
             band.move_to(face.face.get_top() + DOWN * 0.06)
-            sides.append((s, K.group_of(face, band, content), content, pts))
+            for m in pts:
+                m.align_to(face.face, LEFT).shift(RIGHT * 0.35)
+            # The card is its head (face, band, picture, title, figure) and its points, each one part the stage can
+            # hold back until it is said.
+            head = K.group_of(face, band, *[m for m in (pic, name, big) if m is not None])
+            sides.append((s, K.group_of(head, *pts), head, list(zip(said, pts)), name, big))
         lcard, rcard = sides[0][1], sides[1][1]
         pair = Group(lcard, rcard).arrange(RIGHT if layout == "cards" else DOWN, buff=1.6 if layout == "cards" else 0.9)
         badge_c = Circle(radius=0.55, stroke_width=0, fill_color=K.col("stamp"), fill_opacity=1)
@@ -1747,13 +1833,49 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         whole, top = self._titled(body, title, kicker)
         self._fit(whole, self._box(), grow=1.1)
         a, b = (RIGHT, LEFT) if layout == "cards" else (DOWN, UP)
-        sweep = K.together([K.enter(lcard, None), K.enter(rcard, None)]) if K.forced() else \
-            K.together([K.timed(FadeIn(lcard, shift=a * 2.5, rate_func=ease_out_expo), K.t("base"), "swish"),
-                        K.timed(FadeIn(rcard, shift=b * 2.5, rate_func=ease_out_expo), K.t("base"))])
-        entrance = K.stagger([self._title_in(top), sweep, K.slam(badge)], lag=0.6)
-        for s, c, content, pts in sides:
+
+        def sweep(head, way, sfx):
+            # The card (its face, band, picture, title and figure) sweeping in from its edge, its title popping as it lands.
+            if K.forced():
+                return K.enter(head, None)
+            return K.timed(FadeIn(head, shift=way * 2.5, rate_func=ease_out_expo), K.t("base"), sfx)
+
+        def points_in(rows, way):
+            # Its points slid in one after another, from its own side.
+            return K.stagger([K.timed(FadeIn(m, shift=way * 0.6, rate_func=ease_out_cubic), K.t("fast")) for _, m in rows],
+                             lag=0.45) if rows else None
+
+        (ls, _, lhead, lrows, _, _), (rs, _, rhead, rrows, _, _) = sides
+        # The left side as the template comes on (or, given its own "on" under a title, on those words); its points
+        # with it unless each is said on its own words.
+        l_own = [(p, m) for p, m in lrows if p.get("on")]
+        l_now = [(p, m) for p, m in lrows if not p.get("on")]
+        title_in = self._title_in(top)
+        l_later = bool(str(ls.get("on") or "").strip()) and title_in is not None
+        if l_later:
+            entrance = title_in
+            self._moment([str(ls["on"])], lambda heard: K.stagger([sweep(lhead, a, "swish"), points_in(l_now, a)],
+                                                                  lag=0.55))
+        else:
+            entrance = K.stagger([title_in, sweep(lhead, a, "swish"), points_in(l_now, a)], lag=0.55)
+        for p, m in l_own:
+            self._moment(_said(p.get("on"), p.get("text")), lambda heard, m=m: K.timed(FadeIn(m, shift=a * 0.6,
+                                                                                               rate_func=ease_out_cubic), K.t("fast")))
+        # The other side on its own words (its "on", else its title): it sweeps in from its edge, the VS badge slams
+        # down between the two, then its points come in.
+        r_own = [(p, m) for p, m in rrows if p.get("on")]
+        r_now = [(p, m) for p, m in rrows if not p.get("on")]
+        self._moment(_said(rs.get("on"), rs.get("title")),
+                     lambda heard: K.stagger([sweep(rhead, b, "swish"), K.slam(badge), points_in(r_now, b)], lag=0.45))
+        for p, m in r_own:
+            self._moment(_said(p.get("on"), p.get("text")), lambda heard, m=m: K.timed(FadeIn(m, shift=b * 0.6,
+                                                                                               rate_func=ease_out_cubic), K.t("fast")))
+        for s, c, *_ in sides:
             self._part(tid, s.get("title"), c, point=lambda c=c: K.pulse(c, 1.04))
-        return self._show(tid, whole, entrance)
+        anim = self._show(tid, whole, entrance)
+        self._hold_back(whole, [rhead, badge] + [m for _, m in rrows] + [m for _, m in l_own]
+                        + ([lhead] + [m for _, m in l_now] if l_later else []))
+        return anim
 
     def _versus_split(self, left: dict, right: dict, title, kicker, tid):
         """Versus as the stage cut in two: each half washed in its side's colour and wiped in from its edge, a line
@@ -2518,6 +2640,8 @@ def _entering(fn):
 
     @functools.wraps(fn)
     def call(self, *args, enter: str | None = None, **kwargs):
+        # The moments this template registers belong to it (_show): none of another's carried over.
+        self._m_open = []
         if not enter or enter not in K.ENTRANCES:
             return fn(self, *args, **kwargs)
         before, K.FORCE_ENTER = K.FORCE_ENTER, enter

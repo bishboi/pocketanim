@@ -287,6 +287,8 @@ versus — two cards sweeping in from the edges, a VS badge slammed between them
   {"op":"versus","left":{"title":"Himalayan","points":["Snow-fed","Flow all year"],"value"?:"40%","picture"?,"on"?},
    "right":{"title":"Peninsular","points":["Rain-fed"],"on"?},"layout"?:"cards|split|stack"}
   Use for: exactly two things contrasted (up to four points a side). A side may be just a title: "left":"Lord".
+  The left side comes on with the template; the right sweeps in (and the VS slams down) on its own "on", so give the
+  right side the words where the line turns to it. A point may be {"text":"...","on":"..."} to come on as said.
 
 table — two to four columns, up to five rows filled in as they are said.
   {"op":"table","columns":["France","Mesopotamia","Rome"],"rows":[{"label":"What justified rank","cells":["...","...","..."],"on"?}],
@@ -632,6 +634,8 @@ marker — a point with its label.            {"op":"marker","place":"Jaipur","l
 state — an area shaded, its name on it.     {"op":"state","name":"Normandy","label"?,"color"?,"opacity"?,"on"?}
 river — a river drawn along its course.     {"op":"river","name":"Ganges","on"?}
 arrow — a movement from place to place.     {"op":"arrow","points":["Delhi","Agra"],"label"?,"on"?}
+  points is ONE route travelled in order. Something spreading from one place to several (France, then England and
+  Italy) is one arrow per destination, each from the source and on its own words, not one route through them all.
 path — a route through places.              {"op":"path","points":["Delhi","Agra","Lucknow"]}
 journey — a traveller moving stop to stop.  {"op":"journey","stops":["Ahmedabad","Surat",[72.8,20.89]],"labels"?,"pictures"?}
 map_story — a story told on the map: the route drawn behind a traveller, each stop named with its date as reached.

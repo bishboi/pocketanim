@@ -115,13 +115,16 @@ the cache: nothing is spoken again) and play it as their clock.
    group of units coloured, a card's tick, a phrase highlighted, a timeline's event. A part not said comes on in its
    turn after the template is in. Each lands on its words: it starts early by as much of its run as it takes to
    arrive (`motion.land_lead`: 0.12 s and a third of its run, 0.2 to 0.45 s), not by a fixed lead, so a long entrance
-   is not still coming on after its word.
+   is not still coming on after its word. A part never comes on before its template: one whose words the line says
+   before the template's own is held until the template has begun (its start plus half its run, 0.6 s at most), so
+   the last picture has left and the new one is coming in when it lands.
 4. **Pointing.** A part of a template on screen whose name a later line says is pointed at the look's way (a
    column pulses and its value grows, a card lifts). On a large template (over half the stage), the first part a
    line names is **pushed in on** instead, as a camera would: the template scaled 1.12 about the part and drawn a
    third of the way to the middle (the part kept whole on the screen), held, and eased back before the line ends
    (`MotionLecture._push_on`; moves the players apply). `emphasis` points on purpose (§3).
-5. **Match cuts.** When the next picture shows a word or a figure the one leaving shows too, in a like size (a
+5. **Match cuts.** When the next picture shows a word or a figure (three words at most, on one line: never a
+   question or a sentence) the one leaving shows too, in a like size (a
    counter's "60%" in the next card, a term defined and then a headline), a copy of it flies to its place in the new
    picture, taking its size, and dissolves into it as the new picture's own word comes on (`_carry_from`,
    `_carry_into`; two at most a change).
@@ -258,7 +261,7 @@ A rubber stamp (double-ruled box, capitals, turned by `angle` degrees, default -
 earlier stamp still up is lifted off as it lands, and a stamp alone on the board is replaced, never stamped over), onto the picture on the stage
 (`at`: center, top, bottom, left, right) and the picture shakes; with nothing up, on the board. At `center` on a
 template of words (a timeline, cards), it lands on its lower edge, or its upper, where the stage has room, not over
-the words; a picture takes it in its middle. Put over what is up:
+the words nor over a stamp the template has of its own (a `myth`'s label); a picture takes it in its middle. Put over what is up:
 it plays after the beat's pictures.
 
 ### `kpi`: data cards
@@ -291,9 +294,12 @@ said. Each point is a part. `layout`: `column`, `grid`, `pills`, `steps`.
  "left": {"title": "Himalayan", "points": ["Snow-fed", "Flow all year"]},
  "right": {"title": "Peninsular", "points": ["Rain-fed"], "value": "40%", "picture": {"generate": "a dry river bed"}}}
 ```
-Two cards sweep in from the two edges, a VS badge slams between them. Each side (`left`, `right`, a title alone or
-an object): `title`, `points` (up to 4),
-`value` (a big figure), `picture`. Each side is a part. `layout`: `cards`, `split`, `stack`.
+The left card sweeps in from its edge, its points sliding in one after another (on its own `on`, under a title, when
+it has one); the right card waits for its own
+words (its `on`, else its title said), then sweeps in from the other edge, the VS badge slams down between them and
+its points slide in. Each side (`left`, `right`, a title alone or an object): `title`, `points` (up to 4, a point
+plain words or `{text, on}` to come on as said), `value` (a big figure), `picture`, `on`. Each side is a part.
+`layout`: `cards`, `split`, `stack`.
 
 ### `donut`: a part of a whole
 ```json
@@ -473,7 +479,8 @@ The question set large beside a question mark (its `kicker` typed over it); when
 else its first three words) the answer is typed in under it with a tick and the question steps back. Without an
 `answer`, `on` is when the question comes on. Set the question at a chapter's start, and ask it again with its answer
 where the lecture answers it: given the same `id` while that question is still up, the answer comes in under it
-(room made for it) instead of the question coming on a second time. A part still to come on (an answer) that is up
+(room made for it) instead of the question coming on a second time; an `ask` with an `answer` and no `id` answers
+the question up with the same words the same way. A part still to come on (an answer) that is up
 when the next picture replaces its template in the same line leaves with it.
 
 ---
@@ -746,7 +753,11 @@ Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
 | chapter card, title slide | The number springs in, the kicker is typed, the title's words rise, the accent bar is drawn; the card sweeps up and away. |
 
 Diagrams, maps, worked solutions, questions and free-form Manim are drawn as the current engine draws them, in the
-look's colours and fonts, with the look's entrances and transitions where they bring none of their own.
+look's colours and fonts, with the look's entrances and transitions where they bring none of their own. A map's
+`arrow` through three places or more draws each leg as its own gentle arc, joined (never one curve smoothed through
+them all, which swung past the middle place and hooked back); one that turns back on itself (more than 110° at a
+stop: France, then England, then Italy) is a spread, not a journey, and is drawn as an arrow from the first place to
+each of the others in turn, the label on the first (`MotionLecture.flow`).
 
 ---
 

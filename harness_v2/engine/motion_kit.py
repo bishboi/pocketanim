@@ -248,6 +248,7 @@ def stamp(text: str, color: str | None = None, angle: float = -12, size: float =
     words.move_to(inner)
     group = pl._flat(VGroup(outer, inner, words))
     group.rotate(angle * math.pi / 180)
+    group.panim_stamp = True  # another stamp keeps off it (MotionLecture._stamp_clear)
     return group
 
 

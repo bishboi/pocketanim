@@ -34,6 +34,16 @@ export function detachedForAbort(): boolean {
   return !!scope.getStore();
 }
 
+/** Kill `child` and everything it started (its process group when it has one). */
+export function killTree(child: ChildProcess): void {
+  try {
+    if (child.pid && detachedForAbort()) process.kill(-child.pid, "SIGKILL");
+    else child.kill("SIGKILL");
+  } catch {
+    child.kill("SIGKILL");
+  }
+}
+
 /** Kill `child` and everything it started when the job is stopped; returns the function that stops watching. */
 export function killOnAbort(child: ChildProcess, onKill?: () => void): () => void {
   const s = scope.getStore();

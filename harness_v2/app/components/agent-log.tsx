@@ -371,6 +371,7 @@ function Conversation({ run, n, c, agent, onCall }: { run: Run; n: number; c: nu
         );
         if (e.kind === "end") return <li key={i} className="text-neutral-400">{time} · ended: <span className={e.status === "done" ? "text-emerald-300" : "text-red-300"}>{String(e.status)}</span>{e.error ? ` · ${String(e.error)}` : ""} · {String(e.turns)} turns · {money(Number(e.cost ?? 0))}</li>;
         if (e.kind === "error") return <li key={i} className="text-red-300">turn {String(e.turn)}: {String(e.text)}</li>;
+        if (e.kind === "ahead") return <li key={i} className="text-neutral-500">{time} · after turn {String(e.turn)}: a whole draft rendered and checked on the phone in the background</li>;
         return null;
       })}
     </ol>

@@ -57,14 +57,16 @@ export function toInput(messages: ChatMsg[]): { instructions: string; input: unk
 
 /** One turn on OpenAI's Responses API, streamed. */
 export async function respond(o: { model: string; messages: ChatMsg[]; tools: ChatTool[]; effort?: string; maxTokens: number; timeoutMs: number;
-  onLive: (live: Live) => void }): Promise<Answer> {
+  onLive: (live: Live) => void;
+  /** The same for every turn of one conversation: its requests go to the same prompt cache. */
+  cacheKey?: string }): Promise<Answer> {
   const { instructions, input } = toInput(o.messages);
   // Off is asked for as "none": with no reasoning setting at all, a reasoning model thinks at its own default level.
   let reasoning: { effort: string; summary?: string } = !o.effort || o.effort === "off" ? { effort: "none" } : { effort: o.effort, summary: "auto" };
   const body = (withSummary: boolean) => JSON.stringify({
     model: o.model.replace(/^openai\//, ""), instructions, input, stream: true, store: false, max_output_tokens: o.maxTokens,
     tools: o.tools.map((t) => ({ type: "function", name: t.function.name, description: t.function.description, parameters: t.function.parameters })),
-    tool_choice: "required", parallel_tool_calls: true,
+    tool_choice: "required", parallel_tool_calls: true, ...(o.cacheKey ? { prompt_cache_key: o.cacheKey } : {}),
     reasoning: withSummary ? reasoning : { effort: reasoning.effort }, include: ["reasoning.encrypted_content"],
   });
   let response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),

@@ -20,7 +20,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { appendFile, copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import sharp from "sharp";
 import { callImage } from "./images";
@@ -28,7 +28,7 @@ import { usingFixture } from "./llm";
 import { respond, useOpenAI } from "./openai-responses";
 import { engineDir } from "./maps";
 import { pythonPath, runPython } from "./manim";
-import { detachedForAbort, killOnAbort, stopped, timeoutOrAbort } from "./abort";
+import { detachedForAbort, killOnAbort, killTree, stopped, timeoutOrAbort } from "./abort";
 import { part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
 import { fileUrl, scenesDir } from "./scenes";
@@ -46,6 +46,8 @@ const MAX_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_MAX_TOKENS) 
 const COMPACT_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_COMPACT_TOKENS) || 150000);
 /** Reasoning chosen turn by turn: the level set for thinking turns, low for the mechanical ones (V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off: always the level set). */
 const ADAPTIVE = (process.env.V2_VIDEO_AGENT_ADAPTIVE_EFFORT ?? "on").toLowerCase() !== "off";
+/** A whole draft render and phone check made in the background while the model thinks (V2_VIDEO_AGENT_AHEAD=off: none). */
+const AHEAD = (process.env.V2_VIDEO_AGENT_AHEAD ?? "on").toLowerCase() !== "off";
 /** Frames shown to the model are this wide (enough to judge a layout, a third of the tokens of a full frame). */
 /** Tools whose success needs no fresh thinking after it. */
 const EASY = new Set(["read_file", "list_files"]);
@@ -69,8 +71,10 @@ const TOOLS = [
   fn("list_files", "List the files of your workspace (or of a folder in it), with sizes.", { path: { type: "string" } }),
   ...(SHELL ? [fn("shell", "Run a shell command in your workspace (bash; `python` is the Python that has Manim, numpy, shapely, cartopy, PIL). For what files cannot do: list fonts (fc-list), test a snippet, compute geometry, read map data. Long output keeps its first and last 4000 characters (the middle is cut): read files with read_file, not cat.", {
     command: { type: "string" }, timeout: { type: "integer", description: "Seconds, at most 600 (default 120)." } }, ["command"])] : []),
-  fn("render", `Render ${SCENE_FILE} (class ${SCENE_CLASS}) with Manim at 30 fps: draft 854x480 (fast, for looking), final 1280x720. You are shown a sheet of about 12 frames of it at once (stamped with their times). from/to render only that stretch of the chapter (seconds on its clock; the plays before it run undrawn), much faster while you work on one moment. check: true also runs phone_check after a whole render, in the same turn.`, {
-    quality: { type: "string", enum: ["draft", "final"] }, from: { type: "number" }, to: { type: "number" }, check: { type: "boolean" } }),
+  fn("render", `Render ${SCENE_FILE} (class ${SCENE_CLASS}) with Manim at 30 fps: draft 854x480 (fast, for looking), final 1280x720. You are shown a sheet of about 12 frames of it at once (stamped with their times); look: [times] also shows you frames at those times, in the same turn. from/to render only that stretch of the chapter (seconds on its clock; the plays before it run undrawn), much faster while you work on one moment. A whole render also runs phone_check (check: false skips it). A whole draft of your latest files is often already rendered and checked in the background by the time you ask.`, {
+    quality: { type: "string", enum: ["draft", "final"] }, from: { type: "number" }, to: { type: "number" },
+    check: { type: "boolean", description: "Whole renders only; default true." },
+    look: { type: "array", items: { type: "number" }, description: "Times (seconds on the chapter's clock, up to 8) to see closer, as look does." } }),
   fn("look", "See the last render closer: frames at the times you give (seconds on the chapter's clock; up to 8), or a sheet of frames every N seconds. You are shown them once; look again if you need them later.", {
     times: { type: "array", items: { type: "number" } }, sheet_every: { type: "number", description: "Seconds between the sheet's frames." },
     detail: { type: "string", enum: ["high", "low"], description: "low: a cheap glance (layout only); high (default): to read text and details." } }),
@@ -159,18 +163,20 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "   moments that matter (where things land on words, where text could overlap or leave the frame). Fix what you see.",
     "   Look before you believe: a frame shows overlaps, cut-off text, unreadable sizes and empty screens that code hides.",
     "3. The frame is x -7.1..7.1, y -4..4 (16:9). Keep everything inside with a margin; text at least font_size 24.",
-    "   Fonts: use what is installed (shell: fc-list); the narration may be in Hindi or Hinglish: Devanagari needs a font",
-    "   that has it (Noto Sans Devanagari, Hind). Subtitles are your choice.",
+    "   Fonts: use what is installed (listed in the first message); the narration may be in Hindi or Hinglish:",
+    "   Devanagari needs a font that has it (Noto Sans Devanagari, Hind). Subtitles are your choice.",
     "   Work on one moment at a time with render(from=..., to=...): a section renders in seconds. Every render shows you a",
-    "   sheet of its frames; use look for a closer view. Pictures are shown to you once, in the turn after they are made.",
+    "   sheet of its frames; give it look: [times] for a closer view in the same turn. Pictures are shown to you once, in",
+    "   the turn after they are made.",
     "   A long build is condensed into a summary now and then; your files stay as they are, so read them when you need.",
     "4. A render also says what it measured (the animations used, long still or empty stretches, words off the frame",
     "   or on top of words): information for you, not rules.",
-    "5. When it is right, render final, run phone_check, then look at it as a viewer would: list in finish what is still",
-    "   wrong (open_issues). If anything is, fix it first: a passing phone check is not the bar, the video is. If the",
-    "   phone differs, find why and change the scene.",
+    "5. When it is right, render final (a whole render runs the phone check too), then look at it as a viewer would:",
+    "   list in finish what is still wrong (open_issues). If anything is, fix it first: a passing phone check is not the",
+    "   bar, the video is. If the phone differs, find why and change the scene.",
     `You have at most ${turns} turns: plan, then build steadily; do not stop at a first draft that you have not looked at.`,
-    "Every tool call is a turn. Say briefly what you are doing and why as you go.",
+    "Every reply is a turn, and a turn may hold several tool calls: they run in order, so edits and then a render go in",
+    "one turn. Say briefly what you are doing and why as you go.",
   ].join("\n");
 }
 
@@ -201,13 +207,51 @@ type Live = { text: string; reasoning: string; tools: string[] };
 type Answer = { text?: string; reasoning?: string; calls: ToolCall[]; output?: unknown[] };
 
 /**
+ * OpenRouter sends a model's requests to whichever provider is free, and each provider has its own prompt cache: a
+ * turn sent elsewhere pays for the whole conversation again. These pin a build to one (V2_VIDEO_AGENT_PROVIDER: a
+ * comma list of OpenRouter provider names; by default the model's own maker, for OpenAI's and Anthropic's models).
+ */
+function providerPin(model: string): Record<string, unknown> {
+  const set = (process.env.V2_VIDEO_AGENT_PROVIDER ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const own = model.startsWith("openai/") ? ["openai"] : model.startsWith("anthropic/") ? ["anthropic"] : [];
+  const order = set.length ? set : own;
+  return order.length ? { provider: { order, allow_fallbacks: true } } : {};
+}
+
+/** A request refused for something the next attempt changes (a setting the model does not take): always tried again. */
+class Retry extends Error {}
+
+/** Models that refused cache marks: sent without them from then on. */
+const NO_MARKS = new Set<string>();
+
+/**
+ * Anthropic's models cache only up to marks put in the request: one on the instructions and one on the latest message,
+ * so each turn reads the conversation so far from the cache and writes the rest. Other models cache by themselves.
+ */
+function cacheMarks(model: string, messages: Record<string, unknown>[]): Record<string, unknown>[] {
+  if (!model.startsWith("anthropic/") || NO_MARKS.has(model)) return messages;
+  const mark = (m: Record<string, unknown>) => {
+    const parts = typeof m.content === "string" ? (m.content ? [{ type: "text", text: m.content }] : [])
+      : Array.isArray(m.content) ? [...(m.content as Record<string, unknown>[])] : [];
+    const at = parts.map((p) => p.type).lastIndexOf("text");
+    if (at < 0) return m;
+    parts[at] = { ...parts[at], cache_control: { type: "ephemeral" } };
+    return { ...m, content: parts };
+  };
+  const last = messages.length - 1;
+  return messages.map((m, i) => (i === 0 && m.role === "system") || (i === last && m.role !== "assistant") ? mark(m) : m);
+}
+
+/**
  * One turn of the model: the conversation, the tools; what it said, its reasoning, and the tools it called. Streamed,
  * so the page sees the turn as it is written (`onLive`, called as the words, the reasoning and the tool calls come).
  */
-async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void): Promise<Answer | null> {
+async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live: Live) => void, cacheKey: string): Promise<Answer | null> {
   // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
   call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
-  const body: Record<string, unknown> = { model: call.model, messages: messages.map(({ _openai, ...m }) => (void _openai, m)), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
+  const plain = messages.map(({ _openai, ...m }) => (void _openai, m as Record<string, unknown>));
+  const body: Record<string, unknown> = { model: call.model, messages: cacheMarks(call.model, plain), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
+    ...providerPin(call.model),
     // Off is asked for: with no reasoning setting, a reasoning model thinks at its own default level.
     // ("default": a model whose reasoning cannot be turned off, at its own level).
     ...(call.effort === "default" ? {} : { reasoning: call.effort && call.effort !== "off" ? { effort: call.effort } : { enabled: false } }) };
@@ -218,7 +262,7 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
     try {
       let out: Answer;
       if (call.provider === "openai") {
-        const r = await respond({ model: call.model, messages, tools: TOOLS as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive });
+        const r = await respond({ model: call.model, messages, tools: TOOLS as never, effort: call.effort, maxTokens: MAX_TOKENS, timeoutMs: TIMEOUT_MS, onLive, cacheKey });
         call.usage = r.usage;
         if (r.effort) call.effort = r.effort;
         out = { text: r.text, reasoning: r.reasoning, calls: r.calls, output: r.output };
@@ -242,16 +286,22 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         if (!response.ok || !response.body) {
           const said = await response.text();
           // A reasoning level this model does not take: the rest of the build at high.
+          // Cache marks refused (a provider without them): the same turn without, and the build from then on.
+          if (response.status === 400 && /cache_control/i.test(said) && !NO_MARKS.has(call.model)) {
+            NO_MARKS.add(call.model);
+            body.messages = plain;
+            throw new Retry(`cache marks not taken, asking again without: ${said.slice(0, 200)}`);
+          }
           // A model whose reasoning cannot be turned off: asked again with no setting (its own default level).
           if (response.status === 400 && /reason/i.test(said) && (body.reasoning as { enabled?: boolean } | undefined)?.enabled === false) {
             delete body.reasoning;
             call.effort = "default";
-            throw new Error(`reasoning cannot be turned off for this model, asking again at its default: ${said.slice(0, 200)}`);
+            throw new Retry(`reasoning cannot be turned off for this model, asking again at its default: ${said.slice(0, 200)}`);
           }
           if (response.status === 400 && /effort/i.test(said) && call.effort && call.effort !== "high" && call.effort !== "off") {
             call.effort = "high";
             body.reasoning = { effort: "high" };
-            throw new Error(`reasoning level not taken by this model, asking again at high: ${said.slice(0, 200)}`);
+            throw new Retry(`reasoning level not taken by this model, asking again at high: ${said.slice(0, 200)}`);
           }
           throw new Error(`${response.status} ${said.slice(0, 300)}`);
         }
@@ -319,7 +369,7 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
       return out;
     } catch (error) {
       call.attempts.push({ started: began, ended: Date.now(), error: stopped() ? "stopped" : (error as Error).message.slice(0, 400) });
-      if (stopped() || /\b(400|401|403|404)\b/.test((error as Error).message)) break;
+      if (stopped() || (!(error instanceof Retry) && /\b(400|401|403|404)\b/.test((error as Error).message))) break;
     }
   }
   call.status = "failed";
@@ -402,8 +452,9 @@ function sh(command: string, cwd: string, timeout: number): Promise<{ code: numb
   });
 }
 
-async function tool(kind: string, args: string[], ws: string, timeout = 1_800_000): Promise<Record<string, unknown>> {
-  const out = await runPython([path.join(engineDir(), "tools", "agent_tools.py"), kind, ...args], ws, {}, undefined, timeout);
+async function tool(kind: string, args: string[], ws: string, o: { env?: Record<string, string>; onChild?: (child: ChildProcess) => void } = {}):
+  Promise<Record<string, unknown>> {
+  const out = await runPython([path.join(engineDir(), "tools", "agent_tools.py"), kind, ...args], ws, o.env ?? {}, undefined, 1_800_000, o.onChild);
   try {
     return JSON.parse(out.stdout.trim().split("\n").pop() ?? "");
   } catch {
@@ -412,6 +463,41 @@ async function tool(kind: string, args: string[], ws: string, timeout = 1_800_00
 }
 
 const hashOf = async (file: string) => createHash("sha1").update(await readFile(file).catch(() => Buffer.alloc(0))).digest("hex");
+
+/** What is installed (fonts, Python, map data), looked up once a server: told in the first message, not found by turns. */
+let factsOnce: Promise<string> | undefined;
+function environmentFacts(ws: string): Promise<string> {
+  factsOnce ??= tool("facts", [], ws).then((f) => {
+    if (!f.ok) return "";
+    const ne = f.natural_earth as { dir: string; files: string[] } | undefined;
+    return [
+      "What is installed (no need to look it up):",
+      `- Python with Manim Community ${f.manim ?? ""}, numpy, shapely, cartopy, PIL; the kit is importable (from kit import *).`,
+      ne?.files.length ? `- Natural Earth map data, offline, in ${ne.dir}: ${ne.files.join(", ")} (the kit's Map reads it for you).` : "",
+      `- Fonts (fc-list families): ${(f.fonts as string[]).join(", ")}.`,
+    ].filter(Boolean).join("\n");
+  }).catch(() => "");
+  return factsOnce;
+}
+
+/** The workspace as a render sees it: its Python files and its assets (not notes, renders or references). */
+async function workspaceKey(ws: string): Promise<string> {
+  const h = createHash("sha1");
+  const entries = await readdir(ws, { withFileTypes: true, recursive: true }).catch(() => []);
+  const rows: string[] = [];
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    const rel = path.relative(ws, path.join(e.parentPath ?? ws, e.name));
+    if (/^(renders|export|media|history|reference|library|\.kit_preview)\b/.test(rel) || rel.includes("__pycache__")) continue;
+    if (rel.endsWith(".py")) rows.push(`${rel}:${await hashOf(path.join(ws, rel))}`);
+    else if (rel.startsWith("assets")) {
+      const st = await stat(path.join(ws, rel)).catch(() => undefined);
+      rows.push(`${rel}:${st?.size}:${st?.mtimeMs}`);
+    }
+  }
+  for (const r of rows.sort()) h.update(r + "\n");
+  return h.digest("hex");
+}
 
 /** White round a cutout made clear. */
 async function clearWhite(bytes: Buffer): Promise<Buffer> {
@@ -519,6 +605,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     `Lesson: ${run.lectures.find((l) => l.n === n)?.title ?? ""}; book: ${run.documentName}.`,
     existing ? `Your workspace already has a ${SCENE_FILE} from an earlier build: read it, and improve it rather than starting over unless it is wrong.` : "",
     o.note ? `A note from the person you build for: ${o.note}` : "",
+    await environmentFacts(ws),
     "",
     narrationText(timing),
   ].filter((x) => x !== "").join("\n");
@@ -531,8 +618,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   await log({ kind: "system", text: system });
   await log({ kind: "user", text: ask, images: styleData ? [path.basename(styleFile)] : [] });
   const fake = scriptedAgent(timing);
+  // One prompt cache for the chapter's whole build.
+  const cacheKey = createHash("sha1").update(`video-agent:${run.id}:${n}:${c}`).digest("hex").slice(0, 32);
   let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit; offset?: number; section?: boolean } = {};
-  let lastCheck: { ok: boolean; hash?: string; result?: Record<string, unknown> } = { ok: false };
+  let lastCheck: { ok: boolean; hash?: string; key?: string; result?: Record<string, unknown> } = { ok: false };
   let images = 0;
   let firstPrompt = true;
 
@@ -595,16 +684,58 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     await log({ kind: "compact", turn: k, text: summary });
   };
 
+  /**
+   * Work done ahead, while the model thinks: once a turn has changed what a render sees, the whole chapter is rendered
+   * (draft) and checked on the phone in the background, so the render and the phone check asked for next are often
+   * ready. Only while the agent works on the whole chapter (its last render a whole draft, or none yet); keyed by the
+   * workspace's state; anything else run first stops it.
+   */
+  type Ahead = { key: string; hash: string; name: string; render?: Promise<Record<string, unknown>>; check?: Promise<Record<string, unknown> | undefined>;
+    children: Set<ChildProcess>; stopped: boolean; adopted: boolean };
+  let ahead: Ahead | undefined;
+  let renderedKey = "";
+  let askedWhole = true;
+  const stopAhead = async () => {
+    const a = ahead;
+    ahead = undefined;
+    if (!a) return;
+    a.stopped = true;
+    for (const ch of a.children) killTree(ch);
+    await Promise.allSettled([a.render, a.check]);
+  };
+  const startAhead = async () => {
+    if (!AHEAD || !askedWhole || !existsSync(path.join(ws, SCENE_FILE))) return;
+    const key = await workspaceKey(ws);
+    if (key === renderedKey || ahead?.key === key) return;
+    await stopAhead();
+    // Never over the render in use: the look tool reads it.
+    const name = lastRender.video && path.basename(lastRender.video) === "ahead-a.mp4" ? "ahead-b" : "ahead-a";
+    const a: Ahead = { key, hash: await hashOf(path.join(ws, SCENE_FILE)), name, children: new Set(), stopped: false, adopted: false };
+    const onChild = (ch: ChildProcess) => a.children.add(ch);
+    a.render = tool("render", [ws, SCENE_FILE, SCENE_CLASS, "draft"], ws, { env: { PANIM_RENDER_NAME: name }, onChild });
+    a.check = a.render.then((r) => (r.ok && !a.stopped && !r.section
+      ? tool("phone", [ws, SCENE_FILE, SCENE_CLASS, path.join(ws, "export"), String(r.video), "12"], ws, { onChild }) : undefined));
+    ahead = a;
+    await log({ kind: "ahead", turn: currentTurn, name });
+  };
+
   /** The scene played as the phone plays it, compared with the last whole render. */
   const phoneCheck = async (samples: number): Promise<{ ok: boolean; text: string }> => {
         const hash = await hashOf(path.join(ws, SCENE_FILE));
         if (!lastRender.video || lastRender.hash !== hash) return { ok: false, text: "render the scene as it is now first: the check compares the phone with the last render" };
         if (lastRender.section) return { ok: false, text: "render the whole chapter first (no from/to): the check compares the whole program with the whole render" };
-        const r = await tool("phone", [ws, SCENE_FILE, SCENE_CLASS, path.join(ws, "export"), lastRender.video, String(samples)], ws);
+        const key = await workspaceKey(ws);
+        // The check made ahead, on the render made ahead that is in use, when nothing has changed since.
+        let r = ahead?.adopted && ahead.key === key && samples === 12 ? await ahead.check : undefined;
+        if (r) ahead = undefined;
+        else {
+          await stopAhead();
+          r = await tool("phone", [ws, SCENE_FILE, SCENE_CLASS, path.join(ws, "export"), lastRender.video, String(samples)], ws);
+        }
         if (r.ok === false && r.error) return { ok: false, text: `the export failed:\n${r.error}` };
         const check = r.check as { ok: boolean | null; frames: number; differ: { t: number; mean: number; differ: number }[] };
         const ok = !!r.ok;
-        lastCheck = { ok, hash, result: r };
+        lastCheck = { ok, hash, key, result: r };
         const worst = r.worst as { t: number; phone: string; manim: string } | undefined;
         if (!ok && worst?.phone && worst.manim) {
           const pair = path.join(ws, "export", "worst.png");
@@ -672,7 +803,16 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         const from = Math.max(0, Number(args.from) || 0);
         const to = Math.max(0, Number(args.to) || 0);
         const section = from > 0 || (to > 0 && to < timing.seconds);
-        const r = await tool("render", [ws, SCENE_FILE, SCENE_CLASS, quality, ...(section ? [String(from), String(to)] : [])], ws);
+        askedWhole = !section && quality === "draft";
+        const key = await workspaceKey(ws);
+        // The render made ahead when it is this one (a whole draft of the workspace as it is).
+        let r = askedWhole && ahead?.key === key && ahead.render ? await ahead.render : undefined;
+        if (r && ahead) ahead.adopted = true;
+        else {
+          await stopAhead();
+          r = await tool("render", [ws, SCENE_FILE, SCENE_CLASS, quality, ...(section ? [String(from), String(to)] : [])], ws);
+        }
+        renderedKey = key;
         if (!r.ok) return { ok: false, text: `the render failed:\n${r.error}` };
         const audit = (r.audit ?? undefined) as Audit | undefined;
         const offset = Number(r.offset) || 0;
@@ -687,7 +827,12 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
             auditText(audit);
         text += r.warnings ? `\nwarnings:\n${r.warnings}` : "";
         const images = r.sheet ? [fileUrl(run.id, String(r.sheet))] : [];
-        if (args.check && !section) {
+        if (Array.isArray(args.look) && args.look.length) {
+          const seen = await run1("look", { times: args.look });
+          text += `\n${seen.text}`;
+          images.push(...(seen.images ?? []));
+        }
+        if (args.check !== false && !section) {
           const checked = await phoneCheck(12);
           return { ok: checked.ok, video: fileUrl(run.id, String(r.video)), seconds: Number(r.seconds), images, text: `${text}\n\nphone_check:\n${checked.text}` };
         }
@@ -757,7 +902,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       }
       case "finish": {
         const hash = await hashOf(path.join(ws, SCENE_FILE));
-        if (!lastCheck.ok || lastCheck.hash !== hash) return { ok: false, text: "not yet: render the scene as it is now and run phone_check; finish when it passes" };
+        if (!lastCheck.ok || lastCheck.hash !== hash || lastCheck.key !== await workspaceKey(ws)) {
+          return { ok: false, text: "not yet: render the scene as it is now (your files changed since the last check) and run phone_check; finish when it passes" };
+        }
+        await stopAhead();
         const issues = (Array.isArray(args.open_issues) ? args.open_issues : []).map(String).filter((x) => x.trim());
         const left = settings.turns - currentTurn;
         if (issues.length && left >= 3) {
@@ -802,7 +950,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       const answer = await turn(call, request(), fake, (live) => {
         agent.live = { turn: k, started: asked, text: live.text.slice(-6000), reasoning: live.reasoning.slice(-6000), tools: live.tools };
         saveRun(run);
-      });
+      }, cacheKey);
       agent.live = undefined;
       agent.cost += call.cost;
       agent.provider = call.provider;
@@ -863,6 +1011,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         if (r.done) finished = true;
       }
       attachShown();
+      if (!finished && !o.stop?.()) await startAhead().catch(() => {});
       if (o.stop?.()) {
         agent.status = "stopped";
         break;
@@ -884,6 +1033,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     agent.status = o.stop?.() ? "stopped" : "failed";
     if (agent.status === "failed") agent.error = (error as Error).message.slice(0, 1200);
   } finally {
+    await stopAhead().catch(() => {});
     if (agent.status === "running") agent.status = o.stop?.() ? "stopped" : "failed";
     agent.live = undefined;
     agent.ended = Date.now();

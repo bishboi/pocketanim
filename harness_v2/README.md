@@ -55,14 +55,25 @@ thread of thought through the whole build, and summaries of it stream to the pag
 provider. Any other model, or no key, goes through OpenRouter as before.
 
 **Cost and speed.** The conversation is only ever added to, never edited, so the provider's prompt cache keeps
-everything before the last turn. Pictures are sent once: a turn's pictures ride on one message with the next request
+everything before the last turn. Every turn of a build goes to the same cache: on OpenAI's API one `prompt_cache_key`
+for the chapter; on OpenRouter the build is pinned to one provider (each provider has its own cache, and a turn sent to
+another pays for the whole conversation again): `V2_VIDEO_AGENT_PROVIDER`, a comma list of OpenRouter provider names,
+by default the model's maker for OpenAI's and Anthropic's models; Anthropic's models get cache marks (on the
+instructions and the latest message), which they need to cache at all. The first message says what is installed (the
+fonts, the Python, the Natural Earth files, from `agent_tools.py facts`), so no turns go on looking. Pictures are sent once: a turn's pictures ride on one message with the next request
 and are a one-line note in every request after (it looks again if it needs to); frames are 640 px wide
 (`V2_VIDEO_AGENT_FRAME_WIDTH`), and `look` takes `detail: "low"` for a cheap glance. Once a request passes
 `V2_VIDEO_AGENT_COMPACT_TOKENS` (150,000; with the cache a long build is still cheap, and condensing early costs turns of
 re-reading) the conversation is condensed, with no model call, to the instructions, the
 chapter and a summary of what was done (every tool call and its outcome, what it last said, its files, the last render
-and phone check); its files are as they were. Every **render** shows its sheet of frames, `render` with `check: true`
-also runs the phone check, and `render` with `from`/`to` (seconds) draws only that stretch (the plays before it run
+and phone check); its files are as they were. Every **render** shows its sheet of frames (and, with `look: [times]`,
+frames at those times in the same turn); a whole render also runs the phone check (`check: false` skips it). **Work
+ahead**: once a turn has changed what a render sees (its Python files, its assets), a whole draft is rendered
+(`renders/ahead-a.mp4` or `-b`, never over the render in use) and checked on the phone in the background while the model
+thinks, so the render and check it asks for next are often ready; only while it works on the whole chapter (its last
+render a whole draft, or none yet), stopped by anything else run first (`V2_VIDEO_AGENT_AHEAD=off`: none). `finish`
+needs the workspace unchanged since the passing check. The agent is told a turn may hold several tool calls (run in
+order: edits, then a render). `render` with `from`/`to` (seconds) draws only that stretch (the plays before it run
 without drawing a frame; `NarratedScene` stops after it), for a quick look at one part; the phone check needs a whole
 render. The reasoning level is chosen turn by turn: the level set, but low after a turn that only read or listed files
 (a turn after writing or editing often writes the next big piece, so it thinks at the level set;

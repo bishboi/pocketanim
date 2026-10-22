@@ -9,7 +9,7 @@
  */
 
 import { detachedForAbort, killOnAbort } from "./abort";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -69,10 +69,11 @@ export function pythonPath(): string {
   return "python3";
 }
 
-export function runPython(args: string[], cwd: string, env: Record<string, string> = {}, input?: string, timeout = TIMEOUT_MS):
-  Promise<{ code: number | null; out: string; stdout: string }> {
+export function runPython(args: string[], cwd: string, env: Record<string, string> = {}, input?: string, timeout = TIMEOUT_MS,
+  onChild?: (child: ChildProcess) => void): Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
     const child = spawn(pythonPath(), args, { cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", ...env }, detached: detachedForAbort() });
+    onChild?.(child);
     let stdout = "";
     child.stdout.on("data", (d) => (stdout += d));
     if (input !== undefined) child.stdin.end(input);

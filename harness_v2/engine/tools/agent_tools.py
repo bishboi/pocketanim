@@ -67,7 +67,9 @@ def _seconds(video: Path) -> float:
 
 def render(workspace: Path, file: str, scene: str, quality: str, start: float = 0.0, end: float = 0.0) -> dict:
     size = "1280,720" if quality == "final" else "854,480"
-    media = workspace / "renders" / quality
+    # PANIM_RENDER_NAME: where it goes (renders/<name>.mp4), so a render made ahead does not overwrite the one in use.
+    name = os.environ.get("PANIM_RENDER_NAME") or quality
+    media = workspace / "renders" / name
     shutil.rmtree(media, ignore_errors=True)
     audit = workspace / "audit.json"
     audit.unlink(missing_ok=True)
@@ -86,7 +88,7 @@ def render(workspace: Path, file: str, scene: str, quality: str, start: float = 
     if proc.returncode != 0 or not videos:
         return {"ok": False, "error": _tail(proc.stderr + proc.stdout) or "the render made no video"}
     section = bool(start or end)
-    video = workspace / "renders" / (f"{quality}-section.mp4" if section else f"{quality}.mp4")
+    video = workspace / "renders" / (f"{name}-section.mp4" if section else f"{name}.mp4")
     shutil.copyfile(videos[0], video)
     measured = json.loads(audit.read_text()) if audit.is_file() and not section else None
     # Where the video starts on the chapter's clock (a section render starts at its window).
@@ -192,6 +194,38 @@ def phone(workspace: Path, file: str, scene: str, out_dir: Path, video: str, sam
     return summary
 
 
+def facts() -> dict:
+    """What the agent would otherwise spend turns looking up: the fonts (the long tail of Noto scripts left out), the
+    Python it has and the map data that is there offline."""
+    import glob
+    import re
+
+    families = set()
+    listed = subprocess.run(["fc-list", ":", "family"], capture_output=True, text=True).stdout.splitlines()
+    for line in listed:
+        f = line.split(",")[0].strip()
+        if not f:
+            continue
+        if f.startswith("Noto ") and not re.search(r"Devanagari|CJK|Emoji|^Noto (Sans|Serif|Mono)$", f):
+            continue
+        if f.startswith("Latin Modern") and f not in ("Latin Modern Roman", "Latin Modern Sans", "Latin Modern Mono"):
+            continue
+        families.add(f)
+    out = {"ok": True, "fonts": sorted(families)}
+    try:
+        import manim
+        out["manim"] = manim.__version__
+    except ImportError:
+        pass
+    try:
+        import cartopy
+        data = str(cartopy.config["data_dir"])
+        out["natural_earth"] = {"dir": data, "files": sorted({Path(p).stem for p in glob.glob(data + "/**/*.shp", recursive=True)})}
+    except Exception:  # noqa: BLE001 -- no map data is a fact too
+        pass
+    return out
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -207,6 +241,8 @@ def main() -> int:
         elif kind == "sheet":
             result = sheet(Path(args[0]), Path(args[1]), float(args[2]) if len(args) > 2 else None,
                            float(args[3]) if len(args) > 3 else 0.0)
+        elif kind == "facts":
+            result = facts()
         elif kind == "phone":
             result = phone(Path(args[0]).resolve(), args[1], args[2], Path(args[3]).resolve(), args[4],
                            int(args[5]) if len(args) > 5 else 12)

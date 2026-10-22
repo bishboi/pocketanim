@@ -16,7 +16,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { engineDir } from "./maps";
 import { errorOf, runPython } from "./manim";
@@ -133,7 +133,11 @@ export type VideoAction =
   | { action: "build"; lecture: number; chapter: number; note?: string }
   | { action: "all"; lecture: number; note?: string }
   | { action: "stop"; lecture: number; chapter?: number }
-  | { action: "reset"; lecture: number; chapter: number };
+  | { action: "reset"; lecture: number; chapter: number }
+  | { action: "rebuild"; lecture: number; chapter: number; note?: string };
+
+/** What the narration step leaves in a chapter's workspace: kept when its video is reset and built again. */
+const NARRATION_FILES = new Set(["lines.json", "chapter.wav", "timing.json", "voice-progress.json"]);
 
 /** A screenshot of the look wanted, sent as a data URL: kept for the run. */
 async function saveStyle(runId: string, dataUrl: string): Promise<string> {
@@ -187,6 +191,17 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
   const key = `${id}|${a.lecture}|${a.action === "all" ? "all" : a.chapter}`;
   for (const c of chapters) if (busy.has(`${id}|${a.lecture}|${c}`)) throw new Error(`chapter ${c} is being built`);
   if (busy.has(`${id}|${a.lecture}|all`)) throw new Error("this lecture's chapters are being built");
+  if (a.action === "rebuild") {
+    // The video thrown away (the agent's files, renders, export, log and its result), the voice kept; then built anew.
+    const cv = chapterVideo(run, a.lecture, a.chapter);
+    delete cv.agent;
+    delete cv.build;
+    const ws = workspaceOf(id, a.lecture, a.chapter);
+    for (const name of await readdir(ws).catch(() => [] as string[])) {
+      if (!NARRATION_FILES.has(name)) await rm(path.join(ws, name), { recursive: true, force: true });
+    }
+    saveRun(run, true);
+  }
   const flag = { stop: false };
   busy.set(key, flag);
   void (async () => {

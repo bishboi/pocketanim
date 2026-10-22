@@ -192,7 +192,9 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
                     <button data-testid={`video-build-${c.n}`} className={`${btn} border-emerald-700 text-emerald-200`} disabled={busy(c.n)}
                       onClick={() => { setChapter(c.n); void act({ action: "build", lecture, chapter: c.n, note: note || undefined }); }}>{v?.build ? "Build again" : "Build"}</button>
                     {busy(c.n) && <button className={`${btn} border-amber-700 text-amber-200`} onClick={() => void act({ action: "stop", lecture, chapter: c.n })}>Stop</button>}
-                    {v && !busy(c.n) && <button className={`${btn} border-neutral-700 text-neutral-400`} onClick={() => void act({ action: "reset", lecture, chapter: c.n })}>Reset</button>}
+                    {(v?.agent || v?.build) && !busy(c.n) && <button className={`${btn} border-rose-800 text-rose-200`} title="Throw away this chapter's video and everything the agent wrote (the voice is kept), then build it from scratch"
+                      onClick={() => { if (!confirm(`Reset chapter ${c.n}'s video and build it again from scratch? The voice is kept.`)) return; setChapter(c.n); void act({ action: "rebuild", lecture, chapter: c.n, note: note || undefined }); }}>Reset and rebuild</button>}
+                    {v && !busy(c.n) && <button className={`${btn} border-neutral-700 text-neutral-400`} title="Throw away this chapter's video and its voice" onClick={() => void act({ action: "reset", lecture, chapter: c.n })}>Reset</button>}
                   </td>
                 </tr>
               );

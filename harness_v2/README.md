@@ -70,7 +70,10 @@ from `agent-log.jsonl` in its workspace: the instructions, the chapter, every re
 in full, every tool answer, every picture shown; a build starts a new log and keeps the one before). **Phone library (zip)** packs the chapter for the
 phone (`tools/build_library.py`: the program, its clips, pictures and glyphs, and the narration as Opus), opened by the
 phone's own code first when the player is built. **Speak and build every chapter** does a lecture's chapters in order;
-a note for the agent goes with a build. Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.
+a note for the agent goes with a build. **Build again** lets the agent improve the scene it wrote before; **Reset and
+rebuild** throws the chapter's video away (everything the agent wrote, its renders, export, log and result) and builds it
+from scratch, keeping the voice (`lines.json`, `chapter.wav`, `timing.json`); **Reset** throws away the voice too.
+Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.
 
 **The older engines are set aside**: the lecture engine's **Scenes**, **Voice** and **Lab** tabs (and the motion engine
 (beta) in them) are hidden until **Older engines…** is pressed, and work as before.

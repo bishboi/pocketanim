@@ -10,7 +10,7 @@ import { chapterLines, phoneLibrary, settingsOf, timingOf, videoAction, videoBus
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST {action: "settings" | "narrate" | "build" | "all" | "stop" | "reset", ...}: the video step (lib/video.ts). */
+/** POST {action: "settings" | "narrate" | "build" | "all" | "stop" | "reset" | "rebuild", ...}: the video step (lib/video.ts). */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const body = await request.json().catch(() => ({}));
   try {

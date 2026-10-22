@@ -26,9 +26,9 @@ type Config = { hasKey: boolean; datalab: boolean; voices?: Record<string, boole
 /** A role's key in a run's options ("planner" -> plannerModel). */
 const optionKey = (role: string) => `${role}Model` as keyof Options;
 type RunRow = { id: string; documentName: string; created: number; status: string; cost: number; lectures: string; triage?: string };
-const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Video", "Scenes", "Voice", "Lab", "Calls", "Costs", "Models"] as const;
-/** The engines set aside (the lecture engine's scenes, their voice, the Lab): shown only when asked for. */
-const OLDER = new Set<string>(["Scenes", "Voice", "Lab"]);
+const TABS = ["Lectures", "Book", "Transcript", "Figures", "Generate", "Script", "Scenes", "Voice", "Lab", "Video", "Calls", "Costs", "Models"] as const;
+/** Set aside (the video agent in free Manim): shown only when asked for. */
+const ASIDE = new Set<string>(["Video"]);
 
 export default function Page() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -47,15 +47,15 @@ export default function Page() {
   const [now, setNow] = useState(Date.now());
   // The PDF's share of the width (%), dragged on the divider; 0 hides it. Kept in this browser.
   const [pdfWidth, setPdfWidth] = useState(44);
-  // The older engines' tabs (Scenes, Voice, Lab): set aside, shown when asked for. Kept in this browser.
-  const [older, setOlder] = useState(false);
+  // The video agent's tab: set aside, shown when asked for. Kept in this browser.
+  const [aside, setAside] = useState(false);
   useEffect(() => {
-    try { setOlder(localStorage.getItem("v2.olderEngines") === "1"); } catch { /* not kept */ }
+    try { setAside(localStorage.getItem("v2.videoAgent") === "1"); } catch { /* not kept */ }
   }, []);
-  const toggleOlder = () => {
-    setOlder((o) => {
-      try { localStorage.setItem("v2.olderEngines", o ? "0" : "1"); } catch { /* not kept */ }
-      if (o && OLDER.has(tab)) setTab("Video");
+  const toggleAside = () => {
+    setAside((o) => {
+      try { localStorage.setItem("v2.videoAgent", o ? "0" : "1"); } catch { /* not kept */ }
+      if (o && ASIDE.has(tab)) setTab("Scenes");
       return !o;
     });
   };
@@ -332,15 +332,15 @@ export default function Page() {
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <nav className="flex flex-wrap items-center gap-1 border-b border-neutral-800 px-3 pt-2">
-            {TABS.filter((t) => older || !OLDER.has(t)).map((t) => (
+            {TABS.filter((t) => aside || !ASIDE.has(t)).map((t) => (
               <button key={t} onClick={() => setTab(t)} data-testid={`tab-${t}`}
                 className={`rounded-t px-3 py-1.5 text-sm ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-400 hover:text-neutral-200"}`}>{t}
                 {t === "Calls" && run ? <span className="ml-1 text-[10px] text-neutral-500">{run.calls.length}</span> : null}
               </button>
             ))}
-            <button onClick={toggleOlder} data-testid="older-engines" className="pb-1 text-[11px] text-neutral-500 hover:text-neutral-300"
-              title="The lecture engine's Scenes, Voice and Lab tabs: set aside, as the Video tab builds the videos now">
-              {older ? "Hide the older engines" : "Older engines…"}</button>
+            <button onClick={toggleAside} data-testid="video-agent-tab" className="pb-1 text-[11px] text-neutral-500 hover:text-neutral-300"
+              title="The Video tab (the video agent in free Manim): set aside, as the Scenes tab builds the videos on the motion engine">
+              {aside ? "Hide the video agent" : "Video agent…"}</button>
             <span className="ml-auto flex items-center gap-1 pb-1 text-[11px] text-neutral-400" data-testid="layout">
               <span className="text-neutral-500">PDF</span>
               {([["hide", 0], ["narrow", 25], ["half", 44], ["wide", 60]] as const).map(([label, w]) => (

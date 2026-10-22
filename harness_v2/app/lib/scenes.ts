@@ -92,7 +92,9 @@ export function fileUrl(runId: string, file: string): string {
 }
 
 export function stateOf(run: Run): ScenesState {
-  run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {} };
+  // A lecture's scenes start on the motion engine (beta) unless V2_SCENES_ENGINE=current; the Scenes tab switches.
+  run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {},
+    ...(process.env.V2_SCENES_ENGINE?.trim().toLowerCase() === "current" ? {} : { engine: "motion" as const }) };
   return run.scenes;
 }
 

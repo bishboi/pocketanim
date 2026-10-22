@@ -120,8 +120,9 @@ processes listen to); the chapter is marked stopped and can be built again. A ch
 server restart is marked stopped by Stop too.
 Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.
 
-**The older engines are set aside**: the lecture engine's **Scenes**, **Voice** and **Lab** tabs (and the motion engine
-(beta) in them) are hidden until **Older engines…** is pressed, and work as before.
+**The video agent is set aside**: the default flow is the **Scenes** tab on the **motion engine (beta)** (a lecture's
+scenes start on it unless `V2_SCENES_ENGINE=current`; the tab switches engines), then **Voice**, with the **Lab** beside
+them. The **Video** tab (this section) is hidden until **Video agent…** is pressed, and works as before.
 
 The **motion engine (beta)** draws the same beat scripts the way a modern explainer does: six looks (paper, newsroom, chalk, data, studio, sketch), templates that animate themselves part by part on the words that name them (counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines), the timeline in five styles, transitions, idle motion and sound. It is tried in the **Lab** (its own presets, and any lecture's chapter in any look), and a run can be built on it from the **Scenes** tab (its Engine row: the scene writer is told of the templates, and compiles, renders and the Voice tab use it), and documented in [engine/MOTION_ENGINE.md](engine/MOTION_ENGINE.md); `scripts/motion-rerun.mjs` compiles the lectures already built on it, beside what they made.
 

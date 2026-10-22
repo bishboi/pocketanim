@@ -398,6 +398,8 @@ const offOps = filterOps([{ op: "picture", generate: "a farmer" }, { op: "diagra
 assert.equal(offOps.ops.length, 3, "the illustration and the unknown op taken out");
 assert.ok(!offOps.ops[0].nodes[0].picture && offOps.ops[1].events[0].length === 2, "pictures on nodes and events taken out when illustrations are off");
 assert.equal(offOps.dropped.length, 4);
+// This part is the current engine's (a lecture's scenes start on the motion engine, which is checked further on).
+await scenesAction(run.id, { action: "engine", engine: "current" });
 await scenesAction(run.id, { action: "look", style: "chalkboard", art: "sketch" });
 await scenesAction(run.id, { action: "kinds", kinds: ["figure", "diagram", "define", "timeline"] });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });

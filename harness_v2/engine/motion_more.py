@@ -993,11 +993,12 @@ class MoreTemplates:
             self._m_moves = [m for m in self.__dict__.get("_m_moves", []) if not m.get("done")] + [room._m_room]
 
         def reply(heard):
-            steps = [K.fade_to(words, 0.55, run=K.t("fast")),
-                     K.together([K.draw(a_line[0], run=K.t("fast"), sfx="tick"),
-                                 K.typewriter(a_line[1], run=min(2.2, 0.03 * len(str(answer)) + 0.4))])]
-            if room is not None:
-                steps.insert(0, K.timed(room, K.t("base"), "swish"))
-            return K.chain(steps)
+            answer_in = K.together([K.draw(a_line[0], run=K.t("fast"), sfx="tick"),
+                                    K.typewriter(a_line[1], run=min(2.2, 0.03 * len(str(answer)) + 0.4))])
+            if room is None:
+                return K.chain([K.fade_to(words, 0.55, run=K.t("fast")), answer_in])
+            # Moved to make room, the question is not stepped back: a group begins all its parts at once, and the
+            # fade, begun before the move, held the words where they had been (the answer came in over them).
+            return K.chain([K.timed(room, K.t("base"), "swish"), answer_in])
         self._moment(_said(on or " ".join(str(answer).split()[:3])), reply)
         return None

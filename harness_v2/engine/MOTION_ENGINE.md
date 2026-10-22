@@ -421,7 +421,8 @@ The question set large beside a question mark (its `kicker` typed over it); when
 else its first three words) the answer is typed in under it with a tick and the question steps back. Without an
 `answer`, `on` is when the question comes on. Set the question at a chapter's start, and ask it again with its answer
 where the lecture answers it: given the same `id` while that question is still up, the answer comes in under it
-(room made for it) instead of the question coming on a second time.
+(room made for it) instead of the question coming on a second time. A part still to come on (an answer) that is up
+when the next picture replaces its template in the same line leaves with it.
 
 ---
 

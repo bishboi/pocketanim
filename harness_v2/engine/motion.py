@@ -298,6 +298,15 @@ class MotionLecture(MoreTemplates, MapLecture):
         while todo:
             a = todo.pop()
             todo.extend(getattr(a, "animations", None) or [])
+            also = getattr(a, "_m_also", None)
+            if also and not also.get("done"):
+                also["done"] = True
+                for m in also["parts"]:
+                    # What of it is up: the part itself, or its pieces put up one by one (a typed line's letters).
+                    fam = {id(x) for x in m.get_family()}
+                    # Gone in the first third, with the picture it belonged to (the play's run is the whole change).
+                    extra += [FadeOut(top, rate_func=lambda t: min(1.0, 3.0 * t)) for top in self.mobjects
+                              if id(top) in fam]
             room = getattr(a, "_m_room", None)
             if not room or room.get("done"):
                 continue
@@ -316,6 +325,9 @@ class MotionLecture(MoreTemplates, MapLecture):
         """The engine's fade-outs for what leaves the stage, made the look's exit: slid out (the way the next
         comes from), pushed up, zoomed past; for a wipe, taken away under the wipe as the next line begins."""
         staged = {id(m) for m in [self.stage_items, *self.stage_extra]}
+        # Parts of the leaving picture still to come on when this was built (a question's answer, said earlier in
+        # the line than the next picture): up by the time the picture leaves, they leave with it (_room_moves).
+        pending = list(self.stage_pending)
         going = super()._stage_leaving()
         kind = self.M.get("transition", "slide")
         out = []
@@ -340,6 +352,10 @@ class MotionLecture(MoreTemplates, MapLecture):
                 out.append(K.timed(FadeOut(mob, run_time=0.05), 0.05))
             else:
                 out.append(anim)
+        if pending and out:
+            out[0]._m_also = {"parts": pending}
+        elif pending and kind == "wipe":
+            self._wipe_old.extend(pending)
         return out
 
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None, cues: list | None = None) -> float:

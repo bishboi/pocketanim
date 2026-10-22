@@ -903,7 +903,12 @@ await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9
     // A new picture set late in its line comes on as the line begins and is not an anchor (MOTION_ENGINE.md §2).
     assert.ok(a.count >= 12, `${name}: its anchored animations measured (${a.count})`);
     assert.equal(a.on_time, a.count, `${name}: every anchored animation on its words: ${JSON.stringify(a.worst)}`);
-    console.log(`sync (${name}): ${a.on_time} of ${a.count} anchored animations on their words`);
+    // Read on time: each anchored picture's key words readable no later than 0.35 s after their word, except where
+    // the word comes sooner into its line than the picture takes to read (counted apart: sync_probe.py).
+    const r = sum.readable;
+    if (r) assert.equal(r.late, 0, `${name}: every anchored picture read on its words: ${JSON.stringify(r.worst)}`);
+    console.log(`sync (${name}): ${a.on_time} of ${a.count} anchored animations on their words` +
+      (r ? `; ${r.on_time} read on time, ${r.unreachable} said before they could be read` : ""));
   }
 }
 

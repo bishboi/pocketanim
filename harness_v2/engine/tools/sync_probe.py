@@ -16,8 +16,11 @@ Each animation timed to words (the scene writer's "on" anchor, a part's name, a 
 when it began against when its words were said ("anchors").
 
 The last line of stdout is a JSON summary: {"lines", "matched", "on_time", "early", "late", "mean_abs_lag",
-"worst": [...], "anchors": {"count", "on_time", "early", "late", "worst"}} (on time: from 0.6 s before the word to
-0.35 s after it).
+"worst": [...], "anchors": {"count", "on_time", "early", "late", "worst"}, "readable": {"count", "on_time", "late",
+"unreachable", "worst"}} (on time: from 0.6 s before the word to 0.35 s after it). "readable" measures each anchored
+animation by when its key words can be read (MotionLecture._readable_share: what brings them on 60% of the way
+through), not when it began: no later than 0.35 s after the word; "unreachable" when the word is said sooner into
+its line than the picture takes to read.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ sys.path.insert(0, str(ENGINE))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 EARLY, LATE = -0.6, 0.35       # on time: the play begins this long before its word, at most, to this long after it
+READ_LATE = 0.35                # read on time: its key words readable no later than this after their word
 RATE = 16000
 
 
@@ -225,8 +229,16 @@ def run(scene_file: Path) -> list[dict]:
             hit = pending.pop(id(a), None)
             # A new picture set late in its line comes on as the line begins (MotionLecture._on_words): not an anchor.
             if hit is not None and hit["line"]["voice"] is not None and not getattr(a, "panim_line_start", False):
-                hit["line"].setdefault("anchors", []).append(
-                    {"word": hit["word"], "said": hit["said"], "play": round(at - hit["line"]["voice"], 3)})
+                begun = round(at - hit["line"]["voice"], 3)
+                row = {"word": hit["word"], "said": hit["said"], "play": begun}
+                # When it can be read (its key words in: MotionLecture._readable_share), not only when it began.
+                share = self._readable_share(a) if hasattr(self, "_readable_share") else None
+                if share is not None:
+                    top = any(a is x for x in anims)
+                    run = float((kw.get("run_time") if top else None) or getattr(a, "run_time", 0.0) or 0.0)
+                    row["reads"] = round(begun + share * run, 3)
+                    row["need"] = round(share * run, 3)
+                hit["line"].setdefault("anchors", []).append(row)
         result = real_play(self, *anims, **kw)
         after = _visible_texts(self, mobs)
         came = added + [w for k, w in after.items() if k not in before]
@@ -302,10 +314,18 @@ def measure(lines: list[dict]) -> dict:
                      "matched": kept})
     # The anchors: each animation timed to words (the writer's "on", a part's name, a picture's own words), when it
     # began against when its words were said.
-    anchored = [{**a, "lag": round(a["play"] - a["said"], 3), "line": line["text"][:60]}
+    # Began on time: as long before its word as it takes to read (`need`, so its words read on the word), or as the
+    # line began when that is sooner than the line's start; without a measure of that, against the word itself.
+    anchored = [{**a, "lag": round(a["play"] - (max(0.0, a["said"] - a["need"]) if "need" in a else a["said"]), 3),
+                 "line": line["text"][:60]}
                 for line in lines if not line.get("card") for a in line.get("anchors") or []]
     for row in rows:
         row["anchors"] = next((x.get("anchors") or [] for x in lines if x["text"] == row["line"]), [])
+    # Read: when each anchored picture's words can be read against its word. One that cannot be read in time even
+    # begun as its line begins (its words said sooner than it takes to read) is counted apart ("unreachable").
+    readable = [{**a, "read_lag": round(a["reads"] - a["said"], 3)} for a in anchored if "reads" in a]
+    r_late = [a for a in readable if a["read_lag"] > READ_LATE and a["said"] >= a["need"]]
+    r_cannot = [a for a in readable if a["read_lag"] > READ_LATE and a["said"] < a["need"]]
     a_late = [a for a in anchored if a["lag"] > LATE]
     a_early = [a for a in anchored if a["lag"] < EARLY]
     early = [m for r in rows for m in r["matched"] if m["lag"] < EARLY]
@@ -319,7 +339,11 @@ def measure(lines: list[dict]) -> dict:
                                       "anchors": {"count": len(anchored),
                                                   "on_time": len(anchored) - len(a_late) - len(a_early),
                                                   "early": len(a_early), "late": len(a_late),
-                                                  "worst": sorted(anchored, key=lambda a: -abs(a["lag"]))[:6]}}}
+                                                  "worst": sorted(anchored, key=lambda a: -abs(a["lag"]))[:6]},
+                                      "readable": {"count": len(readable), "late": len(r_late),
+                                                   "unreachable": len(r_cannot),
+                                                   "on_time": len(readable) - len(r_late) - len(r_cannot),
+                                                   "worst": sorted(readable, key=lambda a: -a["read_lag"])[:6]}}}
 
 
 STOP = {"the", "and", "for", "with", "that", "this", "are", "was", "from", "its", "his", "her", "their", "into",

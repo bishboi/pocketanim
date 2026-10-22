@@ -110,12 +110,15 @@ the cache: nothing is spoken again) and play it as their clock.
    line's own pause after it, so the chapter is as long as before.
 2. **The picture's choreography.** A template comes on as it was designed to: its title typed, then its body (a
    chart's baseline drawn, the columns rising one after another, the values popping over them). Parts overlap: each
-   starts before the last has landed. The old picture leaves the look's way (slid out, pushed up, zoomed past).
+   starts before the last has landed. The old picture leaves the look's way (slid out, pushed up, zoomed past), and
+   the new one starts coming on as the old is half gone (`MotionLecture.CROSS`: 0.45 of its exit), not after it.
 3. **Moments on words.** Parts held back come on as the line says them: a chain's next step and the arrow to it, a
    group of units coloured, a card's tick, a phrase highlighted, a timeline's event. A part not said comes on in its
-   turn after the template is in. Each lands on its words: it starts early by as much of its run as it takes to
-   arrive (`motion.land_lead`: 0.12 s and a third of its run, 0.2 to 0.45 s), not by a fixed lead, so a long entrance
-   is not still coming on after its word. A part never comes on before its template: one whose words the line says
+   turn after the template is in. Each is **read** on its words: it starts early by as much of its run as it takes
+   for its key words to read (`MotionLecture._readable_share`: a picture's largest words, a term, a question, a
+   counter's figure, else its largest image, read once what brings them on is `READ_AT` = 60% through), wherever in
+   its entrance they come; what brings no words on starts early by `motion.land_lead` (0.12 s and a third of its
+   run). A lead of a third of the run had a long entrance's words still arriving after their word. A part never comes on before its template: one whose words the line says
    before the template's own is held until the template has begun (its start plus half its run, 0.6 s at most), so
    the last picture has left and the new one is coming in when it lands. A new picture set on words that come late
    in its line (past 1.2 s and past a third of it: a term defined at the end of its sentence) comes on as the line
@@ -905,6 +908,10 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
 .venv/bin/python harness_v2/engine/tools/export_scene.py scene.py GeneratedScene out         # the program the phones play
 ```
 
+- **The word being said, in the caption**: with a voice, the caption underlines each word as it is said (any
+  script: the caption is set a line at a time and each word's place measured, as Hindi's joined letters give no
+  glyph per letter). The underline moves as fades the exporter writes as verbs (a `lag` of them in a hold, or beside
+  a play's animations), so the phone and the web player show it too. `PANIM_KARAOKE=0` turns it off.
 - **Spoken words under the player**: a render with its voice logs each line's words with their times (the beat log's
   `words`, from `pocket_lecture.line_words`: as aligned, or `est` when only estimated); the Scenes tab's player shows
   the line being spoken under the picture with the word being said lit, so the word times the animations are set to

@@ -40,6 +40,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import textwrap
 from types import SimpleNamespace
 
 import numpy as np
@@ -112,7 +113,8 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
     def play(self, *animations, **kwargs):
         """The engine's play; then the groups Manim put on the screen to hold a lagged group's parts are taken off
         again (quietly: the exporter never had them on its stage), so a part left in one is not a stray that stays
-        up -- over the next picture -- after its picture leaves."""
+        up -- over the next picture -- after its picture leaves. The caption's underline moves with it (_karaoke)."""
+        animations = self._karaoke(animations, kwargs)
         animations = (*animations, *self._room_moves(animations))
         containers, leaves = [], []
 
@@ -218,20 +220,32 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         replacing = not still and self._replaces(group)
         leaving = self._carry_from(group) if replacing else []
         anim = super()._to_stage(group, draw=draw, still=still, entrance=entrance)
+        overlap = 0.0
+        if isinstance(anim, AnimationGroup) and anim is not entrance and getattr(anim, "lag_ratio", 0) == 1.0 \
+                and len(anim.animations) == 2:
+            # The old picture going and the new one coming cross: the new one starts as the old is half gone,
+            # instead of after it (the engine's), which held every new picture back by the old one's whole exit.
+            going, show = anim.animations
+            kept = {k: v for k, v in anim.__dict__.items() if k.startswith(("panim_", "_m_"))}
+            anim = AnimationGroup(going, show, lag_ratio=self.CROSS)
+            anim.__dict__.update(kept)
+            overlap = float(getattr(going, "run_time", 0.4) or 0.4) * self.CROSS
         if anim is not None and entrance is not None and getattr(entrance, "panim_run", None):
-            run = float(entrance.panim_run) + (0.35 if isinstance(anim, AnimationGroup) and anim is not entrance
-                                               and getattr(anim, "lag_ratio", 0) == 1.0 else 0)
-            K.timed(anim, run, getattr(entrance, "panim_sfx", None))
+            K.timed(anim, float(entrance.panim_run) + overlap, getattr(entrance, "panim_sfx", None))
         glides = self._carry_into(group, leaving)
         if anim is not None and glides:
             run = max(float(getattr(anim, "panim_run", 0) or 0), self.CARRY_RUN)
             anim = K.timed(AnimationGroup(anim, *glides), run, getattr(anim, "panim_sfx", None))
-        if anim is not None and replacing:
+        if anim is not None:
             try:
-                anim._m_replaces = True                         # a new picture taking the stage (_on_words)
+                anim._m_key = self._key_of(group)               # what it is read by (_readable_share)
+                if replacing:
+                    anim._m_replaces = True                     # a new picture taking the stage (_on_words)
             except AttributeError:
                 pass
         return anim
+
+    CROSS = 0.45             # share of the old picture's exit gone when the new one starts coming on
 
     # ---------------------------------------------------------------- continuity: a match cut -------------------
     # When the next picture shows a word or a figure the one leaving shows too (a counter's "60%" in the next card,
@@ -273,6 +287,216 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             return super().flow(lonlats, color=color, width=width, label=label)
         finally:
             fr.path = smooth
+
+    # ---------------------------------------------------------------- the word being said, in the caption -----------
+    # The caption is laid out a line at a time, and where each of its words sits is measured (each word set alone,
+    # the line's own width sharing out the spaces), so the word being said is underlined as it is said: in any
+    # script, Hindi's joined letters too, which no glyph count can find. The underline moves as fades the exporter
+    # writes as verbs: in a hold, a run of them in its place; in a play, a run of them beside its animations
+    # (`_karaoke`). An updater would have had every play baked frame by frame. PANIM_KARAOKE=0 turns it off.
+    KARAOKE_SWAP = 0.05      # seconds an underline takes to move to the next word
+
+    @staticmethod
+    def _karaoke_on() -> bool:
+        return os.environ.get("PANIM_KARAOKE", "1") != "0"
+
+    def _m_width(self, word: str, size: float) -> float:
+        cache = self.__dict__.setdefault("_m_widths", {})
+        key = (word, size)
+        if key not in cache:
+            try:
+                if pl._complex(word):
+                    raise ValueError("joined script")
+                cache[key] = pl.T(word, size, disable_ligatures=True).width
+            except ValueError:
+                cache[key] = pl.T(word, size).width
+        return cache[key]
+
+    def caption(self, text: str) -> VGroup:
+        """The engine's caption, a line of words at a time, with where each word sits (`_m_words`: (left, right,
+        bottom) in the order of its words) for the underline of the word being said."""
+        ready = self.__dict__.get("_m_cap_ready") or {}
+        if text in ready:
+            return ready.pop(text)
+        if not self._karaoke_on():
+            return super().caption(text)
+        TH, P = pl.TH, pl.P
+        lines = textwrap.wrap(text, 92)
+        if len(lines) > 2:
+            lines = textwrap.wrap(text, int(len(text) / 2) + 8)
+        size = pl.tok("caption_size", 19)
+        terms = os.environ.get("PANIM_CAPTION_TERMS", "1") != "0"
+        colour = pl.readable(getattr(P, "role_highlight", P.GOLD), TH["cap_bg"], 4.5)
+        if pl.contrast(colour, TH["cap_fg"]) < 1.6:
+            colour = pl.readable(P.GOLD, TH["cap_bg"], 4.5)
+        rows = []
+        for line in lines:
+            try:
+                if pl._complex(line):
+                    raise ValueError("joined script")
+                t = pl.T(line, size, TH["cap_fg"], disable_ligatures=True)
+            except ValueError:
+                t = pl.T(line, size, TH["cap_fg"])
+            spans = self._caption_spans(line) if terms else []
+            if spans and self._colour_spans(t, line, spans, colour):
+                t._panim_terms = [line[a:b] for a, b in spans]
+            if len(t.submobjects) == len(line):
+                t.remove(*[g for g, c in zip(list(t.submobjects), line) if c.isspace()])
+            rows.append((line, t))
+        block = VGroup(*[t for _, t in rows]).arrange(DOWN, buff=0.1)
+        fit(block, 13.2)
+        box = RoundedRectangle(corner_radius=0.03 if TH["upper"] else 0.12, width=block.width + 0.5,
+                               height=block.height + 0.3, fill_color=TH["cap_bg"], fill_opacity=TH["cap_op"],
+                               stroke_width=1.2 if pl.STYLE == "blueprint" else 0, stroke_color=P.MUTED)
+        box.move_to([0, pl.CAPTION_Y, 0])
+        block.move_to(box)
+        group = VGroup(box, block)
+        if pl.STYLE == "cardboard":
+            shadow = box.copy().set_fill("#000000", 0.28).shift(RIGHT * 0.05 + DOWN * 0.05)
+            group = VGroup(shadow, box, block).rotate(-0.006)
+        group.set_z_index(pl.Z_CAPTION)
+        spots = []
+        space = max(1e-3, self._m_width("a a", size) - 2 * self._m_width("a", size))
+        for line, t in rows:
+            words = line.split()
+            widths = [self._m_width(w, size) for w in words]
+            natural = sum(widths) + space * max(0, len(words) - 1)
+            k = t.width / natural if natural > 0 else 1.0
+            x, bottom = t.get_left()[0], t.get_bottom()[1]
+            for width in widths:
+                spots.append((x, x + width * k, bottom))
+                x += (width + space) * k
+        group._m_words = spots
+        return group
+
+    def _karaoke_plan(self, text: str) -> dict | None:
+        """The underlines of a line and when each comes on: its caption's pieces made now (the engine asks for
+        them as it puts them up), each word's underline at its time, never before its piece is up."""
+        if not self._karaoke_on() or pl.voice_mode() == "silent":
+            return None
+        try:
+            words = pl.line_words(text)
+            _, seconds = pl.narrate(text)
+        except Exception:  # noqa: BLE001 -- no word times: the caption as ever
+            return None
+        if not words:
+            return None
+        pieces = pl.caption_pieces(text)
+        swaps = self._caption_swaps(text, pieces, seconds, words)
+        starts = [0.0] + [at for at, _ in swaps]
+        tokens = " ".join(str(text).split()).split()
+        n, m = len(tokens), len(words)
+        colour = pl.readable(getattr(pl.P, "role_highlight", pl.P.GOLD), pl.TH["cap_bg"], 3.0)
+        ready, events, i, last = {}, [], 0, 0.0
+        for p, piece in enumerate(pieces):
+            cap = self.caption(piece)
+            ready[piece] = cap
+            begin = starts[p] if p < len(starts) else starts[-1]
+            if p:
+                events.append((begin, None))
+            for left, right, bottom in getattr(cap, "_m_words", []):
+                k = i if n == m else round(i * (m - 1) / max(1, n - 1))
+                at = max(float(words[min(k, m - 1)].get("start") or 0.0), begin, last)
+                bar = Rectangle(width=max(0.06, right - left), height=0.055, stroke_width=0, fill_color=colour,
+                                fill_opacity=1).move_to([(left + right) / 2, bottom - 0.05, 0])
+                bar.set_z_index(pl.Z_CAPTION + 1)
+                events.append((at, bar))
+                last, i = at, i + 1
+        events.append((max(last, float(words[-1].get("end") or last)) + 0.1, None))
+        self._m_cap_ready = ready
+        return {"t0": None, "events": events, "cur": None, "seconds": float(seconds)}
+
+    def _karaoke(self, animations, kwargs):
+        """This play with the underline's moves that fall in it alongside (or in place of a hold), as fades: an
+        empty fade for each stretch between, so the exporter writes them as one `lag` of verbs."""
+        k = self.__dict__.get("_m_kara")
+        if not k or k.get("t0") is None or not k["events"] or kwargs.get("rate_func") is not None:
+            return animations
+        if kwargs.get("run_time") is not None:
+            run = float(kwargs["run_time"])
+        else:
+            run = max((float(getattr(a, "run_time", 0.0) or 0.0) for a in animations), default=0.0)
+        if run <= self.KARAOKE_SWAP * 2:
+            return animations
+        now = float(self.renderer.time) - k["t0"]
+        end, cursor, steps = now + run, now, []
+        swap = self.KARAOKE_SWAP
+        while k["events"] and k["events"][0][0] <= end - swap - 1e-3:
+            at, bar = k["events"].pop(0)
+            at = max(at, cursor)
+            if at - cursor > 1e-3:
+                steps.append(FadeOut(VMobject(), run_time=at - cursor))
+            moves = [x for x in (FadeOut(k["cur"], run_time=swap) if k["cur"] is not None else None,
+                                 FadeIn(bar, run_time=swap) if bar is not None else None) if x is not None]
+            if moves:
+                steps.append(AnimationGroup(*moves, run_time=swap) if len(moves) > 1 else moves[0])
+            cursor = at + swap
+            k["cur"] = bar
+        if not steps:
+            return animations
+        if end - cursor > 1e-3:
+            steps.append(FadeOut(VMobject(), run_time=end - cursor))
+        moves = LaggedStart(*steps, lag_ratio=1.0, rate_func=linear)
+        if all(type(a).__name__ == "Wait" for a in animations):
+            return (moves,)
+        return (*animations, moves)
+
+    # ---------------------------------------------------------------- when a picture reads ------------------------
+    READ_AT = 0.6            # share of a fade's (or a typing's) run by which its words can be read
+
+    @staticmethod
+    def _timings(anim, t0: float, t1: float, out: list) -> list:
+        """(leaf animation, start, end) in seconds for every leaf of an animation run from t0 to t1, through its
+        groups' own timings (Manim's anims_with_timings)."""
+        timings = getattr(anim, "anims_with_timings", None)
+        if timings is not None and len(timings):
+            end = float(getattr(anim, "max_end_time", 0) or 0) or max(float(x[2]) for x in timings) or 1.0
+            for child, start, stop in timings:
+                MotionLecture._timings(child, t0 + (t1 - t0) * float(start) / end, t0 + (t1 - t0) * float(stop) / end, out)
+        else:
+            out.append((anim, t0, t1))
+        return out
+
+    @staticmethod
+    def _key_of(group) -> list:
+        """What a picture is read by: its largest words (a term, a question, a headline), else its largest image."""
+        texts = [m for m in group.get_family() if type(m).__name__ in ("Text", "MarkupText", "Paragraph")
+                 and len(m.submobjects)]
+        if texts:
+            size = lambda m: float(getattr(m, "font_size", 0) or 0) or m.height  # noqa: E731
+            top = max(size(m) for m in texts)
+            return [m for m in texts if size(m) >= top * 0.85][:3]
+        images = [m for m in group.get_family() if isinstance(m, ImageMobject)]
+        return [max(images, key=lambda m: m.width * m.height)] if images else []
+
+    def _readable_share(self, anim) -> float | None:
+        """When an animation's picture can be read, as a share of its run: its key words (`_key_of`, kept on a
+        picture taking the stage as `_m_key`) once what brings them on is READ_AT of the way through; for anything
+        else, the first of its parts to read. None when it brings nothing on."""
+        total = float(getattr(anim, "run_time", 0) or 0)
+        if total <= 0:
+            return None
+        leaves = self._timings(anim, 0.0, total, [])
+        keys, todo = [], [anim]
+        while todo:
+            a = todo.pop()
+            keys += getattr(a, "_m_key", None) or []
+            todo.extend(getattr(a, "animations", None) or [])
+        reads = lambda s, e: s + self.READ_AT * (e - s)  # noqa: E731
+        brings = [(a, s, e) for a, s, e in leaves if getattr(a, "mobject", None) is not None
+                  and not getattr(a, "remover", False) and a.mobject.family_members_with_points()]
+        if keys:
+            times = []
+            for key in keys:
+                ids = {id(x) for x in key.get_family()}
+                ends = [reads(s, e) for a, s, e in brings if ids & {id(x) for x in a.mobject.get_family()}]
+                if ends:
+                    times.append(max(ends))
+            if times:
+                return min(times) / total
+        if not brings:
+            return None
+        return min(reads(s, e) for _, s, e in brings) / total
 
     def _log(self, kind: str, **fields) -> None:
         """The engine's beat log; a spoken line also with its words' times (seconds into the line, as aligned or as
@@ -471,6 +695,17 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return out
 
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None, cues: list | None = None) -> float:
+        """A line (_m_beat), its caption underlining each word as it is said (_karaoke_plan)."""
+        self._m_kara = self._karaoke_plan(text)
+        try:
+            return self._m_beat(text, *anims, rt=rt, pad=pad, cues=cues)
+        finally:
+            k, self._m_kara, self._m_cap_ready = self._m_kara, None, {}
+            if k and k.get("cur") is not None and any(k["cur"] is m for m in self.mobjects):
+                self.remove(k["cur"])
+
+    def _m_beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
+                cues: list | None = None) -> float:
         """The engine's; a line that wipes to a new picture covers the old one just before its voice (_speak), and
         takes that time back from its own pause after it, so the chapter is as long as before."""
         if self._wipe_old:
@@ -507,6 +742,13 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return anim
 
     def _speak(self, wav, seconds: float) -> None:
+        """The line's voice (_m_speak); the caption's underlines are timed from where it begins."""
+        self._m_speak(wav, seconds)
+        k = self.__dict__.get("_m_kara")
+        if k is not None and k.get("t0") is None:
+            k["t0"] = float(self.__dict__.get("_voice_until", 0.0)) - float(seconds or 0.0)
+
+    def _m_speak(self, wav, seconds: float) -> None:
         """The line's voice; when the look wipes from one picture to the next, the sheet covers the old picture just
         before the voice begins and uncovers the board under its first words: the cut lands as the line starts, and
         what the line names first is not held back behind a wipe that took the line's first half second."""
@@ -548,8 +790,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
 
     def _cue_plan(self, given: list, extra: list, seconds: float, default: float) -> list:
         """As the engine's, each animation given the time it asked for (panim_run) instead of a blanket one; and one
-        timed to a word lands on it: started early by as much of its run as it takes to arrive (land_lead), not by
-        the engine's fixed SYNC_LEAD, so a long entrance is not still coming on after its word."""
+        timed to a word lands on it: started early by as much of its run as it takes for its words to read
+        (_readable_share; land_lead for what brings none on), not by the engine's fixed SYNC_LEAD, so a long
+        entrance is not still coming on after its word."""
         heard = self.__dict__.get("_word_cues") or {}
         fixed = []
         for anim, cue in given:
@@ -562,8 +805,14 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             elif run is not None and not cue:
                 cue = [0.0, float(run)]
             if at is not None and isinstance(cue, (list, tuple)) and cue:
-                cue = [round(max(0.0, at - land_lead(cue[1] if len(cue) > 1 and cue[1] else pl.PrimitiveRun.SHOW)), 3),
-                       *cue[1:]]
+                # Timed by when it can be read, not when it starts: its key words (a term, a question, a counter's
+                # figure) read on their word, wherever in its entrance they come in (_readable_share); a lead of a
+                # third of its run (land_lead, still used for what brings no words on) had a long entrance's
+                # words arrive after their word.
+                span = cue[1] if len(cue) > 1 and cue[1] else pl.PrimitiveRun.SHOW
+                share = self._readable_share(anim)
+                lead = share * min(max(float(span), self.CUE_MIN), self.CUE_MAX) if share is not None else land_lead(span)
+                cue = [round(max(0.0, at - lead), 3), *cue[1:]]
             after = float(getattr(anim, "panim_after", 0.0) or 0.0)
             if after:
                 # Its writer's own delay after its words (a beat's breath before a verdict lands).
@@ -756,19 +1005,24 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                         anim.panim_said = min(heard)[1]
         out = super()._on_words(given, words, seconds, text)
         start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+        reading = {id(a): self._said(words, getattr(a, "panim_said", None)) if (words and getattr(a, "panim_said", None))
+                   else None for a, _ in out}
         # The new picture of a line comes on as the line begins when the words it is set on come late in it (a
         # term defined at the end of its sentence): the old picture stayed up while the line went on to the new
         # subject, and the change came only as it ended. Its parts still come on their words.
         for i, (a, c) in enumerate(out):
             if not self._takes_stage(a):
                 continue
-            if isinstance(c, (list, tuple)) and c and start(c) > max(self.LATE_PICTURE, 0.3 * float(seconds or 0)):
-                out[i] = (a, [0.0, *c[1:]])
+            at = reading.get(id(a))
+            late = max(self.LATE_PICTURE, 0.3 * float(seconds or 0))
+            if isinstance(c, (list, tuple)) and c and (at if at is not None else start(c)) > late:
+                c = [0.0, *c[1:]]
                 try:
                     a.panim_line_start = True
                 except AttributeError:
                     pass
-                out.sort(key=lambda g: start(g[1]))
+            out[i] = (a, c)
+            out.sort(key=lambda g: start(g[1]))
             break
         # A template's parts never before the template: a part said earlier in the line than the words the
         # template itself lands on waits for it (and its first breath on the screen).

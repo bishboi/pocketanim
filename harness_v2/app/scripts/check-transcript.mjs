@@ -900,7 +900,8 @@ await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9
   }));
   for (const [name, sum] of probes) {
     const a = sum.anchors;
-    assert.ok(a.count >= 15, `${name}: its anchored animations measured (${a.count})`);
+    // A new picture set late in its line comes on as the line begins and is not an anchor (MOTION_ENGINE.md §2).
+    assert.ok(a.count >= 12, `${name}: its anchored animations measured (${a.count})`);
     assert.equal(a.on_time, a.count, `${name}: every anchored animation on its words: ${JSON.stringify(a.worst)}`);
     console.log(`sync (${name}): ${a.on_time} of ${a.count} anchored animations on their words`);
   }

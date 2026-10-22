@@ -215,7 +215,8 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                 entrance = K.enter(group, how, side="right", run=K.t("base"))
             K.idle(group)
             draw = None
-        leaving = self._carry_from(group) if not still and self._replaces(group) else []
+        replacing = not still and self._replaces(group)
+        leaving = self._carry_from(group) if replacing else []
         anim = super()._to_stage(group, draw=draw, still=still, entrance=entrance)
         if anim is not None and entrance is not None and getattr(entrance, "panim_run", None):
             run = float(entrance.panim_run) + (0.35 if isinstance(anim, AnimationGroup) and anim is not entrance
@@ -225,6 +226,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if anim is not None and glides:
             run = max(float(getattr(anim, "panim_run", 0) or 0), self.CARRY_RUN)
             anim = K.timed(AnimationGroup(anim, *glides), run, getattr(anim, "panim_sfx", None))
+        if anim is not None and replacing:
+            try:
+                anim._m_replaces = True                         # a new picture taking the stage (_on_words)
+            except AttributeError:
+                pass
         return anim
 
     # ---------------------------------------------------------------- continuity: a match cut -------------------
@@ -735,9 +741,23 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                     if heard:
                         anim.panim_said = min(heard)[1]
         out = super()._on_words(given, words, seconds, text)
+        start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+        # The new picture of a line comes on as the line begins when the words it is set on come late in it (a
+        # term defined at the end of its sentence): the old picture stayed up while the line went on to the new
+        # subject, and the change came only as it ended. Its parts still come on their words.
+        for i, (a, c) in enumerate(out):
+            if not self._takes_stage(a):
+                continue
+            if isinstance(c, (list, tuple)) and c and start(c) > max(self.LATE_PICTURE, 0.3 * float(seconds or 0)):
+                out[i] = (a, [0.0, *c[1:]])
+                try:
+                    a.panim_line_start = True
+                except AttributeError:
+                    pass
+                out.sort(key=lambda g: start(g[1]))
+            break
         # A template's parts never before the template: a part said earlier in the line than the words the
         # template itself lands on waits for it (and its first breath on the screen).
-        start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
         owners = {id(a): c for a, c in out}
         moved = False
         for i, (a, c) in enumerate(out):
@@ -753,6 +773,19 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if moved:
             out.sort(key=lambda g: start(g[1]))
         return out
+
+    LATE_PICTURE = 1.2       # seconds into a line past which its new picture comes on as the line begins instead
+
+    @staticmethod
+    def _takes_stage(anim) -> bool:
+        """Whether an animation brings a new picture onto the stage (_to_stage), itself or inside a group."""
+        todo = [anim]
+        while todo:
+            a = todo.pop()
+            if getattr(a, "_m_replaces", False):
+                return True
+            todo.extend(getattr(a, "animations", None) or [])
+        return False
 
     def _moment(self, say, build, run: float | None = None) -> None:
         """Something that happens when the line says `say` (or, said nowhere, in its turn after the template); `say`
@@ -1889,7 +1922,8 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             name = fit(K.head(str(s.get("title", "")), 40, tone if not self.M.get("classic") else P.TITLE), hw - 1.0)
             big = K.number(str(s["value"]), 72, tone) if s.get("value") else None
             pic = self._pic(s.get("file"), 1.8, hw - 1.2)
-            pts = [fit(K.body("• " + str(p), 24, P.CREAM, 30), hw - 1.0) for p in (s.get("points") or [])[:4]]
+            pts = [fit(K.body("• " + str(p.get("text", "") if isinstance(p, dict) else p), 24, P.CREAM, 30), hw - 1.0)
+                   for p in (s.get("points") or [])[:4]]
             stack = [m for m in (pic, name, big) if m is not None] + pts
             content = (Group if pic is not None else VGroup)(*stack).arrange(DOWN, buff=0.25)
             if content.height > hh - 0.6:
@@ -2229,8 +2263,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if len(cols) == 2 and self.board_mode:
             return self.m_versus(cols[0], cols[1], title=title)
         if self.board_mode and len(cols) >= 2:
-            return self.m_cards([{"title": c.get("title"), "sub": " · ".join(c.get("points") or [])} for c in cols],
-                                title=title)
+            said = lambda x: str(x.get("text", "")) if isinstance(x, dict) else str(x)  # noqa: E731
+            return self.m_cards([{"title": c.get("title"), "sub": " · ".join(said(x) for x in c.get("points") or [])}
+                                 for c in cols], title=title)
         return super().compare_cards(columns, title)
 
     def define(self, term: str, meaning: str, entity: str | None = None):

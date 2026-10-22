@@ -117,7 +117,10 @@ the cache: nothing is spoken again) and play it as their clock.
    arrive (`motion.land_lead`: 0.12 s and a third of its run, 0.2 to 0.45 s), not by a fixed lead, so a long entrance
    is not still coming on after its word. A part never comes on before its template: one whose words the line says
    before the template's own is held until the template has begun (its start plus half its run, 0.6 s at most), so
-   the last picture has left and the new one is coming in when it lands.
+   the last picture has left and the new one is coming in when it lands. A new picture set on words that come late
+   in its line (past 1.2 s and past a third of it: a term defined at the end of its sentence) comes on as the line
+   begins instead (`MotionLecture.LATE_PICTURE`): the old picture stayed up while the line had moved on, and the
+   change came as it ended. Its parts still come on their own words. The sync probe does not count it an anchor.
 4. **Pointing.** A part of a template on screen whose name a later line says is pointed at the look's way (a
    column pulses and its value grows, a card lifts). On a large template (over half the stage), the first part a
    line names is **pushed in on** instead, as a camera would: the template scaled 1.12 about the part and drawn a
@@ -757,7 +760,10 @@ look's colours and fonts, with the look's entrances and transitions where they b
 `arrow` through three places or more draws each leg as its own gentle arc, joined (never one curve smoothed through
 them all, which swung past the middle place and hooked back); one that turns back on itself (more than 110° at a
 stop: France, then England, then Italy) is a spread, not a journey, and is drawn as an arrow from the first place to
-each of the others in turn, the label on the first (`MotionLecture.flow`).
+each of the others in turn, the label on the first (`MotionLecture.flow`). A map of an area (`"region": {"area":
+"Western Europe"}`) is fitted to every place its arrows, paths, journeys and markers reach, with room round them
+(more under them, for the caption), not to the area's own countries: an arrow into Spain or Italy on a map of
+Western Europe ran off the screen (`compile_motion._patched_chapter_frame`).
 
 ---
 

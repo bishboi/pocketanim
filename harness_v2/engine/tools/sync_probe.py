@@ -223,7 +223,8 @@ def run(scene_file: Path) -> list[dict]:
             a = todo.pop()
             todo.extend(getattr(a, "animations", None) or [])
             hit = pending.pop(id(a), None)
-            if hit is not None and hit["line"]["voice"] is not None:
+            # A new picture set late in its line comes on as the line begins (MotionLecture._on_words): not an anchor.
+            if hit is not None and hit["line"]["voice"] is not None and not getattr(a, "panim_line_start", False):
                 hit["line"].setdefault("anchors", []).append(
                     {"word": hit["word"], "said": hit["said"], "play": round(at - hit["line"]["voice"], 3)})
         result = real_play(self, *anims, **kw)

@@ -451,7 +451,8 @@ class FormTemplates:
             name = fit(K.head(str(s.get("title", "")), 32, P.TITLE if tone == P.MUTED else tone), cw - 0.4)
             big = K.number(str(s["value"]), 64, tone if tone != P.MUTED else P.TITLE) if s.get("value") else None
             pic = self._pic(s.get("file"), 1.9, cw - 0.4)
-            pts = [fit(K.body("• " + str(p), 22, P.CREAM, 30), cw - 0.3) for p in (s.get("points") or [])[:4]]
+            pts = [fit(K.body("• " + str(p.get("text", "") if isinstance(p, dict) else p), 22, P.CREAM, 30), cw - 0.3)
+                   for p in (s.get("points") or [])[:4]]
             stack = [m for m in (kick, pic, name, big) if m is not None] + pts
             col = (VGroup if pic is None else Group)(*stack).arrange(DOWN, buff=0.2, aligned_edge=LEFT)
             sides.append((s, col))

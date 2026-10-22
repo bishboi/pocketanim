@@ -481,7 +481,10 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
             if not isinstance(s, dict) or not s.get("title"):
                 return f"its {side} side needs a title"
             _picture_in(s)
-            s["points"] = [str(p) for p in s.get("points") or []][:4]
+            # A point is words, or {text, on} to come on as said (kept a dict, never written out as one).
+            s["points"] = [({"text": str(p["text"]), **({"on": str(p["on"])} if p.get("on") else {})}
+                            if isinstance(p, dict) else str(p))
+                           for p in s.get("points") or [] if not isinstance(p, dict) or p.get("text")][:4]
     elif kind == "share":
         total, part = _num(op.get("total")), _num(op.get("part"))
         if total is None or part is None or not 0 < part < total:
@@ -826,7 +829,8 @@ def _mend_forms(op: dict, kind: str, at: str, notes: list[str], most: int | None
             if not isinstance(op.get(side), dict) or not op[side].get("title"):
                 return f"its {side} needs a title"
             _picture_in(op[side])
-            op[side]["points"] = [str(p) for p in op[side].get("points") or []][:4]
+            op[side]["points"] = [str(p.get("text", "")) if isinstance(p, dict) else str(p)
+                                  for p in op[side].get("points") or []][:4]
     elif kind == "ranking":
         items = [i for i in _items(op, "items", "label") if i.get("label")]
         if len(items) < 2:
@@ -1007,11 +1011,73 @@ def _patched_paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
     return out
 
 
+def _map_points(chapter: dict) -> list:
+    """The places a map run's arrows, paths, journeys and markers name or give (lon, lat)."""
+    out = []
+    for beat in chapter.get("beats") or []:
+        for op in beat.get("do") or []:
+            if not isinstance(op, dict):
+                continue
+            kind = op.get("op")
+            if kind in ("path", "arrow"):
+                out += list(op.get("points") or [])
+            elif kind == "journey":
+                out += list(op.get("stops") or [])
+            elif kind == "marker":
+                out.append(op.get("place") or op.get("lonlat"))
+    return [p for p in out if p]
+
+
+def _patched_chapter_frame(chapter: dict, region: dict | None):
+    """The current engine's frame for a map run (compile_lecture._chapter_frame), widened to take in the places an
+    arrow, a path, a journey or a marker reaches outside the region: a map of "Western Europe" leaves out Spain and
+    Italy, and an arrow of the Germanic peoples into them ran off the screen."""
+    box = _ORIG["_chapter_frame"](chapter, region)
+    if not region:
+        return box
+    try:
+        import pocket_lecture as pl
+
+        bounds = pl.map_bounds(region)
+        home = None if pl.region_kind(region) == "area" else region.get("country")
+    except Exception:  # noqa: BLE001
+        return box
+    if not bounds:
+        return box
+    lons, lats = [], []
+    for where in _map_points(chapter):
+        try:
+            lon, lat = pl.place(where, home, bounds) if isinstance(where, str) else (float(where[0]), float(where[1]))
+        except Exception:  # noqa: BLE001 -- a place the gazetteer does not know is passed over
+            continue
+        lons.append(lon)
+        lats.append(lat)
+    if box is None and pl.region_kind(region) == "area" and len(lons) >= 2:
+        # The whole map of an area is fitted to its own countries' land (lonlat_bounds), not the box it is looked
+        # up in: fitted to every place the run reaches instead, with room round them (more under them, where the
+        # caption sits) so an arrow's head is never at the screen's edge.
+        pad = max(2.0, 0.18 * max(max(lons) - min(lons), max(lats) - min(lats)))
+        return (round(min(lons) - pad, 2), round(min(lats) - pad * 1.6, 2), round(max(lons) + pad, 2),
+                round(max(lats) + pad, 2))
+    base = box or tuple(bounds)
+    out = [(lon, lat) for lon, lat in zip(lons, lats)
+           if not (base[0] <= lon <= base[2] and base[1] <= lat <= base[3])]
+    if not out:
+        return box
+    pad = 2.0
+    x0 = min([base[0]] + [p[0] - pad for p in out])
+    y0 = min([base[1]] + [p[1] - pad for p in out])
+    x1 = max([base[2]] + [p[0] + pad for p in out])
+    y1 = max([base[3]] + [p[1] + pad for p in out])
+    return (round(max(x0, -180.0), 2), round(max(y0, -85.0), 2), round(min(x1, 180.0), 2), round(min(y1, 85.0), 2))
+
+
 def install() -> None:
     """Extend compile_lecture, in this process, with the motion templates."""
     if _ORIG:
         return
-    for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script", "paragraphs"):
+    for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script", "paragraphs",
+                 "_chapter_frame"):
         _ORIG[name] = getattr(cl, name)
     cl.KIT_OPS.update(MOTION_OPS)
     cl.PICTURE_MOVES = tuple(dict.fromkeys((*cl.PICTURE_MOVES, *CAMERA_MOVES)))
@@ -1028,6 +1094,7 @@ def install() -> None:
     cl.lint = _patched_lint
     cl.compile_script = _patched_compile_script
     cl.paragraphs = _patched_paragraphs
+    cl._chapter_frame = _patched_chapter_frame
     motion_looks.register_all()
 
 

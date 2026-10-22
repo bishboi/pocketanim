@@ -2032,8 +2032,23 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             split_state["pieces"][id(piece)] = piece
         # The parts are declared now, so the players draw them over whatever was declared before -- including what
         # the video draws over them (an equation written later on top of this one). What lies above them at the
-        # same depth is drawn again after them, in the video's order.
+        # same depth is drawn again after them, in the video's order: first what comes after the holder in its own
+        # group (a card's points, drawn on their own, came after its face; the face redrawn hid them), then what
+        # comes after the group on the stage.
         top = path[0]
+        after = False
+        for node in outermost_drawn(scene, top):
+            if node is holder or any(node is p for p in out) or holder in node.get_family():
+                after = after or any(node is p for p in out)
+                continue
+            if not after or z_order(node) != z_order(holder):
+                continue
+            for sub in node.get_family():
+                hide_drawn(sub)
+                rec.names.pop(id(sub), None)
+            show_pieces([node])
+            if not any(node is t for t in scene.mobjects):
+                split_state["pieces"][id(node)] = node
         depth = z_order(top)
         later = False
         for other in list(scene.mobjects):
@@ -2060,9 +2075,12 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         if not any(id(x) in split_state["broken"] for x in family):
             return
         for x in family:
-            if id(x) in split_state["pieces"] and x is not mob:
+            # Every part drawn on its own goes as the group is drawn whole again: the pieces of the split, and parts
+            # the program drew by themselves before it (a card's points faded in one by one), which stayed on
+            # stage, over every later scene, once the group left.
+            if x is not mob:
                 hide_drawn(x)
-                split_state["pieces"].pop(id(x), None)
+            split_state["pieces"].pop(id(x), None)
             split_state["broken"].discard(id(x))
         hide_drawn(mob)
         for x in family:

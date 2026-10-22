@@ -919,6 +919,15 @@ exporter's label pass (for placements a model guessed) leaves the engine's own l
 with no blockers** (`tools/export_scene.py`), and `dsl.verify_dsl` draws the program frame by frame against Manim's
 (mean 1% of pixels off; a lagged group's parts can run a little later in the players than in Manim's render).
 
+A picture whose parts come on one by one (a versus card's points faded in after its card) and of which one part is
+then pulsed (the card's title, said again) is drawn by the players as its parts while it is on (`dsl/export_dsl.py`,
+`split_for`), in the video's order: the card's face, redrawn as parts, is put back under the points it holds, which
+it had covered. When the picture leaves whole it is one picture again (`merge_for`), and every part the program drew
+on its own goes with it; before, the points stayed, hidden under the card while it was on and then over every later
+picture and the closing credits (a lord's points under a timeline). Checked with `tools/phone_check.py` against the
+Manim render of a ten-beat chapter (ask, define, migration, chain, versus, hierarchy, timeline, portrait, chain,
+stamp, credits): every frame within the limit, nothing left over at the end.
+
 ---
 
 ## 10. Running it and testing it

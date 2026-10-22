@@ -1,15 +1,16 @@
 """When each word of a spoken line is said, found on this machine: for a voice that does not say (Gemini, Chirp).
 
 ElevenLabs returns its words' times with the audio (eleven_tts.py). Other voices return only audio, so the line's
-own words are aligned to it here, by a small multilingual speech model run locally: Whisper (tiny by default, about
-75 MB, 99 languages, Hindi and English among them) through faster-whisper (CTranslate2, CPU). It is not asked what
+own words are aligned to it here, by a small multilingual speech model run locally: Whisper (small by default, about
+460 MB, 99 languages, Hindi and English among them; tiny, at 75 MB, timed Hinglish words loosely) through faster-whisper (CTranslate2, CPU). It is not asked what
 was said -- it is given the words, and where its attention moves in the audio as it reads each of them gives the
 word's start and end (forced alignment, the way faster-whisper times words). A line longer than Whisper's 30 s
 window is cut at the pauses near each 28 s and its words shared out by length.
 
 Settings:
   PANIM_LOCAL_ALIGN        off to never align locally (the animations then play as their lines begin)
-  PANIM_ALIGN_WHISPER      the model: tiny (default), base or small (more accurate, larger), or a folder
+  PANIM_ALIGN_WHISPER      the model: small (default), tiny or base (quicker, looser), medium or large-v3-turbo
+                           (more accurate, larger, slower on a CPU), or a folder
                            holding a CTranslate2 Whisper model
   PANIM_ALIGN_WHISPER_DIR  where a downloaded model is kept (harness/lecture/.cache/whisper)
 
@@ -57,7 +58,7 @@ def _load():
         except ImportError:
             _problem = "faster-whisper is not installed (pip install faster-whisper)"
             return None
-        name = (_env("PANIM_ALIGN_WHISPER") or "tiny").strip()
+        name = (_env("PANIM_ALIGN_WHISPER") or "small").strip()
         root = _env("PANIM_ALIGN_WHISPER_DIR") or str(HERE / ".cache" / "whisper")
         try:
             _model = WhisperModel(name, device="cpu", compute_type="int8", download_root=root, num_workers=4,

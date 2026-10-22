@@ -18,6 +18,8 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   into the program the phone plays, and expanded into the geometry v1's web player draws.
 - `espeak_tts.py`: an offline voice (`PANIM_TTS=espeak`, espeak-ng), registered in `tts.py`: free and robotic, for
   trying the voice step without a key, and for the checks.
+- `local_align`: Whisper `small` by default (v1: `tiny`, which timed Hinglish words loosely); `PANIM_ALIGN_WHISPER`
+  picks another. A line's words already aligned stay as they were (`.words.json` beside its audio) until removed.
 - `local_align.estimate`: when Whisper cannot be loaded, a line's words spread over its spoken stretches by length,
   each marked `"est"`; `pocket_lecture.line_words` uses an estimate but never keeps it, so Whisper times the line
   once it can.

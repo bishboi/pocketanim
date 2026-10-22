@@ -66,7 +66,7 @@ def lines(source: str) -> dict:
     import local_align
 
     return {"ok": True, "mode": mode, "lines": out,
-            "aligner": local_align.problem() or f"Whisper {(local_align._env('PANIM_ALIGN_WHISPER') or 'tiny')} "
+            "aligner": local_align.problem() or f"Whisper {(local_align._env('PANIM_ALIGN_WHISPER') or 'small')} "
                                                 "through faster-whisper"}
 
 

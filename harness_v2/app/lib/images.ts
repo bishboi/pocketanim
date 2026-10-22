@@ -5,6 +5,7 @@
  * says the model is not served that way, its Images API (input_references), and the way that works is remembered.
  */
 
+import { timeoutOrAbort } from "./abort";
 import { render, type Prompt } from "./prompts/parts";
 import { usingFixture } from "./llm";
 import type { Call } from "./types";
@@ -73,7 +74,7 @@ async function real(call: Call, text: string, reference?: string): Promise<Image
 
 async function post(url: string, body: unknown): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
-    method: "POST", signal: AbortSignal.timeout(TIMEOUT_MS),
+    method: "POST", signal: timeoutOrAbort(TIMEOUT_MS),
     headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "pocketanim harness v2" },
     body: JSON.stringify(body),
   });
@@ -119,7 +120,7 @@ function bill(call: Call, json: Record<string, unknown>) {
 async function bytesOf(url: string): Promise<ImageResult> {
   const m = /^data:(image\/[\w+.-]+);base64,([\s\S]*)$/.exec(url);
   if (m) return { bytes: Buffer.from(m[2], "base64"), mime: m[1] };
-  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+  const response = await fetch(url, { signal: timeoutOrAbort(60_000) });
   if (!response.ok) throw new Error(`the image could not be downloaded (${response.status})`);
   return { bytes: Buffer.from(await response.arrayBuffer()), mime: response.headers.get("content-type") ?? "image/png" };
 }

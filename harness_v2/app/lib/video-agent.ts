@@ -28,6 +28,7 @@ import { usingFixture } from "./llm";
 import { respond, useOpenAI } from "./openai-responses";
 import { engineDir } from "./maps";
 import { pythonPath, runPython } from "./manim";
+import { detachedForAbort, killOnAbort, stopped, timeoutOrAbort } from "./abort";
 import { part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
 import { fileUrl, scenesDir } from "./scenes";
@@ -216,7 +217,7 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         const sent = JSON.stringify(messages);
         call.usage = { input: Math.round(sent.replace(/data:image\/[^"]+/g, "").length / 4 + 800 * (sent.match(/data:image\//g)?.length ?? 0)), output: Math.round(JSON.stringify(f).length / 4) };
       } else {
-        const response = await fetch(URL_, { method: "POST", signal: AbortSignal.timeout(TIMEOUT_MS),
+        const response = await fetch(URL_, { method: "POST", signal: timeoutOrAbort(TIMEOUT_MS),
           headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "pocketanim harness v2" },
           body: JSON.stringify(body) });
         if (!response.ok || !response.body) {
@@ -292,8 +293,8 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
       call.ended = Date.now();
       return out;
     } catch (error) {
-      call.attempts.push({ started: began, ended: Date.now(), error: (error as Error).message.slice(0, 400) });
-      if (/\b(400|401|403|404)\b/.test((error as Error).message)) break;
+      call.attempts.push({ started: began, ended: Date.now(), error: stopped() ? "stopped" : (error as Error).message.slice(0, 400) });
+      if (stopped() || /\b(400|401|403|404)\b/.test((error as Error).message)) break;
     }
   }
   call.status = "failed";
@@ -359,13 +360,14 @@ function sh(command: string, cwd: string, timeout: number): Promise<{ code: numb
   return new Promise((resolve) => {
     const bin = path.dirname(pythonPath());
     const child = spawn("bash", ["-c", command], { cwd, env: { ...withoutSecrets(), PATH: `${bin}:${process.env.PATH ?? ""}`,
-      PANIM_NARRATION_DIR: cwd, PYTHONPATH: [cwd, path.join(engineDir(), "agent")].join(":") } });
+      PANIM_NARRATION_DIR: cwd, PYTHONPATH: [cwd, path.join(engineDir(), "agent")].join(":") }, detached: detachedForAbort() });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (out += d));
     const timer = setTimeout(() => { child.kill("SIGKILL"); out += `\nstopped: over ${timeout / 1000} s`; }, timeout);
-    child.on("close", (code) => { clearTimeout(timer); resolve({ code, out }); });
-    child.on("error", (e) => { clearTimeout(timer); resolve({ code: -1, out: String(e) }); });
+    const unwatch = killOnAbort(child, () => (out += "\nstopped"));
+    child.on("close", (code) => { clearTimeout(timer); unwatch(); resolve({ code, out }); });
+    child.on("error", (e) => { clearTimeout(timer); unwatch(); resolve({ code: -1, out: String(e) }); });
   });
 }
 
@@ -771,6 +773,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         // The level asked for was not taken by this model: the rest of the build at the one that was.
         settings.effort = call.effort as typeof settings.effort;
       }
+      if (o.stop?.()) {
+        agent.status = "stopped";
+        break;
+      }
       if (!answer) {
         step({ turn: k, kind: "error", call: call.id, text: call.error ?? "the model did not answer", ms: Date.now() - asked });
         await log({ kind: "error", turn: k, text: call.error ?? "the model did not answer" });
@@ -796,6 +802,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       let finished = false;
       const results: { name: string; ok: boolean }[] = [];
       for (const t of answer.calls) {
+        if (o.stop?.()) break;
         const args = safeJson(t.function.arguments);
         let r: Awaited<ReturnType<typeof run1>>;
         const began = Date.now();
@@ -817,6 +824,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         if (r.done) finished = true;
       }
       attachShown();
+      if (o.stop?.()) {
+        agent.status = "stopped";
+        break;
+      }
       // The next turn thinks at the level set unless this one only did mechanical work that went through.
       mechanical = results.every((x) => x.ok && (EASY.has(x.name) || (x.name === "phone_check")));
       if (finished) {
@@ -831,9 +842,10 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       }
     }
   } catch (error) {
-    agent.status = "failed";
-    agent.error = (error as Error).message.slice(0, 1200);
+    agent.status = o.stop?.() ? "stopped" : "failed";
+    if (agent.status === "failed") agent.error = (error as Error).message.slice(0, 1200);
   } finally {
+    if (agent.status === "running") agent.status = o.stop?.() ? "stopped" : "failed";
     agent.live = undefined;
     agent.ended = Date.now();
     await log({ kind: "end", status: agent.status, error: agent.error ?? null, summary: agent.summary ?? null, turns: agent.turns, cost: agent.cost });

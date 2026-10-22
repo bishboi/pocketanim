@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { engineDir } from "./maps";
+import { stopped, withAbort } from "./abort";
 import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { fileUrl, scenesDir, scriptOf } from "./scenes";
@@ -33,7 +34,10 @@ const TOOLS = () => path.join(engineDir(), "tools");
 /** The look built in when none is chosen: a screenshot of a Vox-like chapter built in free Manim. */
 export const DEFAULT_STYLE = () => path.join(engineDir(), "agent", "style-vox.jpg");
 
-const busy = ((globalThis as { __v2videoBusy?: Map<string, { stop: boolean }> }).__v2videoBusy ??= new Map());
+/** What is being worked on now, by "<run>|<lecture>|<chapter or all>": its stop flag, and the abort that ends its model
+ * calls and kills its processes at once (lib/abort.ts). */
+type Job = { stop: boolean; abort: AbortController };
+const busy = ((globalThis as { __v2videoBusy?: Map<string, Job> }).__v2videoBusy ??= new Map());
 
 export function videoOf(run: Run): VideoState {
   return (run.video ??= { settings: {}, chapters: {} });
@@ -108,7 +112,7 @@ export async function narrate(run: Run, n: number, c: number): Promise<void> {
     // A new narration: what was built to the old one is out of time with it.
     if (cv.build) cv.build = { ...cv.build, blockers: [...cv.build.blockers.filter((b) => !b.startsWith("narration")), "narration spoken again since: build again"] };
   } catch (error) {
-    cv.narration = { ...cv.narration, status: "failed", ended: Date.now(), error: (error as Error).message.slice(0, 1200) };
+    cv.narration = { ...cv.narration, status: "failed", ended: Date.now(), error: stopped() ? "stopped" : (error as Error).message.slice(0, 1200) };
   } finally {
     clearInterval(timer);
     saveRun(run, true);
@@ -150,7 +154,7 @@ async function saveStyle(runId: string, dataUrl: string): Promise<string> {
 }
 
 /** One chapter: its narration (unless spoken already), then the agent. */
-async function chapterThrough(run: Run, n: number, c: number, note: string | undefined, flag: { stop: boolean }) {
+async function chapterThrough(run: Run, n: number, c: number, note: string | undefined, flag: Job) {
   const cv = chapterVideo(run, n, c);
   if (cv.narration?.status !== "done" || !(await timingOf(run.id, n, c))) await narrate(run, n, c);
   if (flag.stop || cv.narration?.status !== "done") return;
@@ -175,8 +179,28 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
     return run;
   }
   if (a.action === "stop") {
-    for (const [key, flag] of busy) if (key.startsWith(`${id}|${a.lecture}|`) && (a.chapter === undefined || key === `${id}|${a.lecture}|${a.chapter}`)) flag.stop = true;
-    for (const [key, flag] of busy) if (key === `${id}|${a.lecture}|all`) flag.stop = true;
+    const stop = (flag: Job) => {
+      flag.stop = true;
+      flag.abort.abort();             // the model call in flight ends, the render or voice running is killed
+    };
+    for (const [key, flag] of busy) if (key.startsWith(`${id}|${a.lecture}|`) && (a.chapter === undefined || key === `${id}|${a.lecture}|${a.chapter}`)) stop(flag);
+    for (const [key, flag] of busy) if (key === `${id}|${a.lecture}|all`) stop(flag);
+    // A chapter still marked as running with nothing working on it (the server restarted mid-build): stopped now, so
+    // it can be built again.
+    let orphans = false;
+    for (const cv of Object.values(vs.chapters)) {
+      if (cv.lecture !== a.lecture || (a.chapter !== undefined && cv.chapter !== a.chapter)) continue;
+      if (busy.has(`${id}|${cv.lecture}|${cv.chapter}`) || busy.has(`${id}|${cv.lecture}|all`)) continue;
+      if (cv.agent?.status === "running") {
+        cv.agent = { ...cv.agent, status: "stopped", live: undefined, ended: Date.now() };
+        orphans = true;
+      }
+      if (cv.narration?.status === "running") {
+        cv.narration = { ...cv.narration, status: "failed", ended: Date.now(), error: "stopped" };
+        orphans = true;
+      }
+    }
+    if (orphans) saveRun(run, true);
     return run;
   }
   if (a.action === "reset") {
@@ -202,9 +226,9 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
     }
     saveRun(run, true);
   }
-  const flag = { stop: false };
+  const flag: Job = { stop: false, abort: new AbortController() };
   busy.set(key, flag);
-  void (async () => {
+  void withAbort(flag.abort.signal, async () => {
     try {
       for (const c of chapters) {
         if (flag.stop) break;
@@ -228,7 +252,7 @@ export async function videoAction(id: string, a: VideoAction): Promise<Run> {
       busy.delete(key);
       saveRun(run, true);
     }
-  })();
+  });
   return run;
 }
 

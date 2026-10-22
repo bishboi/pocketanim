@@ -87,6 +87,10 @@ phone's own code first when the player is built. **Speak and build every chapter
 a note for the agent goes with a build. **Build again** lets the agent improve the scene it wrote before; **Reset and
 rebuild** throws the chapter's video away (everything the agent wrote, its renders, export, log and result) and builds it
 from scratch, keeping the voice (`lines.json`, `chapter.wav`, `timing.json`); **Reset** throws away the voice too.
+**Stop** stops at once: the model's answer being written is cut off, and a render, export, voice or command running
+is killed with everything it started (`app/lib/abort.ts`: a build runs in an abort scope that its model calls and
+processes listen to); the chapter is marked stopped and can be built again. A chapter left marked as running by a
+server restart is marked stopped by Stop too.
 Everything is under `.data/runs/<run>/scenes/video/L<n>/C<c>/`.
 
 **The older engines are set aside**: the lecture engine's **Scenes**, **Voice** and **Lab** tabs (and the motion engine

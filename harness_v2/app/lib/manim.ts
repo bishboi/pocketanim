@@ -8,6 +8,7 @@
  * its own process, in its own folder, with a time limit.
  */
 
+import { detachedForAbort, killOnAbort } from "./abort";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
@@ -71,7 +72,7 @@ export function pythonPath(): string {
 export function runPython(args: string[], cwd: string, env: Record<string, string> = {}, input?: string, timeout = TIMEOUT_MS):
   Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn(pythonPath(), args, { cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", ...env } });
+    const child = spawn(pythonPath(), args, { cwd, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", ...env }, detached: detachedForAbort() });
     let stdout = "";
     child.stdout.on("data", (d) => (stdout += d));
     if (input !== undefined) child.stdin.end(input);
@@ -82,12 +83,16 @@ export function runPython(args: string[], cwd: string, env: Record<string, strin
       child.kill("SIGKILL");
       out += `\nstopped: over ${timeout / 1000} s`;
     }, timeout);
+    // A stopped job kills it (and the renders and encoders it started).
+    const unwatch = killOnAbort(child, () => (out += "\nstopped"));
     child.on("close", (code) => {
       clearTimeout(timer);
+      unwatch();
       resolve({ code, out, stdout });
     });
     child.on("error", (error) => {
       clearTimeout(timer);
+      unwatch();
       resolve({ code: -1, out: String(error), stdout });
     });
   });

@@ -10,6 +10,8 @@
  * conversation stays in chat form for the rest of v2 and is turned into the Responses API's items here.
  */
 
+import { timeoutOrAbort } from "./abort";
+
 export type ChatMsg = { role: "system" | "user" | "assistant" | "tool"; content: unknown; tool_calls?: unknown[]; tool_call_id?: string;
   /** The Responses API's own output for this assistant turn (its reasoning, words and calls), sent back as it came. */
   _openai?: unknown[] };
@@ -64,14 +66,14 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
     tool_choice: "required", parallel_tool_calls: true,
     ...(reasoning ? { reasoning: withSummary ? reasoning : { effort: reasoning.effort }, include: ["reasoning.encrypted_content"] } : {}),
   });
-  let response = await fetch(`${BASE()}/responses`, { method: "POST", signal: AbortSignal.timeout(o.timeoutMs),
+  let response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
   if (!response.ok && reasoning && reasoning.effort !== "high" && response.status === 400) {
     // A reasoning level this model does not take (max, xhigh on an older one): the same turn at high.
     const said = await response.clone().text();
     if (/effort/i.test(said)) {
       reasoning = { ...reasoning, effort: "high" };
-      response = await fetch(`${BASE()}/responses`, { method: "POST", signal: AbortSignal.timeout(o.timeoutMs),
+      response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
     }
   }
@@ -79,7 +81,7 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
     const said = await response.text();
     // An organisation not verified for reasoning summaries: the same turn, its reasoning kept but not shown.
     if (reasoning && response.status === 400 && /summar/i.test(said)) {
-      response = await fetch(`${BASE()}/responses`, { method: "POST", signal: AbortSignal.timeout(o.timeoutMs),
+      response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(false) });
       if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`);
     } else {

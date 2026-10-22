@@ -3195,6 +3195,8 @@ class Lecture(Scene):
             return given
         counts = SYNC.setdefault(self.__dict__.get("_chapter_no", 0), {"beats": 0, "on_words": 0, "pointed": 0})
         out, hinted, timed = [], set(), 0
+        # The word each timed cue is on (by the cue list's id): a look that lands things on their words reads it.
+        self._word_cues = {}
         for anim, cue in given:
             alts = getattr(anim, "panim_alts", None)
             if alts:
@@ -3209,6 +3211,7 @@ class Lecture(Scene):
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
                 run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else PrimitiveRun.SHOW
                 cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.0)]
+                self._word_cues[id(cue)] = at
                 if isinstance(anim, SimpleNamespace):
                     anim.panim_heard = True
                 hinted.add(_norm(said))

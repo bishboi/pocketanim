@@ -186,7 +186,11 @@ label is written `{"name": "<label>", "on": "<words>"}`.
 
 The compiler checks each anchor against the line as the voice will say it (`compile_lecture.anchors`): kept when the
 line says it, mended to the line's own words when a word is a little off (`fixed: ... "on": "Granaries" is
-"granary" in its line`), refused when the line does not say it. An anchor of one word of two letters or fewer
+"granary" in its line`) or written another way: a matra dropped, or the other script ("Japan" for जापान), compared by
+the word's consonants in one alphabet (`compile_lecture._skeleton`); and when the line does not say it in any
+spelling, taken off with a note (`fixed: ... is not in its line: it comes on in its turn`), the beat playing on. A
+part with no anchor of its own whose name the line says in another spelling is timed by the line's words for it
+(`fixed: ... 'Kyushu' is timed by 'क्यूशू' in its line`). An anchor of one word of two letters or fewer
 (है, थे, "Wu"), too short to be found on its own, is mended to the two words it is said with ("ऊपर थी"). A part's anchor is kept by its name for the line
 (`self.spoken_as({...})` before the beat), and the engine times the part by it (`Lecture.spoken_as`, `_said`).
 

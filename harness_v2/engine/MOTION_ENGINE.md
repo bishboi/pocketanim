@@ -84,19 +84,29 @@ lands on the first of its own words the line says.
 
 ## 2. How a beat plays, in motion
 
-1. **The voice starts.** If the look wipes, a sheet of the accent sweeps across the board first, taking the last
-   picture away under it (about 0.6 s of the line).
+1. **The voice starts.** If the look wipes, a sheet of the accent covers the board just before the voice and
+   uncovers it under the line's first words: the cut lands as the line starts. The cover's time is taken from the
+   line's own pause after it, so the chapter is as long as before.
 2. **The picture's choreography.** A template comes on as it was designed to: its title typed, then its body (a
    chart's baseline drawn, the columns rising one after another, the values popping over them). Parts overlap: each
    starts before the last has landed. The old picture leaves the look's way (slid out, pushed up, zoomed past).
 3. **Moments on words.** Parts held back come on as the line says them: a chain's next step and the arrow to it, a
    group of units coloured, a card's tick, a phrase highlighted, a timeline's event. A part not said comes on in its
-   turn after the template is in.
+   turn after the template is in. Each lands on its words: it starts early by as much of its run as it takes to
+   arrive (`motion.land_lead`: 0.12 s and a third of its run, 0.2 to 0.45 s), not by a fixed lead, so a long entrance
+   is not still coming on after its word.
 4. **Pointing.** A part of a template on screen whose name a later line says is pointed at the look's way (a
-   column pulses and its value grows, a card lifts). `emphasis` points on purpose (§3).
-5. **Idle.** What is up keeps moving gently (a float or a slow drift, played by the players themselves), so
+   column pulses and its value grows, a card lifts). On a large template (over half the stage), the first part a
+   line names is **pushed in on** instead, as a camera would: the template scaled 1.12 about the part and drawn a
+   third of the way to the middle (the part kept whole on the screen), held, and eased back before the line ends
+   (`MotionLecture._push_on`; moves the players apply). `emphasis` points on purpose (§3).
+5. **Match cuts.** When the next picture shows a word or a figure the one leaving shows too, in a like size (a
+   counter's "60%" in the next card, a term defined and then a headline), a copy of it flies to its place in the new
+   picture, taking its size, and dissolves into it as the new picture's own word comes on (`_carry_from`,
+   `_carry_into`; two at most a change).
+6. **Idle.** What is up keeps moving gently (a float or a slow drift, played by the players themselves), so
    nothing is frozen while the voice goes on.
-6. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
+7. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
    scratch (sfx.py).
 
 Each animation asks for its own length (from the look's tokens, §7), and the beat gives it that length. When the

@@ -45,6 +45,11 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   the first of its own words the line says (`compile_lecture._shown_words`, passed as `said=[...]`;
   `Lecture._on_words` takes the first said). A picture is timed by its caption or title only: its labels have their
   own words.
+- **Anchors in any spelling** (`compile_lecture.anchors`): an anchor the line says written another way (a matra
+  dropped, "Japan" for जापान) is found by its consonants in one alphabet (`_skeleton`); one the line does not say at
+  all is taken off with a note instead of refusing the beat (no call spent mending it); a part with no anchor whose
+  name the line says another way is timed by the line's words for it. `Lecture._on_words` keeps the word each timed
+  cue is on (`_word_cues`), which the motion engine lands its animations on (`motion.land_lead`).
 - `picture_judge.py`: with `PANIM_PICTURE_JUDGE` set (a decision model: Jev), whether a picture asked for is one made
   before is the model's answer (show it again, draw a new one matching it, or draw fresh), from the earlier pictures'
   words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures

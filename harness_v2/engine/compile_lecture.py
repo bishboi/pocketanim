@@ -3049,21 +3049,57 @@ def no_key_points(script: dict, warnings: list[str]) -> None:
 NAMED_BY = ("label", "text", "title", "name", "term", "date")
 
 
+# Devanagari consonants as the Latin letters a Hinglish line writes them with (an aspirate as its plain letter):
+# the skeleton of "जापान" is the skeleton of "Japan".
+_DEVA = dict(pair.split(":") for pair in (
+    "क:k ख:k ग:g घ:g ङ:n च:c छ:c ज:j झ:j ञ:n ट:t ठ:t ड:d ढ:d ण:n त:t थ:t द:d ध:d न:n प:p फ:p ब:b भ:b म:m "
+    "य:y र:r ल:l व:v श:s ष:s स:s ह:h").split())
+_LATIN_PAIRS = (("ch", "c"), ("sh", "s"), ("kh", "k"), ("gh", "g"), ("th", "t"), ("dh", "d"), ("ph", "p"),
+                ("bh", "b"), ("jh", "j"), ("w", "v"), ("z", "j"), ("q", "k"), ("x", "ks"), ("f", "p"))
+
+
+def _skeleton(text: str) -> str:
+    """A word's consonants, in one alphabet: Devanagari's vowel signs, viramas and nasal marks dropped and its
+    consonants written in Latin; Latin's vowels dropped and its digraphs made one letter. Two spellings of one word
+    (a matra missed, "Japan" and "जापान") have one skeleton."""
+    import unicodedata
+
+    out = []
+    for c in unicodedata.normalize("NFC", str(text).lower()):
+        if c in _DEVA:
+            out.append(_DEVA[c])
+        elif "a" <= c <= "z" or c.isdigit():
+            out.append(c)
+    latin = "".join(out)
+    for a, b in _LATIN_PAIRS:
+        latin = latin.replace(a, b)
+    return "".join(c for c in latin if c not in "aeiouy" or c.isdigit())
+
+
 def _closest(spoken: list[str], wanted: str) -> str | None:
     """The run of the line's words most like `wanted` (a word misspelt, a plural, a matra dropped), when it is close
-    enough to be the same words; None when no run is."""
+    enough to be the same words; None when no run is. Compared as written, then by skeleton (_skeleton: the same
+    consonants in either script), so a matra dropped or a name written in the other script is still found."""
     import difflib
 
     size = max(1, len(wanted.split()))
     target = wanted.lower()
-    best, found = 0.0, None
+    bone = _skeleton(wanted)
+    best, found, best_bone, found_bone = 0.0, None, 0.0, None
     for n in {max(1, size - 1), size, size + 1}:
         for i in range(0, max(1, len(spoken) - n + 1)):
             run = " ".join(spoken[i:i + n]).strip(".,;:!?।॥\"'“”‘’()")
             score = difflib.SequenceMatcher(None, run.lower(), target).ratio()
             if score > best:
                 best, found = score, run
-    return found if best >= 0.75 else None
+            if len(bone) >= 2:
+                other = _skeleton(run)
+                score = difflib.SequenceMatcher(None, other, bone).ratio() if len(other) >= 2 else 0.0
+                if score > best_bone:
+                    best_bone, found_bone = score, run
+    if best >= 0.75:
+        return found
+    return found_bone if best_bone >= 0.85 else None
 
 
 def _short_word_phrase(spoken: list[str], wanted: str) -> str | None:
@@ -3118,8 +3154,10 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                         # A small word (है, थे, गए, "Wu") is too short to find on its own: the words round it.
                         near = short
                     if near is None or pl.said_at(words, near) is None:
-                        errors.append(f"chapter {ci} beat {bi}: {where}: \"on\": {on!r} is not in its line; copy the "
-                                      "words it lands on from the line exactly as written (or \"start\")")
+                        # Not in the line in any spelling: the part comes on in its turn (not a refusal: the beat
+                        # plays, and no call is spent asking for the words again).
+                        warnings.append(f"fixed: chapter {ci} beat {bi}: {where}: \"on\": {on!r} is not in its line: "
+                                        "it comes on in its turn")
                         holder.pop("on", None)
                         return
                     warnings.append(f"fixed: chapter {ci} beat {bi}: {where}: \"on\": {on!r} is {near!r} in its line")
@@ -3146,6 +3184,15 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                         check(value, f"{where} {name!r}" if name else where, name)
                         if not motion:
                             value.pop("on", None)
+                    elif name and len(name) >= 3 and pl.said_at(words, name) is None:
+                        # A part with no words of its own whose name the line says in another spelling (a matra,
+                        # the other script, a plural): timed by the line's words for it.
+                        near = _closest(spoken, name)
+                        if near is not None and pl.said_at(words, near) is not None:
+                            alias[name] = near
+                            if motion:
+                                value["on"] = near
+                            warnings.append(f"fixed: chapter {ci} beat {bi}: {where} {name!r} is timed by {near!r} in its line")
                     for key, inner in value.items():
                         if key != "on":
                             inside(inner, where, depth + 1)

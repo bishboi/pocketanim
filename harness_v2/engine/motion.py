@@ -65,6 +65,14 @@ Z_TEMPLATE = Z_MARK + 10
 TITLE_ROOM = 0.75           # the band at the top of a template its title takes
 
 
+def land_lead(run: float) -> float:
+    """How long before its word an animation of `run` seconds starts, so it has arrived as the word is heard: the
+    looks' eases do most of their travel in the first third of the run (ease_out_cubic is 70% there at 0.33), so a
+    little more than a third of it, with the engine's SYNC_LEAD the least and 0.45 s the most (a long choreography
+    has its first part up early in it; earlier, a thing is up before the voice has come to it)."""
+    return round(min(0.45, max(pl.SYNC_LEAD, 0.12 + 0.3 * float(run))), 3)
+
+
 def _slug(text) -> str:
     return re.sub(r"[^\w]+", "-", str(text).strip().lower()).strip("-")
 
@@ -170,12 +178,108 @@ class MotionLecture(MoreTemplates, MapLecture):
             entrance = K.enter(group, how, side="right", run=K.t("base"))
             K.idle(group)
             draw = None
+        leaving = self._carry_from(group) if not still and self._replaces(group) else []
         anim = super()._to_stage(group, draw=draw, still=still, entrance=entrance)
         if anim is not None and entrance is not None and getattr(entrance, "panim_run", None):
             run = float(entrance.panim_run) + (0.35 if isinstance(anim, AnimationGroup) and anim is not entrance
                                                and getattr(anim, "lag_ratio", 0) == 1.0 else 0)
             K.timed(anim, run, getattr(entrance, "panim_sfx", None))
+        glides = self._carry_into(group, leaving)
+        if anim is not None and glides:
+            run = max(float(getattr(anim, "panim_run", 0) or 0), self.CARRY_RUN)
+            anim = K.timed(AnimationGroup(anim, *glides), run, getattr(anim, "panim_sfx", None))
         return anim
+
+    # ---------------------------------------------------------------- continuity: a match cut -------------------
+    # When the next picture shows a word or a figure the one leaving shows too (a counter's "60%" in the next card,
+    # a term defined and then a headline), that word does not simply go with the old picture: a copy of it flies
+    # to its place in the new one, taking its size, and dissolves into it as the new picture's own word comes on.
+    # The old picture's word is hidden as the copy takes off. A fade with a shift and a scale (the players' own).
+    CARRY_RUN = 0.8          # seconds the carried word takes to reach its new place
+    CARRY_MOST = 2           # words carried at one change of picture
+
+    @staticmethod
+    def _carry_key(m) -> str:
+        text = str(getattr(m, "text", "") or "").strip()
+        return re.sub(r"\s+", " ", text).lower()
+
+    def _replaces(self, group) -> bool:
+        """Whether the engine's _to_stage takes the picture up away for this one (not a card put in the panel beside
+        it, nor a second picture of the same beat put beside the first): only then is anything carried across."""
+        body = self.stage_body
+        if self._panel_up() and getattr(group, "is_text_card", False) and body is not None \
+                and not getattr(body, "is_text_card", False) and len(body.get_family()) > 1:
+            return False
+        return not (len(self._beat_new) == 1 and body is self._beat_new[0] and len(group.get_family()) > 1
+                    and body is not None and len(body.get_family()) > 1)
+
+    def _carry_from(self, group) -> list:
+        """(old, new) pairs: words of the template(s) leaving the stage that the new picture shows too, the same
+        words in a like size (a headline's word is not carried into a chart's small label)."""
+        if not isinstance(group, Mobject):
+            return []
+        new_family = {id(x) for x in group.get_family()}
+        on_screen = {id(x) for top in self.mobjects for x in top.get_family()}
+        old_wholes = [w for w in self._mwhole.values() if id(w) not in new_family and id(w) in on_screen]
+        if not old_wholes:
+            return []
+        texts = lambda mobs: [m for w in mobs for m in w.get_family()  # noqa: E731
+                              if isinstance(m, Text) and len(self._carry_key(m)) >= 2 and m.get_fill_opacity() > 0.5]
+        olds = texts(old_wholes)
+        pairs, used = [], set()
+        for n in texts([group]):
+            key = self._carry_key(n)
+            if key in pl.SAY_STOP or not re.search(r"\w", key):
+                continue
+            o = next((o for o in olds if id(o) not in used and self._carry_key(o) == key
+                      and 0.4 <= n.height / max(o.height, 1e-3) <= 2.5), None)
+            if o is None:
+                continue
+            used.add(id(o))
+            pairs.append((o, n))
+            if len(pairs) >= self.CARRY_MOST:
+                break
+        return pairs
+
+    def _carry_into(self, group, pairs: list) -> list:
+        """The flights of the carried words, from where they stand to their places in the new picture (where it now
+        stands): a copy of each, the old picture's own hidden from now (so its exit does not take a second one)."""
+        glides = []
+        for o, n in pairs:
+            flier = o.copy()
+            pl.set_drift([flier], None)
+            flier.set_z_index(Z_TEMPLATE + 5)
+            self.add(flier)
+            o.set_opacity(0)
+            k = n.height / max(o.height, 1e-3)
+            glides.append(K.timed(FadeOut(flier, shift=n.get_center() - o.get_center(), scale=k, rate_func=smooth),
+                                  self.CARRY_RUN, "swish"))
+        return glides
+
+    def _beside(self, group):
+        """The engine's picture and words side by side, with room made when the words come: a template up whole
+        (one with no parts still to come on) keeps the whole stage until the card beside it is said, and slides
+        to its half as the card comes on, instead of standing small in one half with the other empty all the line."""
+        import stem
+
+        first = self.stage_body
+        whole = first is not None and any(first is w for w in self._mwhole.values())
+        if not whole or getattr(group, "is_text_card", False) is False or self.stage_pending or self.stage_extra \
+                or getattr(first, "is_text_card", False) or self._panel_up():
+            return super()._beside(group)
+        before = (np.array(first.get_center(), dtype=float), float(first.width))
+        anim = super()._beside(group)
+        if self.stage_body is not first or first.width <= 0 or before[1] <= 0:
+            return anim
+        after = (np.array(first.get_center(), dtype=float), float(first.width))
+        f = after[1] / before[1]
+        # Back to the whole stage until the card comes: then the move to its half, with the card's entrance.
+        first.scale(1 / f).move_to(before[0])
+        pl.follow_drift([first], 1 / f, after[0], before[0] - after[0])
+        room = stem._moving(first.animate(rate_func=smooth).scale(f).move_to(after[0]))
+        K.timed(room, K.t("base"), "swish")
+        pl.follow_drift([first], f, before[0], after[0] - before[0])
+        return AnimationGroup(room, anim) if anim is not None else room
 
     def _stage_leaving(self) -> list:
         """The engine's fade-outs for what leaves the stage, made the look's exit: slid out (the way the next
@@ -202,14 +306,26 @@ class MotionLecture(MoreTemplates, MapLecture):
                 out.append(anim)
         return out
 
+    def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None, cues: list | None = None) -> float:
+        """The engine's; a line that wipes to a new picture covers the old one just before its voice (_speak), and
+        takes that time back from its own pause after it, so the chapter is as long as before."""
+        if self._wipe_old:
+            pad = max(0.12, (pl.beat_pad(text) if pad is None else pad) - K.t("fast"))
+        return super().beat(text, *anims, rt=rt, pad=pad, cues=cues)
+
     def _speak(self, wav, seconds: float) -> None:
-        """The line's voice; then, under it, a wipe across the board when the look wipes from one picture to the
-        next (the old picture taken away under it)."""
-        super()._speak(wav, seconds)
+        """The line's voice; when the look wipes from one picture to the next, the sheet covers the old picture just
+        before the voice begins and uncovers the board under its first words: the cut lands as the line starts, and
+        what the line names first is not held back behind a wipe that took the line's first half second."""
         old = [m for m in self._wipe_old if any(m is x for x in self.mobjects)]
         self._wipe_old = []
         if not old:
+            super()._speak(wav, seconds)
             return
+        # Never over the line before: the cover waits for its voice to end (as the engine's _speak does).
+        still = self.__dict__.get("_voice_until", 0.0) - float(getattr(self.renderer, "time", 0.0) or 0.0)
+        if still > 0.02:
+            self.wait(still)
         fw, fh = config.frame_width, config.frame_height
         bx, by, bw, bh = self.STAGE
         sheet = Rectangle(width=bw + 1.0, height=bh + 0.6, stroke_width=0, fill_color=K.col("accent"),
@@ -225,9 +341,10 @@ class MotionLecture(MoreTemplates, MapLecture):
         anim = wipe.animate(rate_func=ease_out_cubic).move_to([bx, by, 0])
         self.play(K.timed(anim.build(), run, "swish"), run_time=run)
         self.remove(*old)
+        super()._speak(wav, seconds)
         self.play(wipe.animate(rate_func=ease_in_cubic).move_to([bx + fw, by, 0]), run_time=run)
         self.remove(wipe)
-        self._lead += 2 * run
+        self._lead += run
 
     def _wait_until(self, elapsed: float, until: float, swaps) -> float:
         # A transition played at the line's start took its time from the line: the line's clock counts it.
@@ -237,9 +354,13 @@ class MotionLecture(MoreTemplates, MapLecture):
         return super()._wait_until(elapsed, until, swaps)
 
     def _cue_plan(self, given: list, extra: list, seconds: float, default: float) -> list:
-        """As the engine's, each animation given the time it asked for (panim_run) instead of a blanket one."""
+        """As the engine's, each animation given the time it asked for (panim_run) instead of a blanket one; and one
+        timed to a word lands on it: started early by as much of its run as it takes to arrive (land_lead), not by
+        the engine's fixed SYNC_LEAD, so a long entrance is not still coming on after its word."""
+        heard = self.__dict__.get("_word_cues") or {}
         fixed = []
         for anim, cue in given:
+            at = heard.get(id(cue)) if isinstance(cue, list) else None
             run = getattr(anim, "panim_run", None)
             if run is not None:
                 run = min(float(run), motion_looks.TEMPLATE_MOST)  # a whole entrance quick enough to finish before the next
@@ -247,27 +368,86 @@ class MotionLecture(MoreTemplates, MapLecture):
                 cue = [cue[0], float(run)]
             elif run is not None and not cue:
                 cue = [0.0, float(run)]
+            if at is not None and isinstance(cue, (list, tuple)) and cue:
+                cue = [round(max(0.0, at - land_lead(cue[1] if len(cue) > 1 and cue[1] else pl.PrimitiveRun.SHOW)), 3),
+                       *cue[1:]]
             fixed.append((anim, cue))
         return super()._cue_plan(fixed, extra, seconds, default)
 
     def _pointers(self, words, seconds: float, hinted: set) -> list:
-        """The engine's pointing at things the line names again, done the look's way for a template's part."""
+        """The engine's pointing at things the line names again, done the look's way for a template's part; the
+        first part of a large template the line names is pushed in on instead (_push_on), as a camera would."""
         out = []
         coming = self.__dict__.get("_m_arriving") or set()
+        pushed: set = set()
         for anim, cue in super()._pointers(words, seconds, hinted):
             mob = getattr(anim, "mobject", None)
             if mob is not None and any(id(x) in coming for x in mob.get_family()):
                 # Brought on by this line (an event on its date, said here): a pulse on it as well fought its
                 # entrance, and the flag never showed.
                 continue
+            if mob is not None and any(id(x) in pushed for x in mob.get_family()):
+                # On the template the camera pushed in on: built where it stood before the push, a mark would sit
+                # beside its part; the push is this line's pointing.
+                continue
             point = getattr(mob, "_m_point", None)
             if point is not None and type(anim).__name__ == "ScaleInPlace":
+                if not pushed:
+                    push = self._push_on(mob, float(cue[0]), seconds)
+                    if push:
+                        out.extend(push)
+                        pushed = {id(x) for x in push[0][0].mobject.get_family()}
+                        continue
                 made = point()
                 if made is not None:
                     out.append((made, [cue[0], float(getattr(made, "panim_run", 0.7))]))
                     continue
             out.append((anim, cue))
         return out
+
+    PUSH = 1.12              # how far the camera pushes in on a part of a template the line names again
+    PUSH_RUN = 0.7           # seconds in, and as many back out
+
+    def _push_on(self, part, start: float, seconds: float) -> list:
+        """A camera push on a part of a large template the line names again: the whole template scaled up about the
+        part and drawn a third of the way to the stage's middle, held while the line is on it, and eased back before
+        the line ends (both written as moves the players apply, stem._moving). [] when the template is small (a
+        push on a card says nothing a pulse does not), or the line leaves too little time to come back."""
+        import stem
+
+        whole = next((self._mwhole.get(tid) for tid, parts in self._mparts.items()
+                      if any(p is part for p in parts.values())), None)
+        if whole is None or not any(whole is m for top in self.mobjects for m in top.get_family()):
+            return []
+        cx, cy, w, h = self.STAGE
+        if whole.width < w * 0.55 and whole.height < h * 0.55:
+            return []
+        back_at = min(seconds - 0.25, start + self.PUSH_RUN + 1.6)
+        if back_at - start < self.PUSH_RUN + 0.5:
+            return []
+        p = np.array(part.get_center(), dtype=float)
+        shift = (np.array([cx, cy, 0.0]) - p) * 0.33
+        f = self.PUSH
+        # The part pushed on stays whole on the screen (a margin in): the push is about it, so it is scaled about
+        # its own centre and only the shift can carry it out; the shift is cut back to keep it in.
+        half = np.array([part.width, part.height, 0.0]) * f / 2
+        lim = np.array([config.frame_width / 2 - 0.35, config.frame_height / 2 - 0.35, 0.0])
+        lo, hi = -lim + half, lim - half
+        target = p + shift
+        if np.all(lo[:2] <= hi[:2]):
+            target[:2] = np.clip(target[:2], lo[:2], hi[:2])
+        else:
+            return []           # a part too large to push on and keep whole
+        shift = target - p
+        go = stem._moving(whole.animate(rate_func=smooth).scale(f, about_point=p).shift(shift))
+        K.timed(go, self.PUSH_RUN, "whoosh")
+        # Built now, played later: the way back is from where the push left it (the exact inverse).
+        whole.scale(f, about_point=p).shift(shift)
+        back = stem._moving(whole.animate(rate_func=smooth).scale(1 / f, about_point=p + shift).shift(-shift))
+        whole.scale(1 / f, about_point=p + shift).shift(-shift)
+        K.timed(back, self.PUSH_RUN)
+        go.panim_camera = back.panim_camera = True
+        return [(go, [round(max(0.0, start), 3), self.PUSH_RUN]), (back, [round(back_at, 3), self.PUSH_RUN])]
 
     # ---------------------------------------------------------------- template plumbing ---------------------------
     def _part(self, tid: str, name, mob, point=None) -> None:
@@ -1268,8 +1448,14 @@ class MotionLecture(MoreTemplates, MapLecture):
             img.scale_to_fit_height(3.6 if n <= 3 else 3.0)
             parts = [img]
             if s.get("caption"):
-                cap = fit(pl.T(str(s["caption"]), 22, "#2B2620", font=K.font("kicker")), img.width * 0.8)
-                cap.move_to(img.get_bottom() + UP * img.height * (1 - box[3]) * 0.55)
+                # Under the print, one size for every print (a long caption on two lines, not shrunk on its own:
+                # squeezed into the print's thin edge, a long one came out a third the size of a short one).
+                words = str(s["caption"])
+                chars = max(12, int(img.width * 5.2))
+                cap = pl.T(pl.wrap(words, chars) if len(words) > chars else words, 20, pl.P.CREAM, font=K.font("kicker"),
+                           line_spacing=0.85)
+                fit(cap, img.width * 1.05)
+                cap.next_to(img, DOWN, buff=0.14)
                 parts.append(cap)
             pr = Group(*parts)
             pr.rotate(rng.uniform(3, 7) * (-1 if k % 2 else 1) * math.pi / 180)

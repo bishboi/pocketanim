@@ -79,7 +79,7 @@ class NarratedScene(Scene):
         self.timing = load()
         self._window_started = False
         track = self.timing.get("track")
-        if track and (HERE / track).is_file() and not FROM:
+        if track and (HERE / track).is_file() and not FROM and not TO:   # a section is drawn silent
             self.add_sound(str(HERE / track))
 
     def play(self, *animations, **kwargs):

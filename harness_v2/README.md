@@ -28,6 +28,20 @@ Once the transcript is written, each chapter becomes a video in three steps, on 
 | 2. Alignment | Every word's time: the voice's own (ElevenLabs), else Whisper here, else an estimate (said so). The lines are laid on one track (`chapter.wav`), each with the pause the voice left after it, and every line and word gets its time on that track (`timing.json`). | none |
 | 3. The video agent | The **video agent** (the Video agent role, `V2_VIDEO_MODEL`) builds the chapter's whole video in free Manim, as a coding agent builds a program: nothing is given to it but the narration (every line and word with its time, and the voice), a **screenshot of the look** wanted (the default is a Vox-like chapter, `engine/agent/style-vox.jpg`; choose another on the tab, with words about it), and a workspace. No primitives, templates or layouts. It works in turns with tools: write, edit, read and list its files; a shell in its workspace (`V2_VIDEO_AGENT_SHELL=off` turns it off); **render** (Manim at 30 fps); **look** (frames of the render at chosen times, or a sheet of them, shown to it); **make_image** (the image model draws into `assets/`, at most `V2_VIDEO_AGENT_IMAGES`, 12); **phone_check**; and **finish**. Its scene subclasses `NarratedScene` (`engine/agent/narrated.py`), which only adds the voice and tells it the time (`self.word(n, "Japan")`, `self.wait_until(t)`). At most `V2_VIDEO_AGENT_TURNS` (60) turns, or the tab's own number. | 1 per turn (+1 per picture) |
 
+**The kit** (optional): `from kit import *` (`engine/agent/kit/`, catalog `KIT.md` in the workspace) gives the agent
+building blocks drawn in a look, **vox** (paper, collage, marker, cutout photos) or **blueprint** (a drafting grid,
+outlines, mono type, duotone photos): `KitScene` (the narration's clock, a moving camera, the look's stage, camera moves,
+clearing the stage and wipes), headlines, labels and quotes in the right font for Hindi, Chinese or Latin, marks
+(highlight, circle, underline, arrow, callout, stamp, spotlight, dimensions), cards, documents with seals, newspaper
+clippings, books, scrolls that unroll, portrait cards, illustrated people, icons, photos treated in the look and
+public-domain pictures from Wikimedia Commons, maps from real data (places by name, routes, states in a given year),
+timelines with events and lifespans, charts (bars, donut, units, line, versus) and diagrams that lay themselves out
+(flow, tree, cycle, hub, chain, network, pyramid), each with its own entrance, exit and emphasis in the look. Every
+piece is a plain Manim mobject and every helper a plain animation: the agent may use any of it, none of it, or take
+it apart. Its **kit_preview** tool renders a snippet in a look and shows the agent the frame (and a sheet of frames
+when it moves) before it commits to it. `engine/agent/kit/gallery.py` renders every kind of piece in both looks
+(`review/kit-gallery/`).
+
 **Every render also says what it measured** (`engine/agent/audit.py`, installed before the scene runs): the
 animations used, stretches with nothing moving or nothing on screen, words outside the frame or on other words. It is
 information for the agent, not a rule. Its workspace has a chapter built in this setup to look at if it wants

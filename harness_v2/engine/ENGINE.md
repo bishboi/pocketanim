@@ -121,3 +121,15 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   drawn here in Manim in a Vox-like manner (a map with a highlighted country and callout, an archival photo collage, a
   data figure, a highlighted document, a timeline, a flow diagram); no frames from anyone's videos. Run it to remake
   the sheet.
+- `agent/kit/`: the kit, optional building blocks for the video agent's scene (`from kit import *`), in a look (`vox`,
+  `blueprint`): KitScene (NarratedScene + MovingCameraScene, the look's stage kept on the camera, camera moves, clearing
+  and wipes), text in the right font for its script, marks, cards, documents, books, scrolls, portrait cards,
+  illustrated people, icons (the engine's Iconify sets, else v1's, read only), photos treated in the look and public
+  domain pictures from Wikimedia Commons, maps from Natural Earth with places by name (`pocket_lecture.place`) and
+  historical borders (`historical.empire`), timelines, charts and diagrams that lay themselves out. Plain Manim objects
+  and animations throughout; nothing owns the frame or the clock. `agent/kit/KIT.md` is its catalog (copied into the
+  agent's workspace); `tools/kit_preview.py` renders a snippet in a look (the agent's kit_preview tool);
+  `agent/kit/gallery.py <dir>` previews every kind of piece in both looks side by side (`review/kit-gallery/`).
+  Fonts are chosen for keeping their word spaces: Hind (Latin and Devanagari), Oswald, Playfair Display at normal
+  weight, Kalam (handwriting with Devanagari), IBM Plex Mono, Architects Daughter.
+- `agent/narrated.py`: a section render (`PANIM_RENDER_TO` set) is drawn silent, so its video is the section's length.

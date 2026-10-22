@@ -108,6 +108,7 @@ function headOf(s: VideoStep): string {
     case "render": return String(a.quality ?? "draft");
     case "look": return Array.isArray(a.times) && a.times.length ? `frames at ${(a.times as number[]).join(", ")} s` : `a sheet${a.sheet_every ? ` every ${a.sheet_every} s` : ""}`;
     case "make_image": return `${a.name} (${a.kind}): ${String(a.what ?? "")}`;
+    case "kit_preview": return `${a.look ?? "vox"}: ${String(a.code ?? "").split("\n")[0]}`;
     case "phone_check": return `${a.samples ?? 12} frames`;
     case "finish": return String(a.summary ?? "").split("\n")[0];
     default: return "";
@@ -204,7 +205,7 @@ function Steps({ agent, onCall, now }: { agent: ChapterAgent; onCall: (id: strin
   );
 }
 
-const KINDS = { all: "Everything", shell: "Shell commands", render: "Renders and looks", phone_check: "Phone checks", make_image: "Pictures", files: "File writes" } as const;
+const KINDS = { all: "Everything", shell: "Shell commands", render: "Renders and looks", kit_preview: "Kit previews", phone_check: "Phone checks", make_image: "Pictures", files: "File writes" } as const;
 
 function Commands({ agent, onCall }: { agent: ChapterAgent; onCall: (id: string) => void }) {
   const [kind, setKind] = useState<keyof typeof KINDS>("all");
@@ -404,6 +405,7 @@ function Outcome({ agent, built }: { agent: ChapterAgent; built?: { seconds: num
     ["Shell commands", `${count("shell")}${failed("shell") ? ` (${failed("shell")} failed)` : ""}`],
     ["Renders", `${count("render")}${failed("render") ? ` (${failed("render")} failed)` : ""}`],
     ["Looks", String(count("look"))],
+    ["Kit previews", `${count("kit_preview")}${failed("kit_preview") ? ` (${failed("kit_preview")} failed)` : ""}`],
     ["Pictures made", String(pictures.length)],
     ["Phone checks", `${checks.length}${checks.length ? ` (last: ${checks.at(-1)!.ok ? "passed" : "failed"})` : ""}`],
   ];

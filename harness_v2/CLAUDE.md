@@ -15,3 +15,6 @@
 - The default flow is the Video tab (README "The video step"): transcript, then voice and alignment
   (`engine/tools/chapter_voice.py`), then the video agent in free Manim (`app/lib/video-agent.ts`), checked against the
   phone (`engine/tools/agent_tools.py phone`). The older engines' tabs (Scenes, Voice, Lab) are set aside, not removed.
+- The kit (`engine/agent/kit/`) is the video agent's optional library. A change to what it offers (a piece, an
+  argument, a look) updates `engine/agent/kit/KIT.md` in the same commit (the agent reads only that), and
+  `engine/agent/kit/gallery.py` still renders every snippet in both looks.

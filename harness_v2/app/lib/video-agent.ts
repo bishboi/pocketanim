@@ -73,6 +73,9 @@ const TOOLS = [
   fn("look", "See the last render closer: frames at the times you give (seconds on the chapter's clock; up to 8), or a sheet of frames every N seconds. You are shown them once; look again if you need them later.", {
     times: { type: "array", items: { type: "number" } }, sheet_every: { type: "number", description: "Seconds between the sheet's frames." },
     detail: { type: "string", enum: ["high", "low"], description: "low: a cheap glance (layout only); high (default): to read text and details." } }),
+  fn("kit_preview", "Render a snippet of Manim code small and see it before you use it: the code is the body of a KitScene's construct() (self is the scene; `from kit import *` is done; your workspace's assets/ are there), in a kit look. You are shown its last frame, and a sheet of frames when it animates. For trying a kit piece (KIT.md), a layout, a font or any idea; it does not touch scene.py.", {
+    code: { type: "string", description: "Python statements, e.g. m = Map(\"east asia\"); self.add(m); self.play(m.shade(\"Japan\"))" },
+    look: { type: "string", description: "vox (default) or blueprint, or another look name." } }, ["code"]),
   fn("make_image", `Have the image model draw a picture into assets/<name>.png (you are shown it). At most ${MAX_IMAGES} a chapter. Use it in Manim with ImageMobject.`, {
     name: { type: "string", description: "Letters, digits and _ only." },
     what: { type: "string", description: "The whole picture, in English, as it is to be drawn: subject, view, medium and style, colours, mood. No text will be in it." },
@@ -87,8 +90,8 @@ const TOOLS = [
 function roleText(style: { note?: string; custom: boolean }, turns: number): string {
   return [
     "You are the video agent of an explainer channel. You build ONE chapter of a narrated lesson as a finished video, in",
-    "Manim Community (Python), by yourself, end to end: you decide what is on screen, how it moves and how it looks. There",
-    "are no templates, primitives or layouts to use: you write the scene from nothing, as a motion designer who codes.",
+    "Manim Community (Python), by yourself, end to end: you decide what is on screen, how it moves and how it looks, as a",
+    "motion designer who codes. Nothing is laid out for you; a kit of building blocks is there if you want it.",
     "",
     "WHAT YOU HAVE",
     "- The narration: the chapter is already spoken. timing.json in your workspace has every line with its start and end,",
@@ -107,7 +110,16 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": six frames of a Vox-like explainer, a map, an archival collage, a data figure, a document, a timeline and a flow"}). Match its feel: its palette, type,`,
     "  textures, how labels and highlights look, how busy a frame is. It is a look, not a layout: compose each moment yourself.",
     ...(style.note ? [`  About the look: ${style.note}`] : []),
-    "- Tools to write and edit files, render, look at frames, make pictures, run commands, and check the phone.",
+    "- The kit (optional): `from kit import *` gives Manim plus building blocks drawn in a look (vox: paper, collage,",
+    "  marker; blueprint: drafting grid, outlines): KitScene (NarratedScene with a moving camera, the look's stage, camera",
+    "  moves, clearing and wipes), headlines and labels in the right font for Hindi/Chinese/Latin, marks (highlight,",
+    "  circle, underline, arrow, callout, stamp, spotlight), cards, documents, clippings, books, scrolls, portrait cards,",
+    "  illustrated people, icons, photos treated in the look (and public-domain pictures from Wikimedia Commons), maps",
+    "  from real data (places by name, routes, historical borders), timelines with lifespans, charts and self-laying-out",
+    "  diagrams, each with its own entrance in the look. KIT.md in your workspace is the catalog. Use any of it, none of",
+    "  it, or take pieces apart; plain Manim beside it is always fine. kit_preview shows you a snippet before you use it.",
+    "- Tools to write and edit files, render, look at frames, preview kit pieces, make pictures, run commands, and check",
+    "  the phone.",
     "",
     "THE ONE HARD RULE: THE PHONE",
     "The video is not shipped as an MP4. The phone (and the web player) play the scene as a program recorded from Manim, and",
@@ -410,6 +422,7 @@ function scriptedAgent(t: Timing): () => Fake {
   const steps: Fake[] = [
     { text: "Planning the chapter.", calls: [{ name: "write_file", args: { path: "plan.md", content: plan } }] },
     { text: "Which fonts are there?", calls: [{ name: "shell", args: { command: "fc-list : family | sort -u | head -20" } }] },
+    { text: "Trying a kit headline.", calls: [{ name: "kit_preview", args: { code: "h = headline(\"Japan\"); self.play(h.appear())", look: "vox" } }] },
     { text: "Writing the scene.", calls: [{ name: "write_file", args: { path: "scene.py", content: scene } }] },
     { text: "Larger words.", calls: [{ name: "edit_file", args: { path: "scene.py", old: "font_size=44", new: "font_size=48" } }] },
     { text: "Rendering a draft, checked on the phone.", calls: [{ name: "render", args: { quality: "draft", check: true } }] },
@@ -432,6 +445,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   const timing = await timingOf(run.id, n, c);
   if (!timing) throw new Error(`chapter ${c} has no narration: speak it first`);
   await copyFile(path.join(engineDir(), "agent", "narrated.py"), path.join(ws, "narrated.py"));
+  await copyFile(path.join(engineDir(), "agent", "kit", "KIT.md"), path.join(ws, "KIT.md"));
   await mkdir(path.join(ws, "reference"), { recursive: true });
   await copyFile(path.join(engineDir(), "agent", "vox_example.py"), path.join(ws, "reference", "vox_example.py"));
   const styleFile = path.join(ws, "style" + path.extname(settings.style));
@@ -607,7 +621,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         for (const e of await readdir(dir, { withFileTypes: true, recursive: true })) {
           const full = path.join(e.parentPath ?? dir, e.name);
           const rel = path.relative(ws, full);
-          if (!e.isFile() || /^(renders|export|media|history|library|__pycache__)\b/.test(rel) || rel.includes("__pycache__") || /^agent-log/.test(rel)) continue;
+          if (!e.isFile() || /^(renders|export|media|history|library|__pycache__|\.kit_preview)\b/.test(rel) || rel.includes("__pycache__") || /^agent-log/.test(rel)) continue;
           rows.push(`${rel}  ${(await stat(full)).size} B`);
         }
         return { ok: true, text: rows.sort().join("\n") || "(empty)" };
@@ -661,6 +675,25 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         if (!r.ok) return { ok: false, text: String(r.error) };
         await show(`A sheet of the render: frames at ${(r.times as number[]).join(", ")} s${stale}:`, [out], detail);
         return { ok: true, text: `sheet shown (${(r.times as number[]).length} frames${stale})`, images: [fileUrl(run.id, out)] };
+      }
+      case "kit_preview": {
+        const code = String(args.code ?? "");
+        if (!code.trim()) return { ok: false, text: "give the code to preview" };
+        const dir = path.join(ws, ".kit_preview");
+        await mkdir(dir, { recursive: true });
+        const file = path.join(dir, `snippet-${Date.now()}.py`);
+        await writeFile(file, code, "utf8");
+        const out = await runPython([path.join(engineDir(), "tools", "kit_preview.py"), ws, file, dir, String(args.look ?? "vox")], ws, {}, undefined, 300_000);
+        let r: Record<string, unknown>;
+        try {
+          r = JSON.parse(out.stdout.trim().split("\n").pop() ?? "");
+        } catch {
+          r = { ok: false, error: out.out.slice(-1500) || "the preview said nothing" };
+        }
+        if (!r.ok) return { ok: false, text: `the preview failed:\n${String(r.error ?? "").slice(-2500)}` };
+        const files = [String(r.still), ...(r.sheet ? [String(r.sheet)] : [])];
+        await show(r.sheet ? `kit_preview: its last frame, then a sheet of frames over its ${r.seconds} s:` : "kit_preview: the frame:", files, "low");
+        return { ok: true, text: `previewed (${r.seconds} s of animation)`, images: files.map((f) => fileUrl(run.id, f)) };
       }
       case "make_image": {
         if (images >= MAX_IMAGES) return { ok: false, text: `at most ${MAX_IMAGES} pictures a chapter` };

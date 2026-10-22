@@ -124,6 +124,25 @@ Each is an operation (`"op": "<name>"`) and a method of the engine (`MotionLectu
 at their parts later: `"<id>.<part>"`) and `on`. Sizes fit the board (or the stage beside a panel or a map) by
 themselves.
 
+**Layouts and entrances: the same template in different forms.** Several templates take `layout`, which arranges
+the same content another way (the first is the default):
+
+| Template | `layout` |
+|---|---|
+| `counter` | `big` (the figure alone), `ring` (inside a ring swept round to value/`max`), `bar` (over a bar filled to value/`max`), `badge` (on a round seal, the label beside it) |
+| `list` | `column` (lines sliding in), `grid` (tiles in two columns, dealt in), `pills` (coloured chips flowing in rows, popping in), `steps` (a staircase, numbered) |
+| `chain` | `row` (left to right), `column` (top to bottom, wide cards), `zigzag` (along one row, back along a second) |
+| `cards` | `row`, `grid` (two rows, larger), `fan` (overlapping, spread like a hand of cards) |
+| `versus` | `cards` (two cards side by side), `split` (the stage cut in two coloured halves, a line down the middle), `stack` (one card over the other) |
+| `kpi` | `row`, `grid` (two by two), `column` (wide strips, the figure at the right) |
+
+Every template (not `stamp` or `emphasis`) also takes `enter`: how its parts come on, as it is built and as each is
+said later -- `pop` (grows from small with an overshoot), `rise` (comes up as it fades in), `drop` (falls in from
+above), `slide` (sweeps in from a side), `zoom` (comes from large), `fade`, `flip` (turned in like a card), `write`
+(drawn or written). Left out, each part comes on its own way (a card dealt, a line slid in, a step popped). An
+unknown `layout` or `enter` is left out, with a note. Vary them across a video: the same content need not look the
+same twice.
+
 ### `title`: a headline
 ```json
 {"op": "title", "kicker": "A true story", "text": "The man who read the hands of kings", "highlight": "kings", "sub": "1866-1936"}
@@ -142,6 +161,7 @@ highlighted, and `sub` fades in under it. Each word is a part.
 | `label`?, `kicker`?, `sub`? | | Under it, typed over it, under the label. |
 | `delta`?, `trend`? | | A change beside it with an arrow: green ▲ up, red ▼ down (`trend`, else from a leading minus). |
 | `color`? | | The figure's colour (a palette name or #hex); default the look's accent. |
+| `layout`?, `max`? | | `big`, `ring`, `bar` or `badge` (above); a ring or a bar is filled to value/`max` (full without `max`). |
 
 A year as the value ("1949") is not counted up from nothing: it rolls up from forty years before, landing as it is
 said.
@@ -200,7 +220,7 @@ group, in order from the first unit, is coloured as it is said, its label slamme
 Up to 6 cards, dealt in from below one after another, each turned a little. A card shows its `picture` (or a `big`
 word) over its `title` and `sub`. Its `mark` lands as the line says it (its `on`, else its title): `check` (a tick
 drawn), `cross` (a cross drawn), or any other words (stamped on it). `stamp` slams across the whole row. Each card is
-a part.
+a part. `layout`: `row`, `grid`, `fan`.
 
 ### `stamp`: a stamp slammed onto what is up
 ```json
@@ -219,7 +239,7 @@ it plays after the beat's pictures.
                                                {"label": "Backlog", "value": "$14.06B", "delta": "+73%", "trend": "up"}]}
 ```
 Two to four cards: a mono label, a big figure that counts up as its card lands, a change with its arrow, a note.
-Dealt in one after another.
+Dealt in one after another. `layout`: `row`, `grid`, `column`.
 
 ### `chain`: steps joined by arrows
 ```json
@@ -228,14 +248,14 @@ Dealt in one after another.
 ```
 `steps`: two to seven, each a word or `{label, on?, picture?}`, in a row, numbered (or with their pictures). The first pops in with the template; each next step
 pops in and the arrow to it is drawn as the line says it (or in its turn); `loop` draws an arrow from the last back to
-the first. Each step is a part.
+the first. Each step is a part. `layout`: `row`, `column`, `zigzag` (the loop's arrow goes round the side).
 
 ### `list`: points coming in as they are said
 ```json
 {"op": "list", "title": "What to watch", "mark": "check", "items": ["Margins", {"text": "Hiring", "on": "hiring"}, "The next report"]}
 ```
 Up to 7 points; each slides in from the left with its mark (`bullet`, `number`, or `check`: a tick drawn) as it is
-said. Each point is a part.
+said. Each point is a part. `layout`: `column`, `grid`, `pills`, `steps`.
 
 ### `versus`: two sides
 ```json
@@ -245,7 +265,7 @@ said. Each point is a part.
 ```
 Two cards sweep in from the two edges, a VS badge slams between them. Each side (`left`, `right`, a title alone or
 an object): `title`, `points` (up to 4),
-`value` (a big figure), `picture`. Each side is a part.
+`value` (a big figure), `picture`. Each side is a part. `layout`: `cards`, `split`, `stack`.
 
 ### `donut`: a part of a whole
 ```json
@@ -426,6 +446,77 @@ when the next picture replaces its template in the same line leaves with it.
 
 ---
 
+### What overlaps, sits between, narrows, measures, weighs, hides, changes or ranks (`motion_forms.py`)
+
+#### `venn`: sets and what they share
+```json
+{"op": "venn", "title": "Two forces", "sets": [{"label": "Trade", "items": ["markets", "ports"], "on": "trade"},
+ {"label": "Faith", "items": ["temples"], "on": "faith"}], "overlap": {"text": "Cities", "on": "cities"}}
+```
+Two or three `sets` (`{label, items?, on}`; up to 3 items each) as translucent circles, each drawn in and named on
+its words, its items written inside; `overlap` (a text, or `{text, on}`) is slammed where they all meet.
+
+#### `quadrant`: two qualities, four fields
+```json
+{"op": "quadrant", "title": "Cost against return", "x": ["Low cost", "High cost"], "y": ["Low return", "High return"],
+ "cells": {"tr": "Big bets", "bl": "Small steps"},
+ "items": [{"text": "Railways", "x": 0.85, "y": 0.85, "on": "railways"}, {"text": "Canals", "x": 0.2, "y": 0.25}]}
+```
+The axes drawn (`x`, `y`: `[low end, high end]`, or `{label, low, high}`), the four fields tinted and named
+(`cells`: `tl`, `tr`, `bl`, `br`); each of up to 8 `items` (`{text, x, y, on}`, x and y from 0 to 1, or a
+percentage) dropped at its place with its tag as it is said.
+
+#### `funnel`: stages narrowing
+```json
+{"op": "funnel", "title": "The exam", "stages": [{"label": "Applied", "value": "1,000"}, {"label": "Sat", "value": "300", "on": "three hundred"},
+ {"label": "Passed", "value": "40", "on": "forty"}]}
+```
+Two to six `stages` (`{label, value?, on}`) as bands narrowing down, the first widest; each slides in on its words,
+its figure counting up.
+
+#### `gauge`: a dial
+```json
+{"op": "gauge", "value": 72, "min": 0, "max": 100, "text": "72%", "label": "literacy", "low": "none", "high": "all"}
+```
+A half dial from `min` to `max` (default 0 and 100; its ends named `low` and `high`), coloured from bad to good
+(`invert`: good to bad); the needle swings from the low end to `value` as the figure (`text`, else the value)
+counts up; `label` and `sub` under it.
+
+#### `scale`: a balance
+```json
+{"op": "scale", "title": "What weighed more", "tips": "left",
+ "left": {"title": "Exports", "items": [{"text": "Silver", "on": "silver"}, "Silk"]}, "right": {"title": "Imports", "items": ["Rice"]}}
+```
+A balance; each side (`left`, `right`: `{title, items, weight?}`) a pan; each of its items (up to 4) dropped onto
+its pan as it is said; once the last is down the beam tips to the heavier side (`tips`: `left`, `right` or `even`;
+else by `weight`, else by how many items).
+
+#### `iceberg`: what is seen, and what lies beneath
+```json
+{"op": "iceberg", "waterline": "what we see", "above": [{"text": "Castles", "on": "castles"}],
+ "below": [{"text": "Taxes", "on": "taxes"}, "Roads", "Rice"]}
+```
+The waterline (named by `waterline`) and the tip with what is seen (`above`, up to 3); the much larger mass under the water rises into
+view as the first thing `below` (up to 5) is said, each written on the ice on its words.
+
+#### `before_after`: a change
+```json
+{"op": "before_after", "change": "the reform", "before": {"title": "Village rule", "points": ["Local elders"]},
+ "after": {"title": "Capital rule", "points": ["Governors"], "on": "after it"}}
+```
+`before` set on the stage; on `after`'s words (its `on`, else its title) a bar wipes across, the old state steps back
+and the new one comes in beside it; `change` is slammed on the divide. Each side: `title`, `points` (up to 4),
+`value`, `picture`, `label` (the kicker over it; default BEFORE / AFTER).
+
+#### `ranking`: a leaderboard
+```json
+{"op": "ranking", "title": "Largest cities", "unit": "k", "order": "up",
+ "items": [{"label": "Edo", "value": 1000, "on": "Edo"}, {"label": "Kyoto", "value": 400}, {"label": "Osaka", "value": 350}]}
+```
+Two to seven places, the first given is first place: each a row with its big place number, a bar to scale (given
+values; `unit` after the figure) or its `note`. They come in from the last place up (`order`: `up`, a countdown) or
+from the first down (`down`), each on its words; the first place (or `highlight`) is crowned.
+
 ## 4. The classic operations, in motion
 
 Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
@@ -518,9 +609,12 @@ Everything compile_lecture checks and mends, and for the templates (a note start
 - A template missing what it shows is left out: `counter` without `value`, `chart` without numeric items (a line
   needs two), `cards`/`list`/`polaroids` without items, `kpi` without values, `chain` with fewer than two steps,
   `versus` without both titles, `donut` without a number, `document`/`title`/`stamp` without text,
-  `emphasis` without `target`. A print without a picture is left out.
+  `emphasis` without `target`. A print without a picture is left out. `venn` with fewer than two sets, `funnel` or
+  `ranking` with fewer than two, `gauge` without a number, `scale`/`before_after` without both titles, `iceberg`
+  without `below`, `quadrant` without both axes.
 - Counts cut to fit: chart 12 (line 60), cards 6, chain 7, list 7, kpi 4, polaroids 5, units 1-400 (groups cut to
   the total).
+- An unknown `layout` or `enter` is left out (the default is used), with a note; so is a ranking `order` (up).
 - Unknown values set to the default, with a note: chart `kind` (column), list `mark` (bullet), emphasis `how`
   (pulse), timeline `style` (track), the script's `energy` (lively), `transition` and `timeline` (the look's own),
   `look` (the style's own motion).

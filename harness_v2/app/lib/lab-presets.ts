@@ -249,6 +249,54 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
     { say: "That is our question today: why did power belong not just to kings, but to nobles and churchmen?", do: [{ op: "ask", text: "Why did power belong not just to kings?" }] },
     { say: "We can now answer it: land, protection and religion made several centres of power.", do: [{ op: "ask", text: "Why did power belong not just to kings?",
       answer: "Land, protection and religion made several centres of power", on: "land, protection" }] }]),
+  // ---- what overlaps, sits between, narrows, measures, weighs, hides, changes or ranks (motion_forms.py)
+  tpl("venn", "Venn", "Two or three sets drawn in one by one; what they share slammed in the middle.", "paper", [
+    { say: "Trade brought markets and ports, faith brought temples and pilgrims, and both made the cities.", do: [{ op: "venn", title: "Two forces",
+      sets: [{ label: "Trade", items: ["markets", "ports"], on: "Trade" }, { label: "Faith", items: ["temples", "pilgrims"], on: "faith" }], overlap: { text: "Cities", on: "cities" } }] }]),
+  tpl("quadrant", "Quadrant", "Two qualities as axes; each thing dropped in its field as it is said.", "data", [
+    { say: "Railways cost much and returned much, canals cost little and returned little, and roads sat between.", do: [{ op: "quadrant", title: "Cost against return",
+      x: ["Low cost", "High cost"], y: ["Low return", "High return"], cells: { tr: "Big bets", bl: "Small steps" },
+      items: [{ text: "Railways", x: 0.85, y: 0.85, on: "Railways" }, { text: "Canals", x: 0.2, y: 0.25, on: "canals" }, { text: "Roads", x: 0.5, y: 0.55, on: "roads" }] }] }]),
+  tpl("funnel", "Funnel", "Stages narrowing down, each sliding in with its figure counting.", "newsroom", [
+    { say: "Of a thousand who applied, three hundred sat the exam, and only forty passed.", do: [{ op: "funnel", title: "The exam",
+      stages: [{ label: "Applied", value: "1,000", on: "thousand" }, { label: "Sat the exam", value: "300", on: "three hundred" }, { label: "Passed", value: "40", on: "forty" }] }] }]),
+  tpl("gauge", "Gauge", "A dial; the needle swings to the value as the figure counts up.", "studio", [
+    { say: "By the end of the period, literacy had reached seventy two percent.", do: [{ op: "gauge", value: 72, max: 100, text: "72%", label: "literacy", low: "none", high: "all", on: "seventy" }] }]),
+  tpl("scale", "Scale", "A balance: each side's items dropped onto its pan; the beam tips to the heavier side.", "paper", [
+    { say: "On one side sat silver and silk; on the other, only rice; and the silver side weighed more.", do: [{ op: "scale", title: "What weighed more",
+      left: { title: "Exports", items: [{ text: "Silver", on: "silver" }, { text: "Silk", on: "silk" }] }, right: { title: "Imports", items: [{ text: "Rice", on: "rice" }] } }] }]),
+  tpl("iceberg", "Iceberg", "What is seen above the waterline, then the larger hidden part rising into view.", "chalk", [
+    { say: "We see the castles; but below lie the taxes, the roads, and the rice that paid for it all.", do: [{ op: "iceberg", waterline: "what we see",
+      above: [{ text: "Castles", on: "castles" }], below: [{ text: "Taxes", on: "taxes" }, { text: "Roads", on: "roads" }, { text: "Rice", on: "rice" }] }] }]),
+  tpl("before-after", "Before and after", "The old state; a bar wipes across to the new one; the change named on the divide.", "paper", [
+    { say: "Before the reform, the villages ruled themselves; after it, the capital decided.", do: [{ op: "before_after", change: "the reform",
+      before: { title: "Village rule", points: ["Local elders", "Local tax"] }, after: { title: "Capital rule", points: ["Governors", "One tax"], on: "after it" } }] }]),
+  tpl("ranking", "Ranking", "A leaderboard counting down to first place, which is crowned.", "data", [
+    { say: "Osaka was third, Kyoto second, and Edo the largest city of all.", do: [{ op: "ranking", title: "Largest cities", unit: "k",
+      items: [{ label: "Edo", value: 1000, on: "Edo" }, { label: "Kyoto", value: 400, on: "Kyoto" }, { label: "Osaka", value: 350, on: "Osaka" }] }] }]),
+  // ---- the same template in other forms (layout) and other ways of coming on (enter)
+  tpl("counter-forms", "Counter: ring, bar, badge", "One figure in a ring filled to its share, over a filling bar, and on a seal.", "paper", [
+    { say: "Sixty percent of the land was farmed.", do: [{ op: "counter", value: "60%", max: 100, label: "of the land farmed", layout: "ring", on: "Sixty" }] },
+    { say: "Forty percent could read.", do: [{ op: "counter", value: "40%", max: 100, label: "could read", layout: "bar", on: "Forty" }] },
+    { say: "There were two hundred and fifty domains in all.", do: [{ op: "counter", value: "250", label: "domains", layout: "badge", on: "two hundred" }] }]),
+  tpl("list-forms", "List: grid, pills, steps", "The same points as tiles, as coloured chips, and as a staircase.", "studio", [
+    { say: "Rice, silk, tea and salt were the main goods.", do: [{ op: "list", title: "Main goods", layout: "grid", items: [{ text: "Rice", on: "Rice" }, { text: "Silk", on: "silk" }, { text: "Tea", on: "tea" }, { text: "Salt", on: "salt" }] }] },
+    { say: "Merchants, farmers, artisans and samurai.", do: [{ op: "list", layout: "pills", enter: "drop", items: [{ text: "Merchants", on: "Merchants" }, { text: "Farmers", on: "farmers" }, { text: "Artisans", on: "artisans" }, { text: "Samurai", on: "samurai" }] }] },
+    { say: "First survey the land, then fix the tax, then collect it.", do: [{ op: "list", layout: "steps", items: [{ text: "Survey the land", on: "survey" }, { text: "Fix the tax", on: "fix" }, { text: "Collect it", on: "collect" }] }] }]),
+  tpl("chain-forms", "Chain: column, zigzag", "Steps down a column, and a cycle snaking along two rows.", "paper", [
+    { say: "Rice was grown, taxed, stored, then sold.", do: [{ op: "chain", layout: "column", steps: [{ label: "Grown", on: "grown" }, { label: "Taxed", on: "taxed" }, { label: "Stored", on: "stored" }, { label: "Sold", on: "sold" }] }] },
+    { say: "Seed, sprout, plant, harvest, store, and seed again.", do: [{ op: "chain", layout: "zigzag", loop: true, enter: "zoom",
+      steps: [{ label: "Seed", on: "Seed" }, { label: "Sprout", on: "sprout" }, { label: "Plant", on: "plant" }, { label: "Harvest", on: "harvest" }, { label: "Store", on: "store" }] }] }]),
+  tpl("cards-forms", "Cards: fan, grid", "Cards spread as a hand, and dealt in two rows.", "newsroom", [
+    { say: "Three predictions, and each one was wrong.", do: [{ op: "cards", layout: "fan", items: [{ title: "Collapse", big: "1", mark: "cross", on: "Three" }, { title: "Revolt", big: "2", mark: "cross", on: "predictions" }, { title: "Famine", big: "3", mark: "cross", on: "wrong" }] }] },
+    { say: "Four rulers, four styles of rule.", do: [{ op: "cards", layout: "grid", items: ["Ieyasu", "Hidetada", "Iemitsu", "Ietsuna"] }] }]),
+  tpl("versus-forms", "Versus: split, stack", "The stage cut in two coloured halves; and one side over the other.", "paper", [
+    { say: "The north against the south.", do: [{ op: "versus", layout: "split", left: { title: "North", value: "60%", points: ["Wheat", "Cold"] }, right: { title: "South", value: "40%", points: ["Rice", "Warm"], on: "south" } }] },
+    { say: "The old trade against the new.", do: [{ op: "versus", layout: "stack", left: { title: "Old trade", points: ["Silk in"] }, right: { title: "New trade", points: ["Silk out"] } }] }]),
+  tpl("kpi-forms", "Data cards: column, grid", "Figures as wide strips, and two by two.", "data", [
+    { say: "Exports rose, imports fell, and the balance turned.", do: [{ op: "kpi", layout: "column", cards: [{ label: "Exports", value: "+40%", delta: "+12%", on: "Exports" },
+      { label: "Imports", value: "-15%", delta: "-5%", trend: "down", on: "imports" }, { label: "Balance", value: "$3.2B", note: "surplus", on: "balance" }] }] },
+    { say: "Four figures tell the story.", do: [{ op: "kpi", layout: "grid", cards: [{ label: "Towns", value: "6" }, { label: "Domains", value: "250" }, { label: "Ports", value: "4" }, { label: "Roads", value: "5" }] }] }]),
   // ---- the timeline, in its five styles
   ...(["track", "ribbon", "cards", "road", "vertical"] as const).map((style): LabMotionPreset => ({
     id: `m-timeline-${style}`, group: "Timelines", name: `Timeline: ${style}`,
@@ -378,4 +426,15 @@ export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, 
   { op: "converge", say: "Kent and Essex to Canterbury.", do: { op: "converge", to: "Canterbury", sources: ["Kent", "Essex"] } },
   { op: "table", say: "France and Rome compared.", do: { op: "table", columns: ["France", "Rome"], rows: [{ label: "Rank", cells: ["Orders", "Law"] }] } },
   { op: "ask", say: "Who held power, and why?", do: { op: "ask", text: "Who held power, and why?" } },
+  { op: "venn", say: "Trade and faith made the cities.", do: { op: "venn", sets: ["Trade", "Faith"], overlap: "Cities" } },
+  { op: "quadrant", say: "Railways cost much and returned much.", do: { op: "quadrant", x: ["Low cost", "High cost"], y: ["Low return", "High return"], items: [{ text: "Railways", x: 0.85, y: 0.85 }] } },
+  { op: "funnel", say: "Applied, sat, passed.", do: { op: "funnel", stages: ["Applied", "Sat", "Passed"] } },
+  { op: "gauge", say: "Seventy two percent.", do: { op: "gauge", value: 72, text: "72%", label: "literacy" } },
+  { op: "scale", say: "Silver outweighed rice.", do: { op: "scale", left: { title: "Silver", items: ["Silver"] }, right: { title: "Rice", items: [] }, tips: "left" } },
+  { op: "iceberg", say: "Castles above, taxes below.", do: { op: "iceberg", above: ["Castles"], below: ["Taxes", "Roads"] } },
+  { op: "before_after", say: "Villages before, the capital after.", do: { op: "before_after", before: "Village rule", after: "Capital rule", change: "the reform" } },
+  { op: "ranking", say: "Edo, Kyoto, Osaka.", do: { op: "ranking", items: ["Edo", "Kyoto", "Osaka"] } },
+  { op: "counter (ring)", say: "Sixty percent.", do: { op: "counter", value: "60%", max: 100, layout: "ring" } },
+  { op: "list (pills)", say: "Merchants and farmers.", do: { op: "list", layout: "pills", enter: "drop", items: ["Merchants", "Farmers"] } },
+  { op: "versus (split)", say: "North against south.", do: { op: "versus", layout: "split", left: "North", right: "South" } },
 ];

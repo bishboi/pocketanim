@@ -106,6 +106,14 @@ const CHOOSE = String.raw`WHICH PRIMITIVE FOR WHAT (a guide: pick what shows the
   a check on understanding                       question (choices, time to think), then answer
   a graph, a field, a mechanism that moves       manim (free-form)
   pointing at something already up               emphasis (pulse, circle, underline, highlight, box, glow, shake, dim)
+  what two or three things share                 venn (sets, their overlap named)
+  things placed between two qualities            quadrant (two axes, four fields, each thing dropped at its place)
+  a whole narrowing stage by stage               funnel (applicants, sat, passed)
+  how far along a scale (a level, a rate)        gauge (a dial, the needle swinging to the value)
+  which side weighs more, a trade-off            scale (a balance tipping)
+  what is seen, and the larger hidden part       iceberg
+  how something changed                          before_after (the old state wiped to the new)
+  an order of places, a top three                ranking (a leaderboard, a countdown to first place)
 
   A good chapter mixes them: a picture for the setting, a template for the idea, a timeline for the dates, emphasis on
   what matters, a question at the turn. The heading of a new topic is "panel"; there is no key point.`;
@@ -147,17 +155,28 @@ const TEMPLATES = String.raw`MOTION TEMPLATES. Each is one operation that builds
 own words. Every template takes "id" (to point at its parts later as "<id>.<part name>"), "title"? (a heading over it)
 and "kicker"? (a small mono line over the heading), and "on".
 
+FORMS: THE SAME TEMPLATE, LAID OUT AND MOVING DIFFERENTLY. Choose them yourself, to suit the content and to keep the
+video varied (a third list in a row should not look like the first two):
+  "layout" -- counter: big | ring | bar | badge (ring and bar fill to value/"max");  list: column | grid | pills | steps;
+    chain: row | column | zigzag;  cards: row | grid | fan;  versus: cards | split | stack;  kpi: row | grid | column.
+    e.g. a percentage as a counter "layout":"ring","max":100; a few one-word kinds as list "pills"; a process of
+    six steps as chain "zigzag"; a sequence of instructions as list "steps"; a stark two-sided contrast as versus
+    "split"; three wrong predictions as cards "fan".
+  "enter" -- how the template's parts come on, on any template: pop | rise | drop | slide | zoom | fade | flip | write.
+    Left out, each part comes its own way. A calm, reflective passage: fade or rise; a punchy reveal: drop or zoom.
+
 title — a headline: big words rising one after another, one word highlighted, the kicker typed over it.
   {"op":"title","text":"The man who read the hands of kings","kicker"?:"A true story","highlight"?:"kings","sub"?:"1866-1936"}
   Use for: a chapter's opening statement, a turn in the story. Not for: plain labels (use panel).
 
 counter — one figure counting up from start, keeping its $, %, units and commas; a change beside it with an arrow.
   {"op":"counter","value":"204%","label":"debt, as a share of the economy","kicker"?:"Japan","delta"?:"+12%","trend"?:"up|down",
-   "start"?:0,"sub"?,"color"?}
+   "start"?:0,"sub"?,"color"?,"layout"?:"big|ring|bar|badge","max"?:100}
   Use for: the one number a line is about. Write value as it should read ("2,525 km", "$14.06B", "1 in 3").
 
 kpi — two to four data cards side by side, each figure counting up as its card lands.
-  {"op":"kpi","cards":[{"label":"Sales","value":"+50%","delta":"$3.27B","note"?:"in sales","trend"?:"up|down","on"?}],"kicker"?}
+  {"op":"kpi","cards":[{"label":"Sales","value":"+50%","delta":"$3.27B","note"?:"in sales","trend"?:"up|down","on"?}],"kicker"?,
+   "layout"?:"row|grid|column"}
   Use for: a few figures read together (a quarter's results, a country's facts).
 
 chart — columns, bars or a line, built item by item; the highlighted item in the accent.
@@ -182,20 +201,21 @@ share — a few equal pieces in a row; as the line names it, the share is lifted
 
 cards — up to six cards dealt in a row; each one's mark (tick, cross, a word) lands as it is said; a stamp across all.
   {"op":"cards","items":[{"title":"Prediction one","big"?:"1912","sub"?,"picture"?:{"generate":"..."},"mark"?:"check|cross|<a word>","on"?}],
-   "stamp"?:{"text":"Debunked","on":"..."}}
+   "stamp"?:{"text":"Debunked","on":"..."},"layout"?:"row|grid|fan"}
   Use for: a few things judged one by one (claims, candidates, causes). big: a large word or year on the card.
 
 list — up to seven points sliding in as they are said, each with its mark.
-  {"op":"list","items":["Margins",{"text":"Hiring","on":"hiring"}],"mark"?:"bullet|number|check"}
+  {"op":"list","items":["Margins",{"text":"Hiring","on":"hiring"}],"mark"?:"bullet|number|check","layout"?:"column|grid|pills|steps"}
   Use for: reasons, features, steps without arrows. Short points (a few words each).
 
 chain — two to seven steps in a row joined by arrows; each next step and its arrow drawn as it is said.
-  {"op":"chain","steps":["Signed",{"label":"Built","on":"built","picture"?:{"generate":"..."}},"Paid"],"loop"?:true}
+  {"op":"chain","steps":["Signed",{"label":"Built","on":"built","picture"?:{"generate":"..."}},"Paid"],"loop"?:true,
+   "layout"?:"row|column|zigzag"}
   Use for: a process or a cause leading to an effect. loop: an arrow from the last back to the first (a cycle).
 
 versus — two cards sweeping in from the edges, a VS badge slammed between them.
   {"op":"versus","left":{"title":"Himalayan","points":["Snow-fed","Flow all year"],"value"?:"40%","picture"?,"on"?},
-   "right":{"title":"Peninsular","points":["Rain-fed"],"on"?}}
+   "right":{"title":"Peninsular","points":["Rain-fed"],"on"?},"layout"?:"cards|split|stack"}
   Use for: exactly two things contrasted (up to four points a side). A side may be just a title: "left":"Lord".
 
 table — two to four columns, up to five rows filled in as they are said.
@@ -259,6 +279,40 @@ myth — the wrong idea on a card; as the right one is said, the wrong one is st
 ask — a question set large; given again with "answer", the answer is typed in under it with a tick.
   {"op":"ask","text":"Why did power belong not just to kings?","answer"?:"Land, protection and religion","kicker"?,"on"?}
   Use: once at a chapter's start (no answer), again where the lecture answers it (with answer, on its words).
+
+venn — two or three sets as circles drawn in one by one, each with its few items; what they share slammed in the middle.
+  {"op":"venn","sets":[{"label":"Trade","items"?:["markets","ports"],"on":"trade"},{"label":"Faith","on":"faith"}],
+   "overlap"?:{"text":"Cities","on":"cities"}}
+  Use for: what two or three things have in common, and what is each one's own.
+
+quadrant — two qualities as axes; things placed in the four fields between them as each is said.
+  {"op":"quadrant","x":["Low cost","High cost"],"y":["Low return","High return"],"cells"?:{"tr":"Big bets","bl":"Small steps"},
+   "items":[{"text":"Railways","x":0.85,"y":0.85,"on":"railways"}]}
+  x and y of an item from 0 to 1. Use for: several things judged on two qualities at once.
+
+funnel — stages as bands narrowing down, each sliding in with its figure counting.
+  {"op":"funnel","stages":[{"label":"Applied","value"?:"1,000","on":"thousand"},{"label":"Passed","value"?:"40","on":"forty"}]}
+
+gauge — a dial from min to max, the needle swinging to the value as the figure counts up.
+  {"op":"gauge","value":72,"min"?:0,"max"?:100,"text"?:"72%","label"?:"literacy","low"?:"none","high"?:"all","invert"?:false,"on"?}
+  Use for: a level or a rate read against its range (good to bad; invert when high is bad).
+
+scale — a balance: each side's items dropped onto its pan as said; the beam tips to the heavier side.
+  {"op":"scale","left":{"title":"Exports","items":[{"text":"Silver","on":"silver"},"Silk"]},"right":{"title":"Imports","items":["Rice"]},
+   "tips"?:"left|right|even"}
+  Use for: a trade-off, a balance of trade or power, which side outweighs the other.
+
+iceberg — what is seen above the waterline, then the much larger hidden part rising into view, each named on its words.
+  {"op":"iceberg","above":[{"text":"Castles","on":"castles"}],"below":[{"text":"Taxes","on":"taxes"},"Roads"],"waterline"?:"what we see"}
+
+before_after — a state, then a bar wiping across it to what it became; the change named on the divide.
+  {"op":"before_after","before":{"title":"Village rule","points"?:["Local elders"],"value"?,"picture"?},
+   "after":{"title":"Capital rule","points"?:["Governors"],"on":"after it"},"change"?:"the reform"}
+
+ranking — a leaderboard; places come in from the last up (a countdown, "order":"up") or from the first down; first crowned.
+  {"op":"ranking","items":[{"label":"Edo","value"?:1000,"note"?,"on":"Edo"},{"label":"Kyoto","value"?:400}],"unit"?:"k",
+   "order"?:"up|down","highlight"?}
+  The first item given is first place.
 
 stamp — a rubber stamp slammed onto what is up (the picture shakes); plays after the beat's other operations.
   {"op":"stamp","text":"Cleared","on":"cleared","color"?,"angle"?:-10,"at"?:"center|top|bottom|left|right"}

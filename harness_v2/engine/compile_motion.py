@@ -4,7 +4,9 @@ It is the lecture compiler (compile_lecture.py) with more: everything a beat scr
 -- the same checks, the same mends, the same pictures -- and plays in motion, in a look; and a beat may also use the
 motion templates (title, counter, chart, units, cards, stamp, kpi, chain, list, versus, donut, document, polaroids,
 emphasis; and hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar,
-converge, table, ask: motion_more.py), each with `on`: the words it lands on. The reference is MOTION_ENGINE.md.
+converge, table, ask: motion_more.py; venn, quadrant, funnel, gauge, scale, iceberg, before_after, ranking:
+motion_forms.py), each with `on`: the words it lands on, and many with a `layout` (the same content in another form)
+and `enter` (how its parts come on). The reference is MOTION_ENGINE.md.
 
     .venv/bin/python harness_v2/engine/compile_motion.py script.json -o scene.py
     .venv/bin/python harness_v2/engine/compile_motion.py - --json < script.json
@@ -67,7 +69,35 @@ MOTION_OPS: dict[str, dict] = {
     "converge": {"need": ["to", "sources"], "args": ["to", "sources", "direction", "title", "kicker", "id"]},
     "table": {"need": ["columns", "rows"], "args": ["columns", "rows", "title", "kicker", "highlight", "id"]},
     "ask": {"need": ["text"], "args": ["text", "answer", "kicker", "on", "id"]},
+    # What overlaps, sits between, narrows, measures, weighs, hides, changes or ranks (motion_forms.py).
+    "venn": {"need": ["sets"], "args": ["sets", "overlap", "title", "kicker", "id"]},
+    "quadrant": {"need": ["x", "y"], "args": ["x", "y", "items", "cells", "title", "kicker", "id"]},
+    "funnel": {"need": ["stages"], "args": ["stages", "title", "kicker", "id"]},
+    "gauge": {"need": ["value"], "args": ["value", "min", "max", "label", "low", "high", "text", "sub", "invert",
+                                          "title", "kicker", "id"]},
+    "scale": {"need": ["left", "right"], "args": ["left", "right", "tips", "title", "kicker", "id"]},
+    "iceberg": {"need": ["below"], "args": ["above", "below", "waterline", "title", "kicker", "id"]},
+    "before_after": {"need": ["before", "after"], "args": ["before", "after", "change", "title", "kicker", "id"]},
+    "ranking": {"need": ["items"], "args": ["items", "order", "unit", "highlight", "title", "kicker", "id"]},
 }
+# The ways a template may be laid out (`layout`), the first its default.
+LAYOUTS = {
+    "counter": ("big", "ring", "bar", "badge"),
+    "list": ("column", "grid", "pills", "steps"),
+    "chain": ("row", "column", "zigzag"),
+    "cards": ("row", "grid", "fan"),
+    "versus": ("cards", "split", "stack"),
+    "kpi": ("row", "grid", "column"),
+}
+# How any template's parts may come on (`enter`; motion_kit.ENTRANCES). Left out: each part's own way.
+ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write")
+RANK_ORDERS = ("up", "down")
+for _kind, _spec in MOTION_OPS.items():
+    if _kind in LAYOUTS:
+        _spec["args"].insert(len(_spec["args"]) - 1, "layout")
+    if _kind not in ("stamp", "emphasis"):
+        _spec["args"].insert(len(_spec["args"]) - (1 if _spec["args"][-1] == "id" else 0), "enter")
+MOTION_OPS["counter"]["args"].insert(-1, "max")
 # Put over what is on the stage (after the beat's pictures go up), not a picture of their own.
 OVERLAY_OPS = {"stamp", "emphasis"}
 # Templates no longer drawn: left out of a script that still has them, with a note.
@@ -82,10 +112,10 @@ UNIT_SHAPES = ("sack", "coin", "box")
 ENERGIES = tuple(motion_looks.ENERGY)
 SIDES = ("center", "top", "bottom", "left", "right")
 # Pictures in these are made large (a print, a page's portrait, a side's picture), not as small pictures by words.
-BIG_PICTURES = {"polaroids", "document", "versus", "plan"}
+BIG_PICTURES = {"polaroids", "document", "versus", "plan", "before_after"}
 MOST = {"cards": 6, "chain": 7, "list": 7, "kpi": 4, "polaroids": 5, "chart": 12, "hierarchy": 6, "exchange": 4,
         "plan": 12, "lineage": 8, "lifespan": 7, "analogy": 6, "ritual": 6, "calendar": 6, "converge": 8,
-        "table": 5}
+        "table": 5, "venn": 3, "quadrant": 8, "funnel": 6, "ranking": 7, "iceberg": 5}
 
 
 # ---------------------------------------------------------------- the script's own fields --------------------------
@@ -130,8 +160,8 @@ def _pictures(op: dict) -> list[tuple[str, dict]]:
             s = op.get(side)
             if isinstance(s, dict) and isinstance(s.get("picture"), dict):
                 out.append((f"its {side}", s["picture"]))
-    elif kind == "versus":
-        for side in ("left", "right"):
+    elif kind in ("versus", "before_after"):
+        for side in (("left", "right") if kind == "versus" else ("before", "after")):
             s = op.get(side)
             if isinstance(s, dict) and isinstance(s.get("picture"), dict):
                 out.append((f"its {side} side", s["picture"]))
@@ -184,6 +214,7 @@ def motion_fixes(script: dict) -> list[str]:
                 if missing:
                     notes.append(f"{fixed}{at}: {kind} left out: it needs {', '.join(missing)}")
                     continue
+                _mend_form(op, kind, at, notes)
                 problem = _mend(op, at, notes)
                 if problem:
                     notes.append(f"{fixed}{at}: {kind} left out: {problem}")
@@ -191,6 +222,22 @@ def motion_fixes(script: dict) -> list[str]:
                 kept.append(op)
             beat["do"] = kept
     return notes
+
+
+def _mend_form(op: dict, kind: str, at: str, notes: list[str]) -> None:
+    """A template's `layout` and `enter` checked: an unknown one is left out (its default is used), with a note."""
+    fixed = cl.FIXED
+    if op.get("layout") is not None:
+        ways = LAYOUTS.get(kind)
+        if not ways:
+            notes.append(f"{fixed}{at}: {kind} has no layouts; layout {op['layout']!r} left out")
+            op.pop("layout")
+        elif op["layout"] not in ways:
+            notes.append(f"{fixed}{at}: {kind} layout {op['layout']!r} is not one of {', '.join(ways)}; {ways[0]} is used")
+            op.pop("layout")
+    if op.get("enter") is not None and (op["enter"] not in ENTRANCES or kind in ("stamp", "emphasis")):
+        notes.append(f"{fixed}{at}: {kind} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; left out")
+        op.pop("enter")
 
 
 def _items(op: dict, key: str, text_key: str) -> list:
@@ -334,6 +381,10 @@ def _mend(op: dict, at: str, notes: list[str]) -> str | None:
     elif kind == "stamp":
         if op.get("at") is not None and op["at"] not in SIDES:
             op["at"] = "center"
+    elif kind in ("venn", "quadrant", "funnel", "gauge", "scale", "iceberg", "before_after", "ranking"):
+        problem = _mend_forms(op, kind, at, notes, most)
+        if problem:
+            return problem
     elif kind in ("hierarchy", "lineage", "ritual", "converge", "plan", "lifespan", "calendar", "table", "analogy",
                   "exchange"):
         problem = _mend_more(op, kind, at, notes, most)
@@ -452,6 +503,85 @@ def _mend_more(op: dict, kind: str, at: str, notes: list[str], most: int | None)
             return "a calendar needs days or seasons"
         op["days"] = (op.get("days") or [])[:6]
         op["seasons"] = (op.get("seasons") or [])[:6]
+    return None
+
+
+def _mend_forms(op: dict, kind: str, at: str, notes: list[str], most: int | None) -> str | None:
+    """The templates of motion_forms.py checked and mended (see MOTION_ENGINE.md §3)."""
+    fixed = cl.FIXED
+
+    def cut(key: str, items: list) -> list:
+        if most and len(items) > most:
+            notes.append(f"{fixed}{at}: {kind} cut to its first {most} {key}")
+        return items[:most] if most else items
+    if kind == "venn":
+        sets = [s for s in _items(op, "sets", "label") if s.get("label")]
+        if len(sets) < 2:
+            return "a venn needs two or three sets, each with a label"
+        op["sets"] = cut("sets", sets)
+        if isinstance(op.get("overlap"), str):
+            op["overlap"] = {"text": op["overlap"]}
+    elif kind == "quadrant":
+        for axis in ("x", "y"):
+            a = op.get(axis)
+            if isinstance(a, str):
+                op[axis] = {"label": a}
+            elif not isinstance(a, (dict, list)):
+                return f"its {axis} axis is [low end, high end] or {{label, low, high}}"
+        items = [i for i in _items(op, "items", "text") if i.get("text")]
+        for i in items:
+            for c in ("x", "y"):
+                v = _num(i.get(c))
+                if v is not None:
+                    i[c] = max(0.0, min(1.0, v / 100 if v > 1 else v))
+        op["items"] = cut("items", items)
+        if op.get("cells") is not None and not isinstance(op["cells"], dict):
+            notes.append(f"{fixed}{at}: quadrant cells is {{tl, tr, bl, br}}; left out")
+            op.pop("cells")
+    elif kind == "funnel":
+        stages = [s for s in _items(op, "stages", "label") if s.get("label")]
+        if len(stages) < 2:
+            return "a funnel needs two stages or more"
+        op["stages"] = cut("stages", stages)
+    elif kind == "gauge":
+        v = _num(op.get("value"))
+        if v is None:
+            return "its value is a number"
+        lo, hi = _num(op.get("min"), 0.0), _num(op.get("max"), 100.0)
+        if hi is None or lo is None or hi <= lo:
+            notes.append(f"{fixed}{at}: gauge min and max read as 0 and 100")
+            lo, hi = 0.0, 100.0
+        op["value"], op["min"], op["max"] = v, lo, hi
+    elif kind == "scale":
+        for side in ("left", "right"):
+            if isinstance(op.get(side), str):
+                op[side] = {"title": op[side]}
+            if not isinstance(op.get(side), dict) or not op[side].get("title"):
+                return f"its {side} side needs a title"
+            op[side]["items"] = _items(op[side], "items", "text")[:4]
+        if op.get("tips") is not None and op["tips"] not in ("left", "right", "even"):
+            op.pop("tips")
+    elif kind == "iceberg":
+        op["above"] = _items(op, "above", "text")[:3]
+        op["below"] = cut("below", _items(op, "below", "text"))
+        if not op["below"]:
+            return "an iceberg needs what is below"
+    elif kind == "before_after":
+        for side in ("before", "after"):
+            if isinstance(op.get(side), str):
+                op[side] = {"title": op[side]}
+            if not isinstance(op.get(side), dict) or not op[side].get("title"):
+                return f"its {side} needs a title"
+            _picture_in(op[side])
+            op[side]["points"] = [str(p) for p in op[side].get("points") or []][:4]
+    elif kind == "ranking":
+        items = [i for i in _items(op, "items", "label") if i.get("label")]
+        if len(items) < 2:
+            return "a ranking needs two places or more"
+        op["items"] = cut("places", items)
+        if op.get("order") is not None and op["order"] not in RANK_ORDERS:
+            notes.append(f"{fixed}{at}: ranking order {op['order']!r} is not one of {', '.join(RANK_ORDERS)}; up is used")
+            op.pop("order")
     return None
 
 

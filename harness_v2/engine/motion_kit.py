@@ -331,6 +331,16 @@ def glow(mob, color: str | None = None, layers: int = 3):
 SIDE = {"left": LEFT, "right": RIGHT, "up": UP, "down": DOWN, "top": UP, "bottom": DOWN}
 
 
+# How a template's parts come on when the script chose it (`enter`): set while the template is built, and while its
+# parts said later are (MotionLecture._moment); it overrides each part's own way of coming on.
+FORCE_ENTER: str | None = None
+ENTRANCES = ("pop", "rise", "drop", "slide", "zoom", "fade", "flip", "write")
+
+
+def forced() -> str | None:
+    return FORCE_ENTER
+
+
 def enter(mob, how: str | None = None, side: str | None = None, run: float | None = None):
     """How something comes on, by name (the look's own when None):
     pop     grows from small with an overshoot              rise    comes up a little as it fades in
@@ -338,7 +348,7 @@ def enter(mob, how: str | None = None, side: str | None = None, run: float | Non
     zoom    comes from large, settling                      write   written (words) or drawn (lines)
     fade    simply fades in                                 flip    turns in, as a card turned over
     """
-    how = how or M.get("enter", "pop")
+    how = FORCE_ENTER or how or M.get("enter", "pop")
     run = run if run is not None else t("base")
     images = any(isinstance(m, ImageMobject) for m in mob.get_family())
     if how == "write":

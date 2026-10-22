@@ -298,7 +298,7 @@ assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), 
     "src = open('compile_motion.py').read()",
     "args = sorted({a for o in m.MOTION_OPS.values() for a in o['args'] if a not in ('file',)})",
     "fields = sorted(set(k for k in re.findall(r'script\\.get\\(\"([a-z_]+)\"', src) if not k.startswith('_')))",
-    "values = sorted(set(m.CHART_KINDS) | set(m.LIST_MARKS) | set(m.EMPHASES) | set(m.TIMELINE_STYLES) | set(m.ENERGIES) | set(l.TRANSITIONS) | set(l.LOOKS))",
+    "values = sorted(set(m.CHART_KINDS) | set(m.LIST_MARKS) | set(m.EMPHASES) | set(m.TIMELINE_STYLES) | set(m.ENERGIES) | set(l.TRANSITIONS) | set(l.LOOKS) | {w for ws in m.LAYOUTS.values() for w in ws} | set(m.ENTRANCES) | set(m.RANK_ORDERS))",
     "print(json.dumps({'templates': sorted(m.MOTION_OPS), 'args': args, 'script': fields, 'values': values}))",
   ].join("\n");
   const mlisted = await rp(["-c", motionCode], engine, { PYTHONPATH: engine });

@@ -48,6 +48,7 @@ from manim.utils.rate_functions import ease_in_cubic, ease_out_back, ease_out_cu
 
 import motion_kit as K
 import motion_looks
+from motion_forms import FormTemplates
 from motion_more import MoreTemplates
 import pocket_lecture as pl
 from pocket_lecture import *  # noqa: F403 -- the engine's names, for the compiled scene
@@ -81,7 +82,7 @@ def _P():
     return pl.P
 
 
-class MotionLecture(MoreTemplates, MapLecture):
+class MotionLecture(FormTemplates, MoreTemplates, MapLecture):
     """A lecture in a look, every template animated (see the module's notes)."""
 
     # ---------------------------------------------------------------- set-up ----------------------------------------
@@ -612,8 +613,15 @@ class MotionLecture(MoreTemplates, MapLecture):
         alts = [str(x) for x in say if str(x or "").strip()] if isinstance(say, (list, tuple)) else None
         if alts:
             say = alts[0]
+        force = K.FORCE_ENTER
+
         def made(heard):
-            anim = build(heard)
+            # Built as its words come, in the way its template was told to bring its parts on (`enter`).
+            before, K.FORCE_ENTER = K.FORCE_ENTER, force
+            try:
+                anim = build(heard)
+            finally:
+                K.FORCE_ENTER = before
             # Parts held back until now (a chain's next step) are the stage's from now on: they leave with it.
             if anim is not None:
                 within = set()
@@ -705,9 +713,13 @@ class MotionLecture(MoreTemplates, MapLecture):
     # ---------------------------------------------------------------- a figure counting up ------------------------
     def m_counter(self, value: str, label: str = "", kicker: str | None = None, delta: str | None = None,
                   trend: str | None = None, color: str | None = None, sub: str | None = None,
-                  start: float = 0.0, id: str | None = None):
+                  start: float = 0.0, layout: str = "big", max=None, id: str | None = None):
         """A big figure counting up to its value, its kicker typed over it, its label rising under it, and a change
-        (▲ +50%) popping beside it."""
+        (▲ +50%) popping beside it. `layout`: big (the figure alone), ring (the figure inside a ring that sweeps
+        round to value/max), bar (the figure over a bar that fills to value/max), badge (the figure on a round
+        seal, its label beside it)."""
+        if layout in ("ring", "bar", "badge"):
+            return self._counter_shaped(value, label, kicker, color, sub, start, layout, max, id)
         tid = id or self._next_id("counter")
         tone = pl.role(color) if color else K.col("accent")
 
@@ -753,6 +765,88 @@ class MotionLecture(MoreTemplates, MapLecture):
         entrance = K.stagger(anims, lag=0.5)
         self._part(tid, label, num, point=lambda: K.pulse(num, 1.08))
         return self._show(tid, whole, entrance)
+
+    def _counter_shaped(self, value, label, kicker, color, sub, start, layout, most, id):
+        """A counter in a ring, over a bar, or on a seal (m_counter's `layout`)."""
+        P = pl.P
+        tid = id or self._next_id("counter")
+        tone = pl.role(color) if color else K.col("accent")
+        parsed = K.parse_number(str(value))
+        try:
+            share = float(np.clip(parsed[1] / float(most), 0, 1)) if parsed and most else 1.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            share = 1.0
+        if not start and re.fullmatch(r"\s*1[0-9]{3}\s*|\s*20[0-9]{2}\s*", str(value)):
+            start = float(int(str(value).strip()) - 40)
+        size = {"ring": 76, "bar": 96, "badge": 64}[layout]
+        ink = _ink_on(tone) if layout == "badge" else P.TITLE
+        num = K.counter(str(value), lambda w: K.number(w, size, ink), start=start)
+        lab = K.body(label, 28, P.CREAM, 34) if label else None
+        top = K.kicker(kicker, 20) if kicker else None
+        anims = []
+        if layout == "ring":
+            r = 1.75
+            track = Circle(radius=r, stroke_color=pl._tint_on_bg(tone, 0.18), stroke_width=22, fill_opacity=0)
+            arc = Arc(radius=r, start_angle=math.pi / 2, angle=-2 * math.pi * max(share, 0.002), stroke_color=tone,
+                      stroke_width=22)
+            fit(num, r * 1.5)
+            num.move_to(ORIGIN)
+            shape = VGroup(track, arc, num)
+            if lab is not None:
+                lab.next_to(track, DOWN, buff=0.35)
+            grow = K.timed(Create(arc, rate_func=ease_out_cubic), K.t("slow") * 1.3, "draw")
+            anims += [K.draw(track, run=K.t("base")), grow]
+        elif layout == "bar":
+            bw = 8.0
+            track = RoundedRectangle(width=bw, height=0.42, corner_radius=0.21, stroke_width=0,
+                                     fill_color=pl._tint_on_bg(tone, 0.18), fill_opacity=1)
+            fill_bar = RoundedRectangle(width=max(0.42, bw * share), height=0.42, corner_radius=0.21, stroke_width=0,
+                                        fill_color=tone, fill_opacity=1)
+            fill_bar.align_to(track, LEFT)
+            num.next_to(track, UP, buff=0.3).align_to(track, LEFT)
+            shape = VGroup(track, fill_bar, num)
+            if lab is not None:
+                lab.next_to(track, DOWN, buff=0.3).align_to(track, LEFT)
+            anims += [K.enter(track, "fade", run=K.t("fast"))]
+        else:
+            seal = Circle(radius=1.45, stroke_width=0, fill_color=tone, fill_opacity=1)
+            ring = Circle(radius=1.3, stroke_color=_ink_on(tone), stroke_width=2.5, fill_opacity=0)
+            fit(num, 2.2)
+            num.move_to(ORIGIN)
+            shape = VGroup(seal, ring, num)
+            if lab is not None:
+                lab.next_to(seal, RIGHT, buff=0.5)
+            anims += [K.timed(FadeIn(VGroup(seal, ring), scale=0.4, rate_func=ease_out_back), K.t("base"), "pop"),
+                      "count"]
+        parts = [m for m in (top, shape, lab) if m is not None]
+        if top is not None:
+            top.next_to(shape, UP, buff=0.35).align_to(shape if layout != "badge" else shape, LEFT)
+        if sub:
+            low = K.body(sub, 22, P.MUTED, 50)
+            low.next_to(lab if lab is not None else shape, DOWN, buff=0.2)
+            if lab is not None:
+                low.align_to(lab, LEFT)
+            parts.append(low)
+        whole = VGroup(*parts)
+        self._fit(whole, self._box(), grow=1.15, margin=0.8)
+        count = num.count_anim(run=K.t("slow") * 1.3, centre=layout != "bar")
+
+        def made(a):
+            if a in ("count", "count+"):
+                return count if count is not None else K.enter(num, "pop")
+            return a
+        seq = [made(a) if isinstance(a, str) else a for a in anims]
+        if layout == "ring":
+            seq = [seq[0], K.together([seq[1], made("count")])]
+        elif layout == "bar":
+            seq = [seq[0], K.together([K.grow_from(shape[1], LEFT, run=K.t("slow") * 1.3), made("count")])]
+        steps = [K.typewriter(top, run=0.6) if top is not None else None, *seq]
+        if lab is not None:
+            steps.append(K.enter(lab, "rise"))
+        if sub:
+            steps.append(K.enter(parts[-1], "fade"))
+        self._part(tid, label, shape, point=lambda: K.pulse(num, 1.08))
+        return self._show(tid, whole, K.stagger(steps, lag=0.5))
 
     # ---------------------------------------------------------------- charts -------------------------------------
     def m_chart(self, items, kind: str = "column", title: str | None = None, kicker: str | None = None,
@@ -1084,17 +1178,22 @@ class MotionLecture(MoreTemplates, MapLecture):
         return self._show(tid, whole, entrance, idle=False)
 
     # ---------------------------------------------------------------- cards dealt in a row -----------------------
-    def m_cards(self, items, title: str | None = None, kicker: str | None = None, stamp=None, id: str | None = None):
+    def m_cards(self, items, title: str | None = None, kicker: str | None = None, stamp=None, layout: str = "row",
+                id: str | None = None):
         """Cards dealt in from below one after another, each turned a little: a picture (or a big word) and its
         title; a mark on a card (check, cross or a word stamped) lands as it is said; `stamp` ({text, on}) slams
-        across them all."""
+        across them all. `layout`: row (side by side), grid (in two rows, larger), fan (overlapping like a hand of
+        cards, spread round a point)."""
         P = pl.P
         tid = id or self._next_id("cards")
         specs = [it if isinstance(it, dict) else {"title": str(it)} for it in (items or [])][:6]
         if not specs:
             return None
         n = len(specs)
-        cw = min(2.9, 11.5 / n - 0.35)
+        if layout not in ("grid", "fan"):
+            layout = "row"
+        per_row = math.ceil(n / 2) if layout == "grid" and n > 3 else n
+        cw = min(2.9, 11.5 / per_row - 0.35) if layout != "fan" else 3.0
         ch = cw * 1.25
         cards = []
         rng = np.random.default_rng(5)
@@ -1123,12 +1222,26 @@ class MotionLecture(MoreTemplates, MapLecture):
             if content.height > ch * 0.92:
                 content.scale(ch * 0.92 / content.height)
             whole_card = K.group_of(face, content)
-            whole_card.rotate((rng.uniform(1.5, 4.0) * (-1 if k % 2 else 1)) * math.pi / 180)
+            if layout != "fan":
+                whole_card.rotate((rng.uniform(1.5, 4.0) * (-1 if k % 2 else 1)) * math.pi / 180)
             cards.append((s, whole_card))
-        row = Group(*[c for _, c in cards]).arrange(RIGHT, buff=0.35)
+        if layout == "fan":
+            # Spread round a point under the hand, each a little further turned, the later ones over the earlier.
+            spread = min(18.0, 64.0 / max(n - 1, 1))
+            hub = np.array([0, -ch * 2.4, 0])
+            for k, (_, c) in enumerate(cards):
+                angle = (k - (n - 1) / 2) * spread * math.pi / 180
+                c.move_to(ORIGIN).rotate(-angle, about_point=hub)
+                c.set_z_index(Z_TEMPLATE + k * 0.01)
+            row = Group(*[c for _, c in cards])
+        elif layout == "grid" and n > 3:
+            row = Group(*[c for _, c in cards]).arrange_in_grid(cols=per_row, buff=(0.35, 0.45))
+        else:
+            row = Group(*[c for _, c in cards]).arrange(RIGHT, buff=0.35)
         whole, top = self._titled(row, title, kicker)
         self._fit(whole, self._box(), grow=1.1)
-        deal = K.stagger([K.timed(FadeIn(c, shift=UP * 1.4, rate_func=ease_out_back), K.t("base"), "swish")
+        deal = K.stagger([K.enter(c, None, run=K.t("base")) if K.forced() else
+                          K.timed(FadeIn(c, shift=UP * 1.4, rate_func=ease_out_back), K.t("base"), "swish")
                           for _, c in cards], lag=0.3)
         entrance = K.stagger([self._title_in(top), deal], lag=0.6)
         for s, c in cards:
@@ -1244,17 +1357,22 @@ class MotionLecture(MoreTemplates, MapLecture):
         return np.array([best[1], best[2], 0.0])
 
     # ---------------------------------------------------------------- data cards -----------------------------------
-    def m_kpi(self, cards, title: str | None = None, kicker: str | None = None, id: str | None = None):
-        """Data cards side by side (two to four): each a label in mono capitals, a big figure counting up, a change
-        with its arrow (▲ green, ▼ red) and a note; dealt in one after another, each figure counting as it lands."""
+    def m_kpi(self, cards, title: str | None = None, kicker: str | None = None, layout: str = "row",
+              id: str | None = None):
+        """Data cards (two to four): each a label in mono capitals, a big figure counting up, a change with its arrow
+        (▲ green, ▼ red) and a note; dealt in one after another, each figure counting as it lands. `layout`: row
+        (side by side), grid (two by two), column (wide strips one under another, the figure at the right)."""
         P = pl.P
         tid = id or self._next_id("kpi")
         specs = [c for c in (cards or []) if isinstance(c, dict)][:4]
         if not specs:
             return None
         n = len(specs)
-        cw = min(4.2, 12.0 / n - 0.3)
-        ch = 3.2
+        if layout not in ("grid", "column"):
+            layout = "row"
+        per_row = 2 if layout == "grid" and n > 2 else n if layout == "row" else 1
+        cw = min(4.2, 12.0 / per_row - 0.3) if layout != "column" else 8.6
+        ch = 3.2 if layout != "column" else 1.5
         made, counts = [], []
         for s in specs:
             face = K.card(cw, ch)
@@ -1275,19 +1393,41 @@ class MotionLecture(MoreTemplates, MapLecture):
                 stack.append(d)
             if s.get("note"):
                 stack.append(fit(K.body(str(s["note"]), 18, K.col("card_ink"), 28), cw - 0.5))
-            content = VGroup(*stack).arrange(DOWN, buff=0.18, aligned_edge=LEFT)
-            content.move_to(face.face).align_to(face.face, LEFT).shift(RIGHT * 0.3)
-            if content.height > ch - 0.4:
-                content.scale((ch - 0.4) / content.height)
+            if layout == "column":
+                # The words at the left, the figure (and its change) at the right of the strip.
+                change = stack[2] if s.get("delta") else None
+                words = VGroup(*[m for m in stack if m is not num and m is not change])
+                words.arrange(DOWN, buff=0.12, aligned_edge=LEFT)
+                fig = VGroup(num, *([change] if change is not None else [])).arrange(RIGHT, buff=0.25)
+                fit(fig, cw * 0.42)
+                fit(words, cw * 0.5)
+                content = VGroup(words, fig)
+                words.move_to(face.face).align_to(face.face, LEFT).shift(RIGHT * 0.3)
+                fig.move_to(face.face).align_to(face.face, RIGHT).shift(LEFT * 0.3)
+                if content.height > ch - 0.25:
+                    content.scale((ch - 0.25) / content.height)
+            else:
+                content = VGroup(*stack).arrange(DOWN, buff=0.18, aligned_edge=LEFT)
+                content.move_to(face.face).align_to(face.face, LEFT).shift(RIGHT * 0.3)
+                if content.height > ch - 0.4:
+                    content.scale((ch - 0.4) / content.height)
             made.append((s, VGroup(face, content), num, content))
-        row = VGroup(*[m[1] for m in made]).arrange(RIGHT, buff=0.3)
+        if layout == "column":
+            row = VGroup(*[m[1] for m in made]).arrange(DOWN, buff=0.25)
+        elif layout == "grid" and n > 2:
+            row = VGroup(*[m[1] for m in made]).arrange_in_grid(cols=2, buff=0.3)
+        else:
+            row = VGroup(*[m[1] for m in made]).arrange(RIGHT, buff=0.3)
         whole, top = self._titled(row, title, kicker)
         self._fit(whole, self._box(), grow=1.15)
         deals = []
         for s, c, num, content in made:
             count = num.count_anim(run=K.t("slow") * 1.2)
-            rest = [m for m in content if m is not num]
-            deals.append(K.chain([K.timed(FadeIn(c[0], shift=UP * 0.6, rate_func=ease_out_cubic), K.t("base"), "swish"),
+            rest = [m for m in content if m is not num] if layout != "column" else \
+                [content[0], *[m for m in content[1] if m is not num]]
+            card_in = K.enter(c[0], None) if K.forced() else \
+                K.timed(FadeIn(c[0], shift=UP * 0.6, rate_func=ease_out_cubic), K.t("base"), "swish")
+            deals.append(K.chain([card_in,
                                   K.together([count if count is not None else K.enter(num, "pop"),
                                               K.stagger([K.enter(m, "rise", run=K.t("fast")) for m in rest], lag=0.3)])]))
             self._part(tid, s.get("label"), c, point=lambda c=c: K.pulse(c, 1.04))
@@ -1296,16 +1436,20 @@ class MotionLecture(MoreTemplates, MapLecture):
 
     # ---------------------------------------------------------------- a chain of steps ---------------------------
     def m_chain(self, steps, title: str | None = None, kicker: str | None = None, loop: bool = False,
-                id: str | None = None):
-        """Steps in a row joined by arrows: each step's card pops in and the arrow to it is drawn as the line says
-        it (or one after another); `loop` draws an arrow from the last back round to the first."""
+                layout: str = "row", id: str | None = None):
+        """Steps joined by arrows: each step's card pops in and the arrow to it is drawn as the line says it (or one
+        after another); `loop` draws an arrow from the last back round to the first. `layout`: row (left to right),
+        column (top to bottom, wide cards), zigzag (a snake: along a first row, then back along a second)."""
         P = pl.P
         tid = id or self._next_id("chain")
         specs = [s if isinstance(s, dict) else {"label": str(s)} for s in (steps or [])][:7]
         if len(specs) < 2:
             return None
         n = len(specs)
-        cw = min(2.6, 12.0 / n - 0.55)
+        if layout not in ("column", "zigzag"):
+            layout = "row"
+        per_row = n if layout == "row" else math.ceil(n / 2) if layout == "zigzag" else 1
+        cw = min(2.6, 12.0 / per_row - 0.55) if layout != "column" else 5.2
         made = []
         for k, s in enumerate(specs):
             pic = None
@@ -1328,15 +1472,38 @@ class MotionLecture(MoreTemplates, MapLecture):
                 num.move_to(face.face.get_corner(UL) + RIGHT * 0.05 + DOWN * 0.05)
                 parts.append(num)
             made.append((s, K.group_of(*parts)))
-        row = Group(*[m for _, m in made]).arrange(RIGHT, buff=0.55)
+        cards = [m for _, m in made]
+        if layout == "row":
+            row = Group(*cards).arrange(RIGHT, buff=0.55)
+        elif layout == "column":
+            row = Group(*cards).arrange(DOWN, buff=0.45)
+        else:
+            top_row = Group(*cards[:per_row]).arrange(RIGHT, buff=0.55)
+            low_row = Group(*cards[per_row:][::-1]).arrange(RIGHT, buff=0.55)
+            low_row.next_to(top_row, DOWN, buff=0.75).align_to(top_row, RIGHT)
+            row = Group(top_row, low_row)
         arrows = []
-        for (_, a), (_, b) in zip(made, made[1:]):
-            arrows.append(K.arrow_between(a.get_right() + RIGHT * 0.06, b.get_left() + LEFT * 0.06, K.col("accent"), width=5))
+        for a, b in zip(cards, cards[1:]):
+            d = b.get_center() - a.get_center()
+            if abs(d[1]) > abs(d[0]):
+                s0, s1 = (a.get_bottom() + DOWN * 0.06, b.get_top() + UP * 0.06) if d[1] < 0 else \
+                    (a.get_top() + UP * 0.06, b.get_bottom() + DOWN * 0.06)
+            else:
+                s0, s1 = (a.get_right() + RIGHT * 0.06, b.get_left() + LEFT * 0.06) if d[0] > 0 else \
+                    (a.get_left() + LEFT * 0.06, b.get_right() + RIGHT * 0.06)
+            arrows.append(K.arrow_between(s0, s1, K.col("accent"), width=5))
         back = None
         if loop:
             first, last = made[0][1], made[-1][1]
-            back = K.arrow_between(last.get_bottom() + DOWN * 0.08, first.get_bottom() + DOWN * 0.08, K.col("accent"),
-                                   curve=-1.0, width=4)
+            if layout == "column":
+                back = K.arrow_between(last.get_right() + RIGHT * 0.08, first.get_right() + RIGHT * 0.08,
+                                       K.col("accent"), curve=1.0, width=4)
+            elif layout == "zigzag":
+                back = K.arrow_between(last.get_left() + LEFT * 0.08, first.get_left() + LEFT * 0.08,
+                                       K.col("accent"), curve=-1.0, width=4)
+            else:
+                back = K.arrow_between(last.get_bottom() + DOWN * 0.08, first.get_bottom() + DOWN * 0.08,
+                                       K.col("accent"), curve=-1.0, width=4)
         whole_parts = [row, *arrows] + ([back] if back is not None else [])
         body = Group(*whole_parts)
         whole, top = self._titled(body, title, kicker)
@@ -1374,35 +1541,79 @@ class MotionLecture(MoreTemplates, MapLecture):
 
     # ---------------------------------------------------------------- a list --------------------------------------
     def m_list(self, items, title: str | None = None, kicker: str | None = None, mark: str = "bullet",
-               id: str | None = None):
-        """Points that come in one at a time as they are said, each sliding in from the left with its mark (a
-        bullet, its number, or a tick drawn)."""
+               layout: str = "column", id: str | None = None):
+        """Points that come in one at a time as they are said, each with its mark (a bullet, its number, or a tick
+        drawn). `layout`: column (a column of lines, each sliding in from the left), grid (tiles in two columns, each
+        dealt in), pills (rounded chips flowing in rows, each popping in), steps (a staircase, each point a step
+        down and to the right of the one before)."""
         P = pl.P
         tid = id or self._next_id("list")
         specs = [it if isinstance(it, dict) else {"text": str(it)} for it in (items or [])][:7]
         if not specs:
             return None
+        if layout not in ("grid", "pills", "steps"):
+            layout = "column"
+
+        def sign_for(k):
+            if mark == "number" or (layout == "steps" and mark == "bullet"):
+                return K.chip(str(k + 1), K.col("accent"), K.col("accent_ink"), 22)
+            if mark == "check":
+                return K.check_mark(0.38)
+            return Square(side_length=0.2, stroke_width=0, fill_color=K.col("accent"), fill_opacity=1).rotate(math.pi / 4)
         rows = []
         for k, s in enumerate(specs):
-            if mark == "number":
-                sign = K.chip(str(k + 1), K.col("accent"), K.col("accent_ink"), 22)
-            elif mark == "check":
-                sign = K.check_mark(0.38)
-            else:
-                sign = Square(side_length=0.2, stroke_width=0, fill_color=K.col("accent"), fill_opacity=1).rotate(math.pi / 4)
-            words = K.body(str(s.get("text", "")), 30, P.CREAM, 40)
+            text = str(s.get("text", ""))
+            if layout == "pills":
+                tone = self._tones(len(specs))[k]
+                pill = K.chip(text, tone, _ink_on(tone), 26, pad=0.24)
+                rows.append((s, pill))
+                continue
+            sign = sign_for(k)
+            if layout == "grid":
+                words = K.body(text, 26, K.col("card_ink"), 24)
+                inner = VGroup(sign, words).arrange(RIGHT, buff=0.25, aligned_edge=UP)
+                face = K.card(max(4.6, inner.width + 0.6), inner.height + 0.6)
+                inner.move_to(face.face)
+                rows.append((s, K.group_of(face, inner)))
+                continue
+            words = K.body(text, 30, P.CREAM, 40)
             rows.append((s, VGroup(sign, words).arrange(RIGHT, buff=0.3, aligned_edge=UP)))
-            sign.align_to(words[0] if len(words.submobjects) and False else words, UP).shift(DOWN * 0.06)
-        block = VGroup(*[r for _, r in rows]).arrange(DOWN, buff=0.38, aligned_edge=LEFT)
+        if layout == "grid":
+            block = Group(*[r for _, r in rows]).arrange_in_grid(cols=2 if len(rows) > 2 else len(rows), buff=0.35,
+                                                                  flow_order="rd")
+        elif layout == "pills":
+            lines, line = [], []
+            for _, r in rows:
+                line.append(r)
+                if len(line) == 3:
+                    lines.append(VGroup(*line).arrange(RIGHT, buff=0.3))
+                    line = []
+            if line:
+                lines.append(VGroup(*line).arrange(RIGHT, buff=0.3))
+            block = VGroup(*lines).arrange(DOWN, buff=0.35)
+        else:
+            block = VGroup(*[r for _, r in rows]).arrange(DOWN, buff=0.38, aligned_edge=LEFT)
+            if layout == "steps":
+                for k, (_, r) in enumerate(rows):
+                    r.shift(RIGHT * 0.7 * k)
         whole, top = self._titled(block, title, kicker)
         self._fit(whole, self._box(), grow=1.6, margin=0.8)
+
+        def row_in(r):
+            if layout == "column" or layout == "steps":
+                return self._row_in(r, mark)
+            if layout == "pills":
+                return K.enter(r, "pop", run=K.t("base"))
+            return K.enter(r, "drop", run=K.t("base"))
         first = rows[0][1]
-        entrance = K.stagger([self._title_in(top), self._row_in(first, mark)], lag=0.5)
+        entrance = K.stagger([self._title_in(top), row_in(first)], lag=0.5)
         for k, (s, r) in enumerate(rows):
-            self._part(tid, s.get("text"), r, point=lambda r=r: K.together([K.pulse(r[0], 1.3)]))
+            point = (lambda r=r: K.together([K.pulse(r[0], 1.3)])) if layout in ("column", "steps") else \
+                (lambda r=r: K.pulse(r, 1.06))
+            self._part(tid, s.get("text"), r, point=point)
             if k == 0:
                 continue
-            self._moment(s.get("on") or s.get("text"), lambda heard, r=r: self._row_in(r, mark))
+            self._moment(s.get("on") or s.get("text"), lambda heard, r=r: row_in(r))
         anim = self._show(tid, whole, entrance)
         self._hold_back(whole, [r for _, r in rows[1:]])
         return anim
@@ -1411,18 +1622,25 @@ class MotionLecture(MoreTemplates, MapLecture):
         sign, words = row
         sign_in = K.draw(sign, run=K.t("fast"), sfx="tick") if mark == "check" else \
             K.timed(FadeIn(sign, scale=0.3, rate_func=ease_out_back), K.t("fast"), "pop")
-        return K.together([sign_in, K.timed(FadeIn(words, shift=RIGHT * 0.5, rate_func=ease_out_expo), K.t("base"), "swish")])
+        words_in = K.enter(words, None, run=K.t("base")) if K.forced() else \
+            K.timed(FadeIn(words, shift=RIGHT * 0.5, rate_func=ease_out_expo), K.t("base"), "swish")
+        return K.together([sign_in, words_in])
 
     # ---------------------------------------------------------------- versus ---------------------------------------
     def m_versus(self, left: dict, right: dict, title: str | None = None, kicker: str | None = None,
-                 id: str | None = None):
-        """Two sides: their cards sweep in from the two edges, a VS badge slams between them, then each side's
-        points come in. Each side's title is pointed at when said again."""
+                 layout: str = "cards", id: str | None = None):
+        """Two sides: they sweep in from the two edges, a VS badge slams between them, then each side's points come
+        in. Each side's title is pointed at when said again. `layout`: cards (two cards side by side), split (the
+        stage cut in two halves of colour, a line down the middle), stack (one card over the other, VS between)."""
         P = pl.P
         tid = id or self._next_id("versus")
+        if layout not in ("split", "stack"):
+            layout = "cards"
+        if layout == "split":
+            return self._versus_split(left or {}, right or {}, title, kicker, tid)
         sides = []
         for s, tone in ((left or {}, K.col("accent")), (right or {}, K.col("second"))):
-            cw = 5.0
+            cw = 5.0 if layout == "cards" else 9.0
             name = fit(K.head(str(s.get("title", "")), 34, tone if not self.M.get("classic") else P.TITLE), cw - 0.5)
             pts = [fit(K.body("• " + str(p), 22, K.col("card_ink"), 32), cw - 0.6) for p in (s.get("points") or [])[:4]]
             big = K.number(str(s["value"]), 58, tone) if s.get("value") else None
@@ -1441,20 +1659,58 @@ class MotionLecture(MoreTemplates, MapLecture):
             band.move_to(face.face.get_top() + DOWN * 0.06)
             sides.append((s, K.group_of(face, band, content), content, pts))
         lcard, rcard = sides[0][1], sides[1][1]
-        pair = Group(lcard, rcard).arrange(RIGHT, buff=1.6)
+        pair = Group(lcard, rcard).arrange(RIGHT if layout == "cards" else DOWN, buff=1.6 if layout == "cards" else 0.9)
         badge_c = Circle(radius=0.55, stroke_width=0, fill_color=K.col("stamp"), fill_opacity=1)
         badge = VGroup(badge_c, K.head("VS", 34, "#FFFFFF", upper=True).move_to(badge_c)).move_to(pair)
         body = Group(pair, badge)
         whole, top = self._titled(body, title, kicker)
         self._fit(whole, self._box(), grow=1.1)
-        entrance = K.stagger([
-            self._title_in(top),
-            K.together([K.timed(FadeIn(lcard, shift=RIGHT * 2.5, rate_func=ease_out_expo), K.t("base"), "swish"),
-                        K.timed(FadeIn(rcard, shift=LEFT * 2.5, rate_func=ease_out_expo), K.t("base"))]),
-            K.slam(badge),
-        ], lag=0.6)
+        a, b = (RIGHT, LEFT) if layout == "cards" else (DOWN, UP)
+        sweep = K.together([K.enter(lcard, None), K.enter(rcard, None)]) if K.forced() else \
+            K.together([K.timed(FadeIn(lcard, shift=a * 2.5, rate_func=ease_out_expo), K.t("base"), "swish"),
+                        K.timed(FadeIn(rcard, shift=b * 2.5, rate_func=ease_out_expo), K.t("base"))])
+        entrance = K.stagger([self._title_in(top), sweep, K.slam(badge)], lag=0.6)
         for s, c, content, pts in sides:
             self._part(tid, s.get("title"), c, point=lambda c=c: K.pulse(c, 1.04))
+        return self._show(tid, whole, entrance)
+
+    def _versus_split(self, left: dict, right: dict, title, kicker, tid):
+        """Versus as the stage cut in two: each half washed in its side's colour and wiped in from its edge, a line
+        down the middle, the VS badge slammed on it; each side's title, figure and points set in its half."""
+        P = pl.P
+        hw, hh = 6.2, 5.6
+        halves, contents = [], []
+        for k, (s, tone) in enumerate(((left, K.col("accent")), (right, K.col("second")))):
+            wash = Rectangle(width=hw, height=hh, stroke_width=0, fill_color=tone, fill_opacity=0.16)
+            wash.move_to([(-1 if k == 0 else 1) * hw / 2, 0, 0])
+            name = fit(K.head(str(s.get("title", "")), 40, tone if not self.M.get("classic") else P.TITLE), hw - 1.0)
+            big = K.number(str(s["value"]), 72, tone) if s.get("value") else None
+            pic = self._pic(s.get("file"), 1.8, hw - 1.2)
+            pts = [fit(K.body("• " + str(p), 24, P.CREAM, 30), hw - 1.0) for p in (s.get("points") or [])[:4]]
+            stack = [m for m in (pic, name, big) if m is not None] + pts
+            content = (Group if pic is not None else VGroup)(*stack).arrange(DOWN, buff=0.25)
+            if content.height > hh - 0.6:
+                content.scale((hh - 0.6) / content.height)
+            content.move_to(wash)
+            halves.append((s, wash, content))
+            contents.append(content)
+        line = Line([0, -hh / 2, 0], [0, hh / 2, 0], stroke_color=P.CREAM, stroke_width=3)
+        badge_c = Circle(radius=0.6, stroke_width=0, fill_color=K.col("stamp"), fill_opacity=1)
+        badge = VGroup(badge_c, K.head("VS", 34, "#FFFFFF", upper=True).move_to(badge_c))
+        body = Group(*[h[1] for h in halves], line, *contents, badge)
+        whole, top = self._titled(body, title, kicker)
+        self._fit(whole, self._box(), grow=1.05, margin=0.3)
+        (ls, lw, lc), (rs, rw, rc) = halves
+        entrance = K.stagger([
+            self._title_in(top),
+            K.together([K.timed(FadeIn(lw, shift=RIGHT * 1.5, rate_func=ease_out_expo), K.t("base"), "swish"),
+                        K.timed(FadeIn(rw, shift=LEFT * 1.5, rate_func=ease_out_expo), K.t("base")),
+                        K.draw(line, run=K.t("base"))]),
+            K.together([K.enter(lc, "rise"), K.enter(rc, "rise")]),
+            K.slam(badge),
+        ], lag=0.5)
+        self._part(tid, ls.get("title"), lc, point=lambda: K.pulse(lc, 1.04))
+        self._part(tid, rs.get("title"), rc, point=lambda: K.pulse(rc, 1.04))
         return self._show(tid, whole, entrance)
 
     # ---------------------------------------------------------------- a donut --------------------------------------
@@ -2062,6 +2318,14 @@ class MotionLecture(MoreTemplates, MapLecture):
         self.play(FadeOut(group, shift=UP * 1.0, rate_func=rush_into), run_time=0.7)
 
 
+def _ink_on(fill: str) -> str:
+    """Dark or light words for a fill, whichever reads."""
+    try:
+        return "#111111" if pl._luminance(str(fill)) > 0.45 else "#FFFFFF"
+    except Exception:  # noqa: BLE001
+        return "#111111"
+
+
 # ---------------------------------------------------------------- phrases in a block of words -------------------------
 
 def _phrase_glyphs(text_mob, source: str, phrase: str) -> list:
@@ -2091,3 +2355,26 @@ def _by_line(glyphs: list) -> list:
         else:
             lines.append([g])
     return lines
+
+
+# ---------------------------------------------------------------- a template's entrance, chosen ----------------------
+
+def _entering(fn):
+    """A template that takes `enter` (pop, rise, drop, slide, zoom, fade, flip, write): its parts come on that way,
+    as it is built and as each is said later (motion_kit.FORCE_ENTER, carried by _moment)."""
+    import functools
+
+    @functools.wraps(fn)
+    def call(self, *args, enter: str | None = None, **kwargs):
+        if not enter or enter not in K.ENTRANCES:
+            return fn(self, *args, **kwargs)
+        before, K.FORCE_ENTER = K.FORCE_ENTER, enter
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            K.FORCE_ENTER = before
+    return call
+
+
+for _name in [n for n in dir(MotionLecture) if n.startswith("m_") and n not in ("m_stamp", "m_emphasis")]:
+    setattr(MotionLecture, _name, _entering(getattr(MotionLecture, _name)))

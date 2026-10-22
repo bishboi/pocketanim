@@ -132,7 +132,11 @@ the cache: nothing is spoken again) and play it as their clock.
 7. **Idle.** What is up keeps moving gently (the look's or the script's `idle`: a float, a slow drift, a breath, a
    sway, a slow parallax, a film's flicker; played by the players themselves), so nothing is frozen while the voice
    goes on.
-8. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
+8. **The pause after a line** is the voice's own (the gap it left there when the chapter was spoken in one take,
+   else the pace's 0.3 s); the longer paragraph hold (0.8 s) only after a beat whose next is marked `"paragraph": true`,
+   and a beat's `pause` adds to it (`compile_motion._patched_paragraphs`). Read as the lecture compiler reads them,
+   almost every beat here put up a picture of its own and closed a paragraph: 0.8 s of quiet after every sentence.
+9. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
    scratch (sfx.py).
 
 Each animation asks for its own length (from the look's tokens, §7), and the beat gives it that length. When the

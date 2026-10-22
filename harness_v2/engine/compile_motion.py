@@ -990,11 +990,28 @@ def _patched_compile_script(script: dict, scene_class: str = "GeneratedScene", e
     return source
 
 
+def _patched_paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
+    """The pause after each line, on the motion engine: the voice's own (the gap it left there in the chapter's take,
+    pocket_lecture.beat_pad), and a paragraph's longer hold only where the writer marked `"paragraph": true`. Read by
+    the lecture compiler, almost every beat here puts up a picture of its own and so closed a paragraph: 0.8 s of
+    quiet after every sentence where the voice paused 0.3 s, and not the quiet the scene writer was shown. Everything
+    else that groups beats into paragraphs (a picture held through one) is as the lecture compiler's."""
+    if sys._getframe(1).f_code.co_name != "compile_script":
+        return _ORIG["paragraphs"](beats, is_map_op)
+    out: list[list[int]] = []
+    for index, beat in enumerate(beats):
+        if not out or (isinstance(beat, dict) and beat.get("paragraph")):
+            out.append([index])
+        else:
+            out[-1].append(index)
+    return out
+
+
 def install() -> None:
     """Extend compile_lecture, in this process, with the motion templates."""
     if _ORIG:
         return
-    for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script"):
+    for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script", "paragraphs"):
         _ORIG[name] = getattr(cl, name)
     cl.KIT_OPS.update(MOTION_OPS)
     cl.PICTURE_MOVES = tuple(dict.fromkeys((*cl.PICTURE_MOVES, *CAMERA_MOVES)))
@@ -1010,6 +1027,7 @@ def install() -> None:
     cl._op_call = _patched_op_call
     cl.lint = _patched_lint
     cl.compile_script = _patched_compile_script
+    cl.paragraphs = _patched_paragraphs
     motion_looks.register_all()
 
 

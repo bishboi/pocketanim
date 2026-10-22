@@ -130,7 +130,8 @@ the cache: nothing is spoken again) and play it as their clock.
    line names is **pushed in on** instead, as a camera would: the template scaled 1.12 about the part and drawn a
    third of the way to the middle (the part kept whole on the screen), held, and eased back before the line ends
    (`MotionLecture._push_on`; moves the players apply). `emphasis` points on purpose (§3).
-5. **Match cuts.** When the next picture shows a word or a figure (three words at most, on one line: never a
+5. **Match cuts** (off unless `PANIM_CARRY=1`: the carried copies were left over the next picture in the players).
+   When the next picture shows a word or a figure (three words at most, on one line: never a
    question or a sentence) the one leaving shows too, in a like size (a
    counter's "60%" in the next card, a term defined and then a headline), a copy of it flies to its place in the new
    picture, taking its size, and dissolves into it as the new picture's own word comes on (`_carry_from`,
@@ -158,13 +159,14 @@ the cache: nothing is spoken again) and play it as their clock.
 10. **Kept alive** (`MotionLecture._lively`). A word the voice **stresses** (said 1.2 standard deviations louder than
    its line's words, from the line's own audio: `_word_stress`) pulses what it names on the screen, two a line at
    most. A stretch of a line with nothing moving for 2 s or more gets one quiet beat on a word said in it (two in a
-   stretch of 6 s): what that word names pulses, else the picture swells 2.5% and settles. Neither makes a sound.
+   stretch of 6 s): what that word names pulses (a part, never the whole picture: swelled as one, the players lost
+   it). Neither makes a sound.
    `PANIM_LIVELY=0` turns both off. The sync probe's `still` counts what is left: stretches of 2.5 s or more of a
    spoken line with nothing moving.
 11. **Weight.** How a look's things land is its `energy`: calm ones glide in and stop; lively ones overshoot a little
-   (a rise, a slide, a zoom eased with an overshoot) and settle; punchy ones also squash 3% as they land, there and
-   back (`motion_kit._feel`). Leaving by a slide or a push, a lively or punchy look's picture first pulls a little the
-   other way (`motion_kit.windup`). A photo alone is never sprung or squashed.
+   (a rise, a slide, a zoom eased with an overshoot, an easing the players have) and settle (`motion_kit._feel`). A
+   photo alone is never sprung. (A squash on landing and a pull back before leaving moved the whole picture with a
+   transform, and the players lost it: taken out.)
 
 Each animation asks for its own length (from the look's tokens, §7), and the beat gives it that length. When the
 next moment comes sooner, the animation is shortened to fit.
@@ -928,8 +930,9 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
 
 - **The word being said, in the caption**: with a voice, the caption underlines each word as it is said (any
   script: the caption is set a line at a time and each word's place measured, as Hindi's joined letters give no
-  glyph per letter). The underline moves as fades the exporter writes as verbs (a `lag` of them in a hold, or beside
-  a play's animations), so the phone and the web player show it too. `PANIM_KARAOKE=0` turns it off.
+  glyph per letter). The underline moves as fades the exporter writes as verbs (a `lag` of them in place of a hold),
+  so the phone and the web player show it too; only in holds (beside a play's own animations, the players hid a
+  picture that play moved), so a word said during a play is underlined as the play ends. `PANIM_KARAOKE=0` turns it off.
 - **Spoken words under the player**: a render with its voice logs each line's words with their times (the beat log's
   `words`, from `pocket_lecture.line_words`: as aligned, or `est` when only estimated); the Scenes tab's player shows
   the line being spoken under the picture with the word being said lit, so the word times the animations are set to

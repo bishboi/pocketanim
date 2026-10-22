@@ -359,10 +359,10 @@ def enter(mob, how: str | None = None, side: str | None = None, run: float | Non
     return _feel(_enter(mob, how, side, run), mob, how)
 
 
-# How a look's things land (its `energy`): calm ones glide in and stop; lively ones overshoot a little and settle;
-# punchy ones overshoot, then give a small squash as they land (a spring settling), as things with weight do.
+# How a look's things land (its `energy`): calm ones glide in and stop; lively and punchy ones overshoot a little and
+# settle back. (A squash on landing and a pull back before leaving moved the whole picture with a transform, and the
+# players lost it: taken out.)
 SPRING_HOWS = ("rise", "slide", "zoom")                    # brought in eased, given the look's overshoot
-SETTLE_HOWS = ("pop", "drop", "rise", "slide", "stamp", "flip")
 
 
 def feel() -> str:
@@ -370,16 +370,12 @@ def feel() -> str:
 
 
 def _feel(anim, mob, how: str):
-    """An entrance with the look's weight: an overshoot for a lively or punchy look's eased entrances, and for a
-    punchy look a settle (a squash of 3%, there and back) once it has landed. Calm looks stay as they are."""
+    """An entrance with the look's weight: an overshoot for a lively or punchy look's eased entrances (an easing the
+    players have). Calm looks stay as they are."""
     if anim is None or feel() == "calm" or images_only(mob):
         return anim
     if how in SPRING_HOWS and getattr(anim, "rate_func", None) in (ease_out_cubic, ease_out_expo):
         anim.rate_func = ease_out_back
-    if feel() == "punchy" and how in SETTLE_HOWS and not isinstance(anim, AnimationGroup):
-        settle = fresh(mob.animate(rate_func=there_and_back).scale(1.03).build())
-        settle.panim_xform = True
-        return chain([anim, timed(settle, 0.22)])
     return anim
 
 
@@ -387,14 +383,6 @@ def images_only(mob) -> bool:
     """A photo or a picture alone (no words, no shapes): it is not squashed or sprung (a photo is not rubber)."""
     fam = mob.get_family()
     return bool(fam) and all(isinstance(m, ImageMobject) or not getattr(m, "points", np.zeros(0)).size for m in fam)
-
-
-def windup(mob, away, run: float, exit_anim):
-    """Leaving with anticipation (lively and punchy looks): a small pull the other way first, then off."""
-    if feel() == "calm" or images_only(mob):
-        return exit_anim
-    pull = fresh(mob.animate(rate_func=ease_out_cubic).shift(-away * 0.14).build())
-    return chain([timed(pull, min(0.14, run * 0.3)), exit_anim])
 
 
 def _enter(mob, how: str, side: str | None, run: float):

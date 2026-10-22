@@ -414,6 +414,10 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         k = self.__dict__.get("_m_kara")
         if not k or k.get("t0") is None or not k["events"] or kwargs.get("rate_func") is not None:
             return animations
+        # Only in a hold: run beside a play's own animations, the players hid a picture that play moved (a question
+        # stepping up for its answer). A word said during a play is underlined as the play ends.
+        if not all(type(a).__name__ == "Wait" for a in animations):
+            return animations
         if kwargs.get("run_time") is not None:
             run = float(kwargs["run_time"])
         else:
@@ -440,9 +444,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             steps.append(FadeOut(VMobject(), run_time=end - cursor))
         moves = LaggedStart(*steps, lag_ratio=1.0, rate_func=linear)
         moves._m_karaoke = True                 # the caption's own: a hold stays a hold (sync_probe's "still")
-        if all(type(a).__name__ == "Wait" for a in animations):
-            return (moves,)
-        return (*animations, moves)
+        return (moves,)
 
     # ---------------------------------------------------------------- when a picture reads ------------------------
     READ_AT = 0.6            # share of a fade's (or a typing's) run by which its words can be read
@@ -542,8 +544,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
 
     def _carry_from(self, group) -> list:
         """(old, new) pairs: words of the template(s) leaving the stage that the new picture shows too, the same
-        words in a like size (a headline's word is not carried into a chart's small label)."""
-        if not isinstance(group, Mobject):
+        words in a like size (a headline's word is not carried into a chart's small label). Off unless
+        PANIM_CARRY=1: the carried copies were left over the next picture in the players."""
+        if not isinstance(group, Mobject) or os.environ.get("PANIM_CARRY") != "1":
             return []
         new_family = {id(x) for x in group.get_family()}
         on_screen = {id(x) for top in self.mobjects for x in top.get_family()}
@@ -672,12 +675,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             elif kind == "wipe":
                 self._wipe_old.append(mob)
             elif kind in ("slide", "page"):
-                # With anticipation (a lively or punchy look): a small pull the other way, then off.
-                out.append(K.windup(mob, LEFT, K.t("fast"),
-                                    K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish")))
+                out.append(K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish"))
             elif kind == "push":
-                out.append(K.windup(mob, UP, K.t("fast"),
-                                    K.timed(FadeOut(mob, shift=UP * 1.2, rate_func=rush_into), K.t("fast"), "swish")))
+                out.append(K.timed(FadeOut(mob, shift=UP * 1.2, rate_func=rush_into), K.t("fast"), "swish"))
             elif kind == "zoom":
                 out.append(K.timed(FadeOut(mob, scale=1.25, rate_func=rush_into), K.t("fast"), "whoosh"))
             elif kind == "cut":
@@ -1201,7 +1201,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             return float(run or getattr(a, "panim_run", None) or getattr(a, "run_time", 0.6) or 0.6)
 
         busy = [(start(c), start(c) + span(a, c)) for a, c in out]
-        texts, ready, body = self._texts_up(out)
+        texts, ready, _ = self._texts_up(out)
         stress = self._word_stress(text, words)
         extra = []
         # Stressed words pulse what they name (two a line at most, never on top of another beginning).
@@ -1235,12 +1235,10 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                 pick = max(named or said, key=lambda i: (stress[i], len(str(words[i].get("w", "")))))
                 when = float(words[pick]["start"])
                 target = self._naming(texts, words[pick].get("w", "")) if when >= ready else None
-                if target is not None:
-                    anim, run = K.pulse(target, 1.08, run=0.5), 0.5
-                else:
-                    if body is None or when < ready:
-                        continue
-                    anim, run = K.pulse(body, 1.025, run=0.9), 0.9          # the picture swells and settles
+                if target is None:
+                    # Never the whole picture: swelled as one, the players lost it (a question gone until its answer).
+                    continue
+                anim, run = K.pulse(target, 1.08, run=0.5), 0.5
                 extra.append((self._quiet(anim), [round(max(0.0, when - 0.12), 3), run]))
         if not extra:
             return out

@@ -208,7 +208,9 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
   // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
   call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
   const body: Record<string, unknown> = { model: call.model, messages: messages.map(({ _openai, ...m }) => (void _openai, m)), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
-    ...(call.effort && call.effort !== "off" ? { reasoning: { effort: call.effort } } : {}) };
+    // Off is asked for: with no reasoning setting, a reasoning model thinks at its own default level.
+    // ("default": a model whose reasoning cannot be turned off, at its own level).
+    ...(call.effort === "default" ? {} : { reasoning: call.effort && call.effort !== "off" ? { effort: call.effort } : { enabled: false } }) };
   // What is kept of the request on the call: its size; the conversation itself is the workspace's agent-log.jsonl.
   call.request = { model: call.model, messages: messages.length, tools: TOOLS.map((t) => t.function.name), chars: JSON.stringify(messages).length };
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -240,6 +242,12 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         if (!response.ok || !response.body) {
           const said = await response.text();
           // A reasoning level this model does not take: the rest of the build at high.
+          // A model whose reasoning cannot be turned off: asked again with no setting (its own default level).
+          if (response.status === 400 && /reason/i.test(said) && (body.reasoning as { enabled?: boolean } | undefined)?.enabled === false) {
+            delete body.reasoning;
+            call.effort = "default";
+            throw new Error(`reasoning cannot be turned off for this model, asking again at its default: ${said.slice(0, 200)}`);
+          }
           if (response.status === 400 && /effort/i.test(said) && call.effort && call.effort !== "high" && call.effort !== "off") {
             call.effort = "high";
             body.reasoning = { effort: "high" };

@@ -59,20 +59,22 @@ export function toInput(messages: ChatMsg[]): { instructions: string; input: unk
 export async function respond(o: { model: string; messages: ChatMsg[]; tools: ChatTool[]; effort?: string; maxTokens: number; timeoutMs: number;
   onLive: (live: Live) => void }): Promise<Answer> {
   const { instructions, input } = toInput(o.messages);
-  let reasoning = o.effort && o.effort !== "off" ? { effort: o.effort, summary: "auto" } : undefined;
+  // Off is asked for as "none": with no reasoning setting at all, a reasoning model thinks at its own default level.
+  let reasoning: { effort: string; summary?: string } = !o.effort || o.effort === "off" ? { effort: "none" } : { effort: o.effort, summary: "auto" };
   const body = (withSummary: boolean) => JSON.stringify({
     model: o.model.replace(/^openai\//, ""), instructions, input, stream: true, store: false, max_output_tokens: o.maxTokens,
     tools: o.tools.map((t) => ({ type: "function", name: t.function.name, description: t.function.description, parameters: t.function.parameters })),
     tool_choice: "required", parallel_tool_calls: true,
-    ...(reasoning ? { reasoning: withSummary ? reasoning : { effort: reasoning.effort }, include: ["reasoning.encrypted_content"] } : {}),
+    reasoning: withSummary ? reasoning : { effort: reasoning.effort }, include: ["reasoning.encrypted_content"],
   });
   let response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
-  if (!response.ok && reasoning && reasoning.effort !== "high" && response.status === 400) {
-    // A reasoning level this model does not take (max, xhigh on an older one): the same turn at high.
+  if (!response.ok && reasoning.effort !== "high" && response.status === 400) {
+    // A reasoning level this model does not take: off as "minimal" (models before "none"); max, xhigh on an older
+    // one as high.
     const said = await response.clone().text();
     if (/effort/i.test(said)) {
-      reasoning = { ...reasoning, effort: "high" };
+      reasoning = reasoning.effort === "none" ? { effort: "minimal" } : { ...reasoning, effort: "high" };
       response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(true) });
     }
@@ -80,7 +82,7 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
   if (!response.ok) {
     const said = await response.text();
     // An organisation not verified for reasoning summaries: the same turn, its reasoning kept but not shown.
-    if (reasoning && response.status === 400 && /summar/i.test(said)) {
+    if (reasoning.summary && response.status === 400 && /summar/i.test(said)) {
       response = await fetch(`${BASE()}/responses`, { method: "POST", signal: timeoutOrAbort(o.timeoutMs),
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: body(false) });
       if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`);
@@ -146,7 +148,8 @@ export async function respond(o: { model: string; messages: ChatMsg[]; tools: Ch
   const said = output.filter((x) => x.type === "message").flatMap((x) => (x.content ?? []).filter((c) => c.type === "output_text").map((c) => c.text ?? "")).join("") || text;
   const summary = output.filter((x) => x.type === "reasoning").flatMap((x) => (x.summary ?? []).map((s) => s.text ?? "")).join("\n\n") || thought.trim();
   o.onLive({ text: said, reasoning: summary, tools: calls.map((c) => c.function.name) });
-  return { text: said || undefined, reasoning: summary || undefined, calls, output, effort: reasoning?.effort,
+  return { text: said || undefined, reasoning: summary || undefined, calls, output,
+    effort: reasoning.effort === "none" ? "off" : reasoning.effort,
     usage: { input: final.usage?.input_tokens ?? 0, output: final.usage?.output_tokens ?? 0,
       ...(final.usage?.output_tokens_details?.reasoning_tokens ? { reasoning: final.usage.output_tokens_details.reasoning_tokens } : {}),
       ...(final.usage?.input_tokens_details?.cached_tokens ? { cached: final.usage.input_tokens_details.cached_tokens } : {}) } };

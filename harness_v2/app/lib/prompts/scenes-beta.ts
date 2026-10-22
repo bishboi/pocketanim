@@ -181,6 +181,38 @@ export const ANCHORS = [
   "    do  [{\"op\":\"picture\",\"generate\":\"...\",\"on\":\"Great Bath\",\"labels\":[{\"name\":\"tank\",\"on\":\"big tank\"},{\"name\":\"bricks\",\"on\":\"bricks\"}]}]",
 ].join("\n");
 
+/** Anchors and pacing when the voice is recorded before the scenes are written (the beats come with their times). */
+export const VOICED = String.raw`THE VOICE IS RECORDED ALREADY: TIME EVERYTHING TO IT.
+Each beat comes with its line as it is spoken: how long it lasts, the quiet after it, and every word numbered (w0 the
+first, as the line is written) with the second it is said, counted from the line's start:
+  #12 [ch 1] 3.4 s, then 0.9 s quiet: "Japan owes more than twice the size of its economy."
+     words: w0 Japan 0.0 · w1 owes 0.4 · w2 more 0.7 · w3 than 0.9 · w4 twice 1.1 · w5 the 1.5 · w6 size 1.6 · ...
+
+ANCHOR BY WORD NUMBER. "on": "w4" -- it comes on as w4 is said (the engine starts it a little early, by as much as its
+own entrance takes, so it lands on the word). Give EVERY operation and EVERY part inside one its own "on": a chart's
+column, a chain's step, a list's point, a timeline's event, a card, a label. Point at the word that brings the thing in
+(the number, the name, the term), never a small word. "on": "start" for what must be up as the line begins. The words'
+own text ("on": "twice") still works, but a number is exact: a word said twice in a line is never mistaken.
+  "after": 0.4 -- that many seconds after its word (0 to 3): a verdict after the claim has settled, a second step of a
+     build a breath after the first.
+  "in_pause": true -- a stamp or an emphasis played in the quiet after the line, the moment to let it sink in (only
+     these two; a picture comes on with its words).
+
+PACE BY THE CLOCK. You can see how long every line is: use it.
+  - A new picture (a template, a picture, a diagram, a timeline, a map) needs about 2.5 s to come on and be looked at:
+    about one per 2.5 s of line. A 1.5 s line holds one thing -- or points at what is up already.
+  - A moment (a part, a label, a step, a stamp) needs about 0.6 s to be seen: a 3 s line holds about five. When the
+    line names things in a rush, bring them in together (one "on" for the template; its parts in their turn).
+  - A long line (6 s or more) wants a build: a template whose parts arrive across it, a picture then its labels, a
+    chart then the one column the line is about pointed at.
+  - The quiet after a line is yours: a stamp, an emphasis, a picture's camera ("move") reads well there. A beat's
+    "pause" adds more quiet when something must sink in.
+  - Look along the chapter: a run of short lines wants one picture carried across them, each line adding to it or
+    pointing at it, not a new picture on every line.
+A beat that asks more than its line has time for is sent back to you with what to change.
+  Example (the line above): {"beat":12,"do":[{"op":"counter","value":"204%","label":"of the economy","on":"w4"},
+    {"op":"stamp","text":"Record","in_pause":true}]}`;
+
 const TIMING = [
   "TIMING TO THE VOICE: every operation and every part inside one lands on its \"on\" words (the anchors above). A",
   "picture's labels come on with a box round the part and the rest of the picture shaded while the line stays on it; a",
@@ -692,13 +724,13 @@ const EXAMPLES = [
 ].join("\n");
 
 /** The system parts of a beta (motion engine) build: the elements, how to use them, examples. */
-export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Record<string, string>; look?: string }): Part[] {
+export function betaSystem(x: { manimAgent?: boolean; off: string[]; labels: Record<string, string>; look?: string; voiced?: boolean }): Part[] {
   return [
     part("role", "Role", "rules", ROLE),
     part("shape", "How to build the JSON", "rules", SHAPE),
     part("choose", "Which primitive for what", "rules", CHOOSE),
-    part("anchors", "Anchors: every visual on its words", "rules", ANCHORS),
-    part("timing", "Timing to the voice", "rules", TIMING),
+    ...(x.voiced ? [part("anchors", "The voice first: anchors by word number, pace by the clock", "rules", VOICED)]
+      : [part("anchors", "Anchors: every visual on its words", "rules", ANCHORS), part("timing", "Timing to the voice", "rules", TIMING)]),
     part("templates", "Motion templates", "rules", TEMPLATES),
     part("intent", "Moving with intent", "rules", INTENT),
     part("pictures", "Pictures", "rules", PICTURES),

@@ -26,6 +26,7 @@ Nothing of compile_lecture is changed: it is imported and extended here, for thi
 from __future__ import annotations
 
 import copy
+import re
 import sys
 from pathlib import Path
 
@@ -230,12 +231,14 @@ def motion_fixes(script: dict) -> list[str]:
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
             at = f"chapter {c + 1} beat {b + 1}"
+            _word_ids(beat, at, notes)
             ops = beat.get("do") if isinstance(beat.get("do"), list) else []
             kept = []
             for op in ops:
                 if not isinstance(op, dict):
                     continue
                 kind = op.get("op")
+                _when(op, at, notes)
                 if kind == "timeline" and op.get("style") is not None and op["style"] not in TIMELINE_STYLES:
                     notes.append(f"{fixed}{at}: timeline style {op['style']!r} is not one of "
                                  f"{', '.join(TIMELINE_STYLES)}; track is used")
@@ -263,6 +266,75 @@ def motion_fixes(script: dict) -> list[str]:
                 kept.append(op)
             beat["do"] = kept
     return notes
+
+
+# A word of its line by its number (w0 its first word, counted as the line is written, split at spaces).
+WORD_ID = re.compile(r"^\s*w(\d+)\s*$")
+_PUNCT = ".,;:!?\"'“”‘’()[]—–-…।॥"
+
+
+def _word_ids(beat: dict, at: str, notes: list[str]) -> None:
+    """Every `on` given as a word's number in its line (`"w7"`, as the scene writer is shown the voiced line) made
+    the words of the line from it: as few as are said there first (an anchor is the first place its words are said),
+    so the compiler's anchors read it as any other."""
+    words = [w.strip(_PUNCT) for w in str(beat.get("say") or "").split()]
+    low = [w.lower() for w in words]
+
+    def first(seq: list[str]) -> int:
+        n = len(seq)
+        return next((i for i in range(len(low) - n + 1) if low[i:i + n] == seq), -1)
+
+    def phrase(k: int) -> str | None:
+        while k < len(words) and not words[k]:
+            k += 1                                  # a dash or a mark on its own: the word after it
+        if k >= len(words):
+            return None
+        for n in range(1, 6):
+            seq = low[k:k + n]
+            if first(seq) == k:
+                return " ".join(words[k:k + n])
+        return " ".join(words[k:k + 5])
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            on = value.get("on")
+            m = WORD_ID.match(on) if isinstance(on, str) else None
+            if m:
+                said = phrase(int(m.group(1)))
+                if said is None:
+                    notes.append(f"{cl.FIXED}{at}: \"on\": {on!r} is past the line's last word ({len(words)} words, "
+                                 f"w0 to w{max(0, len(words) - 1)}): it comes on in its turn")
+                    value.pop("on")
+                else:
+                    value["on"] = said
+            for v in value.values():
+                walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+    walk(beat.get("do"))
+
+
+def _when(op: dict, at: str, notes: list[str]) -> None:
+    """`after` (seconds after its words, 0 to 3) and `in_pause` (a stamp or an emphasis played in the quiet after its
+    line) read and mended."""
+    if "after" in op:
+        v = _num(op.get("after"))
+        if v is None or v < 0:
+            notes.append(f"{cl.FIXED}{at}: {op.get('op')} after {op.get('after')!r} is not seconds (0 to 3); left out")
+            op.pop("after")
+        else:
+            op["after"] = round(min(v, 3.0), 2)
+    if "in_pause" in op:
+        on = op.get("in_pause") in (True, "true", 1)
+        if on and op.get("op") not in OVERLAY_OPS:
+            notes.append(f"{cl.FIXED}{at}: {op.get('op')} in_pause left out: only a stamp or an emphasis lands in the "
+                         "quiet after a line (a picture comes on with its words; use after)")
+            on = False
+        if on:
+            op["in_pause"] = True
+        else:
+            op.pop("in_pause")
 
 
 def _map_story(op: dict, at: str, notes: list[str]) -> dict | None:
@@ -840,6 +912,14 @@ def _clean(value):
 
 
 def _patched_op_call(op: dict):
+    call = _op_call_motion(op)
+    if call and not call.startswith("*") and (op.get("after") or op.get("in_pause")):
+        # Its moment moved: after its words by `after`, or into the quiet after the line (MotionLecture._m_when).
+        call = f"self._m_when({call}, after={float(op.get('after') or 0):g}, pause={bool(op.get('in_pause'))})"
+    return call
+
+
+def _op_call_motion(op: dict):
     kind = op.get("op")
     if kind in MOTION_OPS:
         args = {}

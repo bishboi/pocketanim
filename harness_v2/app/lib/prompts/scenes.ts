@@ -168,7 +168,12 @@ export type SceneBeatInput = {
   kinds?: string[];
   /** Its operations now (a beat given for context, or the one being written again). */
   ops?: unknown[];
+  /** Its line as spoken already (the voice comes first on the motion engine): its length, the quiet after it, and
+   * each of its words (w0 its first, as the line is written) with when it is said, from the line's start. */
+  voice?: BeatVoice;
 };
+
+export type BeatVoice = { seconds: number; pause: number; words: { w: string; t: number }[] };
 
 export type ScenesAsk =
   | { what: "lecture" }
@@ -201,7 +206,8 @@ export function scenesPrompt(x: {
   const writing = (b: SceneBeatInput) => x.ask.what === "lecture" || (x.ask.what === "chapter" && b.chapter === x.ask.chapter)
     || (x.ask.what === "beat" && b.n === x.ask.beat) || (x.ask.what === "fix" && x.ask.beats.includes(b.n));
   const beatLine = (b: SceneBeatInput) => [
-    `#${b.n} [ch ${b.chapter}] "${b.text}"`,
+    b.voice ? `#${b.n} [ch ${b.chapter}] ${b.voice.seconds} s, then ${b.voice.pause} s quiet: "${b.text}"` : `#${b.n} [ch ${b.chapter}] "${b.text}"`,
+    ...(b.voice ? [`   words: ${b.voice.words.map((w, i) => `w${i} ${w.w} ${w.t.toFixed(1)}`).join(" · ")}`] : []),
     `   on screen: ${b.show || "-"}`,
     ...(b.figures ?? []).map((f) => `   figure: ${f.id} (${f.way}${f.ready ? "" : ", not made yet: the book's picture is shown"}) - ${f.caption || "(no caption)"}`),
     ...(b.kinds ? [`   this beat may use only: ${b.kinds.map((k) => x.labels[k] ?? k).join(", ") || "the heading and key point"}`] : []),
@@ -219,7 +225,7 @@ export function scenesPrompt(x: {
     // The motion engine (beta): the elements, how to use them and examples, and nothing that limits how (no subject
     // tuning, no pace, no rules for choosing a visual): prompts/scenes-beta.ts.
     return {
-      system: betaSystem({ manimAgent: x.manimAgent, off, labels: x.labels, look: x.motion.look }),
+      system: betaSystem({ manimAgent: x.manimAgent, off, labels: x.labels, look: x.motion.look, voiced: x.beats.some((b) => !!b.voice) }),
       user: [
         part("look", "The look", "context", `The board is drawn in ${x.look}. The pictures the image model makes are drawn in the style you describe for each.`),
         part("lecture", "The lecture and its chapters", "plan", [`Lecture ${x.lecture.n}: ${x.lecture.title}`,
@@ -230,7 +236,8 @@ export function scenesPrompt(x: {
         part("script", `The beats (${x.beats.length})`, "book", x.beats.map(beatLine)),
         ...(x.note ? [part("note", "Your note for this", "context", x.note)] : []),
         ...(x.ask.what === "fix" ? [part("retry", "What the compiler refused", "retry",
-          "The compiler could not draw these beats (COMPILER lines above). Write them again so they can be drawn.")] : []),
+          "The compiler could not draw these beats, or they ask more than their lines have time for (COMPILER lines above). " +
+          "Write them again so they can be drawn and seen.")] : []),
         part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}: each beat by its number, with its do -- rich and alive, ` +
           "something new on every beat and often several moments in one, each on its words."),
       ],

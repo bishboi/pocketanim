@@ -494,6 +494,10 @@ export type ScenesState = {
   /** The motion engine's settings: its look (paper, newsroom, chalk, data, studio, sketch, archive, neon, brush, collage, textbook, chalkcolour, isometric, drafting; left out: the style's own
    * motion), energy, transition, idle motion and the timeline's style. */
   motion?: { look?: string; energy?: string; transition?: string; idle?: string; timeline?: string };
+  /** On the motion engine, each chapter is spoken and its words aligned before its scenes are written, and the scene
+   * writer is given each beat's length, its words by number with their times, and the quiet after it (on unless
+   * false). */
+  voiceFirst?: boolean;
   error?: string;
   started?: number;
   ended?: number;

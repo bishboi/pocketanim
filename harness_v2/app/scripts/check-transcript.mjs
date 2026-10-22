@@ -713,7 +713,7 @@ run = await slow(run.id, (r) => r.scenes.status === "running");
 // The motion engine (beta) in the Scenes tab: a lecture built with its templates, compiled and rendered on it, its
 // chapters tried on it in the Voice tab; then back to the current engine (which leaves the templates out).
 const { engineScript, compile: compileMotion } = await import(path.resolve(here, "../lib/scenes.ts"));
-await assert.rejects(scenesAction(run.id, { action: "engine", engine: "motion", look: "neon" }), /motion look is one of/);
+await assert.rejects(scenesAction(run.id, { action: "engine", engine: "motion", look: "pastel-dream" }), /motion look is one of/);
 await scenesAction(run.id, { action: "engine", engine: "motion", look: "newsroom", timeline: "ribbon" });
 run = await loadRun(run.id);
 assert.ok(run.scenes.engine === "motion" && run.scenes.motion.look === "newsroom", "the engine set for the run");
@@ -727,7 +727,24 @@ assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.som
 assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].includes(p.key) || p.key.startsWith("v1-")),
   `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
 assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
-assert.ok(motionCall.prompt.system.some((p) => p.key === "anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the beta writer is told to anchor every visual");
+// The voice first: each chapter spoken and aligned before its scenes, the writer given each beat's seconds, the quiet
+// after it and its words by number with their times, and told to anchor by word number and pace by the clock.
+assert.ok(motionCall.prompt.system.some((p) => p.key === "anchors" && /THE VOICE IS RECORDED ALREADY/.test(p.text) && /"on": "w4"/.test(p.text)),
+  "the beta writer is told to anchor by word number and pace by the clock");
+const voicedPart = motionCall.prompt.user.find((p) => p.key === "script");
+assert.ok(/ s, then [\d.]+ s quiet: "/.test(voicedPart.text) && /words: w0 \S+ 0\.0 · w1 /.test(voicedPart.text), "each beat with its seconds, its quiet and its words by number");
+const { chapterVideo } = await import(path.resolve(here, "../lib/video.ts"));
+assert.ok(run.script.lectures[1].chapters.every((c) => chapterVideo(run, 1, c.n).narration?.status === "done"), "every chapter spoken first");
+const mch1 = run.script.lectures[1].chapters[0];   // its beats numbered again (one sentence each)
+const { pacingProblems, voicedBeats } = await import(path.resolve(here, "../lib/scenes.ts"));
+const voiced1 = await voicedBeats(run, 1, mch1.n);
+assert.ok(voiced1 && voiced1.size === mch1.beats.length, "every beat of the chapter has its voice");
+const crowded = { beats: { [mch1.beats[0].n]: { ops: [{ op: "counter", value: "1", on: "w0" }, { op: "chart", items: [["a", 1]], on: "w0" },
+  { op: "title", text: "x", on: "w0" }, { op: "venn", sets: ["a", "b"], on: "w0" }] } } };
+const tight = new Map([[mch1.beats[0].n, { seconds: 2, pause: 0.5, words: [{ w: "a", t: 0 }] }]]);
+assert.match((pacingProblems(crowded, tight, [mch1.beats[0].n])[mch1.beats[0].n] ?? []).join(" "), /4 new pictures in a 2 s line/, "a beat that asks too much is sent back");
+assert.deepEqual(pacingProblems({ beats: { [mch1.beats[0].n]: { ops: [{ op: "counter", value: "1", on: "w0" }, { op: "stamp", text: "x", in_pause: true }] } } },
+  tight, [mch1.beats[0].n]), {}, "one picture and a stamp in the quiet fit a 2 s line");
 assert.ok(motionCall.prompt.system.some((p) => p.key === "shape" && /HOW TO BUILD THE JSON/.test(p.text)) &&
   motionCall.prompt.system.some((p) => p.key === "choose" && /WHICH PRIMITIVE FOR WHAT/.test(p.text)), "the beta writer is told how to build the JSON and which primitive suits what");
 const motionBeats = Object.values(run.scenes.lectures[1].beats);

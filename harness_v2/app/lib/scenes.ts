@@ -32,7 +32,7 @@ import { engineDir } from "./maps";
 import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
-import { SCENES_TOOL, scenesPrompt, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
+import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
 import { beatFigures, lectureFigures } from "./script-figures";
@@ -75,7 +75,8 @@ export type ScenesAction =
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
-  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string }
+  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string;
+      voiceFirst?: boolean }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -166,6 +167,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       if (m.look && !(MOTION_LOOKS as readonly string[]).includes(m.look)) throw new Error(`the motion look is one of ${MOTION_LOOKS.join(", ")}`);
       st.motion = m;
     }
+    if (a.voiceFirst !== undefined) st.voiceFirst = a.voiceFirst ? undefined : false;
     log(run, `Scenes: the ${st.engine === "motion" ? `motion engine (beta)${st.motion?.look ? `, look ${st.motion.look}` : ""}` : "current engine"}.`);
     saveRun(run, true);
     return run;
@@ -461,6 +463,13 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
   const beats = beatInputs(run, n);
+  if (voiceFirst(st)) {
+    // Each beat as its voice says it, for the chapters spoken already.
+    for (const c of new Set(beats.map((b) => b.chapter))) {
+      const voiced = await voicedBeats(run, n, c);
+      if (voiced) for (const b of beats) if (b.chapter === c && voiced.has(b.n)) b.voice = voiced.get(b.n);
+    }
+  }
   const targets = beats.filter((b) => ask.what === "lecture" || (ask.what === "chapter" && b.chapter === ask.chapter)
     || (ask.what === "beat" && b.n === ask.beat) || (ask.what === "fix" && ask.beats.includes(b.n))).map((b) => b.n);
   const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
@@ -539,6 +548,114 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   saveRun(run);
 }
 
+// ---------------------------------------------------------------- the voice first (motion engine) ---------------
+
+/** Whether the chapters are spoken before their scenes are written: on the motion engine, unless switched off. */
+export function voiceFirst(st: ScenesState): boolean {
+  return st.engine === "motion" && st.voiceFirst !== false && process.env.V2_SCENES_VOICE_FIRST !== "0";
+}
+
+/**
+ * Each beat of a chapter as its voice says it (the chapter spoken already, lib/video.ts narrate): how long its line
+ * is, the quiet after it, and its words (as the line is written, split at spaces: w0 its first) with when each is
+ * said, from the line's start. Undefined when the chapter is not spoken, or was spoken from other words.
+ */
+export async function voicedBeats(run: Run, n: number, c: number): Promise<Map<number, BeatVoice> | undefined> {
+  const { chapterLines, timingOf } = await import("./video");
+  const timing = await timingOf(run.id, n, c);
+  const chapter = scriptOf(run, n)?.chapters.find((x) => x.n === c);
+  if (!timing || !chapter) return undefined;
+  const lines = chapterLines(run, n, c);
+  if (timing.lines.length !== lines.length || timing.lines.some((l, i) => l.text.trim() !== lines[i])) return undefined;
+  const all = linesOf(run.lectures.find((l) => l.n === n)?.text ?? "");
+  const spoken = (b: Beat) => b.lines.map((k) => (all[k - 1] ?? "").trim()).filter(Boolean);
+  let k = Math.max(0, lines.length - chapter.beats.reduce((sum, b) => sum + spoken(b).length, 0));   // the card's line first
+  const out = new Map<number, BeatVoice>();
+  for (const b of chapter.beats) {
+    const own = timing.lines.slice(k, k + spoken(b).length);
+    k += spoken(b).length;
+    if (!own.length) continue;
+    const start = own[0].start;
+    const end = own[own.length - 1].end;
+    const next = timing.lines[k]?.start ?? timing.seconds;
+    const said = own.flatMap((l) => l.words);
+    const tokens = own.map((l) => l.text).join(" ").split(/\s+/).filter(Boolean);
+    // The aligner's words are the line's own (pocket_lecture.line_words); counted otherwise, each word placed by its
+    // share of the line.
+    const words = tokens.map((w, i) => {
+      const at = said.length === tokens.length ? said[i].start : said[Math.min(said.length - 1, Math.floor((i * said.length) / tokens.length))]?.start ?? start;
+      return { w, t: Math.round(Math.max(0, at - start) * 10) / 10 };
+    });
+    out.set(b.n, { seconds: Math.round((end - start) * 10) / 10, pause: Math.round(Math.max(0, next - end) * 10) / 10, words });
+  }
+  return out;
+}
+
+/** The chapter spoken and aligned before its scenes are written (once: again only when its words changed). */
+async function speakFirst(run: Run, n: number, c: number): Promise<void> {
+  if (await voicedBeats(run, n, c)) return;
+  const sl = lectureState(run, n);
+  const was = sl.doing;
+  sl.doing = `speaking chapter ${c} first`;
+  saveRun(run);
+  const { chapterVideo, narrate } = await import("./video");
+  await narrate(run, n, c);
+  sl.doing = was;
+  const told = chapterVideo(run, n, c).narration;
+  log(run, told?.status === "done" ? `Lecture ${n}, chapter ${c}: spoken first (${told.seconds ?? "?"} s), its scenes written to the voice.`
+    : `Lecture ${n}, chapter ${c}: could not be spoken first (${told?.error ?? "no voice"}): its scenes are written without the voice's times.`);
+}
+
+/** Operations that come over what is up rather than putting a picture of their own on the stage. */
+const OVER = new Set(["stamp", "emphasis", "reveal", "focus", "zoom", "option", "dim", "clear", "panel", "unstage", "answer"]);
+
+/**
+ * What cannot be seen in the time a voiced beat gives it: more pictures than its line has seconds for (each new one
+ * needs about 2.5 s to come on and be looked at), or more moments than can each be seen (about 0.6 s apart). The
+ * beats that fail, with what to change: sent back once (writeBeats "fix").
+ */
+export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>, beats: number[]): Record<number, string[]> {
+  const out: Record<number, string[]> = {};
+  for (const k of beats) {
+    const v = voiced.get(k);
+    const ops = (sl.beats[k]?.ops ?? []) as Record<string, unknown>[];
+    if (!v || !ops.length) continue;
+    const said = (on: unknown): number | undefined => {
+      const m = typeof on === "string" ? /^\s*w(\d+)\s*$/.exec(on) : null;
+      if (m) return v.words[Number(m[1])]?.t;
+      if (typeof on !== "string" || !on.trim()) return undefined;
+      const first = on.trim().toLowerCase().split(/\s+/)[0].replace(/[^\p{L}\p{N}]+/gu, "");
+      return v.words.find((w) => w.w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") === first)?.t;
+    };
+    const times: number[] = [];
+    const walk = (x: unknown, top: boolean) => {
+      if (Array.isArray(x)) return x.forEach((y) => walk(y, false));
+      if (!x || typeof x !== "object") return;
+      const o = x as Record<string, unknown>;
+      if (top && o.in_pause) return;
+      const t = said(o.on);
+      if (t !== undefined || top) times.push((t ?? 0) + (Number(o.after) || 0));
+      for (const [key, y] of Object.entries(o)) if (key !== "on" && typeof y === "object") walk(y, false);
+    };
+    ops.forEach((o) => walk(o, true));
+    const pictures = ops.filter((o) => !OVER.has(String(o.op))).length;
+    const room = Math.max(1, Math.round(v.seconds / 2.5));
+    const problems: string[] = [];
+    if (pictures > room) {
+      problems.push(`${pictures} new pictures in a ${v.seconds} s line: each needs about 2.5 s to come on and be seen, so keep ` +
+        `${room}; point at the rest on what is up (emphasis, reveal) or move one to the beat before or after`);
+    }
+    const sorted = [...new Set(times.map((t) => Math.round(t * 10) / 10))].sort((a, b) => a - b);
+    const fits = 1 + Math.floor(v.seconds / 0.6);
+    if (sorted.length > fits) {
+      problems.push(`${sorted.length} moments in a ${v.seconds} s line: about ${fits} can each be seen (one every 0.6 s); ` +
+        "bring several parts on together (one \"on\"), or let some come on in their turn");
+    }
+    if (problems.length) out[k] = problems;
+  }
+  return out;
+}
+
 /** A whole lecture (chapter by chapter), one chapter, or one beat; compiled; the refused beats mended once. */
 /**
  * On the motion engine (beta), before a whole lecture is built: every beat that says several sentences becomes one
@@ -581,9 +698,12 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   const key = `${run.id}:scenes`;
   Object.assign(sl, { status: "running", error: undefined });
   if (what.beat) {
+    const bc = chapterOfBeat(run, n, what.beat);
+    if (voiceFirst(stateOf(run)) && bc !== undefined) await speakFirst(run, n, bc);
     sl.doing = `beat ${what.beat}`;
     saveRun(run);
     await writeBeats(run, n, { what: "beat", beat: what.beat }, undefined, note);
+    if (bc !== undefined && !stopRequested(key)) await paceChapter(run, n, bc, [what.beat], note);
     const c = chapterOfBeat(run, n, what.beat);
     if (c !== undefined && !stopRequested(key)) await finishChapter(run, n, c);
   } else {
@@ -600,7 +720,10 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
       going.add(c);
       doing();
       try {
+        if (voiceFirst(stateOf(run))) await speakFirst(run, n, c);
+        if (stopRequested(key)) return;
         await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
+        if (!stopRequested(key)) await paceChapter(run, n, c, chapterBeats(run, n, c), note);
         if (!stopRequested(key)) await finishChapter(run, n, c);
       } finally {
         going.delete(c);
@@ -612,6 +735,18 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   if (stopRequested(key)) return;
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
   saveRun(run);
+}
+
+/** A voiced chapter's beats that ask more than their lines have time for, written again once (pacingProblems). */
+async function paceChapter(run: Run, n: number, c: number, beats: number[], note?: string) {
+  if (!voiceFirst(stateOf(run))) return;
+  const voiced = await voicedBeats(run, n, c);
+  if (!voiced) return;
+  const problems = pacingProblems(lectureState(run, n), voiced, beats);
+  const over = Object.keys(problems).map(Number);
+  if (!over.length) return;
+  log(run, `Lecture ${n}, chapter ${c}: ${over.length} beat(s) ask more than their lines have time for: written again.`);
+  await writeBeats(run, n, { what: "fix", beats: over }, problems, note);
 }
 
 /** A chapter's beats written: its Manim figures, compiled, and its refused beats mended once. */

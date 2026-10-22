@@ -409,7 +409,36 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         takes that time back from its own pause after it, so the chapter is as long as before."""
         if self._wipe_old:
             pad = max(0.12, (pl.beat_pad(text) if pad is None else pad) - K.t("fast"))
-        return super().beat(text, *anims, rt=rt, pad=pad, cues=cues)
+        later = [a for a in anims if getattr(a, "panim_in_pause", False)]
+        if not later:
+            return super().beat(text, *anims, rt=rt, pad=pad, cues=cues)
+        # A stamp or an emphasis the writer put in the quiet after the line (`in_pause`): the line and the rest as
+        # ever, then these in the pause it leaves, the pause no longer than it was unless they need more.
+        keep = [i for i, a in enumerate(anims) if not any(a is x for x in later)]
+        now = [anims[i] for i in keep]
+        if cues is not None and len(cues) == len(anims):
+            cues = [cues[i] for i in keep]
+        full = pl.beat_pad(text) if pad is None else pad
+        seconds = super().beat(text, *now, rt=rt, pad=0.05, cues=cues)
+        run = max(float(getattr(a, "panim_run", 0.5) or 0.5) for a in later)
+        self.play(*later)
+        rest = full - 0.05 - run
+        if rest > 0.02:
+            self.wait(rest)
+        return seconds
+
+    def _m_when(self, anim, after: float = 0.0, pause: bool = False):
+        """An operation's moment moved by its writer (compile_motion._when): `after` seconds after its words, or
+        into the quiet after its line (`pause`)."""
+        if anim is not None:
+            try:
+                if after:
+                    anim.panim_after = float(after)
+                if pause:
+                    anim.panim_in_pause = True
+            except AttributeError:
+                pass
+        return anim
 
     def _speak(self, wav, seconds: float) -> None:
         """The line's voice; when the look wipes from one picture to the next, the sheet covers the old picture just
@@ -469,6 +498,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             if at is not None and isinstance(cue, (list, tuple)) and cue:
                 cue = [round(max(0.0, at - land_lead(cue[1] if len(cue) > 1 and cue[1] else pl.PrimitiveRun.SHOW)), 3),
                        *cue[1:]]
+            after = float(getattr(anim, "panim_after", 0.0) or 0.0)
+            if after:
+                # Its writer's own delay after its words (a beat's breath before a verdict lands).
+                cue = [round(float(cue[0]) + after, 3), *cue[1:]] if isinstance(cue, (list, tuple)) and cue \
+                    else [round(after, 3), run]
             fixed.append((anim, cue))
         return super()._cue_plan(fixed, extra, seconds, default)
 

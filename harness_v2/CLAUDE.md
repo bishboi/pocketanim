@@ -13,7 +13,8 @@
   or a script field it reads is missing). It never changes the current engine's files or what they make: a script is
   drawn by it only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
 - The default flow is the Scenes tab on the motion engine (beta, `engine/MOTION_ENGINE.md`), then Voice: a lecture's
-  scenes start on it unless `V2_SCENES_ENGINE=current`. The Video tab (README "The video step": the video agent in free
+  scenes start on it unless `V2_SCENES_ENGINE=current`. On it each chapter is spoken and aligned first and its scenes
+  written to the voice's times ("voice first", MOTION_ENGINE.md §1). The Video tab (README "The video step": the video agent in free
   Manim, `app/lib/video-agent.ts`, checked against the phone by `engine/tools/agent_tools.py phone`) is set aside behind
   "Video agent…", not removed.
 - The kit (`engine/agent/kit/`) is the video agent's optional library. A change to what it offers (a piece, an

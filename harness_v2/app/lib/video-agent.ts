@@ -97,7 +97,7 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "    self.wait_until_end()              hold to the end of the narration; call it last",
     "  Plays take their run_time; between them, wait_until the next word. Start an animation a little before its word",
     "  (lead 0.1-0.3) so it lands as the word is said.",
-    `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": a Vox-like explainer"}). Match its feel: its palette, type,`,
+    `- A screenshot of the look wanted (attached${style.custom ? ", chosen for this lesson" : ": six frames of a Vox-like explainer, a map, an archival collage, a data figure, a document, a timeline and a flow"}). Match its feel: its palette, type,`,
     "  textures, how labels and highlights look, how busy a frame is. It is a look, not a layout: compose each moment yourself.",
     ...(style.note ? [`  About the look: ${style.note}`] : []),
     "- Tools to write and edit files, render, look at frames, make pictures, run commands, and check the phone.",

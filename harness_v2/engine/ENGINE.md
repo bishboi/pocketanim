@@ -114,3 +114,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 - Faithful export: a picture (ImageMobject) sits just under the shapes at its own z (`z - 0.0005`): the players drew
   it over every shape at its z, so a paper backdrop with no z covered the whole stage on the phone, and a label written
   on a picture was hidden under it.
+- `agent/style_frames.py`: the default look's reference sheet for the video agent (`agent/style-vox.jpg`), six stills
+  drawn here in Manim in a Vox-like manner (a map with a highlighted country and callout, an archival photo collage, a
+  data figure, a highlighted document, a timeline, a flow diagram); no frames from anyone's videos. Run it to remake
+  the sheet.

@@ -98,7 +98,8 @@ the voice's cache is the one the Voice step reads, so nothing is spoken twice) a
 as it is said: `#12 [ch 1] 3.4 s, then 0.9 s quiet: "..."` and `words: w0 Japan 0.0 · w1 owes 0.4 · ...`, with the
 rules to anchor by word number and pace by the clock (`app/lib/prompts/scenes-beta.ts`, VOICED). A beat that asks more
 than its line has time for (more new pictures than one per 2.5 s of line, more moments than one per 0.6 s) is written
-again once with what to change (`lib/scenes.ts` pacingProblems).
+again once with what to change (`lib/scenes.ts` pacingProblems). The Scenes tab's renders of a chapter spoken first are made with its voice (from
+the cache: nothing is spoken again) and play it as their clock.
 
 ---
 

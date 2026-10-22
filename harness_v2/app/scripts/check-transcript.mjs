@@ -4,7 +4,7 @@
 // a figure may be on several beats; the beats are the transcript; lectures see the ones before them.
 //   npm run check
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -761,6 +761,7 @@ await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n, beat:
 run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
 const motionRender = run.scenes.lectures[1].beats[firstBeat].render;
 assert.equal(motionRender.status, "done", motionRender.error);
+assert.ok(motionRender.audio && existsSync(fileOf(motionRender.audio)), "the Scenes tab's render plays with the chapter's voice (spoken first)");
 assert.ok(readFileSync(path.join(fileOf(motionRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the motion engine");
 const motionChapter = await chapterScript(run, 1, ch1.n);
 assert.ok(motionChapter.engine === "motion" && motionChapter.look === "newsroom", "the Voice tab's chapter carries the engine");

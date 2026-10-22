@@ -285,6 +285,8 @@ export type SceneRender = {
   frames?: number;
   /** A beat's render: the frames that are the beat [first, last] (the chapter before it is recorded too). */
   range?: [number, number];
+  /** Rendered with the chapter's voice (spoken first, motion engine): the narration track the player plays as its clock. */
+  audio?: string;
   /** What the exporter could not carry into the program (it plays without it). */
   blockers?: string[];
   /** AI pictures the image model could not make for it: left out of what plays. */

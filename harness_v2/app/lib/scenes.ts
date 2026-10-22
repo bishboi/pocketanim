@@ -1265,7 +1265,14 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     const compiled = await compile(run, script, dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
-    const p = await playable(run, n, dir, source);
+    // With its voice when the chapter was spoken first (its lines and their word times are in the voice's cache, so
+    // nothing is spoken again): heard as it plays, its animations on the words as they are said.
+    let env: Record<string, string> = {};
+    if (voiceFirst(stateOf(run)) && await voicedBeats(run, n, chapter)) {
+      const { voiceEnv, voiceOf } = await import("./voice");
+      env = voiceEnv(voiceOf(run).settings);
+    }
+    const p = await playable(run, n, dir, source, env);
     const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;
     // The script rendered is one chapter: the engine's "chapter 1" is this one.
     const lost = missingPictures(compiled, (w) => {
@@ -1290,7 +1297,8 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     const common = { status: "done", ir: p.ir, assets: p.assets, fps: p.fps, frames: p.frames, blockers: p.blockers.length ? p.blockers : undefined,
       pictures: pictures.length ? pictures : undefined,
       missing: lost.missing.length ? lost.missing : undefined, images: lost.report,
-      still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined };
+      still: undefined, clip: undefined, video: undefined, seconds: (Date.now() - began) / 1000, at: Date.now(), error: undefined,
+      audio: env.PANIM_TTS && p.narration && existsSync(p.narration) ? fileUrl(run.id, p.narration) : undefined };
     if (beat !== undefined) {
       const me = at(wanted.length - 1);
       Object.assign(target, { ...common, range: [me.from, last], issues: me.issues, fixed: me.fixed });

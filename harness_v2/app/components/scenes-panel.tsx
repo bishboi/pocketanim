@@ -578,10 +578,11 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
         </div>
       </div>
       <RenderState r={r} what="the chapter" />
+      {r?.status === "done" && r.audio && <p className="text-[11px] text-emerald-300" data-testid="scenes-render-voiced">With its voice (spoken first): heard as it plays.</p>}
       {r?.status === "done" && r.ir && r.assets && (
         <div className="max-w-3xl" data-testid="scenes-chapter-player">
           {only && <p className="mb-1 text-[11px] text-sky-300">Playing beat #{only.n} only · <button className="underline" onClick={() => setOnly(null)}>the whole chapter</button></p>}
-          <IRPlayer src={r.ir} assets={r.assets} range={only ? [only.from ?? 0, only.to ?? (r.frames ?? 1) - 1] : undefined} />
+          <IRPlayer src={r.ir} assets={r.assets} audio={r.audio} range={only ? [only.from ?? 0, only.to ?? (r.frames ?? 1) - 1] : undefined} />
         </div>
       )}
       {r?.status === "done" && !r.ir && r.video && <video key={r.video} src={r.video} controls className="w-full max-w-3xl rounded border border-neutral-800 bg-black" data-testid="scenes-chapter-video" />}
@@ -771,9 +772,9 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
             <>
               {r.ir && r.assets ? (
                 <div data-testid="scenes-beat-player">
-                  <IRPlayer src={r.ir} assets={r.assets} range={r.range} compact />
+                  <IRPlayer src={r.ir} assets={r.assets} audio={r.audio} range={r.range} compact />
                   {r.range && r.range[0] > 0 && <details className="mt-1"><summary className="cursor-pointer text-[11px] text-sky-300">the chapter up to here</summary>
-                    <IRPlayer src={r.ir} assets={r.assets} compact /></details>}
+                    <IRPlayer src={r.ir} assets={r.assets} audio={r.audio} compact /></details>}
                 </div>
               ) : (
                 <>
@@ -790,7 +791,7 @@ function BeatDetail({ run, lecture, n, lines, busy, model, act, setPick, select,
             <div>
               <p className="text-[11px] text-neutral-500">From the chapter&apos;s render:</p>
               {chapterRender?.ir && chapterRender.assets && fromChapter.from !== undefined
-                ? <IRPlayer src={chapterRender.ir} assets={chapterRender.assets} range={[fromChapter.from, fromChapter.to ?? fromChapter.from]} compact />
+                ? <IRPlayer src={chapterRender.ir} assets={chapterRender.assets} audio={chapterRender.audio} range={[fromChapter.from, fromChapter.to ?? fromChapter.from]} compact />
                 // eslint-disable-next-line @next/next/no-img-element
                 : <img alt={`beat ${n} in the chapter`} src={fromChapter.still} className="w-full rounded border border-neutral-800" />}
               <Issues issues={fromChapter.issues} fixed={fromChapter.fixed} />

@@ -38,6 +38,7 @@ sys.path.insert(0, str(ENGINE))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 EARLY, LATE = -0.6, 0.35       # on time: the play begins this long before its word, at most, to this long after it
+STILL = 2.5                     # seconds of a spoken line with nothing moving that count as a still stretch
 READ_LATE = 0.35                # read on time: its key words readable no later than this after their word
 RATE = 16000
 
@@ -244,7 +245,9 @@ def run(scene_file: Path) -> list[dict]:
         came = added + [w for k, w in after.items() if k not in before]
         state["shown"] = after
         if line is not None:
-            line["plays"].append({"at": at, "run": float(self.renderer.time) - at,
+            # Moving: anything but a hold (a wait, or a hold the caption's underline moves in: MotionLecture._karaoke).
+            moving = any(type(a).__name__ != "Wait" and not getattr(a, "_m_karaoke", False) for a in anims)
+            line["plays"].append({"at": at, "run": float(self.renderer.time) - at, "moving": moving,
                                   "kinds": [type(a).__name__ for a in anims][:6], "texts": came})
         return result
 
@@ -326,6 +329,25 @@ def measure(lines: list[dict]) -> dict:
     readable = [{**a, "read_lag": round(a["reads"] - a["said"], 3)} for a in anchored if "reads" in a]
     r_late = [a for a in readable if a["read_lag"] > READ_LATE and a["said"] >= a["need"]]
     r_cannot = [a for a in readable if a["read_lag"] > READ_LATE and a["said"] < a["need"]]
+    # Still: how long the screen holds with nothing moving while a line is spoken (a stretch over STILL seconds,
+    # from its voice to the next line's): dead air a viewer sees as a frozen picture.
+    still, spoken = [], 0.0
+    for k, line in enumerate(lines):
+        if line["voice"] is None or line.get("card"):
+            continue
+        end = line["voice"] + float(line["seconds"] or 0)
+        spoken += end - line["voice"]
+        moves = sorted((p["at"], p["at"] + p["run"]) for x in lines for p in x["plays"] if p.get("moving"))
+        at = line["voice"]
+        for a, b in moves + [(end, end)]:
+            if b <= at:
+                continue
+            if a - at > STILL and a <= end + 1e-6:
+                still.append({"line": line["text"][:60], "from": round(at - line["voice"], 2),
+                              "seconds": round(min(a, end) - at, 2)})
+            at = max(at, b)
+            if at >= end:
+                break
     a_late = [a for a in anchored if a["lag"] > LATE]
     a_early = [a for a in anchored if a["lag"] < EARLY]
     early = [m for r in rows for m in r["matched"] if m["lag"] < EARLY]
@@ -340,6 +362,10 @@ def measure(lines: list[dict]) -> dict:
                                                   "on_time": len(anchored) - len(a_late) - len(a_early),
                                                   "early": len(a_early), "late": len(a_late),
                                                   "worst": sorted(anchored, key=lambda a: -abs(a["lag"]))[:6]},
+                                      "still": {"stretches": len(still),
+                                                "seconds": round(sum(x["seconds"] for x in still), 2),
+                                                "per_minute": round(sum(x["seconds"] for x in still) / max(spoken / 60, 1e-6), 2),
+                                                "worst": sorted(still, key=lambda x: -x["seconds"])[:6]},
                                       "readable": {"count": len(readable), "late": len(r_late),
                                                    "unreachable": len(r_cannot),
                                                    "on_time": len(readable) - len(r_late) - len(r_cannot),

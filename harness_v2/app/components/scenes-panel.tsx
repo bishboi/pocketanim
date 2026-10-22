@@ -1113,6 +1113,9 @@ function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
       <label className="flex items-center gap-1 text-neutral-300" title="Each chapter is spoken and its words aligned before its scenes are written: the scene writer sees how long every line is, the quiet after it and its words by number with their times, and anchors to them">
         <input type="checkbox" disabled={!motion} checked={motion && st?.voiceFirst !== false}
           onChange={(e) => act({ action: "engine", engine: "motion", voiceFirst: e.target.checked })} data-testid="scenes-voice-first" /> voice first</label>
+      <label className="flex items-center gap-1 text-neutral-300" title="A quiet music bed in the look's mood under the voice, dipping under its words and up a little in its pauses">
+        <input type="checkbox" disabled={!motion} checked={motion && st?.music !== false}
+          onChange={(e) => act({ action: "engine", engine: "motion", music: e.target.checked })} data-testid="scenes-music" /> music</label>
       <span className="text-neutral-500">{motion
         ? "the scene writer is told of the motion templates; builds, renders and the Voice tab use the motion engine"
         : "the lectures built so far stay as they are either way"}</span>

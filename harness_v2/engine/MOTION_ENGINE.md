@@ -33,6 +33,7 @@ beat script (JSON, "engine": "motion") ─▶ compile_motion.py ─▶ Manim sce
 | `motion_story.py` | History and storytelling: cause_web, portrait_card, source_vs_reality, population_pyramid, migration_flow, quote_reveal, newspaper, letter, countdown. |
 | `motion_explain.py` | Numbers and explanations: race_bars, waterfall, stacked_area, slope, dot_compare, split_number, zoom_in, layers, cycle_wheel, checklist, pros_cons, mind_map. |
 | `motion_looks.py` | The fourteen looks: design, motion tokens, textures, picture dressing. |
+| `music.py` | The music bed under the voice: soft chords in the look's mood, made by formula, ducked under each line's words (§2). |
 | `tools/motion_strip.py` | A contact sheet of a rendered video, every N seconds: how a motion plays, at a glance. |
 
 Contents: [the script](#1-the-script) · [how a beat plays](#2-how-a-beat-plays-in-motion) ·
@@ -146,7 +147,24 @@ the cache: nothing is spoken again) and play it as their clock.
    and a beat's `pause` adds to it (`compile_motion._patched_paragraphs`). Read as the lecture compiler reads them,
    almost every beat here put up a picture of its own and closed a paragraph: 0.8 s of quiet after every sentence.
 9. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
-   scratch (sfx.py).
+   scratch (sfx.py), tuned to the look (`MotionLecture._sound_for`): a calm look's softer (a swish for a whoosh,
+   pops 4 dB down, a punchy look's 1.5 dB up); the same sound again within 2 s is 6 dB quieter and a third is left
+   out; one that lands within 80 ms of a stressed word is 6 dB quieter; a hold the caption's underline moves in makes
+   none. Under it all, a **music bed** (`music.py`): soft chords in the look's mood (calm: a pad; lively: plucked
+   notes of the chord in eighths too; punchy: and a soft low pulse on the beat), made by formula on the lecture's own
+   clock, so the pieces each line adds join into one bed; −24 dB while a word is said and −16 dB in a pause of 0.6 s
+   or more, with 150 ms ramps. It is a sound of the line's like the voice, so the video and the players' narration
+   track both carry it. `PANIM_MUSIC=off` (the Scenes tab's "music" box) leaves it out; `PANIM_MUSIC_GAIN` adds dB.
+10. **Kept alive** (`MotionLecture._lively`). A word the voice **stresses** (said 1.2 standard deviations louder than
+   its line's words, from the line's own audio: `_word_stress`) pulses what it names on the screen, two a line at
+   most. A stretch of a line with nothing moving for 2 s or more gets one quiet beat on a word said in it (two in a
+   stretch of 6 s): what that word names pulses, else the picture swells 2.5% and settles. Neither makes a sound.
+   `PANIM_LIVELY=0` turns both off. The sync probe's `still` counts what is left: stretches of 2.5 s or more of a
+   spoken line with nothing moving.
+11. **Weight.** How a look's things land is its `energy`: calm ones glide in and stop; lively ones overshoot a little
+   (a rise, a slide, a zoom eased with an overshoot) and settle; punchy ones also squash 3% as they land, there and
+   back (`motion_kit._feel`). Leaving by a slide or a push, a lively or punchy look's picture first pulls a little the
+   other way (`motion_kit.windup`). A photo alone is never sprung or squashed.
 
 Each animation asks for its own length (from the look's tokens, §7), and the beat gives it that length. When the
 next moment comes sooner, the animation is shortened to fit.

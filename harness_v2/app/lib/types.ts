@@ -505,6 +505,8 @@ export type ScenesState = {
    * writer is given each beat's length, its words by number with their times, and the quiet after it (on unless
    * false). */
   voiceFirst?: boolean;
+  /** A quiet music bed under the voice, ducked under its words (engine/music.py; on unless false). */
+  music?: boolean;
   error?: string;
   started?: number;
   ended?: number;

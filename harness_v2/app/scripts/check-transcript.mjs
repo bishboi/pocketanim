@@ -905,10 +905,14 @@ await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9
     assert.equal(a.on_time, a.count, `${name}: every anchored animation on its words: ${JSON.stringify(a.worst)}`);
     // Read on time: each anchored picture's key words readable no later than 0.35 s after their word, except where
     // the word comes sooner into its line than the picture takes to read (counted apart: sync_probe.py).
+    // Kept alive: little of a spoken line left with nothing moving (MOTION_ENGINE.md §2, "Kept alive").
+    const still = sum.still;
+    if (still && name.startsWith("motion")) assert.ok(still.per_minute <= 8, `${name}: still stretches: ${JSON.stringify(still)}`);
     const r = sum.readable;
     if (r) assert.equal(r.late, 0, `${name}: every anchored picture read on its words: ${JSON.stringify(r.worst)}`);
     console.log(`sync (${name}): ${a.on_time} of ${a.count} anchored animations on their words` +
-      (r ? `; ${r.on_time} read on time, ${r.unreachable} said before they could be read` : ""));
+      (r ? `; ${r.on_time} read on time, ${r.unreachable} said before they could be read` : "") +
+      (still ? `; ${still.per_minute} s a minute still` : ""));
   }
 }
 

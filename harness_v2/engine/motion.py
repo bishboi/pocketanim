@@ -41,6 +41,7 @@ import math
 import os
 import re
 import textwrap
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -239,6 +240,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if anim is not None:
             try:
                 anim._m_key = self._key_of(group)               # what it is read by (_readable_share)
+                anim._m_group = group                           # what it brings on (_texts_up)
                 if replacing:
                     anim._m_replaces = True                     # a new picture taking the stage (_on_words)
             except AttributeError:
@@ -437,6 +439,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if end - cursor > 1e-3:
             steps.append(FadeOut(VMobject(), run_time=end - cursor))
         moves = LaggedStart(*steps, lag_ratio=1.0, rate_func=linear)
+        moves._m_karaoke = True                 # the caption's own: a hold stays a hold (sync_probe's "still")
         if all(type(a).__name__ == "Wait" for a in animations):
             return (moves,)
         return (*animations, moves)
@@ -669,9 +672,12 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             elif kind == "wipe":
                 self._wipe_old.append(mob)
             elif kind in ("slide", "page"):
-                out.append(K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish"))
+                # With anticipation (a lively or punchy look): a small pull the other way, then off.
+                out.append(K.windup(mob, LEFT, K.t("fast"),
+                                    K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish")))
             elif kind == "push":
-                out.append(K.timed(FadeOut(mob, shift=UP * 1.2, rate_func=rush_into), K.t("fast"), "swish"))
+                out.append(K.windup(mob, UP, K.t("fast"),
+                                    K.timed(FadeOut(mob, shift=UP * 1.2, rate_func=rush_into), K.t("fast"), "swish")))
             elif kind == "zoom":
                 out.append(K.timed(FadeOut(mob, scale=1.25, rate_func=rush_into), K.t("fast"), "whoosh"))
             elif kind == "cut":
@@ -695,8 +701,10 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return out
 
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None, cues: list | None = None) -> float:
-        """A line (_m_beat), its caption underlining each word as it is said (_karaoke_plan)."""
+        """A line (_m_beat), its caption underlining each word as it is said (_karaoke_plan), the music bed under
+        it (_m_music)."""
         self._m_kara = self._karaoke_plan(text)
+        self._m_line = {"text": text, "pad": pl.beat_pad(text) if pad is None else float(pad)}
         try:
             return self._m_beat(text, *anims, rt=rt, pad=pad, cues=cues)
         finally:
@@ -744,9 +752,74 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
     def _speak(self, wav, seconds: float) -> None:
         """The line's voice (_m_speak); the caption's underlines are timed from where it begins."""
         self._m_speak(wav, seconds)
+        begun = float(self.__dict__.get("_voice_until", 0.0)) - float(seconds or 0.0)
         k = self.__dict__.get("_m_kara")
         if k is not None and k.get("t0") is None:
-            k["t0"] = float(self.__dict__.get("_voice_until", 0.0)) - float(seconds or 0.0)
+            k["t0"] = begun
+        line = self.__dict__.pop("_m_line", None)
+        if wav and line:
+            self._m_music(line, begun, float(seconds or 0.0))
+
+    def _m_music(self, line: dict, begun: float, seconds: float) -> None:
+        """The music bed under a line, from where its voice begins to the end of its pause (music.py): the look's
+        mood (its energy), ducked under the line's words. Its stressed words are kept for the sound effects."""
+        import music
+
+        try:
+            words = pl.line_words(line["text"]) or []
+        except Exception:  # noqa: BLE001 -- no word times: ducked under the whole line
+            words = []
+        stress = self._word_stress(line["text"], words) if words else []
+        self._m_stressed = [begun + float(w["start"]) for w, z in zip(words, stress) if z >= self.STRESS_Z]
+        if not music.enabled() or pl.voice_mode() == "silent":
+            return
+        if not words:
+            words = [{"start": 0.0, "end": seconds}]
+        root = Path(os.environ.get("PANIM_AUDIO_DIR") or Path(pl.__file__).resolve().parent / ".cache") / "music"
+        path = music.piece(str(self.M.get("energy", "lively")), begun, seconds + float(line.get("pad") or 0.0),
+                           words, root)
+        if path:
+            self.add_sound(path, gain=0)
+
+    # The look's sound effects (sfx.py), tuned: a calm look's softer (a swish for a whoosh, quieter pops); the same
+    # sound again soon after is quieter, a third is left out; and one that would land on a stressed word is quieter,
+    # so the word is heard. A hold the caption's underline moves in makes none.
+    SFX_LOOK = {"calm": {"whoosh": "swish", "stamp": "tick"}, "lively": {}, "punchy": {}}
+    SFX_GAIN = {"calm": -4.0, "lively": 0.0, "punchy": 1.5}
+
+    def _sound_for(self, animations, kwargs) -> None:
+        import sfx
+
+        if not sfx.enabled() or getattr(self, "_free_ink", None):
+            return
+        if pl.voice_mode() == "silent" and os.environ.get("PANIM_SFX") != "1":
+            return
+        animations = [a for a in animations if not getattr(a, "_m_karaoke", False)]
+        if not animations:
+            return
+        kind, _ = sfx.classify(animations)
+        if kind is None:
+            return
+        now = float(getattr(getattr(self, "renderer", None), "time", 0.0) or 0.0)
+        if now - self.__dict__.get("_last_sfx", -9.0) < self.SFX_GAP and kind not in ("chapter", "intro", "answer"):
+            return
+        energy = str(self.M.get("energy", "lively"))
+        kind = self.SFX_LOOK.get(energy, {}).get(kind, kind)
+        gain = sfx.gain(kind) + self.SFX_GAIN.get(energy, 0.0)
+        recent = [t for k, t in self.__dict__.get("_m_sfx_recent", []) if k == kind and now - t < 2.0]
+        if kind not in ("chapter", "intro", "answer"):
+            if len(recent) >= 2:
+                return
+            if recent:
+                gain -= 6.0
+        if any(abs(now - t) < 0.08 for t in self.__dict__.get("_m_stressed", [])):
+            gain -= 6.0
+        wav = sfx.path(kind)
+        if wav:
+            self._last_sfx = now
+            self._m_sfx_recent = [(k, t) for k, t in self.__dict__.get("_m_sfx_recent", []) if now - t < 2.0] + \
+                [(kind, now)]
+            self.add_sound(wav, gain=gain)
 
     def _m_speak(self, wav, seconds: float) -> None:
         """The line's voice; when the look wipes from one picture to the next, the sheet covers the old picture just
@@ -1040,7 +1113,138 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                 moved = True
         if moved:
             out.sort(key=lambda g: start(g[1]))
+        return self._lively(out, words, seconds, text)
+
+    # ---------------------------------------------------------------- a line kept alive ---------------------------
+    # A picture that has landed sits still while the voice goes on. Two things keep it alive, both on the line's own
+    # words: a word the voice stresses (said louder than the rest of its line) pulses the thing on the screen it
+    # names; and a stretch of the line with nothing moving (STILL_GAP or more) gets one quiet beat in it, on a word
+    # said in it: the thing that word names pulses, else the picture swells and settles a little. PANIM_LIVELY=0
+    # turns both off.
+    STILL_GAP = 2.0          # seconds of a line with nothing moving that get a beat in them (sync_probe counts 2.5)
+    STRESS_Z = 1.2           # how far above its line's loudness a word is said to count as stressed
+
+    def _word_stress(self, text: str, words) -> list[float]:
+        """Each word's loudness against its line's (a z-score), from the line's own audio; zeros when unreadable."""
+        cache = self.__dict__.setdefault("_m_stress", {})
+        if text in cache:
+            return cache[text]
+        out = [0.0] * len(words or [])
+        try:
+            import local_align
+
+            raw = pl.audio_file(pl.voice_mode(), pl.speechify(text))
+            lead = pl._tight(raw)[1]
+            audio = local_align._read_16k(raw)
+            rate = local_align.RATE
+            levels = []
+            for w in words:
+                a, b = int((lead + float(w["start"])) * rate), int((lead + float(w["end"])) * rate)
+                chunk = audio[a:max(b, a + 1)]
+                levels.append(20 * math.log10(float(np.sqrt(np.mean(chunk ** 2))) + 1e-6) if len(chunk) else None)
+            real = [x for x, w in zip(levels, words) if x is not None and len(str(w.get("w", ""))) >= 3]
+            if len(real) >= 4:
+                mean, sd = float(np.mean(real)), float(np.std(real)) or 1.0
+                out = [((x - mean) / sd if x is not None and len(str(w.get("w", ""))) >= 3 else 0.0)
+                       for x, w in zip(levels, words)]
+        except Exception:  # noqa: BLE001 -- no audio to read: nothing stressed
+            pass
+        cache[text] = out
         return out
+
+    def _texts_up(self, out) -> tuple[list, float, object]:
+        """The words on the stage a line may point at, and from when: the new picture's once it is in, if the line
+        brings one, else the picture up (never a part still to come, never the caption); and that picture."""
+        start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+        group, ready = None, 0.0
+        for a, c in out:
+            if self._takes_stage(a):
+                todo = [a]
+                while todo and group is None:
+                    x = todo.pop()
+                    group = getattr(x, "_m_group", None)
+                    todo.extend(getattr(x, "animations", None) or [])
+                run = float(c[1]) if isinstance(c, (list, tuple)) and len(c) > 1 and c[1] else \
+                    float(getattr(a, "panim_run", 0.8) or 0.8)
+                ready = start(c) + run
+                break
+        roots = [group] if group is not None else [m for m in (self.stage_body, *self.stage_extra) if m is not None]
+        later = {id(x) for m in self.stage_pending for x in m.get_family()}
+        texts = [m for r in roots for m in r.get_family() if type(m).__name__ in ("Text", "MarkupText")
+                 and len(m.submobjects) and id(m) not in later and getattr(m, "z_index", 0) < pl.Z_CAPTION]
+        return texts, ready, (group if group is not None else self.stage_body)
+
+    @staticmethod
+    def _naming(texts, word: str):
+        """The smallest of the words on the stage that the line's word names, or None."""
+        wanted = pl._say_tokens(word)
+        if not wanted or len(wanted[0]) < 3:
+            return None
+        hits = [m for m in texts if any(pl._same_word(t, wanted[0]) for t in pl._say_tokens(getattr(m, "text", "")))]
+        return min(hits, key=lambda m: m.width * m.height) if hits else None
+
+    @staticmethod
+    def _quiet(anim):
+        """A beat of the line's own, without a sound effect."""
+        if anim is not None:
+            anim.__dict__.pop("panim_sfx", None)
+            anim._m_filler = True
+        return anim
+
+    def _lively(self, out, words, seconds: float, text: str):
+        if not words or os.environ.get("PANIM_LIVELY", "1") == "0" or not seconds:
+            return out
+        start = lambda c: float(c[0]) if isinstance(c, (list, tuple)) and c else 0.0  # noqa: E731
+
+        def span(a, c):
+            run = c[1] if isinstance(c, (list, tuple)) and len(c) > 1 and c[1] else None
+            return float(run or getattr(a, "panim_run", None) or getattr(a, "run_time", 0.6) or 0.6)
+
+        busy = [(start(c), start(c) + span(a, c)) for a, c in out]
+        texts, ready, body = self._texts_up(out)
+        stress = self._word_stress(text, words)
+        extra = []
+        # Stressed words pulse what they name (two a line at most, never on top of another beginning).
+        for i in sorted(range(len(words)), key=lambda k: -stress[k])[:2]:
+            if stress[i] < self.STRESS_Z:
+                break
+            at = float(words[i]["start"])
+            target = self._naming(texts, words[i].get("w", "")) if at >= ready else None
+            if target is None or any(abs(at - a) < 0.6 for a, _ in busy):
+                continue
+            anim = self._quiet(K.pulse(target, 1.07, run=0.45))
+            extra.append((anim, [round(max(0.0, at - 0.12), 3), 0.45]))
+            busy.append((at - 0.12, at + 0.33))
+        # A still stretch gets a beat on a word said in it.
+        busy.sort()
+        at, end, gaps = 0.0, max(0.0, seconds - 0.3), []
+        for a, b in busy + [(end, end)]:
+            if a - at >= self.STILL_GAP:
+                gaps.append((at, min(a, end)))
+            at = max(at, b)
+        for g0, g1 in gaps:
+            count = 1 if g1 - g0 < 6.0 else 2
+            for k in range(count):
+                lo = g0 + (g1 - g0) * k / count + 0.7
+                hi = g0 + (g1 - g0) * (k + 1) / count - 0.7
+                said = [i for i, w in enumerate(words) if lo <= float(w["start"]) <= hi]
+                if not said:
+                    continue
+                named = [i for i in said if float(words[i]["start"]) >= ready and
+                         self._naming(texts, words[i].get("w", "")) is not None]
+                pick = max(named or said, key=lambda i: (stress[i], len(str(words[i].get("w", "")))))
+                when = float(words[pick]["start"])
+                target = self._naming(texts, words[pick].get("w", "")) if when >= ready else None
+                if target is not None:
+                    anim, run = K.pulse(target, 1.08, run=0.5), 0.5
+                else:
+                    if body is None or when < ready:
+                        continue
+                    anim, run = K.pulse(body, 1.025, run=0.9), 0.9          # the picture swells and settles
+                extra.append((self._quiet(anim), [round(max(0.0, when - 0.12), 3), run]))
+        if not extra:
+            return out
+        return sorted(out + extra, key=lambda g: start(g[1]))
 
     LATE_PICTURE = 1.2       # seconds into a line past which its new picture comes on as the line begins instead
 

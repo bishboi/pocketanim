@@ -76,7 +76,7 @@ export type ScenesAction =
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
   | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string;
-      voiceFirst?: boolean }
+      voiceFirst?: boolean; music?: boolean }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -168,6 +168,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       st.motion = m;
     }
     if (a.voiceFirst !== undefined) st.voiceFirst = a.voiceFirst ? undefined : false;
+    if (a.music !== undefined) st.music = a.music ? undefined : false;
     log(run, `Scenes: the ${st.engine === "motion" ? `motion engine (beta)${st.motion?.look ? `, look ${st.motion.look}` : ""}` : "current engine"}.`);
     saveRun(run, true);
     return run;
@@ -563,6 +564,11 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
 // ---------------------------------------------------------------- the voice first (motion engine) ---------------
 
 /** Whether the chapters are spoken before their scenes are written: on the motion engine, unless switched off. */
+/** The music bed's setting for the engine (engine/music.py): off when the Scenes tab turned it off. */
+export function musicEnv(st: ScenesState): Record<string, string> {
+  return { PANIM_MUSIC: st.music === false ? "off" : "on" };
+}
+
 export function voiceFirst(st: ScenesState): boolean {
   return st.engine === "motion" && st.voiceFirst !== false && process.env.V2_SCENES_VOICE_FIRST !== "0";
 }
@@ -1289,7 +1295,7 @@ async function renderPart(run: Run, n: number, chapter: number, beat: number | u
     let env: Record<string, string> = {};
     if (voiceFirst(stateOf(run)) && await voicedBeats(run, n, chapter)) {
       const { voiceEnv, voiceOf } = await import("./voice");
-      env = voiceEnv(voiceOf(run).settings);
+      env = { ...voiceEnv(voiceOf(run).settings), ...musicEnv(stateOf(run)) };
     }
     const p = await playable(run, n, dir, source, env);
     const sc = scriptOf(run, n)!.chapters.find((c) => c.n === chapter)!;

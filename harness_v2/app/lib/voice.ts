@@ -29,7 +29,7 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { handInstructions } from "./prompts/scenes";
 import { check, newCall } from "./run";
-import { compile, type Compiled, engineScript, writeMissingFigures, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
+import { compile, type Compiled, engineScript, musicEnv, writeMissingFigures, figureFiles, fileUrl, playable, renderSlot, scenesAction, scenesDir, scriptOf, stateOf as scenesOf, subjectOf, beatInputs } from "./scenes";
 import { lectureFigures } from "./script-figures";
 import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
@@ -343,7 +343,7 @@ async function madePictures(run: Run, compiled: Compiled, dir: string): Promise<
 export async function speakChapter(run: Run, n: number, chapter: number, target: ChapterVoice, edited?: ChapterScript, lab?: LabWhere) {
   const began = Date.now();
   const settings = { ...voiceOf(run).settings };
-  const env = voiceEnv(settings);
+  const env = { ...voiceEnv(settings), ...musicEnv(scenesOf(run)) };
   const look = cleanLook({ ...scenesOf(run).look, ...(edited?.style ? { style: edited.style } : {}), ...(edited?.art ? { art: edited.art } : {}) });
   const dir = lab?.dir ?? path.join(scenesDir(run.id), `L${n}`, edited ? `voice-${chapter}-try` : `voice-${chapter}`);
   const what = lab ? `the Lab's "${lab.name}"` : `lecture ${n}, chapter ${chapter}`;

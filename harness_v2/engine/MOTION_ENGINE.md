@@ -129,7 +129,10 @@ the cache: nothing is spoken again) and play it as their clock.
    column pulses and its value grows, a card lifts). On a large template (over half the stage), the first part a
    line names is **pushed in on** instead, as a camera would: the template scaled 1.12 about the part and drawn a
    third of the way to the middle (the part kept whole on the screen), held, and eased back before the line ends
-   (`MotionLecture._push_on`; moves the players apply). `emphasis` points on purpose (§3).
+   (`MotionLecture._push_on`; moves the players apply). `emphasis` points on purpose (§3). A line that brings a new
+   picture points at nothing of the old one, which is leaving; and any pulse, push or pointer whose picture has left
+   by the time it plays is dropped (`MotionLecture._unstale`): played, it put the old picture back under every one
+   after it (a migration's discs over a timeline).
 5. **Match cuts** (off unless `PANIM_CARRY=1`: the carried copies were left over the next picture in the players).
    When the next picture shows a word or a figure (three words at most, on one line: never a
    question or a sentence) the one leaving shows too, in a like size (a

@@ -115,6 +115,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         """The engine's play; then the groups Manim put on the screen to hold a lagged group's parts are taken off
         again (quietly: the exporter never had them on its stage), so a part left in one is not a stray that stays
         up -- over the next picture -- after its picture leaves. The caption's underline moves with it (_karaoke)."""
+        animations = self._unstale(animations, kwargs)
         animations = self._karaoke(animations, kwargs)
         animations = (*animations, *self._room_moves(animations))
         containers, leaves = [], []
@@ -289,6 +290,53 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             return super().flow(lonlats, color=color, width=width, label=label)
         finally:
             fr.path = smooth
+
+    # A pulse, a push or a pointer built for a picture that has since left (its line named a part of the old picture
+    # and brought a new one) would put the old picture back: Manim adds whatever an animation moves, and it stayed
+    # under every picture after it (a migration's discs over a timeline). Such an emphasis is dropped as it plays.
+    EMPHASES = ("_MethodAnimation", "Fresh", "ScaleInPlace", "Indicate", "Wiggle", "ApplyWave", "Circumscribe",
+                "FocusOn", "Flash")
+
+    def _unstale(self, animations, kwargs):
+        on = {id(x) for m in self.mobjects for x in m.get_family()}
+        leaves = []
+
+        def walk(a):
+            subs = getattr(a, "animations", None)
+            if subs:
+                for sub in subs:
+                    walk(sub)
+            else:
+                leaves.append(a)
+
+        for a in animations:
+            walk(a)
+
+        def emphasis(a) -> bool:
+            return bool(getattr(a, "panim_xform", False) or getattr(a, "panim_camera", False)
+                        or type(a).__name__ in self.EMPHASES)
+
+        brought = {id(x) for a in leaves if not emphasis(a) and getattr(a, "mobject", None) is not None
+                   for x in a.mobject.get_family()}
+
+        def stale(a) -> bool:
+            subs = getattr(a, "animations", None)
+            if subs:
+                return all(stale(x) for x in subs)
+            mob = getattr(a, "mobject", None)
+            if not emphasis(a) or mob is None:
+                return False
+            fam = [id(x) for x in mob.get_family() if x.family_members_with_points()] or [id(mob)]
+            return not any(i in on or i in brought for i in fam)
+
+        kept = [a for a in animations if not stale(a)]
+        if len(kept) == len(animations):
+            return animations
+        if kept:
+            return tuple(kept)
+        run = kwargs.get("run_time") or max((float(getattr(a, "run_time", 0) or 0) for a in animations), default=0.05)
+        kwargs["run_time"] = run
+        return (Wait(run),)
 
     # ---------------------------------------------------------------- the word being said, in the caption -----------
     # The caption is laid out a line at a time, and where each of its words sits is measured (each word set alone,
@@ -898,6 +946,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         """The engine's pointing at things the line names again, done the look's way for a template's part; the
         first part of a large template the line names is pushed in on instead (_push_on), as a camera would."""
         out = []
+        if self.__dict__.get("_m_replacing"):
+            # This line brings a new picture: what it names of the old one is leaving with it.
+            return out
         coming = self.__dict__.get("_m_arriving") or set()
         pushed: set = set()
         for anim, cue in super()._pointers(words, seconds, hinted):
@@ -1068,6 +1119,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         """The engine's; a moment that may be said in more than one way (an event by its words or by its date) is
         timed by whichever the line says."""
         self._m_arriving = set()
+        self._m_replacing = any(self._takes_stage(a) for a, _ in given)
         if words:
             for anim, _ in given:
                 alts = getattr(anim, "panim_alts", None)

@@ -477,12 +477,21 @@ def _patched_picture_fetch(spec: dict):
 INNER_ON = {"myth", "share", "ask"}
 
 
+def _inner_on(op: dict) -> bool:
+    """Whether the op's `on` is a moment inside it: a question's only with an answer to time (a question alone comes
+    on at its `on`: taken for an answer's cue, it came on with the line, over the beat's earlier pictures)."""
+    if op.get("op") == "ask":
+        return bool(str(op.get("answer") or "").strip())
+    return op.get("op") in INNER_ON
+
+
 def _patched_op_said(op: dict, parts: dict, asked: list):
-    if str(op.get("on") or "").strip() == "start" and op.get("op") not in INNER_ON:
+    inner = _inner_on(op)
+    if str(op.get("on") or "").strip() == "start" and not inner:
         return None                                  # as the line begins (compile_lecture.anchors)
-    if op.get("on") and op.get("op") not in INNER_ON:
+    if op.get("on") and not inner:
         return str(op["on"])
-    if op.get("op") in INNER_ON:
+    if inner:
         return _ORIG["_op_said"]({k: v for k, v in op.items() if k != "on"}, parts, asked)
     return _ORIG["_op_said"](op, parts, asked)
 

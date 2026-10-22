@@ -911,6 +911,10 @@ class MoreTemplates:
         """A question set large beside a question mark; when the line gives its `answer` (`on`, else the answer's
         first words), the answer comes in under it with a tick and the question steps back."""
         P = pl.P
+        if id and answer:
+            answered = self._answer_ask(id, answer, on)
+            if answered is not False:
+                return answered
         tid = id or self._next_id("ask")
         disc = Circle(radius=0.62, stroke_width=0, fill_color=K.col("accent"), fill_opacity=1)
         mark = VGroup(disc, K.head("?", 54, _ink(K.col("accent")), upper=False).move_to(disc))
@@ -928,7 +932,10 @@ class MoreTemplates:
             parts.append(a_line)
         body = VGroup(*parts)
         whole, _ = self._titled(body, None, None)
+        h0 = whole.height
         self._fit(whole, self._box(), grow=1.2, margin=0.9)
+        whole._m_ask = {"q": q, "stack": stack, "words": words, "k": whole.height / max(h0, 1e-3),
+                        "answered": a_line is not None}
         entrance = K.stagger([K.timed(FadeIn(mark, scale=0.3, rate_func=ease_out_back), K.t("fast"), "pop"),
                               K.typewriter(kick, run=0.5), K.typewriter(words, run=min(1.6, 0.03 * len(str(text)) + 0.4))],
                              lag=0.4)
@@ -945,3 +952,52 @@ class MoreTemplates:
         if a_line is not None:
             self._hold_back(whole, [a_line])
         return anim
+
+    def _answer_ask(self, tid: str, answer: str, on: str | None):
+        """The answer to a question still up (an `ask` with the id of the one on the stage, now with its `answer`):
+        it comes in under that question, made room for, instead of the question coming on a second time. False when
+        that question is not up (or is answered)."""
+        import stem
+
+        whole = self._mwhole.get(tid)
+        spec = getattr(whole, "_m_ask", None)
+        if whole is None or not spec or spec["answered"] or whole is not self.stage_body or not self._shown(whole):
+            return False
+        spec["answered"] = True
+        P = pl.P
+        k = spec["k"]
+        tick = K.check_mark(0.42, K.col("good"))
+        a_words = K.body(str(answer), 28, P.CREAM, 44)
+        a_line = VGroup(tick, a_words).arrange(RIGHT, buff=0.3, aligned_edge=UP).scale(k)
+        cx, cy, w, h = self._box()
+        gap = 0.6 * k
+        tall = whole.height + gap + a_line.height
+        f = min(1.0, (h - 0.9) / max(tall, 1e-3))
+        c0 = np.array(whole.get_center(), dtype=float)
+        to = np.array([c0[0], cy + tall * f / 2 - whole.height * f / 2, 0.0])
+        # The answer laid out under the question where the question is going: its left under the question's words,
+        # its top a gap under the question's foot, both as they will stand (scaled f about the middle, moved).
+        a_line.scale(f)
+        left = (spec["stack"].get_left()[0] - c0[0]) * f + to[0]
+        foot = (spec["q"].get_bottom()[1] - c0[1]) * f + to[1]
+        a_line.move_to([left + a_line.width / 2, foot - gap * f - a_line.height / 2, 0.0])
+        pl.follow_drift([whole], f, c0, to - c0)
+        a_line.set_z_index(Z_TEMPLATE + 1)
+        self.stage_pending.append(a_line)
+        words = spec["words"]
+        room = stem._moving(whole.animate(rate_func=ease_out_cubic).scale(f).move_to(to)) \
+            if f < 0.999 or np.linalg.norm(to - c0) > 0.02 else None
+        if room is not None:
+            # Known as a move to come (a stamp of this beat is placed where the question will stand).
+            room._m_room = {"parts": [], "f": f, "c0": c0, "c1": to, "ids": {id(x) for x in whole.get_family()}}
+            self._m_moves = [m for m in self.__dict__.get("_m_moves", []) if not m.get("done")] + [room._m_room]
+
+        def reply(heard):
+            steps = [K.fade_to(words, 0.55, run=K.t("fast")),
+                     K.together([K.draw(a_line[0], run=K.t("fast"), sfx="tick"),
+                                 K.typewriter(a_line[1], run=min(2.2, 0.03 * len(str(answer)) + 0.4))])]
+            if room is not None:
+                steps.insert(0, K.timed(room, K.t("base"), "swish"))
+            return K.chain(steps)
+        self._moment(_said(on or " ".join(str(answer).split()[:3])), reply)
+        return None

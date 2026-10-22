@@ -104,9 +104,13 @@ lands on the first of its own words the line says.
    counter's "60%" in the next card, a term defined and then a headline), a copy of it flies to its place in the new
    picture, taking its size, and dissolves into it as the new picture's own word comes on (`_carry_from`,
    `_carry_into`; two at most a change).
-6. **Idle.** What is up keeps moving gently (a float or a slow drift, played by the players themselves), so
+6. **Room made when it is needed.** A template with a definition card (or another card of words) beside it keeps
+   the whole stage until the card is said, then slides to its half as the card comes on (`MotionLecture._beside`);
+   its parts still to come on are moved with it as the card comes on (`_room_moves`), so they arrive in its half.
+   A part not on the screen yet is never pointed at (no bracket round an empty space).
+7. **Idle.** What is up keeps moving gently (a float or a slow drift, played by the players themselves), so
    nothing is frozen while the voice goes on.
-7. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
+8. **Sound.** Each motion has its sound, under the voice: pops, swishes, a stamp's thud, a counter's ticks, a pen's
    scratch (sfx.py).
 
 Each animation asks for its own length (from the look's tokens, §7), and the beat gives it that length. When the
@@ -134,10 +138,13 @@ highlighted, and `sub` fades in under it. Each word is a part.
 ```
 | Arg | | |
 |---|---|---|
-| `value` | required | The figure as it ends ("204%", "2,525 km", "$14.06B", "+50%"). Its number counts up from `start` (default 0) easing out, its prefix and suffix kept, its commas and decimals kept. Words with no number pop in. |
+| `value` | required | The figure as it ends ("204%", "2,525 km", "$14.06B", "+50%"). Its number counts up from `start` (default 0) easing out, its prefix and suffix kept, its commas and decimals kept. Words with no number, and a rank ("3rd", "21st"), pop in. |
 | `label`?, `kicker`?, `sub`? | | Under it, typed over it, under the label. |
 | `delta`?, `trend`? | | A change beside it with an arrow: green ▲ up, red ▼ down (`trend`, else from a leading minus). |
 | `color`? | | The figure's colour (a palette name or #hex); default the look's accent. |
+
+A year as the value ("1949") is not counted up from nothing: it rolls up from forty years before, landing as it is
+said.
 
 ### `chart`: columns, bars or a line
 ```json
@@ -201,7 +208,9 @@ a part.
 ```
 A rubber stamp (double-ruled box, capitals, turned by `angle` degrees, default -10) lands from large with a thud (an
 earlier stamp still up is lifted off as it lands, and a stamp alone on the board is replaced, never stamped over), onto the picture on the stage
-(`at`: center, top, bottom, left, right) and the picture shakes; with nothing up, on the board. Put over what is up:
+(`at`: center, top, bottom, left, right) and the picture shakes; with nothing up, on the board. At `center` on a
+template of words (a timeline, cards), it lands on its lower edge, or its upper, where the stage has room, not over
+the words; a picture takes it in its middle. Put over what is up:
 it plays after the beat's pictures.
 
 ### `kpi`: data cards
@@ -268,6 +277,8 @@ small words, 3.2:1 for large ones, as the accent's yellow on a cream board. Text
 
 There is no `callout` any more: one in a script is left out, with a note.
 
+Each print's caption is set under it, one size for every print, a long one on two lines.
+
 ### `emphasis`: pointing on purpose
 ```json
 {"op": "emphasis", "target": "Japan", "how": "circle", "on": "Japan"}
@@ -275,7 +286,8 @@ There is no `callout` any more: one in a script is left out, with a note.
 ```
 At a part of a template on screen (its name, or `<id>.<name>`), or at a whole template on screen by its `id`: `pulse` (default), `circle` (a ring drawn round it by
 hand), `underline`, `highlight` (the highlighter behind it), `box` (the house frame), `glow`, `shake`, `dim` (the
-rest of its template faded back). A name not on screen is left out with a note.
+rest of its template faded back). A name not on screen is left out with a note, and so is a part of a template the
+same line has already replaced. A mark made on a template the line is moving (aside for a card) moves with it.
 
 ### The shapes of a history, a society or an argument (`motion_more.py`)
 
@@ -406,8 +418,10 @@ filled in as the line says it; the `highlight` column in the stamp colour. Each 
  "answer": "Land, protection and religion made several centres of power", "on": "land, protection"}
 ```
 The question set large beside a question mark (its `kicker` typed over it); when the line gives the `answer` (`on`,
-else its first three words) the answer is typed in under it with a tick and the question steps back. Set the
-question at a chapter's start, and ask it again with its answer where the lecture answers it.
+else its first three words) the answer is typed in under it with a tick and the question steps back. Without an
+`answer`, `on` is when the question comes on. Set the question at a chapter's start, and ask it again with its answer
+where the lecture answers it: given the same `id` while that question is still up, the answer comes in under it
+(room made for it) instead of the question coming on a second time.
 
 ---
 

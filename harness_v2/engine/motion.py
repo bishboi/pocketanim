@@ -109,6 +109,7 @@ class MotionLecture(MoreTemplates, MapLecture):
         """The engine's play; then the groups Manim put on the screen to hold a lagged group's parts are taken off
         again (quietly: the exporter never had them on its stage), so a part left in one is not a stray that stays
         up -- over the next picture -- after its picture leaves."""
+        animations = (*animations, *self._room_moves(animations))
         containers, leaves = [], []
 
         def walk(anim):
@@ -257,33 +258,64 @@ class MotionLecture(MoreTemplates, MapLecture):
         return glides
 
     def _beside(self, group):
-        """The engine's picture and words side by side, with room made when the words come: a template up whole
-        (one with no parts still to come on) keeps the whole stage until the card beside it is said, and slides
-        to its half as the card comes on, instead of standing small in one half with the other empty all the line."""
+        """The engine's picture and words side by side, with room made when the words come: a template up keeps the
+        whole stage until the card beside it is said, and slides to its half as the card comes on, instead of standing
+        small in one half with the other empty all the line. Its parts still to come on (a timeline's next event)
+        follow it when the move plays (_room_moves): those up by then move with it, the rest are put in their place
+        unseen, to come on there."""
         import stem
 
         first = self.stage_body
         whole = first is not None and any(first is w for w in self._mwhole.values())
-        if not whole or getattr(group, "is_text_card", False) is False or self.stage_pending or self.stage_extra \
-                or getattr(first, "is_text_card", False) or self._panel_up():
+        if not whole or getattr(group, "is_text_card", False) is False or getattr(first, "is_text_card", False) \
+                or self._panel_up():
             return super()._beside(group)
-        before = (np.array(first.get_center(), dtype=float), float(first.width))
+        parts = [m for m in [*self.stage_pending, *self.stage_extra] if m is not first]
+        c0, w0 = np.array(first.get_center(), dtype=float), float(first.width)
         anim = super()._beside(group)
-        if self.stage_body is not first or first.width <= 0 or before[1] <= 0:
+        if self.stage_body is not first or first.width <= 0 or w0 <= 0:
             return anim
-        after = (np.array(first.get_center(), dtype=float), float(first.width))
-        f = after[1] / before[1]
-        # Back to the whole stage until the card comes: then the move to its half, with the card's entrance.
-        first.scale(1 / f).move_to(before[0])
-        pl.follow_drift([first], 1 / f, after[0], before[0] - after[0])
-        room = stem._moving(first.animate(rate_func=smooth).scale(f).move_to(after[0]))
+        c1 = np.array(first.get_center(), dtype=float)
+        f = float(first.width) / w0
+        # Back to the whole stage until the card comes (the picture and its parts, as the engine moved them).
+        for m in [first, *parts]:
+            m.scale(1 / f, about_point=c1).shift(c0 - c1)
+        pl.follow_drift([first, *parts], 1 / f, c1, c0 - c1)
+        room = stem._moving(first.animate(rate_func=smooth).scale(f, about_point=c0).shift(c1 - c0))
         K.timed(room, K.t("base"), "swish")
-        pl.follow_drift([first], f, before[0], after[0] - before[0])
+        room._m_room = {"parts": parts, "f": f, "c0": c0, "c1": c1,
+                        "ids": {id(x) for m in [first, *parts] for x in m.get_family()}}
+        self._m_moves = [m for m in self.__dict__.get("_m_moves", []) if not m.get("done")] + [room._m_room]
+        pl.follow_drift([first, *parts], f, c0, c1 - c0)
         return AnimationGroup(room, anim) if anim is not None else room
+
+    def _room_moves(self, animations) -> list:
+        """For a room-making move about to play (_beside): the moves of the picture's parts up on the screen now,
+        made the same way; the parts not up yet are put where the move takes them, unseen (they come on there)."""
+        extra = []
+        on_screen = {id(x) for top in self.mobjects for x in top.get_family()}
+        todo = list(animations)
+        while todo:
+            a = todo.pop()
+            todo.extend(getattr(a, "animations", None) or [])
+            room = getattr(a, "_m_room", None)
+            if not room or room.get("done"):
+                continue
+            import stem
+
+            room["done"] = True
+            f, c0, c1 = room["f"], room["c0"], room["c1"]
+            for m in room["parts"]:
+                if id(m) in on_screen:
+                    extra.append(stem._moving(m.animate(rate_func=smooth).scale(f, about_point=c0).shift(c1 - c0)))
+                else:
+                    m.scale(f, about_point=c0).shift(c1 - c0)
+        return extra
 
     def _stage_leaving(self) -> list:
         """The engine's fade-outs for what leaves the stage, made the look's exit: slid out (the way the next
         comes from), pushed up, zoomed past; for a wipe, taken away under the wipe as the next line begins."""
+        staged = {id(m) for m in [self.stage_items, *self.stage_extra]}
         going = super()._stage_leaving()
         kind = self.M.get("transition", "slide")
         out = []
@@ -292,7 +324,11 @@ class MotionLecture(MoreTemplates, MapLecture):
                 out.append(anim)
                 continue
             mob = anim.mobject
-            if kind == "wipe":
+            if kind == "wipe" and id(mob) not in staged:
+                # Not the stage's picture (a mark left on the map, a stray): it fades as the picture comes, in its
+                # turn. Wiped away as the line began, the map went with it while the line's first words were on it.
+                out.append(anim)
+            elif kind == "wipe":
                 self._wipe_old.append(mob)
             elif kind in ("slide", "page"):
                 out.append(K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish"))
@@ -391,6 +427,10 @@ class MotionLecture(MoreTemplates, MapLecture):
                 # beside its part; the push is this line's pointing.
                 continue
             point = getattr(mob, "_m_point", None)
+            if point is not None and not self._shown(mob):
+                # A part not on the screen yet (its template's later words bring it on): a bracket drawn round it
+                # framed an empty space.
+                continue
             if point is not None and type(anim).__name__ == "ScaleInPlace":
                 if not pushed:
                     push = self._push_on(mob, float(cue[0]), seconds)
@@ -404,6 +444,19 @@ class MotionLecture(MoreTemplates, MapLecture):
                     continue
             out.append((anim, cue))
         return out
+
+    def _shown(self, mob) -> bool:
+        """Whether a part is on the screen now: in the scene and not faded out."""
+        here = {id(x) for top in self.mobjects for x in top.get_family()}
+        fam = [x for x in mob.get_family() if id(x) in here]
+        if not fam:
+            return False
+        def seen(x):
+            try:
+                return max(float(x.get_fill_opacity()), float(x.get_stroke_opacity())) > 0.05
+            except Exception:
+                return float(getattr(x, "opacity", 1) or 0) > 0.05
+        return any(seen(x) for x in fam)
 
     PUSH = 1.12              # how far the camera pushes in on a part of a template the line names again
     PUSH_RUN = 0.7           # seconds in, and as many back out
@@ -645,6 +698,10 @@ class MotionLecture(MoreTemplates, MapLecture):
         def make(words):
             return K.number(words, 120, tone)
 
+        # A year (1949, 1905) is not a quantity to count up from nothing: mid-count the screen read "1913" while the
+        # voice said 1949. It rolls up from a few decades before instead, landing as it is said.
+        if not start and re.fullmatch(r"\s*1[0-9]{3}\s*|\s*20[0-9]{2}\s*", str(value)):
+            start = float(int(str(value).strip()) - 40)
         num = K.counter(str(value), make, start=start)
         parts = [num]
         top = K.kicker(kicker, 22) if kicker else None
@@ -1106,17 +1163,69 @@ class MotionLecture(MoreTemplates, MapLecture):
             spot = {"center": body.get_center(), "top": body.get_top() + DOWN * mark.height * 0.7,
                     "bottom": body.get_bottom() + UP * mark.height * 0.7, "right": body.get_right() + LEFT * mark.width * 0.6,
                     "left": body.get_left() + RIGHT * mark.width * 0.6}.get(at, body.get_center())
+            if at == "center":
+                spot = self._stamp_clear(body, mark, spot)
             mark.move_to(spot)
             mark.set_z_index(Z_TEMPLATE + 5)
             self._stage_add(mark)
-            landed = K.chain([K.slam(mark), K.shake(body, run=K.t("fast"))]) if not isinstance(body, Group) or \
-                isinstance(body, VGroup) else K.slam(mark)
+            # Not shaken while a move of it is to play this beat: the shake, built where it stands now, put it back.
+            landed = K.chain([K.slam(mark), K.shake(body, run=K.t("fast"))]) if (not isinstance(body, Group) or
+                                                                                isinstance(body, VGroup)) \
+                and not self._moving_now(body) else K.slam(mark)
             if old:
                 # An earlier stamp still on the picture is lifted off as the new one lands: never two on top of each other.
                 landed = K.together([K.together([K.leave(m, "fade") for m in old]), landed])
             return landed
         self._fit(mark, self._box(), grow=1.0, margin=3)
         return self._show(self._next_id("stamp"), mark, K.slam(mark), idle=False)
+
+    def _after_moves(self, mob):
+        """(lower left, upper right) of `mob` once the moves of the stage this beat has made (_m_moves) have played."""
+        lo, hi = np.array(mob.get_corner(DL), dtype=float), np.array(mob.get_corner(UR), dtype=float)
+        fam = {id(x) for x in mob.get_family()}
+        for spec in self.__dict__.get("_m_moves", []):
+            if not spec.get("done") and fam & spec["ids"]:
+                f, c0, c1 = spec["f"], spec["c0"], spec["c1"]
+                lo, hi = (lo - c0) * f + c1, (hi - c0) * f + c1
+        return lo, hi
+
+    def _moving_now(self, mob) -> bool:
+        fam = {id(x) for x in mob.get_family()}
+        return any(not spec.get("done") and fam & spec["ids"] for spec in self.__dict__.get("_m_moves", []))
+
+    def _stamp_clear(self, body, mark, spot):
+        """Where a stamp on words lands, half its width: of the places round the words (under, over, on a corner,
+        beside), the one over the least of them, inside the stage, as they will stand once this beat's moves and the
+        parts still to come (a question's answer) are in (a stamp over a timeline hid its dates and titles). A
+        picture still takes it in its middle."""
+        texts = [x for m in [body, *self.stage_pending] for x in m.get_family()
+                 if type(x).__name__ in ("Text", "MarkupText", "Paragraph") and len(x.submobjects)]
+        if not any(type(x).__name__ in ("Text", "MarkupText", "Paragraph") for x in body.get_family()):
+            return spot
+        fit(mark, min(4.2, max(2.0, body.width * 0.5)))
+        boxes = [self._after_moves(x) for x in texts]
+        ends = [self._after_moves(m) for m in [body, *self.stage_pending]]
+        lo = np.min([e[0] for e in ends], axis=0)
+        hi = np.max([e[1] for e in ends], axis=0)
+        cx, cy, w, h = self._box()
+        mw, mh = mark.width, mark.height
+        mid = (lo + hi) / 2
+        spots = [(mid[0], lo[1] - mh * 0.2), (mid[0], hi[1] + mh * 0.2),
+                 (hi[0] - mw * 0.4, lo[1] + mh * 0.4), (hi[0] - mw * 0.4, hi[1] - mh * 0.4),
+                 (hi[0] + mw * 0.3, mid[1]), (lo[0] - mw * 0.3, mid[1])]
+
+        def cover(x, y):
+            x0, x1, y0, y1 = x - mw / 2, x + mw / 2, y - mh / 2, y + mh / 2
+            return sum(max(0.0, min(x1, b[1][0]) - max(x0, b[0][0])) * max(0.0, min(y1, b[1][1]) - max(y0, b[0][1]))
+                       for b in boxes)
+        best = None
+        for x, y in spots:
+            x = float(np.clip(x, cx - w / 2 + mw / 2, cx + w / 2 - mw / 2))
+            y = float(np.clip(y, cy - h / 2 + mh / 2, cy + h / 2 - mh / 2))
+            score = cover(x, y)
+            if best is None or score < best[0] - 1e-6:
+                best = (score, x, y)
+        return np.array([best[1], best[2], 0.0])
 
     # ---------------------------------------------------------------- data cards -----------------------------------
     def m_kpi(self, cards, title: str | None = None, kicker: str | None = None, id: str | None = None):
@@ -1482,8 +1591,17 @@ class MotionLecture(MoreTemplates, MapLecture):
         if mob is None:
             pl.skipped(f"motion: nothing on the screen called {target!r} to point at")
             return None
+        staged = {id(x) for m in [self.stage_items, *self.stage_extra, *self.stage_pending,
+                                  getattr(self, "panel_items", None), getattr(self, "panel", None)]
+                  if m is not None for x in m.get_family()}
+        if self._mwhole.get(tid) is not None and id(self._mwhole[tid]) not in staged:
+            # Its template is still on the screen but is leaving in this beat (a card put up in its place before
+            # the mark was made): a mark made on it stayed behind over the new picture.
+            pl.skipped(f"motion: {target!r} is leaving the screen in this line; not pointed at")
+            return None
         colour = pl.role(color) if color else None
         made = self._emphasis(mob, tid, how, colour)
+        self._follow_moves(mob, getattr(made, "_m_marks", []))
         # The last mark goes as the next is made: one thing pointed at at a time.
         here = {id(x) for m in self.mobjects for x in m.get_family()}
         old = [m for m in self.__dict__.get("_marks", []) if id(m) in here]
@@ -1617,6 +1735,35 @@ class MotionLecture(MoreTemplates, MapLecture):
     TAG_KEEP = 0.75   # a picture's label tags shrink no smaller than this when the picture moves aside
 
     def _move_stage(self, f: float, centre, box):
+        """_move_stage_tags, remembered (_m_moves) so a mark this beat puts on the picture after the move was made
+        (an `emphasis` box, ordered after the card that moved it) goes where the picture goes (_room_moves)."""
+        ids = {id(x) for m in [self.stage_items, *self.stage_extra, *self.stage_pending] for x in m.get_family()}
+        cover, holder = self.__dict__.get("_cover"), self.__dict__.get("_cover_holder")
+        here = {id(x) for top in self.mobjects for x in top.get_family()}
+        unseen = cover is not None and holder and id(holder) not in here \
+            and any(cover is m for m in holder.submobjects)
+        anim = self._move_stage_tags(f, centre, box)
+        if unseen and getattr(self, "_cover_holder", None) is False:
+            # The engine takes the map's cover out of the picture's card so it keeps the map's size, and puts it up
+            # at once: but this picture has not come on yet, and the cover hid the map (and the marker the line
+            # puts on it first) from the line's start. Back in the card, at the map's size, it comes on with it.
+            self.remove(cover)
+            holder.add(cover)
+            self._cover_holder = holder
+        if anim is not None:
+            c0 = np.array(centre, dtype=float)
+            anim._m_room = {"parts": [], "f": f, "c0": c0, "c1": np.array([box[0], box[1], 0.0]), "ids": ids}
+            self._m_moves = [m for m in self.__dict__.get("_m_moves", []) if not m.get("done")] + [anim._m_room]
+        return anim
+
+    def _follow_moves(self, target, marks) -> None:
+        """Marks made on `target` (a part of the picture) while a move of it is still to play: they go with it."""
+        fam = {id(x) for x in target.get_family()}
+        for spec in self.__dict__.get("_m_moves", []):
+            if not spec.get("done") and fam & spec["ids"]:
+                spec["parts"].extend(m for m in marks if m is not None)
+
+    def _move_stage_tags(self, f: float, centre, box):
         """The engine's, but a labelled picture's tags keep a readable size (TAG_KEEP) as the picture shrinks into
         half the board: scaled with it they went to a few pixels high."""
         if f >= self.TAG_KEEP or self.M.get("classic"):

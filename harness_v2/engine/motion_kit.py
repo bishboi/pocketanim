@@ -139,6 +139,11 @@ class CountUp(Animation):
     def begin(self):
         self._centre = self.mobject.get_center().copy()
         self._anchor = getattr(self.mobject, "_count_left", None)
+        # The figure as laid out may have been scaled (fitted to its card, the template fitted to the stage): each
+        # frame's words are made at that scale, not the maker's (a "31 households" grew out of its card counting).
+        ref = self._make(self._text)
+        self._k = float(self.mobject.height) / float(ref.height) if ref.height > 1e-6 and self.mobject.height > 1e-6 \
+            else 1.0
         super().begin()
 
     def interpolate_mobject(self, alpha: float) -> None:
@@ -149,6 +154,8 @@ class CountUp(Animation):
         value = self._start + (self._parsed[1] - self._start) * a
         words = self._text if alpha >= 1 else format_number(self._parsed, value)
         made = self._make(words)
+        if abs(self._k - 1.0) > 1e-3:
+            made.scale(self._k)
         # Kept left-aligned where the figure was laid out (a number that grows does not jitter about its middle),
         # or about its centre.
         if self._anchor is not None:
@@ -172,7 +179,9 @@ def counter(text: str, make, start: float = 0.0):
     final = make(text)
 
     def anim(run: float | None = None, centre: bool = False):
-        if parse_number(text) is None:
+        parsed = parse_number(text)
+        # A rank (3rd, 21st) is not a quantity: counted up it read "2rd" on the way. It simply comes on.
+        if parsed is None or re.fullmatch(r"\s*(st|nd|rd|th)\b.*", parsed[4], re.I):
             return None
         final._count_left = None if centre else final.get_left().copy()
         return timed(baked(CountUp(final, text, make, start=start, rate_func=linear)), run or t("slow"), "count")

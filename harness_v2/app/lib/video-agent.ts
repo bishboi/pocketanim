@@ -41,8 +41,14 @@ const SHELL = (process.env.V2_VIDEO_AGENT_SHELL ?? "on").toLowerCase() !== "off"
 const MAX_IMAGES = Math.max(0, Number(process.env.V2_VIDEO_AGENT_IMAGES) || 12);
 /** Room for a whole scene in one reply: without it a provider's default cut a long file off mid-write. */
 const MAX_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_MAX_TOKENS) || 32000);
-/** Pictures kept in the conversation: older ones are replaced by a note, so a long build stays affordable. */
-const KEEP_IMAGES = 3;
+/** Past this many input tokens a turn, the conversation is condensed into a summary (the files stay as they are). */
+const COMPACT_TOKENS = Math.max(4000, Number(process.env.V2_VIDEO_AGENT_COMPACT_TOKENS) || 40000);
+/** Reasoning chosen turn by turn: the level set for thinking turns, low for the mechanical ones (V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off: always the level set). */
+const ADAPTIVE = (process.env.V2_VIDEO_AGENT_ADAPTIVE_EFFORT ?? "on").toLowerCase() !== "off";
+/** Frames shown to the model are this wide (enough to judge a layout, a third of the tokens of a full frame). */
+/** Tools whose success needs no fresh thinking after it. */
+const EASY = new Set(["write_file", "edit_file", "read_file", "list_files", "make_image"]);
+const FRAME_WIDTH = Math.max(320, Number(process.env.V2_VIDEO_AGENT_FRAME_WIDTH) || 640);
 const SCENE_FILE = "scene.py";
 const SCENE_CLASS = "Chapter";
 /** The conversation's log in the workspace. */
@@ -62,16 +68,17 @@ const TOOLS = [
   fn("list_files", "List the files of your workspace (or of a folder in it), with sizes.", { path: { type: "string" } }),
   ...(SHELL ? [fn("shell", "Run a shell command in your workspace (bash; `python` is the Python that has Manim, numpy, shapely, cartopy, PIL). For what files cannot do: list fonts (fc-list), test a snippet, compute geometry, read map data. Output is cut to its last 6000 characters.", {
     command: { type: "string" }, timeout: { type: "integer", description: "Seconds, at most 600 (default 120)." } }, ["command"])] : []),
-  fn("render", `Render ${SCENE_FILE} (class ${SCENE_CLASS}) with Manim at 30 fps: draft 854x480 (fast, for looking), final 1280x720. Returns its length against the narration's, or the error.`, {
-    quality: { type: "string", enum: ["draft", "final"] } }),
-  fn("look", "See the last render: frames at the times you give (seconds; up to 8), or a sheet of frames every N seconds over the whole video (each stamped with its time). You are shown the pictures.", {
-    times: { type: "array", items: { type: "number" } }, sheet_every: { type: "number", description: "Seconds between the sheet's frames (default: about 16 frames over the video)." } }),
+  fn("render", `Render ${SCENE_FILE} (class ${SCENE_CLASS}) with Manim at 30 fps: draft 854x480 (fast, for looking), final 1280x720. You are shown a sheet of about 12 frames of it at once (stamped with their times). from/to render only that stretch of the chapter (seconds on its clock; the plays before it run undrawn), much faster while you work on one moment. check: true also runs phone_check after a whole render, in the same turn.`, {
+    quality: { type: "string", enum: ["draft", "final"] }, from: { type: "number" }, to: { type: "number" }, check: { type: "boolean" } }),
+  fn("look", "See the last render closer: frames at the times you give (seconds on the chapter's clock; up to 8), or a sheet of frames every N seconds. You are shown them once; look again if you need them later.", {
+    times: { type: "array", items: { type: "number" } }, sheet_every: { type: "number", description: "Seconds between the sheet's frames." },
+    detail: { type: "string", enum: ["high", "low"], description: "low: a cheap glance (layout only); high (default): to read text and details." } }),
   fn("make_image", `Have the image model draw a picture into assets/<name>.png (you are shown it). At most ${MAX_IMAGES} a chapter. Use it in Manim with ImageMobject.`, {
     name: { type: "string", description: "Letters, digits and _ only." },
     what: { type: "string", description: "The whole picture, in English, as it is to be drawn: subject, view, medium and style, colours, mood. No text will be in it." },
     kind: { type: "string", enum: ["cutout", "scene"], description: "cutout: one subject on a clear background (white made transparent); scene: a full-bleed picture." } },
     ["name", "what", "kind"]),
-  fn("phone_check", "Export the scene as the phone plays it and compare the phone's frames with the last render's at evenly spread times. Returns whether they match, the program's size and length, and shows you the worst pair (phone left, Manim right). Render first: it compares against the last render.", {
+  fn("phone_check", "Export the scene as the phone plays it and compare the phone's frames with the last render's at evenly spread times. Returns whether they match, the program's size and length, and shows you the worst pair (phone left, Manim right). Render the whole chapter first (not a from/to section): it compares against the last render.", {
     samples: { type: "integer", description: "How many times to compare (default 12, at most 40)." } }),
   fn("finish", "The chapter is done. Allowed only when the last phone_check passed on the scene as it is now.", {
     summary: { type: "string", description: "A few lines: what the video shows, line by line in broad strokes, and the pictures and maps in it." } }, ["summary"]),
@@ -126,6 +133,9 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "3. The frame is x -7.1..7.1, y -4..4 (16:9). Keep everything inside with a margin; text at least font_size 24.",
     "   Fonts: use what is installed (shell: fc-list); the narration may be in Hindi or Hinglish: Devanagari needs a font",
     "   that has it (Noto Sans Devanagari, Hind). Subtitles are your choice.",
+    "   Work on one moment at a time with render(from=..., to=...): a section renders in seconds. Every render shows you a",
+    "   sheet of its frames; use look for a closer view. Pictures are shown to you once, in the turn after they are made.",
+    "   A long build is condensed into a summary now and then; your files stay as they are, so read them when you need.",
     "4. A render also says what it measured (the animations used, long still or empty stretches, words off the frame",
     "   or on top of words): information for you, not rules.",
     "5. When it is right, render final, run phone_check, and finish. If the phone differs, find why and change the scene.",
@@ -190,7 +200,9 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         }
         out = { text: f.text, calls: f.calls.map((c, i) => ({ id: `fake_${Date.now()}_${i}`, function: { name: c.name, arguments: JSON.stringify(c.args) } })) };
         onLive({ text: f.text ?? "", reasoning: "", tools: f.calls.map((c) => c.name) });
-        call.usage = { input: Math.round(JSON.stringify(messages).length / 4), output: Math.round(JSON.stringify(f).length / 4) };
+        // Estimated as a provider counts: a picture as a picture (~800 tokens), not as its data URL's characters.
+        const sent = JSON.stringify(messages);
+        call.usage = { input: Math.round(sent.replace(/data:image\/[^"]+/g, "").length / 4 + 800 * (sent.match(/data:image\//g)?.length ?? 0)), output: Math.round(JSON.stringify(f).length / 4) };
       } else {
         const response = await fetch(URL_, { method: "POST", signal: AbortSignal.timeout(TIMEOUT_MS),
           headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "pocketanim harness v2" },
@@ -311,6 +323,14 @@ function brief(args: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" && v.length > 4000 ? `${v.slice(0, 4000)}\n… (${v.length} characters)` : v]));
 }
 
+/** A tool call's arguments in a line: long text left out. */
+function shortArgs(args: Record<string, unknown>): string {
+  return Object.entries(args).map(([k, v]) => {
+    const text = typeof v === "string" ? v : JSON.stringify(v);
+    return `${k}=${text.length > 80 ? `(${text.length} characters)` : text}`;
+  }).join(" ");
+}
+
 /** A path inside the workspace, or an error. */
 function inside(ws: string, p: unknown): string {
   const file = path.resolve(ws, String(p ?? "").trim() || ".");
@@ -392,8 +412,10 @@ function scriptedAgent(t: Timing): () => Fake {
     { text: "Which fonts are there?", calls: [{ name: "shell", args: { command: "fc-list : family | sort -u | head -20" } }] },
     { text: "Writing the scene.", calls: [{ name: "write_file", args: { path: "scene.py", content: scene } }] },
     { text: "Larger words.", calls: [{ name: "edit_file", args: { path: "scene.py", old: "font_size=44", new: "font_size=48" } }] },
-    { text: "Rendering a draft.", calls: [{ name: "render", args: { quality: "draft" } }] },
-    { text: "Looking at it.", calls: [{ name: "look", args: {} }] },
+    { text: "Rendering a draft, checked on the phone.", calls: [{ name: "render", args: { quality: "draft", check: true } }] },
+    { text: "Rendering the opening again.", calls: [{ name: "render", args: { quality: "draft", from: Math.min(2, t.seconds / 4), to: Math.min(6, t.seconds / 2) } }] },
+    { text: "Looking closer.", calls: [{ name: "look", args: { times: [Math.min(3, t.seconds / 3)], detail: "low" } }] },
+    { text: "The whole chapter again, for the phone.", calls: [{ name: "render", args: { quality: "draft" } }] },
     { text: "Checking the phone.", calls: [{ name: "phone_check", args: { samples: 6 } }] },
     { text: "Done.", calls: [{ name: "finish", args: { summary: "Each line's first words, underlined in red, on paper (the stand-in agent: no model key)." } }] },
   ];
@@ -460,23 +482,95 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
   await log({ kind: "system", text: system });
   await log({ kind: "user", text: ask, images: styleData ? [path.basename(styleFile)] : [] });
   const fake = scriptedAgent(timing);
-  let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit } = {};
+  let lastRender: { video?: string; hash?: string; seconds?: number; audit?: Audit; offset?: number; section?: boolean } = {};
   let lastCheck: { ok: boolean; hash?: string; result?: Record<string, unknown> } = { ok: false };
   let images = 0;
   let firstPrompt = true;
 
   /** Pictures for the model: a user message after the tool results; older pictures are dropped from the conversation. */
-  const show = async (label: string, files: string[]) => {
+  /**
+   * Pictures to show the model: sent once, with the next request, then left out. The conversation itself is only
+   * ever added to (never edited), so the provider's prompt cache keeps it: the turn's pictures ride on one message at
+   * its end, which the next request carries as a note instead.
+   */
+  let shownNow: { label: string; urls: string[]; detail: string }[] = [];
+  const transient: { at?: { index: number; parts: unknown[] } } = {};
+  const show = async (label: string, files: string[], detail = "high") => {
     const data = (await Promise.all(files.map((f) => imageData(f)))).filter((d): d is string => !!d);
     if (!data.length) return;
     void log({ kind: "images", turn: currentTurn, label, files: files.map((f) => path.relative(ws, f)) });
-    messages.push({ role: "user", content: [{ type: "text", text: label }, ...data.map((url) => ({ type: "image_url", image_url: { url } }))] });
-    const withImages = messages.map((m, i) => ({ m, i })).filter(({ m, i }) => i > 1 && Array.isArray(m.content)
-      && (m.content as { type: string }[]).some((x) => x.type === "image_url"));
-    for (const { m } of withImages.slice(0, -KEEP_IMAGES)) {
-      m.content = (m.content as { type: string; text?: string }[]).filter((x) => x.type === "text")
-        .map((x) => ({ ...x, text: `${x.text} (pictures no longer shown)` }));
-    }
+    shownNow.push({ label, urls: data, detail });
+  };
+  /** The request: the conversation, with this turn's pictures on the message that carries them. */
+  const request = (): Msg[] => {
+    const t = transient.at;
+    return t ? messages.map((m, i) => (i === t.index ? { ...m, content: t.parts } : m)) : messages;
+  };
+  /** The turn's pictures: one user message after the tool results, its pictures sent with the next request only. */
+  const attachShown = () => {
+    transient.at = undefined;
+    if (!shownNow.length) return;
+    const text = shownNow.map((s) => s.label).join("\n");
+    messages.push({ role: "user", content: `${text}\n(shown to you once; look again if you need it)` });
+    transient.at = { index: messages.length - 1, parts: [{ type: "text", text },
+      ...shownNow.flatMap((s) => s.urls.map((url) => ({ type: "image_url", image_url: { url, detail: s.detail } })))] };
+    shownNow = [];
+  };
+  /**
+   * The conversation condensed, once a request has grown past COMPACT_TOKENS: the instructions, the chapter, and a
+   * summary built here (no model call) of what was done, what the files are and where the build stands.
+   */
+  const compact = async (k: number) => {
+    const files = (await run1("list_files", {}).catch(() => ({ text: "" }))).text.split("\n").filter(Boolean);
+    const said = messages.filter((m) => m.role === "assistant" && typeof m.content === "string" && m.content.trim())
+      .slice(-4).map((m) => String(m.content).trim().slice(0, 1500));
+    const done = agent.steps.filter((s) => s.kind === "tool" || s.kind === "finish")
+      .map((s) => `turn ${s.turn}: ${s.tool}${s.args ? ` ${shortArgs(s.args)}` : ""} -> ${s.ok ? "ok" : "failed"}${s.result ? `: ${s.result.split("\n")[0].slice(0, 160)}` : ""}`);
+    let summary = [
+      `The conversation so far was condensed at turn ${k} to save room. Your files are as you left them: read any you need.`,
+      "",
+      "What you did:",
+      ...done.slice(-60),
+      "",
+      said.length ? `What you last said:\n${said.join("\n---\n")}` : "",
+      files.length ? `Your files:\n${files.slice(0, 80).join("\n")}` : "",
+      lastRender.video ? `Last render: ${path.relative(ws, lastRender.video)}, ${lastRender.seconds ?? "?"} s${lastRender.section ? ` (a section from ${lastRender.offset} s)` : ""}` : "No render yet.",
+      lastCheck.result ? `Last phone check: ${lastCheck.ok ? "passed" : "did not pass"}` : "No phone check yet.",
+      "Carry on from here.",
+    ].filter((x) => x !== "").join("\n");
+    const now = await hashOf(path.join(ws, SCENE_FILE)).catch(() => undefined);
+    if (lastCheck.result && lastCheck.hash !== now) summary = summary.replace(/Last phone check: \w+/, (m) => `${m} (on an earlier version of ${SCENE_FILE})`);
+    const t = transient.at;
+    messages.splice(2, messages.length - 2, { role: "user", content: summary });
+    transient.at = t ? { index: 2, parts: [{ type: "text", text: summary }, ...t.parts.slice(1)] } : undefined;
+    await log({ kind: "compact", turn: k, text: summary });
+  };
+
+  /** The scene played as the phone plays it, compared with the last whole render. */
+  const phoneCheck = async (samples: number): Promise<{ ok: boolean; text: string }> => {
+        const hash = await hashOf(path.join(ws, SCENE_FILE));
+        if (!lastRender.video || lastRender.hash !== hash) return { ok: false, text: "render the scene as it is now first: the check compares the phone with the last render" };
+        if (lastRender.section) return { ok: false, text: "render the whole chapter first (no from/to): the check compares the whole program with the whole render" };
+        const r = await tool("phone", [ws, SCENE_FILE, SCENE_CLASS, path.join(ws, "export"), lastRender.video, String(samples)], ws);
+        if (r.ok === false && r.error) return { ok: false, text: `the export failed:\n${r.error}` };
+        const check = r.check as { ok: boolean | null; frames: number; differ: { t: number; mean: number; differ: number }[] };
+        const ok = !!r.ok;
+        lastCheck = { ok, hash, result: r };
+        const worst = r.worst as { t: number; phone: string; manim: string } | undefined;
+        if (!ok && worst?.phone && worst.manim) {
+          const pair = path.join(ws, "export", "worst.png");
+          await sharp({ create: { width: 1920, height: 540, channels: 3, background: "#000" } })
+            .composite([{ input: worst.phone, left: 0, top: 0 }, { input: worst.manim, left: 960, top: 0 }]).png().toFile(pair);
+          await show(`phone_check: the pair that differs most, at ${worst.t} s (phone left, Manim right):`, [pair]);
+        }
+        const mb = (Number(r.bytes) / 1e6).toFixed(1);
+        return { ok, text: [
+          ok ? "the phone plays it as Manim drew it" : "the phone does NOT play it as Manim drew it",
+          `program: ${r.seconds} s, ${mb} MB, tier ${r.tier}${(r.blockers as string[])?.length ? `, blocked by: ${(r.blockers as string[]).join("; ")}` : ""}`,
+          `frames compared: ${check?.frames ?? 0}; differing: ${check?.differ?.length ? check.differ.map((d) => `${d.t}s (mean ${d.mean}, ${Math.round(d.differ * 100)}% of pixels)`).join(", ") : "none"}`,
+          Number(r.bytes) > 20e6 ? "the program is large: cut needless motion and points" : "",
+          r.geometry === false ? `the web player's geometry was not made: ${r.geometry_error ?? "too large"}` : "",
+        ].filter(Boolean).join("\n") };
   };
 
   const run1 = async (name: string, args: Record<string, unknown>): Promise<{ text: string; ok: boolean; images?: string[]; video?: string; seconds?: number;
@@ -526,30 +620,46 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       case "render": {
         if (!existsSync(path.join(ws, SCENE_FILE))) return { ok: false, text: `write ${SCENE_FILE} first` };
         const quality = args.quality === "final" ? "final" : "draft";
-        const r = await tool("render", [ws, SCENE_FILE, SCENE_CLASS, quality], ws);
+        const from = Math.max(0, Number(args.from) || 0);
+        const to = Math.max(0, Number(args.to) || 0);
+        const section = from > 0 || (to > 0 && to < timing.seconds);
+        const r = await tool("render", [ws, SCENE_FILE, SCENE_CLASS, quality, ...(section ? [String(from), String(to)] : [])], ws);
         if (!r.ok) return { ok: false, text: `the render failed:\n${r.error}` };
         const audit = (r.audit ?? undefined) as Audit | undefined;
-        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds), audit };
+        const offset = Number(r.offset) || 0;
+        lastRender = { video: String(r.video), hash: await hashOf(path.join(ws, SCENE_FILE)), seconds: Number(r.seconds), audit, offset, section };
+        const times = (r.sheet_times as number[] | undefined) ?? [];
+        if (r.sheet) await show(`The render's sheet: frames at ${times.join(", ")} s`, [String(r.sheet)]);
         const off = Number(r.seconds) - timing.seconds;
-        return { ok: true, video: fileUrl(run.id, String(r.video)), seconds: Number(r.seconds),
-          text: `rendered (${quality}): ${Number(r.seconds).toFixed(2)} s; the narration is ${timing.seconds.toFixed(2)} s` +
+        let text = section
+          ? `rendered ${offset.toFixed(1)}-${(offset + Number(r.seconds)).toFixed(1)} s of the chapter (${quality})`
+          : `rendered (${quality}): ${Number(r.seconds).toFixed(2)} s; the narration is ${timing.seconds.toFixed(2)} s` +
             (Math.abs(off) > 0.5 ? ` (${off > 0 ? "longer" : "shorter"} by ${Math.abs(off).toFixed(1)} s: end with self.wait_until_end(), and do not run past the voice)` : "") +
-            auditText(audit) + (r.warnings ? `\nwarnings:\n${r.warnings}` : "") };
+            auditText(audit);
+        text += r.warnings ? `\nwarnings:\n${r.warnings}` : "";
+        const images = r.sheet ? [fileUrl(run.id, String(r.sheet))] : [];
+        if (args.check && !section) {
+          const checked = await phoneCheck(12);
+          return { ok: checked.ok, video: fileUrl(run.id, String(r.video)), seconds: Number(r.seconds), images, text: `${text}\n\nphone_check:\n${checked.text}` };
+        }
+        return { ok: true, video: fileUrl(run.id, String(r.video)), seconds: Number(r.seconds), images, text };
       }
       case "look": {
         if (!lastRender.video) return { ok: false, text: "render first" };
         const stale = lastRender.hash !== await hashOf(path.join(ws, SCENE_FILE)) ? " (the scene changed since this render)" : "";
-        const times = Array.isArray(args.times) ? (args.times as unknown[]).map(Number).filter((x) => Number.isFinite(x) && x >= 0).slice(0, 8) : [];
+        const detail = args.detail === "low" ? "low" : "high";
+        const offset = lastRender.offset ?? 0;
+        const times = Array.isArray(args.times) ? (args.times as unknown[]).map(Number).filter((x) => Number.isFinite(x) && x >= offset).slice(0, 8) : [];
         if (times.length) {
-          const r = await tool("frames", [lastRender.video, path.join(ws, "renders", "look"), ...times.map(String)], ws);
+          const r = await tool("frames", [lastRender.video, path.join(ws, "renders", "look"), String(offset), String(FRAME_WIDTH), ...times.map(String)], ws);
           const files = ((r.frames as { t: number; file: string }[]) ?? []).map((f) => f.file);
-          await show(`Frames at ${times.join(", ")} s${stale}:`, files);
+          await show(`Frames at ${times.join(", ")} s${stale}:`, files, detail);
           return { ok: files.length > 0, text: `${files.length} frame(s) shown${stale}`, images: files.map((f) => fileUrl(run.id, f)) };
         }
         const out = path.join(ws, "renders", `sheet-${Date.now()}.png`);
-        const r = await tool("sheet", [lastRender.video, out, ...(Number(args.sheet_every) > 0 ? [String(args.sheet_every)] : [])], ws);
+        const r = await tool("sheet", [lastRender.video, out, String(Number(args.sheet_every) > 0 ? Number(args.sheet_every) : Math.max(0.5, (lastRender.seconds ?? 16) / 16)), String(lastRender.offset ?? 0)], ws);
         if (!r.ok) return { ok: false, text: String(r.error) };
-        await show(`A sheet of the render: frames at ${(r.times as number[]).join(", ")} s${stale}:`, [out]);
+        await show(`A sheet of the render: frames at ${(r.times as number[]).join(", ")} s${stale}:`, [out], detail);
         return { ok: true, text: `sheet shown (${(r.times as number[]).length} frames${stale})`, images: [fileUrl(run.id, out)] };
       }
       case "make_image": {
@@ -574,29 +684,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         return { ok: true, text: `made assets/${name}.png (${meta.width}x${meta.height}, ${kind})`, images: [fileUrl(run.id, file)] };
       }
       case "phone_check": {
-        const hash = await hashOf(path.join(ws, SCENE_FILE));
-        if (!lastRender.video || lastRender.hash !== hash) return { ok: false, text: "render the scene as it is now first: the check compares the phone with the last render" };
-        const samples = Math.min(40, Math.max(3, Number(args.samples) || 12));
-        const r = await tool("phone", [ws, SCENE_FILE, SCENE_CLASS, path.join(ws, "export"), lastRender.video, String(samples)], ws);
-        if (r.ok === false && r.error) return { ok: false, text: `the export failed:\n${r.error}` };
-        const check = r.check as { ok: boolean | null; frames: number; differ: { t: number; mean: number; differ: number }[] };
-        const ok = !!r.ok;
-        lastCheck = { ok, hash, result: r };
-        const worst = r.worst as { t: number; phone: string; manim: string } | undefined;
-        if (worst?.phone && worst.manim) {
-          const pair = path.join(ws, "export", "worst.png");
-          await sharp({ create: { width: 1920, height: 540, channels: 3, background: "#000" } })
-            .composite([{ input: worst.phone, left: 0, top: 0 }, { input: worst.manim, left: 960, top: 0 }]).png().toFile(pair);
-          await show(`phone_check: the pair that differs most, at ${worst.t} s (phone left, Manim right):`, [pair]);
-        }
-        const mb = (Number(r.bytes) / 1e6).toFixed(1);
-        return { ok, text: [
-          ok ? "the phone plays it as Manim drew it" : "the phone does NOT play it as Manim drew it",
-          `program: ${r.seconds} s, ${mb} MB, tier ${r.tier}${(r.blockers as string[])?.length ? `, blocked by: ${(r.blockers as string[]).join("; ")}` : ""}`,
-          `frames compared: ${check?.frames ?? 0}; differing: ${check?.differ?.length ? check.differ.map((d) => `${d.t}s (mean ${d.mean}, ${Math.round(d.differ * 100)}% of pixels)`).join(", ") : "none"}`,
-          Number(r.bytes) > 20e6 ? "the program is large: cut needless motion and points" : "",
-          r.geometry === false ? `the web player's geometry was not made: ${r.geometry_error ?? "too large"}` : "",
-        ].filter(Boolean).join("\n") };
+        const r = await phoneCheck(Math.min(40, Math.max(3, Number(args.samples) || 12)));
+        return { ok: r.ok, text: r.text };
       }
       case "finish": {
         const hash = await hashOf(path.join(ws, SCENE_FILE));
@@ -618,6 +707,7 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
     }
   };
 
+  let mechanical = false;
   try {
     for (let k = 1; k <= settings.turns; k++) {
       if (o.stop?.()) {
@@ -626,7 +716,8 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       }
       agent.turns = k;
       currentTurn = k;
-      const call = newCall(run, { step: "video-agent", label: `Video agent, turn ${k} (lecture ${n}, chapter ${c})`, lecture: n, model: settings.model, effort: settings.effort,
+      const effort = k === 1 || !ADAPTIVE || settings.effort === "off" || !mechanical ? settings.effort : "low";
+      const call = newCall(run, { step: "video-agent", label: `Video agent, turn ${k} (lecture ${n}, chapter ${c})`, lecture: n, model: settings.model, effort,
         prompt: firstPrompt
           ? { system: [part("role", "The video agent's instructions", "rules", system)], user: [part("chapter", "The chapter and its narration", "ask", ask)] }
           : { system: [], user: [part("turn", "The turn", "context", `turn ${k}: the conversation so far (${messages.length} messages)`)] } });
@@ -634,15 +725,16 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       const asked = Date.now();
       agent.live = { turn: k, started: asked, text: "", reasoning: "", tools: [] };
       saveRun(run);
-      const answer = await turn(call, messages, fake, (live) => {
+      const answer = await turn(call, request(), fake, (live) => {
         agent.live = { turn: k, started: asked, text: live.text.slice(-6000), reasoning: live.reasoning.slice(-6000), tools: live.tools };
         saveRun(run);
       });
       agent.live = undefined;
       agent.cost += call.cost;
       agent.provider = call.provider;
-      agent.effortUsed = call.effort ?? "off";
-      if (call.effort && call.effort !== settings.effort) {
+      // The level the build thinks at (a low turn chosen for mechanical work is shown on the turn itself).
+      if (effort === settings.effort) agent.effortUsed = call.effort ?? "off";
+      if (call.effort && call.effort !== effort && effort === settings.effort) {
         // The level asked for was not taken by this model: the rest of the build at the one that was.
         settings.effort = call.effort as typeof settings.effort;
       }
@@ -662,13 +754,14 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
       messages.push({ role: "assistant", content: answer.text ?? "", tool_calls: answer.calls.map((t) => ({ id: t.id, type: "function", function: t.function })),
         ...(answer.output ? { _openai: answer.output } : {}) });
       if (!answer.calls.length) {
+        transient.at = undefined;
+        mechanical = false;
         messages.push({ role: "user", content: "Use a tool: carry on building, or finish once phone_check has passed." });
         continue;
       }
       // Tool results go back in order, then any pictures they showed (user messages may follow tool messages only).
-      const pending: Msg[] = [];
-      const held = messages.length;
       let finished = false;
+      const results: { name: string; ok: boolean }[] = [];
       for (const t of answer.calls) {
         const args = safeJson(t.function.arguments);
         let r: Awaited<ReturnType<typeof run1>>;
@@ -682,20 +775,23 @@ export async function runVideoAgent(run: Run, n: number, c: number, o: { note?: 
         }
         agent.live = undefined;
         const ms = Date.now() - began;
-        pending.push({ role: "tool", tool_call_id: t.id, content: r.text });
+        messages.push({ role: "tool", tool_call_id: t.id, content: r.text });
+        results.push({ name: t.function.name, ok: r.ok });
         await log({ kind: "tool", turn: k, id: t.id, name: t.function.name, ok: r.ok, ms, result: r.text, ...(r.exit !== undefined ? { exit: r.exit } : {}),
           ...(r.version ? { version: r.version } : {}) });
         step({ turn: k, kind: r.done ? "finish" : "tool", tool: t.function.name, call: call.id, args: brief(args), result: r.text.slice(0, 6000), ok: r.ok,
           images: r.images, video: r.video, seconds: r.seconds, ms, exit: r.exit, version: r.version });
         if (r.done) finished = true;
       }
-      // The pictures `show` added while the tools ran belong after the tool results.
-      const shown = messages.splice(held);
-      messages.push(...pending, ...shown);
+      attachShown();
+      // The next turn thinks at the level set unless this one only did mechanical work that went through.
+      mechanical = results.every((x) => x.ok && (EASY.has(x.name) || (x.name === "phone_check")));
       if (finished) {
         agent.status = "done";
         break;
       }
+      // Condensed only once there is something to condense (more than the last turn since the summary).
+      if ((call.usage?.input ?? 0) > COMPACT_TOKENS && messages.length > 8) await compact(k);
       if (k === settings.turns) {
         agent.status = "failed";
         agent.error = `out of turns (${settings.turns}) before it finished`;

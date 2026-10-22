@@ -1,15 +1,17 @@
 """The video agent's tools that need Python: render its scene, see frames of it, and play it as the phone does.
 
-    agent_tools.py render <workspace> <file.py> <Scene> <draft|final>
-    agent_tools.py frames <video.mp4> <out_dir> <t> [<t> ...]
-    agent_tools.py sheet  <video.mp4> <out.png> [every_seconds]
+    agent_tools.py render <workspace> <file.py> <Scene> <draft|final> [from_s to_s]
+    agent_tools.py frames <video.mp4> <out_dir> <offset_s> <width> <t> [<t> ...]
+    agent_tools.py sheet  <video.mp4> <out.png> [every_seconds [offset_s]]
     agent_tools.py phone  <workspace> <file.py> <Scene> <out_dir> <video.mp4|-> [samples]
 
 Each prints one JSON object as its last line.
 
 - render: Manim renders the scene in the workspace at 30 fps (the phone's rate, so its clock is the program's):
-  draft 854x480, final 1280x720. {"ok", "video", "seconds", "error"}.
-- frames: the video's frames at those times, as PNGs. {"ok", "frames": [{"t", "file"}]}.
+  draft 854x480, final 1280x720; with from/to only that stretch of the chapter (the plays before it run undrawn).
+  A small sheet of the render comes with it. {"ok", "video", "seconds", "offset", "section", "sheet", "sheet_times",
+  "audit", "error"}.
+- frames: the video's frames at those times (on the chapter's clock; the video starts at offset), as PNGs. {"ok", "frames": [{"t", "file"}]}.
 - sheet: one picture of frames every N seconds (default: about 16 frames over the video), each stamped with its
   time. {"ok", "file", "times"}.
 - phone: the scene exported as the phone plays it (tools/export_scene.py: faithful, every play as Manim draws it),
@@ -24,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -62,25 +65,38 @@ def _seconds(video: Path) -> float:
         return 0.0
 
 
-def render(workspace: Path, file: str, scene: str, quality: str) -> dict:
+def render(workspace: Path, file: str, scene: str, quality: str, start: float = 0.0, end: float = 0.0) -> dict:
     size = "1280,720" if quality == "final" else "854,480"
     media = workspace / "renders" / quality
     shutil.rmtree(media, ignore_errors=True)
     audit = workspace / "audit.json"
     audit.unlink(missing_ok=True)
+    window = workspace / ".render_window"
+    window.unlink(missing_ok=True)
+    env = _env(workspace)
+    if start or end:
+        env.update(PANIM_RENDER_FROM=f"{start:g}" if start else "", PANIM_RENDER_TO=f"{end:g}" if end else "")
     # Manim run with the audit installed first (agent/audit.py): what the render measures about itself.
     runner = "import sys, audit; audit.install(); from manim.__main__ import main; sys.argv = ['manim'] + sys.argv[1:]; main()"
     proc = subprocess.run(
         [PY, "-c", runner, "render", file, scene, "--fps", str(FPS), "-r", size, "--disable_caching",
          "--media_dir", str(media), "--progress_bar", "none", "-v", "WARNING"],
-        cwd=workspace, env=_env(workspace), capture_output=True, text=True, timeout=int(os.environ.get("PANIM_AGENT_RENDER_SECONDS", "1500")))
+        cwd=workspace, env=env, capture_output=True, text=True, timeout=int(os.environ.get("PANIM_AGENT_RENDER_SECONDS", "1500")))
     videos = [p for p in media.rglob("*.mp4") if "partial_movie_files" not in p.parts]
     if proc.returncode != 0 or not videos:
         return {"ok": False, "error": _tail(proc.stderr + proc.stdout) or "the render made no video"}
-    video = workspace / "renders" / f"{quality}.mp4"
+    section = bool(start or end)
+    video = workspace / "renders" / (f"{quality}-section.mp4" if section else f"{quality}.mp4")
     shutil.copyfile(videos[0], video)
-    measured = json.loads(audit.read_text()) if audit.is_file() else None
-    return {"ok": True, "video": str(video), "seconds": _seconds(video), "audit": measured,
+    measured = json.loads(audit.read_text()) if audit.is_file() and not section else None
+    # Where the video starts on the chapter's clock (a section render starts at its window).
+    offset = float(window.read_text()) if section and window.is_file() else 0.0
+    # A sheet of it comes with every render: what the agent looks at first, without a turn of its own.
+    seconds = _seconds(video)
+    shown = sheet(video, workspace / "renders" / f"sheet-{int(time.time() * 1000)}.png",
+                  max(0.5, seconds / 12), offset=offset, tile=(320, 180))
+    return {"ok": True, "video": str(video), "seconds": seconds, "audit": measured, "offset": offset, "section": section,
+            "sheet": shown.get("file"), "sheet_times": shown.get("times"),
             "warnings": _tail(proc.stderr, 6) if proc.stderr.strip() else ""}
 
 
@@ -90,17 +106,17 @@ def _frame(video: Path, t: float, out: Path, width: int = 960) -> bool:
     return proc.returncode == 0 and out.is_file()
 
 
-def frames(video: Path, out_dir: Path, times: list[float]) -> dict:
+def frames(video: Path, out_dir: Path, times: list[float], offset: float = 0.0, width: int = 640) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for t in times:
         out = out_dir / f"frame_{t:07.2f}.png"
-        if _frame(video, t, out):
+        if _frame(video, t - offset, out, width):
             rows.append({"t": t, "file": str(out)})
     return {"ok": bool(rows), "frames": rows}
 
 
-def sheet(video: Path, out: Path, every: float | None) -> dict:
+def sheet(video: Path, out: Path, every: float | None, offset: float = 0.0, tile: tuple[int, int] = (480, 270)) -> dict:
     from PIL import Image, ImageDraw
 
     seconds = _seconds(video)
@@ -108,7 +124,7 @@ def sheet(video: Path, out: Path, every: float | None) -> dict:
         return {"ok": False, "error": "the video has no length"}
     step = every or max(1.0, seconds / 16)
     times = [round(k * step + step / 2, 2) for k in range(int(seconds // step) or 1) if k * step + step / 2 < seconds]
-    tiles, w, h = [], 480, 270
+    tiles, (w, h) = [], tile
     work = out.parent / (out.stem + "_tiles")
     work.mkdir(parents=True, exist_ok=True)
     for t in times:
@@ -117,7 +133,7 @@ def sheet(video: Path, out: Path, every: float | None) -> dict:
             im = Image.open(f).convert("RGB").resize((w, h))
             d = ImageDraw.Draw(im)
             d.rectangle([0, 0, 64, 20], fill=(0, 0, 0))
-            d.text((5, 4), f"{t:6.1f}s", fill=(255, 255, 255))
+            d.text((5, 4), f"{t + offset:6.1f}s", fill=(255, 255, 255))
             tiles.append(im)
     shutil.rmtree(work, ignore_errors=True)
     cols = 4
@@ -126,7 +142,7 @@ def sheet(video: Path, out: Path, every: float | None) -> dict:
     for k, im in enumerate(tiles):
         board.paste(im, ((k % cols) * w, (k // cols) * h))
     board.save(out)
-    return {"ok": True, "file": str(out), "times": times}
+    return {"ok": True, "file": str(out), "times": [round(t + offset, 2) for t in times]}
 
 
 def phone(workspace: Path, file: str, scene: str, out_dir: Path, video: str, samples: int) -> dict:
@@ -183,11 +199,14 @@ def main() -> int:
     kind, args = sys.argv[1], sys.argv[2:]
     try:
         if kind == "render":
-            result = render(Path(args[0]).resolve(), args[1], args[2], args[3] if len(args) > 3 else "draft")
+            result = render(Path(args[0]).resolve(), args[1], args[2], args[3] if len(args) > 3 else "draft",
+                            float(args[4]) if len(args) > 4 else 0.0, float(args[5]) if len(args) > 5 else 0.0)
         elif kind == "frames":
-            result = frames(Path(args[0]), Path(args[1]), [float(t) for t in args[2:]])
+            # frames <video> <out> <offset> <width> <t>...
+            result = frames(Path(args[0]), Path(args[1]), [float(t) for t in args[4:]], float(args[2]), int(args[3]))
         elif kind == "sheet":
-            result = sheet(Path(args[0]), Path(args[1]), float(args[2]) if len(args) > 2 else None)
+            result = sheet(Path(args[0]), Path(args[1]), float(args[2]) if len(args) > 2 else None,
+                           float(args[3]) if len(args) > 3 else 0.0)
         elif kind == "phone":
             result = phone(Path(args[0]).resolve(), args[1], args[2], Path(args[3]).resolve(), args[4],
                            int(args[5]) if len(args) > 5 else 12)

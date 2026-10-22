@@ -29,6 +29,10 @@ from pathlib import Path
 from manim import Scene
 
 HERE = Path(os.environ.get("PANIM_NARRATION_DIR") or Path.cwd())
+# A section render (the agent's render tool, from/to): the plays before FROM run without drawing a frame, the scene
+# stops at TO; the clock is the chapter's all the same. Where the video starts is written to .render_window.
+FROM = float(os.environ.get("PANIM_RENDER_FROM") or 0)
+TO = float(os.environ.get("PANIM_RENDER_TO") or 0)
 
 
 def _norm(word: str) -> str:
@@ -73,9 +77,31 @@ class NarratedScene(Scene):
     def setup(self):
         super().setup()
         self.timing = load()
+        self._window_started = False
         track = self.timing.get("track")
-        if track and (HERE / track).is_file():
+        if track and (HERE / track).is_file() and not FROM:
             self.add_sound(str(HERE / track))
+
+    def play(self, *animations, **kwargs):
+        if FROM or TO:
+            if TO and self.now >= TO:
+                from manim.utils.exceptions import EndSceneEarlyException
+
+                raise EndSceneEarlyException()
+            before = bool(FROM) and self.now < FROM
+            self.renderer._original_skipping_status = before
+            if not before and not self._window_started:
+                self._window_started = True
+                (HERE / ".render_window").write_text(f"{self.now:.3f}")
+        return super().play(*animations, **kwargs)
+
+    def wait(self, duration=1.0, *args, **kwargs):
+        # A hold across a section's start is split there, so the section's video starts where it was asked to.
+        if FROM and self.now < FROM < self.now + float(duration) - 1e-6:
+            first = FROM - self.now
+            super().wait(first, *args, **kwargs)
+            return super().wait(float(duration) - first, *args, **kwargs)
+        return super().wait(duration, *args, **kwargs)
 
     # ---- the time
     @property

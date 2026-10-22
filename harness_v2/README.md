@@ -40,6 +40,19 @@ its reasoning comes back encrypted and is sent back with every turn (nothing is 
 thread of thought through the whole build, and summaries of it stream to the page; the call says `openai` as its
 provider. Any other model, or no key, goes through OpenRouter as before.
 
+**Cost and speed.** The conversation is only ever added to, never edited, so the provider's prompt cache keeps
+everything before the last turn. Pictures are sent once: a turn's pictures ride on one message with the next request
+and are a one-line note in every request after (it looks again if it needs to); frames are 640 px wide
+(`V2_VIDEO_AGENT_FRAME_WIDTH`), and `look` takes `detail: "low"` for a cheap glance. Once a request passes
+`V2_VIDEO_AGENT_COMPACT_TOKENS` (40,000) the conversation is condensed, with no model call, to the instructions, the
+chapter and a summary of what was done (every tool call and its outcome, what it last said, its files, the last render
+and phone check); its files are as they were. Every **render** shows its sheet of frames, `render` with `check: true`
+also runs the phone check, and `render` with `from`/`to` (seconds) draws only that stretch (the plays before it run
+without drawing a frame; `NarratedScene` stops after it), for a quick look at one part; the phone check needs a whole
+render. The reasoning level is chosen turn by turn: the level set, but low after a turn that only wrote, edited, read
+or listed files or made pictures, all of which went through, or passed the phone check
+(`V2_VIDEO_AGENT_ADAPTIVE_EFFORT=off`: always the level set). The log has a `compact` line each time it condenses.
+
 **The one hard rule is the phone.** The chapter is shipped as the program the phone plays, not as an MP4, and it must
 play exactly as Manim drew it: `phone_check` exports the scene (faithfully: every play recorded as Manim draws it,
 `engine/ENGINE.md`), draws the phone's frames with the reference renderer the Kotlin and Swift players are held to, and

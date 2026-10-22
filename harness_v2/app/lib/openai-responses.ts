@@ -33,9 +33,9 @@ export function toInput(messages: ChatMsg[]): { instructions: string; input: unk
   for (const m of messages) {
     if (m.role === "system") continue;
     if (m.role === "user") {
-      const parts = Array.isArray(m.content) ? m.content as { type: string; text?: string; image_url?: { url: string } }[] : [{ type: "text", text: String(m.content) }];
+      const parts = Array.isArray(m.content) ? m.content as { type: string; text?: string; image_url?: { url: string; detail?: string } }[] : [{ type: "text", text: String(m.content) }];
       input.push({ role: "user", content: parts.map((p) => p.type === "image_url"
-        ? { type: "input_image", image_url: p.image_url!.url, detail: "high" }
+        ? { type: "input_image", image_url: p.image_url!.url, detail: p.image_url!.detail ?? "auto" }
         : { type: "input_text", text: p.text ?? "" }) });
     } else if (m.role === "assistant") {
       if (m._openai?.length) {

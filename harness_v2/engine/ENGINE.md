@@ -107,7 +107,10 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   is given (`NarratedScene`: the voice as its sound, `word`, `phrase`, `wait_until`, `wait_until_end`);
   `tools/agent_tools.py` renders the agent's scene at 30 fps (`render`), cuts frames and sheets from it (`frames`,
   `sheet`) and exports it as the phone plays it, with the web player's geometry and the phone's frames compared with
-  the render's (`phone`).
+  the render's (`phone`). `render` takes a section (`from`, `to` seconds: `PANIM_RENDER_FROM`/`PANIM_RENDER_TO`, read by
+  `NarratedScene`, which skips the plays before it, splits a wait across its start, stops after it and writes where the
+  video starts to `.render_window`) and returns a sheet of 320x180 frames with every render; `frames` and `sheet` take
+  that offset, so times stay the chapter's.
 - `agent/audit.py`: what a render of the video agent's scene measures about itself (still and empty stretches, words
   off the frame or on words, the animations used and the share of fades), written as `audit.json`;
   `agent/vox_example.py`: a chapter built in free Manim (`review/agent-trial/japan_ch4.py`), given to the agent to read.

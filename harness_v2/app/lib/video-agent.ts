@@ -176,7 +176,7 @@ function roleText(style: { note?: string; custom: boolean }, turns: number): str
     "   bar, the video is. If the phone differs, find why and change the scene.",
     `You have at most ${turns} turns: plan, then build steadily; do not stop at a first draft that you have not looked at.`,
     "Every reply is a turn, and a turn may hold several tool calls: they run in order, so edits and then a render go in",
-    "one turn. Say briefly what you are doing and why as you go.",
+    "one turn. Every reply calls at least one tool. Say briefly what you are doing and why as you go.",
   ].join("\n");
 }
 
@@ -221,6 +221,14 @@ function providerPin(model: string): Record<string, unknown> {
 /** A request refused for something the next attempt changes (a setting the model does not take): always tried again. */
 class Retry extends Error {}
 
+/**
+ * Models that refuse a forced tool call (tool_choice "required", which Anthropic's models take as "any", is refused
+ * while they think): asked with "auto" from then on. A turn may then answer without a tool, which the loop asks again.
+ */
+const NO_FORCED = new Set<string>();
+const forcedRefused = (model: string, effort?: string) =>
+  NO_FORCED.has(model) || (model.startsWith("anthropic/") && !!effort && effort !== "off");
+
 /** Models that refused cache marks: sent without them from then on. */
 const NO_MARKS = new Set<string>();
 
@@ -250,7 +258,8 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
   // OpenAI's models on OpenAI's own API when there is a key for it (openai-responses.ts); everything else on OpenRouter.
   call.provider = useOpenAI(call.model) ? "openai" : usingFixture(call.model) ? "fixture" : "openrouter";
   const plain = messages.map(({ _openai, ...m }) => (void _openai, m as Record<string, unknown>));
-  const body: Record<string, unknown> = { model: call.model, messages: cacheMarks(call.model, plain), tools: TOOLS, tool_choice: "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
+  const body: Record<string, unknown> = { model: call.model, messages: cacheMarks(call.model, plain), tools: TOOLS,
+    tool_choice: forcedRefused(call.model, call.effort) ? "auto" : "required", stream: true, usage: { include: true }, max_tokens: MAX_TOKENS,
     ...providerPin(call.model),
     // Off is asked for: with no reasoning setting, a reasoning model thinks at its own default level.
     // ("default": a model whose reasoning cannot be turned off, at its own level).
@@ -286,6 +295,12 @@ async function turn(call: Call, messages: Msg[], fake: () => Fake, onLive: (live
         if (!response.ok || !response.body) {
           const said = await response.text();
           // A reasoning level this model does not take: the rest of the build at high.
+          // A forced tool call refused (a model that thinks): the same turn with the tool left to it.
+          if (response.status === 400 && /tool_choice/i.test(said) && body.tool_choice !== "auto") {
+            NO_FORCED.add(call.model);
+            body.tool_choice = "auto";
+            throw new Retry(`a forced tool call is not taken by this model, asking again with tool_choice auto: ${said.slice(0, 200)}`);
+          }
           // Cache marks refused (a provider without them): the same turn without, and the build from then on.
           if (response.status === 400 && /cache_control/i.test(said) && !NO_MARKS.has(call.model)) {
             NO_MARKS.add(call.model);

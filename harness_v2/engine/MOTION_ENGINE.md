@@ -990,8 +990,28 @@ Each chapter's `report.json` says why, and `sheet.png` shows each differing fram
 
 The program's clock runs a little short of the video's (about 0.07 s a line: verbs run whole frames); the players
 place each line's voice on the program's clock, so on a phone voice and picture keep together, and the check lines
-the clocks up rather than comparing the same second. A test chapter is a beat script as `engineScript` writes it,
+the clocks up rather than comparing the same second (the video is rendered at the program's 30 frames a second,
+`--fps`, so each play rounds to the same frames; a frame that differs is judged against the program's three either
+side, `phone_check.py --slack`; one that is gone half a second either side, a move played a few frames apart, is
+a warning, and one still there fails). A test chapter is a beat script as `engineScript` writes it,
 with a `qa` field saying where it came from (the compiler ignores it). Every bug fixed adds its chapter to the set.
+
+What the loop has found and fixed so far:
+- **The players** (`dsl/export_dsl.py`): a group's members are written at the length Manim plays them (stretched
+  onto the group's run time; a crossfade's old picture left early); `.animate(rate_func=...)` keeps its rate (a
+  wipe eased out ran at an even speed); a picture's idle drift starts on the first play it is in the scene for,
+  shown yet or not, as Manim's does (a picture held back for its word floated two seconds out of step); a group
+  drawn whole again hides its parts drawn on their own only when it is itself drawn (`Recorder.absorb`), and a
+  picture moved as one (a timeline making room for a card) is put on stage before the move (it vanished); the
+  pieces of a baked play (a counter's ring counting up) are declared again in the order Manim draws them, as baked
+  shapes (a stage card declared after the number covered it, a ring's track its arc, for the whole line).
+- **Known gap**: a drifting picture moved aside for a card (its drift's pivot moved with it, `pl.follow_drift`)
+  keeps the old pivot on the phone: the program declares a drift once, and the players have no verb to change it.
+  A photo with a Ken Burns move then zooms about the wrong point there, a few pixels off (photosynthesis-L1-c1).
+- **Layout**: a wide picture (wider than `STACK_WIDE`, 2x its height: a timeline, a chain) and a card in the same
+  line are stacked, the picture across the top and the card under it (`MotionLecture._halves`), not put side by
+  side, where a timeline stood at a third of its size; the closing credits come on a cleared stage (a chapter
+  rendered alone has no closing fade, and the credit lines ran across its last picture's words).
 
 ---
 

@@ -1,0 +1,414 @@
+{
+ "engine": "motion",
+ "look": "paper",
+ "title": "Feudal Society in Medieval Europe",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "area": "Europe"
+ },
+ "place_figures": false,
+ "emblem": "a golden manor-house on a small plot of land",
+ "genre": "history",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "After Rome",
+   "narration": "Chapter one. Rome के बाद क्या बदला?",
+   "beats": [
+    {
+     "say": "सोचिए, एक ऐसा Europe जहाँ roads की रखवाली, taxes इकट्ठा करना और army को पैसे देना—इन सबके लिए कोई central government ही न हो।",
+     "do": [
+      {
+       "op": "title",
+       "text": "Chapter one. Rome के बाद क्या बदला?",
+       "kicker": "FEUDAL SOCIETY IN MEDIEVAL EUROPE",
+       "highlight": "Rome",
+       "on": "start"
+      },
+      {
+       "op": "empire",
+       "name": "Western Roman Empire",
+       "year": 400,
+       "label": "former imperial reach",
+       "on": "Europe"
+      },
+      {
+       "op": "marker",
+       "place": "Rome",
+       "label": "roads without a central patrol",
+       "side": "left",
+       "on": "roads"
+      },
+      {
+       "op": "marker",
+       "place": "Paris",
+       "label": "taxes no longer gathered centrally",
+       "side": "up",
+       "on": "taxes"
+      },
+      {
+       "op": "marker",
+       "place": "Cologne",
+       "label": "armed force without central pay",
+       "side": "right",
+       "on": "army"
+      },
+      {
+       "op": "marker",
+       "place": "Rome",
+       "label": "no central government",
+       "side": "down",
+       "on": "central"
+      }
+     ],
+     "paragraph": true,
+     "about": "Europe after the Western Roman Empire"
+    },
+    {
+     "say": "Rome की western empire पाँचवीं सदी में ढह गई; अब बताइए, लोगों की रोज़मर्रा की ज़िंदगी किसके सहारे चलेगी?",
+     "do": [
+      {
+       "op": "timeline",
+       "title": "Rome's western empire",
+       "style": "track",
+       "range": [
+        "400",
+        "600"
+       ],
+       "events": [
+        {
+         "date": "c. 400",
+         "label": "Western Roman rule",
+         "on": "Rome"
+        },
+        {
+         "date": "5th century",
+         "label": "Empire collapses",
+         "on": "ढह"
+        }
+       ],
+       "on": "Rome"
+      },
+      {
+       "op": "ask",
+       "text": "After Rome, who would support everyday life?",
+       "on": "किसके सहारे"
+      }
+     ],
+     "about": "The fall of the Western Roman Empire"
+    },
+    {
+     "say": "उस empire की central government roads को सुरक्षित रखती थी, taxes जमा करती थी और armies को pay करती थी।",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "roman-admin",
+       "kind": "hub",
+       "title": "Central government",
+       "on": "central",
+       "nodes": [
+        {
+         "id": "government",
+         "label": "Central government",
+         "kind": "idea",
+         "on": "government"
+        },
+        {
+         "id": "roads",
+         "label": "Protected roads",
+         "kind": "idea",
+         "picture": {
+          "generate": "A Roman stone road with a small patrol, detailed miniature-style illustration"
+         },
+         "on": "roads"
+        },
+        {
+         "id": "taxes",
+         "label": "Collected taxes",
+         "kind": "idea",
+         "picture": {
+          "generate": "A Roman tax official receiving coins into a chest, detailed miniature-style illustration"
+         },
+         "on": "taxes"
+        },
+        {
+         "id": "armies",
+         "label": "Paid armies",
+         "kind": "idea",
+         "picture": {
+          "generate": "A line of Roman soldiers receiving pay, detailed miniature-style illustration"
+         },
+         "on": "armies"
+        }
+       ],
+       "edges": [
+        [
+         "government",
+         "roads",
+         "security"
+        ],
+        [
+         "government",
+         "taxes",
+         "revenue"
+        ],
+        [
+         "government",
+         "armies",
+         "pay"
+        ]
+       ]
+      }
+     ],
+     "about": "Roman central government"
+    },
+    {
+     "say": "उसके जाने के बाद ये काम करने वाला बड़ा केंद्र नहीं रहा।",
+     "do": [
+      {
+       "op": "before_after",
+       "before": {
+        "title": "One imperial centre",
+        "points": [
+         "Roads guarded",
+         "Taxes collected",
+         "Armies paid"
+        ],
+        "picture": {
+         "generate": "A Roman administrative hall overseeing a road, tax chest and soldiers, miniature historical illustration"
+        }
+       },
+       "after": {
+        "title": "No large centre",
+        "points": [
+         "Local communities left to cope"
+        ],
+        "picture": {
+         "generate": "A broken Roman administrative hall beyond isolated villages, historical atlas engraving"
+        },
+        "on": "केंद्र"
+       },
+       "change": "Empire disappears",
+       "on": "जाने"
+      }
+     ],
+     "about": "The loss of central government"
+    },
+    {
+     "say": "फिर eastern और central Europe से Franks, Goths और Lombards जैसे groups आए और France, Spain और Italy में बस गए।",
+     "do": [
+      {
+       "op": "map_story",
+       "on": "Europe",
+       "color": "#E3B25A",
+       "stops": [
+        {
+         "place": "Central Europe",
+         "date": "late antiquity",
+         "label": "Franks"
+        },
+        {
+         "place": "Eastern Europe",
+         "date": "late antiquity",
+         "label": "Goths",
+         "on": "Goths"
+        },
+        {
+         "place": "Eastern Europe",
+         "date": "late antiquity",
+         "label": "Lombards",
+         "on": "Lombards"
+        },
+        {
+         "place": "France",
+         "label": "France",
+         "date": "settlement",
+         "on": "France"
+        },
+        {
+         "place": "Spain",
+         "label": "Spain",
+         "date": "settlement",
+         "on": "Spain"
+        },
+        {
+         "place": "Italy",
+         "label": "Italy",
+         "date": "settlement",
+         "on": "Italy"
+        }
+       ]
+      }
+     ],
+     "about": "Migration of the Franks, Goths and Lombards"
+    },
+    {
+     "say": "Map पर इन इलाकों को देखिए।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "France",
+       "how": "circle",
+       "on": "इलाकों"
+      },
+      {
+       "op": "emphasis",
+       "target": "Spain",
+       "how": "pulse",
+       "on": "इलाकों"
+      },
+      {
+       "op": "emphasis",
+       "target": "Italy",
+       "how": "pulse",
+       "on": "देखिए"
+      }
+     ],
+     "about": "France, Spain and Italy"
+    },
+    {
+     "say": "Trade सिकुड़ गया, towns खाली होने लगे, और ज़्यादातर लोग villages में रहने लगे।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "rural-shift",
+       "layout": "zigzag",
+       "enter": "slide",
+       "steps": [
+        {
+         "label": "Trade contracts",
+         "picture": {
+          "generate": "A small medieval merchant caravan on a quiet road, atlas-style miniature"
+         },
+         "on": "Trade"
+        },
+        {
+         "label": "Towns empty",
+         "picture": {
+          "generate": "A quiet early medieval town street with shuttered stalls, shaded historical illustration"
+         },
+         "on": "towns"
+        },
+        {
+         "label": "Most people live in villages",
+         "picture": {
+          "generate": "A cluster of medieval farming villages surrounded by fields, detailed atlas illustration"
+         },
+         "on": "villages"
+        }
+       ]
+      }
+     ],
+     "about": "The shift from trade and towns to village life"
+    },
+    {
+     "say": "हर गाँव को अपनी सुरक्षा खुद करनी पड़ती थी।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A small early medieval European village defending itself: villagers behind a timber palisade, a watchman in a raised lookout, farmhouses and fields just beyond, detailed shaded historical illustration with golden highlights and deep blue shadows, no text",
+       "scene": true,
+       "move": "kenburns",
+       "labels": [
+        {
+         "name": "village",
+         "on": "गाँव"
+        },
+        {
+         "name": "palisade",
+         "on": "सुरक्षा"
+        },
+        {
+         "name": "watchman",
+         "on": "खुद"
+        }
+       ],
+       "on": "गाँव"
+      }
+     ],
+     "about": "Village self-defence"
+    },
+    {
+     "say": "पाँचवीं से पंद्रहवीं सदी तक के लंबे दौर को medieval era कहते हैं।",
+     "do": [
+      {
+       "op": "timeline",
+       "title": "A long medieval era",
+       "style": "ribbon",
+       "range": [
+        "5th century",
+        "15th century"
+       ],
+       "events": [
+        {
+         "date": "5th century",
+         "label": "Begins",
+         "on": "पाँचवीं"
+        },
+        {
+         "date": "15th century",
+         "label": "Ends",
+         "on": "पंद्रहवीं"
+        }
+       ],
+       "spans": [
+        [
+         "5th century",
+         "15th century",
+         "Medieval era"
+        ]
+       ],
+       "on": "पाँचवीं"
+      },
+      {
+       "op": "define",
+       "term": "Medieval era",
+       "meaning": "The long period from the 5th to the 15th century",
+       "on": "medieval"
+      }
+     ],
+     "about": "The medieval era"
+    },
+    {
+     "say": "Historian Marc Bloch ने कहा कि इसे समझने के लिए सिर्फ kings और battles नहीं, land, geography और आम लोगों की रोज़ की ज़िंदगी भी देखनी होगी।",
+     "do": [
+      {
+       "op": "portrait_card",
+       "name": "Marc Bloch",
+       "role": "Historian of medieval society",
+       "picture": {
+        "generate": "Marc Bloch, thoughtful French medieval historian in a simple early-20th-century suit, archival monochrome portrait with subtle warm paper tint"
+       },
+       "facts": [
+        {
+         "text": "Kings and battles are not enough",
+         "on": "kings"
+        },
+        {
+         "text": "Land and geography matter",
+         "on": "land"
+        },
+        {
+         "text": "Ordinary people's daily lives matter",
+         "on": "आम"
+        }
+       ],
+       "on": "Marc"
+      }
+     ],
+     "about": "Marc Bloch"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "feudal.pdf",
+  "run": "mvlfhklg-e6dc51fb",
+  "lecture": 1,
+  "chapter": 1,
+  "language": "hinglish",
+  "look": "paper"
+ }
+}

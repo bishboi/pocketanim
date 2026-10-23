@@ -1,0 +1,316 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "The Indian Monsoon",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "area": "South Asia"
+ },
+ "place_figures": false,
+ "emblem": "a golden monsoon cloud over India",
+ "genre": "geography",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Seasons of Wind",
+   "narration": "Chapter one. Winds मौसम के साथ क्यों मुड़ती हैं?",
+   "beats": [
+    {
+     "say": "दोस्तों, एक ही monsoon कहीं बहुत बारिश लाता है और कहीं लगभग नहीं।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "India",
+       "label": "India",
+       "side": "right",
+       "on": "start"
+      },
+      {
+       "op": "marker",
+       "place": "Indian Ocean",
+       "label": "Indian Ocean",
+       "side": "down",
+       "on": "w3"
+      }
+     ],
+     "paragraph": true,
+     "about": "India and the Indian Ocean"
+    },
+    {
+     "say": "ऐसा क्यों?",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "India",
+       "how": "spotlight",
+       "on": "w1"
+      }
+     ],
+     "about": "the opening question"
+    },
+    {
+     "say": "इसका जवाब उन हवाओं में छिपा है जो मौसम के साथ अपनी दिशा बदलती हैं।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Indian Ocean",
+        "India"
+       ],
+       "label": "winds",
+       "on": "w3"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "India",
+        "Indian Ocean"
+       ],
+       "label": "seasonal reversal",
+       "on": "w12"
+      },
+      {
+       "op": "emphasis",
+       "target": "seasonal reversal",
+       "how": "pulse",
+       "on": "w13"
+      }
+     ],
+     "about": "seasonal winds"
+    },
+    {
+     "say": "Monsoon शब्द Arabic के mausim से आया है, जिसका मतलब है season।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "A word carried across languages",
+       "layout": "row",
+       "enter": "write",
+       "steps": [
+        {
+         "label": "Arabic",
+         "on": "w2"
+        },
+        {
+         "label": "mausim",
+         "on": "w4"
+        },
+        {
+         "label": "season",
+         "on": "w11"
+        }
+       ],
+       "on": "w0"
+      }
+     ],
+     "about": "the word monsoon"
+    },
+    {
+     "say": "यानी monsoon कोई एक बारिश का नाम नहीं, बल्कि ऐसी winds का नाम है जो मौसम बदलने पर दिशा पलटती हैं।",
+     "do": [
+      {
+       "op": "myth",
+       "label": "Not just rain",
+       "wrong": "One particular rain",
+       "right": "Winds that reverse direction with the seasons",
+       "on": "w10"
+      }
+     ],
+     "about": "the meaning of monsoon"
+    },
+    {
+     "say": "अब गर्मियों की बात सोचो।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A dramatic cutaway view of the Indian subcontinent beside the Indian Ocean in summer: the dark land glowing under a high sun, heat shimmer rising, cooler deep-blue sea alongside; detailed shaded atlas illustration with sand-gold rims and luminous highlights, no lettering",
+       "scene": true,
+       "caption": "Summer heating",
+       "move": "breathe",
+       "on": "w1"
+      }
+     ],
+     "about": "summer heating"
+    },
+    {
+     "say": "Indian subcontinent की जमीन, Indian Ocean के मुकाबले, बहुत तेज़ गरम होती है।",
+     "do": [
+      {
+       "op": "versus",
+       "layout": "split",
+       "enter": "slide",
+       "left": {
+        "title": "Indian subcontinent",
+        "points": [
+         {
+          "text": "Land heats quickly",
+          "on": "w3"
+         }
+        ],
+        "picture": {
+         "generate": "Sun-baked Indian subcontinent seen in relief, ochre land under a strong summer sun with heat shimmer, detailed atlas illustration"
+        }
+       },
+       "right": {
+        "title": "Indian Ocean",
+        "points": [
+         {
+          "text": "Heats more slowly",
+          "on": "w5"
+         }
+        ],
+        "picture": {
+         "generate": "Cool deep-blue Indian Ocean in summer, broad calm water under sunlight, detailed atlas illustration"
+        },
+        "on": "w4"
+       },
+       "on": "w0"
+      }
+     ],
+     "about": "land and ocean heating"
+    },
+    {
+     "say": "जमीन के ऊपर की गरम हवा ऊपर उठती है, तो वहाँ low pressure बनता है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A clear textbook-style cutaway of hot Indian land in summer, heated ground below and a tall column of warm air rising above it; show upward movement with luminous arrows and a subtle low-pressure hollow forming over the land, detailed shaded atlas art, navy and sand-gold palette, no lettering",
+       "scene": true,
+       "labels": [
+        {
+         "name": "heated land",
+         "on": "w0"
+        },
+        {
+         "name": "warm air rises",
+         "on": "w5"
+        },
+        {
+         "name": "low pressure",
+         "on": "w11"
+        }
+       ],
+       "move": "pullback",
+       "on": "start"
+      }
+     ],
+     "about": "rising air and low pressure"
+    },
+    {
+     "say": "समुद्र की हवा comparatively ठंडी रहती है, इसलिए वहाँ high pressure होता है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A detailed atlas-style cutaway of the Indian Ocean beside India: cooler blue air rests over the sea beneath a high-pressure dome, with moist air beginning to stream toward the warmer land; shaded relief, bright highlights, no lettering",
+       "scene": true,
+       "labels": [
+        {
+         "name": "cooler air",
+         "on": "w4"
+        },
+        {
+         "name": "high pressure",
+         "on": "w9"
+        },
+        {
+         "name": "moist air",
+         "on": "w2"
+        }
+       ],
+       "move": "pan",
+       "on": "start"
+      }
+     ],
+     "about": "cool ocean air and high pressure"
+    },
+    {
+     "say": "अब बताओ, हवा किस तरफ जाएगी—low pressure की तरफ या high pressure की तरफ?",
+     "do": [
+      {
+       "op": "question",
+       "text": "Which way does air move?",
+       "choices": [
+        "Toward low pressure",
+        "Toward high pressure"
+       ],
+       "answer": "Toward low pressure",
+       "think": 2,
+       "on": "w1"
+      },
+      {
+       "op": "option",
+       "choice": "Toward low pressure",
+       "on": "w6"
+      },
+      {
+       "op": "option",
+       "choice": "Toward high pressure",
+       "on": "w11"
+      }
+     ],
+     "about": "air moving between pressure zones"
+    },
+    {
+     "say": "समुद्र से जमीन की ओर।",
+     "do": [
+      {
+       "op": "answer"
+      },
+      {
+       "op": "picture",
+       "generate": "A crisp atlas-style side view of the Indian Ocean and adjoining Indian land, with a broad moist blue wind arrow sweeping from sea toward land; the sea is cool and the land warm, detailed shaded forms with bright rims, no lettering",
+       "scene": true,
+       "caption": "Sea → land",
+       "move": "drift",
+       "on": "w0"
+      }
+     ],
+     "about": "wind from sea to land"
+    },
+    {
+     "say": "यही नम हवा summer monsoon बनकर आती है।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "Summer monsoon flow",
+       "layout": "zigzag",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "Moist air over the sea",
+         "on": "w1"
+        },
+        {
+         "label": "Flows toward land",
+         "on": "w2"
+        },
+        {
+         "label": "Summer monsoon",
+         "on": "w4"
+        }
+       ],
+       "on": "start"
+      },
+      {
+       "op": "emphasis",
+       "target": "Summer monsoon flow",
+       "how": "pulse",
+       "on": "w5"
+      }
+     ],
+     "about": "the summer monsoon"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "monsoon.pdf",
+  "run": "mvlfqciq-9b7dff24",
+  "lecture": 1,
+  "chapter": 1,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

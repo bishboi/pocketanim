@@ -1,0 +1,227 @@
+{
+ "engine": "motion",
+ "look": "paper",
+ "title": "Feudal Society in Medieval Europe",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a golden manor-house on a small plot of land",
+ "genre": "history",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Three Orders",
+   "narration": "Chapter three. Society के तीन काम कौन करता था?",
+   "beats": [
+    {
+     "say": "अब देखिए, medieval writers ने society को तीन orders में समझाया।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "a medieval European manuscript miniature showing society as three vertically arranged groups: a tonsured monk praying, an armored noble holding a sword, and a peasant working the soil; gold leaf accents, muted pigments, fine parchment texture, no lettering",
+       "scene": true,
+       "caption": "Three orders",
+       "move": "slow drift",
+       "on": "orders"
+      }
+     ],
+     "paragraph": true,
+     "about": "medieval society"
+    },
+    {
+     "say": "ज़रा guess कीजिए—अगर गाँव को चलना है, तो कौन prayer करेगा, कौन लड़ेगा और कौन खाना उगाएगा?",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Who prays? Who fights? Who grows the food?",
+       "kicker": "A village needs all three",
+       "on": "guess"
+      }
+     ],
+     "about": "medieval society"
+    },
+    {
+     "say": "उनके जवाब थे: clergy pray करते हैं, nobility लड़ती है, और peasants काम करते हैं।",
+     "do": [
+      {
+       "op": "hierarchy",
+       "id": "orders",
+       "enter": "rise",
+       "tiers": [
+        {
+         "label": "Clergy",
+         "role": "pray",
+         "on": "clergy"
+        },
+        {
+         "label": "Nobility",
+         "role": "fight",
+         "on": "nobility"
+        },
+        {
+         "label": "Peasants",
+         "role": "work",
+         "on": "peasants"
+        }
+       ],
+       "build": "down"
+      }
+     ],
+     "about": "clergy, nobility, and peasants"
+    },
+    {
+     "say": "यह society का बताया गया आदर्श बँटवारा था।",
+     "do": [
+      {
+       "op": "stamp",
+       "text": "IDEAL MODEL",
+       "on": "आदर्श",
+       "color": "#E3B25A",
+       "angle": -7,
+       "at": "center"
+      }
+     ],
+     "about": "the three-order model"
+    },
+    {
+     "say": "Church के पास करीब एक तिहाई जमीन थी।",
+     "do": [
+      {
+       "op": "donut",
+       "value": 33,
+       "total": 100,
+       "text": "≈⅓",
+       "label": "of the land held by the Church",
+       "color": "#E3B25A",
+       "on": "तिहाई"
+      }
+     ],
+     "about": "the Church"
+    },
+    {
+     "say": "वह harvest का tithe लेती थी—यानी हर दस हिस्सों में से एक हिस्सा।",
+     "do": [
+      {
+       "op": "share",
+       "enter": "drop",
+       "label": "Harvest tithe",
+       "total": 10,
+       "part": 1,
+       "unit": "sheaf",
+       "part_label": "to the Church",
+       "rest_label": "kept by the household",
+       "on": "tithe"
+      }
+     ],
+     "about": "the Church's tithe"
+    },
+    {
+     "say": "यहाँ tithe को lord का payment मत समझिए; यह Church को दिया जाने वाला हिस्सा था।",
+     "do": [
+      {
+       "op": "myth",
+       "wrong": "A payment to the lord",
+       "right": "A share given to the Church",
+       "label": "Not the same",
+       "on": "Church"
+      }
+     ],
+     "about": "the tithe"
+    },
+    {
+     "say": "ज़्यादातर peasants serfs थे।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "a medieval European serf standing beside a manor village, worn linen tunic, a bundle of grain and simple tools, fields and the lord's manor house in the distance; detailed illuminated-manuscript-inspired gouache with shaded forms and warm gold accents",
+       "scene": true,
+       "caption": "Serfs",
+       "move": "breathe",
+       "on": "serfs"
+      }
+     ],
+     "about": "serfs"
+    },
+    {
+     "say": "वे manor छोड़कर नहीं जा सकते थे, और हफ्ते में तीन दिन lord के खेतों में काम करना पड़ता था।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "serf_labor",
+       "layout": "zigzag",
+       "enter": "slide",
+       "steps": [
+        {
+         "label": "Bound to the manor",
+         "on": "manor"
+        },
+        {
+         "label": "Cannot leave",
+         "on": "छोड़कर"
+        },
+        {
+         "label": "3 days each week",
+         "on": "तीन"
+        },
+        {
+         "label": "Work the lord's fields",
+         "on": "खेतों"
+        }
+       ]
+      },
+      {
+       "op": "counter",
+       "value": "3 days",
+       "label": "of labour owed each week",
+       "layout": "ring",
+       "max": 7,
+       "color": "#F2C14E",
+       "on": "तीन",
+       "delay": 0.3
+      }
+     ],
+     "about": "serfs"
+    },
+    {
+     "say": "इसके अलावा grain, eggs और अपनी labour भी lord को देते थे।",
+     "do": [
+      {
+       "op": "exchange",
+       "enter": "unfold",
+       "left": "Serfs",
+       "right": "Lord",
+       "flows": [
+        {
+         "from": "left",
+         "text": "grain",
+         "on": "grain"
+        },
+        {
+         "from": "left",
+         "text": "eggs",
+         "on": "eggs"
+        },
+        {
+         "from": "left",
+         "text": "labour",
+         "on": "labour"
+        }
+       ]
+      }
+     ],
+     "about": "serfs and the lord"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "feudal.pdf",
+  "run": "mvlfhklg-e6dc51fb",
+  "lecture": 1,
+  "chapter": 3,
+  "language": "hinglish",
+  "look": "paper"
+ }
+}

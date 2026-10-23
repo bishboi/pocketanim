@@ -1,0 +1,195 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "Photosynthesis",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a green leaf with a sunlit vein",
+ "genre": "chemistry",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Why It Matters",
+   "narration": "Chapter five. यह छोटी-सी leaf पूरी दुनिया के लिए क्यों अहम है?",
+   "beats": [
+    {
+     "say": "अब इस plant की कहानी सिर्फ़ इसकी अपनी food तक नहीं रहती।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A single healthy green plant in a small patch of soil, bright leaf catching a shaft of sunlight; faint golden glucose-like droplets forming near the leaf, with a delicate unfinished arrow suggesting the story continues outward. Detailed editorial botanical illustration, shaded shapes with fine highlights and rims, deep navy backdrop, warm sand and river-blue accents, no text.",
+       "scene": true,
+       "caption": "Why It Matters",
+       "move": "breathe",
+       "on": "plant"
+      },
+      {
+       "op": "emphasis",
+       "target": "food",
+       "how": "glow",
+       "on": "food"
+      }
+     ],
+     "paragraph": true,
+     "about": "Photosynthesis"
+    },
+    {
+     "say": "लगभग सभी food chains की शुरुआत photosynthesis से होती है, और इसी process से हमें साँस लेने वाली oxygen मिलती है।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "foodchain",
+       "layout": "zigzag",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "Green plant",
+         "picture": {
+          "generate": "A small vivid green plant with broad leaves, botanical illustration with shaded highlights and sand-gold rim light"
+         },
+         "on": "photosynthesis"
+        },
+        {
+         "label": "Herbivore",
+         "picture": {
+          "generate": "A small rabbit nibbling a leaf, detailed natural-history illustration"
+         },
+         "on": "food chains"
+        },
+        {
+         "label": "Predator",
+         "picture": {
+          "generate": "A red fox in profile, detailed natural-history illustration"
+         },
+         "on": "chains"
+        }
+       ]
+      },
+      {
+       "op": "picture",
+       "generate": "A macro botanical illustration of a green leaf releasing tiny bright oxygen bubbles into the air, detailed shaded veins and luminous rims against navy; a few bubbles drift upward, no text.",
+       "caption": "Oxygen",
+       "move": "drift",
+       "on": "oxygen"
+      }
+     ],
+     "pause": 0.6,
+     "about": "Food chains and oxygen"
+    },
+    {
+     "say": "और एक बड़ा काम भी होता है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A vivid split scene: dense green forest canopy above a deep blue ocean filled with tiny drifting algae; atmospheric carbon dioxide motes descend toward both, then fade as they are absorbed. Detailed relief-like editorial illustration, shaded forms with sand-gold highlights and river-blue accents, no text.",
+       "scene": true,
+       "move": "pullback",
+       "on": "big"
+      }
+     ],
+     "about": "Carbon uptake by forests and ocean algae"
+    },
+    {
+     "say": "Forests और ocean algae मिलकर हर साल humans जितनी carbon dioxide छोड़ते हैं, उसका roughly एक quarter absorb करते हैं।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A detailed split scene of a forest canopy and blue ocean algae absorbing glowing carbon dioxide motes from the air above; small arrows point inward toward both ecosystems, shaded botanical editorial art with gold and blue rims, navy atmosphere, no text.",
+       "scene": true,
+       "labels": [
+        {
+         "name": "Forests",
+         "on": "Forests"
+        },
+        {
+         "name": "Ocean algae",
+         "on": "algae"
+        },
+        {
+         "name": "Human-released CO₂",
+         "on": "humans"
+        }
+       ],
+       "move": "pan",
+       "on": "Forests"
+      },
+      {
+       "op": "donut",
+       "value": 25,
+       "total": 100,
+       "text": "¼",
+       "label": "of human-released CO₂ absorbed each year",
+       "on": "quarter"
+      }
+     ],
+     "pause": 0.7,
+     "about": "Forests and ocean algae"
+    },
+    {
+     "say": "तो leaf की यह food factory glucose बनाती है, oxygen देती है, और food chains की शुरुआत करती है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A single luminous green leaf, large and central, with golden glucose droplets forming at its edge, pale oxygen bubbles rising, and a small sequence of plant-to-herbivore silhouettes beginning beneath it; detailed botanical explainer art, shaded relief-like veins, crisp warm rims on a dark navy field, no text.",
+       "scene": true,
+       "labels": [
+        {
+         "name": "Glucose",
+         "on": "glucose"
+        },
+        {
+         "name": "Oxygen",
+         "on": "oxygen"
+        },
+        {
+         "name": "Food chains begin here",
+         "on": "food chains"
+        }
+       ],
+       "move": "kenburns",
+       "on": "leaf"
+      }
+     ],
+     "pause": 0.9,
+     "about": "Photosynthesis"
+    },
+    {
+     "say": "अगली बार किसी पत्ते को देखो, तो याद रखना—उसका हरा रंग सिर्फ़ रंग नहीं, एक चलती हुई process का संकेत है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A poetic close-up of a fresh green leaf against deep navy, its veins softly lit like a living network; subtle golden light pulses travel through the veins and a few oxygen bubbles drift upward. Detailed shaded botanical illustration with bright highlights and fine sand-gold rims, calm and memorable, no text.",
+       "scene": true,
+       "caption": "Photosynthesis",
+       "labels": [
+        {
+         "name": "Green color",
+         "on": "green"
+        },
+        {
+         "name": "A living process",
+         "on": "process"
+        }
+       ],
+       "move": "kenburns",
+       "on": "start"
+      }
+     ],
+     "pause": 0.3,
+     "about": "The meaning of a green leaf"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "photosynthesis.pdf",
+  "run": "mvlfwb20-3ed5a0c0",
+  "lecture": 1,
+  "chapter": 5,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

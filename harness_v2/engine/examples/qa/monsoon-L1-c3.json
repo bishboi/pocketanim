@@ -1,0 +1,172 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "The Indian Monsoon",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "country": "India"
+ },
+ "place_figures": false,
+ "emblem": "a golden monsoon cloud over India",
+ "genre": "geography",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "The Retreating Monsoon",
+   "narration": "Chapter three. साल के आखिर में winds फिर क्यों पलटती हैं?",
+   "beats": [
+    {
+     "say": "अब कहानी October और November तक पहुँचती है।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "India",
+       "label": "October–November",
+       "on": "October"
+      }
+     ],
+     "paragraph": true,
+     "about": "India"
+    },
+    {
+     "say": "जमीन ठंडी होने लगती है, low pressure दक्षिण की ओर खिसकता है, और winds फिर दिशा बदल देती हैं।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "Central India",
+       "label": "Land cools",
+       "on": "ठंडी"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "Delhi",
+        "Hyderabad"
+       ],
+       "label": "Low pressure shifts south",
+       "on": "दक्षिण"
+      },
+      {
+       "op": "emphasis",
+       "target": "India",
+       "how": "pulse",
+       "on": "winds"
+      }
+     ],
+     "about": "India"
+    },
+    {
+     "say": "अब हवा जमीन से समुद्र की ओर चलती है।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Hyderabad",
+        "Bay of Bengal"
+       ],
+       "label": "Land → sea",
+       "on": "जमीन"
+      },
+      {
+       "op": "emphasis",
+       "target": "Land → sea",
+       "how": "sweep",
+       "on": "समुद्र"
+      }
+     ],
+     "about": "India"
+    },
+    {
+     "say": "इसे retreating monsoon, या north-east monsoon कहते हैं।",
+     "do": [
+      {
+       "op": "define",
+       "term": "Retreating monsoon",
+       "meaning": "The seasonal reversal as winds blow from land toward the sea.",
+       "on": "retreating"
+      },
+      {
+       "op": "marker",
+       "place": "Chennai",
+       "label": "North-east monsoon",
+       "on": "north-east"
+      }
+     ],
+     "about": "North-east monsoon"
+    },
+    {
+     "say": "ध्यान रहे, हवा पलटी है; लेकिन बारिश की कहानी खत्म नहीं हुई।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "Chennai",
+       "label": "Rainfall continues",
+       "on": "बारिश"
+      },
+      {
+       "op": "emphasis",
+       "target": "Retreating monsoon",
+       "how": "pulse",
+       "on": "पलटी",
+       "in_pause": true
+      }
+     ],
+     "about": "Retreating monsoon"
+    },
+    {
+     "say": "Tamil Nadu को इसी मौसम में बारिश मिलती है, और साल की उसकी ज़्यादातर बारिश October और November में होती है।",
+     "do": [
+      {
+       "op": "state",
+       "name": "Tamil Nadu",
+       "label": "Tamil Nadu",
+       "on": "Tamil Nadu"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "Bay of Bengal",
+        "Chennai"
+       ],
+       "label": "Moist winds bring rain",
+       "on": "बारिश"
+      }
+     ],
+     "about": "Tamil Nadu"
+    },
+    {
+     "say": "तो monsoon की दिशा बदलने पर बारिश का इलाका भी बदल जाता है।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Bay of Bengal",
+        "Chennai"
+       ],
+       "label": "Wind shift, rain shifts",
+       "on": "दिशा"
+      },
+      {
+       "op": "emphasis",
+       "target": "Tamil Nadu",
+       "how": "glow",
+       "on": "बदल",
+       "in_pause": true
+      }
+     ],
+     "about": "Tamil Nadu"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "monsoon.pdf",
+  "run": "mvlfqciq-9b7dff24",
+  "lecture": 1,
+  "chapter": 3,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

@@ -1338,14 +1338,21 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                         rec.timeline.append(f"hide {name}")
             member_ids.add(id(mob))
             members.append(mob)
-        if os.environ.get("PANIM_FAITHFUL") == "1":
-            # Put back in the stage's order (see above), not the order the clip first saw them in.
-            rank = {id(m): k for k, m in enumerate(entries)}
-            members.sort(key=lambda m: rank.get(id(m), len(rank)))
+        # Put back in the order Manim draws them (the stage's, each top's family in turn), not the order the clip
+        # first saw them in: declared last, a counter ring's track covered its arc, and a template's stage card
+        # (opaque, to hide the map) covered its number, on the phone, for the whole line.
+        rank = {}
+        for top in scene.mobjects:
+            for sub in top.get_family():
+                rank.setdefault(id(sub), len(rank))
+        members.sort(key=lambda m: rank.get(id(m), len(rank)))
         for mob in members:
             if id(mob) not in final:
                 continue
             for sub in mob.get_family():
+                # Declared after the stage's other pictures, a primitive would take its place in the players' draw
+                # order when shown, over them all (primitive_is_faithful): a baked shape keeps the order above.
+                sub._panim_in_order = True
                 rec.names.pop(id(sub), None)
                 split_state["broken"].discard(id(sub))
                 split_state["pieces"].pop(id(sub), None)
@@ -1371,9 +1378,24 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             rec.blockers.append("the 2D camera moved (self.camera.frame): the phone keeps the camera still; "
                                 "move the stage instead (the kit's KitScene cam_to / cam_push / cam_pan do)")
 
+    def note_drifts(scene, animations) -> None:
+        """A picture's drift starts on the first frame Manim draws it (pocket_lecture._drift_view), which is the
+        first play it is in the scene for, shown yet or not (a picture held back for its word is there, unseen):
+        its start is noted now, before it is declared. Noted when declared instead, a picture held back two seconds
+        floated two seconds out of step with the video on the phone."""
+        seen = set()
+        for top in [*scene.mobjects, *parts_played(animations)]:
+            for part in top.get_family():
+                spec = part.__dict__.get("_panim_drift")
+                if spec and "cx" in spec and id(spec) not in seen and len(getattr(part, "points", ())):
+                    seen.add(id(spec))
+                    rec.drift_start(spec)
+
     def patched_play(self, *animations, **kwargs):
         frame_moved(self)
         remember_containers(animations)
+        if not state["in_camera_move"]:
+            note_drifts(self, animations)
         given = animations
         run_time = kwargs.get("run_time")
         if not state["in_camera_move"]:
@@ -1428,7 +1450,10 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
             # animation's own attribute therefore saw the default: a
             # `play(Create(c), rate_func=linear)` exported as an eased `create`
             # with no rate= at all, at tier 1 and with no blocker.
-            rate = kwargs.get("rate_func") or getattr(anim, "rate_func", None)
+            # `.animate(rate_func=...)` keeps its rate in the builder's arguments, not as an attribute: read only
+            # the attribute, a wipe eased out (ease_in_cubic) ran at an even speed on the phone and left early.
+            rate = kwargs.get("rate_func") or getattr(anim, "rate_func", None) or \
+                (getattr(anim, "anim_args", None) or {}).get("rate_func")
             rate_name = rate.__name__ if rate is not None else "smooth"
             if rate_name not in RATES:
                 rec.blockers.append(f"non-default rate_func: {rate_name}")
@@ -1575,6 +1600,11 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 if verbs:
                     verbs = [v + suffix if v.startswith(("xform ", "rotate ")) and suffix and " rate=" not in v
                              else v for v in verbs]
+                    # Declared as one picture (a timeline moved aside for a card), its parts drawn on their own are
+                    # hidden ahead of the play (Recorder.absorb, rec.pending): it goes on stage there too, as Manim
+                    # puts on what it moves; else the picture vanished as it moved.
+                    if f"hide {target}" not in rec.pending:
+                        rec.pending.append(f"show {target}")
                     if len(verbs) > 1:
                         rec.timeline.append(f"par n={len(verbs)} t={duration:g}")
                     rec.timeline.extend(verbs)
@@ -2086,19 +2116,23 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
         if not any(id(x) in split_state["broken"] for x in family):
             return
         for x in family:
-            # Every part drawn on its own goes as the group is drawn whole again: the pieces of the split, and parts
-            # the program drew by themselves before it (a card's points faded in one by one), which stayed on
-            # stage, over every later scene, once the group left.
-            if x is not mob:
+            if id(x) in split_state["pieces"] and x is not mob:
                 hide_drawn(x)
-            split_state["pieces"].pop(id(x), None)
+                split_state["pieces"].pop(id(x), None)
+                rec.names.pop(id(x), None)
             split_state["broken"].discard(id(x))
         hide_drawn(mob)
-        for x in family:
-            rec.names.pop(id(x), None)
+        rec.names.pop(id(mob), None)
+        # The other parts the program drew on their own (a card's points faded in one by one) keep their names until
+        # the group is declared, so that declaring it hides them (Recorder.absorb): left drawn, they stayed on
+        # stage, over every later scene, once the group left. A group that cannot be drawn as one picture (a
+        # stage's holder) hides nothing: its parts hidden with nothing in their place, a timeline vanished as it
+        # moved aside for a card.
         name = rec.declare(mob)
         rec.flush()
         if name:
+            for x in family[1:]:
+                rec.names.pop(id(x), None)
             rec.timeline.append(f"show {name}")
             if not any(mob is top for top in scene.mobjects):
                 split_state["pieces"][id(mob)] = mob

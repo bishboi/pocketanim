@@ -643,9 +643,31 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         small in one half with the other empty all the line. Its parts still to come on (a timeline's next event)
         follow it when the move plays (_room_moves): those up by then move with it, the rest are put in their place
         unseen, to come on there."""
+        first = self.stage_body
+        # A wide picture (a timeline, a chain, a chart) beside a card is stacked over it, not put in a half: in a
+        # half a timeline stood at a third of its size, its dates too small to read (_halves).
+        picture = group if getattr(first, "is_text_card", False) and not getattr(group, "is_text_card", False) \
+            else first
+        self._m_stack = picture is not None and float(picture.height) > 1e-6 and \
+            float(picture.width) / float(picture.height) >= self.STACK_WIDE
+        try:
+            return self._m_beside(group, first)
+        finally:
+            self._m_stack = False
+
+    STACK_WIDE = 2.0         # a picture this many times wider than tall is stacked over the card beside it
+
+    def _halves(self):
+        """The engine's two halves of the stage, side by side; stacked for a wide picture (_beside): the picture
+        across the top, the card under it."""
+        if not self.__dict__.get("_m_stack"):
+            return super()._halves()
+        cx, cy, w, h = self.STAGE
+        return (cx, cy + h * 0.2, w, h * 0.58), (cx, cy - h * 0.25, w * 0.75, h * 0.24)
+
+    def _m_beside(self, group, first):
         import stem
 
-        first = self.stage_body
         whole = first is not None and any(first is w for w in self._mwhole.values())
         if not whole or getattr(group, "is_text_card", False) is False or getattr(first, "is_text_card", False) \
                 or self._panel_up():
@@ -771,8 +793,12 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return self.__dict__.setdefault("_m_gone_list", [])
 
     def credits(self, *args, **kwargs):
-        """The engine's closing credits, after a last check that nothing of an earlier picture is left under them."""
+        """The engine's closing credits, after a last check that nothing of an earlier picture is left under them,
+        on a clear stage: a chapter rendered alone (the Scenes tab drops its closing fade) put them over its last
+        picture, the credit lines across the picture's own words."""
         self._m_leftovers("credits")
+        if self.on_stage():
+            self.outro_fade(0.6)
         return super().credits(*args, **kwargs)
 
     def _m_leftovers(self, where: str, line: str = "") -> None:

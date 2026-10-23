@@ -1,0 +1,337 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "Photosynthesis",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a green leaf with a sunlit vein",
+ "genre": "chemistry",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Food from Light",
+   "narration": "Chapter one. पौधे अपनी food खुद कैसे बनाते हैं?",
+   "beats": [
+    {
+     "say": "सोचो, एक हरा पौधा धूप में खड़ा है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A single healthy green potted plant standing upright in a shaft of warm sunlight, sunbeams grazing its leaves, simple uncluttered background, richly shaded botanical gouache with delicate highlights and a calm curious mood",
+       "scene": true,
+       "caption": "How does a plant make its own food?",
+       "labels": [
+        {
+         "name": "green plant",
+         "on": "w3"
+        },
+        {
+         "name": "sunlight",
+         "on": "w4"
+        }
+       ],
+       "move": "breathe",
+       "on": "w3"
+      }
+     ],
+     "paragraph": true,
+     "about": "A green plant in sunlight"
+    },
+    {
+     "say": "उसे खाना देने कोई नहीं आता, फिर भी वह अपना food खुद बनाता है—कैसे?",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "The same healthy green potted plant standing in sunlight, with an empty plate beside it to suggest nobody brings it food; detailed botanical gouache, softly lit, uncluttered composition",
+       "scene": true,
+       "caption": "No one brings its food",
+       "labels": [
+        {
+         "name": "plant",
+         "on": "w8"
+        },
+        {
+         "name": "empty plate",
+         "on": "w5"
+        }
+       ],
+       "move": "kenburns",
+       "on": "w5"
+      },
+      {
+       "op": "emphasis",
+       "target": "plant",
+       "how": "pulse",
+       "on": "w11"
+      }
+     ],
+     "about": "A plant making its own food"
+    },
+    {
+     "say": "इस process का नाम है photosynthesis।",
+     "do": [
+      {
+       "op": "define",
+       "term": "Photosynthesis",
+       "meaning": "The process by which a plant uses light to make sugar from carbon dioxide and water.",
+       "on": "photosynthesis।"
+      }
+     ],
+     "about": "Photosynthesis"
+    },
+    {
+     "say": "पौधा sunlight की energy लेकर हवा से carbon dioxide और मिट्टी से पानी इस्तेमाल करता है, और glucose बनाता है।",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "photoFlow",
+       "kind": "flow",
+       "title": "From light to sugar",
+       "on": "w1",
+       "nodes": [
+        {
+         "id": "light",
+         "label": "Sunlight energy",
+         "kind": "idea",
+         "on": "w1"
+        },
+        {
+         "id": "co2",
+         "label": "Carbon dioxide",
+         "kind": "idea",
+         "on": "w7"
+        },
+        {
+         "id": "water",
+         "label": "Water",
+         "kind": "idea",
+         "on": "w12"
+        },
+        {
+         "id": "glucose",
+         "label": "Glucose",
+         "kind": "idea",
+         "on": "w17",
+         "shape": "end"
+        }
+       ],
+       "edges": [
+        [
+         "light",
+         "glucose",
+         "energy"
+        ],
+        [
+         "co2",
+         "glucose"
+        ],
+        [
+         "water",
+         "glucose"
+        ]
+       ]
+      }
+     ],
+     "about": "Photosynthesis inputs and product"
+    },
+    {
+     "say": "Glucose एक तरह की sugar है।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "photoFlow.glucose",
+       "how": "pulse",
+       "on": "w0"
+      },
+      {
+       "op": "define",
+       "term": "Sugar",
+       "meaning": "Glucose is one kind of sugar.",
+       "on": "w4"
+      }
+     ],
+     "about": "Glucose"
+    },
+    {
+     "say": "इस दौरान पौधा oxygen भी बाहर छोड़ता है।",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "oxygenFlow",
+       "kind": "flow",
+       "title": "A second product",
+       "on": "start",
+       "nodes": [
+        {
+         "id": "co2",
+         "label": "Carbon dioxide",
+         "kind": "idea",
+         "on": "start"
+        },
+        {
+         "id": "water",
+         "label": "Water",
+         "kind": "idea",
+         "on": "start"
+        },
+        {
+         "id": "glucose",
+         "label": "Glucose",
+         "kind": "idea",
+         "on": "start"
+        },
+        {
+         "id": "oxygen",
+         "label": "Oxygen released",
+         "kind": "idea",
+         "on": "w3",
+         "shape": "end"
+        }
+       ],
+       "edges": [
+        [
+         "co2",
+         "glucose"
+        ],
+        [
+         "water",
+         "glucose"
+        ],
+        [
+         "water",
+         "oxygen"
+        ]
+       ]
+      }
+     ],
+     "about": "Oxygen released by photosynthesis"
+    },
+    {
+     "say": "यानी sunlight की मदद से carbon dioxide और पानी, glucose और oxygen में बदलते हैं।",
+     "do": [
+      {
+       "op": "diagram",
+       "id": "transformation",
+       "kind": "flow",
+       "title": "Light-powered transformation",
+       "on": "w1",
+       "nodes": [
+        {
+         "id": "light",
+         "label": "Sunlight",
+         "kind": "idea",
+         "on": "w1"
+        },
+        {
+         "id": "co2",
+         "label": "Carbon dioxide",
+         "kind": "idea",
+         "on": "w5"
+        },
+        {
+         "id": "water",
+         "label": "Water",
+         "kind": "idea",
+         "on": "w8"
+        },
+        {
+         "id": "glucose",
+         "label": "Glucose",
+         "kind": "idea",
+         "on": "w9",
+         "shape": "end"
+        },
+        {
+         "id": "oxygen",
+         "label": "Oxygen",
+         "kind": "idea",
+         "on": "w11",
+         "shape": "end"
+        }
+       ],
+       "edges": [
+        [
+         "light",
+         "glucose",
+         "energy"
+        ],
+        [
+         "co2",
+         "glucose"
+        ],
+        [
+         "water",
+         "glucose"
+        ],
+        [
+         "water",
+         "oxygen"
+        ]
+       ]
+      }
+     ],
+     "about": "Photosynthesis transformation"
+    },
+    {
+     "say": "अब equation को ध्यान से सुनो: six carbon dioxide plus six water, light और chlorophyll की मदद से, one glucose plus six oxygen बनाते हैं।",
+     "do": [
+      {
+       "op": "equation",
+       "tex": "6CO_2 + 6H_2O \\xrightarrow[\\text{chlorophyll}]{\\text{light}} C_6H_{12}O_6 + 6O_2",
+       "label": "balanced photosynthesis equation",
+       "on": "w6"
+      },
+      {
+       "op": "emphasis",
+       "target": "equation",
+       "how": "glow",
+       "on": "w14"
+      },
+      {
+       "op": "emphasis",
+       "target": "equation",
+       "how": "pulse",
+       "on": "w19"
+      },
+      {
+       "op": "emphasis",
+       "target": "equation",
+       "how": "pulse",
+       "on": "w22"
+      }
+     ],
+     "about": "Photosynthesis equation"
+    },
+    {
+     "say": "यहाँ छह और एक की गिनती equation का हिस्सा है।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "equation",
+       "how": "circle",
+       "on": "w1"
+      },
+      {
+       "op": "emphasis",
+       "target": "equation",
+       "how": "circle",
+       "on": "w3"
+      }
+     ],
+     "about": "Coefficients in the equation"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "photosynthesis.pdf",
+  "run": "mvlfwb20-3ed5a0c0",
+  "lecture": 1,
+  "chapter": 1,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

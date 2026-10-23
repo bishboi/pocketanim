@@ -1,0 +1,359 @@
+{
+ "engine": "motion",
+ "look": "paper",
+ "title": "Feudal Society in Medieval Europe",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "area": "Europe"
+ },
+ "place_figures": false,
+ "emblem": "a golden manor-house on a small plot of land",
+ "genre": "history",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Life on the Manor",
+   "narration": "Chapter four. Manor की जमीन ने क्या बदल दिया?",
+   "beats": [
+    {
+     "say": "तो serf की दुनिया अक्सर manor के भीतर ही थी।",
+     "do": [
+      {
+       "op": "title",
+       "text": "Chapter four. Manor की जमीन ने क्या बदल दिया?",
+       "kicker": "FEUDAL SOCIETY IN MEDIEVAL EUROPE",
+       "highlight": "Manor",
+       "on": "start"
+      },
+      {
+       "op": "picture",
+       "generate": "A richly detailed aerial isometric view of a medieval European manor estate: stone lord's hall, clustered timber village cottages, long open fields, a watermill beside a stream, a small church, common woodland and green pasture; illuminated-manuscript miniature with shaded forms, sand-gold highlights and deep navy shadows, no words",
+       "scene": true,
+       "move": "pullback",
+       "caption": "A manor estate",
+       "labels": [
+        {
+         "name": "Lord’s house",
+         "on": "w2"
+        },
+        {
+         "name": "Village",
+         "on": "w5"
+        },
+        {
+         "name": "Fields",
+         "on": "w5"
+        },
+        {
+         "name": "Mill",
+         "on": "w5"
+        },
+        {
+         "name": "Church",
+         "on": "w5"
+        },
+        {
+         "name": "Common woods & pastures",
+         "on": "w5"
+        }
+       ],
+       "on": "w5"
+      }
+     ],
+     "paragraph": true,
+     "about": "Medieval manor"
+    },
+    {
+     "say": "Manor सिर्फ lord का घर नहीं था; उसमें village, खेत, mill, church और सबके इस्तेमाल के common woods और pastures भी आते थे।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A richly detailed aerial isometric view of a medieval European manor estate, stone lord's hall, clustered village cottages, long open fields, a watermill by a stream, a small church, common woodland and green pasture; illuminated-manuscript miniature with shaded forms, sand-gold highlights and deep blue shadows, no words",
+       "scene": true,
+       "move": "pan",
+       "labels": [
+        {
+         "name": "Lord’s house",
+         "on": "w2"
+        },
+        {
+         "name": "Village",
+         "on": "w8"
+        },
+        {
+         "name": "Fields",
+         "on": "w9"
+        },
+        {
+         "name": "Mill",
+         "on": "w10"
+        },
+        {
+         "name": "Church",
+         "on": "w11"
+        },
+        {
+         "name": "Common woods & pastures",
+         "on": "w16"
+        }
+       ],
+       "on": "start"
+      }
+     ],
+     "about": "Medieval manor"
+    },
+    {
+     "say": "अब खेतों का तरीका देखिए।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "Ground-level view from a medieval field edge: three long neighboring crop strips recede toward a distant village, one dark freshly turned, one green with young shoots, one resting as rough grass; a farmer gestures toward the plots, richly shaded illuminated-manuscript miniature, earthy greens and warm gold highlights, no labels or text",
+       "scene": true,
+       "move": "drift",
+       "caption": "The manor’s fields",
+       "on": "w1"
+      }
+     ]
+    },
+    {
+     "say": "जमीन को तीन strips में बाँटते: एक में autumn में बुआई, दूसरी में spring में, और तीसरी को खाली छोड़कर आराम देते।",
+     "do": [
+      {
+       "op": "plan",
+       "zones": [
+        {
+         "label": "Autumn sowing",
+         "kind": "field",
+         "at": "nw",
+         "on": "w8"
+        },
+        {
+         "label": "Spring sowing",
+         "kind": "field",
+         "at": "center",
+         "on": "w13"
+        },
+        {
+         "label": "Resting / fallow",
+         "kind": "field",
+         "at": "se",
+         "on": "w18"
+        }
+       ]
+      }
+     ],
+     "about": "Three-field rotation"
+    },
+    {
+     "say": "इसे three-field rotation कहते हैं।",
+     "do": [
+      {
+       "op": "define",
+       "term": "Three-field rotation",
+       "meaning": "A farming cycle: sow two strips in different seasons and leave the third fallow, then rotate their roles.",
+       "on": "w1"
+      },
+      {
+       "op": "emphasis",
+       "target": "Three-field rotation",
+       "how": "underline",
+       "on": "w2"
+      }
+     ],
+     "about": "Three-field rotation"
+    },
+    {
+     "say": "खेत को खाली छोड़ना बेकार जमीन जैसा लग सकता है, है ना?",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Is a resting field wasted land?",
+       "kicker": "PAUSE & THINK",
+       "on": "w2"
+      }
+     ],
+     "about": "Fallow field"
+    },
+    {
+     "say": "लेकिन उसे rest देने से जमीन फिर काम की रहती थी।",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Is a resting field wasted land?",
+       "answer": "No. Rest lets the soil recover for another crop.",
+       "kicker": "THE FIELD’S REST",
+       "on": "w2"
+      }
+     ],
+     "about": "Fallow field"
+    },
+    {
+     "say": "इसके साथ heavy iron plough ने भी खेती और harvest बढ़ाने में मदद की।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A heavy medieval iron plough pulled by a pair of oxen across a damp open field, the metal share cutting a deep furrow as workers guide it; detailed illuminated-manuscript illustration with dramatic shaded forms, warm earth and gold highlights, no text",
+       "scene": true,
+       "move": "pan",
+       "labels": [
+        {
+         "name": "Heavy iron plough",
+         "on": "w4"
+        },
+        {
+         "name": "Deep furrow",
+         "on": "w7"
+        },
+        {
+         "name": "Fuller harvest",
+         "on": "w9"
+        }
+       ],
+       "on": "w2"
+      },
+      {
+       "op": "emphasis",
+       "target": "Fuller harvest",
+       "how": "glow",
+       "on": "w9"
+      }
+     ],
+     "about": "Medieval iron plough"
+    },
+    {
+     "say": "एक हज़ार के बाद harvest बढ़े, और Europe की population करीब 4 करोड़ 20 लाख से बढ़कर 1300 तक 7 करोड़ 30 लाख हो गई।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "An abundant medieval harvest scene, sheaves of wheat stacked beside a field and villagers gathering grain, detailed illuminated-manuscript miniature with shaded forms, gold highlights and deep navy shadows, no text",
+       "scene": true,
+       "move": "kenburns",
+       "caption": "Harvests rise after 1000",
+       "on": "w4"
+      },
+      {
+       "op": "chart",
+       "kind": "column",
+       "unit": "million people",
+       "items": [
+        {
+         "label": "c. 1000",
+         "value": 42,
+         "on": "w11"
+        },
+        {
+         "label": "1300",
+         "value": 73,
+         "on": "w19"
+        }
+       ],
+       "highlight": "1300",
+       "source": "Approximate estimates",
+       "reference": {
+        "value": 42,
+        "label": "c. 1000"
+       }
+      },
+      {
+       "op": "emphasis",
+       "target": "1300",
+       "how": "spotlight",
+       "on": "w21"
+      }
+     ],
+     "about": "European population growth"
+    },
+    {
+     "say": "यही हमारी कहानी का जवाब है: Rome के बाद लोगों की दुनिया land, local promises और manor के इर्द-गिर्द चलने लगी; खेती में बदलाव ने ज्यादा लोगों के लिए जगह बनाई।",
+     "do": [
+      {
+       "op": "mind_map",
+       "center": "Life after Rome",
+       "enter": "ink",
+       "branches": [
+        {
+         "label": "Land",
+         "on": "w12"
+        },
+        {
+         "label": "Local promises",
+         "on": "w14"
+        },
+        {
+         "label": "The manor",
+         "on": "w16"
+        },
+        {
+         "label": "Changed farming",
+         "on": "w23",
+         "children": [
+          "larger harvests",
+          "room for more people"
+         ]
+        }
+       ]
+      },
+      {
+       "op": "emphasis",
+       "target": "Changed farming",
+       "how": "pulse",
+       "on": "w25"
+      }
+     ],
+     "paragraph": true,
+     "about": "Feudal society"
+    },
+    {
+     "say": "बस, आज के लिए इतना ही।",
+     "do": [
+      {
+       "op": "title",
+       "text": "Land • Promises • Manor",
+       "kicker": "FEUDAL EUROPE",
+       "highlight": "Manor",
+       "sub": "A world rebuilt around local life",
+       "on": "start"
+      }
+     ],
+     "about": "Feudal society"
+    },
+    {
+     "say": "अगली बार इसी बदली हुई Europe की कहानी में आगे बढ़ेंगे।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "Rome",
+       "label": "Rome",
+       "side": "down",
+       "on": "w5"
+      },
+      {
+       "op": "marker",
+       "place": "Paris",
+       "label": "Paris",
+       "side": "left",
+       "on": "w7"
+      },
+      {
+       "op": "marker",
+       "place": "Aachen",
+       "label": "Aachen",
+       "side": "right",
+       "on": "w9"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "feudal.pdf",
+  "run": "mvlfhklg-e6dc51fb",
+  "lecture": 1,
+  "chapter": 4,
+  "language": "hinglish",
+  "look": "paper"
+ }
+}

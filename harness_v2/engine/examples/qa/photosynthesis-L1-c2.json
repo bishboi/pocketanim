@@ -1,0 +1,274 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "Photosynthesis",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a green leaf with a sunlit vein",
+ "genre": "chemistry",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Inside the Leaf",
+   "narration": "Chapter two. अब देखते हैं, leaf के अंदर यह काम कहाँ होता है।",
+   "beats": [
+    {
+     "say": "तो यह food factory पत्ते के अंदर कहाँ है?",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A textbook cross-section showing the inside of a green leaf at cellular scale: a large translucent plant cell with a clear cell wall, pale interior, and several small oval green chloroplasts around the edge; crisp shaded shapes, fine sand-colored rims, and a restrained teal glow on the chloroplasts.",
+       "labels": [
+        {
+         "name": "leaf cell",
+         "on": "पत्ते"
+        },
+        {
+         "name": "inside",
+         "on": "अंदर"
+        },
+        {
+         "name": "chloroplasts",
+         "on": "कहाँ"
+        }
+       ],
+       "caption": "Where is the food factory?",
+       "on": "food"
+      }
+     ],
+     "paragraph": true,
+     "about": "Leaf cells"
+    },
+    {
+     "say": "Leaf की cells में छोटे हरे bodies होते हैं, जिन्हें chloroplasts कहते हैं।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A richly shaded textbook view of one leaf cell, its translucent wall enclosing a pale interior and multiple small oval green chloroplasts; one chloroplast is enlarged in a subtle inset, with layered internal membranes visible.",
+       "labels": [
+        {
+         "name": "leaf cells",
+         "on": "cells"
+        },
+        {
+         "name": "small green bodies",
+         "on": "छोटे"
+        },
+        {
+         "name": "chloroplasts",
+         "on": "chloroplasts"
+        }
+       ],
+       "on": "Leaf"
+      }
+     ],
+     "about": "Chloroplasts"
+    },
+    {
+     "say": "Photosynthesis इन्हीं में होता है।",
+     "do": [
+      {
+       "op": "zoom_in",
+       "picture": {
+        "draw": "A plant cell with several oval green chloroplasts, one chloroplast clearly isolated near the cell edge."
+       },
+       "box": [
+        0.56,
+        0.34,
+        0.86,
+        0.68
+       ],
+       "label": "Photosynthesis happens here",
+       "note": "inside a chloroplast",
+       "on": "Photosynthesis"
+      }
+     ],
+     "about": "Photosynthesis in chloroplasts"
+    },
+    {
+     "say": "Chloroplasts में chlorophyll नाम का green pigment होता है।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A close textbook illustration of an oval chloroplast, with stacked thylakoid discs inside and tiny green chlorophyll pigment clusters embedded in their membranes; polished shaded forms and a softly lit scientific-illustration finish.",
+       "labels": [
+        {
+         "name": "chloroplast",
+         "on": "Chloroplasts"
+        },
+        {
+         "name": "chlorophyll",
+         "on": "chlorophyll"
+        },
+        {
+         "name": "green pigment",
+         "on": "green"
+        }
+       ],
+       "on": "Chloroplasts"
+      }
+     ],
+     "about": "Chlorophyll"
+    },
+    {
+     "say": "यह red और blue light absorb करता है, और green light reflect करता है; इसलिए पत्ते हमें हरे दिखते हैं।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "An explanatory leaf-and-light illustration: a vivid green leaf beside a magnified chloroplast membrane containing chlorophyll; red and blue light rays approach and are absorbed at the pigment, while a green ray reflects away toward the viewer. Clear directional arrows, luminous ray colors, and shaded textbook forms.",
+       "labels": [
+        {
+         "name": "red light absorbed",
+         "on": "red"
+        },
+        {
+         "name": "blue light absorbed",
+         "on": "blue"
+        },
+        {
+         "name": "green light reflected",
+         "on": "green"
+        },
+        {
+         "name": "the leaf appears green",
+         "on": "हरे"
+        }
+       ],
+       "on": "red"
+      }
+     ],
+     "about": "Chlorophyll and light"
+    },
+    {
+     "say": "अब raw materials का रास्ता देखो।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "The underside of a fresh green leaf seen at a shallow angle, with a few tiny pores visible along the surface and the curved leaf edge catching warm light; detailed botanical gouache illustration, dark navy background, no text.",
+       "scene": true,
+       "move": "pan",
+       "caption": "Raw materials enter by different routes",
+       "on": "raw"
+      }
+     ],
+     "paragraph": true,
+     "about": "Leaf underside"
+    },
+    {
+     "say": "Carbon dioxide पत्ते के छोटे pores से अंदर आती है; इन pores को stomata कहते हैं, और ये आम तौर पर पत्ते की नीचे वाली side पर होते हैं।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A detailed botanical close-up of the underside of a leaf: epidermal cells surround a clearly open stoma formed by two curved guard cells; small carbon-dioxide particles and arrows travel from the surrounding air through the pore into the leaf. Include a subtle inset showing the pore on the lower leaf surface.",
+       "labels": [
+        {
+         "name": "carbon dioxide",
+         "on": "Carbon"
+        },
+        {
+         "name": "tiny pores",
+         "on": "pores"
+        },
+        {
+         "name": "stomata",
+         "on": "stomata"
+        },
+        {
+         "name": "lower leaf surface",
+         "on": "नीचे"
+        }
+       ],
+       "caption": "Air enters through stomata",
+       "on": "Carbon"
+      }
+     ],
+     "about": "Stomata"
+    },
+    {
+     "say": "पानी roots से ऊपर पत्ते तक tubes में जाता है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A botanical cutaway of a small green plant from roots to leaf, with blue water droplets rising through fine transparent tubes in the stem and branching into the leaf; crisp shaded educational illustration, dark navy backdrop, no text.",
+       "labels": [
+        {
+         "name": "roots",
+         "on": "roots"
+        },
+        {
+         "name": "water rises",
+         "on": "ऊपर"
+        },
+        {
+         "name": "tubes",
+         "on": "tubes"
+        },
+        {
+         "name": "leaf",
+         "on": "पत्ते"
+        }
+       ],
+       "move": "pullback",
+       "on": "पानी"
+      }
+     ],
+     "about": "Water pathway"
+    },
+    {
+     "say": "इन tubes का नाम xylem है।",
+     "do": [
+      {
+       "op": "define",
+       "term": "Xylem",
+       "meaning": "Water-carrying tubes that move water from roots up to the leaves",
+       "on": "xylem"
+      }
+     ],
+     "about": "Xylem"
+    },
+    {
+     "say": "तो carbon dioxide हवा से आती है, और पानी roots से ऊपर पहुँचता है।",
+     "do": [
+      {
+       "op": "versus",
+       "layout": "split",
+       "left": {
+        "title": "AIR",
+        "points": [
+         {
+          "text": "Carbon dioxide enters the leaf",
+          "on": "carbon"
+         }
+        ],
+        "on": "carbon"
+       },
+       "right": {
+        "title": "ROOTS",
+        "points": [
+         {
+          "text": "Water travels upward through xylem",
+          "on": "पानी"
+         }
+        ],
+        "on": "roots"
+       },
+       "on": "carbon"
+      }
+     ],
+     "about": "Carbon dioxide and water pathways"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "photosynthesis.pdf",
+  "run": "mvlfwb20-3ed5a0c0",
+  "lecture": 1,
+  "chapter": 2,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

@@ -1,0 +1,328 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "The Indian Monsoon",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "country": "India"
+ },
+ "place_figures": false,
+ "emblem": "a golden monsoon cloud over India",
+ "genre": "geography",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Why the Monsoon Matters",
+   "narration": "Chapter four. Monsoon भारत की खेती और रोज़मर्रा की ज़िंदगी को कैसे छूता है?",
+   "beats": [
+    {
+     "say": "अब सवाल है, monsoon इतना important क्यों है?",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Why is the monsoon so important?",
+       "on": "important"
+      }
+     ],
+     "paragraph": true,
+     "about": "Indian monsoon"
+    },
+    {
+     "say": "India की करीब आधी farmland को irrigation नहीं, बारिश चाहिए।",
+     "do": [
+      {
+       "op": "donut",
+       "value": 50,
+       "total": 100,
+       "text": "about half",
+       "label": "of India's farmland depends on rain, not irrigation",
+       "on": "आधी"
+      }
+     ],
+     "about": "Indian farmland"
+    },
+    {
+     "say": "यानी monsoon कमजोर पड़े, तो असर सीधे खेत और घर की आमदनी तक पहुँच सकता है।",
+     "do": [
+      {
+       "op": "chain",
+       "layout": "zigzag",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "Weak monsoon",
+         "on": "कमज़ोर"
+        },
+        {
+         "label": "Fields at risk",
+         "on": "खेत",
+         "picture": {
+          "generate": "A rain-starved Indian field with stressed crops and cracked soil, detailed editorial illustration with shaded shapes and warm highlights"
+         }
+        },
+        {
+         "label": "Household income affected",
+         "on": "आमदनी",
+         "picture": {
+          "generate": "An Indian farming household reviewing a small harvest beside their home, detailed editorial illustration with shaded shapes and warm highlights"
+         }
+        }
+       ]
+      }
+     ],
+     "about": "Indian farmers"
+    },
+    {
+     "say": "Monsoon के साथ बोई जाने वाली crops को kharif crops कहते हैं।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A lush Indian monsoon paddy field, farmers planting rice in shallow water beneath soft rain, detailed gouache illustration with shaded shapes and bright highlights",
+       "scene": true,
+       "move": "sway",
+       "caption": "Crops sown with the monsoon",
+       "on": "crops"
+      },
+      {
+       "op": "define",
+       "term": "Kharif crops",
+       "meaning": "Crops sown with the monsoon rains",
+       "on": "kharif"
+      }
+     ],
+     "about": "Kharif crops"
+    },
+    {
+     "say": "Rice, cotton और soybean इसके examples हैं।",
+     "do": [
+      {
+       "op": "polaroids",
+       "title": "Examples of kharif crops",
+       "layout": "spotlight",
+       "items": [
+        {
+         "generate": "Rice plants growing in a flooded Indian paddy, detailed botanical gouache illustration",
+         "caption": "Rice",
+         "on": "Rice"
+        },
+        {
+         "generate": "Cotton bolls on a leafy plant in an Indian field, detailed botanical gouache illustration",
+         "caption": "Cotton",
+         "on": "cotton"
+        },
+        {
+         "generate": "Soybean pods on a green plant, detailed botanical gouache illustration",
+         "caption": "Soybean",
+         "on": "soybean"
+        }
+       ]
+      }
+     ],
+     "about": "Kharif crops"
+    },
+    {
+     "say": "अगर monsoon कमजोर हो, तो drought हो सकता है, किसानों की income घट सकती है और food prices बढ़ सकती हैं।",
+     "do": [
+      {
+       "op": "chain",
+       "layout": "row",
+       "enter": "drop",
+       "steps": [
+        {
+         "label": "Weak rain",
+         "on": "कमज़ोर"
+        },
+        {
+         "label": "Drought; farm income falls",
+         "on": "drought"
+        },
+        {
+         "label": "Food prices rise",
+         "on": "prices"
+        }
+       ]
+      }
+     ],
+     "about": "Monsoon impacts"
+    },
+    {
+     "say": "और अगर बारिश बहुत भारी हो जाए, तो Assam और Bihar में floods आ सकते हैं।",
+     "do": [
+      {
+       "op": "state",
+       "name": "Assam",
+       "label": "Assam",
+       "on": "Assam"
+      },
+      {
+       "op": "state",
+       "name": "Bihar",
+       "label": "Bihar",
+       "on": "Bihar"
+      }
+     ],
+     "about": "Assam and Bihar"
+    },
+    {
+     "say": "इसलिए सिर्फ़ कम बारिश ही problem नहीं है; बहुत ज़्यादा बारिश भी नुकसान पहुँचा सकती है।",
+     "do": [
+      {
+       "op": "versus",
+       "layout": "split",
+       "left": {
+        "title": "Too little rain",
+        "points": [
+         {
+          "text": "Drought",
+          "on": "कम"
+         },
+         {
+          "text": "Crops and livelihoods at risk",
+          "on": "problem"
+         }
+        ],
+        "picture": {
+         "generate": "A dry Indian field with cracked earth and wilted crops, detailed editorial illustration"
+        }
+       },
+       "right": {
+        "title": "Too much rain",
+        "points": [
+         {
+          "text": "Flood damage",
+          "on": "ज़्यादा"
+         },
+         {
+          "text": "Homes and fields inundated",
+          "on": "नुकसान"
+         }
+        ],
+        "picture": {
+         "generate": "Floodwater covering an Indian village lane and fields during monsoon, detailed editorial illustration"
+        },
+        "on": "ज़्यादा"
+       }
+      }
+     ],
+     "about": "Rainfall extremes"
+    },
+    {
+     "say": "एक और असर Pacific Ocean से आता है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A relief-style globe viewed from space, the vast Pacific Ocean prominent with a subtle warm glow across its equatorial waters, detailed shaded shapes and luminous rims, no labels or text",
+       "scene": true,
+       "move": "kenburns",
+       "caption": "Pacific Ocean",
+       "on": "Pacific"
+      }
+     ],
+     "about": "Pacific Ocean"
+    },
+    {
+     "say": "El Nino, यानी Pacific Ocean का गरम होना, अक्सर Indian monsoon को कमजोर करता है।",
+     "do": [
+      {
+       "op": "chain",
+       "layout": "zigzag",
+       "enter": "spin",
+       "steps": [
+        {
+         "label": "El Niño",
+         "on": "El"
+        },
+        {
+         "label": "Pacific Ocean warms",
+         "on": "गरम"
+        },
+        {
+         "label": "Indian monsoon weakens",
+         "on": "कमज़ोर"
+        }
+       ]
+      }
+     ],
+     "about": "El Niño"
+    },
+    {
+     "say": "तो शुरुआत वाला सवाल—कहीं खूब बारिश और कहीं कम क्यों—उसका जवाब है winds का रास्ता, mountains, और बदलते मौसम; और इन सबका असर हमारी खेती पर पड़ता है।",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Why does one place get heavy rain while another gets little?",
+       "on": "सवाल"
+      },
+      {
+       "op": "mind_map",
+       "center": "Uneven rainfall",
+       "enter": "ink",
+       "branches": [
+        {
+         "label": "Wind paths",
+         "on": "winds"
+        },
+        {
+         "label": "Mountains redirect rain",
+         "on": "mountains"
+        },
+        {
+         "label": "Seasonal reversal",
+         "on": "बदलते"
+        },
+        {
+         "label": "Farming and livelihoods",
+         "on": "खेती"
+        }
+       ]
+      }
+     ],
+     "about": "Indian monsoon"
+    },
+    {
+     "say": "बस, इस lecture में हमने देखा कि monsoon मौसम के साथ दिशा बदलता है और भारत में बारिश का pattern बनाता है।",
+     "do": [
+      {
+       "op": "title",
+       "text": "The Indian Monsoon",
+       "kicker": "LECTURE RECAP",
+       "highlight": "Monsoon",
+       "sub": "Seasonal winds shape India's rainfall",
+       "on": "monsoon"
+      }
+     ],
+     "about": "Indian monsoon"
+    },
+    {
+     "say": "आगे बढ़ते हुए, हम इसी तरह मौसम और हमारी ज़िंदगी के रिश्ते को समझेंगे।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A wide, warmly observed Indian village scene: a farmer in a rain-fed field, family at a nearby home, monsoon clouds and a sunlit break in the sky, detailed editorial gouache with shaded shapes and highlights",
+       "scene": true,
+       "move": "pullback",
+       "caption": "Weather and everyday life",
+       "points": [
+        "Fields",
+        "Homes",
+        "Daily life"
+       ],
+       "on": "मौसम"
+      }
+     ],
+     "about": "Weather and everyday life in India"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "monsoon.pdf",
+  "run": "mvlfqciq-9b7dff24",
+  "lecture": 1,
+  "chapter": 4,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

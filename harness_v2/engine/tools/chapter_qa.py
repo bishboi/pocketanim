@@ -89,6 +89,9 @@ def main() -> int:
     ap.add_argument("--pictures", choices=("fake", "real"), default="fake")
     ap.add_argument("--every", type=float, default=2.0)
     ap.add_argument("--quality", default="l")
+    # The players' programs run at 30 frames a second; the video at the same rate rounds each play to the same whole
+    # frames (at 15, a chapter's clocks drifted a second apart, and a picture's idle drift with them).
+    ap.add_argument("--fps", type=int, default=30)
     args = ap.parse_args()
     src, out = Path(args.script).resolve(), Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -147,7 +150,8 @@ def main() -> int:
     shutil.rmtree(out / "media", ignore_errors=True)
     shutil.rmtree(out / "export", ignore_errors=True)
     renv = {**env, "PANIM_BEAT_LOG": str(beats), "PANIM_CHECK_LOG": str(checks)}
-    render = subprocess.Popen([py, "-m", "manim", "render", f"-q{args.quality}", "--disable_caching", "--progress_bar",
+    render = subprocess.Popen([py, "-m", "manim", "render", f"-q{args.quality}", "--fps", str(args.fps),
+                               "--disable_caching", "--progress_bar",
                                "none", "-v", "WARNING", str(scene), "GeneratedScene", "--media_dir", str(out / "media")],
                               cwd=out, env=renv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     r = _run([py, TOOLS / "export_scene.py", scene, "GeneratedScene", out / "export"], out, env, out / "export.log",
@@ -217,7 +221,10 @@ def main() -> int:
         t += args.every
     times.append(round(max(0.0, seconds - 0.4), 2))
     asked = [f"{t}@{round(program(t), 3)}" for t in times]
-    r = _run([py, TOOLS / "phone_check.py", out / "export", "GeneratedScene", video, out / "frames", *asked], out, env,
+    # Lined up to within a frame or two (the program loses its frames at particular plays, not evenly): the closest
+    # of the program's frames three either side is judged.
+    r = _run([py, TOOLS / "phone_check.py", out / "export", "GeneratedScene", video, out / "frames", *asked,
+              "--slack", "3"], out, env,
              out / "phone.log", 3600)
     compared = _last_json(r.stdout)
     frames = compared.get("frames") or []
@@ -226,9 +233,26 @@ def main() -> int:
                                                             for f in bad]}
     if not frames:
         report["fail"].append(f"players: no frames compared: {r.stderr[-300:]}")
+    # A difference that is gone half a second either side is a moment of a move played a little apart (a picture
+    # fading in a few frames later): a warning. One still there is a picture the players show and the video does
+    # not, or the other way about (a leftover, a picture that vanished): a failure.
+    lasting = set()
+    if bad:
+        near = [f"{round(f['t'] + d, 2)}@{round(program(f['t'] + d), 3)}" for f in bad for d in (-0.5, 0.5)
+                if 0 <= f["t"] + d < seconds]
+        r2 = _run([py, TOOLS / "phone_check.py", out / "export", "GeneratedScene", video, out / "frames-near", *near,
+                   "--slack", "3"], out, env, out / "phone-near.log", 3600)
+        around = {round(g["t"], 2): g.get("ok") for g in _last_json(r2.stdout).get("frames") or []}
+        for f in bad:
+            if any(around.get(round(f["t"] + d, 2)) is False for d in (-0.5, 0.5)):
+                lasting.add(f["t"])
     for f in bad:
-        report["fail"].append(f"players differ from the video at {f['t']:.1f}s (mean {f['mean']:.1f}, "
-                              f"{100 * f['differ']:.0f}% of pixels)")
+        what = (f"players differ from the video at {f['t']:.1f}s (mean {f['mean']:.1f}, "
+                f"{100 * f['differ']:.0f}% of pixels)")
+        if f["t"] in lasting:
+            report["fail"].append(what)
+        else:
+            report["warn"].append(f"{what}, only for a moment")
     if bad:
         _sheet([(f["t"], f["phone"], f["manim"]) for f in bad[:12]], out / "sheet.png")
         report["sheet"] = str(out / "sheet.png")

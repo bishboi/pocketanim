@@ -1,0 +1,277 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "The Indian Monsoon",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "country": "India"
+ },
+ "place_figures": false,
+ "emblem": "a golden monsoon cloud over India",
+ "genre": "geography",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "The South-West Monsoon",
+   "narration": "Chapter two. South-west monsoon भारत में कैसे फैलता है?",
+   "beats": [
+    {
+     "say": "अब इस हवा का रास्ता map पर देखते हैं।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "Kerala",
+       "label": "Monsoon onset",
+       "side": "right",
+       "on": "map"
+      }
+     ]
+    },
+    {
+     "say": "South-west monsoon करीब पहली June को Kerala पहुँचता है, और फिर दो branches में बँट जाता है।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Kerala",
+        "Mumbai"
+       ],
+       "label": "Arabian Sea branch · ~ June 1",
+       "on": "June"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "Kerala",
+        "Kolkata"
+       ],
+       "label": "Bay of Bengal branch",
+       "color": "#5AB4F0",
+       "on": "branches"
+      }
+     ],
+     "about": "South-west monsoon branches"
+    },
+    {
+     "say": "Arabian Sea branch Western Ghats से टकराती है।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "Arabian Sea branch · ~ June 1",
+       "how": "glow",
+       "on": "Arabian"
+      },
+      {
+       "op": "relief",
+       "names": [
+        "Western Ghats"
+       ],
+       "on": "Western Ghats"
+      }
+     ],
+     "about": "Western Ghats"
+    },
+    {
+     "say": "दूसरी, Bay of Bengal branch, north-east की ओर जाती है और फिर Himalayas के साथ west की तरफ मुड़ती है।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Bay of Bengal",
+        "Kolkata",
+        "Guwahati"
+       ],
+       "label": "north-east",
+       "on": "Bay"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "Guwahati",
+        "Patna",
+        "Delhi"
+       ],
+       "label": "west along the Himalayas",
+       "on": "Himalayas"
+      }
+     ]
+    },
+    {
+     "say": "Mid-July तक monsoon पूरे देश को cover कर लेता है।",
+     "do": [
+      {
+       "op": "arrow",
+       "points": [
+        "Mumbai",
+        "Delhi"
+       ],
+       "label": "spread inland",
+       "on": "Mid-July"
+      },
+      {
+       "op": "arrow",
+       "points": [
+        "Kolkata",
+        "Guwahati",
+        "Delhi"
+       ],
+       "label": "coverage reaches across India",
+       "on": "cover"
+      }
+     ]
+    },
+    {
+     "say": "लेकिन पूरे देश में बारिश बराबर नहीं होती—यहाँ mountains हवा का रास्ता और बारिश की जगह, दोनों बदल देते हैं।",
+     "do": [
+      {
+       "op": "relief",
+       "names": [
+        "Western Ghats",
+        "Himalayas",
+        "Khasi Hills"
+       ],
+       "on": "mountains"
+      }
+     ]
+    },
+    {
+     "say": "Meghalaya के Mawsynram में साल भर में करीब 11,870 millimetres बारिश होती है—दुनिया में सबसे ज़्यादा बारिश वाली जगहों में से एक।",
+     "do": [
+      {
+       "op": "marker",
+       "place": "Mawsynram",
+       "label": "Meghalaya",
+       "side": "right",
+       "on": "Mawsynram"
+      },
+      {
+       "op": "counter",
+       "value": "11,870 mm",
+       "label": "annual rainfall",
+       "kicker": "Mawsynram",
+       "layout": "ring",
+       "max": 12000,
+       "on": "11,870"
+      },
+      {
+       "op": "emphasis",
+       "target": "Mawsynram",
+       "how": "glow",
+       "on": "सबसे"
+      }
+     ]
+    },
+    {
+     "say": "इसके उलट Rajasthan के Thar desert में 150 millimetres से भी कम बारिश होती है।",
+     "do": [
+      {
+       "op": "versus",
+       "layout": "split",
+       "left": {
+        "title": "Mawsynram",
+        "value": "11,870 mm",
+        "points": [
+         "Among the world's wettest"
+        ],
+        "on": "Mawsynram"
+       },
+       "right": {
+        "title": "Thar Desert · Rajasthan",
+        "value": "<150 mm",
+        "points": [
+         "Very little annual rain"
+        ],
+        "on": "Thar"
+       }
+      },
+      {
+       "op": "emphasis",
+       "target": "Thar Desert · Rajasthan",
+       "how": "spotlight",
+       "on": "कम"
+      }
+     ]
+    },
+    {
+     "say": "सोचो, हवा Western Ghats की जिस तरफ़ से आती है, उस windward side पर खूब बारिश होती है।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A clear educational cross-section of the Western Ghats in India, Arabian Sea on the left and rising mountain ridge across the middle, moist blue monsoon clouds driven inland, dense rain falling on the sea-facing slope, a smaller dry ochre plateau beyond the crest, shaded relief and crisp textbook illustration, no text",
+       "scene": true,
+       "labels": [
+        {
+         "name": "Western Ghats",
+         "on": "Western Ghats"
+        },
+        {
+         "name": "windward side · heavy rain",
+         "on": "windward"
+        },
+        {
+         "name": "moist air",
+         "on": "हवा"
+        }
+       ],
+       "move": "pan",
+       "aspect": "16:9",
+       "on": "सोचो"
+      }
+     ]
+    },
+    {
+     "say": "पहाड़ पार करने के बाद leeward side rain shadow में रहती है और सूखी होती है।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "leeward side · rain shadow",
+       "how": "spotlight",
+       "on": "leeward"
+      },
+      {
+       "op": "emphasis",
+       "target": "dry plateau",
+       "how": "glow",
+       "on": "सूखी"
+      }
+     ]
+    },
+    {
+     "say": "मतलब, पहाड़ बारिश को एक तरफ रोककर दूसरी तरफ़ का मौसम बदल देते हैं।",
+     "do": [
+      {
+       "op": "chain",
+       "layout": "zigzag",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "Moist air meets the mountain",
+         "on": "पहाड़"
+        },
+        {
+         "label": "Rain falls on the windward slope",
+         "on": "बारिश"
+        },
+        {
+         "label": "Leeward side lies in a rain shadow",
+         "on": "rain shadow"
+        }
+       ],
+       "on": "पहाड़"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "monsoon.pdf",
+  "run": "mvlfqciq-9b7dff24",
+  "lecture": 1,
+  "chapter": 2,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

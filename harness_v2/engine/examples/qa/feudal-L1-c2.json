@@ -1,0 +1,302 @@
+{
+ "engine": "motion",
+ "look": "paper",
+ "title": "Feudal Society in Medieval Europe",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": {
+  "area": "Western Europe"
+ },
+ "place_figures": false,
+ "emblem": "a golden manor-house on a small plot of land",
+ "genre": "history",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Land and Promises",
+   "narration": "Chapter two. जमीन के बदले कौन-सा वादा?",
+   "beats": [
+    {
+     "say": "अब उस सवाल का सुराग जमीन में है।",
+     "do": [
+      {
+       "op": "title",
+       "text": "Chapter two. जमीन के बदले कौन-सा वादा?",
+       "kicker": "FEUDAL SOCIETY",
+       "highlight": "जमीन",
+       "on": "start"
+      }
+     ]
+    },
+    {
+     "say": "Feudal शब्द German शब्द feud से आया, जिसका मतलब है जमीन का एक टुकड़ा।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "A word rooted in land",
+       "layout": "zigzag",
+       "enter": "write",
+       "steps": [
+        {
+         "label": "German word",
+         "on": "w2"
+        },
+        {
+         "label": "feud",
+         "on": "w4"
+        },
+        {
+         "label": "a piece of land",
+         "on": "w10"
+        }
+       ]
+      }
+     ],
+     "pause": 0.7,
+     "about": "Feudalism"
+    },
+    {
+     "say": "सोचिए, किसी powerful lord के पास जमीन है, और उसे लोगों की मदद चाहिए—वह क्या दे सकता है?",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A powerful medieval European lord standing above a broad estate, with fields, a small village and retainers in the distance; detailed shaded manuscript-inspired gouache, warm gold highlights, deep navy shadows, no writing",
+       "scene": true,
+       "move": "pullback",
+       "labels": [
+        {
+         "name": "lord",
+         "on": "w3"
+        },
+        {
+         "name": "land",
+         "on": "w6"
+        }
+       ],
+       "on": "start"
+      },
+      {
+       "op": "ask",
+       "text": "What could a lord give in return for help?",
+       "kicker": "A LAND-BASED BOND",
+       "on": "w14"
+      }
+     ],
+     "about": "A lord and his land"
+    },
+    {
+     "say": "वह अपने vassal को fief देता—यानी जमीन का grant।",
+     "do": [
+      {
+       "op": "exchange",
+       "left": {
+        "title": "Lord",
+        "picture": {
+         "generate": "A medieval European lord in a gold-trimmed dark robe, holding out a land charter; detailed shaded manuscript-inspired gouache, no writing"
+        }
+       },
+       "right": {
+        "title": "Vassal",
+        "picture": {
+         "generate": "A medieval European vassal kneeling to receive a land grant, wearing a simple mail coif and tunic; detailed shaded manuscript-inspired gouache, no writing"
+        },
+        "on": "w2"
+       },
+       "flows": [
+        {
+         "from": "left",
+         "text": "Fief: a grant of land",
+         "on": "w4"
+        }
+       ]
+      }
+     ],
+     "about": "Lord grants a fief to a vassal"
+    },
+    {
+     "say": "बदले में vassal loyalty की कसम खाता, war में knight बनकर लड़ता और lord को advice देता।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "What the vassal owes",
+       "layout": "zigzag",
+       "enter": "slide",
+       "steps": [
+        {
+         "label": "Swear loyalty",
+         "on": "w3"
+        },
+        {
+         "label": "Fight as a knight in war",
+         "picture": {
+          "generate": "A medieval knight in mail charging into battle on horseback, detailed illuminated-manuscript style with shaded metal highlights, no writing"
+         },
+         "on": "w7"
+        },
+        {
+         "label": "Give advice to the lord",
+         "on": "w15"
+        }
+       ]
+      }
+     ],
+     "pause": 0.6,
+     "about": "Vassal obligations"
+    },
+    {
+     "say": "और बदले में lord protection और justice देने का वादा करता।",
+     "do": [
+      {
+       "op": "exchange",
+       "left": "Lord",
+       "right": "Vassal",
+       "flows": [
+        {
+         "from": "left",
+         "text": "Protection",
+         "on": "w4"
+        },
+        {
+         "from": "left",
+         "text": "Justice",
+         "on": "w6"
+        },
+        {
+         "from": "right",
+         "text": "Loyalty and service",
+         "on": "w2"
+        }
+       ]
+      }
+     ],
+     "pause": 1,
+     "about": "Reciprocal duties between lord and vassal"
+    },
+    {
+     "say": "यह सिर्फ जमीन का सौदा नहीं था; दोनों तरफ जिम्मेदारियों और वादों का रिश्ता था।",
+     "do": [
+      {
+       "op": "myth",
+       "wrong": "A simple land sale",
+       "right": "A bond of mutual duties and promises",
+       "label": "Not just a transaction",
+       "on": "w7"
+      }
+     ],
+     "pause": 0.8,
+     "about": "Mutual obligations"
+    },
+    {
+     "say": "यह chain king से शुरू होकर सबसे छोटे knight तक जाती थी।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "Land and obligations",
+       "layout": "row",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "King",
+         "on": "w2"
+        },
+        {
+         "label": "Lords",
+         "on": "w4"
+        },
+        {
+         "label": "Knights",
+         "on": "w8"
+        }
+       ]
+      }
+     ],
+     "about": "Feudal chain of obligations"
+    },
+    {
+     "say": "Charlemagne ने, जो 768 से 814 तक Franks पर rule करता था, nobles को अपने साथ बाँधने के लिए land grants दिए।",
+     "do": [
+      {
+       "op": "portrait_card",
+       "name": "Charlemagne",
+       "dates": "768–814",
+       "role": "Ruler of the Franks",
+       "picture": {
+        "generate": "Charlemagne in a jeweled crown and richly patterned early medieval royal robes, formal manuscript portrait with detailed shaded gold highlights and deep blue background"
+       },
+       "facts": [
+        {
+         "text": "Bound nobles to him",
+         "on": "w12"
+        },
+        {
+         "text": "Granted them land",
+         "on": "w19"
+        }
+       ],
+       "on": "w0"
+      }
+     ],
+     "pause": 1.2,
+     "about": "Charlemagne"
+    },
+    {
+     "say": "ग्यारहवीं सदी तक यह system western और central Europe के बड़े हिस्से में फैल चुका था।",
+     "do": [
+      {
+       "op": "state",
+       "name": "France",
+       "label": "Western Europe · 11th c.",
+       "color": "#E3B25A",
+       "opacity": 0.55,
+       "on": "w5"
+      },
+      {
+       "op": "state",
+       "name": "Germany",
+       "label": "Central Europe · 11th c.",
+       "color": "#5AB4F0",
+       "opacity": 0.55,
+       "on": "w7"
+      }
+     ],
+     "about": "Feudal system in western and central Europe"
+    },
+    {
+     "say": "यानी Rome के बाद, बहुत-सी जगहों पर power अब local land और ऐसे रिश्तों से चलती थी।",
+     "do": [
+      {
+       "op": "before_after",
+       "before": {
+        "title": "Roman rule",
+        "points": [
+         "Central government",
+         "Public roads and armies"
+        ]
+       },
+       "after": {
+        "title": "Local power",
+        "points": [
+         "Land in local hands",
+         "Promises bind lord and vassal"
+        ],
+        "on": "w7"
+       },
+       "change": "Power shifts toward local land and ties",
+       "on": "w1"
+      }
+     ],
+     "about": "Local power after Rome"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "feudal.pdf",
+  "run": "mvlfhklg-e6dc51fb",
+  "lecture": 1,
+  "chapter": 2,
+  "language": "hinglish",
+  "look": "paper"
+ }
+}

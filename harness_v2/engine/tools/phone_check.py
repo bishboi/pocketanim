@@ -11,7 +11,8 @@ Usage:
 
 Prints one JSON object: {"frames": [{"t", "phone", "manim", "mean", "differ", "ok"}], "ok", "seconds"}. With `-`
 for the video, only the phone's frames are drawn. A time `T@P` compares the video at T with the program at P (the
-two clocks lined up by the caller, as tools/chapter_qa.py does by where each line's voice starts).
+two clocks lined up by the caller, as tools/chapter_qa.py does by where each line's voice starts). `--slack N`: a
+frame that differs is compared again with the program's frames up to N either side, and the closest is judged.
 """
 
 from __future__ import annotations
@@ -49,7 +50,8 @@ def _manim_frame(video: Path, index: int, fps: int):
     return np.frombuffer(raw[:WIDTH * HEIGHT * 3], dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
 
 
-def check(build_dir: Path, scene_class: str, video: Path | None, out_dir: Path, times: list[float]) -> dict:
+def check(build_dir: Path, scene_class: str, video: Path | None, out_dir: Path, times: list[float],
+          slack: int = 0) -> dict:
     import numpy as np
     from PIL import Image
 
@@ -82,9 +84,25 @@ def check(build_dir: Path, scene_class: str, video: Path | None, out_dir: Path, 
             if manim is not None:
                 mname = f"manim_{t:07.2f}.png"
                 Image.fromarray(manim).save(out_dir / mname)
-                delta = np.abs(phone.astype(np.int16) - manim.astype(np.int16))
-                row.update(manim=str(out_dir / mname), mean=round(float(delta.mean()), 2),
-                           differ=round(float((delta.max(axis=2) > DIFFER).mean()), 4))
+                def judged(frame):
+                    delta = np.abs(frame.astype(np.int16) - manim.astype(np.int16))
+                    return round(float(delta.mean()), 2), round(float((delta.max(axis=2) > DIFFER).mean()), 4)
+
+                mean, differ = judged(phone)
+                # `slack`: the program's frames this many either side may stand in, when the two clocks are lined up
+                # only to within a frame or two (a fast wipe is a different picture two frames later).
+                for k in [d for step in range(1, slack + 1) for d in (step, -step)]:
+                    if mean <= MEAN_LIMIT and differ <= SHARE_LIMIT:
+                        break
+                    near = index + k
+                    if 0 <= near < count:
+                        frame = render_frame(ir, near, WIDTH, HEIGHT)
+                        m2, d2 = judged(frame)
+                        if (m2, d2) < (mean, differ):
+                            mean, differ, phone = m2, d2, frame
+                            row["shifted"] = k
+                            Image.fromarray(phone).save(out_dir / name)
+                row.update(manim=str(out_dir / mname), mean=mean, differ=differ)
                 row["ok"] = row["mean"] <= MEAN_LIMIT and row["differ"] <= SHARE_LIMIT
         frames.append(row)
     judged = [f for f in frames if "ok" in f]
@@ -97,8 +115,14 @@ def main() -> int:
         print(__doc__.strip().splitlines()[-4], file=sys.stderr)
         return 2
     build_dir, scene_class, video, out_dir = sys.argv[1:5]
-    times = [tuple(float(x) for x in t.split("@")) if "@" in t else float(t) for t in sys.argv[5:]]
-    result = check(Path(build_dir), scene_class, None if video == "-" else Path(video), Path(out_dir), times)
+    rest = sys.argv[5:]
+    slack = 0
+    if "--slack" in rest:
+        at = rest.index("--slack")
+        slack = int(rest[at + 1])
+        rest = rest[:at] + rest[at + 2:]
+    times = [tuple(float(x) for x in t.split("@")) if "@" in t else float(t) for t in rest]
+    result = check(Path(build_dir), scene_class, None if video == "-" else Path(video), Path(out_dir), times, slack)
     print(json.dumps(result))
     return 0
 

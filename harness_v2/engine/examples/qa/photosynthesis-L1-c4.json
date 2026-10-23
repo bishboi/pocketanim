@@ -1,0 +1,188 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "Photosynthesis",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a green leaf with a sunlit vein",
+ "genre": "chemistry",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "What Limits It?",
+   "narration": "Chapter four. कौन-सी कमी photosynthesis को धीमा कर सकती है?",
+   "beats": [
+    {
+     "say": "अब सोचो, greenhouse में पौधे को भरपूर पानी और अच्छी रोशनी मिले, लेकिन carbon dioxide कम हो।",
+     "do": [
+      {
+       "op": "picture",
+       "generate": "A lush tomato plant inside a glass greenhouse, sunbeams slanting through the panes, irrigation droplets at the roots, a few sparse carbon-dioxide particles drifting toward the leaves; detailed botanical illustration with shaded shapes, bright highlights and fine engraved rims, against a dark navy atmosphere, no text",
+       "scene": true,
+       "move": "pan",
+       "labels": [
+        {
+         "name": "plentiful water",
+         "on": "पानी"
+        },
+        {
+         "name": "strong light",
+         "on": "रोशनी"
+        },
+        {
+         "name": "low CO₂",
+         "on": "कम"
+        }
+       ],
+       "on": "start"
+      },
+      {
+       "op": "emphasis",
+       "target": "low CO₂",
+       "how": "circle",
+       "on": "कम"
+      }
+     ],
+     "paragraph": true,
+     "about": "Greenhouse plant"
+    },
+    {
+     "say": "क्या photosynthesis उतनी तेज़ चलेगी?",
+     "do": [
+      {
+       "op": "ask",
+       "text": "Will photosynthesis run just as fast?",
+       "kicker": "A limiting-factor test",
+       "on": "photosynthesis"
+      }
+     ]
+    },
+    {
+     "say": "नहीं, कमी वाला factor पूरी process को limit कर देगा।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "limiting",
+       "layout": "zigzag",
+       "enter": "drop",
+       "steps": [
+        {
+         "label": "One factor is scarce",
+         "on": "कमी"
+        },
+        {
+         "label": "The whole process slows",
+         "on": "process"
+        },
+        {
+         "label": "Rate is capped",
+         "on": "limit"
+        }
+       ],
+       "on": "नहीं"
+      }
+     ]
+    },
+    {
+     "say": "Photosynthesis की rate तीन चीज़ों पर depend करती है: light intensity, carbon dioxide concentration और temperature।",
+     "do": [
+      {
+       "op": "mind_map",
+       "id": "ratefactors",
+       "enter": "rise",
+       "center": "Photosynthesis rate",
+       "branches": [
+        {
+         "label": "Light intensity",
+         "on": "light"
+        },
+        {
+         "label": "CO₂ concentration",
+         "on": "carbon"
+        },
+        {
+         "label": "Temperature",
+         "on": "temperature"
+        }
+       ],
+       "on": "Photosynthesis"
+      }
+     ]
+    },
+    {
+     "say": "इनमें से कोई एक भी कम पड़े, तो बाकी दोनों भरपूर होने पर भी rate को वही रोकता है।",
+     "do": [
+      {
+       "op": "manim",
+       "id": "limiting-factors",
+       "code": "greenhouse = image(\"tomato_greenhouse\", height=3.75)\ngreenhouse.move_to([3.75, -0.05, 0])\n\nco2_title = Text(\"CO₂ IN THE GREENHOUSE\", font_size=28, color=INK)\nco2_title.move_to([-4.05, 2.25, 0])\n\nbase_y = -1.25\nbar_w = 0.82\nambient_x = -5.15\ngreenhouse_x = -3.25\nmax_h = 2.55\nambient_h = 1.07\nraised_h = 2.55\n\nambient_frame = Rectangle(width=bar_w, height=max_h, stroke_color=MUTED_INK, stroke_width=2, fill_opacity=0)\nambient_frame.move_to([ambient_x, base_y + max_h/2, 0])\nraised_frame = Rectangle(width=bar_w, height=max_h, stroke_color=MUTED_INK, stroke_width=2, fill_opacity=0)\nraised_frame.move_to([greenhouse_x, base_y + max_h/2, 0])\n\nambient_fill = Rectangle(width=bar_w-0.10, height=ambient_h, stroke_width=0, fill_color=PALETTE[\"GOLD\"], fill_opacity=0.95)\nambient_fill.move_to([ambient_x, base_y + ambient_h/2, 0])\nlow_fill = Rectangle(width=bar_w-0.10, height=0.65, stroke_width=0, fill_color=PALETTE[\"GOLD\"], fill_opacity=0.95)\nlow_fill.move_to([greenhouse_x, base_y + 0.325, 0])\nfull_fill = Rectangle(width=bar_w-0.10, height=raised_h, stroke_width=0, fill_color=PALETTE[\"GOLD\"], fill_opacity=0.95)\nfull_fill.move_to([greenhouse_x, base_y + raised_h/2, 0])\n\nambient_label = Text(\"Ambient air\", font_size=23, color=INK)\nambient_label.move_to([ambient_x, 1.65, 0])\ngreenhouse_label = Text(\"Greenhouse\", font_size=23, color=INK)\ngreenhouse_label.move_to([greenhouse_x, 1.65, 0])\nambient_value = Text(\"≈420 ppm\", font_size=23, color=MUTED_INK)\nambient_value.move_to([ambient_x, -1.78, 0])\nraised_value = Text(\"≈1000 ppm\", font_size=25, color=PALETTE[\"GOLD\"])\nraised_value.move_to([greenhouse_x, -1.78, 0])\nratio_note = Text(\"More than 2× ambient air\", font_size=25, color=INK)\nratio_note.move_to([-4.15, -2.35, 0])\n\nfaster_note = Text(\"Tomatoes grow faster\", font_size=25, color=INK)\nfaster_note.move_to([3.75, -2.25, 0])\ngrowth_arrow = Arrow(start=[1.55, -1.25, 0], end=[1.55, 0.15, 0], color=PALETTE[\"GREEN\"], stroke_width=5, buff=0)\n\nself.play(FadeIn(greenhouse), Write(co2_title), run_time=1.0)\nself.play(FadeIn(ambient_frame), FadeIn(raised_frame), FadeIn(ambient_fill), Write(ambient_label), Write(greenhouse_label), run_time=0.9)\nself.play(Write(ambient_value), FadeIn(low_fill), run_time=0.7)\nself.play(ReplacementTransform(low_fill, full_fill), Write(raised_value), run_time=1.0)\nself.play(Write(ratio_note), GrowArrow(growth_arrow), Write(faster_note), run_time=0.9)\nself.wait(0.4)",
+       "plan": "On a clean dark board, draw three parallel horizontal factor sliders labelled Light, CO₂, and Temperature, each initially high in gold. As the spoken line describes a factor being low, animate any one slider (cycle through the three as a visual 'whichever one') dropping to a short sand-colored level while the other two stay high. Beneath them draw a shared photosynthesis-rate output bar; its fill falls to match the shortest slider, with a clear connector from the short slider to the output. Keep labels large and readable; use the newsroom palette and shaded rimmed shapes. Do not assign numerical values."
+      }
+     ]
+    },
+    {
+     "say": "इसीलिए greenhouse में farmers carbon dioxide को करीब 1000 parts per million तक बढ़ाते हैं।",
+     "do": [
+      {
+       "op": "counter",
+       "value": "1,000 ppm",
+       "label": "carbon dioxide in the greenhouse",
+       "kicker": "CO₂ enrichment",
+       "layout": "ring",
+       "max": 1200,
+       "start": 0,
+       "on": "1000"
+      }
+     ]
+    },
+    {
+     "say": "यह हवा के level से दोगुने से भी ज़्यादा है, और इससे tomatoes तेज़ी से बढ़ते हैं।",
+     "do": [
+      {
+       "op": "versus",
+       "layout": "split",
+       "enter": "slide",
+       "left": {
+        "title": "Ambient air",
+        "points": [
+         {
+          "text": "≈420 ppm CO₂",
+          "on": "हवा"
+         }
+        ],
+        "on": "start"
+       },
+       "right": {
+        "title": "CO₂-enriched greenhouse",
+        "points": [
+         {
+          "text": "≈1,000 ppm",
+          "on": "ज़्यादा"
+         },
+         {
+          "text": "Tomatoes grow faster",
+          "on": "तेज़ी"
+         }
+        ],
+        "on": "दोगुने"
+       },
+       "on": "यह"
+      }
+     ],
+     "about": "Greenhouse tomatoes"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "photosynthesis.pdf",
+  "run": "mvlfwb20-3ed5a0c0",
+  "lecture": 1,
+  "chapter": 4,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

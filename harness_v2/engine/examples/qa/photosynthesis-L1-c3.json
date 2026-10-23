@@ -1,0 +1,288 @@
+{
+ "engine": "motion",
+ "look": "newsroom",
+ "title": "Photosynthesis",
+ "sub": "",
+ "style": "atlas",
+ "art": "auto",
+ "region": null,
+ "place_figures": false,
+ "emblem": "a green leaf with a sunlit vein",
+ "genre": "chemistry",
+ "figures": {},
+ "chapters": [
+  {
+   "title": "Two Stages",
+   "narration": "Chapter three. Photosynthesis के दो stages मिलकर glucose बनाते हैं।",
+   "beats": [
+    {
+     "say": "Chloroplast के अंदर यह काम दो stages में होता है।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A detailed textbook cutaway of a chloroplast, oval organelle with a double outer envelope, fluid stroma, and stacks of coin-like thylakoid discs; shaded green shapes with fine highlights and rims against a dark navy field",
+       "labels": [
+        {
+         "name": "outer membrane",
+         "on": "Chloroplast"
+        },
+        {
+         "name": "stroma",
+         "on": "inside"
+        },
+        {
+         "name": "thylakoid stacks",
+         "on": "two stages"
+        }
+       ],
+       "caption": "Two stages inside one chloroplast",
+       "on": "Chloroplast"
+      }
+     ],
+     "paragraph": true,
+     "about": "Chloroplast"
+    },
+    {
+     "say": "पहले light reactions होते हैं, thylakoid membranes में।",
+     "do": [
+      {
+       "op": "emphasis",
+       "target": "thylakoid stacks",
+       "how": "glow",
+       "on": "thylakoid"
+      },
+      {
+       "op": "define",
+       "term": "Light reactions",
+       "meaning": "The first stage, taking place on thylakoid membranes",
+       "on": "light reactions"
+      }
+     ],
+     "about": "Light reactions"
+    },
+    {
+     "say": "यहाँ light energy पानी के molecules को split करती है, और oxygen release होती है।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "lightstage",
+       "layout": "row",
+       "enter": "slide",
+       "steps": [
+        {
+         "label": "Light + H₂O",
+         "on": "light energy"
+        },
+        {
+         "label": "O₂ released",
+         "on": "oxygen"
+        },
+        {
+         "label": "Energy captured",
+         "on": "energy stored"
+        }
+       ]
+      },
+      {
+       "op": "picture",
+       "generate": "Close-up scientific illustration of a water molecule splitting at a glowing thylakoid membrane under incoming rays of light; oxygen bubbles drift away, richly shaded, precise educational art",
+       "caption": "Water split; oxygen released",
+       "on": "split"
+      }
+     ],
+     "about": "Light reactions"
+    },
+    {
+     "say": "साथ ही energy दो carrier molecules में store होती है: ATP और NADPH।",
+     "do": [
+      {
+       "op": "kpi",
+       "layout": "row",
+       "cards": [
+        {
+         "label": "Energy carrier",
+         "value": "ATP",
+         "on": "ATP"
+        },
+        {
+         "label": "Electron carrier",
+         "value": "NADPH",
+         "on": "NADPH"
+        }
+       ],
+       "kicker": "LIGHT REACTIONS",
+       "on": "carrier molecules"
+      }
+     ],
+     "about": "ATP and NADPH"
+    },
+    {
+     "say": "फिर आता है Calvin cycle।",
+     "do": [
+      {
+       "op": "cycle_wheel",
+       "id": "calvin",
+       "enter": "spin",
+       "center": "Calvin cycle",
+       "steps": [
+        {
+         "label": "CO₂ enters",
+         "on": "Calvin cycle"
+        },
+        {
+         "label": "Carbon fixed"
+        },
+        {
+         "label": "Sugar formed"
+        }
+       ]
+      }
+     ],
+     "about": "Calvin cycle"
+    },
+    {
+     "say": "यह thylakoids के आसपास के fluid, यानी stroma में होता है।",
+     "do": [
+      {
+       "op": "picture",
+       "draw": "A chloroplast cross-section in detailed textbook style: oval double membrane enclosing pale green fluid stroma around several darker stacks of thylakoid discs; a luminous circular pathway sits in the surrounding fluid",
+       "labels": [
+        {
+         "name": "thylakoids",
+         "on": "thylakoids"
+        },
+        {
+         "name": "surrounding fluid",
+         "on": "fluid"
+        },
+        {
+         "name": "stroma",
+         "on": "stroma"
+        }
+       ],
+       "caption": "The Calvin cycle takes place in the stroma",
+       "on": "stroma"
+      }
+     ],
+     "about": "Stroma"
+    },
+    {
+     "say": "यह ATP और NADPH की stored energy इस्तेमाल करके carbon dioxide को sugar में fix करता है।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "calvininputs",
+       "layout": "zigzag",
+       "enter": "rise",
+       "steps": [
+        {
+         "label": "ATP + NADPH",
+         "on": "ATP"
+        },
+        {
+         "label": "CO₂ fixed",
+         "on": "carbon dioxide"
+        },
+        {
+         "label": "Sugar",
+         "on": "sugar"
+        }
+       ]
+      },
+      {
+       "op": "emphasis",
+       "target": "calvin",
+       "how": "pulse",
+       "on": "fix"
+      }
+     ],
+     "about": "Calvin cycle"
+    },
+    {
+     "say": "एक बात में अक्सर गड़बड़ होती है: Calvin cycle को light सीधे नहीं चाहिए, लेकिन light reactions से बने ATP और NADPH ज़रूर चाहिए।",
+     "do": [
+      {
+       "op": "versus",
+       "id": "stagecontrast",
+       "layout": "split",
+       "enter": "unfold",
+       "left": {
+        "title": "Light reactions",
+        "points": [
+         {
+          "text": "Use light directly",
+          "on": "light reactions"
+         },
+         {
+          "text": "Split water; release O₂"
+         },
+         {
+          "text": "Make ATP + NADPH"
+         }
+        ]
+       },
+       "right": {
+        "title": "Calvin cycle",
+        "points": [
+         {
+          "text": "No direct light required",
+          "on": "not"
+         },
+         {
+          "text": "Uses ATP + NADPH",
+          "on": "ATP"
+         }
+        ],
+        "on": "but"
+       }
+      },
+      {
+       "op": "stamp",
+       "text": "Indirectly light-dependent",
+       "on": "ज़ूर चाहिए",
+       "delay": 0.3
+      }
+     ],
+     "about": "Light reactions and Calvin cycle"
+    },
+    {
+     "say": "दोनों stages जुड़े हुए हैं।",
+     "do": [
+      {
+       "op": "chain",
+       "id": "twoStages",
+       "layout": "row",
+       "enter": "pop",
+       "on": "start",
+       "steps": [
+        {
+         "label": "Light reactions",
+         "on": "stages"
+        },
+        {
+         "label": "Calvin cycle",
+         "on": "जुड़े"
+        }
+       ]
+      },
+      {
+       "op": "emphasis",
+       "target": "twoStages",
+       "how": "glow",
+       "on": "हैं"
+      }
+     ],
+     "about": "Photosynthesis"
+    }
+   ]
+  }
+ ],
+ "qa": {
+  "source": "photosynthesis.pdf",
+  "run": "mvlfwb20-3ed5a0c0",
+  "lecture": 1,
+  "chapter": 3,
+  "language": "hinglish",
+  "look": "newsroom"
+ }
+}

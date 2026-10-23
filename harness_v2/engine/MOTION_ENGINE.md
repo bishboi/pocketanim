@@ -966,6 +966,33 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
   left out, plays one with the voice, and compiles a lecture's chapter in a motion look.
 - `PANIM_IMAGES=1 PANIM_IMAGE_FAKE=1` builds with stand-in pictures, offline.
 
+### The QA loop: build chapters, judge them, fix, again
+
+```sh
+# test chapters made as the app makes them (lecture written, voice first, motion scenes), from source PDFs; needs
+# the environment's model and voice keys; run from a scratch folder (its runs go in ./.data)
+node --experimental-strip-types --import harness_v2/app/scripts/ts-resolve.mjs harness_v2/app/scripts/qa-build.mjs \
+    harness_v2/engine/examples/qa/sources/feudal.pdf [--minutes 4] [--language hinglish] [--look paper]
+# one chapter built and judged / the whole test set (engine/examples/qa/*.json), a table of what failed
+.venv/bin/python harness_v2/engine/tools/chapter_qa.py harness_v2/engine/examples/qa/<name>.json out/<name>
+.venv/bin/python harness_v2/engine/tools/qa_suite.py --out qa-out [--jobs 3] [--voice fake|real]
+```
+
+`chapter_qa.py` builds a chapter as the Scenes tab does (no title slide or closing fade; the credits over the last
+picture), spoken in the stand-in voice (`--voice fake`, exact word times, free) or the real one (`--voice real`),
+rendered with Manim and exported for the players, and fails it on: a compile error; a picture the engine left out;
+a **leftover** (anything of a picture that has left the stage still drawn after a line or under the credits:
+`MotionLecture._m_leftovers`, written to the beat log as `leftover`); an export below tier 1; a frame where **the
+players differ from the video** (drawn from the program by the reference renderer, `tools/phone_check.py`, the two
+clocks lined up by where each line's voice starts on each: the beat log's `voice` rows and the export's `clips`).
+Timing (the sync probe: anchors on their words, still seconds a minute) and the engine's visual check are warnings.
+Each chapter's `report.json` says why, and `sheet.png` shows each differing frame, the players' beside Manim's.
+
+The program's clock runs a little short of the video's (about 0.07 s a line: verbs run whole frames); the players
+place each line's voice on the program's clock, so on a phone voice and picture keep together, and the check lines
+the clocks up rather than comparing the same second. A test chapter is a beat script as `engineScript` writes it,
+with a `qa` field saying where it came from (the compiler ignores it). Every bug fixed adds its chapter to the set.
+
 ---
 
 ## 11. Known gaps

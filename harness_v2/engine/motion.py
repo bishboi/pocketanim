@@ -705,6 +705,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         """The engine's fade-outs for what leaves the stage, made the look's exit: slid out (the way the next
         comes from), pushed up, zoomed past; for a wipe, taken away under the wipe as the next line begins."""
         staged = {id(m) for m in [self.stage_items, *self.stage_extra]}
+        self._m_gone.extend(m for m in [self.stage_items, *self.stage_extra, *self.stage_pending] if m is not None)
         # Parts of the leaving picture still to come on when this was built (a question's answer, said earlier in
         # the line than the next picture): up by the time the picture leaves, they leave with it (_room_moves).
         pending = list(self.stage_pending)
@@ -759,6 +760,48 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             k, self._m_kara, self._m_cap_ready = self._m_kara, None, {}
             if k and k.get("cur") is not None and any(k["cur"] is m for m in self.mobjects):
                 self.remove(k["cur"])
+            self._m_leftovers("line", text)
+
+    # ---------------------------------------------------------------- the leftover check -------------------------
+    # Every picture that has left the stage is remembered; after each line, and as the closing credits come on,
+    # anything of one still drawn is written to the beat log ("leftover": what, where), for the QA run
+    # (tools/chapter_qa.py) to fail the chapter on. Only with PANIM_BEAT_LOG set.
+    @property
+    def _m_gone(self) -> list:
+        return self.__dict__.setdefault("_m_gone_list", [])
+
+    def credits(self, *args, **kwargs):
+        """The engine's closing credits, after a last check that nothing of an earlier picture is left under them."""
+        self._m_leftovers("credits")
+        return super().credits(*args, **kwargs)
+
+    def _m_leftovers(self, where: str, line: str = "") -> None:
+        if not os.environ.get("PANIM_BEAT_LOG") or not self._m_gone:
+            return
+        now = {id(x) for m in [self.stage_items, *self.stage_extra, *self.stage_pending] if m is not None
+               for x in m.get_family()}
+        gone = {id(x): x for m in self._m_gone for x in m.get_family() if id(x) not in now}
+        seen, names = 0, []
+        for top in self.mobjects:
+            for x in top.get_family():
+                if id(x) not in gone or x.submobjects and not isinstance(x, (Text, MarkupText)):
+                    continue
+                try:
+                    if isinstance(x, ImageMobject):
+                        shown = float(getattr(x, "fill_opacity", 1) or 0) > 0.05
+                    else:
+                        shown = len(x.points) > 0 and (x.get_fill_opacity() > 0.05 or
+                                                       x.get_stroke_opacity() * (x.get_stroke_width() or 0) > 0.05)
+                except Exception:  # noqa: BLE001
+                    shown = False
+                if not shown:
+                    continue
+                seen += 1
+                name = (getattr(x, "original_text", "") or getattr(x, "text", "") or "").strip()
+                if name and name not in names and len(names) < 6:
+                    names.append(name[:40])
+        if seen:
+            self._log("leftover", where=where, line=line[:80], count=seen, what=names)
 
     def _m_beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
                 cues: list | None = None) -> float:
@@ -805,6 +848,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if k is not None and k.get("t0") is None:
             k["t0"] = begun
         line = self.__dict__.pop("_m_line", None)
+        if wav:
+            # Where the voice begins on the video's clock: the QA run lines the players' clock up with it by these.
+            self._log("voice", wav=str(wav), at=round(begun, 3))
         if wav and line:
             self._m_music(line, begun, float(seconds or 0.0))
 

@@ -10,7 +10,8 @@ Usage:
     python harness_v2/engine/tools/phone_check.py <build_dir> <SceneClass> <video.mp4|-> <out_dir> <t> [<t> ...]
 
 Prints one JSON object: {"frames": [{"t", "phone", "manim", "mean", "differ", "ok"}], "ok", "seconds"}. With `-`
-for the video, only the phone's frames are drawn.
+for the video, only the phone's frames are drawn. A time `T@P` compares the video at T with the program at P (the
+two clocks lined up by the caller, as tools/chapter_qa.py does by where each line's voice starts).
 """
 
 from __future__ import annotations
@@ -67,13 +68,17 @@ def check(build_dir: Path, scene_class: str, video: Path | None, out_dir: Path, 
     count = len(ir.records)
     frames = []
     for t in times:
-        index = max(0, min(count - 1, int(round(t * ir.fps))))
+        # A time, or (the video's time, the program's): the program's clock can run a little apart from the video's
+        # over a long scene (verbs run whole frames), and a check lines the two up by where each line's voice starts.
+        t, p = (t, t) if not isinstance(t, (tuple, list)) else t
+        index = max(0, min(count - 1, int(round(p * ir.fps))))
+        at = max(0, int(round(t * ir.fps)))
         phone = render_frame(ir, index, WIDTH, HEIGHT)
         name = f"phone_{t:07.2f}.png"
         Image.fromarray(phone).save(out_dir / name)
-        row = {"t": t, "phone": str(out_dir / name)}
+        row = {"t": t, "phone": str(out_dir / name), **({"program": round(p, 3)} if p != t else {})}
         if video is not None:
-            manim = _manim_frame(video, index, ir.fps)
+            manim = _manim_frame(video, at, ir.fps)
             if manim is not None:
                 mname = f"manim_{t:07.2f}.png"
                 Image.fromarray(manim).save(out_dir / mname)
@@ -92,7 +97,7 @@ def main() -> int:
         print(__doc__.strip().splitlines()[-4], file=sys.stderr)
         return 2
     build_dir, scene_class, video, out_dir = sys.argv[1:5]
-    times = [float(t) for t in sys.argv[5:]]
+    times = [tuple(float(x) for x in t.split("@")) if "@" in t else float(t) for t in sys.argv[5:]]
     result = check(Path(build_dir), scene_class, None if video == "-" else Path(video), Path(out_dir), times)
     print(json.dumps(result))
     return 0

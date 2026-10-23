@@ -1,0 +1,185 @@
+{
+ "engine": "motion",
+ "look": "paper",
+ "title": "Feudal Society",
+ "region": {
+  "area": "Western Europe"
+ },
+ "place_figures": false,
+ "teaching_rules": false,
+ "auto_visuals": false,
+ "chapters": [
+  {
+   "title": "After Rome: a new order",
+   "narration": "Chapter one. After Rome: a new order.",
+   "beats": [
+    {
+     "say": "Rome के गिरने के बाद, बिना central power के, लोग अपनी ज़मीन और safety कैसे बचाते? और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "ask",
+       "kicker": "After Rome",
+       "text": "Without a central power, how could people protect their land and safety?",
+       "on": "ज़मीन"
+      }
+     ]
+    },
+    {
+     "say": "पाँचवीं से पंद्रहवीं century तक के दौर को European history में medieval era कहते हैं। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "define",
+       "term": "Medieval era",
+       "meaning": "European history from the fifth to the fifteenth century",
+       "on": "medieval era"
+      }
+     ]
+    },
+    {
+     "say": "Rome के पतन के बाद eastern Europe और central Europe से आए groups ने Spain और France पर कब्ज़ा किया। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "migration_flow",
+       "regions": [
+        "Eastern Europe",
+        "Central Europe",
+        "France",
+        "Spain"
+       ],
+       "flows": [
+        {
+         "from": "Eastern Europe",
+         "to": "France",
+         "value": 5000
+        },
+        {
+         "from": "Central Europe",
+         "to": "Spain",
+         "value": 3000
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "जमीन बचाने के लिए लोगों को resources जुटाने पड़ते थे, और धीरे-धीरे society का बड़ा आधार बन गई जमीन। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "chain",
+       "title": "The new basis of society",
+       "steps": [
+        "Land",
+        "Resources",
+        "Power"
+       ]
+      }
+     ]
+    },
+    {
+     "say": "इसमें एक तरफ lord थे जो जमीन देते थे, और दूसरी तरफ vassal जो सेवा करते थे। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "versus",
+       "left": {
+        "title": "Lord",
+        "points": [
+         "Gives land",
+         "Gives protection"
+        ]
+       },
+       "right": {
+        "title": "Vassal",
+        "points": [
+         "Serves",
+         "Fights"
+        ],
+        "on": "vassal"
+       }
+      }
+     ]
+    },
+    {
+     "say": "इस दुनिया में तीन बड़े social groups दिखते हैं: clergy, nobility और peasants। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "hierarchy",
+       "tiers": [
+        {
+         "label": "Clergy",
+         "note": "Christian priests"
+        },
+        {
+         "label": "Nobility",
+         "note": "landowners"
+        },
+        {
+         "label": "Peasantry",
+         "note": "those who work the land"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "say": "Christianity, जो चौथी century से Roman Empire का official religion थी, Rome के गिरने के बाद भी बनी रही और central तथा northern Europe में फैलती गई। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "timeline",
+       "title": "Christianity outlasts Rome",
+       "events": [
+        [
+         "Roman Empire",
+         "Earlier practices"
+        ],
+        [
+         "742–814",
+         "Charlemagne's era"
+        ],
+        [
+         "11th century",
+         "Established across much of Europe"
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "say": "France में feudalism पर काम करने वाले शुरुआती scholars में Marc Bloch थे। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "portrait_card",
+       "name": "Marc Bloch",
+       "dates": "1886 - 1944",
+       "role": "Historian",
+       "facts": [
+        "Early scholar of feudalism"
+       ]
+      }
+     ]
+    },
+    {
+     "say": "'Feudal' शब्द German word feud से जुड़ा है, जिसका मतलब है जमीन का एक टुकड़ा। और यह बात बहुत ज़रूरी है क्योंकि इससे पूरे समाज की बनावट समझ में आती है।",
+     "do": [
+      {
+       "op": "chain",
+       "steps": [
+        "Feud",
+        "A piece of land"
+       ]
+      }
+     ]
+    },
+    {
+     "say": "यही नया social order था जिसे feudalism कहते हैं।",
+     "do": [
+      {
+       "op": "stamp",
+       "text": "Feudalism",
+       "on": "feudalism"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

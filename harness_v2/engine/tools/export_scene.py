@@ -521,6 +521,8 @@ def export(scene_file: Path, scene_class: str, out_dir: Path) -> dict:
             track = Path(f"dsl/generated/{scene_class}.narration.wav")
             result["narration"] = mix(sounds, frames / PROGRAM_FPS, track.resolve())
             result["narration"]["file"] = str(track)
+            # Where each sound starts on the program's clock (seconds), for a check to line it up with the video's.
+            result["clips"] = [[round(float(at), 3), str(path)] for at, path, _ in sounds]
         # The exporter's verdict, as `export_dsl --write` records it: the
         # library builder ships a program only with one, so a build from here
         # can be packed for the phone as it stands.

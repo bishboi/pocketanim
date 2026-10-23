@@ -761,6 +761,13 @@ def _staggers(anim) -> bool:
     )
 
 
+def _stretch(duration: float, natural: float) -> float:
+    """How much Manim stretches a group's members: a group given a run time plays its members' own times scaled
+    onto it (AnimationGroup.interpolate). Written with their own times, a group of fade-outs given 0.4 s inside a
+    lagged crossfade faded in 0.25 s on the phone, and the old picture was gone before the video's."""
+    return duration / natural if natural > 1e-6 and abs(duration - natural) > 1e-6 else 1.0
+
+
 def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
     """One LaggedStart, as a `lag` verb plus one block of lines per child.
 
@@ -790,8 +797,10 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
             return [f"wait t={dur:g}"]
         if kind == "Succession":
             out = []
-            for sub in a.animations:
-                part = leaf(sub, float(getattr(sub, "run_time", dur) or dur))
+            runs = [float(getattr(sub, "run_time", dur) or dur) for sub in a.animations]
+            stretch = _stretch(dur, sum(runs))
+            for sub, run in zip(a.animations, runs):
+                part = leaf(sub, run * stretch)
                 if not part:
                     return None
                 out.extend(part)
@@ -801,8 +810,10 @@ def _lag_lines(rec, anim, duration: float, suffix: str) -> list[str] | None:
                 name = rec.declare(a.mobject)
                 return [f"indicate {name} t={dur:g}"] if name else None
             bits = []
-            for sub in a.animations:
-                part = leaf(sub, float(getattr(sub, "run_time", dur) or dur))
+            runs = [float(getattr(sub, "run_time", dur) or dur) for sub in a.animations]
+            stretch = _stretch(dur, max(runs, default=dur))
+            for sub, run in zip(a.animations, runs):
+                part = leaf(sub, run * stretch)
                 if not part:
                     return None
                 bits.extend(part)

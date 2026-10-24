@@ -166,6 +166,9 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   operations, the script's own pointing: `point` (`Lecture.point`: a named thing on screen pulses once) and `shade`
   (`Lecture.shade_part`: a labelled picture's part lit, the rest shaded). The camera is off: `zoom` is left out with a
   note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
+- A diagram is held to what reads (`_fix_diagram`): at most 9 nodes (any kind; a flow and a hierarchy took 16 and 20,
+  and a chapter's whole argument came out as one unreadable tree), and words cut where they would run over their
+  boxes (a label past 6 words, a node's text past 10, an item past 5, an arrow's label past 4; items at most 4).
 - Timelines build themselves (`big_timeline(enter=)`, `_timeline_in`, `_timeline_event`): `draw` draws the title
   and track in and pops each event on (its own words when it has an `on`), `travel` runs a marker to each; `whole`
   (and no `enter`, as the motion engine's styled timelines call it) is the old still one. Its events are named parts

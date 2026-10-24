@@ -150,6 +150,127 @@ export function readPlan(reply: Op, beats: number[]): ChapterPlan & { notes: str
   return { elements: kept, scenes, notes };
 }
 
+// ---------------------------------------------------------------- limits --------------------------------------------
+
+/** What a plan is held to (told to the director in prompts/director.ts LIMITS): small scenes, small elements. */
+export const LIMITS = { sceneBeats: 5, sceneElements: 3, nodes: 6, nodeWords: 4, items: 3, itemWords: 3, edgeWords: 2,
+  events: 6, eventWords: 4, columns: 3, points: 3, pointWords: 6, labels: 5, labelWords: 3 };
+
+const wordCount = (x: unknown) => String(x ?? "").trim().split(/\s+/).filter(Boolean).length;
+const nameOfLabel = (x: unknown) => (isObj(x) ? String(x.name ?? "") : String(x ?? ""));
+
+/** Where a plan goes past LIMITS, each said so the director can fix it (none: it is within them). */
+export function planProblems(plan: ChapterPlan): string[] {
+  const out: string[] = [];
+  const L = LIMITS;
+  for (const sc of plan.scenes) {
+    if (sc.beats.length > L.sceneBeats) out.push(`scene ${sc.id} has ${sc.beats.length} beats (at most ${L.sceneBeats}): cut it where the idea turns`);
+    if (sc.uses.length > L.sceneElements) out.push(`scene ${sc.id} uses ${sc.uses.length} elements (at most ${L.sceneElements})`);
+  }
+  for (const el of plan.elements) {
+    const op = el.op;
+    const say = (what: string) => out.push(`${el.id} (${String(op.op)}): ${what}`);
+    if (op.op === "diagram" && Array.isArray(op.nodes)) {
+      if (op.nodes.length > L.nodes) say(`${op.nodes.length} nodes (at most ${L.nodes}): split it into two diagrams for two scenes`);
+      for (const n of op.nodes.filter(isObj)) {
+        if (wordCount(n.label ?? n.id) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} is ${wordCount(n.label)} words (at most ${L.nodeWords})`);
+        const items = Array.isArray(n.items) ? n.items : [];
+        if (items.length > L.items) say(`node ${JSON.stringify(n.label ?? n.id)} has ${items.length} items (at most ${L.items})`);
+        if (items.some((x) => wordCount(x) > L.itemWords)) say(`node ${JSON.stringify(n.label ?? n.id)} has an item longer than ${L.itemWords} words`);
+        if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} has a sentence in it: words on the screen are names`);
+      }
+      for (const e of Array.isArray(op.edges) ? op.edges : []) {
+        if (Array.isArray(e) && e.length > 2 && wordCount(e[2]) > L.edgeWords) say(`the arrow label ${JSON.stringify(e[2])} is longer than ${L.edgeWords} words`);
+      }
+    }
+    if (op.op === "timeline" && Array.isArray(op.events)) {
+      if (op.events.length > L.events) say(`${op.events.length} events (at most ${L.events})`);
+      for (const ev of op.events) {
+        const label = Array.isArray(ev) ? ev[1] : isObj(ev) ? ev.label : "";
+        if (wordCount(label) > L.eventWords) say(`the event ${JSON.stringify(label)} is longer than ${L.eventWords} words`);
+      }
+    }
+    if (op.op === "compare" && Array.isArray(op.columns)) {
+      if (op.columns.length > L.columns) say(`${op.columns.length} columns (at most ${L.columns})`);
+      for (const c of op.columns.filter(isObj)) {
+        const pts = Array.isArray(c.points) ? c.points : [];
+        if (pts.length > L.points) say(`column ${JSON.stringify(c.title)} has ${pts.length} points (at most ${L.points})`);
+        if (pts.some((x) => wordCount(x) > L.pointWords)) say(`column ${JSON.stringify(c.title)} has a point longer than ${L.pointWords} words`);
+      }
+    }
+    if (op.op === "picture" && Array.isArray(op.labels)) {
+      if (op.labels.length > L.labels) say(`${op.labels.length} labels (at most ${L.labels})`);
+      if (op.labels.some((x) => wordCount(nameOfLabel(x)) > L.labelWords)) say(`a label longer than ${L.labelWords} words`);
+    }
+  }
+  return out;
+}
+
+/** Shortened to `most` words (a word list's end marked). */
+const cut = (x: unknown, most: number) => {
+  const words = String(x ?? "").trim().split(/\s+/).filter(Boolean);
+  return words.length > most ? `${words.slice(0, most).join(" ")}…` : String(x ?? "");
+};
+
+/**
+ * A plan brought within LIMITS by code, when the director's answer (asked again) still goes past them: a scene too
+ * long cut into runs of at most LIMITS.sceneBeats beats (its elements listed in each, so they stay up); an element's
+ * lists cut to their limits (nodes, items, events, columns, points, labels) and its words to theirs. What was cut is
+ * said.
+ */
+export function fitPlan(plan: ChapterPlan): string[] {
+  const notes: string[] = [];
+  const L = LIMITS;
+  const scenes: PlanScene[] = [];
+  for (const sc of plan.scenes) {
+    if (sc.beats.length <= L.sceneBeats) {
+      scenes.push(sc);
+      continue;
+    }
+    const parts = Math.ceil(sc.beats.length / L.sceneBeats);
+    const size = Math.ceil(sc.beats.length / parts);
+    for (let k = 0; k < parts; k++) {
+      scenes.push({ ...sc, id: k ? `${sc.id}${String.fromCharCode(97 + k)}` : sc.id, beats: sc.beats.slice(k * size, (k + 1) * size) });
+    }
+    notes.push(`scene ${sc.id}: ${sc.beats.length} beats cut into ${parts} scenes`);
+  }
+  plan.scenes = scenes;
+  for (const el of plan.elements) {
+    const op = el.op;
+    const said = (what: string) => notes.push(`${el.id}: ${what}`);
+    if (op.op === "diagram" && Array.isArray(op.nodes)) {
+      if (op.nodes.length > L.nodes) {
+        const kept = new Set(op.nodes.slice(0, L.nodes).filter(isObj).map((n) => String(n.id)));
+        said(`${op.nodes.length - L.nodes} node(s) past ${L.nodes} left out`);
+        op.nodes = op.nodes.slice(0, L.nodes);
+        if (Array.isArray(op.edges)) op.edges = op.edges.filter((e) => Array.isArray(e) && kept.has(String(e[0])) && kept.has(String(e[1])));
+        if (Array.isArray(op.show)) op.show = op.show.filter((x) => kept.has(String(x)));
+      }
+      for (const n of (op.nodes as unknown[]).filter(isObj)) {
+        if (typeof n.label === "string" && wordCount(n.label) > L.nodeWords) n.label = cut(n.label, L.nodeWords);
+        if (Array.isArray(n.items)) n.items = n.items.slice(0, L.items).map((x: unknown) => cut(x, L.itemWords));
+        if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) delete n.text;
+      }
+      if (Array.isArray(op.edges)) op.edges = op.edges.map((e) => (Array.isArray(e) && e.length > 2 ? [e[0], e[1], cut(e[2], L.edgeWords), ...e.slice(3)] : e));
+    }
+    if (op.op === "timeline" && Array.isArray(op.events)) {
+      if (op.events.length > L.events) said(`${op.events.length - L.events} event(s) past ${L.events} left out`);
+      op.events = op.events.slice(0, L.events).map((ev) => (Array.isArray(ev) ? [ev[0], cut(ev[1], L.eventWords), ...ev.slice(2)]
+        : isObj(ev) ? { ...ev, label: cut(ev.label, L.eventWords) } : ev));
+    }
+    if (op.op === "compare" && Array.isArray(op.columns)) {
+      if (op.columns.length > L.columns) said(`${op.columns.length - L.columns} column(s) past ${L.columns} left out`);
+      op.columns = op.columns.slice(0, L.columns).map((c) => (isObj(c) && Array.isArray(c.points)
+        ? { ...c, points: c.points.slice(0, L.points).map((x) => cut(x, L.pointWords)) } : c));
+    }
+    if (op.op === "picture" && Array.isArray(op.labels)) {
+      if (op.labels.length > L.labels) said(`${op.labels.length - L.labels} label(s) past ${L.labels} left out`);
+      op.labels = op.labels.slice(0, L.labels).map((x) => (isObj(x) ? { ...x, name: cut(x.name, L.labelWords) } : cut(x, L.labelWords)));
+    }
+  }
+  return notes;
+}
+
 /** The scene an element first comes on in, and every beat of the scenes it is in (it stays up through them). */
 function lifeOf(plan: ChapterPlan) {
   const first = new Map<string, PlanScene>();

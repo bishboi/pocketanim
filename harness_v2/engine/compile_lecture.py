@@ -607,6 +607,16 @@ def _keep_known(op: dict, field: str, ids: list[str], at: str, notes: list[str])
             op.pop(field)
 
 
+# What a diagram can show and still be read (BEAT_SCRIPT.md, diagram): nodes at most, and words in each piece.
+DIAGRAM_MOST = 9
+DIAGRAM_WORDS = {"label": 6, "text": 10, "item": 5, "edge": 4}
+
+
+def _first_words(text: str, most: int) -> str:
+    words = str(text).split()
+    return " ".join(words[:most]) + ("…" if len(words) > most else "")
+
+
 def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
     """A diagram's mechanical faults: an unknown kind, a shape, style or motion it does not have, an edge to no
     node, a show of no node, too many items in a node."""
@@ -623,9 +633,26 @@ def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
         if n.get("anim") is not None and str(n["anim"]) not in motions:
             notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: no motion {n['anim']!r} (moves as its thing does)")
             n.pop("anim")
-        if isinstance(n.get("items"), list) and len(n["items"]) > 5:
-            notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: items cut to the first 5")
-            n["items"] = n["items"][:5]
+        if isinstance(n.get("items"), list) and len(n["items"]) > 4:
+            notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: items cut to the first 4")
+            n["items"] = n["items"][:4]
+        # Words on a diagram are names, not sentences: too long, they ran over the boxes round them.
+        for key, most in (("label", DIAGRAM_WORDS["label"]), ("text", DIAGRAM_WORDS["text"])):
+            if isinstance(n.get(key), str) and len(n[key].split()) > most:
+                notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: its {key} cut to {most} words")
+                n[key] = _first_words(n[key], most)
+        if isinstance(n.get("items"), list):
+            long = [x for x in n["items"] if isinstance(x, str) and len(x.split()) > DIAGRAM_WORDS["item"]]
+            if long:
+                notes.append(f"{FIXED}{at}: diagram node {n.get('id')!r}: {len(long)} item(s) cut to {DIAGRAM_WORDS['item']} words")
+                n["items"] = [_first_words(x, DIAGRAM_WORDS["item"]) if isinstance(x, str) else x for x in n["items"]]
+    if len(nodes) > DIAGRAM_MOST:
+        gone = {str(n.get("id")) for n in nodes[DIAGRAM_MOST:]}
+        notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: {len(nodes) - DIAGRAM_MOST} node(s) past {DIAGRAM_MOST} left "
+                     "out (too many to read)")
+        op["nodes"] = [n for n in op["nodes"] if not (isinstance(n, dict) and str(n.get("id")) in gone)]
+        nodes = nodes[:DIAGRAM_MOST]
+        ids = [i for i in ids if i not in gone]
     _edges_as_lists(op)
     edges = op.get("edges") or []
     if isinstance(edges, list):
@@ -635,6 +662,9 @@ def _fix_diagram(op: dict, at: str, notes: list[str]) -> None:
         for e in kept:
             if len(e) > 3 and e[3] and str(e[3]) not in EDGE_STYLES:
                 e[3] = "solid"
+            if len(e) > 2 and isinstance(e[2], str) and len(e[2].split()) > DIAGRAM_WORDS["edge"]:
+                notes.append(f"{FIXED}{at}: diagram {op.get('id')!r}: an arrow's label cut to {DIAGRAM_WORDS['edge']} words")
+                e[2] = _first_words(e[2], DIAGRAM_WORDS["edge"])
         op["edges"] = kept
     _keep_known(op, "show", ids, at, notes)
 

@@ -13,48 +13,42 @@ import { doName, type BeatWords, type CueAct, type PlanElement, type PlanPart, t
 
 // ---------------------------------------------------------------- the director -----------------------------------
 
-const DIRECTOR = `THIS CALL'S ANSWER: THE CHAPTER'S PLAN (write_plan). It replaces the per-beat answer described above.
-
-You are the chapter's DIRECTOR. You decide WHAT the viewer sees and WHY, for the whole chapter at once, as a
-documentary's director plans its shots: a few strong scenes, each one idea, each built up while it is explained.
-You do not decide WHEN anything moves: a choreographer, shown the voice's word times and each primitive's full
-manual, puts every element and every part of one on its word and points at, lights and takes off what is up. So
-write no "on", "delay" or "in_pause" (they are taken out), and do not split a picture to time it: give it whole.
+const DIRECTOR = `You are the DIRECTOR of one chapter of a narrated lecture video. You get the chapter's lines (its BEATS,
+each one spoken line, by number) and the PRIMITIVES the engine can draw. You answer with THE CHAPTER'S PLAN
+(write_plan): what is on the screen and why, scene by scene. You do not time anything: a choreographer puts each
+thing on the word that names it afterwards. Write no "on", "delay" or "in_pause".
 
 HOW TO PLAN
-1. Read the chapter's beats and find its IDEAS: where the narration turns to something new. Each idea is a SCENE,
-   usually 2-6 beats (15-40 s). A new scene only where the idea changes; never one per sentence.
-2. For each scene choose ONE MAIN ELEMENT that carries the idea for its whole length, and choose it from the
-   primitives below by what it can DO over several lines: a diagram built node by node and focused, a labelled
-   picture whose parts are lit one by one, a timeline whose events are named in turn, a map whose places come on
-   as they are said, a compare whose columns come in turn. A primitive with parts lets the choreographer move
-   something on every line; a bare card does not.
-3. Add what the lines add to it: a definition beside it as a hard word is named, a number, a question, a quote.
-   Keep each scene to the main element and two or three more. A picture, a diagram, a timeline, a comparison, a
-   gallery each takes the stage (what was up before goes): AT MOST TWO ON THE SCREEN AT ONCE, and only when they
-   belong together (a picture and its timeline, two things compared): the engine lays the two out side by side or
-   one over the other. Never plan a picture, a timeline and a comparison for the same lines: a third waits for a
-   later line.
-4. Give every element ALL its parts: a diagram's every node (they come on as they are said, in later lines too), a
-   picture's every label, a timeline's every event, a compare's every column. The choreographer can only bring on,
-   point at and light what you gave.
-5. Vary the scenes: not three diagrams in a row; a picture, then a diagram, a map, a comparison, a question for the
-   class. Prefer pictures of real things (people, places, objects) where seeing them teaches; drawn primitives
-   (diagram, timeline, compare) where the idea is a structure.
+1. Cut the chapter into SCENES where the narration turns to a new idea: 2 to 5 beats each (about 15-40 seconds).
+   A chapter of 9 beats has 2-4 scenes, never one.
+2. Give each scene ONE MAIN ELEMENT that shows its idea: the primitive that can build up over its lines (a diagram
+   whose nodes come one by one, a labelled picture whose parts are lit in turn, a timeline whose events are named,
+   a comparison whose columns come in turn, a map whose places come on).
+3. Add at most two small things the lines need: a word defined, a key number, a question. At most two main
+   elements are on the screen together, and only when they belong together (a picture and its dates).
+4. Keep every element small enough to read on a phone (the limits below). An element shows ONE idea of ONE scene:
+   the next idea is the next scene's element. Never put the whole chapter into one diagram or one comparison.
+5. Vary the scenes (a picture, then a diagram, then a map), and prefer pictures of real people, places and things
+   where seeing them teaches; drawn primitives where the idea is a structure.
+
+LIMITS (the engine shrinks or cuts what goes past them)
+- A scene: 2-5 beats; 1-3 elements.
+- A diagram: 3-6 nodes; each node's label 1-4 words; "items" at most 3, each 1-3 words; an arrow's label 1-2 words.
+- A timeline: 2-6 events; each label 1-4 words.
+- A comparison: 2-3 columns; 2-3 points each, each point at most 6 words.
+- A labelled picture: 2-5 labels, each 1-3 words, of parts that are really in the picture.
+- Words on the screen are names and short phrases, never sentences: the narration says the sentences.
 
 THE ANSWER
-ELEMENTS: everything the chapter shows, once each:
-  {"id": "<short name: chain, river, surplus>", "role": "<subject | part | key_term | number | question | contrast |
-   place | person | annotation>", "op": {<one operation, with all its parts>}}
-  - The id is how the scenes and the choreographer name it (a diagram's own "id" is its element's id).
-SCENES: the chapter cut into scenes, in order, every beat in exactly one:
-  {"id": "S1", "beats": [<its beats' numbers, a run in order>], "intent": "<hook | explain | reveal_parts |
-   build_chain | compare | count_up | name_it | story | question | recap>", "layout"?: "<full | main+side>",
-   "uses": [<the ids of the elements on screen in it, the main one first>]}
-  - An element may go on into the next scene when it stays up (list it in both): it comes on in the first.
-  - A manim figure is a scene of its own, its only element (the Manim agent writes it, timed to its words).
-Also, by beat when it matters: "beats": [{"beat": <n>, "pause"?: 1-2, "about"?: "<English name>"}]. The first beat
-of each scene starts a paragraph by itself.`;
+- elements: everything the chapter shows, once each: {"id": "<short name>", "role": "<subject | part | key_term |
+  number | question | contrast | place | person>", "op": {<one operation, all its parts>}}. A diagram's own "id" is
+  its element's id. Give a diagram every node, a picture every label, a timeline every event: the choreographer can
+  only bring on and point at what you gave.
+- scenes: in order, every beat in exactly one: {"id": "S1", "beats": [<a run of beat numbers>], "intent": "<hook |
+  explain | build_chain | compare | name_it | story | question | recap>", "uses": [<element ids, the main one
+  first>]}. An element may stay up into the next scene (list it in both).
+- A manim figure is a scene of its own and its only element.
+- beats (optional): {"beat": <n>, "pause"?: 1-2, "about"?: "<what it is about, in English>"}.`;
 
 export const DIRECTOR_TOOL = {
   type: "function" as const,
@@ -109,34 +103,37 @@ export const DIRECTOR_TOOL = {
   },
 };
 
-/** The scene writer's prompt made the director's: its instructions on how operations are written kept, the parts on
- * anchors and timing (the choreography's) taken out, the plan's answer told, and the request asked again. */
+/** The parts of the scene writer's prompt the director keeps: the facts it needs (the subject, the kinds switched
+ * off, how pictures are written, the map, the motion engine's templates), none of the per-beat writer's rules. */
+const DIRECTOR_KEEPS = new Set(["off", "subject", "v1-matters", "v2-picture-style", "pictures", "templates", "map"]);
+
+/** The director's prompt: its own instructions, the primitives (or the motion engine's templates), the facts kept
+ * from the scene writer's prompt, the chapter's lines; with `only` one scene asked again, with `problems` the plan
+ * asked again with what was wrong with it. */
 export function directorPrompt(scenes: Prompt, o: { chapter: number; beats: number[]; catalog?: string;
-  only?: { scene: string; beats: number[]; plan: { elements: PlanElement[]; scenes: PlanScene[] }; note?: string } }): Prompt {
-  const timing = new Set(["v2-anchors", "anchors", "timing"]);
-  const system: Part[] = [];
-  const add = () => {
-    system.push(part("director", "The answer: the chapter's plan (elements and scenes)", "rules", DIRECTOR));
-    if (o.catalog) system.push(part("primitives", "The primitives: what each shows and what can be done with it", "rules",
-      `THE PRIMITIVES (the current engine's operations, each with its parts and what the choreographer can do with it):\n${o.catalog}`));
-  };
-  for (const p of scenes.system) {
-    if (timing.has(p.key)) continue;
-    system.push(p);
-    if (p.key === "shape") add();
-  }
-  if (!system.some((p) => p.key === "director")) add();
+  only?: { scene: string; beats: number[]; plan: { elements: PlanElement[]; scenes: PlanScene[] }; note?: string };
+  problems?: { plan: unknown; list: string[] } }): Prompt {
+  const system: Part[] = [part("director", "THE CHAPTER'S PLAN: how to direct a chapter", "rules", DIRECTOR)];
+  if (o.catalog) system.push(part("primitives", "The primitives: what each shows and what can be done with it", "rules",
+    `THE PRIMITIVES (the current engine's operations, each with its parts and what the choreographer can do with it):\n${o.catalog}`));
+  system.push(...scenes.system.filter((p) => DIRECTOR_KEEPS.has(p.key)));
   const ask = o.only
     ? `Write scene ${o.only.scene} again (write_plan): beats ${o.only.beats.map((b) => `#${b}`).join(", ")} only. The chapter's plan as it ` +
       `is (below): the other scenes stay as they are. Answer with this scene's elements (new ids, or the ids of elements it ` +
       `keeps from the scenes around it) and ONE scene (or a few) covering exactly those beats.`
     : `Write chapter ${o.chapter}'s plan (write_plan): its elements and its scenes, every one of its beats (` +
-      `${o.beats.map((b) => `#${b}`).join(", ")}) in one scene, in order.`;
-  const user = scenes.user.map((p) => (p.key !== "ask" ? p : part("ask", "Request", "ask", ask)));
+      `${o.beats.map((b) => `#${b}`).join(", ")}) in exactly one scene, in order, within the LIMITS.`;
+  const user = scenes.user.filter((p) => p.key !== "ask");
   if (o.only) {
-    user.splice(user.length - 1, 0, part("plan", "The chapter's plan as it is", "plan", JSON.stringify(o.only.plan)),
+    user.push(part("plan", "The chapter's plan as it is", "plan", JSON.stringify(o.only.plan)),
       ...(o.only.note ? [part("scene-note", `What to change in scene ${o.only.scene}`, "context", o.only.note)] : []));
   }
+  if (o.problems) {
+    user.push(part("problems", "Your plan broke the limits", "context", [
+      "Your plan (below) broke these rules. Write the whole plan again, keeping what was good, with every one fixed:",
+      ...o.problems.list.map((x) => `- ${x}`), "", JSON.stringify(o.problems.plan)].join("\n")));
+  }
+  user.push(part("ask", "Request", "ask", ask));
   return { system, user };
 }
 

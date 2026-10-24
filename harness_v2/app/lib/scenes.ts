@@ -35,7 +35,7 @@ import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
 import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
-import { actsFor, choreographyOf, estimatedWords, flatSteps, keptSteps, lowerPlan, partsOf, readCues, readPlan, sceneSeconds, type BeatWords,
+import { actsFor, choreographyOf, estimatedWords, fitPlan, flatSteps, keptSteps, lowerPlan, partsOf, planProblems, readCues, readPlan, sceneSeconds, type BeatWords,
   type ChapterPlan, type Cue, type CueAct, type PlanElement, type PlanScene } from "./director";
 import { manualFor } from "./manuals";
 import { PRIMITIVES, primitiveText } from "./primitives";
@@ -869,13 +869,38 @@ async function directChapter(run: Run, n: number, c: number, note?: string): Pro
     b.calls.push(call.id);
   }
   saveRun(run);
-  const reply = await callTool({ call, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
+  let reply = await callTool({ call, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
   if (!reply) {
     for (const t of own) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
   }
-  const plan = readPlan(reply, own);
-  const dropped = keepKinds(run, n, plan, own);
+  let plan = readPlan(reply, own);
+  let dropped = keepKinds(run, n, plan, own);
+  // A plan past the LIMITS (a scene too long, an element too big to read): asked again once with what was wrong.
+  const problems = planProblems(plan);
+  if (problems.length) {
+    check(call, "Limits", "fixed", `${problems.length} past the limits: ${problems.slice(0, 6).join("; ")}; asked again`);
+    const again = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (director, again within the limits)`, lecture: n,
+      model: st.model, prompt: directorPrompt(base, { chapter: c, beats: own, ...(motion ? {} : { catalog: primitiveCatalog(kinds) }),
+        problems: { plan: { elements: plan.elements, scenes: plan.scenes }, list: problems } }) });
+    sl.calls.push(again.id);
+    for (const t of own) beatState(sl, t).calls.push(again.id);
+    saveRun(run);
+    const second = await callTool({ call: again, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
+    if (second) {
+      const plan2 = readPlan(second, own);
+      const dropped2 = keepKinds(run, n, plan2, own);
+      const left = planProblems(plan2);
+      check(again, "Limits", left.length ? "fixed" : "pass", left.length ? `${left.length} still past them (cut to fit): ${left.slice(0, 6).join("; ")}` : "within the limits");
+      if (plan2.elements.length && left.length < problems.length) {
+        reply = second;
+        plan = plan2;
+        dropped = dropped2;
+      }
+    }
+  }
+  const fitted = fitPlan(plan);
+  if (fitted.length) check(call, "Cut to fit", "fixed", fitted.slice(0, 8).join("; "));
   check(call, "Plan", plan.elements.length ? "pass" : "fail", `${plan.elements.length} element(s) in ${plan.scenes.length} scene(s) over ${own.length} beat(s)`);
   if (plan.notes.length) check(call, "Mended", "fixed", plan.notes.slice(0, 10).join("; "));
   if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
@@ -927,6 +952,8 @@ async function rebuildScene(run: Run, n: number, c: number, sceneId: string, not
   const others = had.scenes.filter((x) => x.id !== sceneId);
   const keptIds = new Set(had.elements.map((e) => e.id));
   const fresh = readPlan(reply, target.beats);
+  const fittedScene = fitPlan(fresh);
+  if (fittedScene.length) check(call, "Cut to fit", "fixed", fittedScene.slice(0, 6).join("; "));
   const rename = new Map<string, string>();
   const taken = new Set([...keptIds, ...others.map((x) => x.id)]);
   const added = fresh.elements.filter((e) => {

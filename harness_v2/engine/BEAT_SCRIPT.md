@@ -403,7 +403,7 @@ and laid out so no picture or word covers another.
 |---|---|---|
 | `id` | required | The diagram's name. `reveal` and `focus` refer to it. |
 | `kind`? | `flow` (default) \| `cycle` \| `hub` \| `pyramid` | See below. The older kinds still read: `flowchart`, `tree`, `hierarchy`, `categories` (= `flow`), `steps` (= a numbered flow). Unknown: drawn as a flow, with a note. |
-| `nodes` | required | 2-9 nodes (a flow up to 16, a hierarchy up to 20). Each node takes the fields in the next table. |
+| `nodes` | required | 2-9 nodes (any kind: past nine they are left out with a note -- too many to read on a phone; a bigger idea is two diagrams). Each node takes the fields in the next table. Words on a diagram are names, not sentences: a node's `label` past 6 words and its `text` past 10 are cut (with a note), as are an item past 5 words and an arrow's label past 4. |
 | `edges`? | | `[from, to, label?, style?]` (or `{from, to, label, style}`). `label` says how they connect ("leads to", "light"). `style` is `solid` (default), `dashed` or `bold`. Edges to no node are left out. A flow or cycle with no edges joins its nodes in order. |
 | `show`? | | The node ids drawn now. The rest come with `reveal`. Default: all. |
 | `title`? | | Over the diagram. |
@@ -420,7 +420,7 @@ Each node:
 | `id` | required | Unique within the diagram. |
 | `label` | required | Short words, in the lecture's language. |
 | `picture`? | | A picture of the thing (pictures beside words). A concrete thing gets one; an idea gets none. A flow whose every step is a thing to see becomes **pictures instead of words**: each node is the picture, its name on a chip at its foot. |
-| `items`? | up to 5 | Short lines listed in the node (a category's members, what a rank does). |
+| `items`? | up to 4 | Short lines listed in the node (a category's members, what a rank does), a few words each. |
 | `kind`? | `person` \| `place` \| `event` \| `idea` | Drawn as a portrait card, a pin, a dated tag or a soft card. |
 | `shape`? | flowcharts | `start`, `end` (pills), `process` (box, default), `decision` (diamond: a yes/no question, its edges labelled "Yes"/"No"), `io` (what goes in or out), `store` (a drum: a tank, a database), `note`. Unknown: a plain box. |
 | `lane`? | flowcharts | Who or where does it ("Lok Sabha", "Liver"). Lanes become bands. |

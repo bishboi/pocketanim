@@ -430,6 +430,24 @@ assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fa
 // choreographed (the stand-in here) with their artifacts' manuals, lowered into the beats on their words.
 const directorCalls = run.calls.filter((c) => c.step === "scenes" && /\(director\)$/.test(c.label));
 assert.equal(directorCalls.length, run.script.lectures[1].chapters.length, "one director call a chapter");
+// The director's prompt is its own: its instructions, the primitives, the facts it needs; none of the per-beat writer's.
+assert.ok(directorCalls.every((c) => !c.prompt.system.some((p) => /^v1-/.test(p.key) && p.key !== "v1-matters") && c.prompt.system.some((p) => p.key === "primitives")
+  && c.prompt.system.reduce((k, p) => k + p.text.length, 0) < 25000), "the director told only what it needs");
+// Its limits: a plan past them is said (planProblems) and cut to fit (fitPlan): a scene too long split, a diagram too
+// big cut to its nodes and its words.
+{
+  const d = await import(path.resolve(here, "../lib/director.ts"));
+  const big = { elements: [{ id: "tree", op: { op: "diagram", id: "tree", nodes: Array.from({ length: 9 }, (_, k) => ({ id: `n${k}`,
+    label: k ? `Node ${k}` : "A very long label of a great many words", items: ["one two three four", "a", "b", "c"] })), edges: [["n0", "n8", "one two three"]] } }],
+    scenes: [{ id: "S1", beats: [1, 2, 3, 4, 5, 6, 7, 8, 9], uses: ["tree"] }] };
+  const problems = d.planProblems(big);
+  assert.ok(problems.some((x) => /9 beats/.test(x)) && problems.some((x) => /9 nodes/.test(x)) && problems.some((x) => /items/.test(x)), JSON.stringify(problems));
+  const notes = d.fitPlan(big);
+  assert.deepEqual(big.scenes.map((x) => x.beats.length), [5, 4], JSON.stringify(big.scenes));
+  assert.ok(big.scenes.every((x) => x.uses.includes("tree")) && big.elements[0].op.nodes.length === 6 && big.elements[0].op.edges.length === 0, JSON.stringify(big.elements[0].op));
+  assert.equal(d.planProblems(big).length, 0, JSON.stringify(d.planProblems(big)));
+  assert.ok(notes.length >= 2, JSON.stringify(notes));
+}
 assert.ok(directorCalls.every((c) => c.prompt.system.some((p) => p.key === "director" && /THE CHAPTER'S PLAN/.test(p.text))
   && !c.prompt.system.some((p) => p.key === "v2-anchors") && c.checks.some((k) => k.name === "Plan" && k.result === "pass")), "the director plans, and times nothing");
 const choreoCalls = run.calls.filter((c) => c.step === "scenes" && /^Choreography: lecture 1/.test(c.label));
@@ -821,13 +839,16 @@ assert.ok(kc.beats.every((b) => run.scenes.lectures[1].beats[b.n].ops.every((o) 
 const kcCall = run.calls.filter((c) => c.step === "scenes" && /^Scenes: .*chapter/.test(c.label)).at(-1);
 const offPart = kcCall.prompt.system.find((p) => p.key === "off");
 assert.ok(offPart && /Diagrams/.test(offPart.text) && !/Definitions/.test(offPart.text), "the kinds the chapter may not use are named as switched off");
-// The instructions are v1's, word for word, in v1's order; the subject's guidance as v1 tells it.
+// The scene writer's instructions (the per-beat writer, director off) are v1's, word for word, in v1's order; the
+// subject's guidance as v1 tells it. (The director's prompt is its own: checked above.)
 const { V1_LECTURE, V1_MANIM_PLAN } = await import(path.resolve(here, "../lib/prompts/v1-lecture.ts"));
-const sysText = render(kcCall.prompt.system);
+const writerCall = run.calls.filter((c) => c.step === "scenes" && /^Scenes: lecture \d+, chapter \d+$/.test(c.label)).at(-1);
+assert.ok(writerCall, "a call of the per-beat scene writer");
+const sysText = render(writerCall.prompt.system);
 for (const key of Object.keys(V1_LECTURE).filter((k) => k !== "beat")) assert.ok(sysText.includes(V1_LECTURE[key].join("\n").trim()), `v1's ${key} section, verbatim`);
 // No limit to a beat's operations by default: v1's "at most four operations" is taken out, the rest of its words kept.
 assert.ok(!/at most four operations/.test(sysText) && sysText.includes(V1_LECTURE.beat.join("\n").replace(", at most four operations.", ".").trim()), "no limit to a beat's operations");
-assert.ok(kcCall.prompt.system.some((p) => p.key === "pace" && /no limit to the operations on a beat/.test(p.text)));
+assert.ok(writerCall.prompt.system.some((p) => p.key === "pace" && /no limit to the operations on a beat/.test(p.text)));
 const { scenesPrompt: sp } = await import(path.resolve(here, "../lib/prompts/scenes.ts"));
 const limited = render(sp({ lecture: { n: 1, title: "" }, look: "", kinds: [], labels: {}, chapters: [], beats: [], figures: [], ask: { what: "lecture" },
   pace: { maxOps: 6 } }).system);

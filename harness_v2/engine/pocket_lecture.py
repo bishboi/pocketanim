@@ -2917,9 +2917,14 @@ class Lecture(Scene):
                 made.append((ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7]))
         return made
 
-    def point(self, target: str):
+    # How `point` points (`how`): pulse (swells once), lift (rises a little and settles), circle (a ring drawn round
+    # it), underline (a line drawn under it). A ring or a line stays until the next one, or its picture leaves.
+    POINT_HOWS = ("pulse", "lift", "circle", "underline")
+
+    def point(self, target: str, how: str = "pulse"):
         """The script's own pointing (`point`): what is on the screen by that name (a diagram's node, a picture's
-        part, a card, a place, a gallery's picture) pulses once. None, and a note, when nothing up has that name."""
+        part, a card, a place, a gallery's picture) pointed at, the `how` way (POINT_HOWS). None, and a note, when
+        nothing up has that name."""
         want = _norm(target)
         found = None
         for part in reversed(self.__dict__.get("_named_parts", [])):
@@ -2933,12 +2938,62 @@ class Lecture(Scene):
                     if node in d["shown"] and not d.get("gone") and want in (_norm(node), _norm(labels.get(node, ""))):
                         found = mob
         on_screen = {id(m) for top in self.mobjects for m in top.get_family()}
+        # A part still to come on the stage (a template's part this line brings on, earlier in it) counts: the line
+        # brings it on before it points at it.
+        on_screen |= {id(x) for m in self.stage_pending for x in m.get_family()}
         if found is None or not any(id(x) in on_screen for x in (found.family_members_with_points() or [found])):
             skipped(f"point: nothing on the screen called {target!r}")
             return None
+        if how in ("lift", "circle", "underline"):
+            return self._point_mark(found, how)
         pulse = ScaleInPlace(found, 1.12, rate_func=there_and_back)
         pulse.panim_run = 0.7
         return pulse
+
+    def _point_mark(self, found, how: str):
+        """`point`'s lift, ring or underline (motion_kit's): a ring or a line is the stage's (it leaves with the
+        picture), and the last one goes as the next is drawn: one thing pointed at at a time."""
+        import motion_kit as K
+
+        if how == "lift":
+            up = K.fresh(found.animate(rate_func=there_and_back).shift(UP * 0.22).build())
+            up.panim_xform = True
+            up.panim_run = 0.7
+            return up
+        mark = K.hand_ellipse(found, P.ROSE) if how == "circle" else K.underline(found, P.GOLD)
+        mark.set_z_index(max(getattr(found, "z_index", 0), Z_MARK) + 4)
+        here = {id(x) for m in self.mobjects for x in m.get_family()}
+        old = [m for m in self.__dict__.get("_point_marks", []) if id(m) in here]
+        for m in old:
+            if m in self.stage_extra:
+                self.stage_extra.remove(m)
+        self._point_marks = [mark]
+        self._stage_add(mark)
+        draw = Create(mark, rate_func=rush_from)
+        anim = AnimationGroup(*[FadeOut(m) for m in old], draw) if old else draw
+        anim.panim_run = 0.6
+        return anim
+
+    # ---------------- how an op comes on and how fast (the script's `enter` and `speed`) ----------------
+    # The shared entrances (motion_kit.enter), by the name the script uses.
+    ENTRANCES = {"fade": "fade", "rise": "rise", "pop": "pop", "drop": "drop", "slide": "slide", "zoom": "zoom",
+                 "flip": "flip", "draw": "write", "type": "typewrite", "unfold": "unfold", "iris": "iris"}
+    # `speed`: how long its animation takes against its own.
+    SPEEDS = {"fast": 0.6, "base": 1.0, "slow": 1.6}
+
+    def entering(self, make, enter: str | None = None, speed: str | None = None):
+        """An op made with its entrance (`enter`: how a picture put on the stage comes on, in place of its own) and
+        at its `speed`. A template takes its `enter` itself; this times it."""
+        self._enter_next = self.ENTRANCES.get(str(enter)) if enter else None
+        try:
+            anim = make()
+        finally:
+            self.__dict__.pop("_enter_next", None)
+        f = self.SPEEDS.get(str(speed)) if speed else None
+        if anim is not None and f and f != 1.0:
+            run = getattr(anim, "panim_run", None)
+            anim.panim_run = round(float(run if run is not None else 0.9) * f, 3)
+        return anim
 
     def _view_of(self, part: str):
         """(the labelled picture up with a part of that name, its name as laid out), else (None, None)."""
@@ -4305,7 +4360,13 @@ class Lecture(Scene):
                 self.play(*going, run_time=0.4)
             self.add(new)
             return None
-        if entrance is not None:
+        how = self.__dict__.pop("_enter_next", None)
+        if how:
+            # The script's entrance (`enter`) in place of the picture's own.
+            import motion_kit as K
+
+            show = AnimationGroup(FadeIn(new[0]), K.enter(group, how, run=0.7))
+        elif entrance is not None:
             show = AnimationGroup(FadeIn(new[0]), entrance)
         elif draw:
             show = AnimationGroup(FadeIn(new[0]), LaggedStart(*[write_in(m) for m in draw], lag_ratio=0.3))

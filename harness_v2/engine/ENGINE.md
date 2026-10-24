@@ -205,3 +205,14 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   the next begins (a map coming in, a picture changing, a chapter card) with the bed at its level between words,
   placed back in time (`add_sound` with a negative offset, which the exporter records too), and `tear_down` fills to
   the video's end (the outro, the credits). Before, the music stopped in every animation between lines.
+- The motion engine's templates on the current engine (`templates.py`, BEAT_SCRIPT.md §5.9): a scene that uses one
+  is a `TemplateLecture` (MapLecture with the motion engine's template mixins and the helpers they are drawn with,
+  taken from `motion.MotionLecture` as they are; never its stage, timing or look). Templates draw in the style's own
+  colours and fonts (motion_kit's classic mode), with no idle motion, no transitions, no sound effects
+  (`motion_kit.SOUNDS`) and no pulses on stressed words. `compile_lecture.TEMPLATE_OPS` is the set the current engine
+  draws; their checks and mends are compile_motion's (`_template_fixes`). A template's parts can be held for a later
+  line (`TemplateLecture.holding`, `reveal_held`; the script's `hold` and `reveal` with `of`).
+- Every op's shared choices (`Lecture.entering`): `enter` (how a picture put on the stage comes on, motion_kit's
+  entrances, in place of its own) and `speed` (its run 0.6, 1 or 1.6 times its own); `point` takes `how` (pulse,
+  lift, circle, underline: `_point_mark`). A point at a part the same line brings on (still in `stage_pending`) is
+  kept.

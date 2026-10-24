@@ -291,7 +291,7 @@ assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), 
   const engine = process.env.V2_ENGINE;
   const code = [
     "import json, re, compile_lecture as c",
-    "ops = {'panel','fact','stat','bars','clear','icon','figure','photo','illustration','picture','draw','unstage'} | c.KIT_OPS | c.MAP_OPS | c.BUILD_OPS | c.STEP_OPS | c.WORK_OPS | c.FREE_OPS",
+    "ops = {'panel','fact','stat','bars','clear','icon','figure','photo','illustration','picture','draw','unstage'} | c.KIT_OPS | c.MAP_OPS | c.BUILD_OPS | c.STEP_OPS | c.WORK_OPS | c.FREE_OPS | c.TEMPLATE_OPS",
     "src = open('compile_lecture.py').read()",
     "fields = {w: sorted(set(k for k in re.findall(w + r'\\.get\\(\"([a-z_]+)\"', src) if not k.startswith('_'))) for w in ('script', 'chapter', 'beat')}",
     "print(json.dumps({'ops': sorted(ops), **fields}))",
@@ -301,6 +301,14 @@ assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), 
   const doc = readFileSync(path.join(engine, "BEAT_SCRIPT.md"), "utf8");
   const missing = Object.entries(known).flatMap(([kind, names]) => names.filter((k) => !doc.includes(`\`${k}\``)).map((k) => `${kind}: ${k}`));
   assert.deepEqual(missing, [], `engine/BEAT_SCRIPT.md does not document: ${missing.join(", ")}`);
+  // The templates the current engine draws are the app's "templates" kind, and each has its primitive (its catalog
+  // entry and an example that compiles).
+  const tl = await rp(["-c", "import json, compile_lecture as c; print(json.dumps(sorted(c.TEMPLATE_OPS)))"], engine, { PYTHONPATH: engine });
+  const templateOps = JSON.parse(tl.stdout.trim().split("\n").pop());
+  const vk = await import(path.resolve(here, "../lib/visual-kinds.ts"));
+  const prims = await import(path.resolve(here, "../lib/primitives.ts"));
+  assert.deepEqual([...vk.VISUAL_KINDS.find((k) => k.id === "templates").ops].sort(), templateOps, "the templates kind is compile_lecture.TEMPLATE_OPS");
+  assert.ok(templateOps.every((op) => prims.PRIMITIVE_BY_OP.has(op)), "each template has its primitive");
   assert.ok(known.ops.length > 30 && known.script.length > 10 && known.beat.length > 4, "the compiler's names were read");
   // The motion engine's reference (engine/MOTION_ENGINE.md, beta) likewise: its templates, their arguments, the
   // script fields it reads and the values it accepts.

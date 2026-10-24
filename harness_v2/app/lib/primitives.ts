@@ -10,7 +10,7 @@ export type FieldKind = "text" | "long" | "number" | "bool" | "select" | "texts"
 export type Field = { key: string; kind: FieldKind; required?: boolean; options?: string[]; hint?: string };
 export type Primitive = {
   op: string;
-  group: "board" | "pictures" | "diagrams" | "cards" | "questions" | "working" | "map" | "pointing" | "free";
+  group: "board" | "pictures" | "diagrams" | "cards" | "templates" | "questions" | "working" | "map" | "pointing" | "free";
   /** One line: what it shows and when to use it. */
   what: string;
   fields: Field[];
@@ -21,6 +21,11 @@ export type Primitive = {
   say: string;
   example: Record<string, unknown>;
 };
+
+/** Every op's shared choices (engine/BEAT_SCRIPT.md §3: `enter`, `speed`; §5.3 `point`'s `how`). */
+export const ENTRANCES = ["fade", "rise", "pop", "drop", "slide", "zoom", "flip", "draw", "type", "unfold", "iris"] as const;
+export const SPEEDS = ["fast", "base", "slow"] as const;
+export const POINT_HOWS = ["pulse", "lift", "circle", "underline"] as const;
 
 const COLOR: Field = { key: "color", kind: "select", options: ["", "GOLD", "ROSE", "RIVER", "GREEN", "TEAL", "TERRA", "VIOLET", "SAND", "MUTED"],
   hint: "a palette name (or #RRGGBB); left out, the look's own" };
@@ -81,6 +86,14 @@ export const PRIMITIVES: Primitive[] = [
     fields: [{ key: "steps", kind: "texts", required: true, hint: "2-8 steps" }, { key: "cycle", kind: "bool" }, { key: "title", kind: "text" }],
     parts: "each step", moves: ["each step on the word that names it, in its line", "pulse on a step: it pulses"],
     say: "Water evaporates, condenses and falls as rain.", example: { op: "process", steps: ["Evaporation", "Condensation", "Rain"], cycle: true } },
+  // ---------------- templates (the motion engine's, drawn in this style: engine/templates.py) ----------------
+  { op: "list", group: "templates", what: "Points that come in one at a time as they are said: reasons, features, steps of an argument.",
+    fields: [{ key: "items", kind: "texts", required: true, hint: "up to 7 points (5 reads best), each 1-6 words" }, { key: "title", kind: "text" },
+      { key: "mark", kind: "select", options: ["", "bullet", "number", "check"] }, { key: "layout", kind: "select", options: ["", "column", "grid", "pills", "steps"] }],
+    parts: "each point", moves: ["the first point comes on with the list; each other on the word that names it", "hold a point for a later line (hold, then reveal with of)",
+      "point at a point: pulse, lift, circle, underline"],
+    say: "Japan changed for three reasons: a strong state, new schools and railways.",
+    example: { op: "list", title: "Why so fast", mark: "number", items: ["A strong state", "New schools", "Railways"] } },
   // ---------------- cards ----------------
   { op: "define", group: "cards", what: "A hard word and its meaning on a card, beside the picture up (never in place of it).",
     fields: [{ key: "term", kind: "text", required: true }, { key: "meaning", kind: "text", required: true }],
@@ -157,8 +170,10 @@ export const PRIMITIVES: Primitive[] = [
   { op: "focus", group: "pointing", what: "Rings one node of a diagram up, the rest dimmed, while it is talked about.",
     fields: [{ key: "diagram", kind: "text", required: true }, { key: "node", kind: "text", required: true }], moves: ["on the word that turns to it"],
     say: "So the granary was the heart of the town.", example: { op: "focus", diagram: "chain", node: "granary" } },
-  { op: "point", group: "pointing", what: "Pulses once whatever is on the screen by that name (a node, a label, a card, a place).",
-    fields: [{ key: "target", kind: "text", required: true }], moves: ["on the word that names it again"], say: "Look again at the fields.", example: { op: "point", target: "Fields" } },
+  { op: "point", group: "pointing", what: "Points at whatever is on the screen by that name (a node, a label, a card, a place, a template's part): a pulse, a lift, a ring drawn round it or a line drawn under it.",
+    fields: [{ key: "target", kind: "text", required: true }, { key: "how", kind: "select", options: ["", ...POINT_HOWS], hint: "pulse (default), lift, circle, underline" }],
+    moves: ["on the word that names it again", "how: pulse (swells once), lift (rises and settles), circle (a ring drawn round it, kept until the next), underline (a line drawn under it)"],
+    say: "Look again at the fields.", example: { op: "point", target: "Fields" } },
   { op: "shade", group: "pointing", what: "Lights one labelled part of the picture up, the rest shaded, until the next line (held: until an unshade).",
     fields: [{ key: "part", kind: "text", required: true }, { key: "hold", kind: "bool", hint: "held over the next lines, until an unshade" }],
     moves: ["on the word that turns to the part"], say: "That soil is why the fields are rich.", example: { op: "shade", part: "soil" } },

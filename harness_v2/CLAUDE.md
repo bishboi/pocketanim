@@ -10,8 +10,11 @@
 - v1 (`harness/`) is not modified; v2's engine is its own copy (`engine/ENGINE.md` lists v2's changes).
 - The motion engine (beta) is documented in `engine/MOTION_ENGINE.md`; any change to what `engine/compile_motion.py` or
   `engine/motion*.py` accepts updates that file in the same commit (`npm run check` fails when a template, an argument
-  or a script field it reads is missing). It never changes the current engine's files or what they make: a script is
-  drawn by it only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
+  or a script field it reads is missing). The current engine owns the primitives; the motion engine adds its looks on
+  top. The current engine draws some of the motion engine's templates itself, in its own style (`engine/templates.py`,
+  `compile_lecture.TEMPLATE_OPS`, BEAT_SCRIPT.md §5.9): a change to such a template's drawing changes both engines,
+  and is checked on both. Its looks, transitions, idle motion and sound effects stay the motion engine's: a script
+  is drawn in them only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
 - The default flow is the Scenes tab on the motion engine (beta, `engine/MOTION_ENGINE.md`), then Voice: a lecture's
   scenes start on it unless `V2_SCENES_ENGINE=current`. On it each chapter is spoken and aligned first and its scenes
   written to the voice's times ("voice first", MOTION_ENGINE.md §1). The current engine is voice first too. On both, a

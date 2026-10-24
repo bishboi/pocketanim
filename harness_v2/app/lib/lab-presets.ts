@@ -104,6 +104,17 @@ export const LAB_PRESETS: LabPreset[] = [
     ] } },
   },
   {
+    id: "template-list", name: "Template: a list built over lines", note: "A strict chapter: a list slides in, each point on its word, one held back and revealed on the next line and circled; then one underlined, one lifted.",
+    script: { region: null, chapter: { title: "Why Japan changed fast", narration: "Why Japan changed fast", map: false, strict: true, beats: [
+      { say: "Japan changed quickly for two reasons first: a strong state and new schools.", paragraph: true, do: [{ op: "list", id: "why", title: "Why so fast", mark: "check",
+        enter: "slide", hold: ["Railways"], on: "w0", items: [{ text: "A strong state", on: "w8" }, { text: "New schools", on: "w11" }, { text: "Railways" }] }] },
+      { say: "Then came the railways, which tied the country together.", do: [{ op: "reveal", of: "why", parts: ["Railways"], on: "w3" },
+        { op: "point", target: "Railways", how: "circle", on: "w6" }] },
+      { say: "But the schools mattered most over time.", do: [{ op: "point", target: "New schools", how: "underline", on: "w2" },
+        { op: "point", target: "A strong state", how: "lift", on: "w5" }] },
+    ] } },
+  },
+  {
     id: "timeline-work", name: "Timeline with a working below", note: "A timeline moves to the top at its size when a column of lines arrives.",
     script: board("Marc Bloch", [
       { say: "Marc Bloch lived from 1886 to 1944.", do: [{ op: "timeline", title: "Marc Bloch 1886-1944", events: [["1886", "Born"], ["1944", "Died"]] }] },

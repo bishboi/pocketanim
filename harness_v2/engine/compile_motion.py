@@ -848,7 +848,8 @@ _ORIG = {}
 
 
 def _patched_pictures_of(op: dict):
-    return _ORIG["pictures_of"](op) + (_pictures(op) if op.get("op") in MOTION_OPS else [])
+    # The current engine's templates have their pictures from compile_lecture itself (TEMPLATE_OPS).
+    return _ORIG["pictures_of"](op) + (_pictures(op) if op.get("op") in set(MOTION_OPS) - cl.TEMPLATE_OPS else [])
 
 
 def _patched_picture_fetch(spec: dict):

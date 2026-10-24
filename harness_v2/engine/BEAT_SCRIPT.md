@@ -137,6 +137,8 @@ A beat is one narration line and what goes with it on screen.
 | `rt`? | number | The time (seconds) the beat's animations take, instead of the engine's own. |
 | `cues`? | list | Written by the voice step, not by hand: the start (and length) of each animation, timed to the words. |
 | (`do` items) `on`? | text | On any operation or part: the words of `say` it lands on, or `"start"` (§4, Anchors). |
+| (`do` items) `enter`? | name | v2, current engine: how a picture it puts on the stage comes on, in place of its own way: `fade`, `rise`, `pop`, `drop`, `slide`, `zoom`, `flip`, `draw` (lines and words drawn on), `type` (its frame, then its words typed in), `unfold`, `iris` (motion_kit's entrances, `Lecture.entering`). A template (§5.9) brings each of its parts on that way too. Not one of them: left out (its own way), with a note. |
+| (`do` items) `speed`? | name | v2, current engine: `fast`, `base` or `slow`: its animation in 0.6, 1 or 1.6 times its own time (`Lecture.entering`). |
 
 ---
 
@@ -492,7 +494,12 @@ is not drawn`): moving the stage left the labels behind and the picture half mov
 ```
 | Arg | | |
 |---|---|---|
-| `target` | required | The name of something on the screen: a diagram's node (its id or label), a picture's labelled part, a card, a place, a gallery's picture. It pulses once on its words. Nothing up by that name: left out with a note (`point: nothing on the screen called ...`). |
+| `target` | required | The name of something on the screen: a diagram's node (its id or label), a picture's labelled part, a card, a place, a gallery's picture, a template's part. It is pointed at on its words. Nothing up by that name: left out with a note (`point: nothing on the screen called ...`). A part the same line brings on earlier (a held part revealed) counts. |
+| `how`? | name | v2, current engine: `pulse` (it swells once: the default), `lift` (it rises a little and settles), `circle` (a ring drawn round it), `underline` (a line drawn under it). A ring or a line stays until the next one is drawn or its picture leaves (`Lecture.POINT_HOWS`). Not one of them: a pulse, with a note. |
+
+```json
+{"op": "point", "target": "New schools", "how": "underline", "on": "w2"}
+```
 
 #### `shade`: light one part of a labelled picture
 ```json
@@ -875,6 +882,43 @@ One of `lat` or `lon`.
 {"op": "dim", "opacity": 0.15}
 ```
 Fades what is filled before highlighting one area.
+
+### 5.9 Templates (the motion engine's, in this style)
+
+v2, current engine: some of the motion engine's templates (MOTION_ENGINE.md §3) are drawn here too, by
+`templates.TemplateLecture`, in the lecture's own style: the template's drawing and its choreography (its parts
+coming on in turn, each on its words), never the motion engine's look (no texture, no dressed pictures, no transitions
+between pictures, no idle motion, no sound effects, no pulses on stressed words). A template is a main picture
+(§5.3 "Two at once"); its parts are pointed at by name (`point`), and in a strict chapter only its own anchors time
+them (each part's `on`; a part without one comes on in its turn after the template). Its checks and mends are the
+motion engine's (compile_motion), each said as `fixed: ...`. Every template takes `enter` (the shared entrances,
+§3) for how its parts come on, `speed`, an `id`, and `hold`.
+
+**Built over several lines** (`hold`, then `reveal` with `of`): a template's parts named in `hold` do not come on in
+its own line; a later line's `{"op": "reveal", "of": "<the template's id>", "parts": [<names>]}` brings them on, on
+the reveal's `on` (else each on its own name, else in its turn). A template that holds parts and has no `id` is given
+one (`<op>-c<chapter>b<beat>`, with a note). In a strict chapter, a reveal is kept only while its template is up.
+
+```json
+{"op": "list", "id": "why", "title": "Why so fast", "mark": "check", "hold": ["Railways"],
+ "items": [{"text": "A strong state", "on": "state"}, {"text": "New schools", "on": "schools"}, {"text": "Railways"}]}
+```
+```json
+{"op": "reveal", "of": "why", "parts": ["Railways"], "on": "railways"}
+```
+
+#### `list`: points coming in as they are said
+```json
+{"op": "list", "title": "What changed", "mark": "number", "items": ["A strong state", {"text": "New schools", "on": "schools"}, "Railways"]}
+```
+| Arg | | |
+|---|---|---|
+| `items` | required | Up to 7 points (cut to 7, with a note), each a text or `{text, on?}`. Each is a part. |
+| `title`?, `kicker`? | | A heading over it, and a small line over that. |
+| `mark`? | `bullet` \| `number` \| `check` | Each point's mark: a diamond, its number, or a tick drawn. |
+| `layout`? | `column` \| `grid` \| `pills` \| `steps` | A column of lines, each sliding in from the left (default); tiles in two columns, each dealt in; rounded chips flowing in rows, each popping in; a staircase. |
+
+The first point comes on with the list; each other on its words.
 
 ---
 

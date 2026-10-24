@@ -39,6 +39,8 @@ export const VISUAL_KINDS: VisualKind[] = [
   { id: "numbers", label: "Stats and bars", about: "A key number large, or a small bar chart.", ops: ["stat", "bars"] },
   { id: "work", label: "Worked solutions", about: "Working built line by line beside a figure; a long problem.", ops: ["work", "problem"] },
   { id: "words", label: "Quotes and step boxes", about: "A primary source in its own words; steps in boxes.", ops: ["quote", "process"] },
+  { id: "templates", label: "Lists, cards and tables", about: "The motion engine's templates drawn in the lecture's own style: points coming in as they are said (more to come, one at a time as each is checked).",
+    ops: ["list"] },
 ];
 
 export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
@@ -77,8 +79,8 @@ export function kindOfOp(op: Record<string, unknown>): string | undefined {
   if (BASE_OPS.includes(name)) return "base";
   if (name === "picture") return pictureKind(op) ?? "illustration";
   if (name === "illustration" && op.diagram === true) return "drawing";
-  if (MOTION_KIND.ops.includes(name)) return MOTION_KIND.id;
-  return VISUAL_KINDS.find((k) => k.ops.includes(name))?.id;
+  // A template the current engine draws too is its own kind (on both engines); the rest are the motion engine's.
+  return VISUAL_KINDS.find((k) => k.ops.includes(name))?.id ?? (MOTION_KIND.ops.includes(name) ? MOTION_KIND.id : undefined);
 }
 
 type Op = Record<string, unknown>;

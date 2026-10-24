@@ -24,6 +24,9 @@ import pocket_lecture as pl
 
 # The look in use (motion_looks.motion_of): set by MotionLecture as the scene starts.
 M: dict = {}
+# Whether the animations made here carry their sound effects (sfx.py). The current engine draws these templates
+# without them (templates.TemplateLecture turns it off).
+SOUNDS = True
 
 
 def t(name: str) -> float:
@@ -59,7 +62,7 @@ def timed(anim, run: float, sfx: str | None = None):
         anim.run_time = float(run)
     except AttributeError:
         pass
-    if sfx:
+    if sfx and SOUNDS:
         anim.panim_sfx = sfx
     return anim
 

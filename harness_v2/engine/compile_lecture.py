@@ -368,7 +368,7 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     _still_timelines(script)
     figures = script.get("figures") or {}
     known = {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo", "illustration"} \
-        | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS | POINT_OPS
+        | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS | POINT_OPS | TEMPLATE_OPS | {"reveal_parts"}
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
             "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"],
             "empire": ["name"], "point": ["target"], "shade": ["part"], "label": ["part"], "unlabel": ["part"],
@@ -738,11 +738,97 @@ def _fix_steps(script: dict) -> list[str]:
     return notes
 
 
+def _shared_choices(script: dict) -> list[str]:
+    """Every op's shared choices read and mended: `enter` (ENTRANCES; a template has its own too), `speed`
+    (SPEEDS), and a point's `how` (POINT_HOWS). One not known is left out (its op's own way), with a note."""
+    if script.get("engine") == "motion":
+        return []
+    notes: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            for op in beat.get("do") or []:
+                if not isinstance(op, dict):
+                    continue
+                at = f"chapter {c + 1} beat {b + 1}: {op.get('op')}"
+                if op.get("op") == "reveal" and op.get("of") is not None and op.get("diagram") is None:
+                    # A template's parts held back (`hold`) brought on: drawn by the template's own moments
+                    # (TemplateLecture.reveal_held), not as a diagram's nodes.
+                    given = op.get("parts") if isinstance(op.get("parts"), list) else [op.get("parts")]
+                    made = {"op": "reveal_parts", "of": str(op["of"]), "parts": [str(x) for x in given if x not in (None, "")]}
+                    for k in ("on", "speed"):
+                        if k in op:
+                            made[k] = op[k]
+                    op.clear()
+                    op.update(made)
+                    if not made["parts"]:
+                        _drop(op, at, f"a reveal of {made['of']!r} names no parts", notes)
+                if op.get("op") in TEMPLATE_OPS and op.get("hold") and not op.get("id"):
+                    op["id"] = f"{op['op']}-c{c + 1}b{b + 1}"
+                    notes.append(f"{FIXED}{at}: it holds parts back for a later reveal, so it is given an id: {op['id']!r}")
+                if op.get("enter") is not None and op.get("op") not in TEMPLATE_OPS and op["enter"] not in ENTRANCES:
+                    notes.append(f"{FIXED}{at} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; its own way is used")
+                    op.pop("enter")
+                if op.get("speed") is not None and op["speed"] not in SPEEDS:
+                    notes.append(f"{FIXED}{at} speed {op['speed']!r} is not one of {', '.join(SPEEDS)}; left out")
+                    op.pop("speed")
+                if op.get("op") == "point" and op.get("how") is not None and op["how"] not in POINT_HOWS:
+                    notes.append(f"{FIXED}{at} how {op['how']!r} is not one of {', '.join(POINT_HOWS)}; a pulse")
+                    op.pop("how")
+    _purge(script)
+    return notes
+
+
+def _template_fixes(script: dict) -> list[str]:
+    """The current engine's templates (TEMPLATE_OPS) checked and mended as the motion engine checks them
+    (compile_motion): one missing what it shows left out, counts cut to what fits, unknown layouts and marks set to
+    the default; a part's `on` given as a word's number ("w7") made the line's words. The motion engine's own
+    compile does this for every template itself."""
+    if script.get("engine") == "motion":
+        return []
+    import compile_motion as cm
+
+    notes: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        for b, beat in enumerate(chapter.get("beats") or []):
+            ops = beat.get("do") if isinstance(beat.get("do"), list) else []
+            if not any(isinstance(o, dict) and o.get("op") in TEMPLATE_OPS for o in ops):
+                continue
+            at = f"chapter {c + 1} beat {b + 1}"
+            kept = []
+            for op in ops:
+                kind = op.get("op") if isinstance(op, dict) else None
+                if kind not in TEMPLATE_OPS:
+                    kept.append(op)
+                    continue
+                cm._word_ids({"say": beat.get("say"), "do": [op]}, at, notes)
+                missing = [f for f in cm.MOTION_OPS[kind]["need"] if op.get(f) in (None, "", [], {})]
+                if missing:
+                    notes.append(f"{FIXED}{at}: {kind} left out: it needs {', '.join(missing)}")
+                    continue
+                cm._mend_form(op, kind, at, notes)
+                problem = cm._mend(op, at, notes)
+                if problem:
+                    notes.append(f"{FIXED}{at}: {kind} left out: {problem}")
+                    continue
+                if op.get("enter") is not None:
+                    # The shared entrances by the script's names (ENTRANCES), as the motion kit calls them.
+                    op["enter"] = {"draw": "write", "type": "typewrite"}.get(str(op["enter"]), op["enter"])
+                    if op["enter"] not in cm.ENTRANCES:
+                        notes.append(f"{FIXED}{at}: {kind} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; "
+                                     "its own way is used")
+                        op.pop("enter")
+                kept.append(op)
+            beat["do"] = kept
+    return notes
+
+
 def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     """Everything the compiler mends by itself, in place, before the checks: what it did, as warnings that start
     with "fixed: " (shown in the log, never sent back to the writer)."""
     canonical_ops(script)
-    notes = _fix_unusable(script, has_map)
+    notes = _shared_choices(script)
+    notes += _template_fixes(script)
+    notes += _fix_unusable(script, has_map)
     notes += _split_manim_beats(script)
     notes += _fix_steps(script)
     notes += _one_on_the_stage(script)
@@ -752,11 +838,23 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     return notes + reveals
 
 
+# The motion engine's templates the current engine draws (templates.TemplateLecture), in its own style: their checks
+# and mends are compile_motion's (_template_fixes), their call the motion engine's (`self.m_<op>(...)`).
+TEMPLATE_OPS = {"list"}
+# Put over what is up, not a picture of its own.
+TEMPLATE_OVERLAYS = {"stamp"}
+TEMPLATE_PICTURES = TEMPLATE_OPS - TEMPLATE_OVERLAYS
+# Every op's shared choices (pocket_lecture.Lecture.entering, point): how it comes on, how fast, how it is pointed at.
+ENTRANCES = ("fade", "rise", "pop", "drop", "slide", "zoom", "flip", "draw", "type", "unfold", "iris")
+SPEEDS = ("fast", "base", "slow")
+POINT_HOWS = ("pulse", "lift", "circle", "underline")
+
+
 # ---------------- one thing on the stage at a time (strict chapters, the current engine) ----------------
 # What takes the whole stage (the one before it goes). A word defined (a strip over the picture), a heading, the
 # board's cards, an equation (beside its figure) and a question do not.
 STAGE_MAIN = {"photo", "figure", "illustration", "gallery", "diagram", "timeline", "compare", "process", "quote",
-              "draw", "problem", "molecule"}
+              "draw", "problem", "molecule"} | TEMPLATE_PICTURES
 # What points at a part of the picture up, and the picture it needs.
 NEEDS_LABELS = {"shade", "label", "unlabel"}
 NEEDS_DIAGRAM = {"focus", "reveal", "unfocus", "zoom"}
@@ -929,6 +1027,9 @@ def _one_on_the_stage(script: dict) -> list[str]:
                     elif kind in NEEDS_DIAGRAM:
                         if not any(x.get("op") == "diagram" and str(x.get("id")) == str(op.get("diagram")) for x in up):
                             why = f"the diagram {op.get('diagram')!r} is not up"
+                    elif kind == "reveal_parts":
+                        if not any(x.get("op") in TEMPLATE_OPS and str(x.get("id")) == str(op.get("of")) for x in up):
+                            why = f"{op.get('of')!r} is not up"
                     elif kind == "point":
                         target = _key(op.get("target") or "")
                         if target in everything and not any(target in _names_up(x) for x in up):
@@ -994,7 +1095,7 @@ def _split_manim_beats(script: dict) -> list[str]:
 SPEECH_REACH = 6
 # Ops that put a new picture on the stage: the diagram before is gone, so it is built no further.
 _NEW_PICTURE = {"diagram", "draw", "figure", "picture", "photo", "illustration", "gallery", "compare", "define",
-                "timeline", "process", "quote", "problem", "manim", "equation"}
+                "timeline", "process", "quote", "problem", "manim", "equation"} | TEMPLATE_PICTURES
 
 
 def _named_pos(label: str, said: str) -> int:
@@ -1375,6 +1476,10 @@ def pictures_of(op: dict) -> list[tuple[str, dict]]:
         out = [("its label", op["picture"])]
     elif kind == "journey":
         out = [(f"stop {k + 1}", pic) for k, pic in enumerate(op.get("pictures") or []) if pic is not None]
+    elif kind in TEMPLATE_OPS:
+        import compile_motion as cm
+
+        out = cm._pictures(op)
     return out
 
 
@@ -1668,7 +1773,7 @@ FREE_OPS = {"manim"}
 POINT_OPS = {"point", "shade", "label", "unlabel", "unshade", "unfocus"}
 # The engine the script is compiled for ("motion" or the current one): set as a compile begins.
 _ENGINE: list[str] = [""]
-VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS
+VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS | TEMPLATE_PICTURES
 
 
 def beat_order(ops: list[dict]) -> list[dict]:
@@ -1680,8 +1785,10 @@ def beat_order(ops: list[dict]) -> list[dict]:
         kind = op.get("op") if isinstance(op, dict) else None
         if kind == "unstage":
             return 0
-        if kind in WORK_OPS or kind in STEP_OPS or kind in POINT_OPS:
+        if kind in WORK_OPS or kind in STEP_OPS or kind in POINT_OPS or kind == "reveal_parts":
             return 2
+        if kind in TEMPLATE_OVERLAYS:
+            return 3                    # a stamp lands on what the beat put up
         return 1
     return sorted(ops, key=rank)
 
@@ -1778,7 +1885,7 @@ GALLERY_MOST = 6
 SMALL_PICTURE = {"aspect": "1:1", "look": "child"}
 # What else, on a line, shares the screen with a picture.
 STAGE_PICTURES = {"illustration", "photo", "figure", "gallery", "diagram", "define", "compare", "question", "draw",
-                  "problem", "work", "manim", "molecule", "equation", "timeline", "process", "quote"}
+                  "problem", "work", "manim", "molecule", "equation", "timeline", "process", "quote"} | TEMPLATE_PICTURES
 GALLERY_LAYOUTS = ("spotlight", "grid")
 
 
@@ -3491,6 +3598,17 @@ SHOWN_KEYS = {"title", "sub", "text", "label", "labels", "term", "meaning", "cap
 
 def _op_call(op: dict) -> str:
     kind = op["op"]
+    if kind in TEMPLATE_OPS:
+        import compile_motion as cm
+
+        call = cm._op_call_motion(op)
+        if op.get("hold"):
+            # Parts held back for a later line's reveal (TemplateLecture.holding).
+            call = f"self.holding({_q(str(op['id']))}, {[str(x) for x in op['hold']]!r}, lambda: {call})"
+        return call
+    if kind == "reveal_parts":
+        on = op.get("on") if isinstance(op.get("on"), str) and op["on"].strip() not in ("", "start") else None
+        return f"self.reveal_held({_q(op['of'])}, {op['parts']!r}" + (f", on={_q(on)}" if on else "") + ")"
     if kind == "panel":
         sub = f", {_q(op['sub'])}" if op.get("sub") else ""
         return f"self.panel_title({_q(op['title'])}{sub})"
@@ -3604,7 +3722,8 @@ def _op_call(op: dict) -> str:
     if kind == "unstage":
         return "self.clear_stage()"
     if kind == "point":
-        return f"self.point({_q(str(op['target']))})"
+        how = f", how={_q(op['how'])}" if op.get("how") in POINT_HOWS and op["how"] != "pulse" else ""
+        return f"self.point({_q(str(op['target']))}{how})"
     if kind == "shade":
         return f"self.shade_part({_q(str(op['part']))}" + (", hold=True)" if op.get("hold") else ")")
     if kind == "unshade":
@@ -3978,6 +4097,12 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     # MapLecture's layout (the stage or map on the left, the panel on the right)
     # serves a lecture with no region too; it only draws a map when told to.
     base = "MapLecture"
+    # A lecture that uses a template (a list, cards, a table...) is drawn by the engine that has them (templates.py).
+    templated = script.get("engine") != "motion" and any(
+        isinstance(op, dict) and op.get("op") in TEMPLATE_OPS
+        for ch in script.get("chapters") or [] for b in ch.get("beats") or [] for op in b.get("do") or [])
+    if templated:
+        base = "TemplateLecture"
 
     out = [
         f'"""{script.get("title", "Lecture")}: compiled from a beat script by harness/lecture/compile_lecture.py."""',
@@ -3993,6 +4118,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         "from manim import *  # noqa: E402,F403",
         "from pocket_lecture import *  # noqa: E402,F403",
     ]
+    if templated:
+        out.append("from templates import TemplateLecture  # noqa: E402 -- the motion engine's templates, in this style")
     if script.get("places"):
         # The lecture's own places (the map agent's), for every place, area and range the scene looks up.
         home = (region or {}).get("country")
@@ -4106,6 +4233,11 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     said = _op_said(op, parts_named, asked, strict) if strict else _op_said(op, parts_named, asked)
                     said = (f", said={_q(said)}" if isinstance(said, str) else f", said=[{', '.join(_q(w) for w in said)}]") \
                         if said else ""
+                    enter = op.get("enter") if op.get("op") not in TEMPLATE_OPS else None
+                    if enter or op.get("speed"):
+                        # Its entrance and its speed (the shared ones: Lecture.entering).
+                        call = f"self.entering(lambda: {call}" + (f", enter={_q(enter)}" if enter else "") + \
+                            (f", speed={_q(op['speed'])}" if op.get("speed") else "") + ")"
                     calls.append(f"self.safe(lambda: {call}, {_q(what)}{said})")
             args = "".join(f",\n                  {call}" for call in calls)
             rt = f", rt={float(beat['rt']):g}" if beat.get("rt") else ""

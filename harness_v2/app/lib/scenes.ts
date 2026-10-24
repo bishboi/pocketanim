@@ -2370,7 +2370,8 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
 /** The kinds a beat may use, and on the motion engine its templates. */
 function allowedFor(run: Run, sl: SceneLecture, n: number): string[] {
   const kinds = kindsFor(run, sl, n);
-  return stateOf(run).engine === "motion" ? [...kinds, MOTION_KIND.id] : kinds;
+  // On the motion engine every template is allowed with its templates (those the current engine draws too included).
+  return stateOf(run).engine === "motion" ? [...kinds, MOTION_KIND.id, "templates"] : kinds;
 }
 
 /** The look as the scene writer is told it: the run's, and on the motion engine its motion look. */

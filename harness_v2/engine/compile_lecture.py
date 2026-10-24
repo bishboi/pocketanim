@@ -888,14 +888,30 @@ def _one_on_the_stage(script: dict) -> list[str]:
             dos[t].insert(0, moved)
             notes.append(f"fixed: {what}: more than {MAIN_AT_ONCE} main pictures in one line: moved to beat {t + 1}, "
                          f"as it begins")
-        # 2. Pointing only at what is up (a strict chapter: the script's own pointing).
+        # 2. A line that joins what is up ("screen": "join") brings on one main picture beside what is up, so long as
+        # no more than MAIN_AT_ONCE are then up: else it replaces, as any line does.
+        up_count = 0
+        for b, (beat, ops) in enumerate(zip(beats, dos)):
+            new = sum(1 for op in ops if op.get("op") in STAGE_MAIN)
+            join = beat.get("screen") == "join"
+            if join and (not new or not up_count or up_count + new > MAIN_AT_ONCE):
+                why = "it brings on no main picture" if not new else "nothing is up to join" if not up_count \
+                    else f"{up_count + new} main pictures would be up (at most {MAIN_AT_ONCE})"
+                notes.append(f"fixed: chapter {c + 1} beat {b + 1}: \"screen\": \"join\" left out: {why}")
+                beat.pop("screen", None)
+                join = False
+            if any(op.get("op") == "unstage" for op in ops):
+                up_count = 0
+            if new:
+                up_count = up_count + new if join else new
+        # 3. Pointing only at what is up (a strict chapter: the script's own pointing).
         if strict:
             everything = set().union(*[_names_up(op) for op in mains]) if mains else set()
             up: list[dict] = []
             for b, ops in enumerate(dos):
                 kept = []
                 new = [op for op in ops if op.get("op") in STAGE_MAIN]
-                if new:
+                if new and beats[b].get("screen") != "join":
                     up = []
                 for op in ops:
                     kind = op.get("op")
@@ -4039,6 +4055,9 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
             if beat.get("_spoken_as"):
                 # The words each part of this line's pictures lands on (its "on"), by the part's name (anchors).
                 out.append(f"        self.spoken_as({beat['_spoken_as']!r})")
+            if beat.get("screen") == "join" and script.get("engine") != "motion":
+                # The line's new main picture joins the one up (BEAT_SCRIPT.md "Two at once").
+                out.append("        self.screen_join()")
             ops = beat_order(list(beat.get("do") or []))
             free = next((op for op in ops if op.get("op") == "manim"), None)
             if free is not None:

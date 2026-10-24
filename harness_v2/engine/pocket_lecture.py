@@ -3454,7 +3454,9 @@ class Lecture(Scene):
             todo.extend(getattr(anim, "animations", None) or [])
             if getattr(anim, "remover", False) and getattr(anim, "mobject", None) is not None:
                 leaving.update(id(x) for x in anim.mobject.get_family())
-        found = [m for m in self.strays() if id(m) not in leaving]
+        # A thing the line takes away by its parts (a picture slid aside sits on the screen in the group its move
+        # made) is not a stray either: cleared early, it went as the line began and its shade came back for the fade.
+        found = [m for m in self.strays() if id(m) not in leaving and not any(id(x) in leaving for x in m.get_family())]
         if found:
             counts = SYNC.setdefault(self.__dict__.get("_chapter_no", 0), {"beats": 0, "on_words": 0, "pointed": 0})
             counts["cleared"] = counts.get("cleared", 0) + len(found)
@@ -4277,6 +4279,10 @@ class Lecture(Scene):
             pending, self._next_pending = self._next_pending, []
             self._next_keys = set()
             return self._card_to_panel(group, pending)
+        if self.__dict__.pop("_join_next", False) and body is not None and not self._beat_new \
+                and len(group.get_family()) > 1 and len(body.get_family()) > 1 \
+                and not any(getattr(m, "is_aside", False) for m in self.stage_extra):
+            return self._join(group)
         if len(self._beat_new) == 1 and self.stage_body is self._beat_new[0] and len(group.get_family()) > 1 \
                 and len(self.stage_body.get_family()) > 1:
             return self._beside(group)
@@ -4362,6 +4368,33 @@ class Lecture(Scene):
                 if best is None or score > best:
                     best, chosen = score, (box_a, box_b)
         return chosen
+
+    def screen_join(self) -> None:
+        """The script's `"screen": "join"` (a beat's): the line's new main picture joins the one already up instead
+        of replacing it (_join)."""
+        self._join_next = True
+
+    def _join(self, group):
+        """A new picture joining the one up from an earlier line (the script's "screen": "join"): the one up, with its
+        parts, slides into its share of the stage and the new one comes on in the other, where each is seen best
+        (_pair_boxes)."""
+        firsts = [self.stage_items, *self.stage_extra, *self.stage_pending]
+        news = [group, *self._next_pending]
+        box_a, box_b = self._pair_boxes(firsts, news)
+        whole = Group(*firsts)
+        f = min((box_a[2] - 0.2) / max(whole.width, 0.01), (box_a[3] - 0.2) / max(whole.height, 0.01), 1.0)
+        slide = self._move_stage(f, whole.get_center(), box_a)
+        self._fit_box(news, box_b, grow=1.3)
+        group.is_aside = True
+        group.aside_box = box_b
+        self.stage_pending = [*self.stage_pending, *self._next_pending]
+        self._next_pending = []
+        self._stage_keys |= self._next_keys
+        self._next_keys = set()
+        self._beat_new.append(group)
+        self._stage_add(group)
+        show = FadeIn(group, scale=1.02)
+        return AnimationGroup(slide, show, lag_ratio=0.6) if slide is not None else show
 
     def _beside(self, group):
         """The beat's second picture: the drawing takes the left half, the words about it (a definition, an

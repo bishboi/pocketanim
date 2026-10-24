@@ -131,6 +131,7 @@ A beat is one narration line and what goes with it on screen.
 | `do`? | list | The beat's **operations** (§5), what comes on screen as the line is said. Empty or left out: what is up stays up. |
 | `paragraph`? | true | This beat starts a paragraph (an idea over a few beats). The beat before it ends the last paragraph, so it gets the longer hold. Where the script marks none, the compiler finds paragraphs itself. |
 | `pause`? | number | Extra seconds of silence after the line (at most 2), for a line that needs to sink in. |
+| `screen`? | `"join"` | v2, current engine: this line's new main picture **joins** the one already up instead of replacing it: the one up slides into its share of the stage and the new one comes on in the other (side by side or one over the other, where each is seen best). Left out (with a note) when the line brings no main picture, nothing is up, or more than two would then be up. Without it a new main picture replaces what is up (two brought on in one line share the stage). See §5.3 "Two at once". |
 | `about`? | text \| list | Whom or what the beat is about, its English name(s) ("Sunderlal Bahuguna"). Used to find pictures for a paragraph left without a visual (`auto_visuals`). Without it, proper names in the line are used. |
 | `picture`? | text | What to picture for this beat if the paragraph is left without a visual (`auto_illustrations`), in English. |
 | `rt`? | number | The time (seconds) the beat's animations take, instead of the engine's own. |
@@ -590,6 +591,21 @@ name only it shows (a comparison's point, a timeline's event), keeping the lines
 else the next free line; with no free line after it, it is left out (`fixed: ...` notes). A new main picture waits at
 most about a second (or a quarter of its line) for its words: when the line says them later, it comes on as the line
 begins and its parts still on their own words.
+
+**Joining what is up** (`"screen": "join"` on the beat): a main picture that comes on a later line can join the one
+already up instead of replacing it (a timeline joining the picture it dates): the one up slides into its share and
+the new one comes on beside it or under it. Pointing (a light, a pulse) then works on both until a main picture
+replaces them.
+
+```json
+{"title": "Two paths", "strict": true, "beats": [
+ {"say": "Picture two scenes: China on one side, Japan on the other.", "paragraph": true,
+  "do": [{"op": "picture", "generate": "a Qing court and a Japanese port, side by side", "labels": ["China", "Japan"], "on": "w1"}]},
+ {"say": "Their paths split at two dates: 1894 and 1905.", "screen": "join",
+  "do": [{"op": "timeline", "on": "w0", "events": [{"date": "1894", "label": "Japan beats China", "on": "w6"},
+                                                  {"date": "1905", "label": "Japan beats Russia", "on": "w8"}]}]},
+ {"say": "Look at China again.", "do": [{"op": "shade", "part": "China", "on": "w3"}]}]}
+```
 
 ```json
 {"title": "Two paths", "beats": [

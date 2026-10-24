@@ -169,6 +169,11 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 - A diagram is held to what reads (`_fix_diagram`): at most 9 nodes (any kind; a flow and a hierarchy took 16 and 20,
   and a chapter's whole argument came out as one unreadable tree), and words cut where they would run over their
   boxes (a label past 6 words, a node's text past 10, an item past 5, an arrow's label past 4; items at most 4).
+- A beat's `"screen": "join"` (`Lecture.screen_join`, `_join`): its new main picture joins the one up from an earlier
+  line, which slides into its share (`_move_stage`) while the new one comes on in the other (`_pair_boxes`).
+- The line-start clear of strays leaves what the line itself takes away by its parts (`_clear_strays`): a picture slid
+  aside sits on the screen in the group its move made, and was cleared as the line began, its shade coming back for
+  the line's own fade.
 - Timelines build themselves (`big_timeline(enter=)`, `_timeline_in`, `_timeline_event`): `draw` draws the title
   and track in and pops each event on (its own words when it has an `on`), `travel` runs a marker to each; `whole`
   (and no `enter`, as the motion engine's styled timelines call it) is the old still one. Its events are named parts

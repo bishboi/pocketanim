@@ -498,6 +498,22 @@ assert.ok(directorCalls.every((c) => !c.prompt.system.some((p) => /^v1-/.test(p.
   assert.deepEqual(ops.get(5).map((o) => [o.op, o.on]), [["reveal", "w1"], ["focus", "w2"], ["point", "w3"], ["unfocus", "w6"]], JSON.stringify(ops.get(5)));
   assert.equal(notes.length, 0, JSON.stringify(notes));
   assert.deepEqual(b.upBefore(beats).get(3).length, 1, "what is up as a line begins");
+  // The shared choices: how an operation comes on and how fast, how it is pointed at (bad ones left out, said).
+  const chosen = b.readPatch({ beats: [{ beat: 4, steps: [{ at: "w1", do: "enter", op: 0, enter: "rise", speed: "slow" }, { at: "w3", do: "pulse", target: "Food", how: "circle" },
+    { at: "w4", do: "pulse", target: "Food", how: "spin" }, { at: "w5", do: "enter", op: 0, enter: "teleport" }] }] }, beats, words);
+  assert.equal(chosen.dropped.length, 2, JSON.stringify(chosen.dropped));
+  const chosenOps = b.applyPatch(beats, chosen.patch).ops.get(4);
+  const chosenDiagram = chosenOps.find((o) => o.op === "diagram");
+  assert.deepEqual([chosenDiagram.enter, chosenDiagram.speed, chosenOps.filter((o) => o.op === "point").map((o) => o.how)], ["rise", "slow", ["circle", undefined]],
+    JSON.stringify(chosenOps));
+  // A template's held parts revealed later, each on the word of its own show.
+  const tpl = [{ beat: 1, paragraph: true, do: [{ op: "list", id: "why", items: ["State", "Schools", "Rail"], hold: ["Schools", "Rail"] }] },
+    { beat: 2, do: [{ op: "reveal", of: "why", parts: ["Schools", "Rail"] }] }];
+  assert.deepEqual(b.opParts(tpl[0].do[0]).map((p) => p.name), ["State"], "held parts are not the line's own");
+  const tplPatch = b.readPatch({ beats: [{ beat: 2, steps: [{ at: "w1", do: "show", op: 0, part: "Schools" }, { at: "w4", do: "show", op: 0, part: "Rail" }] }] }, tpl, words);
+  assert.deepEqual(tplPatch.dropped, []);
+  assert.deepEqual(b.applyPatch(tpl, tplPatch.patch).ops.get(2).map((o) => [o.op, o.of, o.parts, o.on]),
+    [["reveal", "why", ["Schools"], "w1"], ["reveal", "why", ["Rail"], "w4"]]);
   // A reveal's nodes each on the word of its own show (a reveal for each word); a field sent empty is not given.
   const two = structuredClone(beats);
   two[3].do[0].nodes.push({ id: "trade", label: "Trade" });
@@ -511,6 +527,13 @@ assert.ok(directorCalls.every((c) => !c.prompt.system.some((p) => /^v1-/.test(p.
 assert.ok(directorCalls.every((c) => c.prompt.system.some((p) => p.key === "director" && /THE CHAPTER'S BEATS/.test(p.text))
   && !c.prompt.system.some((p) => p.key === "v2-anchors") && c.checks.some((k) => k.name === "Beats" && k.result === "pass")), "the director writes the beats, and times nothing");
 const choreoCalls = run.calls.filter((c) => c.step === "scenes" && /^Choreography: lecture 1/.test(c.label));
+// One choreography call a beat, in order, each shown its line's operations with every choice each has.
+assert.equal(choreoCalls.length, run.script.lectures[1].chapters.reduce((k, ch) => k + ch.beats.length, 0), "one choreography call a beat");
+assert.ok(choreoCalls.every((c) => /^Choreography: lecture 1, chapter \d+, beat \d+$/.test(c.label)
+  && c.prompt.user.some((p) => p.key === "frame" && /The chapter's lines/.test(p.text))), "each a beat's own call, shown the chapter");
+assert.ok(choreoCalls.some((c) => c.prompt.user.some((p) => p.key === "line" && /every choice each has/.test(p.text) && /speed: fast, base, slow/.test(p.text))),
+  "each operation's menu");
+assert.ok(choreoCalls.some((c) => c.prompt.user.some((p) => p.key === "frame" && /The line before: .* it did /.test(p.text))), "what the line before did");
 assert.ok(choreoCalls.length >= run.script.lectures[1].chapters.length && choreoCalls.every((c) => c.status === "done"
   && c.prompt.system.some((p) => p.key === "manuals" && /=== \w+ ===/.test(p.text)) && c.checks.some((k) => k.name === "Steps" && k.result !== "fail")),
   "every chapter's paragraphs choreographed with their manuals");

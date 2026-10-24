@@ -1348,65 +1348,62 @@ function keepBeatKinds(run: Run, n: number, beats: ContentBeat[]): number {
   return dropped;
 }
 
-/** The chapter's paragraphs in groups of about CHOREOGRAPHY_SECONDS of narration (never more than CHOREOGRAPHY_SCENES);
- * with `only`, the paragraphs that have one of those beats. */
-function paragraphGroups(beats: ContentBeat[], words: Map<number, BeatWords>, only?: Set<number>): ContentBeat[][][] {
-  const byBeat = new Map(beats.map((b) => [b.beat, b]));
-  const runs = paragraphsOf(beats).filter((r) => !only || r.some((b) => only.has(b))).map((r) => r.map((b) => byBeat.get(b)!));
-  const out: ContentBeat[][][] = [];
-  let group: ContentBeat[][] = [];
-  let seconds = 0;
-  for (const r of runs) {
-    group.push(r);
-    seconds += r.reduce((k, b) => k + (words.get(b.beat)?.seconds ?? 0) + (words.get(b.beat)?.pause ?? 0), 0);
-    if (seconds >= CHOREOGRAPHY_SECONDS || group.length >= CHOREOGRAPHY_SCENES) {
-      out.push(group);
-      group = [];
-      seconds = 0;
-    }
-  }
-  if (group.length) out.push(group);
-  return out;
+/** The beats to choreograph: all of them, or with `only` the whole paragraphs that have one of those beats. */
+function beatsInScope(beats: ContentBeat[], only?: Set<number>): Set<number> {
+  return new Set(paragraphsOf(beats).filter((r) => !only || r.some((b) => only.has(b))).flat());
 }
 
-/** The patch on a chapter's beats (on `only` those, when given): its paragraphs choreographed a group at a time, the
- * groups at once. */
+/** A beat's steps in words, for the next beat's call ("what the line before did"). */
+function stepsSaid(p: BeatPatch | undefined, beat: ContentBeat | undefined): string {
+  if (!p || !p.steps.length) return "nothing timed (all came on as it began)";
+  return p.steps.map((x) => `${x.at} ${x.do}${x.op !== undefined ? ` op ${x.op}${beat?.do[x.op] ? ` (${String(beat.do[x.op].op)})` : ""}` : ""}` +
+    `${x.part ? ` ${x.part}` : ""}${x.target ? ` ${x.target}` : ""}${x.node ? ` ${x.node}` : ""}${x.how ? ` (${x.how})` : ""}` +
+    `${x.enter ? ` enter ${x.enter}` : ""}${x.speed ? ` ${x.speed}` : ""}`).join("; ");
+}
+
+/**
+ * The patch on a chapter's beats (with `only`, on the paragraphs that have those beats): one call a beat, in order
+ * (the Choreography role's model), each shown the chapter's lines, its own line's words, the lines round it, what is
+ * up as it begins, what the line before did (this call's answer, or the patch `kept`), its operations with every
+ * choice each has, and their manuals.
+ */
 async function choreographBeats(run: Run, n: number, c: number, beats: ContentBeat[], words: Map<number, BeatWords>,
-  only?: Set<number>): Promise<BeatPatch[]> {
+  only?: Set<number>, kept: BeatPatch[] = []): Promise<BeatPatch[]> {
   const sl = lectureState(run, n);
   const look = motionLookWords(stateOf(run));
-  const groups = paragraphGroups(beats, words, only);
+  const scope = beatsInScope(beats, only);
   const up = upBefore(beats);
   const model = modelFor("choreography");
-  const all: BeatPatch[] = [];
-  await eachAtOnce(groups.map((_, i) => i), CHOREOGRAPHY_AT_ONCE, async (gi) => {
-    const group = groups[gi];
-    const mine = group.flat();
+  const lines = beats.map((b) => ({ n: b.beat, text: words.get(b.beat)?.text ?? "" }));
+  const done = new Map(kept.map((p) => [p.beat, p]));
+  const out: BeatPatch[] = [];
+  for (const [i, b] of beats.entries()) {
+    if (!scope.has(b.beat)) continue;
+    if (stopRequested(`${run.id}:scenes`)) break;
     // A Manim figure times itself (the Manim agent writes it to the beat's word times): not choreographed.
-    const shown = mine.map((b) => ({ ...b, do: b.do.filter((o) => o.op !== "manim") }));
-    const scope = new Set(mine.map((b) => b.beat));
-    const ops = [...new Set([...shown.flatMap((b) => b.do.map((o) => String(o.op))), "point", "shade", "focus", "unlabel", "unstage"])];
-    const manuals = ops.map((op) => ({ op, text: manualFor(op, "current") })).filter((m) => m.text);
-    const at = beats.findIndex((b) => b.beat === mine[0].beat);
-    const prev = beats[at - 1];
-    const next = beats[at + mine.length];
-    const paragraphs = group.map((r) => r.map((b) => shown.find((x) => x.beat === b.beat)!));
-    const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, beats ${mine[0].beat}-${mine[mine.length - 1].beat}`,
-      lecture: n, model, effort: "low",
-      prompt: beatChoreographyPrompt({ lecture: n, chapter: c, look, paragraphs, words, up, manuals,
-        before: prev ? `beat ${prev.beat}: "${words.get(prev.beat)?.text.slice(0, 120) ?? ""}"` : undefined,
-        after: next ? `beat ${next.beat} begins: "${words.get(next.beat)?.text.slice(0, 120) ?? ""}"` : undefined }) });
+    const shown = { ...b, do: b.do.filter((o) => o.op !== "manim") };
+    const kinds = [...new Set([...shown.do.map((o) => String(o.op)), "point", "shade", "focus", "unlabel", "unstage"])];
+    const manuals = kinds.map((op) => ({ op, text: manualFor(op, "current") })).filter((m) => m.text);
+    const prev = beats[i - 1];
+    const next = beats[i + 1];
+    const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, beat ${b.beat}`, lecture: n, model, effort: "low",
+      prompt: beatChoreographyPrompt({ lecture: n, chapter: c, look, beat: shown, all: beats, words: words.get(b.beat), lines, up: up.get(b.beat) ?? [], manuals,
+        before: prev ? `b${prev.beat} "${words.get(prev.beat)?.text.slice(0, 160) ?? ""}": it did ${stepsSaid(done.get(prev.beat), prev)}` : undefined,
+        after: next ? `b${next.beat} "${words.get(next.beat)?.text.slice(0, 160) ?? ""}"` : undefined }) });
     sl.calls.push(call.id);
-    for (const b of scope) beatState(sl, b).calls.push(call.id);
+    beatState(sl, b.beat).calls.push(call.id);
     saveRun(run);
-    const reply = await callTool({ call, tool: BEAT_CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakePatch(shown, words) });
-    const { patch, dropped } = readPatch(reply ?? {}, beats, words, scope);
+    const reply = await callTool({ call, tool: BEAT_CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakePatch([shown], words).beats[0] });
+    const { patch, dropped } = readPatch({ beats: [{ ...(reply ?? {}), beat: b.beat }] }, beats, words, new Set([b.beat]));
     const steps = patch.reduce((k, p) => k + p.steps.length, 0);
-    check(call, "Steps", !reply || !steps ? "fail" : dropped.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
-      : `${steps} step(s) on ${patch.length} beat(s)` + (dropped.length ? `; ${dropped.length} left out: ${dropped.slice(0, 5).join("; ")}` : ""));
-    all.push(...patch);
-  });
-  return all.sort((a, b) => a.beat - b.beat);
+    check(call, "Steps", !reply ? "fail" : dropped.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
+      : `${steps} step(s) on beat ${b.beat}` + (dropped.length ? `; ${dropped.length} left out: ${dropped.slice(0, 5).join("; ")}` : ""));
+    for (const p of patch) {
+      done.set(p.beat, p);
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1459,8 +1456,8 @@ async function redirectBeats(run: Run, n: number, c: number, targets: number[], 
   if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off taken out`);
   const { words } = await chapterWords(run, n, c);
   const only = new Set(targets);
-  const fresh = await choreographBeats(run, n, c, beats, words, only);
-  const redone = new Set(paragraphGroups(beats, words, only).flat(2).map((b) => b.beat));
+  const redone = beatsInScope(beats, only);
+  const fresh = await choreographBeats(run, n, c, beats, words, only, had.patch.filter((p) => !redone.has(p.beat)));
   // The other beats' steps, those that still fit (a step whose `until` is now in a redone beat is checked again).
   const kept = patchStillFits(had.patch.filter((p) => !redone.has(p.beat)), beats, words).patch;
   const notes = applyBeats(run, n, c, beats, [...kept, ...fresh], [...(had.notes ?? []).slice(0, 20), ...read.notes]);
@@ -1490,7 +1487,8 @@ function fakePatch(beats: ContentBeat[], words: Map<number, BeatWords>) {
     b.do.forEach((op, i) => {
       const named = ["title", "text", "label", "term", "value", "name", "caption", "part"].map((k) => op[k]).filter((v) => typeof v === "string").join(" ");
       const at = Math.max(0, find(b.beat, named));
-      steps.push({ at: `w${at}`, do: "enter", op: i });
+      // Now and then another way in, and a quick one (the shared choices exercised).
+      steps.push({ at: `w${at}`, do: "enter", op: i, ...(b.beat % 3 === 1 ? { enter: "rise" } : b.beat % 3 === 2 ? { speed: "fast" } : {}) });
       for (const p of opParts(op)) {
         const hit = find(b.beat, p.name);
         if (hit < 0) continue;

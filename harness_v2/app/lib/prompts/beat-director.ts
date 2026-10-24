@@ -11,6 +11,7 @@
 import { part, type Part, type Prompt } from "./parts";
 import { LIMITS, type BeatWords } from "../director";
 import { stepParts, type ContentBeat } from "../beat-director";
+import { ENTRANCES, POINT_HOWS, PRIMITIVE_BY_OP, SPEEDS } from "../primitives";
 
 // ---------------------------------------------------------------- the director -----------------------------------
 
@@ -29,6 +30,8 @@ HOW TO DIRECT
      more of it: {"op": "reveal", "diagram": "<its id>", "nodes": [<ids>]}.
    - a labelled picture: on its first line with "hold": [the labels said in later lines]; each later line that
      explains one: {"op": "label", "part": "<the label>"}.
+   - a template (a list...): on its first line with "id" and "hold": [the parts said in later lines]; each later
+     line that names more of it: {"op": "reveal", "of": "<its id>", "parts": [<names>]}.
    - a timeline, a comparison, a process: all its parts on its own line (the choreographer brings each on its word).
 3. Add at most two small things a line needs: a word defined, a key number, a question.
 4. A main picture on a later line REPLACES what was up. With "screen": "join" on that beat, it JOINS the one up
@@ -126,22 +129,25 @@ export function beatDirectorPrompt(scenes: Prompt, o: { chapter: number; beats: 
 
 // ---------------------------------------------------------------- the choreographer ------------------------------
 
-const BEAT_CHOREOGRAPHY = `You choreograph a narrated lecture video: when each thing on the screen comes on, and what is pointed at
-as the narration goes on. The narration is already spoken, and the DIRECTOR has written what each line brings on.
-You are given a few PARAGRAPHS of one chapter: each beat's line as the voice says it, every word numbered (w0 the
-first) with the second it is said from the line's start; each beat's OPERATIONS by number (op 0, op 1...) with
-their parts; what is UP as the beat begins; and each artifact's MANUAL. Answer with a PATCH (choreograph_beats):
-for each beat its STEPS, each on a word of its own line, and the LOOK of its operations. You cannot change what is
-shown: only when, and what is pointed at.
+const BEAT_CHOREOGRAPHY = `You choreograph ONE LINE of a narrated lecture video: when each thing on the screen comes on, how it comes on,
+and what is pointed at as the line is said. The narration is already spoken, and the DIRECTOR has written what the
+line brings on. You are given the chapter's lines (to see where this one sits), this line as the voice says it (every
+word numbered, w0 the first, with the second it is said from the line's start), the lines before and after, what is
+UP as the line begins, what the line before it did, this line's OPERATIONS by number (op 0, op 1...) with their parts
+and EVERY CHOICE each one has, and each artifact's MANUAL. Answer with this line's STEPS and LOOKS (choreograph_beat).
+You cannot change what is shown: only when, how, and what is pointed at.
 
 A STEP: {"at": "w<word>", "do": "<step>", ...}
-  - "enter" {"op": <n>}: the beat's operation n comes on as that word is said (a "reveal" or a "label" too: its
-    nodes or its label come on then).
+  - "enter" {"op": <n>, "enter"?: "<how it comes on>", "speed"?: "fast" | "base" | "slow"}: the operation comes on
+    as that word is said (a "reveal" or a "label" too: what it brings comes on then). "enter": one of the choices
+    its menu lists, else left out for its own designed way (often the best: a chart's columns rise, a list's points
+    slide in). "speed": how long it takes against its own (fast: a quick line; slow: an idea to dwell on).
   - "show" {"op": <n>, "part": "<a part of op n, by its name>"}: that part comes on as that word is said (a
-    reveal's nodes each on the word that names it).
-  - "pulse" {"target": "<a name on the screen>"}: it is pointed at once (a label, a node, an event, a word).
-    For what the line stresses: a contrast ("but", "only", "never"), a number, the answer, the word the idea
-    turns on.
+    reveal's nodes or parts each on the word that names it).
+  - "pulse" {"target": "<a name on the screen>", "how"?: "pulse" | "lift" | "circle" | "underline"}: it is pointed
+    at: pulse (it swells once), lift (rises and settles), circle (a ring drawn round it, kept until the next ring or
+    line), underline (a line drawn under it). For what the line stresses: a contrast ("but", "only", "never"), a
+    number, the answer, the word the idea turns on.
   - "light" {"part": "<a label of the labelled picture up>", "until"?: "b<beat>.w<word>"}: the rest of the picture
     shaded round the part while it is explained: until the next light, or held until that later word.
   - "focus" {"diagram": "<its id>", "node": "<node id>", "until"?: "b<beat>.w<word>"}: the node ringed and the rest
@@ -149,39 +155,36 @@ A STEP: {"at": "w<word>", "do": "<step>", ...}
   - "hide" {"part": "<a label of the picture up>"}: the label taken off (the picture stays), when it moves on.
   - "exit": what is up taken off, when its idea is done and the line brings nothing new (a new picture takes the
     last one off by itself: no exit then).
-A LOOK: {"op": <n>, ...} how the beat's operation n is drawn, from its manual's own fields: a picture's "move"
-("drift", "push", "pan"), a diagram's "flow" or "steps", a timeline's "enter", "spans" or "range", a card's "style".
-Never its content (its nodes, labels, words): those are the director's. Leave it out when the director's is right.
+A LOOK: {"op": <n>, ...} how operation n is drawn, from its manual's own fields: a picture's "move", a diagram's
+"flow" or "steps", a timeline's "enter", "spans" or "range", a list's "layout" or "mark". Never its content (its
+nodes, labels, words): those are the director's. Leave it out when the director's is right.
 
-WHEN
+WHEN AND HOW
 - A thing comes on as the voice NAMES it: the first word that names it (the noun, the name, the number, the date),
   never a small word before it ("the", "a", "of", "and", "है", "का", "की", "के", "में"). A name may be said in another
   spelling or script: the word where the line says it.
-- A line's main picture comes on near the line's start, on the word that brings in its idea (the cut lands as the
-  idea changes). Its parts each on the word that names them, never all at once.
-- Point only at what is up: what the beat brings on, or what is up as it begins. A picture that a new one has
-  replaced is gone.
-- Each moment must be seen: keep them about 0.6 s apart or more (the times tell you); parts said in one breath may
-  share a word. Not everything on w0. At most about three moments in a second.
-- Make every line do something: in a line that brings nothing new, point at what it speaks of (a pulse, a light, a
-  focus). There is no camera: nothing zooms or pans.
-- Nothing happens that you do not write: an operation or part with no step comes on as its line begins, and
-  nothing is pointed at because the line says its name.
-
-BE RICH: the video is alive only when something moves on every line, on its words. Use each primitive's manual
-("HOW TO CHOREOGRAPH"): bring every part on by itself on the word that names it; on a diagram, focus the node being
-explained; on a labelled picture, light each part as it is explained (held with "until" while a few lines explain
-it), hide a label when the picture moves on; pulse what a line names again. A paragraph of four lines should have
-ten or more moments, each on its word, about a second or more apart.`;
+- A main picture comes on near the line's start, on the word that brings in its idea. Its parts each on the word
+  that names them, never all at once.
+- Point only at what is up: what this line brings on, or what is up as it begins.
+- Each moment must be seen: about 0.6 s apart or more (the times tell you); parts said in one breath may share a
+  word. Not everything on w0. At most about three moments in a second.
+- Vary how things come on and are pointed at across the lines (the line before tells you what it did): not every
+  picture the same entrance, not every pointing a pulse. A ring or an underline marks what the line insists on.
+- Make the line do something: if it brings nothing new, point at what it speaks of. There is no camera.
+- Nothing happens that you do not write: an operation or part with no step comes on as the line begins, and
+  nothing is pointed at because the line says its name.`;
 
 const PATCH_STEP = {
   type: "object",
   properties: {
-    at: { type: "string", description: "w<word> of this beat's line, e.g. w3." },
+    at: { type: "string", description: "w<word> of this line, e.g. w3." },
     do: { type: "string", enum: ["enter", "show", "pulse", "light", "focus", "hide", "exit"] },
-    op: { type: "integer", description: "enter, show: the beat's operation, by its number." },
+    op: { type: "integer", description: "enter, show: the line's operation, by its number." },
     part: { type: "string", description: "show: the part of the operation; light, hide: the picture's label." },
     target: { type: "string", description: "pulse: the name on the screen pointed at." },
+    how: { type: "string", enum: [...POINT_HOWS], description: "pulse: how it is pointed at." },
+    enter: { type: "string", enum: [...ENTRANCES], description: "enter: how the operation comes on (left out: its own way)." },
+    speed: { type: "string", enum: [...SPEEDS], description: "enter: how long it takes against its own." },
     diagram: { type: "string", description: "focus: the diagram's id." },
     node: { type: "string", description: "focus: the node's id." },
     until: { type: "string", description: "light, focus: b<beat>.w<word>, held until this later word." },
@@ -193,66 +196,65 @@ const PATCH_STEP = {
 export const BEAT_CHOREOGRAPHY_TOOL = {
   type: "function" as const,
   function: {
-    name: "choreograph_beats",
-    description: "The patch on these beats: each beat's steps (its operations' and parts' entries, the pulses, lights, focuses, hides and exits, each on a word of its line) and its operations' looks.",
+    name: "choreograph_beat",
+    description: "This line's steps (its operations' and parts' entries with how and how fast, the pointing, lights, focuses, hides and exits, each on a word of the line) and its operations' looks.",
     parameters: {
       type: "object",
       properties: {
-        beats: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              beat: { type: "integer" },
-              steps: { type: "array", items: PATCH_STEP },
-              look: { type: "array", items: { type: "object", properties: { op: { type: "integer" } }, required: ["op"], additionalProperties: true },
-                description: "How an operation is drawn (its manual's fields: move, flow, steps, enter, spans, range, style). Not its content." },
-            },
-            required: ["beat", "steps"],
-            additionalProperties: false,
-          },
-        },
+        steps: { type: "array", items: PATCH_STEP },
+        look: { type: "array", items: { type: "object", properties: { op: { type: "integer" } }, required: ["op"], additionalProperties: true },
+          description: "How an operation is drawn (its manual's fields). Not its content." },
       },
-      required: ["beats"],
+      required: ["steps"],
       additionalProperties: false,
     },
   },
 };
 
-/** One call's prompt: its paragraphs' lines and words, each beat's operations and parts, what is up as each
- * begins, the manuals. */
-export function beatChoreographyPrompt(o: { lecture: number; chapter: number; look: string; paragraphs: ContentBeat[][];
-  words: Map<number, BeatWords>; up: Map<number, string[]>; manuals: { op: string; text: string }[]; before?: string; after?: string }): Prompt {
-  const lines = o.paragraphs.map((run, k) => [
-    `PARAGRAPH ${k + 1} (beats ${run[0].beat}-${run[run.length - 1].beat})`,
-    ...run.map((b) => {
-      const w = o.words.get(b.beat);
-      const said = !w ? `  b${b.beat}: (no words)` : `  b${b.beat} (${w.seconds} s, then ${w.pause} s quiet${w.estimated ? "; times estimated" : ""}): "${w.text}"\n` +
-        `     ${w.words.map((x, i) => `w${i} ${x.w} ${x.t.toFixed(1)}`).join(" | ")}`;
-      const up = o.up.get(b.beat) ?? [];
-      const all = o.paragraphs.flat();
-      const ops = b.do.map((op, i) => {
-        const parts = stepParts(all, op).map((p) => JSON.stringify(p.name));
-        return `     op ${i}: ${JSON.stringify(op)}${parts.length ? `\n        parts: ${parts.join(" · ")}` : ""}`;
-      });
-      return [said, `     up as it begins: ${up.length ? up.join(" ; ") : "nothing"}${b.screen === "join" ? " (its main picture JOINS it)" : ""}`,
-        ...(ops.length ? ops : ["     (brings nothing new: point at what is up)"])].join("\n");
-    }),
-  ].join("\n"));
+/** Every choice an operation has: how it comes on, how fast, its parts, what may be done with them (lib/primitives). */
+export function menuFor(op: Record<string, unknown>, k: number, all: ContentBeat[]): string {
+  const kind = String(op.op);
+  const prim = PRIMITIVE_BY_OP.get(kind === "photo" || kind === "illustration" || kind === "figure" ? "picture" : kind);
+  const parts = stepParts(all, op).map((p) => JSON.stringify(p.name));
+  const labelled = kind === "picture" && Array.isArray(op.labels) && op.labels.length > 0;
+  const lines = [
+    `     op ${k}: ${JSON.stringify(op)}`,
+    `        enter: its own way (left out)${prim?.moves.length ? ` -- ${prim.moves[0]}` : ""}; or ${ENTRANCES.join(", ")}. speed: ${SPEEDS.join(", ")}.`,
+    ...(parts.length ? [`        parts (show each on its word): ${parts.join(" · ")}`] : []),
+    `        pointing at it or its parts: pulse (how: ${POINT_HOWS.join(", ")})${labelled ? "; light, hide (its labels)" : ""}${kind === "diagram" ? "; focus (its nodes)" : ""}.`,
+    ...(prim && prim.moves.length > 1 ? [`        its moves: ${prim.moves.slice(1).join("; ")}`] : []),
+  ];
+  return lines.join("\n");
+}
+
+/** One line's prompt: the chapter's lines, this line and its words, the lines round it, what is up, what the line
+ * before did, this line's operations with every choice each has, the manuals. */
+export function beatChoreographyPrompt(o: { lecture: number; chapter: number; look: string; beat: ContentBeat; all: ContentBeat[];
+  words?: BeatWords; lines: { n: number; text: string }[]; up: string[]; before?: string; after?: string;
+  manuals: { op: string; text: string }[] }): Prompt {
+  const w = o.words;
+  const said = !w ? `b${o.beat.beat}: (no words)` : `b${o.beat.beat} (${w.seconds} s, then ${w.pause} s quiet${w.estimated ? "; times estimated" : ""}): "${w.text}"\n` +
+    `   ${w.words.map((x, i) => `w${i} ${x.w} ${x.t.toFixed(1)}`).join(" | ")}`;
+  const ops = o.beat.do.map((op, i) => menuFor(op, i, o.all));
   return {
     system: [
-      part("choreography", "How to choreograph the beats", "rules", BEAT_CHOREOGRAPHY),
-      part("manuals", `The manuals of this call's artifacts (${o.manuals.length})`, "rules",
+      part("choreography", "How to choreograph a line", "rules", BEAT_CHOREOGRAPHY),
+      part("manuals", `The manuals of this line's artifacts (${o.manuals.length})`, "rules",
         o.manuals.map((m) => `=== ${m.op} ===\n${m.text}`).join("\n\n")),
     ],
     user: [
-      part("frame", "Where these beats are", "context", [
+      part("frame", "Where this line is", "context", [
         `Lecture ${o.lecture}, chapter ${o.chapter}, drawn on the current engine in ${o.look}.`,
-        ...(o.before ? [`Just before: ${o.before}`] : ["These beats open the chapter (after its title card)."]),
-        ...(o.after ? [`Just after: ${o.after}`] : ["These beats end the chapter."]),
+        `The chapter's lines: ${o.lines.map((l) => `b${l.n} ${l.text}`).join(" / ")}`,
+        o.before ? `The line before: ${o.before}` : "This line opens the chapter (after its title card).",
+        o.after ? `The line after: ${o.after}` : "This line ends the chapter.",
       ]),
-      part("beats", "The beats: their lines, words and operations", "book", lines),
-      part("ask", "Request", "ask", "Choreograph these beats (choreograph_beats): every operation and every part an entry on its word, then the moments that keep each line alive."),
+      part("line", "This line, its words, and what it brings on", "book", [
+        said,
+        `Up as it begins: ${o.up.length ? o.up.join(" ; ") : "nothing"}${o.beat.screen === "join" ? " (its main picture JOINS it)" : ""}${o.beat.paragraph ? " (a new idea begins here)" : ""}`,
+        ...(ops.length ? ["Its operations and every choice each has:", ...ops] : ["It brings nothing new: point at what is up."]),
+      ].join("\n")),
+      part("ask", "Request", "ask", "Choreograph this line (choreograph_beat): every operation and every part an entry on its word, how each comes on, then the moments that keep the line alive."),
     ],
   };
 }

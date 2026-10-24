@@ -14,6 +14,7 @@
  */
 
 import { fitOp, isObj, NOT_LOOK, opProblems, partsOf, LIMITS, setOn, withoutOn, type BeatWords } from "./director";
+import { ENTRANCES, POINT_HOWS, SPEEDS } from "./primitives";
 
 type Op = Record<string, unknown>;
 
@@ -21,7 +22,7 @@ type Op = Record<string, unknown>;
 export type ContentBeat = { beat: number; do: Op[]; paragraph?: boolean; pause?: number; about?: string; screen?: "join" };
 /** One step of the choreographer's patch, on a word of its beat's line. */
 export type PatchStep = { at: string; do: string; op?: number; part?: string; target?: string; diagram?: string; node?: string;
-  until?: string; how?: string };
+  until?: string; how?: string; enter?: string; speed?: string };
 /** The choreographer's patch for one beat: its steps, and how its operations are drawn. */
 export type BeatPatch = { beat: number; steps: PatchStep[]; look?: ({ op: number } & Op)[] };
 /** A chapter built as one piece, as kept: the director's beats and the choreographer's patch. */
@@ -127,7 +128,8 @@ const FOLLOW_UPS = new Set(["reveal", "label", "unshade", "unlabel", "unfocus", 
 export function opParts(op: Op) {
   if (FOLLOW_UPS.has(String(op.op))) return [];
   const shown = op.op === "diagram" && Array.isArray(op.show) ? new Set(op.show.map(String)) : undefined;
-  const held = op.op === "picture" && Array.isArray(op.hold) ? new Set(op.hold.map((x) => norm(x))) : undefined;
+  // Held for a later line (a picture's label, a template's part): not its own line's.
+  const held = Array.isArray(op.hold) ? new Set(op.hold.map((x) => norm(x))) : undefined;
   return partsOf({ id: "op", op }).filter((p) => (!shown || !p.node || shown.has(p.node)) && (!held || !held.has(norm(p.name))));
 }
 
@@ -149,6 +151,7 @@ export function upBefore(beats: ContentBeat[]): Map<number, string[]> {
  * their labels in the diagram, or ids), each of which may come on on a word of its own; a `label`'s label. Each with
  * the key it is kept by (a node's id, else the name). */
 export function stepParts(beats: ContentBeat[], op: Op): { name: string; key: string }[] {
+  if (op.op === "reveal" && op.of !== undefined && Array.isArray(op.parts)) return op.parts.map((x) => ({ name: String(x), key: String(x) }));
   if (op.op === "reveal" && Array.isArray(op.nodes)) {
     const diagram = beats.flatMap((b) => b.do).find((o) => o.op === "diagram" && String(o.id) === String(op.diagram));
     const nodes = diagram && Array.isArray(diagram.nodes) ? diagram.nodes.filter(isObj) : [];
@@ -247,7 +250,21 @@ export function readPatch(reply: unknown, beats: ContentBeat[], words: Map<numbe
         if (!u || !byBeat.has(ub) || ub < n || (ub === n && Number(u[2]) <= Number(m[1]))) dropped.push(`${said}: its "until" is not a later word of these beats: not held`);
         else step.until = `b${ub}.w${Math.min(Math.max(0, (words.get(ub)?.words.length ?? 1) - 1), Number(u[2]))}`;
       }
-      if (what === "pulse" && typeof raw.how === "string") step.how = raw.how;
+      if (what === "pulse" && raw.how !== undefined) {
+        if ((POINT_HOWS as readonly string[]).includes(String(raw.how))) step.how = String(raw.how);
+        else dropped.push(`${said}: its "how" is one of ${POINT_HOWS.join(", ")}: a pulse`);
+      }
+      if (what === "enter") {
+        // How the operation comes on and how fast (the shared choices).
+        if (raw.enter !== undefined) {
+          if ((ENTRANCES as readonly string[]).includes(String(raw.enter))) step.enter = String(raw.enter);
+          else dropped.push(`${said}: its "enter" is one of ${ENTRANCES.join(", ")}: its own way`);
+        }
+        if (raw.speed !== undefined) {
+          if ((SPEEDS as readonly string[]).includes(String(raw.speed))) step.speed = String(raw.speed);
+          else dropped.push(`${said}: its "speed" is one of ${SPEEDS.join(", ")}: left out`);
+        }
+      }
       steps.push(step);
     }
     const look: ({ op: number } & Op)[] = [];
@@ -300,7 +317,11 @@ export function applyPatch(beats: ContentBeat[], patch: BeatPatch[]): { ops: Map
     }
     for (const s of p.steps) {
       const on = s.at === "w0" ? "start" : s.at;
-      if (s.do === "enter" && s.op !== undefined && own[s.op]) own[s.op].on = on;
+      if (s.do === "enter" && s.op !== undefined && own[s.op]) {
+        own[s.op].on = on;
+        if (s.enter) own[s.op].enter = s.enter;
+        if (s.speed) own[s.op].speed = s.speed;
+      }
       else if (s.do === "show" && s.op !== undefined && own[s.op]) {
         const op = own[s.op];
         if (op.op === "reveal") {
@@ -311,7 +332,7 @@ export function applyPatch(beats: ContentBeat[], patch: BeatPatch[]): { ops: Map
           const part = opParts(op).find((x) => x.name === s.part);
           if (part) setOn(op, part.place, on);
         }
-      } else if (s.do === "pulse") add(p.beat, { op: "point", target: s.target, on, ...(s.how ? { how: s.how } : {}) });
+      } else if (s.do === "pulse") add(p.beat, { op: "point", target: s.target, on, ...(s.how && s.how !== "pulse" ? { how: s.how } : {}) });
       else if (s.do === "light") {
         add(p.beat, { op: "shade", part: s.part, on, ...(s.until ? { hold: true } : {}) });
         if (s.until) {
@@ -334,16 +355,18 @@ export function applyPatch(beats: ContentBeat[], patch: BeatPatch[]): { ops: Map
   for (const [k, on] of nodesOn) {
     const [beat, i] = k.split(".").map(Number);
     const op = ops.get(beat)?.[i];
-    if (!op || !Array.isArray(op.nodes)) continue;
+    // A diagram's nodes, or a template's parts held back (`of`).
+    const key = op?.of !== undefined ? "parts" : "nodes";
+    if (!op || !Array.isArray(op[key])) continue;
     const words = new Map<string, string[]>();
-    for (const id of op.nodes.map(String)) {
+    for (const id of (op[key] as unknown[]).map(String)) {
       const w = on.get(id) ?? String(op.on ?? "start");
       words.set(w, [...(words.get(w) ?? []), id]);
     }
     const [first, ...rest] = [...words].sort((a, b) => wordOf(a[0]) - wordOf(b[0]));
-    op.nodes = first[1];
+    op[key] = first[1];
     op.on = first[0];
-    for (const [w, ids] of rest) add(beat, { op: "reveal", diagram: op.diagram, nodes: ids, on: w });
+    for (const [w, ids] of rest) add(beat, key === "parts" ? { op: "reveal", of: op.of, parts: ids, on: w } : { op: "reveal", diagram: op.diagram, nodes: ids, on: w });
   }
   for (const [beat, list] of added) ops.get(beat)?.push(...list.map((x) => x.op));
   // Each beat's operations in the order of their words; on one word what comes on before what points at it.

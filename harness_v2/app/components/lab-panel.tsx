@@ -271,7 +271,6 @@ const input = "rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 te
 /** What is up by the time a beat plays, for the knobs' choices: the labelled pictures' labels, the diagrams and their
  * nodes, every name that can be pointed at. */
 type Known = { labels: string[]; diagrams: Map<string, string[]>; names: string[] };
-const SIDES = ["", "left", "right", "above", "below"];
 
 function knownBy(beats: LabBeat[], upTo: number): Known {
   const labels = new Set<string>();
@@ -350,9 +349,9 @@ function FormEditor({ value, onChange }: { value: LabScript; onChange: (v: LabSc
 function OpForm({ op, words, known, onChange, onMove, onRemove }: { op: LabOp; words: string[]; known: Known; onChange: (o: LabOp) => void;
   onMove: (d: number) => void; onRemove: () => void }) {
   const p = PRIMITIVE_BY_OP.get(String(op.op));
-  // A labelled picture's labels are set in its own knobs (side, note, held back), not as raw fields.
+  // A labelled picture's labels are set in its own knobs (note, held back), not as raw fields.
   const labelled = Array.isArray(op.labels) && op.labels.length > 0;
-  const knob = new Set(labelled ? ["hold", "sides", "notes"] : []);
+  const knob = new Set(labelled ? ["hold", "notes"] : []);
   // A field that names what is up: a choice of what is up by this beat (or any words).
   const choices = (key: string): string[] | undefined => key === "part" ? known.labels : key === "diagram" ? [...known.diagrams.keys()]
     : key === "node" ? known.diagrams.get(String(op.diagram ?? "")) ?? [] : key === "target" ? known.names : undefined;
@@ -418,15 +417,14 @@ function OpForm({ op, words, known, onChange, onMove, onRemove }: { op: LabOp; w
   );
 }
 
-/** A labelled picture's labels, one row each: the side its tag sits on, a short note under its name, and whether it
- * is held back (brought on later by a `label` operation). Written to the picture's `sides`, `notes` and `hold`. */
+/** A labelled picture's labels, one row each: a short note under its name, and whether it is held back (brought on
+ * later by a `label` operation). Written to the picture's `notes` and `hold`. */
 function LabelKnobs({ op, onChange }: { op: LabOp; onChange: (o: LabOp) => void }) {
   const names = (op.labels as unknown[]).map((l) => (typeof l === "string" ? l : l && typeof l === "object" ? String((l as LabOp).name ?? "") : "")).filter(Boolean);
-  const sides = (op.sides && typeof op.sides === "object" ? op.sides : {}) as Record<string, string>;
   const notes = (op.notes && typeof op.notes === "object" ? op.notes : {}) as Record<string, string>;
   const hold = Array.isArray(op.hold) ? op.hold.map(String) : [];
-  const write = (key: "sides" | "notes", name: string, value: string) => {
-    const next = { ...op, [key]: { ...(key === "sides" ? sides : notes) } } as LabOp;
+  const write = (key: "notes", name: string, value: string) => {
+    const next = { ...op, [key]: { ...notes } } as LabOp;
     const map = next[key] as Record<string, string>;
     if (value) map[name] = value; else delete map[name];
     if (!Object.keys(map).length) delete next[key];
@@ -440,14 +438,12 @@ function LabelKnobs({ op, onChange }: { op: LabOp; onChange: (o: LabOp) => void 
   };
   return (
     <table className="w-full text-[11px]" data-testid="lab-label-knobs">
-      <thead><tr className="text-left text-neutral-500"><th className="font-normal">label</th><th className="font-normal">side</th><th className="font-normal">note</th>
+      <thead><tr className="text-left text-neutral-500"><th className="font-normal">label</th><th className="font-normal">note</th>
         <th className="font-normal" title="held back: brought on later by a label operation">later</th></tr></thead>
       <tbody>
         {names.map((n) => (
           <tr key={n}>
             <td className="pr-2 text-neutral-200">{n}</td>
-            <td className="pr-2"><select className={input} value={sides[n] ?? ""} onChange={(e) => write("sides", n, e.target.value)} data-testid="lab-knob-side">
-              {SIDES.map((x) => <option key={x} value={x}>{x || "auto"}</option>)}</select></td>
             <td className="pr-2"><input className={`${input} w-full`} maxLength={60} placeholder="a short line under it" value={notes[n] ?? ""}
               onChange={(e) => write("notes", n, e.target.value)} data-testid="lab-knob-note" /></td>
             <td><input type="checkbox" checked={hold.includes(n)} onChange={(e) => held(n, e.target.checked)} data-testid="lab-knob-hold" /></td>

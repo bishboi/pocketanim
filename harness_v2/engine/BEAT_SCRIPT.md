@@ -318,10 +318,9 @@ The older operation names still work: `illustration` (= `generate`), `photo` (`s
 | `labels`? | 2-6 | Names of parts really in the picture. A vision model finds where each part is, and the board writes each name beside the picture with a line and a box to its part, coming on as the line says the name (§4). |
 | `scene`? | true | A whole scene drawn edge to edge (a market, a battle, a way of life) instead of a cutout. A picture that is its line's only visual becomes a full-screen scene by itself. |
 | `caption`? | text | Under the picture. |
-| `move`? | `bob` \| `sway` \| `breathe` \| `drift` | The picture moves gently once drawn (a boat bobs, a flag sways, a heart breathes, a ship drifts on). Another word is left out with a note. |
+| `move`? | `bob` \| `sway` \| `breathe` \| `drift` | The picture moves gently once drawn (a boat bobs, a flag sways, a heart breathes, a ship drifts on). Another word is left out with a note. A picture with `labels` stays still (its boxes, names and lights sit on its parts). |
 | `points`? | 2-4 short lines | The split layout: the picture large on the left, these lines on the right. Not with `labels`. |
 | `hold`? | labels | v2, current engine: these labels are held back: not shown with the picture, each brought on by a `label` op on a later line (§5.3). |
-| `sides`? | {label: side} | v2, current engine: the side each label's tag sits on: `left` or `right` of the picture, or `above`, `below`, `left`, `right` of its part when the tags sit on the picture. Else the engine chooses (the side its part is on). Another word is left out. |
 | `notes`? | {label: text} | v2, current engine: a short line (up to 60 letters) written small under the label's name: a date, a number, what the part does. |
 | `aspect`? | `16:9` \| `4:3` \| `1:1` | The shape it is made in. Default: the screen's shape when it is the line's only picture. |
 | `diagram`? | true | Made by the diagram model (as `draw`). |
@@ -551,7 +550,7 @@ shown on a later line, a light held `until` a word, a label hidden):
 {"title": "The flood plain", "strict": true, "beats": [
  {"say": "When the river floods, the water spreads over the plain.", "paragraph": true,
   "do": [{"op": "picture", "generate": "a river bank after a flood, dark wet silt, early fields", "on": "w2",
-          "labels": ["water", "soil"], "hold": ["soil"], "sides": {"water": "left"}, "notes": {"water": "the yearly flood"}}]},
+          "labels": ["water", "soil"], "hold": ["soil"], "notes": {"water": "the yearly flood"}}]},
  {"say": "When it goes back, it leaves rich black soil behind.",
   "do": [{"op": "label", "part": "soil", "on": "w7"}, {"op": "shade", "part": "soil", "hold": true, "on": "w8"}]},
  {"say": "Farmers sowed their seed in that soil, year after year.", "do": [{"op": "unlabel", "part": "water", "on": "w2"}]},

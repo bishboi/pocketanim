@@ -1473,19 +1473,15 @@ def _picture_found(spec) -> tuple | None:
 
 
 def _label_extras(op: dict) -> str:
-    """stage_image's script-given say over its labels: those held back (`hold`, brought on by a `label` op), each
-    label's side (`sides`) and a short note under its name (`notes`). The current engine's (the motion engine draws
-    its labels its own way)."""
+    """stage_image's script-given say over its labels: those held back (`hold`, brought on by a `label` op) and a
+    short note under a label's name (`notes`). The current engine's (the motion engine draws its labels its own
+    way)."""
     if _ENGINE[0] == "motion":
         return ""
     out = ""
     hold = [str(x) for x in op.get("hold") or [] if str(x).strip()] if isinstance(op.get("hold"), list) else []
     if hold:
         out += f", hold={hold!r}"
-    sides = {str(k): str(v) for k, v in (op.get("sides") or {}).items() if str(v) in LABEL_SIDES} \
-        if isinstance(op.get("sides"), dict) else {}
-    if sides:
-        out += f", sides={sides!r}"
     notes = {str(k): str(v)[:60] for k, v in (op.get("notes") or {}).items() if str(v or "").strip()} \
         if isinstance(op.get("notes"), dict) else {}
     if notes:
@@ -1606,7 +1602,6 @@ FREE_OPS = {"manim"}
 # Pointing at what is on the screen, on purpose (the script's own, never the engine's): a pulse on a named part
 # (`point`), a labelled picture's part lit with the rest shaded (`shade`).
 POINT_OPS = {"point", "shade", "label", "unlabel", "unshade", "unfocus"}
-LABEL_SIDES = ("left", "right", "above", "below")
 # The engine the script is compiled for ("motion" or the current one): set as a compile begins.
 _ENGINE: list[str] = [""]
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS

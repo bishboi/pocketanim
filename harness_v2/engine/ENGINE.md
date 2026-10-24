@@ -171,9 +171,10 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   picture's labels queued for a line are not drawn when another picture has taken the stage in that line
   (`_with_looks`: they were left on top of what replaced it). The board's heading (`stem.board_title`) is not drawn
   when it is the chapter's own name (the tag in the corner says it), and never over that tag (`_strip`).
-- A picture's labels as the script says (current engine): `stage_image(hold=, sides=, notes=)` holds labels back
-  (`_picture_view` queues none for them), puts a label's tag on the side it is given (`_label_layout` left/right of the
-  picture; `_labels_on` tries the given spot of its part first) and writes a short note under its name (`_label_tag`).
+- A picture's labels as the script says (current engine): `stage_image(hold=, notes=)` holds labels back
+  (`_picture_view` queues none for them) and writes a short note under a label's name (`_label_tag`). A labelled
+  picture never moves (`move` is for a picture without labels): a moving picture was marked `still`, which turned its
+  lights off, and a full-screen scene did not even move.
   New operations: `label` (`Lecture.label`: a held label brought on), `unlabel` (`Lecture.unlabel`: a label faded, the
   picture kept), `unshade` (`Lecture.unshade`) and `unfocus` (`Lecture.unfocus`: a diagram's veils lifted); `shade`
   takes `hold` (`held_light`: `_looks_away` and `_lifts` leave the light on until an `unshade`).

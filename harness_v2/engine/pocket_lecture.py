@@ -3515,6 +3515,8 @@ class Lecture(Scene):
             out += [(a, [round(start + k * step, 3), 0.6]) for k, a in enumerate(queue)]
         return out
 
+    STAGE_WAIT = 1.2         # seconds at most a new stage picture waits for its words (else: as the line begins)
+
     def _on_words(self, given: list, words, seconds: float, text: str) -> list:
         """The line's pictures with each one that names something started on its words, and pointers added for
         the things on the screen the line names; in the order they start. Unchanged without word times."""
@@ -3535,6 +3537,12 @@ class Lecture(Scene):
                     pass
             said = getattr(anim, "panim_said", None)
             at = self._said(words, said) if said else None
+            if at is not None and getattr(anim, "panim_stage", False) and not self.__dict__.get("_strict") \
+                    and at > min(self.STAGE_WAIT, seconds * 0.25):
+                # A new picture on the stage does not wait long for its words (a diagram whose only word said
+                # was the line's last left the screen empty the whole line): it comes on as the line begins,
+                # and its parts still on their own words.
+                at = None
             if at is not None and at < seconds:          # (kept inside the line by _cue_plan)
                 run = float(cue[1]) if isinstance(cue, (list, tuple)) and len(cue) > 1 and cue[1] else PrimitiveRun.SHOW
                 cue = [round(max(0.0, at - SYNC_LEAD), 3), min(run, 1.0)]
@@ -3593,7 +3601,7 @@ class Lecture(Scene):
                 out[i] = (Wait(0.05), cue)
                 continue
             look = None
-            if holder.panim_heard and not view.get("still") and self._view_on(view) and not self.__dict__.get("_strict"):
+            if holder.panim_heard and self._view_on(view) and not self.__dict__.get("_strict"):
                 # Every part said gets the light, however soon the next is said (the move is cut to fit): lit only
                 # where the narration stayed a moment, the light stayed on the sheep while the goats were named.
                 look = self._look(view, name)
@@ -4309,7 +4317,9 @@ class Lecture(Scene):
             show = FadeIn(new, shift=UP * 0.2)
         # The old picture is gone before the new one arrives: overlapping them put a new diagram over a
         # half-faded photo.
-        return AnimationGroup(AnimationGroup(*going, run_time=0.4), show, lag_ratio=1.0) if going else show
+        anim = AnimationGroup(AnimationGroup(*going, run_time=0.4), show, lag_ratio=1.0) if going else show
+        anim.panim_stage = True
+        return anim
 
     def _solving(self) -> bool:
         """A problem is on the board and its answer not boxed yet."""
@@ -4593,7 +4603,7 @@ class Lecture(Scene):
         self._live_start(image, step, "loop", keep=True)
 
     def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
-                    points=(), hold=(), sides=None, notes=None):
+                    points=(), hold=(), notes=None):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
         the problem, its figure and its working off the board mid-solution.
 
@@ -4605,8 +4615,8 @@ class Lecture(Scene):
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
         # The script's own say over its labels (BEAT_SCRIPT.md, picture): those held back come on with a `label`
-        # op on a later line; a label's side of the picture and a short note under its name.
-        self._label_opts = {"hold": {_norm(x) for x in hold or ()}, "sides": {_norm(k): str(v) for k, v in (sides or {}).items()},
+        # op on a later line; a short note under a label's name.
+        self._label_opts = {"hold": {_norm(x) for x in hold or ()},
                             "notes": {_norm(k): str(v) for k, v in (notes or {}).items() if str(v or "").strip()}}
         try:
             return self._stage_image(path, caption, credit, labels, move, points)
@@ -4663,8 +4673,9 @@ class Lecture(Scene):
         if labels:
             # The labels come on as their parts are said (beat): not with the picture, all at once; each on the
             # picture beside its part.
-            self._picture_view(image, labels, w, still=bool(move), inside=True)
-        if move and cutout:
+            # A labelled picture stays where it is: its boxes, labels and lights are on its parts.
+            self._picture_view(image, labels, w, inside=True)
+        elif move and cutout:
             self._move_picture(image, [], move)
         return shown
 
@@ -4725,8 +4736,8 @@ class Lecture(Scene):
             band._panim_z = Z_MARK + 10.5
         self._full_bands = (group, parts[1:])
         if labels:
-            self._picture_view(image, labels, fw, still=bool(move), inside=True)
-        if move and cutout:
+            self._picture_view(image, labels, fw, inside=True)
+        elif move and cutout:
             self._move_picture(image, [], move)
         return shown
 
@@ -4785,11 +4796,11 @@ class Lecture(Scene):
     SHADE = 0.62             # how dark the rest of the picture goes
     Z_LOOK = Z_LABEL - 0.7   # the shade: over the picture, under the parts' boxes, lines and names
 
-    def _picture_view(self, image, labels, width: float, still: bool = False, inside: bool = False) -> dict:
+    def _picture_view(self, image, labels, width: float, inside: bool = False) -> dict:
         """Lay out a picture's labels (not yet shown), queue each to come on as its part is said (beat), and let a
         later line that names a part move the camera back in on it (name_part)."""
         view = {"image": image, "parts": {}, "revealed": set(), "zoom": None, "lens": None, "hidden": [],
-                "still": still, "beat": self.__dict__.get("_sync_beat", 0),
+                "beat": self.__dict__.get("_sync_beat", 0),
                 "drift": image.__dict__.get("_panim_drift")}
         for piece in (self._labels_on(image, labels) if inside else self._label_layout(image, labels, width)):
             view["parts"][piece["name"]] = piece
@@ -4853,9 +4864,7 @@ class Lecture(Scene):
                 rw, rh = min(0.09, 0.3 * ih / max(iw, 1e-6)) * max(1.0, ih / max(iw, 1e-6)), 0.09
                 box = (max(0.0, x - rw), max(0.0, y - rh), min(1.0, x + rw), min(1.0, y + rh))
             point = np.array([lo[0] + x * iw, hi[1] - y * ih, 0])
-            # The script's side for it, else the side its part is on.
-            chosen = self._label_opt("sides", text)
-            sides[-1 if chosen == "left" else 1 if chosen == "right" else -1 if x < 0.5 else 1].append((text, point, box))
+            sides[-1 if x < 0.5 else 1].append((text, point, box))
         out = []
         for side, items in sides.items():
             items.sort(key=lambda item: -item[1][1])
@@ -4921,10 +4930,6 @@ class Lecture(Scene):
             cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
             spots = [(cx, y1 + 0.12 + th / 2), (cx, y0 - 0.12 - th / 2), (x1 + 0.15 + tw / 2, cy),
                      (x0 - 0.15 - tw / 2, cy)]
-            # The script's side for it is tried first (above, below, right, left of its part).
-            chosen = {"above": 0, "below": 1, "right": 2, "left": 3}.get(str(self._label_opt("sides", text) or ""))
-            if chosen is not None:
-                spots.insert(0, spots.pop(chosen))
             best = None
             for sx, sy in spots:
                 sx = min(max(sx, x_lo + tw / 2), x_hi - tw / 2)
@@ -5014,7 +5019,7 @@ class Lecture(Scene):
     def _look(self, view, name: str):
         """Shade the rest of a labelled picture round a part (its label first if it is not on yet), from wherever the
         shade is. None when it is round this part already, or cannot be."""
-        if not self._view_on(view) or name not in view["parts"] or view.get("still"):
+        if not self._view_on(view) or name not in view["parts"]:
             return None
         if view["zoom"] == name:
             return None

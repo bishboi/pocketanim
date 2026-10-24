@@ -469,7 +469,7 @@ run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectur
 assert.equal(run.scenes.lectures[1].plans[pc].elements[0].role, "edited by hand", "the plan saved");
 assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "with the timelines that still fit it");
 // The lowering of every step (lib/director.ts), on the current engine: a label shown on a later line held back and
-// brought on by a `label`, its side and note, a light held until a word (shade with hold, then unshade), a hide (an
+// brought on by a `label`, its note, a light held until a word (shade with hold, then unshade), a hide (an
 // unlabel), a focus held (focus, then unfocus), a pulse on a node (point), a look merged and content refused.
 {
   const d = await import(path.resolve(here, "../lib/director.ts"));
@@ -484,7 +484,7 @@ assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "w
     for (const p of d.partsOf(el)) acts.set(p.ref, may.parts);
   }
   const choreo = { elements: [
-    { id: "bank", look: { move: "drift" }, timeline: [{ at: "b1.w1", do: "enter" }, { at: "b1.w2", do: "show", part: "water", side: "left", note: "the flood" },
+    { id: "bank", look: { move: "drift" }, timeline: [{ at: "b1.w1", do: "enter" }, { at: "b1.w2", do: "show", part: "water", note: "the flood" },
       { at: "b2.w3", do: "show", part: "soil" }, { at: "b2.w4", do: "light", part: "soil", until: "b3.w5" }, { at: "b3.w2", do: "hide", part: "water" }] },
     { id: "chain", look: { flow: true }, timeline: [{ at: "b4.w0", do: "enter" }, { at: "b4.w3", do: "show", part: "towns" },
       { at: "b5.w1", do: "focus", part: "towns", until: "b5.w6" }, { at: "b5.w3", do: "pulse", part: "food" }] }] };
@@ -493,7 +493,7 @@ assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "w
   assert.deepEqual([...steps.dropped, ...read.dropped], [], "every step read");
   const { ops } = d.lowerPlan(plan, read.cues, words, "current", steps.looks);
   const pic = ops.get(1).find((o) => o.op === "picture");
-  assert.deepEqual([pic.hold, pic.sides, pic.notes, pic.move], [["soil"], { water: "left" }, { water: "the flood" }, "drift"], JSON.stringify(pic));
+  assert.deepEqual([pic.hold, pic.sides, pic.notes, pic.move], [["soil"], undefined, { water: "the flood" }, "drift"], JSON.stringify(pic));
   assert.deepEqual(ops.get(2).map((o) => [o.op, o.part, o.hold, o.on]), [["label", "soil", undefined, "w3"], ["shade", "soil", true, "w4"]], JSON.stringify(ops.get(2)));
   assert.deepEqual(ops.get(3).map((o) => [o.op, o.on]), [["unlabel", "w2"], ["unshade", "w5"]], JSON.stringify(ops.get(3)));
   assert.equal(ops.get(4).find((o) => o.op === "diagram").flow, true, "a diagram's look merged");

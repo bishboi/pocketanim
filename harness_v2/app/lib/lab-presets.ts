@@ -21,10 +21,10 @@ export const LAB_PRESETS: LabPreset[] = [
     ]),
   },
   {
-    id: "picture-steps", name: "Picture explained label by label", note: "A strict chapter: one label shown at first (on the left, with a note), the other held back and shown on a later line, lit and held over a line, then hidden; the light lifted.",
+    id: "picture-steps", name: "Picture explained label by label", note: "A strict chapter: one label shown at first (with a note), the other held back and shown on a later line, lit and held over a line, then hidden; the light lifted.",
     script: { region: null, chapter: { title: "The flood plain", narration: "The flood plain", map: false, strict: true, beats: [
       { say: "When the river floods, the water spreads over the plain.", paragraph: true, do: [{ op: "picture", generate: "a river bank after a flood, dark wet silt, early fields",
-        labels: ["water", "soil"], hold: ["soil"], sides: { water: "left" }, notes: { water: "the yearly flood" }, on: "w2" }] },
+        labels: ["water", "soil"], hold: ["soil"], notes: { water: "the yearly flood" }, on: "w2" }] },
       { say: "When it goes back, it leaves rich black soil behind.", do: [{ op: "label", part: "soil", on: "w7" }, { op: "shade", part: "soil", hold: true, on: "w8" }] },
       { say: "Farmers sowed their seed in that soil, year after year.", do: [{ op: "unlabel", part: "water", on: "w2" }] },
       { say: "And the whole plain fed the first towns.", do: [{ op: "unshade", on: "w2" }] },

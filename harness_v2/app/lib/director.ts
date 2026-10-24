@@ -9,7 +9,7 @@
  *     Its timeline is its steps, each on a beat's word ("b12.w3"): it or one of its parts comes on (`enter`, `show`),
  *     is pulsed (`pulse`), lit with the rest shaded (`light`), ringed with the rest dimmed (`focus`), taken off
  *     (`hide` a part, `exit` the element), or a scene stamped (`stamps`); a light or a focus held `until` a later
- *     word; a picture's label given its `side` and a short `note`. Its look is how it is drawn (a picture's move, a
+ *     word; a picture's label given a short `note`. Its look is how it is drawn (a picture's move, a
  *     diagram's flow, a timeline's spans): merged into its operation. Kept and edited as
  *     {"elements": [{"id", "timeline": [...], "look"?}], "stamps"?: [...]}; read here as flat cues.
  *     The call is shown the manual of every artifact its scenes use (lib/manuals.ts).
@@ -36,7 +36,7 @@ export type PlanCue = { at: string; ref: string; act: string; how?: string; text
 export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; choreography?: Choreography; cues?: PlanCue[]; at?: number;
   notes?: string[] };
 /** One step of an element's timeline, as the choreography gives it and the page shows it. */
-export type Step = { at: string; do: string; part?: string; until?: string; how?: string; side?: string; note?: string; in_pause?: boolean };
+export type Step = { at: string; do: string; part?: string; until?: string; how?: string; note?: string; in_pause?: boolean };
 /** A stamp on a scene (the motion engine's). */
 export type Stamp = { at: string; scene: string; text: string; in_pause?: boolean };
 /** Every element's timeline and look, and the scenes' stamps: the choreographer's JSON. */
@@ -44,7 +44,7 @@ export type Choreography = { elements: { id: string; timeline: Step[]; look?: Op
 export type PlanPart = { ref: string; element: string; place: (string | number)[]; name: string; parent?: string; node?: string };
 export type CueAct = "enter" | "emphasis" | "shade" | "focus" | "hide" | "exit" | "stamp";
 export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; inPause?: boolean;
-  until?: [number, number]; side?: string; note?: string };
+  until?: [number, number]; note?: string };
 /** A step's `do` and the cue it is: `show` a part's enter, `light` a shade, `pulse` an emphasis. */
 const ACT_OF: Record<string, CueAct> = { enter: "enter", show: "enter", hide: "hide", light: "shade", shade: "shade", pulse: "emphasis",
   emphasis: "emphasis", focus: "focus", exit: "exit", stamp: "stamp" };
@@ -52,8 +52,6 @@ const ACT_OF: Record<string, CueAct> = { enter: "enter", show: "enter", hide: "h
 const DO_OF: Record<CueAct, string> = { enter: "enter", hide: "hide", shade: "light", emphasis: "pulse", focus: "focus", exit: "exit", stamp: "stamp" };
 /** A cue's act as the choreographer writes it (`show` for a part's entry). */
 export const doName = (act: CueAct, part: boolean) => (part && act === "enter" ? "show" : DO_OF[act]);
-/** Where a picture's label may sit (compile_lecture.LABEL_SIDES). */
-export const LABEL_SIDES = ["left", "right", "above", "below"];
 /** What a look may not change: the element's own content (the director's). */
 const NOT_LOOK = new Set(["op", "id", "on", "nodes", "edges", "labels", "items", "events", "steps_of", "show", "hide", "text", "title"]);
 /** A beat's line as the voice says it (or, unspoken, as it would be: `estimated`). */
@@ -303,10 +301,9 @@ export function readCues(reply: Op, o: { words: Map<number, BeatWords>; beats: S
       if (ub > beat || (ub === beat && uw > word)) until = [ub, uw];
       else dropped.push(`${said}: its "until" is not after it: not held`);
     } else if (c.until !== undefined && (act === "shade" || act === "focus")) dropped.push(`${said}: its "until" is not a word of these lines: not held`);
-    const side = typeof c.side === "string" && LABEL_SIDES.includes(c.side) ? c.side : undefined;
     const note = typeof c.note === "string" && c.note.trim() ? c.note.trim().slice(0, 60) : undefined;
     cues.push({ beat, word, ref, act, ...(how ? { how } : {}), ...(c.in_pause === true ? { inPause: true } : {}), ...(until ? { until } : {}),
-      ...(side ? { side } : {}), ...(note ? { note } : {}) });
+      ...(note ? { note } : {}) });
   }
   return { cues, dropped };
 }
@@ -357,7 +354,7 @@ export function choreographyOf(plan: Pick<ChapterPlan, "elements">, cues: Cue[],
     const timeline: Step[] = sorted.filter((c) => c.act !== "stamp" && (c.ref === el.id || parts.has(c.ref))).map((c) => {
       const p = parts.get(c.ref);
       return { at: at(c.beat, c.word), do: doName(c.act, !!p), ...(p ? { part: c.ref.slice(el.id.length + 1) } : {}),
-        ...(c.until ? { until: at(...c.until) } : {}), ...(c.how ? { how: c.how } : {}), ...(c.side ? { side: c.side } : {}),
+        ...(c.until ? { until: at(...c.until) } : {}), ...(c.how ? { how: c.how } : {}),
         ...(c.note ? { note: c.note } : {}), ...(c.inPause ? { in_pause: true } : {}) };
     });
     const look = looks.get(el.id);
@@ -457,19 +454,16 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     const entered = new Map<string, [number, number]>([[el.id, at]]);
     const reveals = new Map<string, { beat: number; word: number; nodes: string[] }>();
     const held = new Set<string>();
-    // A labelled picture on the current engine: its labels held back to a later line, each label's side and note.
+    // A labelled picture on the current engine: its labels held back to a later line, each label's note.
     const labelled = engine === "current" && op.op === "picture" && Array.isArray(op.labels);
     const holdLabels: string[] = [];
     if (labelled) {
-      const sides: Record<string, string> = isObj(op.sides) ? { ...(op.sides as Record<string, string>) } : {};
       const notes2: Record<string, string> = isObj(op.notes) ? { ...(op.notes as Record<string, string>) } : {};
       for (const p of parts) {
         for (const c of byRef.get(p.ref) ?? []) {
-          if (c.side) sides[p.name] = c.side;
           if (c.note) notes2[p.name] = c.note;
         }
       }
-      if (Object.keys(sides).length) op.sides = sides;
       if (Object.keys(notes2).length) op.notes = notes2;
     }
     for (const p of parts) {

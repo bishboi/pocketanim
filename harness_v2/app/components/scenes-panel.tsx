@@ -1082,7 +1082,7 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
             onChange={(e) => setJson(e.target.value)} data-testid="scenes-plan-json-text" />
           <p className="text-[10px] text-neutral-500">{tab === "plan"
             ? "Elements: {id, role, op} (one operation each, all its parts; no \"on\"). Scenes: {id, beats: [their numbers], intent, layout, uses: [element ids]}, every beat in one. Saved, it is lowered with the timelines that still fit, or choreographed again."
-            : "{elements: [{id, timeline: [{at: \"b<beat>.w<word>\", do: enter | show | pulse | light | focus | hide | exit, part?, until?: \"b<beat>.w<word>\" (a light or a focus held), side?: left | right | above | below, note?, how?, in_pause?}], look?: {move, flow, steps, spans, range, style...}}], stamps?: [{at, scene, text}]}. A step that does not fit the plan is said, and nothing is saved."}</p>
+            : "{elements: [{id, timeline: [{at: \"b<beat>.w<word>\", do: enter | show | pulse | light | focus | hide | exit, part?, until?: \"b<beat>.w<word>\" (a light or a focus held), note?, how?, in_pause?}], look?: {move, flow, steps, spans, range, style...}}], stamps?: [{at, scene, text}]}. A step that does not fit the plan is said, and nothing is saved."}</p>
           <div className="flex flex-wrap gap-1.5">
             <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save(false)}
               data-testid="scenes-plan-save">{tab === "plan" ? "Save the plan (keep the timelines) and re-render" : "Save the choreography and re-render"}</button>

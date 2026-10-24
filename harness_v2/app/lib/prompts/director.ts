@@ -152,9 +152,7 @@ AN ELEMENT: {"id": "<element id>", "timeline": [<steps, in order>], "look"?: {..
 A STEP: {"at": "b<beat>.w<word>", "do": "<one it may do>", "part"?: "<part, as given after the element's id>", ...}
   - "enter" (the element, no "part"): it comes on as that word is said. "in_pause": true: in the quiet after its
     line instead (a card that sums the line up).
-  - "show" (a part): the part comes on as that word is said. On a labelled picture: "side" ("left", "right",
-    "above", "below") puts its label on that side of the picture or of its part (else the engine chooses), and
-    "note" (a few words) is written small under its name (a date, a number, what it does). A labelled picture's
+  - "show" (a part): the part comes on as that word is said. On a labelled picture: "note" (a few words) is written small under its name (a date, a number, what it does). A labelled picture's
     label may be shown on a later line of the picture's scenes than the picture, as a diagram's node may.
   - "pulse" (where allowed): it is pointed at once on that word ("how", on the motion engine: one of the manual's
     ways). For what the line stresses: a contrast ("but", "only", "never"), a number, the answer, the word the idea
@@ -213,7 +211,6 @@ const STEP = {
     part: { type: "string", description: "The part (its name after the element's id), for show, pulse, light, focus, hide." },
     until: { type: "string", description: "b<beat>.w<word>: a light or a focus held until this word." },
     how: { type: "string" },
-    side: { type: "string", enum: ["left", "right", "above", "below"] },
     note: { type: "string" },
     in_pause: { type: "boolean" },
   },

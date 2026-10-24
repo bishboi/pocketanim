@@ -29,7 +29,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
     if (items.length > count) setOpen(items[items.length - 1].id);
     setCount(items.length);
   }, [items.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const settings = run.voice?.settings ?? { engine: ready?.gemini ? "gemini" : "espeak", pace: "natural" };
+  const settings = run.voice?.settings ?? { engine: ready?.gemini ? "gemini" : "espeak", pace: "teacher" };
   const engine = ENGINES.find((e) => e.id === settings.engine) ?? ENGINES[0];
   const item = items.find((i) => i.id === open);
   const chapters = run.lectures.flatMap((l) => (run.script?.lectures[l.n]?.chapters ?? []).map((c) => ({ n: l.n, c })));
@@ -57,9 +57,9 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-neutral-400">Pace</span>
-            <select className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={settings.pace ?? "natural"}
+            <select className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={settings.pace ?? "teacher"}
               onChange={(e) => void voiceAct({ action: "settings", pace: e.target.value })}>
-              <option value="natural">natural</option><option value="relaxed">relaxed</option><option value="slow">slow</option>
+              <option value="teacher">teacher</option><option value="natural">natural</option><option value="relaxed">relaxed</option><option value="slow">slow</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">

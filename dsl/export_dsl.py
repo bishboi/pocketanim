@@ -99,6 +99,9 @@ class Recorder:
         # the clock (record_scene sets it).
         self.drift_starts: dict[int, tuple] = {}
         self.program_seconds = lambda: 0.0
+        # The pivot (cx, cy) each drifting drawing was declared with, by name: a picture moved aside drifts about a
+        # new one (pocket_lecture.follow_drift), and the drawing is declared again with it (record_scene.note_drifts).
+        self.drift_written: dict[str, tuple] = {}
 
     def drift_start(self, drift: dict) -> None:
         """Note when a picture's drift starts (pocket_lecture: it is still when first drawn): now, the first time."""
@@ -226,6 +229,8 @@ class Recorder:
                 # A backdrop or a picture that drifts (pocket_lecture.drift_matrix): the players move it by the same
                 # formula, from the program's clock, so its motion is one line here, not a clip of every frame.
                 self.declarations.append(f"drift {name} " + self.drift_text(drift, " ", "="))
+                if "cx" in drift:
+                    self.drift_written[name] = (drift.get("cx"), drift.get("cy"))
         if name:
             self.absorb(mob, name)
         return name
@@ -1390,6 +1395,23 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                 if spec and "cx" in spec and id(spec) not in seen and len(getattr(part, "points", ())):
                     seen.add(id(spec))
                     rec.drift_start(spec)
+        # A drawing whose drift has a new pivot since it was declared (a picture moved into half the stage for a
+        # card: pocket_lecture.follow_drift) is declared again with it, from this play, as the video turns about the
+        # new pivot from here: the players' drift is declared once, and kept the old pivot, zooming a Ken Burns
+        # photo about the wrong point.
+        for top in list(scene.mobjects):
+            for part in top.get_family():
+                name = rec.names.get(id(part))
+                written = rec.drift_written.get(name) if name else None
+                spec = drift_of(part) if written else None
+                if not spec or "cx" not in spec or (spec.get("cx"), spec.get("cy")) == written:
+                    continue
+                hide_drawn(part)
+                rec.names.pop(id(part), None)
+                again = rec.declare(part)
+                rec.flush()
+                if again:
+                    rec.timeline.append(f"show {again}")
 
     def patched_play(self, *animations, **kwargs):
         frame_moved(self)
@@ -1867,6 +1889,21 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                     continue
                 seen.add(id(mob))
                 entry = images.get(id(mob))
+                drift = mob.__dict__.get("_panim_drift")
+                pivot = (drift.get("cx"), drift.get("cy")) if drift and "cx" in drift else None
+                if entry is not None and entry.get("pivot") != pivot and entry["keys"]:
+                    # Its drift turns about a new pivot now (moved aside for a card: pocket_lecture.follow_drift):
+                    # the picture so far ends here, and goes on as a new one drifting about the new pivot, from the
+                    # same start (the image track's drift is one per picture).
+                    corners_now, shown = entry["keys"][-1][2], entry["keys"][-1][1] > 0
+                    if shown:
+                        entry["keys"].append((at(0.0), 0.0, corners_now))
+                    images[f"{id(mob)}~{len(images)}"] = entry
+                    entry = {"asset": entry["asset"], "width": entry["width"], "height": entry["height"],
+                             "keys": [(at(0.0), 1.0, corners_now)] if shown else [], "keep": mob, "pivot": pivot}
+                    if drift:
+                        entry["drift"] = rec.drift_text(drift, ",", "")
+                    images[id(mob)] = entry
                 if entry is None:
                     pixels = np.asarray(mob.get_pixel_array())
                     if pixels.ndim != 3 or pixels.size == 0:
@@ -1880,8 +1917,7 @@ def record_scene(scene_file: str, scene_class: str, window: tuple[int, int] | No
                         mode = "RGBA" if pixels.shape[2] == 4 else "RGB"
                         _Image.fromarray(pixels.astype("uint8"), mode).save(folder / name)
                     entry = {"asset": name, "width": int(pixels.shape[1]), "height": int(pixels.shape[0]),
-                             "keys": [], "keep": mob}
-                    drift = mob.__dict__.get("_panim_drift")
+                             "keys": [], "keep": mob, "pivot": pivot}
                     if drift:
                         entry["drift"] = rec.drift_text(drift, ",", "")
                     images[id(mob)] = entry

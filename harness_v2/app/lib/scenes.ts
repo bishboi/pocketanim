@@ -634,6 +634,30 @@ const OVER = new Set(["stamp", "emphasis", "reveal", "focus", "zoom", "option", 
  */
 export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>, beats: number[]): Record<number, string[]> {
   const out: Record<number, string[]> = {};
+  // Where the beats fall in the chapter (each line's seconds and the quiet after it), for how long each main picture
+  // is held: a new one less than MIN_HOLD after the last made the video a slideshow.
+  let clock = 0;
+  let lastMain: number | undefined;
+  for (const k of beats) {
+    const v = voiced.get(k);
+    const ops = (sl.beats[k]?.ops ?? []) as Record<string, unknown>[];
+    const at = clock;
+    if (v) clock += v.seconds + (v.pause ?? 0);
+    if (!v || !ops.length) continue;
+    const firstWord = (on: unknown): number => {
+      const m = typeof on === "string" ? /^\s*w(\d+)\s*$/.exec(on) : null;
+      return m ? v.words[Number(m[1])]?.t ?? 0 : 0;
+    };
+    const mains = ops.filter((o) => MAIN.has(String(o.op)) && !o.in_pause).map((o) => at + firstWord(o.on));
+    if (!mains.length) continue;
+    const first = Math.min(...mains);
+    if (lastMain !== undefined && first - lastMain < MIN_HOLD) {
+      (out[k] ??= []).push(`a new main picture ${(first - lastMain).toFixed(1)} s after the one before: hold a main picture ` +
+        `at least ${MIN_HOLD + 1} s while its idea is explained -- build on it here (reveal or label a part, emphasis, zoom, ` +
+        `a stamp in the pause), and bring the next main picture on the line where the idea changes`);
+    }
+    lastMain = Math.max(...mains);
+  }
   for (const k of beats) {
     const v = voiced.get(k);
     const ops = (sl.beats[k]?.ops ?? []) as Record<string, unknown>[];
@@ -669,10 +693,17 @@ export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>,
       problems.push(`${sorted.length} moments in a ${v.seconds} s line: about ${fits} can each be seen (one every 0.6 s); ` +
         "bring several parts on together (one \"on\"), or let some come on in their turn");
     }
-    if (problems.length) out[k] = problems;
+    if (problems.length) out[k] = [...(out[k] ?? []), ...problems];
   }
   return out;
 }
+
+/** The fewest seconds a main picture is held before the next replaces it (pacingProblems); the writer is asked for 8. */
+const MIN_HOLD = 7;
+/** What takes the stage, replacing what is up: the motion templates (not a stamp or an emphasis, which land on it)
+ * and the stage's pictures. A map's markers and routes, a define card beside a picture, a reveal: not. */
+const MAIN = new Set([...MOTION_KIND.ops.filter((o) => o !== "stamp" && o !== "emphasis"),
+  "picture", "diagram", "timeline", "manim", "figure", "illustration", "gallery"]);
 
 /** A whole lecture (chapter by chapter), one chapter, or one beat; compiled; the refused beats mended once. */
 /**

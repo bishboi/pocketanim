@@ -106,13 +106,27 @@ the cache: nothing is spoken again) and play it as their clock.
 
 ## 2. How a beat plays, in motion
 
+**Scenes, not slides.** The scene writer is told to show each idea of the narration (usually a paragraph, 20 to 40 s)
+as one scene: one main picture, held while the idea is explained and built on by every later line (a part revealed
+or labelled as it is named, an emphasis, a zoom, a stamp in the pause), with a new main picture only where the idea
+changes (`"paragraph": true`). A main picture is held at least 8 s; a beat that brings one sooner than 7 s after the
+last is sent back with what to change (`app/lib/scenes.ts` `pacingProblems`, `MIN_HOLD`: only what takes the stage
+counts -- a template other than a stamp or an emphasis, a picture, a diagram, a timeline, a Manim figure).
+
+**The pace.** Every line is followed by at least `LINE_PAD` (0.4 s) of quiet, the pause the voice left there when it
+is longer, and an idea's last line by `PARAGRAPH_PAD` (1.4 s): the next idea begins after a breath. The voice's own
+pace is the Voice step's (`teacher`, the default: 10% slower, pitch kept). Words a picture's layout shrank under
+`CHECK_MIN_TEXT` (13 pt) are grown to it in place before the picture comes on (`MotionLecture._m_legible`).
+
 1. **The voice starts.** If the look wipes, a sheet of the accent covers the board just before the voice and
    uncovers it under the line's first words: the cut lands as the line starts. The cover's time is taken from the
    line's own pause after it, so the chapter is as long as before.
 2. **The picture's choreography.** A template comes on as it was designed to: its title typed, then its body (a
    chart's baseline drawn, the columns rising one after another, the values popping over them). Parts overlap: each
    starts before the last has landed. The old picture leaves the look's way (slid out, pushed up, zoomed past), and
-   the new one starts coming on as the old is half gone (`MotionLecture.CROSS`: 0.45 of its exit), not after it.
+   the new one starts coming on as the old is mostly gone (`MotionLecture.CROSS`: 0.6 of its exit), not after it.
+   The exit is unhurried (the look's base time, an even ease), never a rush: a sudden cut read as a slide changing,
+   and an overlap of half the exit piled the old picture, its card and the new one on each other.
 3. **Moments on words.** Parts held back come on as the line says them: a chain's next step and the arrow to it, a
    group of units coloured, a card's tick, a phrase highlighted, a timeline's event. A part not said comes on in its
    turn after the template is in. Each is **read** on its words: it starts early by as much of its run as it takes
@@ -1005,9 +1019,9 @@ What the loop has found and fixed so far:
   picture moved as one (a timeline making room for a card) is put on stage before the move (it vanished); the
   pieces of a baked play (a counter's ring counting up) are declared again in the order Manim draws them, as baked
   shapes (a stage card declared after the number covered it, a ring's track its arc, for the whole line).
-- **Known gap**: a drifting picture moved aside for a card (its drift's pivot moved with it, `pl.follow_drift`)
-  keeps the old pivot on the phone: the program declares a drift once, and the players have no verb to change it.
-  A photo with a Ken Burns move then zooms about the wrong point there, a few pixels off (photosynthesis-L1-c1).
+- a drifting picture moved aside for a card (its drift's pivot moved with it, `pl.follow_drift`) is declared again
+  with the new pivot from that play on, the same start kept (`note_drifts`; the image track starts a new entry), as
+  the program declares a drift once: it kept the old pivot, and a Ken Burns photo zoomed about the wrong point.
 - **Layout**: a wide picture (wider than `STACK_WIDE`, 2x its height: a timeline, a chain) and a card in the same
   line are stacked, the picture across the top and the card under it (`MotionLecture._halves`), not put side by
   side, where a timeline stood at a third of its size; the closing credits come on a cleared stage (a chapter

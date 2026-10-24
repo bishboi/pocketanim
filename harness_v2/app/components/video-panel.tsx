@@ -45,7 +45,7 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
   const [note, setNote] = useState("");
   const [timing, setTiming] = useState<Timing | null>(null);
   const vset = run.video?.settings ?? {};
-  const voice = run.voice?.settings ?? { engine: ready?.gemini ? "gemini" : "espeak", pace: "natural" };
+  const voice = run.voice?.settings ?? { engine: ready?.gemini ? "gemini" : "espeak", pace: "teacher" };
   const [model, setModel] = useState(vset.model ?? "");
   const [imageModel, setImageModel] = useState(vset.imageModel ?? "");
   const [turns, setTurns] = useState(String(vset.turns ?? ""));
@@ -105,9 +105,9 @@ export function VideoPanel({ run, ready, defaults, onCall, act, voiceAct }: {
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-neutral-400">Pace</span>
-              <select className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={voice.pace ?? "natural"}
+              <select className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={voice.pace ?? "teacher"}
                 onChange={(e) => void voiceAct({ action: "settings", pace: e.target.value })}>
-                {["natural", "relaxed", "slow"].map((p) => <option key={p}>{p}</option>)}
+                {["teacher", "natural", "relaxed", "slow"].map((p) => <option key={p}>{p}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1">

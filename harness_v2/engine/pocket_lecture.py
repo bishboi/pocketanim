@@ -1136,8 +1136,10 @@ def speechify(text: str) -> str:
 
 # The teaching pace, PANIM_PACE: (voice speed, the hold after each line, the hold at a paragraph's end). "natural",
 # the default: the voice at its own speed, one line running into the next as a teacher speaks, a short breath
-# between paragraphs. "relaxed" and "slow" leave longer holds after each line.
-PACES = {"natural": (1.0, 0.3, 0.8), "relaxed": (1.0, 0.7, 1.5), "slow": (1.0, 1.4, 2.8)}
+# between paragraphs. "relaxed" and "slow" leave longer holds after each line. "teacher": the voice 10% slower
+# (pitch kept: the voice modules' ffmpeg atempo; its lines cached apart), the pauses it left between lines kept but
+# never under 0.4 s, and a longer breath between paragraphs -- an explainer's unhurried pace.
+PACES = {"natural": (1.0, 0.3, 0.8), "relaxed": (1.0, 0.7, 1.5), "slow": (1.0, 1.4, 2.8), "teacher": (0.9, 0.4, 1.4)}
 VOICE_SPEED, BEAT_PAD, PARAGRAPH_PAD = PACES.get(os.environ.get("PANIM_PACE", "natural"), PACES["natural"])
 THINK_SECONDS = 7.0      # the silence a question on the stage leaves for thinking
 
@@ -1508,8 +1510,12 @@ def narrate_many(texts: list[str], take: bool = False, fallback: int = 0) -> Non
 def beat_pad(text: str) -> float:
     """The hold after a line: after a line of a chapter's take, the pause the voice left there (less the breath
     each line keeps at its ends, _tight), so the chapter plays as it was spoken; else the pace's (BEAT_PAD)."""
-    gap = line_gap(text) if os.environ.get("PANIM_PACE", "natural") == "natural" else None
-    return BEAT_PAD if gap is None else max(0.12, min(1.2, gap - LEAD_KEPT - TAIL_KEPT))
+    pace = os.environ.get("PANIM_PACE", "natural")
+    gap = line_gap(text) if pace in ("natural", "teacher") else None
+    if gap is None:
+        return BEAT_PAD
+    held = max(0.12, min(1.2, gap - LEAD_KEPT - TAIL_KEPT))
+    return max(held, BEAT_PAD) if pace == "teacher" else held
 
 
 def line_gap(text: str) -> float | None:

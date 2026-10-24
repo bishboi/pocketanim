@@ -54,7 +54,7 @@ export function voicesReady(): Record<VoiceSettings["engine"], boolean> {
 
 export function voiceOf(run: Run): VoiceState {
   const ready = voicesReady();
-  return (run.voice ??= { settings: { engine: ready.gemini ? "gemini" : "espeak", pace: "natural" }, lectures: {} });
+  return (run.voice ??= { settings: { engine: ready.gemini ? "gemini" : "espeak", pace: "teacher" }, lectures: {} });
 }
 
 /** Where every line spoken is kept (by voice and words): shared by the runs. */
@@ -65,7 +65,7 @@ export function voiceCache(): string {
 export function voiceEnv(s: VoiceSettings): Record<string, string> {
   const director = s.engine === "gemini" || s.engine === "eleven";
   return { PANIM_TTS: s.engine, PANIM_VOICE: s.voice?.trim() ? `${s.engine}:${s.voice.trim()}` : "auto", PANIM_AUDIO_DIR: voiceCache(),
-    PANIM_PACE: s.pace ?? "natural", PANIM_ALIGN: "off",
+    PANIM_PACE: s.pace ?? "teacher", PANIM_ALIGN: "off",
     // The voice director is a chat model (OpenRouter): off with no key, as every other call is then a stand-in.
     ...(director && usingFixture(modelFor("scenes")) ? { PANIM_VOICE_DIRECTOR: "off" } : {}) };
 }

@@ -33,6 +33,34 @@ const TELLING = [
   "    except the short close of the lecture.",
 ];
 
+/** v2's own: how the narration flows from line to line, so a chapter is told, not listed. */
+const FLOW = [
+  "HOW IT FLOWS: a chapter is a few IDEAS (usually 3 to 6), each told as a small story of 3 to 6 beats, never a run",
+  "of facts. Each idea moves the same way:",
+  "  1. Set it up: a question, a puzzle or a situation the student can picture (\"सोचो, Rome गिर गया। अब सड़कें कौन",
+  "     बचाएगा?\").",
+  "  2. Explain it in small steps, each sentence growing out of the one before it: because, so, but, which means",
+  "     (\"इसलिए\", \"तो\", \"लेकिन\", \"मतलब\", \"इसी वजह से\", \"अब यहाँ twist है\").",
+  "  3. Make it real: one example, a person, a number made tangible, or a comparison from the student's life.",
+  "  4. Land it: why it matters, or what it leads to -- and that is the bridge into the next idea.",
+  "Rules of flow:",
+  "  - Every sentence is joined to the one before it: by a connector, by picking up its last word or idea, by",
+  "    answering what it just asked. Read two neighbouring beats together: if they could be swapped, they are a list.",
+  "  - Never three facts in a row with nothing between them: after two facts, a \"so what\", a question or an example.",
+  "  - Vary the length: a long explaining sentence, then a short one that lands it (\"बस। यही feudalism है।\").",
+  "  - A new idea begins by linking back to the last one (\"तो ज़मीन तो मिल गई। लेकिन इसके बदले क्या देना पड़ता था?\").",
+  "  - Not every line carries new information: some ask, some repeat simply, some react (\"सोचिए, कितनी बड़ी बात है।\").",
+  "  A list, told flat:  \"Lord ज़मीन देता था। Vassal सेवा करता था। Vassal लड़ता था। Lord protection देता था।\"",
+  "  The same, told:     \"अब lord के पास ज़मीन बहुत थी, लेकिन अकेले वो उसे बचा नहीं सकता था। तो उसने क्या किया? ज़मीन का",
+  "                       एक टुकड़ा एक knight को दे दिया। बदले में? वो knight उसका vassal बन गया -- ज़रूरत पड़ने पर",
+  "                       lord के लिए लड़ेगा। और lord? वो vassal की हिफ़ाज़त करेगा। मतलब एक deal: ज़मीन के बदले",
+  "                       वफ़ादारी।\"",
+  "  In English, flat:   \"The lord gave land. The vassal served. The vassal fought. The lord protected.\"",
+  "  Told:               \"Now the lord had plenty of land, but he could not guard it alone. So what did he do? He gave",
+  "                       a piece of it to a knight. And in return? The knight became his vassal, ready to fight for",
+  "                       him. And the lord promised to protect him. A deal, really: land for loyalty.\"",
+].join("\n");
+
 /** v2's own: how a good teacher in India actually talks in class, so the script sounds spoken, not written. */
 function speechPrompt(language: Language): string[] {
   const hinglish = language === "hinglish" || language === "auto";
@@ -165,8 +193,10 @@ const STRUCTURE = [
   "    from the same block, when both need it; and every block this lecture teaches is in some chapter's content.",
   "  - BEATS: a chapter is its beats in order, each the smallest unit of the video: \"say\", 1 or 2 sentences said",
   "    together (3 at most, for one short thought), and \"show\", a short note of what is on screen while they are",
-  "    said (\"the Indus valley on the map\", \"key term: surplus\", \"the granary figure, its walls labelled\"). A new",
-  "    beat wherever what is on screen should change. \"figures\": the ids of the book's figures shown on the beat, when",
+  "    said (\"the Indus valley on the map\", \"key term: surplus\", \"the granary figure, its walls labelled\"). The",
+  "    screen changes with the IDEA, not with every beat: the beats that explain one idea share one picture, each",
+  "    \"show\" saying what of it is pointed at or added (\"the same map: the route to Spain drawn\"); a new picture",
+  "    where the idea changes. \"figures\": the ids of the book's figures shown on the beat, when",
   "    one is: a figure may be shown on several beats (built up, pointed at again, compared), and a beat may show two.",
   "  - THE TRANSCRIPT IS THE BEATS' WORDS, in order: everything the student hears is in a beat's say, nothing else.",
 ].join("\n");
@@ -191,6 +221,7 @@ export function lectureSystem(language: Language, subject?: string): Part[] {
     ]),
     part("structure", "Lecture, chapters, beats", "rules", STRUCTURE),
     part("telling", "How to tell it", "rules", TELLING),
+    part("flow", "How it flows from line to line", "rules", FLOW),
     part("voice", "Voice", "rules", classVoicePlanned(language)),
     part("speech", "How a teacher in India talks", "rules", speechPrompt(language)),
     part("examples", "Narration examples", "rules", speechExamples(language)),

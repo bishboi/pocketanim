@@ -17,8 +17,14 @@ const ROLE = [
   "what to show, how much, how often it changes, how it moves, how pictures are drawn. Below are the elements you can",
   "use, how each works, and examples. Use them freely, combine them, and make each moment as clear and alive as you can.",
   "",
-  "The screen should never stand still: on every beat something new comes on, builds, moves or",
-  "is pointed at -- and often several things within one beat, each landing on its own words (\"on\"). Fill the video:",
+  "SCENES, NOT SLIDES. The video is told in scenes, one scene for each idea the narration explains (usually a",
+  "paragraph: three to six lines, 20 to 40 seconds). A scene opens with ONE main picture (a template, a picture, a",
+  "diagram, a timeline, a map) and keeps it while the idea is explained: every later line of the scene BUILDS on it --",
+  "a part revealed or labelled as it is named, an emphasis or a zoom on what the line is about, a step added, an",
+  "arrow drawn, a stamp in the pause -- instead of replacing it. A new main picture comes only when the idea changes",
+  "(mark that beat \"paragraph\": true). Hold each main picture at least 8 seconds; a picture that is swapped out",
+  "after one sentence feels like a slideshow. Something should still move on every line, so the screen never stands",
+  "still -- but as a build on what is up, landing on its own words (\"on\"):",
   "  - Layer moments in a beat: a picture, then its parts labelled as they are said, then a counter or a stamp over it.",
   "  - Build things over beats: a diagram step by step (each step with its picture), a timeline event by event, then",
   "    emphasis on the one that matters; a chart column by column, then the one the line is about circled.",
@@ -39,10 +45,12 @@ const ROLE = [
   "    a total and what it is made of into split_number.",
   "  - Explain: a detail in a picture into zoom_in; strata or layers of a thing into layers; a cycle into a cycle_wheel;",
   "    a claim tested point by point into a checklist; a judgement into pros_cons; an idea and its branches into a mind_map.",
-  "  - Mix the kinds across a chapter so it keeps changing: templates, pictures, diagrams, maps, timelines, Manim. And",
-  "    vary the same template: give it another \"layout\" (a list as pills, a chain as a zigzag, a counter in a ring,",
-  "    versus split) and another \"enter\" (drop, zoom, slide, flip...) so no two moments look alike.",
-  "A beat with nothing new on it should be rare.",
+  "  - Mix the kinds across the chapter's scenes: templates, pictures, diagrams, maps, timelines, Manim. And vary the",
+  "    same template: another \"layout\" (a list as pills, a chain as a zigzag, a counter in a ring, versus split) and",
+  "    another \"enter\" (drop, zoom, slide, flip...) so no two scenes look alike.",
+  "  - Choose a template whose parts can carry the whole idea (a chain of its steps, a diagram of its parts, a timeline",
+  "    of its events), so each line of the scene has a part of it to bring on or point at.",
+  "A beat with nothing moving on it should be rare; a beat with a new main picture should be the first of a scene.",
 ].join("\n");
 
 const SHAPE = String.raw`HOW TO BUILD THE JSON (the answer, write_scenes)
@@ -191,7 +199,9 @@ first, as the line is written) with the second it is said, counted from the line
 ANCHOR BY WORD NUMBER. "on": "w4" -- it comes on as w4 is said (the engine starts it a little early, by as much as its
 own entrance takes, so it lands on the word). Give EVERY operation and EVERY part inside one its own "on": a chart's
 column, a chain's step, a list's point, a timeline's event, a card, a label. Point at the word that brings the thing in
-(the number, the name, the term), never a small word. "on": "start" for what must be up as the line begins. The words'
+(the number, the name, the term), never a small word: not a particle, a postposition or a helper verb (की, का, के,
+है, था, में, से, को, ने, तो, और; the, of, a, is, and) -- in "Lord's house", "lord की ज़मीन", anchor "Lord" or
+"ज़मीन", not "की". "on": "start" for what must be up as the line begins. The words'
 own text ("on": "twice") still works, but a number is exact: a word said twice in a line is never mistaken.
   "delay": 0.4 -- that many seconds after its word (0 to 3): a verdict after the claim has settled, a second step of a
      build a breath after the first.
@@ -199,8 +209,10 @@ own text ("on": "twice") still works, but a number is exact: a word said twice i
      these two; a picture comes on with its words; use delay).
 
 PACE BY THE CLOCK. You can see how long every line is: use it.
-  - A new picture (a template, a picture, a diagram, a timeline, a map) needs about 2.5 s to come on and be looked at:
-    about one per 2.5 s of line. A 1.5 s line holds one thing -- or points at what is up already.
+  - A main picture stays up at least 8 seconds (count the lines' seconds and their quiet): bring the next one only
+    when the idea changes and the time is spent. Within a scene, build on it; do not replace it.
+  - A main picture needs about 2.5 s to come on and be looked at. A 1.5 s line holds one thing -- or points at what is
+    up already.
   - A moment (a part, a label, a step, a stamp) needs about 0.6 s to be seen: a 3 s line holds about five. When the
     line names things in a rush, bring them in together (one "on" for the template; its parts in their turn).
   - A long line (6 s or more) wants a build: a template whose parts arrive across it, a picture then its labels, a

@@ -56,7 +56,13 @@ from motion_more import MoreTemplates
 from motion_story import StoryTemplates
 import pocket_lecture as pl
 from pocket_lecture import *  # noqa: F403 -- the engine's names, for the compiled scene
-from pocket_lecture import (BEAT_PAD, PARAGRAPH_PAD, Z_MARK, MapLecture, _flat, fit, said_at, set_drift, wrap)
+from pocket_lecture import (BEAT_PAD, Z_MARK, MapLecture, _flat, fit, said_at, set_drift, wrap)
+
+# The pace of a motion lecture: the quiet after a line is never under LINE_PAD (a line ran into the next as one
+# breath, and the pictures with it), and a paragraph -- an idea -- ends on PARAGRAPH_PAD of quiet before the next
+# begins (compile_lecture writes `pad=PARAGRAPH_PAD` on its last line; this one is the scene's, from here).
+LINE_PAD = 0.4
+PARAGRAPH_PAD = 1.4
 
 motion_looks.register_all()
 LOOK = os.environ.get("MOTION_LOOK") or ""
@@ -234,6 +240,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             overlap = float(getattr(going, "run_time", 0.4) or 0.4) * self.CROSS
         if anim is not None and entrance is not None and getattr(entrance, "panim_run", None):
             K.timed(anim, float(entrance.panim_run) + overlap, getattr(entrance, "panim_sfx", None))
+        self._m_legible([group, *self._next_pending, *self.stage_pending])
         glides = self._carry_into(group, leaving)
         if anim is not None and glides:
             run = max(float(getattr(anim, "panim_run", 0) or 0), self.CARRY_RUN)
@@ -248,7 +255,20 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                 pass
         return anim
 
-    CROSS = 0.45             # share of the old picture's exit gone when the new one starts coming on
+    CROSS = 0.6              # share of the old picture's exit gone when the new one starts coming on
+
+    def _m_legible(self, mobs) -> None:
+        """Words a picture's layout shrank under the smallest size a phone reads (CHECK_MIN_TEXT: a stacked
+        timeline's years at 11 pt) grown to it in place, before the picture comes on: the visual check grew only the
+        tiniest, after its line had played, and they jumped."""
+        least = float(self.CHECK_MIN_TEXT)
+        for mob in mobs:
+            for m in (mob.get_family() if mob is not None else []):
+                if not isinstance(m, (Text, MarkupText)) or not len(m.submobjects):
+                    continue
+                size = float(getattr(m, "font_size", 0) or 0)
+                if 6.0 < size < least:
+                    m.scale(least / size)
 
     # ---------------------------------------------------------------- continuity: a match cut -------------------
     # When the next picture shows a word or a figure the one leaving shows too (a counter's "60%" in the next card,
@@ -654,6 +674,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             return self._m_beside(group, first)
         finally:
             self._m_stack = False
+            self._m_legible([self.stage_body, group, *self.stage_pending])
 
     STACK_WIDE = 2.0         # a picture this many times wider than tall is stacked over the card beside it
 
@@ -746,11 +767,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             elif kind == "wipe":
                 self._wipe_old.append(mob)
             elif kind in ("slide", "page"):
-                out.append(K.timed(FadeOut(mob, shift=LEFT * 2.2, rate_func=rush_into), K.t("fast"), "swish"))
+                out.append(K.timed(FadeOut(mob, shift=LEFT * 1.6, rate_func=smooth), K.t("base"), "swish"))
             elif kind == "push":
-                out.append(K.timed(FadeOut(mob, shift=UP * 1.2, rate_func=rush_into), K.t("fast"), "swish"))
+                out.append(K.timed(FadeOut(mob, shift=UP * 0.9, rate_func=smooth), K.t("base"), "swish"))
             elif kind == "zoom":
-                out.append(K.timed(FadeOut(mob, scale=1.25, rate_func=rush_into), K.t("fast"), "whoosh"))
+                out.append(K.timed(FadeOut(mob, scale=1.15, rate_func=smooth), K.t("base"), "whoosh"))
             elif kind == "cut":
                 out.append(K.timed(FadeOut(mob, run_time=0.05), 0.05))
             elif kind == "whip":
@@ -760,7 +781,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             elif kind == "flash":
                 out.append(K.timed(FadeOut(mob, scale=1.03, rate_func=rush_into), 0.12))
             elif kind == "turn":
-                out.append(K.timed(FadeOut(mob, shift=LEFT * 1.5, scale=0.85, rate_func=rush_into), K.t("fast"), "swish"))
+                out.append(K.timed(FadeOut(mob, shift=LEFT * 1.2, scale=0.9, rate_func=smooth), K.t("base"), "swish"))
             elif kind == "match":
                 out.append(K.timed(FadeOut(mob, scale=2.4, rate_func=rush_into), K.t("base"), "whoosh"))
             else:
@@ -775,7 +796,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         """A line (_m_beat), its caption underlining each word as it is said (_karaoke_plan), the music bed under
         it (_m_music)."""
         self._m_kara = self._karaoke_plan(text)
-        self._m_line = {"text": text, "pad": pl.beat_pad(text) if pad is None else float(pad)}
+        if pad is None:
+            pad = max(pl.beat_pad(text), LINE_PAD)
+        self._m_line = {"text": text, "pad": float(pad)}
         try:
             return self._m_beat(text, *anims, rt=rt, pad=pad, cues=cues)
         finally:

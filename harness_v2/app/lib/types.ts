@@ -522,7 +522,7 @@ export type VoiceSettings = {
   /** The speaker (Gemini: Achird, Kore, Charon...); empty: the engine's default for the look. */
   voice?: string;
   /** The teaching pace (pocket_lecture.PACES): the holds after each line and paragraph. */
-  pace?: "natural" | "relaxed" | "slow";
+  pace?: "teacher" | "natural" | "relaxed" | "slow";
   /** The model that times the animations to the words (the timing role). */
   timingModel?: string;
 };

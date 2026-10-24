@@ -144,3 +144,6 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   (a `wait_until_end()` stops there too), so its video is the section's length.
 - `agent/kit_example.py`: 70 seconds of a chapter (Japan, lines 0-13 of the Hindi narration it was made for) built with
   the kit, copied into the agent's workspace as `reference/kit_example.py`: an example of how such a chapter moves.
+- `PACES["teacher"]` (`PANIM_PACE=teacher`, the Voice step's default): the voice 10% slower, its pitch kept (the
+  voice modules' ffmpeg `atempo`; its lines cached apart from the 1.0 ones), the pauses the voice left between lines
+  kept but never under 0.4 s, and 1.4 s between paragraphs. The other paces are as they were.

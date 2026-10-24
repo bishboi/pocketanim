@@ -516,6 +516,10 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
 TIMELINE_MOST = 10       # events on one timeline (pocket_lecture.big_timeline)
 
 
+# How a timeline comes on (pocket_lecture.Lecture.big_timeline's `enter`).
+TIMELINE_ENTERS = ("draw", "travel", "whole")
+
+
 def _fix_timeline(op: dict, at: str, notes: list[str]) -> None:
     """v2: a timeline's range, spans and scale read as years (timeline_dates), and what will not do left out with a
     note: a range that names no two years, a span that does not, events outside the range, events past ten."""
@@ -551,6 +555,9 @@ def _fix_timeline(op: dict, at: str, notes: list[str]) -> None:
         op["spans"] = spans[:6]
         if not spans:
             op.pop("spans")
+    if op.get("enter") is not None and op.get("enter") not in TIMELINE_ENTERS:
+        notes.append(f"{FIXED}{at}: a timeline's enter is one of {', '.join(TIMELINE_ENTERS)}; {op['enter']!r} left out")
+        op.pop("enter")
     if op.get("scale") not in (None, "even", "years"):
         notes.append(f"{FIXED}{at}: a timeline's scale is \"even\" or left out; {op['scale']!r} left out")
         op.pop("scale")
@@ -773,34 +780,41 @@ def _without_anchors(value):
     return value
 
 
-def _one_on_the_stage(script: dict) -> list[str]:
-    """A strict chapter on the current engine shows one main picture at a time, each held for its line or more: a
-    picture, a timeline, a comparison and a diagram all brought on in one line replaced one another within seconds,
-    split the stage, and covered what the line went on to point at.
+# At most this many main pictures on the stage at once: two shown together (laid out side by side or one over the
+# other, pocket_lecture.Lecture._pair_boxes); a third in the same line waits for a later one.
+MAIN_AT_ONCE = 2
 
-    1. A line that brings on more than one main picture keeps its first; each other moves to a later line that has
-       none of its own, as that line begins: the first that points at something on it (a comparison's point, a
-       timeline's event), else the next free one. One with no free line after it is left out. Each said.
-    2. Pointing is kept only at what is up then: a light, a label or a label taken off on a labelled picture's part
-       when that picture is up; a focus or a reveal on the diagram up; a `point` at a name of an earlier or later
-       main picture that is not the one up (it would pulse nothing, or the wrong thing) is left out. Each said."""
+
+def _one_on_the_stage(script: dict) -> list[str]:
+    """What a line shows, kept to what can be seen (the current engine): a picture, a timeline, a comparison and a
+    diagram all brought on in one line replaced one another within seconds and covered what the line went on to
+    point at. Two main pictures in a line are shown together; more do not fit.
+
+    1. A line that brings on more than MAIN_AT_ONCE main pictures keeps its first two; each other moves to a later
+       line that has none of its own, as that line begins: the first that points at a name only it shows (a
+       comparison's point, a timeline's event), keeping the lines up to its last such pointer for it; else the
+       next free line. One with no free line after it is left out. Each said.
+    2. In a strict chapter, pointing is kept only at what is up then (the one or two main pictures of the last line
+       that brought any): a light, a label or a label taken off on a part of a labelled picture up; a focus or a
+       reveal on a diagram up; a `point` at a name of another main picture of the chapter only when a picture up
+       shows it. Each left out is said."""
     if script.get("engine") == "motion":
         return []
     notes: list[str] = []
     for c, chapter in enumerate(script.get("chapters") or []):
-        if not isinstance(chapter, dict) or chapter.get("strict") is not True:
+        if not isinstance(chapter, dict):
             continue
+        strict = chapter.get("strict") is True
         beats = [b for b in chapter.get("beats") or [] if isinstance(b, dict)]
         dos = [[op for op in (b.get("do") if isinstance(b.get("do"), list) else []) if isinstance(op, dict)] for b in beats]
-        # 1. One main picture a line.
+        # 1. At most MAIN_AT_ONCE main pictures a line.
         queue: list[tuple[int, dict]] = []
         for b, ops in enumerate(dos):
             mains = [op for op in ops if op.get("op") in STAGE_MAIN]
-            for op in mains[1:]:
+            for op in mains[MAIN_AT_ONCE:]:
                 ops.remove(op)
                 queue.append((b, op))
         taken = {b for b, ops in enumerate(dos) if any(op.get("op") in STAGE_MAIN for op in ops)}
-
         # Where a later line points into a moved picture: at a name only it shows (a name two pictures share, like a
         # country on a picture and a column, says nothing about which).
         mains = [op for ops in dos for op in ops if op.get("op") in STAGE_MAIN] + [op for _, op in queue]
@@ -835,43 +849,49 @@ def _one_on_the_stage(script: dict) -> list[str]:
         for i, (origin, op) in enumerate(queue):
             what = f"chapter {c + 1} beat {origin + 1}: {op.get('op')}"
             if i not in placed:
-                notes.append(f"fixed: {what}: a second main picture in one line, and no later line free for it: left out")
+                notes.append(f"fixed: {what}: more than {MAIN_AT_ONCE} main pictures in one line, and no later line "
+                             f"free for it: left out")
                 continue
             t = placed[i]
             moved = _without_anchors(op)
             moved["on"] = "start"
             dos[t].insert(0, moved)
-            notes.append(f"fixed: {what}: a second main picture in one line: moved to beat {t + 1}, as it begins")
-        # 2. Pointing only at what is up.
-        everything = set().union(*[_names_up(op) for ops in dos for op in ops if op.get("op") in STAGE_MAIN]) if dos else set()
-        up: dict | None = None
-        for b, ops in enumerate(dos):
-            kept = []
-            for op in ops:
-                kind = op.get("op")
-                why = None
-                if kind in STAGE_MAIN:
-                    up = op
-                elif kind == "unstage":
-                    up = None
-                elif kind in NEEDS_LABELS:
-                    if up is None or _key(op.get("part") or "") not in _labels_named(up):
-                        why = f"no labelled picture up with a part {op.get('part')!r}"
-                elif kind == "unshade":
-                    if up is None or not _labels_named(up):
-                        why = "no labelled picture up"
-                elif kind in NEEDS_DIAGRAM:
-                    if up is None or up.get("op") != "diagram" or str(up.get("id")) != str(op.get("diagram")):
-                        why = f"the diagram {op.get('diagram')!r} is not up"
-                elif kind == "point":
-                    target = _key(op.get("target") or "")
-                    if target in everything and (up is None or target not in _names_up(up)):
-                        why = f"{op.get('target')!r} is not on the picture up"
-                if why:
-                    notes.append(f"fixed: chapter {c + 1} beat {b + 1}: {kind} left out: {why}")
-                else:
-                    kept.append(op)
-            ops[:] = kept
+            notes.append(f"fixed: {what}: more than {MAIN_AT_ONCE} main pictures in one line: moved to beat {t + 1}, "
+                         f"as it begins")
+        # 2. Pointing only at what is up (a strict chapter: the script's own pointing).
+        if strict:
+            everything = set().union(*[_names_up(op) for op in mains]) if mains else set()
+            up: list[dict] = []
+            for b, ops in enumerate(dos):
+                kept = []
+                new = [op for op in ops if op.get("op") in STAGE_MAIN]
+                if new:
+                    up = []
+                for op in ops:
+                    kind = op.get("op")
+                    why = None
+                    if kind in STAGE_MAIN:
+                        up.append(op)
+                    elif kind == "unstage":
+                        up = []
+                    elif kind in NEEDS_LABELS:
+                        if not any(_key(op.get("part") or "") in _labels_named(x) for x in up):
+                            why = f"no labelled picture up with a part {op.get('part')!r}"
+                    elif kind == "unshade":
+                        if not any(_labels_named(x) for x in up):
+                            why = "no labelled picture up"
+                    elif kind in NEEDS_DIAGRAM:
+                        if not any(x.get("op") == "diagram" and str(x.get("id")) == str(op.get("diagram")) for x in up):
+                            why = f"the diagram {op.get('diagram')!r} is not up"
+                    elif kind == "point":
+                        target = _key(op.get("target") or "")
+                        if target in everything and not any(target in _names_up(x) for x in up):
+                            why = f"{op.get('target')!r} is not on a picture up"
+                    if why:
+                        notes.append(f"fixed: chapter {c + 1} beat {b + 1}: {kind} left out: {why}")
+                    else:
+                        kept.append(op)
+                ops[:] = kept
         for beat, ops in zip(beats, dos):
             if isinstance(beat.get("do"), list) or ops:
                 beat["do"] = ops
@@ -3621,6 +3641,9 @@ def _op_call(op: dict) -> str:
             extra += ", spans=[" + ", ".join(f"({_q(a)}, {_q(b)}, {_q(t)})" for a, b, t in op["spans"]) + "]"
         if op.get("scale") == "even":
             extra += ', scale="even"'
+        if _ENGINE[0] != "motion":
+            # How it comes on (the current engine's): drawn in, the events one by one (the default), or whole.
+            extra += f", enter={_q(op.get('enter') if op.get('enter') in TIMELINE_ENTERS else 'draw')}"
         return f"self.big_timeline([{events}]{title}{extra})"
     if kind == "quote":
         return f"self.quote({_q(op['text'])}, {_q(op.get('who', ''))})"

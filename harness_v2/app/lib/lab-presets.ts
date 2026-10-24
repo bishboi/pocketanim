@@ -94,6 +94,16 @@ export const LAB_PRESETS: LabPreset[] = [
     ]),
   },
   {
+    id: "timeline-enter", name: "Timeline: drawn, travelled", note: "A strict chapter: the track draws in and each event pops on its own word; then a travelling marker runs to each event of a second timeline.",
+    script: { region: null, chapter: { title: "Turning points", narration: "Turning points", map: false, strict: true, beats: [
+      { say: "Japan beat China in 1894, took Taiwan in 1895, and then beat Russia in 1905.", paragraph: true, do: [{ op: "timeline", title: "Japan rises", enter: "draw", on: "w0",
+        events: [{ date: "1894", label: "Defeats China", on: "w4" }, { date: "1895", label: "Takes Taiwan", on: "w7" }, { date: "1905", label: "Defeats Russia", on: "w13" }] }] },
+      { say: "Remember 1905 above all: an Asian power had beaten a European one.", do: [{ op: "point", target: "Defeats Russia", on: "w1" }] },
+      { say: "China's path ran from the revolution of 1911 to the victory of 1949 and the reforms of 1978.", paragraph: true, do: [{ op: "timeline", title: "China's century", enter: "travel",
+        events: [{ date: "1911", label: "Revolution", on: "w7" }, { date: "1949", label: "Communist victory", on: "w12" }, { date: "1978", label: "Market reforms", on: "w16" }], spans: [["1949", "1976", "Mao"]] }] },
+    ] } },
+  },
+  {
     id: "timeline-work", name: "Timeline with a working below", note: "A timeline moves to the top at its size when a column of lines arrives.",
     script: board("Marc Bloch", [
       { say: "Marc Bloch lived from 1886 to 1944.", do: [{ op: "timeline", title: "Marc Bloch 1886-1944", events: [["1886", "Born"], ["1944", "Died"]] }] },

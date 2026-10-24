@@ -166,8 +166,18 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   operations, the script's own pointing: `point` (`Lecture.point`: a named thing on screen pulses once) and `shade`
   (`Lecture.shade_part`: a labelled picture's part lit, the rest shaded). The camera is off: `zoom` is left out with a
   note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
-- One main picture at a time in a strict chapter (`compile_lecture._one_on_the_stage`, BEAT_SCRIPT.md §2 `strict`):
-  a second main picture in one line moved to a later free line, pointing at what is not up left out. A labelled
+- Timelines build themselves (`big_timeline(enter=)`, `_timeline_in`, `_timeline_event`): `draw` draws the title
+  and track in and pops each event on (its own words when it has an `on`), `travel` runs a marker to each; `whole`
+  (and no `enter`, as the motion engine's styled timelines call it) is the old still one. Its events are named parts
+  the engine never pulses by itself (`name_part(auto=False)`): only `point` does.
+- A new stage picture waits at most `STAGE_WAIT` (1.2 s, or a quarter of the line) for its words, else comes on as
+  the line begins (`_on_words`, `panim_stage`): a diagram whose only word said was the line's last left the screen
+  empty for the whole line.
+- Two main pictures of one line share the stage where each is seen best (`_pair_boxes`): side by side or one over
+  the other, split where the smaller is drawn largest; the compiler moves a third to a later line
+  (`MAIN_AT_ONCE`).
+- At most two main pictures at once (`compile_lecture._one_on_the_stage`, BEAT_SCRIPT.md §2 `strict`): a third in
+  one line moved to a later free line; in a strict chapter pointing at what is not up left out. A labelled
   picture's labels queued for a line are not drawn when another picture has taken the stage in that line
   (`_with_looks`: they were left on top of what replaced it). The board's heading (`stem.board_title`) is not drawn
   when it is the chapter's own name (the tag in the corner says it), and never over that tag (`_strip`).

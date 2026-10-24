@@ -93,7 +93,7 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
 | `title` | text | The chapter's card and its name in the player's chapter list. |
 | `sub`? | text | A line under the title on the chapter card. |
 | `narration`? | text | What is said over the chapter card. Default: the title. |
-| `strict`? | true | **Everything that comes on, and when, is the script's own** (the Scenes tab's director writes it: README "A chapter as one piece"). Each thing comes on with its own anchor (`on`) and one with none as its line begins; nothing is looked for in a line by its name. The engine adds no picture (no `auto_visuals`), points at nothing, lights no part and reveals no part because a line says it (only `point`, `shade`, `focus` and `reveal` do); paragraphs are only where beats say `"paragraph": true`; the map comes in from the beat that points at it, never with the beats before it; `unstage` is accepted; and the Voice tab's timing model is not asked (§4, Timing). **One main picture at a time** (current engine; the compiler mends it, each mend said as `fixed: ...`): a picture, a diagram, a timeline, a comparison, a gallery, a process, a quote takes the whole stage, so a line brings on one. Each other main picture of that line moves to a later line with none of its own, as it begins (its words and its parts' taken out): the first line that points at a name only it shows (a comparison's point, a timeline's event), keeping the lines up to its last such pointer for it; else the next free line; with no free line after it, it is left out. Then a `shade`, `label` or `unlabel` is kept only when the labelled picture up has that part, an `unshade` when a labelled picture is up, a `focus`, `reveal` or `unfocus` when that diagram is up, and a `point` at a name of another main picture of the chapter only when the picture up shows it. |
+| `strict`? | true | **Everything that comes on, and when, is the script's own** (the Scenes tab's director writes it: README "A chapter as one piece"). Each thing comes on with its own anchor (`on`) and one with none as its line begins; nothing is looked for in a line by its name. The engine adds no picture (no `auto_visuals`), points at nothing, lights no part and reveals no part because a line says it (only `point`, `shade`, `focus` and `reveal` do); paragraphs are only where beats say `"paragraph": true`; the map comes in from the beat that points at it, never with the beats before it; `unstage` is accepted; and the Voice tab's timing model is not asked (§4, Timing). **Pointing only at what is up** (current engine; the compiler mends it, each mend said as `fixed: ...`): a `shade`, `label` or `unlabel` is kept only when a labelled picture up has that part, an `unshade` when a labelled picture is up, a `focus`, `reveal` or `unfocus` when that diagram is up, and a `point` at a name of another main picture of the chapter only when a picture up shows it (the one or two main pictures of the last line that brought any; §5.3 "Two at once"). |
 | `map`? | false | `false` keeps the map out of the chapter (its map operations are left out with a note). Left out (or `true`), the chapter's beats that point at the map show it in their turn (below). A chapter is never put on the map as a whole. |
 | `beats` | list | The beats (§3), in order. |
 | `section`? | text | Which part of the source the chapter comes from. Not drawn; carried into the compile's report of the pictures used (their context). |
@@ -580,6 +580,26 @@ shown on a later line, a light held `until` a word, a label hidden):
 | `columns` | 2-3 | Each `{title, points: [up to 4 short lines]}`. More than 3 are cut to 3. With 1 column it becomes a card. |
 | `title`? | | |
 
+#### Two at once: how a line's main pictures share the stage
+A picture, a diagram, a timeline, a comparison, a gallery, a process, a quote, a drawing or a problem each takes the
+stage, and what was up before goes. **Two brought on in one line are laid out together** (current engine), where
+each is seen best: side by side, or one over the other (a wide timeline under a picture), the stage split where the
+smaller of the two is drawn largest. A third in that line does not fit: the compiler moves it to a later line that
+brings none of its own, as that line begins (its words and its parts' taken out) -- the first line that points at a
+name only it shows (a comparison's point, a timeline's event), keeping the lines up to its last such pointer for it;
+else the next free line; with no free line after it, it is left out (`fixed: ...` notes). A new main picture waits at
+most about a second (or a quarter of its line) for its words: when the line says them later, it comes on as the line
+begins and its parts still on their own words.
+
+```json
+{"title": "Two paths", "beats": [
+ {"say": "Picture two scenes, then the dates that split them: 1894 and 1905.", "paragraph": true,
+  "do": [{"op": "picture", "generate": "a Qing court and a Japanese port, side by side", "labels": ["China", "Japan"]},
+         {"op": "timeline", "events": [["1894", "Japan defeats China"], ["1905", "Japan defeats Russia"]]}]},
+ {"say": "The rest of the story is a comparison.",
+  "do": [{"op": "compare", "columns": [{"title": "China", "points": ["Civil war"]}, {"title": "Japan", "points": ["Occupation"]}]}]}]}
+```
+
 #### `timeline`: dated events across the stage
 ```json
 {"op": "timeline", "title": "The Mughals", "range": ["1500", "1870"],
@@ -589,11 +609,21 @@ shown on a later line, a light held `until` a word, a label hidden):
 ```
 | Arg | | |
 |---|---|---|
-| `events` | 2-10 | `[date, label, picture?]` (or `{date, label, picture}`). With one event it becomes a card. Past ten, the first ten are kept. |
+| `events` | 2-10 | `[date, label, picture?]` (or `{date, label, picture, on}`: an event with its own words comes on with them). With one event it becomes a card. Past ten, the first ten are kept. |
+| `enter`? | `draw` \| `travel` \| `whole` | v2, current engine: how it comes on. `draw` (the default): the title and the track (its scale, its periods) draw themselves in, then each event pops onto the track (its node, its stem growing out, its date and words), on its own words when it has an `on`, else in date order (in a strict chapter as the line begins). `travel`: the same, with a marker that runs along the track to each event as it comes. `whole`: all of it at once. The engine never pulses an event because a line names its date: only `point` does. |
 | `title`? | | Over the timeline. |
 | `range`? | `[from, to]` | v2: the years the track covers, to zoom in on a period. Events outside it are left out (with a note). |
 | `spans`? | up to 6 | v2: periods `[from, to, label]` (a reign, an era, a war, a dynasty), shaded on the track and drawn as labelled bars in a strip under the scale. Overlapping periods (or their names) are stacked in lanes. A span whose dates are not years is left out. |
 | `scale`? | `"even"` | v2: events evenly spaced, for steps with no real dates. |
+
+```json
+{"title": "Turning points", "strict": true, "beats": [
+ {"say": "Japan beat China in 1894, took Taiwan in 1895, and then beat Russia in 1905.", "paragraph": true,
+  "do": [{"op": "timeline", "title": "Japan rises", "enter": "travel", "on": "w0",
+          "events": [{"date": "1894", "label": "Defeats China", "on": "w4"}, {"date": "1895", "label": "Takes Taiwan", "on": "w7"},
+                     {"date": "1905", "label": "Defeats Russia", "on": "w13"}]}]},
+ {"say": "Remember 1905 above all.", "do": [{"op": "point", "target": "Defeats Russia", "on": "w1"}]}]}
+```
 
 How it is drawn (v2's engine, `pocket_lecture.big_timeline`, `timeline_dates.py`):
 

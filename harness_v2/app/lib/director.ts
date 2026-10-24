@@ -66,7 +66,8 @@ const NOT_PARTS = new Set(["show", "hide", "ids", "order", "range", "colors", "c
 /** How an emphasis may point on the motion engine (MOTION_ENGINE.md, `emphasis`). */
 export const EMPHASIS_HOW = ["pulse", "circle", "underline", "highlight", "box", "glow", "shake", "dim", "spotlight", "rack", "magnify",
   "wiggle", "bounce", "wash", "strike", "sweep"];
-/** What takes the whole stage on the current engine (the one before it goes): one at a time. */
+/** What takes the stage on the current engine (what was up before goes); two of them in one line are laid out together. */
+const MAIN_AT_ONCE = 2;
 const MAIN_OPS = new Set(["picture", "photo", "illustration", "figure", "gallery", "diagram", "timeline", "compare", "process", "quote", "draw",
   "problem", "molecule"]);
 /** A stamp's words at most. */
@@ -412,9 +413,10 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
   const exits: { beat: number; word: number; ref: string }[] = [];
   const byRef = new Map<string, Cue[]>();
   for (const c of [...cues].sort((a, b) => a.beat - b.beat || a.word - b.word)) byRef.set(c.ref, [...(byRef.get(c.ref) ?? []), c]);
-  // One main picture on the stage at a time (current engine): elements taken in the order they come on, and a second
-  // main picture cued on a line that has one already comes on as a later line of its scenes begins.
-  const mainAt = new Map<number, string>();
+  // At most MAIN_AT_ONCE main pictures on the stage at once (current engine; two are laid out together): elements
+  // taken in the order they come on, and one more cued on a line that has them already comes on as a later line of
+  // its scenes begins.
+  const mainAt = new Map<number, string[]>();
   const entryOf = (el: PlanElement): [number, number] => {
     const e = byRef.get(el.id)?.find((c) => c.act === "enter");
     return e ? [e.beat, e.word] : [first.get(el.id)?.beats[0] ?? Number.MAX_SAFE_INTEGER, 0];
@@ -434,18 +436,18 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     if (enter && life.has(enter.beat) && enter.beat <= scene.beats[scene.beats.length - 1]) at = [enter.beat, enter.word];
     else if (enter) notes.push(`${el.id}: its entry (b${enter.beat}.w${enter.word}) is outside its scene ${scene.id}: it comes on as the scene begins`);
     if (engine === "current" && MAIN_OPS.has(String(op.op))) {
-      const other = mainAt.get(at[0]);
-      if (other) {
+      const other = mainAt.get(at[0]) ?? [];
+      if (other.length >= MAIN_AT_ONCE) {
         const free = [...life].filter((b) => b > at[0] && !mainAt.has(b)).sort((a, b) => a - b);
         // The first line of those that a part of it is cued on, else the next free one.
         const cued = partsOf(el).map((p) => byRef.get(p.ref)?.find((x) => x.act === "enter")?.beat).filter((b): b is number => b !== undefined);
         const t = free.find((b) => cued.includes(b)) ?? free[0];
         if (t !== undefined) {
-          notes.push(`${el.id}: a second main picture on b${at[0]} (with ${other}): comes on as b${t} begins`);
+          notes.push(`${el.id}: more than ${MAIN_AT_ONCE} main pictures on b${at[0]} (with ${other.join(", ")}): comes on as b${t} begins`);
           at = [t, 0];
         }
       }
-      mainAt.set(at[0], el.id);
+      mainAt.set(at[0], [...(mainAt.get(at[0]) ?? []), el.id]);
     }
     op.on = anchor(at[1]);
     if (enter?.inPause && engine === "motion") op.in_pause = true;

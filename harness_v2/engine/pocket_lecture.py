@@ -2865,7 +2865,7 @@ class Lecture(Scene):
             self._log("skipped", what=what, error=message)
             return None
 
-    def name_part(self, phrase, mob, shown=None, act=None) -> None:
+    def name_part(self, phrase, mob, shown=None, act=None, auto: bool = True) -> None:
         """Something on the screen with a name the narration may say again (a timeline's date, a map's place, a
         card's heading): pointed at on its words (beat). `shown()`, when given, says whether it is drawn now; `act()`,
         when given, is what pointing at it does (the camera moving in on a picture's part), else it pulses."""
@@ -2873,7 +2873,7 @@ class Lecture(Scene):
             return
         parts = self.__dict__.setdefault("_named_parts", [])
         parts.append({"say": str(phrase), "mob": mob, "beat": self.__dict__.get("_sync_beat", 0), "shown": shown,
-                      "act": act})
+                      "act": act, "auto": auto})
 
     def _pointers(self, words, seconds: float, hinted: set) -> list:
         """[(the pointing animation, [start, seconds])] for the things on the screen this line names: each once,
@@ -2896,7 +2896,7 @@ class Lecture(Scene):
         out, used = [], set()
         for part in candidates:
             mob = part["mob"]
-            if id(mob) in used or _norm(part["say"]) in hinted:
+            if id(mob) in used or _norm(part["say"]) in hinted or not part.get("auto", True):
                 continue
             if part["shown"] is not None and not part["shown"]():
                 continue
@@ -4341,6 +4341,38 @@ class Lecture(Scene):
         follow_drift(mobs, f, centre, np.array([cx, cy, 0]) - centre)
         return f, np.array(centre, dtype=float), np.array([cx, cy, 0]) - centre
 
+    PAIR_GAP = 0.35          # between two pictures sharing the stage
+    PAIR_PICTURE = 0.3       # the least a picture is shrunk to when it shares the stage (it still reads)
+    PAIR_WORDS = 0.65        # the least a thing of words (a timeline, a comparison, a diagram) is shrunk to
+
+    def _pair_boxes(self, first: list, second: list, grow: float = 1.3) -> tuple:
+        """Two boxes on the stage for two things shown together (each with its parts): side by side or one above
+        the other, and the split between them, chosen so that each is shown as large as it needs: a picture still
+        reads at a third of its size, words (a timeline's, a comparison's, a diagram's) need two thirds. The layout
+        whose worse-off thing is furthest above its need wins (then the one that fills the most of the stage): a
+        timeline beside a photo gets the wider share, two pictures share alike."""
+        cx, cy, w, h = self.STAGE
+        a, b = Group(*first), Group(*second)
+        aw, ah, bw, bh = max(a.width, 0.01), max(a.height, 0.01), max(b.width, 0.01), max(b.height, 0.01)
+        need = [self.PAIR_PICTURE if has_image(m) else self.PAIR_WORDS for m in (a, b)]
+        gap = self.PAIR_GAP
+        best, chosen = None, None
+        for stacked in (False, True):
+            for r in (0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7):
+                if stacked:
+                    ha, hb = (h - gap) * r, (h - gap) * (1 - r)
+                    box_a, box_b = (cx, cy + h / 2 - ha / 2, w, ha), (cx, cy - h / 2 + hb / 2, w, hb)
+                else:
+                    wa, wb = (w - gap) * r, (w - gap) * (1 - r)
+                    box_a, box_b = (cx - w / 2 + wa / 2, cy, wa, h), (cx + w / 2 - wb / 2, cy, wb, h)
+                fa = min((box_a[2] - 0.2) / aw, (box_a[3] - 0.2) / ah, 1.0)
+                fb = min((box_b[2] - 0.2) / bw, (box_b[3] - 0.2) / bh, grow)
+                filled = (fa * fa * aw * ah + fb * fb * bw * bh) / (w * h)
+                score = (min(fa / need[0], fb / need[1]), filled)
+                if best is None or score > best:
+                    best, chosen = score, (box_a, box_b)
+        return chosen
+
     def _beside(self, group):
         """The beat's second picture: the drawing takes the left half, the words about it (a definition, an
         equation, a question) the right. Neither is on screen yet, so the two are simply laid out again."""
@@ -4379,6 +4411,9 @@ class Lecture(Scene):
             picture_parts = [*picture_parts, *added]
         else:
             card_parts = [*card_parts, *added]
+        # The two laid out together where each is seen best: side by side or one over the other (a wide timeline
+        # under a picture), the stage split where neither ends up small.
+        left, right = self._pair_boxes([picture, *picture_parts], [card, *card_parts])
         moved = self._fit_box([picture, *picture_parts], left)
         if picture is first and hasattr(self, "_zoom_follow"):
             self._zoom_follow(*moved)
@@ -5325,7 +5360,10 @@ class Lecture(Scene):
     TIMELINE_MOST = 10       # events on one timeline
     SPAN_TONES = ("GOLD", "RIVER", "ROSE", "GREEN", "VIOLET", "TEAL")
 
-    def big_timeline(self, events, title: str | None = None, range=None, spans=None, scale: str | None = None):
+    TIMELINE_ENTRANCES = ("draw", "travel", "whole")
+
+    def big_timeline(self, events, title: str | None = None, range=None, spans=None, scale: str | None = None,
+                     enter: str | None = None):
         """A timeline across the stage: a track, a ringed node on it for each event, the date in a pill on a stem,
         the event's words beyond it, alternately above and below, each event's picture (a photo, a figure, a
         drawing: (date, label, picture)) beyond its words. It is still: it appears whole.
@@ -5335,7 +5373,13 @@ class Lecture(Scene):
         sets the years the track covers (events outside it are left out); `spans` [(from, to, label)] shade periods
         along the track (a reign, an era, a war), overlapping ones in lanes. Events too close for their words are
         spread apart along their side, each with a slanted stem back to its true date. `scale` "even": evenly
-        spaced, as before (steps with no real dates)."""
+        spaced, as before (steps with no real dates).
+
+        `enter` (v2, the script's): how it comes on. "draw": the title and the track draw themselves, then each event
+        pops onto the track (its node, its stem, its date and words); "travel": the same, with a marker that runs
+        along the track to each event as it comes; "whole" (or none): it is simply there. An event with words of its
+        own (its "on") comes on with them; the others in date order after the track. Its events are never pointed at
+        by the engine because a line names them: only the script's `point` does."""
         import timeline_dates as td
 
         cx, cy, w, h = self.STAGE
@@ -5506,15 +5550,60 @@ class Lecture(Scene):
             marks.append(group_of(node, stem, head))
         drawing = Group(track, lit, *extras, *marks)
         for (date, label, _picture), mark in zip(events, marks):
-            self.name_part(date, mark)
-            self.name_part(label, mark)
+            # The script points at an event (`point`); the engine does not, because a line says its date.
+            self.name_part(date, mark, auto=False)
+            self.name_part(label, mark, auto=False)
         parts = Group(drawing)
         if title:
             parts.add(fit(T(title.upper() if TH["upper"] else title, 32, P.TITLE, font=TH["serif"], weight=BOLD), w - 0.4))
             parts.arrange(UP, buff=0.5)
         self._fit_stage(parts, grow=1.25)
+        if enter in ("draw", "travel"):
+            return self._timeline_in(parts, drawing, track, lit, extras, marks, events, enter == "travel")
         # Still: it is simply there, whole (b189db3: an entrance handed to the beat is stretched over the line).
         return self._to_stage(Group(parts), still=True)
+
+    def _timeline_in(self, parts, drawing, track, lit, extras, marks, events, travel: bool):
+        """A timeline that builds itself: the title and the track (its scale, its periods) drawn in as it comes on;
+        each event held back and brought on in turn (on its own words when it has them), a marker running along
+        the track to it first when `travel`."""
+        title = parts[1] if len(parts.submobjects) > 1 else None
+        for mark in marks:
+            drawing.remove(mark)
+        self._next_pending.extend(marks)
+        intro = ([FadeIn(title, shift=DOWN * 0.15)] if title is not None else []) + \
+            [AnimationGroup(Create(track), Create(lit), run_time=0.9)] + [Create(x) for x in extras]
+        marker = None
+        if travel:
+            marker = Dot(radius=0.11, color=P.GOLD).move_to(track.get_left())
+            marker.set_z_index(Z_MARK + 12)
+            halo = Circle(radius=0.2, stroke_width=0, fill_color=P.GOLD, fill_opacity=0.25).move_to(marker)
+            marker = VGroup(halo, marker)
+            drawing.add(marker)
+            intro.append(FadeIn(marker, scale=0.5))
+        shown = self._to_stage(Group(parts), entrance=LaggedStart(*intro, lag_ratio=0.3))
+        for (date, label, _picture), mark in zip(events, marks):
+            holder = SimpleNamespace(panim_said=str(label), panim_alts=[str(label), str(date)], panim_heard=False,
+                                     panim_build=lambda heard, mark=mark: self._timeline_event(mark, marker))
+            self.__dict__.setdefault("_word_queue", []).append(holder)
+        return shown
+
+    def _timeline_event(self, mark, marker=None):
+        """One event onto its timeline: the marker run to it (a travelling timeline), its node popping onto the
+        track, its stem growing out and its date and words coming in along it."""
+        if not any(mark is x for x in self.stage_pending) and any(mark is x for x in self.stage_extra):
+            return None                                  # already on
+        node, stem, head = mark.submobjects[:3]
+        self.stage_pending = [x for x in self.stage_pending if x is not mark]
+        self.stage_extra.append(mark)
+        out = node.get_center() - head.get_center()
+        steps = []
+        if marker is not None:
+            steps.append(marker.animate.move_to(node.get_center()))
+        steps += [GrowFromCenter(node), Create(stem), FadeIn(head, shift=out / max(np.linalg.norm(out), 1e-6) * 0.25)]
+        anim = LaggedStart(*steps, lag_ratio=0.45)
+        anim.panim_run = 0.9
+        return anim
 
     # ---------------- several pictures at once, and diagrams built on the stage ----------------
     # ---------------- a gallery: several pictures, each brought forward as it is said ----------------

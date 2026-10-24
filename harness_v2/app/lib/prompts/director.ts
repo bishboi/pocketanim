@@ -30,7 +30,10 @@ HOW TO PLAN
    as they are said, a compare whose columns come in turn. A primitive with parts lets the choreographer move
    something on every line; a bare card does not.
 3. Add what the lines add to it: a definition beside it as a hard word is named, a number, a question, a quote.
-   Keep each scene to the main element and two or three more.
+   Keep each scene to the main element and two or three more. ONE MAIN PICTURE A SCENE: a picture, a diagram, a
+   timeline, a comparison, a gallery each takes the whole stage (the one before goes): a second one is a new scene
+   (or, on the current engine, it comes on a later line and the first is gone). Never plan a picture, a timeline and
+   a comparison for the same lines: the viewer sees each for a second and none of them.
 4. Give every element ALL its parts: a diagram's every node (they come on as they are said, in later lines too), a
    picture's every label, a timeline's every event, a compare's every column. The choreographer can only bring on,
    point at and light what you gave.
@@ -181,6 +184,10 @@ WHEN
 - A part never before the element it is in. A diagram's nodes (and only they) may come on in any line of the
   element's scenes: each on the line, and the word, that names it. Every other part comes on in its element's own
   line: give it a word of that line.
+- ONE MAIN PICTURE AT A TIME: a picture, a diagram, a timeline, a comparison or a gallery takes the whole stage, and
+  the one before goes. Never bring two on in one line: the second comes on a LATER line, as it begins, and from then
+  on point only at what is on it (a light on the picture before it, a pulse at its labels, is lost). Hold each for
+  its lines: a main picture shown for a second and replaced is never seen.
 - Each moment must be seen: keep them about 0.6 s apart or more (the times tell you); parts said in one breath may
   share a word. Not everything on w0. At most about three moments in a second.
 - Make every line do something: in a line that adds nothing new, point at what it speaks of (a pulse, a light, a

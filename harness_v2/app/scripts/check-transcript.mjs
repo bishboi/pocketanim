@@ -503,6 +503,30 @@ assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "w
   assert.deepEqual(back.elements.map((e) => e.timeline.map((q) => q.do).join(",")), ["enter,show,show,light,hide", "enter,show,focus,pulse"], JSON.stringify(back));
   assert.equal(back.elements[0].timeline[3].until, "b3.w5", "a light's until kept");
   assert.ok(d.flatSteps({ elements: [{ id: "bank", timeline: [], look: { labels: ["x"] } }] }).dropped.length === 1, "a look cannot change content");
+  // One main picture at a time: a timeline cued on the picture's line comes on as the next line begins.
+  const two = { elements: [plan.elements[0], { id: "dates", op: { op: "timeline", events: [["1500", "A"], ["1600", "B"]] } }],
+    scenes: [{ id: "S1", beats: [1, 2, 3], uses: ["bank", "dates"] }] };
+  const twoCues = d.readCues({ cues: [{ at: "b1.w1", ref: "bank", act: "enter" }, { at: "b1.w4", ref: "dates", act: "enter" }] },
+    { words, beats: new Set([1, 2, 3]), acts: new Map([["bank", ["enter"]], ["dates", ["enter"]]]), scenes: new Set(["S1"]) }).cues;
+  const lowered2 = d.lowerPlan(two, twoCues, words, "current");
+  assert.deepEqual([lowered2.ops.get(1).map((o) => o.op), lowered2.ops.get(2).map((o) => [o.op, o.on])], [["picture"], [["timeline", "start"]]],
+    JSON.stringify([...lowered2.ops]));
+  // The compiler mends a strict chapter the same way, whatever wrote it: the second and third main pictures of a line
+  // moved (the one pointed into to the line that points into it), pointing at what is not up left out.
+  const { runPython: rp2 } = await import(path.resolve(here, "../lib/manim.ts"));
+  const crowd = { title: "T", chapters: [{ title: "C", strict: true, beats: [
+    { say: "one two three four five six", do: [{ op: "illustration", query: "a court", labels: ["China", "Japan"], on: "w1" },
+      { op: "timeline", events: [["1894", "War"], ["1905", "Russia"]], on: "w2" },
+      { op: "compare", columns: [{ title: "China", points: ["Civil war"] }, { title: "Japan", points: ["Occupation"] }], on: "w3" },
+      { op: "shade", part: "China", on: "w4" }] },
+    { say: "one two three four five six", do: [{ op: "point", target: "Japan", on: "w2" }] },
+    { say: "one two three four five six", do: [{ op: "point", target: "Civil war", on: "w2" }] },
+    { say: "one two three four five six", do: [{ op: "point", target: "Occupation", on: "w2" }, { op: "shade", part: "China", on: "w3" }] }] }] };
+  const mended = await rp2(["-c", "import json,sys,compile_lecture as c; s=json.load(sys.stdin); n=c._one_on_the_stage(s); print(json.dumps({'notes': n, 'ops': [[o['op'] for o in b['do']] for b in s['chapters'][0]['beats']]}))"],
+    process.env.V2_ENGINE, { PYTHONPATH: process.env.V2_ENGINE }, JSON.stringify(crowd));
+  const got = JSON.parse(mended.stdout.trim().split("\n").pop());
+  assert.deepEqual(got.ops, [["illustration", "shade"], ["timeline"], ["compare", "point"], ["point"]], JSON.stringify(got));
+  assert.ok(got.notes.length === 4 && got.notes.every((x) => x.startsWith("fixed: ")), JSON.stringify(got.notes));
 }
 const choreoBefore = run.calls.filter((c) => /^Choreography:/.test(c.label)).length;
 await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited, choreograph: true });

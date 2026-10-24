@@ -708,10 +708,174 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     notes = _fix_unusable(script, has_map)
     notes += _split_manim_beats(script)
     notes += _fix_steps(script)
+    notes += _one_on_the_stage(script)
     notes += _build_with_speech(script)
     reveals: list[str] = []
     _complete_reveals(script, reveals, script.get("figures") or {})
     return notes + reveals
+
+
+# ---------------- one thing on the stage at a time (strict chapters, the current engine) ----------------
+# What takes the whole stage (the one before it goes). A word defined (a strip over the picture), a heading, the
+# board's cards, an equation (beside its figure) and a question do not.
+STAGE_MAIN = {"photo", "figure", "illustration", "gallery", "diagram", "timeline", "compare", "process", "quote",
+              "draw", "problem", "molecule"}
+# What points at a part of the picture up, and the picture it needs.
+NEEDS_LABELS = {"shade", "label", "unlabel"}
+NEEDS_DIAGRAM = {"focus", "reveal", "unfocus", "zoom"}
+# An op's keys that are prompts or settings, not words on the screen.
+NOT_SHOWN = {"op", "on", "id", "generate", "draw", "query", "subject", "illustration", "entity", "about", "style",
+             "move", "kind", "scene", "aspect", "sides", "notes", "hold", "drawn", "in_pause", "delay", "credit", "file"}
+
+
+def _key(text) -> str:
+    return re.sub(r"[^\w\u0900-\u097F]+", " ", str(text).lower()).strip()
+
+
+def _names_up(op: dict) -> set[str]:
+    """Every name an op puts on the screen (its title, labels, columns and points, events, nodes and their ids): what
+    a `point` can find on it."""
+    out: set[str] = set()
+
+    def take(value, depth=0):
+        if depth > 5 or value is None:
+            return
+        if isinstance(value, str):
+            if value.strip() and len(value) <= 120:
+                out.add(_key(value))
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            out.add(_key(value))
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                if k not in NOT_SHOWN:
+                    take(v, depth + 1)
+            if "id" in value and depth > 0:
+                take(value["id"], depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                take(v, depth + 1)
+
+    take(op)
+    return out
+
+
+def _labels_named(op: dict) -> set[str]:
+    labels = op.get("labels") if isinstance(op.get("labels"), list) else []
+    return {_key(x.get("name") if isinstance(x, dict) else x) for x in labels if x}
+
+
+def _without_anchors(value):
+    """An op moved to another line: its own words and its parts' (a word of the line it left) taken out."""
+    if isinstance(value, list):
+        return [_without_anchors(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _without_anchors(v) for k, v in value.items() if k not in ("on", "in_pause", "delay")}
+    return value
+
+
+def _one_on_the_stage(script: dict) -> list[str]:
+    """A strict chapter on the current engine shows one main picture at a time, each held for its line or more: a
+    picture, a timeline, a comparison and a diagram all brought on in one line replaced one another within seconds,
+    split the stage, and covered what the line went on to point at.
+
+    1. A line that brings on more than one main picture keeps its first; each other moves to a later line that has
+       none of its own, as that line begins: the first that points at something on it (a comparison's point, a
+       timeline's event), else the next free one. One with no free line after it is left out. Each said.
+    2. Pointing is kept only at what is up then: a light, a label or a label taken off on a labelled picture's part
+       when that picture is up; a focus or a reveal on the diagram up; a `point` at a name of an earlier or later
+       main picture that is not the one up (it would pulse nothing, or the wrong thing) is left out. Each said."""
+    if script.get("engine") == "motion":
+        return []
+    notes: list[str] = []
+    for c, chapter in enumerate(script.get("chapters") or []):
+        if not isinstance(chapter, dict) or chapter.get("strict") is not True:
+            continue
+        beats = [b for b in chapter.get("beats") or [] if isinstance(b, dict)]
+        dos = [[op for op in (b.get("do") if isinstance(b.get("do"), list) else []) if isinstance(op, dict)] for b in beats]
+        # 1. One main picture a line.
+        queue: list[tuple[int, dict]] = []
+        for b, ops in enumerate(dos):
+            mains = [op for op in ops if op.get("op") in STAGE_MAIN]
+            for op in mains[1:]:
+                ops.remove(op)
+                queue.append((b, op))
+        taken = {b for b, ops in enumerate(dos) if any(op.get("op") in STAGE_MAIN for op in ops)}
+
+        # Where a later line points into a moved picture: at a name only it shows (a name two pictures share, like a
+        # country on a picture and a column, says nothing about which).
+        mains = [op for ops in dos for op in ops if op.get("op") in STAGE_MAIN] + [op for _, op in queue]
+        counts: dict[str, int] = {}
+        for op in mains:
+            for n in _names_up(op):
+                counts[n] = counts.get(n, 0) + 1
+
+        def pointers(origin: int, op: dict) -> list[int]:
+            own = {n for n in _names_up(op) if counts.get(n) == 1}
+            return [t for t in range(origin + 1, len(dos))
+                    if any(x.get("op") == "point" and _key(x.get("target") or "") in own for x in dos[t])]
+
+        placed: dict[int, int] = {}
+        held: list[tuple[int, int]] = []           # the lines a moved picture is pointed into over: kept for it
+        # Those pointed into choose first (the first line that points into them, keeping the lines to their last
+        # pointer), then the rest take the first free line outside those.
+        for i, (origin, op) in enumerate(queue):
+            lines = [t for t in pointers(origin, op) if t not in taken]
+            if lines:
+                placed[i] = lines[0]
+                taken.add(lines[0])
+                held.append((lines[0], max(lines)))
+        for i, (origin, op) in enumerate(queue):
+            if i in placed:
+                continue
+            free = [t for t in range(origin + 1, len(dos)) if t not in taken]
+            pick = next((t for t in free if not any(a <= t <= z for a, z in held)), free[0] if free else None)
+            if pick is not None:
+                placed[i] = pick
+                taken.add(pick)
+        for i, (origin, op) in enumerate(queue):
+            what = f"chapter {c + 1} beat {origin + 1}: {op.get('op')}"
+            if i not in placed:
+                notes.append(f"fixed: {what}: a second main picture in one line, and no later line free for it: left out")
+                continue
+            t = placed[i]
+            moved = _without_anchors(op)
+            moved["on"] = "start"
+            dos[t].insert(0, moved)
+            notes.append(f"fixed: {what}: a second main picture in one line: moved to beat {t + 1}, as it begins")
+        # 2. Pointing only at what is up.
+        everything = set().union(*[_names_up(op) for ops in dos for op in ops if op.get("op") in STAGE_MAIN]) if dos else set()
+        up: dict | None = None
+        for b, ops in enumerate(dos):
+            kept = []
+            for op in ops:
+                kind = op.get("op")
+                why = None
+                if kind in STAGE_MAIN:
+                    up = op
+                elif kind == "unstage":
+                    up = None
+                elif kind in NEEDS_LABELS:
+                    if up is None or _key(op.get("part") or "") not in _labels_named(up):
+                        why = f"no labelled picture up with a part {op.get('part')!r}"
+                elif kind == "unshade":
+                    if up is None or not _labels_named(up):
+                        why = "no labelled picture up"
+                elif kind in NEEDS_DIAGRAM:
+                    if up is None or up.get("op") != "diagram" or str(up.get("id")) != str(op.get("diagram")):
+                        why = f"the diagram {op.get('diagram')!r} is not up"
+                elif kind == "point":
+                    target = _key(op.get("target") or "")
+                    if target in everything and (up is None or target not in _names_up(up)):
+                        why = f"{op.get('target')!r} is not on the picture up"
+                if why:
+                    notes.append(f"fixed: chapter {c + 1} beat {b + 1}: {kind} left out: {why}")
+                else:
+                    kept.append(op)
+            ops[:] = kept
+        for beat, ops in zip(beats, dos):
+            if isinstance(beat.get("do"), list) or ops:
+                beat["do"] = ops
+    return notes
 
 
 def _split_manim_beats(script: dict) -> list[str]:

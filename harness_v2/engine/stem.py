@@ -253,6 +253,12 @@ class BoardMixin:
         left = -6.7
         if title is not None:
             self.strip["title"] = title.move_to([left, STRIP_Y, 0], aligned_edge=LEFT)
+            # Never over the chapter's tag in the corner above it (a tall title ran into its words).
+            chrome = getattr(self, "chrome", None)
+            if chrome is not None and len(chrome) > 2:
+                limit = chrome[2].get_bottom()[1] - 0.08
+                if title.get_top()[1] > limit:
+                    title.shift(pl.DOWN * (title.get_top()[1] - limit))
             title.set_z_index(pl.Z_PANEL_TEXT)
             coming.append(FadeIn(title, shift=RIGHT * 0.15))
         if point is not None:
@@ -273,6 +279,11 @@ class BoardMixin:
 
         from manim import RoundedRectangle
 
+        names = getattr(self, "SECTIONS", None) or []
+        index = getattr(self, "_section_at", None)
+        if not sub and index is not None and 0 < index < len(names) and pl._norm(names[index]) == pl._norm(title):
+            # The chapter's own name: its tag in the corner already says it.
+            return None
         text = title.upper() if pl.TH["upper"] else title
         head = VGroup(pl.T(text, 32, pl.P.TITLE, font=pl.TH["serif"], weight=BOLD))
         if sub:

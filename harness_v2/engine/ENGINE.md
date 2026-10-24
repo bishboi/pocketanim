@@ -166,6 +166,11 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   operations, the script's own pointing: `point` (`Lecture.point`: a named thing on screen pulses once) and `shade`
   (`Lecture.shade_part`: a labelled picture's part lit, the rest shaded). The camera is off: `zoom` is left out with a
   note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
+- One main picture at a time in a strict chapter (`compile_lecture._one_on_the_stage`, BEAT_SCRIPT.md §2 `strict`):
+  a second main picture in one line moved to a later free line, pointing at what is not up left out. A labelled
+  picture's labels queued for a line are not drawn when another picture has taken the stage in that line
+  (`_with_looks`: they were left on top of what replaced it). The board's heading (`stem.board_title`) is not drawn
+  when it is the chapter's own name (the tag in the corner says it), and never over that tag (`_strip`).
 - A picture's labels as the script says (current engine): `stage_image(hold=, sides=, notes=)` holds labels back
   (`_picture_view` queues none for them), puts a label's tag on the side it is given (`_label_layout` left/right of the
   picture; `_labels_on` tries the given spot of its part first) and writes a short note under its name (`_label_tag`).

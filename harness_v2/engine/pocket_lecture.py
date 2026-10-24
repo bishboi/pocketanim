@@ -3037,6 +3037,7 @@ class Lecture(Scene):
     # ---------------- chrome ----------------
     def section(self, index: int) -> None:
         """Show the progress bar and chapter tag for section `index`."""
+        self._section_at = index
         if len(self.chrome):
             self.remove(self.chrome)
             self.chrome = VGroup()
@@ -3586,6 +3587,11 @@ class Lecture(Scene):
                 out[i] = (self._from_queue(holder, holder.panim_heard), cue)
                 continue
             view, name = holder.panim_look
+            if not self._view_on(view):
+                # Its picture is gone (another took the stage in this line): its label is not drawn over what
+                # replaced it.
+                out[i] = (Wait(0.05), cue)
+                continue
             look = None
             if holder.panim_heard and not view.get("still") and self._view_on(view) and not self.__dict__.get("_strict"):
                 # Every part said gets the light, however soon the next is said (the move is cut to fit): lit only

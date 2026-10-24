@@ -56,6 +56,12 @@ const NO_KEY_POINT = [
   "and a fact is left out. Put the idea on the stage instead (a define card, a stat, a picture, a diagram).",
 ].join("\n");
 
+const NO_CAMERA = [
+  "NO CAMERA (v2; this overrides what the instructions above say of the camera and \"zoom\"): the camera is off. Never",
+  "use {\"op\":\"zoom\"}: it is left out. To look at one part, ring it ({\"op\":\"focus\"} on a diagram's node), pulse",
+  "it ({\"op\":\"point\",\"target\":\"<its name>\"}) or light it ({\"op\":\"shade\",\"part\":\"<a picture's label>\"}).",
+].join("\n");
+
 const TIMELINE_ADDITIONS = [
   "TIMELINES, what this engine adds to the timeline op above:",
   "  - IN PROPORTION: when every date reads as a year, each event sits at its date along the track, with a scale of",
@@ -258,6 +264,7 @@ export function scenesPrompt(x: {
       part("shape", "The answer's shape (v2)", "rules", SHAPE),
       part("v2-anchors", "Anchors: every visual on its words (v2)", "rules", ANCHORS),
       part("v2-no-key-point", "No key point on the board (v2)", "rules", NO_KEY_POINT),
+      part("v2-no-camera", "No camera (v2)", "rules", NO_CAMERA),
       v1("ops", "Operations, little text, choosing the visual"),
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-picture-style", "Pictures: their style is yours (v2)", "rules", PICTURE_STYLE),

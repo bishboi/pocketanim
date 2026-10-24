@@ -864,6 +864,14 @@ assert.ok(!run.scenes.engine && !(await engineScript(run, 1, run.scenes.look)).e
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+// A strict chapter (built as one piece) spoken in the Voice tab: its animations are its script's, the timing model
+// is not asked.
+await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
+run = await slow(run.id, (r) => voiceRunning(r), 3000);
+const strictVoice = run.voice.lectures[1][ch1.n];
+assert.equal(strictVoice.status, "done", strictVoice.error);
+assert.ok(!strictVoice.cues?.length && !strictVoice.calls.some((id) => /^Time the animations/.test(run.calls.find((x) => x.id === id)?.label ?? "")),
+  "a strict chapter is not timed again by the timing model");
 console.log(`scenes (motion beta): lecture 1 built with ${templateBeats} template beats, compiled and a beat rendered`);
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.

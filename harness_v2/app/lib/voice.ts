@@ -180,12 +180,14 @@ export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Pro
       beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
 }
 
-/** The chapters of a lecture whose scenes are built (every beat has its visuals), in order. */
+/** The chapters of a lecture whose scenes are built (every beat written, some with visuals), in order. */
 export function chaptersWithScenes(run: Run, n: number): number[] {
   const script = scriptOf(run, n);
   const sl = run.scenes?.lectures[n];
   if (!script || !sl) return [];
-  return script.chapters.filter((c) => c.beats.length && c.beats.every((b) => sl.beats[b.n]?.ops?.length)).map((c) => c.n);
+  // A beat is built when it was written (a beat of a scene built as one piece may add nothing: what is up stays).
+  return script.chapters.filter((c) => c.beats.length && c.beats.every((b) => sl.beats[b.n]?.status === "done" || sl.beats[b.n]?.ops?.length)
+    && c.beats.some((b) => sl.beats[b.n]?.ops?.length)).map((c) => c.n);
 }
 
 export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {

@@ -28,7 +28,7 @@ export const LAB_PRESETS: LabPreset[] = [
         edges: [["fields", "granary", "grain"], ["granary", "crafts", "food", "bold"]], show: ["fields", "granary"] }] },
       { say: "The stored food fed craftsmen, who no longer had to farm.", do: [{ op: "reveal", diagram: "chain", nodes: ["crafts"] }] },
       { say: "So the granary was the heart of the town.", do: [{ op: "focus", diagram: "chain", node: "granary" }] },
-      { say: "Look closer at what it held.", do: [{ op: "zoom", diagram: "chain", node: "granary", scale: 2 }] },
+      { say: "Look again at what it held.", do: [{ op: "point", target: "Granary" }] },
     ]),
   },
   {
@@ -111,7 +111,8 @@ export const LAB_SNIPPETS: { op: string; say: string; do: Record<string, unknown
   { op: "diagram (hub)", say: "Trade connected cities, ports and markets.", do: { op: "diagram", id: "d2", kind: "hub", nodes: [{ id: "t", label: "Trade" }, { id: "c", label: "Cities" }, { id: "p", label: "Ports" }, { id: "m", label: "Markets" }] } },
   { op: "reveal", say: "And then the fields.", do: { op: "reveal", diagram: "d1", nodes: ["fields"] } },
   { op: "focus", say: "The river is the key.", do: { op: "focus", diagram: "d1", node: "river" } },
-  { op: "zoom", say: "Look closer at the river.", do: { op: "zoom", diagram: "d1", node: "river", scale: 2 } },
+  { op: "point", say: "Look again at the river.", do: { op: "point", target: "River" } },
+  { op: "shade", say: "Look at the soil.", do: { op: "shade", part: "soil" } },
   { op: "timeline", say: "From 1526 to 1857.", do: { op: "timeline", title: "The Mughals", events: [["1526", "Panipat"], ["1707", "Aurangzeb dies"], ["1857", "The revolt"]] } },
   { op: "compare", say: "Snow-fed against rain-fed.", do: { op: "compare", columns: [{ title: "Himalayan", points: ["Snow-fed"] }, { title: "Peninsular", points: ["Rain-fed"] }] } },
   { op: "define", say: "A surplus is more than a family needs.", do: { op: "define", term: "Surplus", meaning: "more than a family needs to eat" } },

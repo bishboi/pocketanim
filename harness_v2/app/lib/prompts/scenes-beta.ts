@@ -601,7 +601,7 @@ diagram drawn as one picture — a flow or cycle of 2-6 nodes drawn as ONE pictu
 
 reveal — draws more nodes of a diagram already up.   {"op":"reveal","diagram":"chain","nodes":["deer"],"on":"deer"}
 focus — lights one node and dims the rest.             {"op":"focus","diagram":"chain","node":"plants","on":"plants"}
-zoom — moves the camera in on one part; without node, back out.  {"op":"zoom","diagram":"c1","node":"R1","scale"?:2}`;
+There is no camera: a zoom is left out. To look at a part, focus it, or point with an emphasis.`;
 
 const TIMELINES = String.raw`TIMELINES.
 

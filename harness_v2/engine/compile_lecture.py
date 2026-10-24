@@ -3947,7 +3947,8 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     calls.append(call)
                 elif call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
-                    said = _op_said(op, parts_named, asked, strict)
+                    # (Only a strict chapter passes `strict`: compile_motion wraps _op_said with three arguments.)
+                    said = _op_said(op, parts_named, asked, strict) if strict else _op_said(op, parts_named, asked)
                     said = (f", said={_q(said)}" if isinstance(said, str) else f", said=[{', '.join(_q(w) for w in said)}]") \
                         if said else ""
                     calls.append(f"self.safe(lambda: {call}, {_q(what)}{said})")

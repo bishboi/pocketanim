@@ -565,6 +565,10 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     check(call, "Region", "info", "beats point at the map but no region was given: their map operations are left out by the compiler");
   }
   sl.scriptAt = run.script?.lectures[n]?.at;
+  // A chapter written again by this writer (not as one piece) is no longer its plan's, nor strict.
+  if (ask.what === "lecture" || ask.what === "chapter") {
+    for (const c of new Set(targets.map((t) => chapterOfBeat(run, n, t)))) if (c !== undefined && sl.plans?.[c]) delete sl.plans[c];
+  }
   saveRun(run);
   if (voiceFirst(st) && st.engine !== "motion") {
     const written = targets.filter((t) => answered.has(t));

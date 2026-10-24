@@ -1137,8 +1137,6 @@ def lint(script: dict, min_minutes: float | None = None, min_questions: int | No
                 warnings.append(f"{at}: the caption runs past two lines ({len(say)} characters); split the beat")
             ops = beat.get("do") or []
             _normalise_points(ops)
-            if len(ops) > 5:
-                warnings.append(f"{at}: {len(ops)} operations in one beat; the eye cannot follow more than about four")
             for op in ops:
                 kind = op.get("op")
                 drawn_map = map_drawn_by(op)

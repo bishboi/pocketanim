@@ -188,7 +188,7 @@ WHEN
 - Each moment must be seen: keep them about 0.6 s apart or more (the times tell you); parts said in one breath may
   share a word. Not everything on w0. At most about three moments in a second.
 - Make every line do something: in a line that adds nothing new, point at what it speaks of (a pulse, a light, a
-  focus). But never more than two pulses in a line. There is no camera: nothing zooms or pans.
+  focus). There is no camera: nothing zooms or pans.
 - Nothing happens that you do not write: a part with no step comes on as its line begins, and nothing is pointed at
   because the line says its name.
 - Use only the elements, parts and steps given. Do not invent elements. Every element of these scenes once in

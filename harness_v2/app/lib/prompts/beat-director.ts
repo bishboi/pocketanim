@@ -141,7 +141,7 @@ A STEP: {"at": "w<word>", "do": "<step>", ...}
     reveal's nodes each on the word that names it).
   - "pulse" {"target": "<a name on the screen>"}: it is pointed at once (a label, a node, an event, a word).
     For what the line stresses: a contrast ("but", "only", "never"), a number, the answer, the word the idea
-    turns on. At most two in a line.
+    turns on.
   - "light" {"part": "<a label of the labelled picture up>", "until"?: "b<beat>.w<word>"}: the rest of the picture
     shaded round the part while it is explained: until the next light, or held until that later word.
   - "focus" {"diagram": "<its id>", "node": "<node id>", "until"?: "b<beat>.w<word>"}: the node ringed and the rest

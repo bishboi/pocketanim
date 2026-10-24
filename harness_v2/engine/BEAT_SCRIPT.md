@@ -214,8 +214,8 @@ is past its line's last word: it comes on in its turn`).
 Here `w7` is "granary fed" (the second "granary": "granary" alone is said first at word 4), so the node comes on
 with the second time it is said.
 
-How many operations a beat may carry: the compiler sets **no limit**. Above 5 it warns ("the eye cannot follow more
-than about four"); nothing is refused. v1's instructions asked for at most four; v2's scene writer is told no limit by
+How many operations a beat may carry: the compiler sets **no limit** and does not warn (pointing -- `point`,
+`shade`, `focus`, `reveal`, `label` and their undoing -- counts as operations too). v1's instructions asked for at most four; v2's scene writer is told no limit by
 default (the Scenes tab's pace can set one). One rule is hard: **a `manim` beat carries only its `manim` operation**.
 
 ---

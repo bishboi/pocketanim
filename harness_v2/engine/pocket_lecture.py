@@ -2950,19 +2950,74 @@ class Lecture(Scene):
         pulse.panim_run = 0.7
         return pulse
 
-    def shade_part(self, part: str):
-        """The script's own light on a labelled picture's part (`shade`): the rest of the picture shaded round it
-        (its label brought on first if it is not on yet), until the next line, or a shade on another part."""
+    def _view_of(self, part: str):
+        """(the labelled picture up with a part of that name, its name as laid out), else (None, None)."""
         want = _norm(part)
         for view in reversed(self.__dict__.get("_views", [])):
             name = next((n for n in view["parts"] if _norm(n) == want), None)
             if name is not None and self._view_on(view):
-                look = self._look(view, name)
-                if look is not None:
-                    look.panim_run = self.LOOK_RUN
-                return look
-        skipped(f"shade: no labelled picture up with a part {part!r}")
+                return view, name
+        return None, None
+
+    def shade_part(self, part: str, hold: bool = False):
+        """The script's own light on a labelled picture's part (`shade`): the rest of the picture shaded round it
+        (its label brought on first if it is not on yet), until the next line, or a shade on another part; with
+        `hold`, until an `unshade` (over the lines between)."""
+        view, name = self._view_of(part)
+        if view is None:
+            skipped(f"shade: no labelled picture up with a part {part!r}")
+            return None
+        look = self._look(view, name)
+        if look is not None:
+            look.panim_run = self.LOOK_RUN
+            view["held_light"] = bool(hold)
+        return look
+
+    def unshade(self):
+        """The light lifted from the labelled picture up (`unshade`): the whole picture clear again."""
+        for view in self.__dict__.get("_views", []):
+            if view.get("lens") is not None:
+                view["held_light"] = False
+                back = self._look_out(view)
+                if back is not None:
+                    return back
         return None
+
+    def label(self, part: str):
+        """A labelled picture's label the script held back, brought on now (`label`): its box, line and name."""
+        view, name = self._view_of(part)
+        if view is None:
+            skipped(f"label: no labelled picture up with a part {part!r}")
+            return None
+        if name in view["revealed"]:
+            return None
+        anim = self._label_reveal(view, name)
+        anim.panim_run = 0.8
+        return anim
+
+    def unlabel(self, part: str):
+        """A label taken off the picture (`unlabel`): its box, line and name fade; the picture stays."""
+        view, name = self._view_of(part)
+        if view is None or name not in view["revealed"]:
+            return None
+        piece = view["parts"][name]
+        going = [m for m in [*self._pointer_pieces(piece), piece["tag"]] if m is not None]
+        view["revealed"].discard(name)
+        self.stage_extra = [x for x in self.stage_extra if all(x is not m for m in going)]
+        self.stage_pending.extend(going)
+        anim = AnimationGroup(*[FadeOut(m) for m in going])
+        anim.panim_run = 0.5
+        return anim
+
+    def unfocus(self, key: str):
+        """A diagram's focus lifted (`unfocus`): the veils over its other parts gone, the whole diagram clear."""
+        d = getattr(self, "diagrams", {}).get(key)
+        going = self._unveil(d) if d else []
+        if not going:
+            return None
+        anim = AnimationGroup(*going)
+        anim.panim_run = 0.5
+        return anim
 
     def _log(self, kind: str, **fields) -> None:
         """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
@@ -4532,7 +4587,7 @@ class Lecture(Scene):
         self._live_start(image, step, "loop", keep=True)
 
     def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
-                    points=()):
+                    points=(), hold=(), sides=None, notes=None):
         """A photo or a document's figure, large, on the stage. Not while a problem is being solved: it took
         the problem, its figure and its working off the board mid-solution.
 
@@ -4543,6 +4598,16 @@ class Lecture(Scene):
         if self.board_mode and self._solving() and not self._beat_new:
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
+        # The script's own say over its labels (BEAT_SCRIPT.md, picture): those held back come on with a `label`
+        # op on a later line; a label's side of the picture and a short note under its name.
+        self._label_opts = {"hold": {_norm(x) for x in hold or ()}, "sides": {_norm(k): str(v) for k, v in (sides or {}).items()},
+                            "notes": {_norm(k): str(v) for k, v in (notes or {}).items() if str(v or "").strip()}}
+        try:
+            return self._stage_image(path, caption, credit, labels, move, points)
+        finally:
+            self._label_opts = None
+
+    def _stage_image(self, path: str, caption: str, credit: str, labels, move, points):
         cx, cy, w, h = self.STAGE
         line = None
         if caption:
@@ -4687,10 +4752,19 @@ class Lecture(Scene):
             self._move_picture(image, [], move)
         return shown
 
+    def _label_opt(self, kind: str, name: str):
+        return ((self.__dict__.get("_label_opts") or {}).get(kind) or {}).get(_norm(name)) if kind != "hold" \
+            else _norm(name) in ((self.__dict__.get("_label_opts") or {}).get("hold") or set())
+
     def _label_tag(self, text: str, room: float, size: float = 17):
         """A picture's label as it is written on the stage: its words on a highlight -- a solid patch of the
-        board's colour with a gold edge -- so they read over a white picture, a dark one, or the board."""
+        board's colour with a gold edge -- so they read over a white picture, a dark one, or the board; with the
+        script's short note under the name, smaller, when it gives one."""
         words = fit(marker(text, size), room - 0.2)
+        note = self._label_opt("notes", text)
+        if note:
+            small = fit(T(wrap(str(note), 32), max(12, size - 4), P.MUTED), room - 0.2)
+            words = VGroup(words, small).arrange(DOWN, buff=0.05, aligned_edge=LEFT)
         patch = SurroundingRectangle(words, buff=0.08, corner_radius=0.08, color=P.GOLD, stroke_width=2,
                                      fill_color=P.BG, fill_opacity=0.92)
         return VGroup(patch, words)
@@ -4723,8 +4797,10 @@ class Lecture(Scene):
         queue = self.__dict__.setdefault("_word_queue", [])
         for name, piece in view["parts"].items():
             # Built when the line plays (_with_looks), in the order the parts are said: each label's coming on and
-            # each camera move starts from where the one before left the picture.
-            queue.append(SimpleNamespace(panim_said=name, panim_look=(view, name), panim_heard=False))
+            # each camera move starts from where the one before left the picture. A label the script holds back
+            # comes on later, with its `label` op.
+            if not self._label_opt("hold", name):
+                queue.append(SimpleNamespace(panim_said=name, panim_look=(view, name), panim_heard=False))
             self.name_part(name, piece["tag"], shown=lambda v=view, n=name: n in v["revealed"] and self._view_on(v),
                            act=lambda v=view, n=name: self._look(v, n))
         return view
@@ -4771,7 +4847,9 @@ class Lecture(Scene):
                 rw, rh = min(0.09, 0.3 * ih / max(iw, 1e-6)) * max(1.0, ih / max(iw, 1e-6)), 0.09
                 box = (max(0.0, x - rw), max(0.0, y - rh), min(1.0, x + rw), min(1.0, y + rh))
             point = np.array([lo[0] + x * iw, hi[1] - y * ih, 0])
-            sides[-1 if x < 0.5 else 1].append((text, point, box))
+            # The script's side for it, else the side its part is on.
+            chosen = self._label_opt("sides", text)
+            sides[-1 if chosen == "left" else 1 if chosen == "right" else -1 if x < 0.5 else 1].append((text, point, box))
         out = []
         for side, items in sides.items():
             items.sort(key=lambda item: -item[1][1])
@@ -4837,6 +4915,10 @@ class Lecture(Scene):
             cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
             spots = [(cx, y1 + 0.12 + th / 2), (cx, y0 - 0.12 - th / 2), (x1 + 0.15 + tw / 2, cy),
                      (x0 - 0.15 - tw / 2, cy)]
+            # The script's side for it is tried first (above, below, right, left of its part).
+            chosen = {"above": 0, "below": 1, "right": 2, "left": 3}.get(str(self._label_opt("sides", text) or ""))
+            if chosen is not None:
+                spots.insert(0, spots.pop(chosen))
             best = None
             for sx, sy in spots:
                 sx = min(max(sx, x_lo + tw / 2), x_hi - tw / 2)
@@ -4958,7 +5040,8 @@ class Lecture(Scene):
         and their boxes stay; the whole picture is clear again."""
         out = []
         for view in self.__dict__.get("_views", []):
-            if view.get("zoom") is None or not view["parts"] or not set(view["parts"]) <= view.get("spoken", set()):
+            if view.get("zoom") is None or view.get("held_light") or not view["parts"] or \
+                    not set(view["parts"]) <= view.get("spoken", set()):
                 continue
             lit = [c for a, c in given if getattr(a, "panim_view", None) is view and isinstance(c, (list, tuple)) and c]
             if not lit:
@@ -4991,7 +5074,7 @@ class Lecture(Scene):
         the heading it moved aside back)."""
         out = []
         for view in self.__dict__.get("_views", []):
-            if view["zoom"] is None:
+            if view["zoom"] is None or (view.get("held_light") and self._view_on(view)):
                 continue
             if self._view_on(view) and words and any(self._said(words, n) is not None for n in view["parts"]) \
                     and not view.pop("lift_next", False):

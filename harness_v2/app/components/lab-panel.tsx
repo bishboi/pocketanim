@@ -268,6 +268,31 @@ type LabOp = Record<string, unknown>;
 type LabBeat = { say: string; do: LabOp[]; paragraph?: boolean; pause?: number };
 type LabScript = { chapter: { title: string; beats: LabBeat[] } & Record<string, unknown> } & Record<string, unknown>;
 const input = "rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-[11px] text-neutral-100";
+/** What is up by the time a beat plays, for the knobs' choices: the labelled pictures' labels, the diagrams and their
+ * nodes, every name that can be pointed at. */
+type Known = { labels: string[]; diagrams: Map<string, string[]>; names: string[] };
+const SIDES = ["", "left", "right", "above", "below"];
+
+function knownBy(beats: LabBeat[], upTo: number): Known {
+  const labels = new Set<string>();
+  const diagrams = new Map<string, string[]>();
+  const names = new Set<string>();
+  for (const b of beats.slice(0, upTo + 1)) {
+    for (const op of Array.isArray(b.do) ? b.do : []) {
+      if (Array.isArray(op.labels)) for (const l of op.labels) {
+        const name = typeof l === "string" ? l : l && typeof l === "object" ? String((l as LabOp).name ?? "") : "";
+        if (name) { labels.add(name); names.add(name); }
+      }
+      if (op.op === "diagram" && Array.isArray(op.nodes)) {
+        const nodes = op.nodes.filter((n): n is LabOp => !!n && typeof n === "object").map((n) => String(n.id));
+        diagrams.set(String(op.id ?? ""), nodes);
+        for (const n of op.nodes as LabOp[]) if (n && typeof n === "object") names.add(String(n.label ?? n.id));
+      }
+      for (const k of ["title", "label", "term", "name", "place"]) if (typeof op[k] === "string" && op[k]) names.add(String(op[k]));
+    }
+  }
+  return { labels: [...labels], diagrams, names: [...names] };
+}
 
 /** The experiment as a form: its title, each beat (its words, paragraph, pause) and each of its operations, with the
  * fields of its primitive (lib/primitives.ts). Every change is written back to the JSON. */
@@ -296,15 +321,17 @@ function FormEditor({ value, onChange }: { value: LabScript; onChange: (v: LabSc
             <textarea className={`${input} h-10 flex-1`} value={b.say ?? ""} placeholder="the words said" onChange={(e) => set((v) => { v.chapter.beats[i].say = e.target.value; })} />
             <label className="flex items-center gap-1 text-neutral-400"><input type="checkbox" checked={!!b.paragraph}
               onChange={(e) => set((v) => { if (e.target.checked) v.chapter.beats[i].paragraph = true; else delete v.chapter.beats[i].paragraph; })} />paragraph</label>
-            <label className="flex items-center gap-1 text-neutral-400">pause
-              <input type="number" step="0.5" min="0" max="2" className={`${input} w-12`} value={b.pause ?? ""}
-                onChange={(e) => set((v) => { if (e.target.value) v.chapter.beats[i].pause = Number(e.target.value); else delete v.chapter.beats[i].pause; })} /></label>
+            <label className="flex items-center gap-1 text-neutral-400" title="the quiet after the line, in seconds">pause
+              <input type="range" step="0.25" min="0" max="2" className="w-20 accent-sky-500" value={b.pause ?? 0} data-testid="lab-knob-pause"
+                onChange={(e) => set((v) => { if (Number(e.target.value)) v.chapter.beats[i].pause = Number(e.target.value); else delete v.chapter.beats[i].pause; })} />
+              <span className="mono w-8 text-neutral-300">{(b.pause ?? 0).toFixed(2)}</span></label>
             <button className="text-neutral-400 hover:text-white" title="up" onClick={() => set((v) => move(v.chapter.beats, i, -1))}>↑</button>
             <button className="text-neutral-400 hover:text-white" title="down" onClick={() => set((v) => move(v.chapter.beats, i, 1))}>↓</button>
             <button className="text-red-300 hover:text-red-200" title="remove the beat" onClick={() => set((v) => { v.chapter.beats.splice(i, 1); })}>✕</button>
           </div>
           {(Array.isArray(b.do) ? b.do : []).map((op, k) => (
-            <OpForm key={k} op={op} onChange={(o) => set((v) => { v.chapter.beats[i].do[k] = o; })}
+            <OpForm key={k} op={op} words={String(b.say ?? "").split(/\s+/).filter(Boolean)} known={knownBy(beats, i)}
+              onChange={(o) => set((v) => { v.chapter.beats[i].do[k] = o; })}
               onMove={(d) => set((v) => move(v.chapter.beats[i].do, k, d))} onRemove={() => set((v) => { v.chapter.beats[i].do.splice(k, 1); })} />
           ))}
           <select className={input} value="" onChange={(e) => { const p = PRIMITIVE_BY_OP.get(e.target.value);
@@ -320,8 +347,15 @@ function FormEditor({ value, onChange }: { value: LabScript; onChange: (v: LabSc
 }
 
 /** One operation: its primitive (changed: started again from its example), each of its fields, and its anchor. */
-function OpForm({ op, onChange, onMove, onRemove }: { op: LabOp; onChange: (o: LabOp) => void; onMove: (d: number) => void; onRemove: () => void }) {
+function OpForm({ op, words, known, onChange, onMove, onRemove }: { op: LabOp; words: string[]; known: Known; onChange: (o: LabOp) => void;
+  onMove: (d: number) => void; onRemove: () => void }) {
   const p = PRIMITIVE_BY_OP.get(String(op.op));
+  // A labelled picture's labels are set in its own knobs (side, note, held back), not as raw fields.
+  const labelled = Array.isArray(op.labels) && op.labels.length > 0;
+  const knob = new Set(labelled ? ["hold", "sides", "notes"] : []);
+  // A field that names what is up: a choice of what is up by this beat (or any words).
+  const choices = (key: string): string[] | undefined => key === "part" ? known.labels : key === "diagram" ? [...known.diagrams.keys()]
+    : key === "node" ? known.diagrams.get(String(op.diagram ?? "")) ?? [] : key === "target" ? known.names : undefined;
   const field = (f: Field) => {
     const v = op[f.key];
     const put = (x: unknown) => {
@@ -340,13 +374,18 @@ function OpForm({ op, onChange, onMove, onRemove }: { op: LabOp; onChange: (o: L
       <textarea className={`${input} h-12 flex-1`} placeholder="one a line" value={Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n") : ""}
         onChange={(e) => put(e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))} /></label>;
     if (f.kind === "json") return <JsonField key={f.key} label={label} value={v} hint={f.hint} onChange={put} />;
+    const pick = choices(f.key);
+    if (pick && f.kind === "text") return <label key={f.key} className="flex items-center gap-1">{label}
+      <input className={`${input} flex-1`} list={`lab-pick-${f.key}`} placeholder={pick.length ? "pick or type" : "nothing up by this beat"} value={v === undefined ? "" : String(v)}
+        onChange={(e) => put(e.target.value)} data-testid={`lab-knob-${f.key}`} />
+      <datalist id={`lab-pick-${f.key}`}>{pick.map((x) => <option key={x} value={x} />)}</datalist></label>;
     if (f.kind === "long") return <label key={f.key} className="flex items-start gap-1">{label}
       <textarea className={`${input} h-12 flex-1`} placeholder={f.hint} value={String(v ?? "")} onChange={(e) => put(e.target.value)} /></label>;
     return <label key={f.key} className="flex items-center gap-1">{label}
       <input className={`${input} flex-1`} placeholder={f.hint} value={v === undefined ? "" : String(v)} onChange={(e) => put(e.target.value)} /></label>;
   };
-  const known = new Set(["op", "on", ...(p?.fields.map((f) => f.key) ?? [])]);
-  const extra = Object.keys(op).filter((k) => !known.has(k));
+  const known2 = new Set(["op", "on", ...(p?.fields.map((f) => f.key) ?? [])]);
+  const extra = Object.keys(op).filter((k) => !known2.has(k));
   return (
     <div className="ml-6 space-y-1 rounded border border-neutral-800 p-1.5" data-testid="lab-form-op">
       <div className="flex items-center gap-2">
@@ -355,20 +394,67 @@ function OpForm({ op, onChange, onMove, onRemove }: { op: LabOp; onChange: (o: L
           {PRIMITIVES.map((x) => <option key={x.op} value={x.op}>{x.op}</option>)}
         </select>
         <span className="min-w-0 flex-1 truncate text-neutral-500" title={p?.what}>{p?.what ?? "not one of the primitives: its JSON below"}</span>
-        <label className="flex items-center gap-1 text-neutral-400" title='the words it lands on ("w7", "start", or the words)'>on
-          <input className={`${input} w-24`} value={String(op.on ?? "")} onChange={(e) => { const next = { ...op }; if (e.target.value) next.on = e.target.value; else delete next.on; onChange(next); }} /></label>
+        <label className="flex items-center gap-1 text-neutral-400" title="the word of the line it lands on">on
+          <select className={`${input} max-w-40`} value={String(op.on ?? "")} data-testid="lab-knob-on"
+            onChange={(e) => { const next = { ...op }; if (e.target.value) next.on = e.target.value; else delete next.on; onChange(next); }}>
+            <option value="">— (as the line begins)</option>
+            <option value="start">start</option>
+            {words.map((w, k) => <option key={k} value={`w${k}`}>w{k} · {w}</option>)}
+            {typeof op.on === "string" && op.on && op.on !== "start" && !/^w\d+$/.test(op.on) && <option value={op.on}>{op.on}</option>}
+          </select></label>
         <button className="text-neutral-400 hover:text-white" onClick={() => onMove(-1)}>↑</button>
         <button className="text-neutral-400 hover:text-white" onClick={() => onMove(1)}>↓</button>
         <button className="text-red-300 hover:text-red-200" onClick={onRemove}>✕</button>
       </div>
-      <div className="grid gap-1 md:grid-cols-2">{p?.fields.map(field)}</div>
+      <div className="grid gap-1 md:grid-cols-2">{p?.fields.filter((f) => !knob.has(f.key)).map(field)}</div>
+      {labelled && <LabelKnobs op={op} onChange={onChange} />}
       {(extra.length > 0 || !p) && (
         <JsonField label={<span className="w-20 shrink-0 text-neutral-400">{p ? "more" : "the op"}</span>}
           value={Object.fromEntries((p ? extra : Object.keys(op).filter((k) => k !== "op")).map((k) => [k, op[k]]))}
-          onChange={(x) => onChange({ op: op.op, ...(p ? Object.fromEntries([...known].filter((k) => k !== "op" && op[k] !== undefined).map((k) => [k, op[k]])) : {}),
+          onChange={(x) => onChange({ op: op.op, ...(p ? Object.fromEntries([...known2].filter((k) => k !== "op" && op[k] !== undefined).map((k) => [k, op[k]])) : {}),
             ...(x && typeof x === "object" ? x as LabOp : {}) })} />
       )}
     </div>
+  );
+}
+
+/** A labelled picture's labels, one row each: the side its tag sits on, a short note under its name, and whether it
+ * is held back (brought on later by a `label` operation). Written to the picture's `sides`, `notes` and `hold`. */
+function LabelKnobs({ op, onChange }: { op: LabOp; onChange: (o: LabOp) => void }) {
+  const names = (op.labels as unknown[]).map((l) => (typeof l === "string" ? l : l && typeof l === "object" ? String((l as LabOp).name ?? "") : "")).filter(Boolean);
+  const sides = (op.sides && typeof op.sides === "object" ? op.sides : {}) as Record<string, string>;
+  const notes = (op.notes && typeof op.notes === "object" ? op.notes : {}) as Record<string, string>;
+  const hold = Array.isArray(op.hold) ? op.hold.map(String) : [];
+  const write = (key: "sides" | "notes", name: string, value: string) => {
+    const next = { ...op, [key]: { ...(key === "sides" ? sides : notes) } } as LabOp;
+    const map = next[key] as Record<string, string>;
+    if (value) map[name] = value; else delete map[name];
+    if (!Object.keys(map).length) delete next[key];
+    onChange(next);
+  };
+  const held = (name: string, on: boolean) => {
+    const list = on ? [...new Set([...hold, name])] : hold.filter((x) => x !== name);
+    const next = { ...op, hold: list };
+    if (!list.length) delete (next as LabOp).hold;
+    onChange(next);
+  };
+  return (
+    <table className="w-full text-[11px]" data-testid="lab-label-knobs">
+      <thead><tr className="text-left text-neutral-500"><th className="font-normal">label</th><th className="font-normal">side</th><th className="font-normal">note</th>
+        <th className="font-normal" title="held back: brought on later by a label operation">later</th></tr></thead>
+      <tbody>
+        {names.map((n) => (
+          <tr key={n}>
+            <td className="pr-2 text-neutral-200">{n}</td>
+            <td className="pr-2"><select className={input} value={sides[n] ?? ""} onChange={(e) => write("sides", n, e.target.value)} data-testid="lab-knob-side">
+              {SIDES.map((x) => <option key={x} value={x}>{x || "auto"}</option>)}</select></td>
+            <td className="pr-2"><input className={`${input} w-full`} maxLength={60} placeholder="a short line under it" value={notes[n] ?? ""}
+              onChange={(e) => write("notes", n, e.target.value)} data-testid="lab-knob-note" /></td>
+            <td><input type="checkbox" checked={hold.includes(n)} onChange={(e) => held(n, e.target.checked)} data-testid="lab-knob-hold" /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

@@ -21,6 +21,16 @@ export const LAB_PRESETS: LabPreset[] = [
     ]),
   },
   {
+    id: "picture-steps", name: "Picture explained label by label", note: "A strict chapter: one label shown at first (on the left, with a note), the other held back and shown on a later line, lit and held over a line, then hidden; the light lifted.",
+    script: { region: null, chapter: { title: "The flood plain", narration: "The flood plain", map: false, strict: true, beats: [
+      { say: "When the river floods, the water spreads over the plain.", paragraph: true, do: [{ op: "picture", generate: "a river bank after a flood, dark wet silt, early fields",
+        labels: ["water", "soil"], hold: ["soil"], sides: { water: "left" }, notes: { water: "the yearly flood" }, on: "w2" }] },
+      { say: "When it goes back, it leaves rich black soil behind.", do: [{ op: "label", part: "soil", on: "w7" }, { op: "shade", part: "soil", hold: true, on: "w8" }] },
+      { say: "Farmers sowed their seed in that soil, year after year.", do: [{ op: "unlabel", part: "water", on: "w2" }] },
+      { say: "And the whole plain fed the first towns.", do: [{ op: "unshade", on: "w2" }] },
+    ] } },
+  },
+  {
     id: "diagram-build", name: "Diagram built over beats", note: "A flow drawn with two nodes, the third revealed, one focused, then the camera zooms.",
     script: board("Where the surplus went", [
       { say: "Farmers grew more grain than they needed, and stored it in the granary.", do: [{ op: "diagram", id: "chain", kind: "flow", title: "Where the surplus went",
@@ -113,6 +123,10 @@ export const LAB_SNIPPETS: { op: string; say: string; do: Record<string, unknown
   { op: "focus", say: "The river is the key.", do: { op: "focus", diagram: "d1", node: "river" } },
   { op: "point", say: "Look again at the river.", do: { op: "point", target: "River" } },
   { op: "shade", say: "Look at the soil.", do: { op: "shade", part: "soil" } },
+  { op: "label", say: "And there is the soil.", do: { op: "label", part: "soil" } },
+  { op: "unlabel", say: "Leave the water aside.", do: { op: "unlabel", part: "water" } },
+  { op: "unshade", say: "Now the whole bank again.", do: { op: "unshade" } },
+  { op: "unfocus", say: "Now the whole chain.", do: { op: "unfocus", diagram: "d1" } },
   { op: "timeline", say: "From 1526 to 1857.", do: { op: "timeline", title: "The Mughals", events: [["1526", "Panipat"], ["1707", "Aurangzeb dies"], ["1857", "The revolt"]] } },
   { op: "compare", say: "Snow-fed against rain-fed.", do: { op: "compare", columns: [{ title: "Himalayan", points: ["Snow-fed"] }, { title: "Peninsular", points: ["Rain-fed"] }] } },
   { op: "define", say: "A surplus is more than a family needs.", do: { op: "define", term: "Surplus", meaning: "more than a family needs to eat" } },

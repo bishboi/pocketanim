@@ -424,7 +424,7 @@ const sceneBeats = run.script.lectures[1].chapters.flatMap((c) => c.beats);
 assert.ok(sceneBeats.every((b) => sl1.beats[b.n]?.status === "done"), "every beat has its visuals");
 assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
 assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
-assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "point", "shade", "unstage", "define", "clear"].includes(o.op))),
+assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "point", "shade", "unshade", "label", "unlabel", "unfocus", "unstage", "define", "clear"].includes(o.op))),
   "only the kinds switched on");
 // A chapter as one piece (the default): the director's plan (elements and scenes, no timing), then each few scenes
 // choreographed (the stand-in here) with their artifacts' manuals, lowered into the beats on their words.
@@ -451,19 +451,59 @@ assert.ok(strictCompiled.source?.includes("self.strict_beats(True)") && !strictC
 // are refused with why; cues and a plan saved are lowered, compiled; a plan can be choreographed again.
 const pc = run.script.lectures[1].chapters[0].n;
 const kept = sl1.plans[pc];
-assert.ok(kept.cues?.length && kept.cues.every((q) => /^b\d+\.w\d+$/.test(q.at)), "the cues kept with the plan, each on its word");
-await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: [{ at: "b999.w0", ref: "nope", act: "enter" }] }), /cannot be used/);
-const enters = kept.cues.filter((q) => q.act === "enter");
-await scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: enters });
+const stepsOf = (pl) => pl.choreography.elements.flatMap((e) => e.timeline);
+assert.ok(kept.choreography?.elements.length === kept.elements.length && stepsOf(kept).length && stepsOf(kept).every((q) => /^b\d+\.w\d+$/.test(q.at)),
+  "each element's timeline kept with the plan, each step on its word");
+await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { elements: [{ id: "nope", timeline: [{ at: "b999.w0", do: "enter" }] }] } }), /cannot be used/);
+await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { elements: [{ id: kept.elements[0].id, timeline: [], look: { nodes: [] } }] } }), /cannot change "nodes"/);
+const entersOnly = { elements: kept.choreography.elements.map((e) => ({ id: e.id, timeline: e.timeline.filter((q) => q.do === "enter" || q.do === "show") })) };
+const enters = entersOnly.elements.flatMap((e) => e.timeline);
+await scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: entersOnly });
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
-assert.equal(run.scenes.lectures[1].plans[pc].cues.length, enters.length, "the cues saved");
+assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "the choreography saved");
 assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
 const edited = structuredClone({ elements: run.scenes.lectures[1].plans[pc].elements, scenes: run.scenes.lectures[1].plans[pc].scenes });
 edited.elements[0].role = "edited by hand";
 await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited });
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
 assert.equal(run.scenes.lectures[1].plans[pc].elements[0].role, "edited by hand", "the plan saved");
-assert.equal(run.scenes.lectures[1].plans[pc].cues.length, enters.length, "with the cues that still fit it");
+assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "with the timelines that still fit it");
+// The lowering of every step (lib/director.ts), on the current engine: a label shown on a later line held back and
+// brought on by a `label`, its side and note, a light held until a word (shade with hold, then unshade), a hide (an
+// unlabel), a focus held (focus, then unfocus), a pulse on a node (point), a look merged and content refused.
+{
+  const d = await import(path.resolve(here, "../lib/director.ts"));
+  const plan = { elements: [{ id: "bank", op: { op: "picture", generate: "a river bank", labels: ["water", "soil"] } },
+    { id: "chain", op: { op: "diagram", id: "chain", nodes: [{ id: "food", label: "Food" }, { id: "towns", label: "Towns" }], edges: [["food", "towns"]] } }],
+    scenes: [{ id: "S1", beats: [1, 2, 3], uses: ["bank"] }, { id: "S2", beats: [4, 5], uses: ["chain"] }] };
+  const words = new Map([1, 2, 3, 4, 5].map((n) => [n, d.estimatedWords(n, "one two three four five six seven eight")]));
+  const acts = new Map();
+  for (const el of plan.elements) {
+    const may = d.actsFor(el, "current");
+    acts.set(el.id, may.element);
+    for (const p of d.partsOf(el)) acts.set(p.ref, may.parts);
+  }
+  const choreo = { elements: [
+    { id: "bank", look: { move: "drift" }, timeline: [{ at: "b1.w1", do: "enter" }, { at: "b1.w2", do: "show", part: "water", side: "left", note: "the flood" },
+      { at: "b2.w3", do: "show", part: "soil" }, { at: "b2.w4", do: "light", part: "soil", until: "b3.w5" }, { at: "b3.w2", do: "hide", part: "water" }] },
+    { id: "chain", look: { flow: true }, timeline: [{ at: "b4.w0", do: "enter" }, { at: "b4.w3", do: "show", part: "towns" },
+      { at: "b5.w1", do: "focus", part: "towns", until: "b5.w6" }, { at: "b5.w3", do: "pulse", part: "food" }] }] };
+  const steps = d.flatSteps(choreo, new Set(acts.keys()));
+  const read = d.readCues({ cues: steps.cues }, { words, beats: new Set([1, 2, 3, 4, 5]), acts, scenes: new Set(["S1", "S2"]) });
+  assert.deepEqual([...steps.dropped, ...read.dropped], [], "every step read");
+  const { ops } = d.lowerPlan(plan, read.cues, words, "current", steps.looks);
+  const pic = ops.get(1).find((o) => o.op === "picture");
+  assert.deepEqual([pic.hold, pic.sides, pic.notes, pic.move], [["soil"], { water: "left" }, { water: "the flood" }, "drift"], JSON.stringify(pic));
+  assert.deepEqual(ops.get(2).map((o) => [o.op, o.part, o.hold, o.on]), [["label", "soil", undefined, "w3"], ["shade", "soil", true, "w4"]], JSON.stringify(ops.get(2)));
+  assert.deepEqual(ops.get(3).map((o) => [o.op, o.on]), [["unlabel", "w2"], ["unshade", "w5"]], JSON.stringify(ops.get(3)));
+  assert.equal(ops.get(4).find((o) => o.op === "diagram").flow, true, "a diagram's look merged");
+  assert.deepEqual(ops.get(5).map((o) => [o.op, o.on]), [["focus", "w1"], ["point", "w3"], ["unfocus", "w6"]], JSON.stringify(ops.get(5)));
+  // The choreographer's JSON round-trips through the cues.
+  const back = d.choreographyOf(plan, read.cues, steps.looks);
+  assert.deepEqual(back.elements.map((e) => e.timeline.map((q) => q.do).join(",")), ["enter,show,show,light,hide", "enter,show,focus,pulse"], JSON.stringify(back));
+  assert.equal(back.elements[0].timeline[3].until, "b3.w5", "a light's until kept");
+  assert.ok(d.flatSteps({ elements: [{ id: "bank", timeline: [], look: { labels: ["x"] } }] }).dropped.length === 1, "a look cannot change content");
+}
 const choreoBefore = run.calls.filter((c) => /^Choreography:/.test(c.label)).length;
 await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited, choreograph: true });
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");

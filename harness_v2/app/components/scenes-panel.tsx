@@ -1019,21 +1019,23 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
  * said are the transcript's: an edited "say" is not applied.
  */
 /**
- * A chapter built as one piece (the director, then the choreography): its plan (elements and scenes) and its cues,
- * each seen and changed as JSON. A plan saved is lowered again with the cues that still fit it, or choreographed
- * again; cues saved are checked against the plan (each ref, act and word) and lowered. The chapter is then compiled
+ * A chapter built as one piece (the director, then the choreography): its plan (elements and scenes) and its
+ * choreography (each element's timeline and look), each seen and changed as JSON. A plan saved is lowered again with
+ * the steps that still fit it, or choreographed again; a choreography saved is checked against the plan (each
+ * element, part, step and word) and lowered. The chapter is then compiled
  * and rendered again.
  */
 function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
   const plan = run.scenes?.lectures[lecture]?.plans?.[c];
   const [tab, setTab] = useState<"plan" | "cues" | null>(null);
+  const steps = plan?.choreography?.elements.reduce((k, e) => k + e.timeline.length, 0) ?? plan?.cues?.length ?? 0;
   const [json, setJson] = useState("");
   const [bad, setBad] = useState<string | null>(null);
   if (!plan) return null;
   const open = (t: "plan" | "cues") => {
     setBad(null);
     if (tab === t) return setTab(null);
-    setJson(JSON.stringify(t === "plan" ? { elements: plan.elements, scenes: plan.scenes } : plan.cues ?? [], null, 2));
+    setJson(JSON.stringify(t === "plan" ? { elements: plan.elements, scenes: plan.scenes } : plan.choreography ?? { cues: plan.cues ?? [] }, null, 2));
     setTab(t);
   };
   const save = async (choreograph = false) => {
@@ -1048,14 +1050,14 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
   return (
     <div className="rounded border border-violet-900/60 p-2" data-testid="scenes-plan-json">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">Director plan and cues</p>
-        <span className="text-[11px] text-neutral-500">{plan.elements.length} elements · {plan.scenes.length} scenes · {plan.cues?.length ?? 0} cues
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">Director plan and choreography</p>
+        <span className="text-[11px] text-neutral-500">{plan.elements.length} elements · {plan.scenes.length} scenes · {steps} steps
           {plan.at ? ` · ${new Date(plan.at).toLocaleString()}` : ""}</span>
         <span className="ml-auto flex gap-3">
           <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("plan")}
             data-testid="scenes-plan-edit">{tab === "plan" ? "close the plan" : "the plan (director) as JSON"}</button>
           <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("cues")}
-            data-testid="scenes-cues-edit">{tab === "cues" ? "close the cues" : "the cues (choreography) as JSON"}</button>
+            data-testid="scenes-cues-edit">{tab === "cues" ? "close the choreography" : "the choreography (timelines) as JSON"}</button>
         </span>
       </div>
       <ul className="mt-1 flex flex-wrap gap-1 text-[10px]">
@@ -1078,11 +1080,11 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
           <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
             onChange={(e) => setJson(e.target.value)} data-testid="scenes-plan-json-text" />
           <p className="text-[10px] text-neutral-500">{tab === "plan"
-            ? "Elements: {id, role, op} (one operation each, all its parts; no \"on\"). Scenes: {id, beats: [their numbers], intent, layout, uses: [element ids]}, every beat in one. Saved, it is lowered with the cues that still fit, or choreographed again."
-            : "Each cue: {at: \"b<beat>.w<word>\", ref: an element's id or a part's \"<element>.<part>\" (a stamp: a scene's id), act: enter | emphasis | shade | exit | stamp, how?, text?, in_pause?}. A cue that does not fit the plan is said, and nothing is saved."}</p>
+            ? "Elements: {id, role, op} (one operation each, all its parts; no \"on\"). Scenes: {id, beats: [their numbers], intent, layout, uses: [element ids]}, every beat in one. Saved, it is lowered with the timelines that still fit, or choreographed again."
+            : "{elements: [{id, timeline: [{at: \"b<beat>.w<word>\", do: enter | show | pulse | light | focus | hide | exit, part?, until?: \"b<beat>.w<word>\" (a light or a focus held), side?: left | right | above | below, note?, how?, in_pause?}], look?: {move, flow, steps, spans, range, style...}}], stamps?: [{at, scene, text}]}. A step that does not fit the plan is said, and nothing is saved."}</p>
           <div className="flex flex-wrap gap-1.5">
             <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save(false)}
-              data-testid="scenes-plan-save">{tab === "plan" ? "Save the plan (keep the cues) and re-render" : "Save the cues and re-render"}</button>
+              data-testid="scenes-plan-save">{tab === "plan" ? "Save the plan (keep the timelines) and re-render" : "Save the choreography and re-render"}</button>
             {tab === "plan" && <button className={`${btn} border-violet-700 text-violet-200 hover:bg-violet-950`} disabled={disabled} onClick={() => void save(true)}
               data-testid="scenes-plan-choreograph">Save the plan and choreograph it again</button>}
           </div>

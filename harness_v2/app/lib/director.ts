@@ -5,15 +5,21 @@
  *   - THE PLAN (the director's call, one a chapter): the chapter's elements (each an operation of the engine, with an
  *     id and a role) and its scenes (a run of beats, one idea: the elements it uses, its intent, its layout). It says
  *     what is on screen and why, never when.
- *   - THE CUES (the choreography's calls, one for a few scenes, at once): when each element and each of its parts
- *     comes on (a beat's word: "b12.w3"), and what is done with it as the line goes on (an emphasis, a shade, a stamp,
- *     an exit).
+ *   - THE CHOREOGRAPHY (the choreography's calls, one for a few scenes, at once): each element's timeline and look.
+ *     Its timeline is its steps, each on a beat's word ("b12.w3"): it or one of its parts comes on (`enter`, `show`),
+ *     is pulsed (`pulse`), lit with the rest shaded (`light`), ringed with the rest dimmed (`focus`), taken off
+ *     (`hide` a part, `exit` the element), or a scene stamped (`stamps`); a light or a focus held `until` a later
+ *     word; a picture's label given its `side` and a short `note`. Its look is how it is drawn (a picture's move, a
+ *     diagram's flow, a timeline's spans): merged into its operation. Kept and edited as
+ *     {"elements": [{"id", "timeline": [...], "look"?}], "stamps"?: [...]}; read here as flat cues.
  *     The call is shown the manual of every artifact its scenes use (lib/manuals.ts).
  *   - LOWERING (here, in code): the plan and its cues made the beats' operations as the compilers read them: each
  *     element on the beat it comes on, its "on" the word ("w3"), its parts' words; a diagram's nodes said in a later
  *     line held back (`show`) and brought on by a `reveal` there; an emphasis on a diagram's node a `focus`, on a
  *     motion template an `emphasis` (`<id>.<part>`), on any other part of the current engine a `point`; a shade a
- *     `shade`; an exit an `unstage`; a stamp a `stamp`. There is no camera: nothing zooms. What cannot be lowered is
+ *     `shade`; an exit an `unstage`; a stamp a `stamp`; on the current engine a labelled picture's label shown on a later line held
+ *     back (`hold`) and brought on there by a `label`, hidden by an `unlabel`, a light held by `shade` with `hold` and
+ *     lifted by an `unshade`, a focus held lifted by an `unfocus`. There is no camera: nothing zooms. What cannot be lowered is
  *     mended (a part to its element's line) or left out, with a note.
  */
 
@@ -27,10 +33,29 @@ export type PlanScene = { id: string; beats: number[]; intent?: string; layout?:
 export type PlanCue = { at: string; ref: string; act: string; how?: string; text?: string; in_pause?: boolean };
 /** A chapter's plan, as the director gave it (mended), with the cues it was lowered with: kept on the lecture's scenes
  * by chapter, seen and changed by hand on the Scenes tab. */
-export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; cues?: PlanCue[]; at?: number; notes?: string[] };
+export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; choreography?: Choreography; cues?: PlanCue[]; at?: number;
+  notes?: string[] };
+/** One step of an element's timeline, as the choreography gives it and the page shows it. */
+export type Step = { at: string; do: string; part?: string; until?: string; how?: string; side?: string; note?: string; in_pause?: boolean };
+/** A stamp on a scene (the motion engine's). */
+export type Stamp = { at: string; scene: string; text: string; in_pause?: boolean };
+/** Every element's timeline and look, and the scenes' stamps: the choreographer's JSON. */
+export type Choreography = { elements: { id: string; timeline: Step[]; look?: Op }[]; stamps?: Stamp[] };
 export type PlanPart = { ref: string; element: string; place: (string | number)[]; name: string; parent?: string; node?: string };
-export type CueAct = "enter" | "emphasis" | "shade" | "exit" | "stamp";
-export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; inPause?: boolean };
+export type CueAct = "enter" | "emphasis" | "shade" | "focus" | "hide" | "exit" | "stamp";
+export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; inPause?: boolean;
+  until?: [number, number]; side?: string; note?: string };
+/** A step's `do` and the cue it is: `show` a part's enter, `light` a shade, `pulse` an emphasis. */
+const ACT_OF: Record<string, CueAct> = { enter: "enter", show: "enter", hide: "hide", light: "shade", shade: "shade", pulse: "emphasis",
+  emphasis: "emphasis", focus: "focus", exit: "exit", stamp: "stamp" };
+/** A cue's act as a step's `do`. */
+const DO_OF: Record<CueAct, string> = { enter: "enter", hide: "hide", shade: "light", emphasis: "pulse", focus: "focus", exit: "exit", stamp: "stamp" };
+/** A cue's act as the choreographer writes it (`show` for a part's entry). */
+export const doName = (act: CueAct, part: boolean) => (part && act === "enter" ? "show" : DO_OF[act]);
+/** Where a picture's label may sit (compile_lecture.LABEL_SIDES). */
+export const LABEL_SIDES = ["left", "right", "above", "below"];
+/** What a look may not change: the element's own content (the director's). */
+const NOT_LOOK = new Set(["op", "id", "on", "nodes", "edges", "labels", "items", "events", "steps_of", "show", "hide", "text", "title"]);
 /** A beat's line as the voice says it (or, unspoken, as it would be: `estimated`). */
 export type BeatWords = { n: number; text: string; seconds: number; pause: number; words: { w: string; t: number }[]; estimated?: boolean };
 export type Engine = "current" | "motion";
@@ -208,8 +233,8 @@ export function actsFor(el: PlanElement, engine: Engine): { element: CueAct[]; p
   const exits = engine === "current" && !NOT_STAGED.has(String(el.op.op));
   return {
     element: ["enter", ...(template ? ["emphasis" as const] : []), ...(exits ? ["exit" as const] : [])],
-    parts: ["enter", "emphasis", ...(labelled ? ["shade" as const] : [])],
-    laterParts: diagram,
+    parts: ["enter", "emphasis", ...(labelled ? ["shade" as const, "hide" as const] : []), ...(diagram ? ["focus" as const] : [])],
+    laterParts: diagram || labelled,
   };
 }
 
@@ -230,7 +255,7 @@ export function readCues(reply: Op, o: { words: Map<number, BeatWords>; beats: S
     if (!isObj(c)) continue;
     const m = AT.exec(String(c.at ?? ""));
     const ref = String(c.ref ?? c.id ?? "").trim();
-    const act = String(c.act ?? "enter").trim() as CueAct;
+    const act = ACT_OF[String(c.act ?? c.do ?? "enter").trim()] ?? (String(c.act ?? c.do).trim() as CueAct);
     const said = `${JSON.stringify(c).slice(0, 120)}`;
     if (!m || !o.beats.has(Number(m[1]))) {
       dropped.push(`${said}: not a word of this scene's lines`);
@@ -266,9 +291,83 @@ export function readCues(reply: Op, o: { words: Map<number, BeatWords>; beats: S
       continue;
     }
     const how = typeof c.how === "string" && EMPHASIS_HOW.includes(c.how) ? c.how : undefined;
-    cues.push({ beat, word, ref, act, ...(how ? { how } : {}), ...(c.in_pause === true ? { inPause: true } : {}) });
+    // Held until a later word (a light, a focus).
+    let until: [number, number] | undefined;
+    const u = c.until !== undefined && (act === "shade" || act === "focus") ? AT.exec(String(c.until)) : null;
+    if (u && o.beats.has(Number(u[1]))) {
+      const ub = Number(u[1]);
+      const uw = Math.min(Math.max(0, (o.words.get(ub)?.words.length ?? 1) - 1), Number(u[2] ?? u[3] ?? 0));
+      if (ub > beat || (ub === beat && uw > word)) until = [ub, uw];
+      else dropped.push(`${said}: its "until" is not after it: not held`);
+    } else if (c.until !== undefined && (act === "shade" || act === "focus")) dropped.push(`${said}: its "until" is not a word of these lines: not held`);
+    const side = typeof c.side === "string" && LABEL_SIDES.includes(c.side) ? c.side : undefined;
+    const note = typeof c.note === "string" && c.note.trim() ? c.note.trim().slice(0, 60) : undefined;
+    cues.push({ beat, word, ref, act, ...(how ? { how } : {}), ...(c.in_pause === true ? { inPause: true } : {}), ...(until ? { until } : {}),
+      ...(side ? { side } : {}), ...(note ? { note } : {}) });
   }
   return { cues, dropped };
+}
+
+/**
+ * The choreographer's JSON ({"elements": [{"id", "timeline", "look"?}], "stamps"?}) as flat cues to read (readCues),
+ * and each element's look. A step's `part` is its part's name or key (`soil`, `granary`) or its whole ref
+ * (`img.soil`). Older plans' flat cues (`cues`: [{"at", "ref", "act"}]) are read as they are.
+ */
+export function flatSteps(raw: unknown, refs?: Set<string>): { cues: Op[]; looks: Map<string, Op>; dropped: string[] } {
+  const cues: Op[] = [];
+  const looks = new Map<string, Op>();
+  const dropped: string[] = [];
+  if (Array.isArray(raw)) return { cues: raw.filter(isObj), looks, dropped };
+  if (!isObj(raw)) return { cues, looks, dropped };
+  if (Array.isArray(raw.cues)) cues.push(...raw.cues.filter(isObj));
+  for (const e of Array.isArray(raw.elements) ? raw.elements : []) {
+    if (!isObj(e) || typeof e.id !== "string") continue;
+    const id = e.id.trim();
+    for (const step of Array.isArray(e.timeline) ? e.timeline : []) {
+      if (!isObj(step)) continue;
+      const part = typeof step.part === "string" && step.part.trim() ? step.part.trim() : "";
+      const ref = !part ? id : refs?.has(part) ? part : `${id}.${slug(part)}`;
+      const { part: _p, do: act, ...rest } = step;
+      cues.push({ ...rest, ref, act: act ?? "enter" });
+    }
+    if (isObj(e.look)) {
+      const look: Op = {};
+      for (const [k, v] of Object.entries(e.look)) {
+        if (NOT_LOOK.has(k)) dropped.push(`${id}: its look cannot change ${JSON.stringify(k)} (the director's): left out`);
+        else look[k] = v;
+      }
+      if (Object.keys(look).length) looks.set(id, look);
+    }
+  }
+  for (const s of Array.isArray(raw.stamps) ? raw.stamps : []) {
+    if (isObj(s)) cues.push({ at: s.at, ref: String(s.scene ?? s.ref ?? ""), act: "stamp", text: s.text, ...(s.in_pause === true ? { in_pause: true } : {}) });
+  }
+  return { cues, looks, dropped };
+}
+
+/** Cues (and looks) as the choreographer's JSON: every element of the plan with its timeline, in order, and the stamps. */
+export function choreographyOf(plan: Pick<ChapterPlan, "elements">, cues: Cue[], looks: Map<string, Op>): Choreography {
+  const at = (b: number, w: number) => `b${b}.w${w}`;
+  const sorted = [...cues].sort((a, b) => a.beat - b.beat || a.word - b.word);
+  const elements = plan.elements.map((el) => {
+    const parts = new Map(partsOf(el).map((p) => [p.ref, p]));
+    const timeline: Step[] = sorted.filter((c) => c.act !== "stamp" && (c.ref === el.id || parts.has(c.ref))).map((c) => {
+      const p = parts.get(c.ref);
+      return { at: at(c.beat, c.word), do: doName(c.act, !!p), ...(p ? { part: c.ref.slice(el.id.length + 1) } : {}),
+        ...(c.until ? { until: at(...c.until) } : {}), ...(c.how ? { how: c.how } : {}), ...(c.side ? { side: c.side } : {}),
+        ...(c.note ? { note: c.note } : {}), ...(c.inPause ? { in_pause: true } : {}) };
+    });
+    const look = looks.get(el.id);
+    return { id: el.id, timeline, ...(look ? { look } : {}) };
+  });
+  const stamps: Stamp[] = sorted.filter((c) => c.act === "stamp").map((c) => ({ at: at(c.beat, c.word), scene: c.ref, text: c.text ?? "",
+    ...(c.inPause ? { in_pause: true } : {}) }));
+  return { elements, ...(stamps.length ? { stamps } : {}) };
+}
+
+/** A kept plan's choreography as flat cues and looks (an older plan's flat `cues` read as they are). */
+export function keptSteps(plan: ChapterPlan, refs?: Set<string>) {
+  return plan.choreography ? flatSteps(plan.choreography, refs) : flatSteps(plan.cues ?? [], refs);
 }
 
 // ---------------------------------------------------------------- lowering -----------------------------------------
@@ -303,7 +402,8 @@ function setOn(op: Op, place: (string | number)[], on: string): void {
  * own on their beats (an exit only on a beat that puts up nothing new: a new picture takes the last one off itself). A `manim` beat keeps only its figure (the compiler's rule): what else came on it moves to the next beat of its
  * scene, else is left out. Returns each beat's operations, in the order they come on, and what was mended.
  */
-export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: Engine): { ops: Map<number, Op[]>; notes: string[] } {
+export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: Engine, looks: Map<string, Op> = new Map()):
+  { ops: Map<number, Op[]>; notes: string[] } {
   const notes: string[] = [];
   const ops = new Map<number, { op: Op; at: [number, number] }[]>();
   for (const s of plan.scenes) for (const b of s.beats) ops.set(b, []);
@@ -317,6 +417,8 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     const life = span.get(el.id);
     if (!scene || !life) continue;
     const op = withoutOn(el.op) as Op;
+    // Its look (the choreographer's): how it is drawn, over what the director gave.
+    for (const [k, v] of Object.entries(looks.get(el.id) ?? {})) if (!NOT_LOOK.has(k)) op[k] = withoutOn(v);
     const template = isTemplate(op, engine);
     if (template || op.op === "diagram") op.id ??= el.id;
     const enter = byRef.get(el.id)?.find((c) => c.act === "enter");
@@ -330,6 +432,21 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     const entered = new Map<string, [number, number]>([[el.id, at]]);
     const reveals = new Map<string, { beat: number; word: number; nodes: string[] }>();
     const held = new Set<string>();
+    // A labelled picture on the current engine: its labels held back to a later line, each label's side and note.
+    const labelled = engine === "current" && op.op === "picture" && Array.isArray(op.labels);
+    const holdLabels: string[] = [];
+    if (labelled) {
+      const sides: Record<string, string> = isObj(op.sides) ? { ...(op.sides as Record<string, string>) } : {};
+      const notes2: Record<string, string> = isObj(op.notes) ? { ...(op.notes as Record<string, string>) } : {};
+      for (const p of parts) {
+        for (const c of byRef.get(p.ref) ?? []) {
+          if (c.side) sides[p.name] = c.side;
+          if (c.note) notes2[p.name] = c.note;
+        }
+      }
+      if (Object.keys(sides).length) op.sides = sides;
+      if (Object.keys(notes2).length) op.notes = notes2;
+    }
     for (const p of parts) {
       const c = byRef.get(p.ref)?.find((x) => x.act === "enter");
       if (!c) continue;
@@ -349,6 +466,12 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
           entered.set(p.ref, pat);
           continue;
         }
+        if (labelled && life.has(pat[0])) {
+          holdLabels.push(p.name);
+          put(pat[0], pat[1], { op: "label", part: p.name, on: anchor(pat[1]) });
+          entered.set(p.ref, pat);
+          continue;
+        }
         notes.push(`${p.ref}: cued on another line (b${pat[0]}) than its ${String(op.op)} (b${at[0]}): comes on in its turn with it`);
         continue;
       }
@@ -365,14 +488,17 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
       }
       op.show = shown;
     }
+    if (holdLabels.length) op.hold = holdLabels;
     put(at[0], at[1], op);
     for (const r of reveals.values()) if (r.nodes.length) put(r.beat, r.word, { op: "reveal", diagram: op.id, nodes: r.nodes, on: anchor(r.word) });
     // What is done with it while it is up.
     const partOf = new Map(parts.map((p) => [p.ref, p]));
-    for (const c of cues.filter((x) => x.act === "emphasis" || x.act === "shade" || x.act === "exit")) {
+    const later = (c: Cue) => c.until && life.has(c.until[0]) ? c.until : undefined;
+    for (const c of cues.filter((x) => ["emphasis", "shade", "focus", "hide", "exit"].includes(x.act))) {
       const p = partOf.get(c.ref);
       if (c.ref !== el.id && !p) continue;
-      const since = entered.get(c.ref);
+      // A part given no entry comes on with its element.
+      const since = entered.get(c.ref) ?? (p ? entered.get(p.parent ?? el.id) ?? at : undefined);
       if (!life.has(c.beat) || !since || before([c.beat, c.word], since)) {
         notes.push(`${c.ref}: ${c.act} on b${c.beat}.w${c.word}, when it is not on the screen: left out`);
         continue;
@@ -380,9 +506,17 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
       if (c.act === "exit") {
         exits.push({ beat: c.beat, word: c.word, ref: c.ref });
       } else if (c.act === "shade") {
-        if (p) put(c.beat, c.word, { op: "shade", part: p.name, on: anchor(c.word) });
-      } else if (op.op === "diagram" && p?.node) {
+        if (!p) continue;
+        const until = later(c);
+        put(c.beat, c.word, { op: "shade", part: p.name, on: anchor(c.word), ...(until ? { hold: true } : {}) });
+        if (until) put(until[0], until[1], { op: "unshade", on: anchor(until[1]) });
+      } else if (c.act === "hide") {
+        if (p && labelled) put(c.beat, c.word, { op: "unlabel", part: p.name, on: anchor(c.word) });
+        else notes.push(`${c.ref}: hide on b${c.beat}: only a labelled picture's label can be hidden: left out`);
+      } else if (op.op === "diagram" && p?.node && (c.act === "focus" || engine === "motion")) {
         put(c.beat, c.word, { op: "focus", diagram: op.id, node: p.node, on: anchor(c.word) });
+        const until = c.act === "focus" && engine === "current" ? later(c) : undefined;
+        if (until) put(until[0], until[1], { op: "unfocus", diagram: op.id, on: anchor(until[1]) });
       } else if (engine === "motion") {
         const target = template ? (p ? `${op.id}.${p.name}` : String(op.id)) : p?.name;
         if (target) put(c.beat, c.word, { op: "emphasis", target, how: c.how ?? "pulse", on: anchor(c.word) });
@@ -393,7 +527,7 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
   }
   // An exit takes the stage's picture off, on a beat that puts up nothing new (a new picture takes it off itself).
   for (const x of exits) {
-    const fresh = (ops.get(x.beat) ?? []).some((o) => !["point", "shade", "focus", "reveal", "emphasis", "stamp"].includes(String(o.op.op)));
+    const fresh = (ops.get(x.beat) ?? []).some((o) => !["point", "shade", "focus", "reveal", "emphasis", "stamp", "label", "unlabel", "unshade", "unfocus"].includes(String(o.op.op)));
     if (fresh) notes.push(`${x.ref}: exit on b${x.beat}, where a new picture comes on and takes it off: left to it`);
     else put(x.beat, x.word, { op: "unstage", on: anchor(x.word) });
   }

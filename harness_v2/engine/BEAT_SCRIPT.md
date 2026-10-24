@@ -320,6 +320,9 @@ The older operation names still work: `illustration` (= `generate`), `photo` (`s
 | `caption`? | text | Under the picture. |
 | `move`? | `bob` \| `sway` \| `breathe` \| `drift` | The picture moves gently once drawn (a boat bobs, a flag sways, a heart breathes, a ship drifts on). Another word is left out with a note. |
 | `points`? | 2-4 short lines | The split layout: the picture large on the left, these lines on the right. Not with `labels`. |
+| `hold`? | labels | v2, current engine: these labels are held back: not shown with the picture, each brought on by a `label` op on a later line (§5.3). |
+| `sides`? | {label: side} | v2, current engine: the side each label's tag sits on: `left` or `right` of the picture, or `above`, `below`, `left`, `right` of its part when the tags sit on the picture. Else the engine chooses (the side its part is on). Another word is left out. |
+| `notes`? | {label: text} | v2, current engine: a short line (up to 60 letters) written small under the label's name: a date, a number, what the part does. |
 | `aspect`? | `16:9` \| `4:3` \| `1:1` | The shape it is made in. Default: the screen's shape when it is the line's only picture. |
 | `diagram`? | true | Made by the diagram model (as `draw`). |
 
@@ -498,6 +501,7 @@ is not drawn`): moving the stage left the labels behind and the picture half mov
 | Arg | | |
 |---|---|---|
 | `part` | required | One of the labels of the labelled picture up (`picture`'s `labels`). The rest of the picture is shaded round it (its label brought on first if it is not on yet) until the next line, or a shade on another part. No labelled picture up with that part: left out with a note. |
+| `hold`? | true | v2: held over the lines that follow (nothing lifts it) until an `unshade`, or a shade on another part. |
 
 ```json
 {"title": "The first cities", "strict": true, "beats": [
@@ -507,6 +511,55 @@ is not drawn`): moving the stage left the labels behind and the picture half mov
  {"say": "That soil is why the fields here are so rich.",
   "do": [{"op": "shade", "part": "soil", "on": "w1"}, {"op": "point", "target": "water", "on": "start"}]},
  {"say": "And then the story moves on.", "do": [{"op": "unstage", "on": "w3"}]}]}
+```
+
+#### `unshade`: lift the light
+```json
+{"op": "unshade", "on": "w2"}
+```
+v2: the light on the labelled picture up (a `shade`, held or not) lifted: the whole picture clear again. Nothing lit:
+nothing is done.
+
+#### `label`: bring on a label held back
+```json
+{"op": "label", "part": "soil", "on": "w7"}
+```
+| Arg | | |
+|---|---|---|
+| `part` | required | One of the labels of the labelled picture up, held back by its `hold`. Its box, line and name come on (on the side and with the note the picture gives it). Already on: nothing is done. No labelled picture up with that part: left out with a note. |
+
+#### `unlabel`: take a label off
+```json
+{"op": "unlabel", "part": "water", "on": "w2"}
+```
+| Arg | | |
+|---|---|---|
+| `part` | required | A label of the labelled picture up that is on: its box, line and name fade; the picture and its other labels stay. |
+
+#### `unfocus`: lift a diagram's focus
+```json
+{"op": "unfocus", "diagram": "chain", "on": "w1"}
+```
+| Arg | | |
+|---|---|---|
+| `diagram` | required | A diagram up: the veils of a `focus` over its other parts lifted, the whole diagram clear (the ring stays until the next focus). |
+
+A picture explained label by label (the Scenes tab's choreography writes this from a picture's timeline: a label
+shown on a later line, a light held `until` a word, a label hidden):
+
+```json
+{"title": "The flood plain", "strict": true, "beats": [
+ {"say": "When the river floods, the water spreads over the plain.", "paragraph": true,
+  "do": [{"op": "picture", "generate": "a river bank after a flood, dark wet silt, early fields", "on": "w2",
+          "labels": ["water", "soil"], "hold": ["soil"], "sides": {"water": "left"}, "notes": {"water": "the yearly flood"}}]},
+ {"say": "When it goes back, it leaves rich black soil behind.",
+  "do": [{"op": "label", "part": "soil", "on": "w7"}, {"op": "shade", "part": "soil", "hold": true, "on": "w8"}]},
+ {"say": "Farmers sowed their seed in that soil, year after year.", "do": [{"op": "unlabel", "part": "water", "on": "w2"}]},
+ {"say": "And the whole plain fed the first towns.", "do": [{"op": "unshade", "on": "w2"}]},
+ {"say": "The food fed the towns.", "do": [{"op": "diagram", "id": "chain", "kind": "flow", "on": "w1",
+   "nodes": [{"id": "food", "label": "Food"}, {"id": "towns", "label": "Towns"}], "edges": [["food", "towns"]]}]},
+ {"say": "The towns grew bigger.", "do": [{"op": "focus", "diagram": "chain", "node": "towns", "on": "w1"}]},
+ {"say": "Now see the whole chain.", "do": [{"op": "unfocus", "diagram": "chain", "on": "w3"}]}]}
 ```
 
 ### 5.4 Cards, kits and questions

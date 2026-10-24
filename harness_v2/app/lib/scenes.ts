@@ -35,8 +35,8 @@ import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
 import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
-import { actsFor, estimatedWords, lowerPlan, partsOf, readCues, readPlan, sceneSeconds, type BeatWords, type ChapterPlan, type Cue, type CueAct,
-  type PlanCue, type PlanElement, type PlanScene } from "./director";
+import { actsFor, choreographyOf, estimatedWords, flatSteps, keptSteps, lowerPlan, partsOf, readCues, readPlan, sceneSeconds, type BeatWords,
+  type ChapterPlan, type Cue, type CueAct, type PlanElement, type PlanScene } from "./director";
 import { manualFor } from "./manuals";
 import { PRIMITIVES, primitiveText } from "./primitives";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
@@ -287,23 +287,29 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     const { words } = await chapterWords(run, a.lecture, a.chapter);
     let plan: ChapterPlan = { elements: had.elements, scenes: had.scenes, notes: [] };
     let cues: Cue[] | undefined;
+    let looks = keptSteps(had).looks;
     if (a.action === "editPlan") {
       if (!a.plan || typeof a.plan !== "object" || Array.isArray(a.plan)) throw new Error('the plan must be a JSON object: {"elements": [...], "scenes": [...]}');
       plan = readPlan(a.plan as Record<string, unknown>, own);
       keepKinds(run, a.lecture, plan, own);
       if (!plan.elements.length) throw new Error(`the plan has no element that can be drawn${plan.notes?.length ? `: ${plan.notes.slice(0, 4).join("; ")}` : ""}`);
-      if (!a.choreograph) cues = planCues(plan, had.cues, words, engine).cues;
+      if (!a.choreograph) cues = planCues(plan, keptSteps(had, planRefs(plan, engine)).cues, words, engine).cues;
+      const ids = new Set(plan.elements.map((e) => e.id));
+      looks = new Map([...looks].filter(([k]) => ids.has(k)));
     } else {
-      if (!Array.isArray(a.cues)) throw new Error('the cues must be a JSON list: [{"at": "b12.w3", "ref": "...", "act": "enter"}, ...]');
-      const read = planCues(plan, a.cues, words, engine);
-      if (read.dropped.length) throw new Error(`${read.dropped.length} cue(s) cannot be used: ${read.dropped.slice(0, 6).join("; ")}`);
+      if (!a.cues || typeof a.cues !== "object") throw new Error('the choreography must be a JSON object: {"elements": [{"id": "...", "timeline": [{"at": "b12.w3", "do": "enter"}]}]}');
+      const steps = flatSteps(a.cues, planRefs(plan, engine));
+      const read = planCues(plan, steps.cues, words, engine);
+      const wrong = [...steps.dropped, ...read.dropped];
+      if (wrong.length) throw new Error(`${wrong.length} step(s) cannot be used: ${wrong.slice(0, 6).join("; ")}`);
       cues = read.cues;
+      looks = steps.looks;
     }
     log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: its ${a.action === "editPlan" ? "plan" : "cues"} changed by hand` +
       (a.action === "editPlan" && a.choreograph ? ", choreographed again." : "."));
     lock(run, [a.lecture], async () => {
-      const done = cues ?? await choreograph(run, a.lecture, a.chapter, plan, words, engine, motionLookWords(stateOf(run)));
-      applyPlan(run, a.lecture, a.chapter, plan, done, words, engine, keptExtras(run, a.lecture, a.chapter, plan));
+      const done = cues ? { cues, looks } : await choreograph(run, a.lecture, a.chapter, plan, words, engine, motionLookWords(stateOf(run)));
+      applyPlan(run, a.lecture, a.chapter, plan, done.cues, words, engine, keptExtras(run, a.lecture, a.chapter, plan), done.looks);
       saveRun(run);
       await compileChapter(run, a.lecture, a.chapter);
       if (a.render) startRender(run, a.lecture, a.chapter);
@@ -862,8 +868,8 @@ async function directChapter(run: Run, n: number, c: number, note?: string): Pro
       ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim().slice(0, 120) } : {}) });
   }
   const { words, voiced } = await chapterWords(run, n, c);
-  const cues = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
-  const lowered = applyPlan(run, n, c, plan, cues, words, engine, extras);
+  const done = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
+  const lowered = applyPlan(run, n, c, plan, done.cues, words, engine, extras, done.looks);
   if (lowered.length) check(call, "Lowered", "fixed", `${lowered.length} cue(s) mended or left out: ${lowered.slice(0, 8).join("; ")}`);
   const short = voiced ? plan.scenes.filter((x, i) => i < plan.scenes.length - 1 && sceneSeconds(x, words) < MIN_HOLD) : [];
   if (short.length) check(call, "Held", "info", `${short.length} scene(s) held under ${MIN_HOLD} s: ${short.map((x) => `${x.id} ${sceneSeconds(x, words).toFixed(1)} s`).join(", ")}`);
@@ -921,9 +927,12 @@ async function rebuildScene(run: Run, n: number, c: number, sceneId: string, not
   const { words } = await chapterWords(run, n, c);
   const fresher = await choreograph(run, n, c, { elements: plan.elements, scenes }, words, engine, motionLookWords(stateOf(run)));
   const span = new Set(target.beats);
-  // The other scenes' cues, those that still fit the plan (planCues leaves out a ref that is gone).
-  const keep = planCues(plan, (had.cues ?? []).filter((q) => !span.has(Number(/^b(\d+)/.exec(q.at)?.[1]))), words, engine).cues;
-  const notes = applyPlan(run, n, c, plan, [...keep, ...fresher], words, engine, keptExtras(run, n, c, plan));
+  // The other scenes' cues, those that still fit the plan (planCues leaves out a ref that is gone), and their looks.
+  const kept = keptSteps(had, planRefs(plan, engine));
+  const keep = planCues(plan, kept.cues.filter((q) => !span.has(Number(/^b(\d+)/.exec(String(q.at))?.[1]))), words, engine).cues;
+  const looks = new Map([...kept.looks].filter(([k]) => plan.elements.some((e) => e.id === k)));
+  for (const [k, v] of fresher.looks) looks.set(k, v);
+  const notes = applyPlan(run, n, c, plan, [...keep, ...fresher.cues], words, engine, keptExtras(run, n, c, plan), looks);
   if (notes.length) check(call, "Lowered", "fixed", `${notes.length} cue(s) mended or left out: ${notes.slice(0, 6).join("; ")}`);
   saveRun(run);
 }
@@ -958,12 +967,6 @@ async function chapterWords(run: Run, n: number, c: number): Promise<{ words: Ma
   return { words, voiced };
 }
 
-/** A cue as the plan keeps it (and the page shows it): its word as "b12.w3". */
-function cueJson(c: Cue): PlanCue {
-  return { at: `b${c.beat}.w${c.word}`, ref: c.ref, act: c.act, ...(c.how ? { how: c.how } : {}), ...(c.text ? { text: c.text } : {}),
-    ...(c.inPause ? { in_pause: true } : {}) };
-}
-
 /** What every element and part of a chapter's plan may do, for cues read against the whole chapter (given by hand). */
 function planActs(plan: ChapterPlan, engine: "current" | "motion"): Map<string, CueAct[]> {
   const acts = new Map<string, CueAct[]>();
@@ -974,6 +977,11 @@ function planActs(plan: ChapterPlan, engine: "current" | "motion"): Map<string, 
   }
   if (engine === "motion") acts.set("*", ["stamp"]);
   return acts;
+}
+
+/** Every element's and part's ref in a chapter's plan. */
+function planRefs(plan: ChapterPlan, engine: "current" | "motion"): Set<string> {
+  return new Set(planActs(plan, engine).keys());
 }
 
 /** Cues read against a chapter's plan and words (readCues): those that can be used, and what was not. */
@@ -987,14 +995,14 @@ function planCues(plan: ChapterPlan, raw: unknown, words: Map<number, BeatWords>
  * written; the plan kept with its cues (sl.plans), to be seen and changed. What was mended or left out.
  */
 function applyPlan(run: Run, n: number, c: number, plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: "current" | "motion",
-  extras: Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>): string[] {
+  extras: Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>, looks: Map<string, Record<string, unknown>> = new Map()): string[] {
   const sl = lectureState(run, n);
-  const lowered = lowerPlan(plan, cues, words, engine);
+  const lowered = lowerPlan(plan, cues, words, engine, looks);
   for (const t of chapterBeats(run, n, c)) {
     Object.assign(beatState(sl, t), { ops: lowered.ops.get(t) ?? [], dropped: [], status: "done", edited: false, errors: undefined, notes: undefined,
       paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
   }
-  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, cues: cues.map(cueJson), at: Date.now(),
+  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, choreography: choreographyOf(plan, cues, looks), at: Date.now(),
     notes: [...(plan.notes ?? []), ...lowered.notes].slice(0, 60) };
   sl.scriptAt = run.script?.lectures[n]?.at;
   return lowered.notes;
@@ -1039,9 +1047,9 @@ function sceneGroups(scenes: PlanScene[], words: Map<number, BeatWords>): PlanSc
   return out;
 }
 
-/** The chapter's cues: its scenes choreographed a group at a time, the groups at once (directChapter). */
+/** The chapter's cues and looks: its scenes choreographed a group at a time, the groups at once (directChapter). */
 async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, words: Map<number, BeatWords>, engine: "current" | "motion",
-  look: string): Promise<Cue[]> {
+  look: string): Promise<{ cues: Cue[]; looks: Map<string, Record<string, unknown>> }> {
   const sl = lectureState(run, n);
   const firstScene = new Map<string, string>();
   for (const x of plan.scenes) for (const id of x.uses) if (!firstScene.has(id)) firstScene.set(id, x.id);
@@ -1049,6 +1057,7 @@ async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, wo
   const groups = sceneGroups(plan.scenes, words);
   const model = modelFor("choreography");
   const all: Cue[] = [];
+  const looks = new Map<string, Record<string, unknown>>();
   await eachAtOnce(groups.map((_, i) => i), CHOREOGRAPHY_AT_ONCE, async (gi) => {
     const group = groups[gi];
     const inGroup = new Set(group.map((x) => x.id));
@@ -1082,7 +1091,11 @@ async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, wo
     for (const b of group.flatMap((x) => x.beats)) beatState(sl, b).calls.push(call.id);
     saveRun(run);
     const reply = await callTool({ call, tool: CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakeChoreography(group, elements, words) });
-    const { cues, dropped } = readCues(reply ?? {}, { words, beats: new Set(group.flatMap((x) => x.beats)), acts, scenes: inGroup });
+    const steps = flatSteps(reply ?? {}, new Set(acts.keys()));
+    const read = readCues({ cues: steps.cues }, { words, beats: new Set(group.flatMap((x) => x.beats)), acts, scenes: inGroup });
+    const { cues } = read;
+    const dropped = [...steps.dropped, ...read.dropped];
+    for (const [k, v] of steps.looks) if (elements.some((e) => e.el.id === k)) looks.set(k, v);
     const entering = elements.filter((e) => !e.already);
     const unentered = entering.filter((e) => !cues.some((q) => q.ref === e.el.id && q.act === "enter"));
     check(call, "Cues", !reply || !cues.length ? "fail" : dropped.length || unentered.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
@@ -1090,7 +1103,7 @@ async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, wo
         (unentered.length ? `; ${unentered.length} element(s) given no entry come on as their scene begins (${unentered.map((e) => e.el.id).join(", ")})` : ""));
     all.push(...cues);
   });
-  return all;
+  return { cues: all, looks };
 }
 
 /** The stand-in's plan (no key): the stand-in's beats made elements, a new scene at a main picture after two beats. */
@@ -1127,22 +1140,29 @@ function fakeChoreography(group: PlanScene[], elements: ChoreographyElement[], w
     }
     return undefined;
   };
-  const cues: { at: string; ref: string; act: string }[] = [];
+  const out: { id: string; timeline: { at: string; do: string; part?: string; until?: string }[] }[] = [];
   for (const e of elements) {
+    const timeline: (typeof out)[number]["timeline"] = [];
+    out.push({ id: e.el.id, timeline });
     const beats = group.filter((x) => x.uses.includes(e.el.id)).flatMap((x) => x.beats);
     let at: readonly [number, number] = [beats[0], 0];
     if (!e.already) {
       const named = ["title", "text", "label", "term", "value", "name", "caption"].map((k) => e.el.op[k]).filter((v) => typeof v === "string").join(" ");
       at = find(beats, named) ?? [beats[0], 0];
-      cues.push({ at: `b${at[0]}.w${at[1]}`, ref: e.el.id, act: "enter" });
+      timeline.push({ at: `b${at[0]}.w${at[1]}`, do: "enter" });
     }
     if (!e.acts.parts.includes("enter")) continue;
     for (const p of e.parts) {
       const hit = find(e.acts.laterParts ? beats.filter((b) => b >= at[0]) : [at[0]], p.name);
-      if (hit) cues.push({ at: `b${hit[0]}.w${hit[1]}`, ref: p.ref, act: "enter" });
+      if (!hit) continue;
+      const part = p.ref.slice(e.el.id.length + 1);
+      timeline.push({ at: `b${hit[0]}.w${hit[1]}`, do: "show", part });
+      // A labelled picture's part lit as it is named, held to the end of its line.
+      const last = (words.get(hit[0])?.words.length ?? 1) - 1;
+      if (e.acts.parts.includes("shade") && last > hit[1] + 1) timeline.push({ at: `b${hit[0]}.w${hit[1] + 1}`, do: "light", part, until: `b${hit[0]}.w${last}` });
     }
   }
-  return { cues };
+  return { elements: out };
 }
 
 // ---------------------------------------------------------------- the voice first ---------------

@@ -5,11 +5,11 @@
  *     the chapter's beats, answered as the chapter's plan: its elements and its scenes, with no timing.
  *   - THE CHOREOGRAPHY: a few scenes at a time, each beat's line as the voice says it (its words by number with their
  *     times), the elements the scenes use with their parts, what may be done with each, and each artifact's manual;
- *     answered as cues: what comes on, or is done, on which word.
+ *     answered as each element's timeline and look: what comes on, or is done, on which word, and how it is drawn.
  */
 
 import { part, type Part, type Prompt } from "./parts";
-import type { BeatWords, CueAct, PlanElement, PlanPart, PlanScene } from "../director";
+import { doName, type BeatWords, type CueAct, type PlanElement, type PlanPart, type PlanScene } from "../director";
 
 // ---------------------------------------------------------------- the director -----------------------------------
 
@@ -142,22 +142,35 @@ const CHOREOGRAPHY = `You choreograph a narrated lecture video: when each thing 
 it as the narration goes on. The narration is already spoken. You are given a few SCENES of one chapter: each beat's
 line as the voice says it, every word numbered (w0 the first) with the second it is said from the line's start; the
 ELEMENTS the scenes use (each an operation of the engine, with its parts and what you may do with each); and each
-artifact's MANUAL (what the engine draws and how it moves). Answer with cues (choreograph): every element and every
-part their entry, and the moments that make the scene alive.
+artifact's MANUAL (what the engine draws and how it moves). Answer with each element's TIMELINE and LOOK
+(choreograph): every element and every part an entry, and the moments that make the scene alive.
 
-A CUE: {"at": "b<beat>.w<word>", "ref": "<element or part, as given>", "act": "<one it may do>", ...}
-  - "enter": it comes on as that word is said.
-  - "emphasis" (where allowed): it is pointed at on that word ("how", on the motion engine: one of the manual's ways;
-    a diagram's node is ringed, the rest dimmed). For what the line stresses: a contrast ("but", "only", "never"),
-    a number, the answer, the word the idea turns on.
-  - "shade" (a labelled picture's part, where allowed): the rest of the picture shaded round the part while it is
-    explained (until the next line, or a shade on another part).
+AN ELEMENT: {"id": "<element id>", "timeline": [<steps, in order>], "look"?: {...}}
+A STEP: {"at": "b<beat>.w<word>", "do": "<one it may do>", "part"?: "<part, as given after the element's id>", ...}
+  - "enter" (the element, no "part"): it comes on as that word is said. "in_pause": true: in the quiet after its
+    line instead (a card that sums the line up).
+  - "show" (a part): the part comes on as that word is said. On a labelled picture: "side" ("left", "right",
+    "above", "below") puts its label on that side of the picture or of its part (else the engine chooses), and
+    "note" (a few words) is written small under its name (a date, a number, what it does). A labelled picture's
+    label may be shown on a later line of the picture's scenes than the picture, as a diagram's node may.
+  - "pulse" (where allowed): it is pointed at once on that word ("how", on the motion engine: one of the manual's
+    ways). For what the line stresses: a contrast ("but", "only", "never"), a number, the answer, the word the idea
+    turns on.
+  - "light" (a labelled picture's part, where allowed): the rest of the picture shaded round the part while it is
+    explained: until the next line, or a light on another part; with "until": "b<beat>.w<word>", held over the lines
+    between and lifted on that word.
+  - "focus" (a diagram's node, where allowed): it is ringed and the rest of the diagram dimmed while it is talked
+    about; with "until", lifted on that word.
+  - "hide" (a labelled picture's label, where allowed): the label taken off on that word (the picture stays), when
+    the picture moves on to its other parts.
   - "exit" (an element, where allowed): it is taken off the screen on that word, when the idea it showed is done and
     nothing new replaces it (a new picture takes the last one off by itself: no exit then).
-  - "stamp" (where allowed): {"at", "ref": "<scene id>", "act": "stamp", "text": "<1-3 words>", "in_pause"?: true}: a
-    stamp slammed onto what is up: a verdict, a name, a number to remember. One a scene at most, often none; best in
-    the quiet after its line ("in_pause": true).
-  - "in_pause": true on an "enter": it comes on in the quiet after its line instead (a card that sums the line up).
+A LOOK: how the element is drawn, from its manual's own fields: a picture's "move" ("drift", "push", "pan"), a
+diagram's "flow" or "steps", a timeline's "spans" or "range", a card's "style". Never its content (its nodes, labels,
+words): those are the director's. Leave it out when the director's is right.
+A STAMP (where allowed; in "stamps", not in a timeline): {"at", "scene": "<scene id>", "text": "<1-3 words>",
+"in_pause"?: true}: a stamp slammed onto what is up: a verdict, a name, a number to remember. One a scene at most,
+often none; best in the quiet after its line.
 
 WHEN
 - A thing comes on as the voice NAMES it: the first word that names it (the noun, the name, the number, the date),
@@ -170,45 +183,69 @@ WHEN
   line: give it a word of that line.
 - Each moment must be seen: keep them about 0.6 s apart or more (the times tell you); parts said in one breath may
   share a word. Not everything on w0. At most about three moments in a second.
-- Make every line do something: in a line that adds nothing new, point at what it speaks of (an emphasis, a
-  shade). But never more than two emphases in a line. There is no camera: nothing zooms or pans.
-- Nothing happens that you do not cue: a part with no cue comes on as its line begins, and nothing is pointed at
+- Make every line do something: in a line that adds nothing new, point at what it speaks of (a pulse, a light, a
+  focus). But never more than two pulses in a line. There is no camera: nothing zooms or pans.
+- Nothing happens that you do not write: a part with no step comes on as its line begins, and nothing is pointed at
   because the line says its name.
-- Use only the refs and acts given. Do not invent elements.
+- Use only the elements, parts and steps given. Do not invent elements. Every element of these scenes once in
+  "elements", even with no steps (one already on the screen).
 
 BE RICH: the video is alive only when something moves on every line, on its words. Use each primitive's manual
 ("HOW TO CHOREOGRAPH"): bring every part on by itself on the word that names it, never all at once; on a diagram,
-focus the node being explained (emphasis) and bring the next nodes on in the lines that name them; on a labelled
-picture, shade each part as it is explained, one after another; point (emphasis) at what a line names again; take a
-picture off (exit) when its idea is done and nothing replaces it. A scene of four lines should have ten or more
+focus the node being explained and bring the next nodes on in the lines that name them; on a labelled picture, show
+each label on the line that explains it, light each part as it is explained (held with "until" while a few lines
+explain it), hide a label when the picture moves on; pulse what a line names again; take a picture off (exit) when
+its idea is done and nothing replaces it. A scene of four lines should have ten or more
 moments, each on its word, about a second or more apart.`
+
+const STEP = {
+  type: "object",
+  properties: {
+    at: { type: "string", description: "b<beat>.w<word>, e.g. b12.w3." },
+    do: { type: "string", enum: ["enter", "show", "pulse", "light", "focus", "hide", "exit"] },
+    part: { type: "string", description: "The part (its name after the element's id), for show, pulse, light, focus, hide." },
+    until: { type: "string", description: "b<beat>.w<word>: a light or a focus held until this word." },
+    how: { type: "string" },
+    side: { type: "string", enum: ["left", "right", "above", "below"] },
+    note: { type: "string" },
+    in_pause: { type: "boolean" },
+  },
+  required: ["at", "do"],
+  additionalProperties: false,
+};
 
 export const CHOREOGRAPHY_TOOL = {
   type: "function" as const,
   function: {
     name: "choreograph",
-    description: "The scenes' cues: each element's and part's entry, and the emphases, shades, exits and stamps, each on a word.",
+    description: "Each element's timeline (its entry, its parts' entries, the pulses, lights, focuses, hides and exits, each on a word) and look, and the scenes' stamps.",
     parameters: {
       type: "object",
       properties: {
-        cues: {
+        elements: {
           type: "array",
           items: {
             type: "object",
             properties: {
-              at: { type: "string", description: "b<beat>.w<word>, e.g. b12.w3." },
-              ref: { type: "string", description: "An element's or a part's ref (or a scene's id, for a stamp)." },
-              act: { type: "string", enum: ["enter", "emphasis", "shade", "exit", "stamp"] },
-              how: { type: "string" },
-              text: { type: "string" },
-              in_pause: { type: "boolean" },
+              id: { type: "string" },
+              timeline: { type: "array", items: STEP },
+              look: { type: "object", description: "How it is drawn (its manual's fields: move, flow, steps, spans, range, style). Not its content." },
             },
-            required: ["at", "ref", "act"],
+            required: ["id", "timeline"],
+            additionalProperties: false,
+          },
+        },
+        stamps: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { at: { type: "string" }, scene: { type: "string" }, text: { type: "string" }, in_pause: { type: "boolean" } },
+            required: ["at", "scene", "text"],
             additionalProperties: false,
           },
         },
       },
-      required: ["cues"],
+      required: ["elements"],
       additionalProperties: false,
     },
   },
@@ -232,14 +269,14 @@ export function choreographyPrompt(o: { lecture: number; chapter: number; engine
   ].join("\n"));
   const elements = o.elements.map((e) => [
     `ELEMENT ${e.el.id} (${String(e.el.op.op)}${e.el.role ? `, ${e.el.role}` : ""}) in scene ${e.scene}${e.already ? " -- ALREADY ON THE SCREEN (came on before): do not enter it again" : ""}`,
-    `  it may: ${e.acts.element.join(", ")}${e.parts.length ? `; each part may: ${e.acts.parts.join(", ")}${e.acts.laterParts ? " (and come on in a later line of its scenes)" : " (in its element's line)"}` : ""}`,
+    `  it may: ${e.acts.element.map((a) => doName(a, false)).join(", ")}${e.parts.length ? `; each part may: ${e.acts.parts.map((a) => doName(a, true)).join(", ")}${e.acts.laterParts ? " (and be shown in a later line of its scenes)" : " (shown in its element's line)"}` : ""}`,
     `  op: ${JSON.stringify(e.el.op)}`,
-    ...(e.parts.length ? [`  parts: ${e.parts.map((p) => `${p.ref} ${JSON.stringify(p.name)}${p.parent ? ` (in ${p.parent})` : ""}`).join(" · ")}`] : []),
+    ...(e.parts.length ? [`  parts: ${e.parts.map((p) => `${p.ref.slice(e.el.id.length + 1)} ${JSON.stringify(p.name)}${p.parent ? ` (in ${p.parent})` : ""}`).join(" · ")}`] : []),
   ].join("\n"));
   return {
     system: [
       part("choreography", "How to choreograph the scenes", "rules", CHOREOGRAPHY),
-      ...(o.stamps ? [] : [part("no-stamps", "Not on this engine", "rules", "This engine has no stamps. An emphasis on a diagram's node rings it (the rest dimmed); on any other part it pulses once. The engine points at nothing by itself: what is pointed at, lit or taken off is only what you cue.")]),
+      ...(o.stamps ? [] : [part("no-stamps", "Not on this engine", "rules", "This engine has no stamps. The engine points at nothing by itself: what is pulsed, lit, focused, hidden or taken off is only what you write.")]),
       part("manuals", `The manuals of this call's artifacts (${o.manuals.length})`, "rules",
         o.manuals.map((m) => `=== ${m.op} ===\n${m.text}`).join("\n\n")),
     ],

@@ -371,7 +371,8 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
         | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS | POINT_OPS
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
             "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"],
-            "empire": ["name"], "point": ["target"], "shade": ["part"]}
+            "empire": ["name"], "point": ["target"], "shade": ["part"], "label": ["part"], "unlabel": ["part"],
+            "unfocus": ["diagram"]}
     # Pictures shown whole (a book figure shown as its picture, a draw op made as a picture): no parts to reveal.
     pictured: set[str] = {str(x) for x in script.get("_pictured") or []}
     for c, chapter in enumerate(script.get("chapters") or []):
@@ -1307,6 +1308,27 @@ def _picture_found(spec) -> tuple | None:
     return ("image", str(row["file"])) if row and row.get("file") else None
 
 
+def _label_extras(op: dict) -> str:
+    """stage_image's script-given say over its labels: those held back (`hold`, brought on by a `label` op), each
+    label's side (`sides`) and a short note under its name (`notes`). The current engine's (the motion engine draws
+    its labels its own way)."""
+    if _ENGINE[0] == "motion":
+        return ""
+    out = ""
+    hold = [str(x) for x in op.get("hold") or [] if str(x).strip()] if isinstance(op.get("hold"), list) else []
+    if hold:
+        out += f", hold={hold!r}"
+    sides = {str(k): str(v) for k, v in (op.get("sides") or {}).items() if str(v) in LABEL_SIDES} \
+        if isinstance(op.get("sides"), dict) else {}
+    if sides:
+        out += f", sides={sides!r}"
+    notes = {str(k): str(v)[:60] for k, v in (op.get("notes") or {}).items() if str(v or "").strip()} \
+        if isinstance(op.get("notes"), dict) else {}
+    if notes:
+        out += f", notes={notes!r}"
+    return out
+
+
 def _labels_arg(row: dict) -> str:
     """stage_image's labels: [(text, x, y), ...] where the label finder put them, each with its part's box
     (text, x, y, x0, y0, x1, y1) when it gave one."""
@@ -1419,7 +1441,10 @@ EDGE_STYLES = ("solid", "dashed", "bold")
 FREE_OPS = {"manim"}
 # Pointing at what is on the screen, on purpose (the script's own, never the engine's): a pulse on a named part
 # (`point`), a labelled picture's part lit with the rest shaded (`shade`).
-POINT_OPS = {"point", "shade"}
+POINT_OPS = {"point", "shade", "label", "unlabel", "unshade", "unfocus"}
+LABEL_SIDES = ("left", "right", "above", "below")
+# The engine the script is compiled for ("motion" or the current one): set as a compile begins.
+_ENGINE: list[str] = [""]
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS
 
 
@@ -3415,7 +3440,7 @@ def _op_call(op: dict) -> str:
         where = op.get("where", "stage")
         caption = op.get("caption") or ""
         if where == "stage":
-            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(_shown_credit(row))}{_labels_arg(row)})"
+            return f"self.stage_image({_q(row['file'])}, {_q(caption)}, credit={_q(_shown_credit(row))}{_labels_arg(row)}{_label_extras(op)})"
         return f"self.figure({_q(row['file'])}, {_q(caption)}, where={_q(where)})"
     if kind == "molecule":
         label = f", {_q(op['label'])}" if op.get("label") else ""
@@ -3448,7 +3473,7 @@ def _op_call(op: dict) -> str:
         points = [str(x) for x in op["points"] if str(x).strip()][:5] if isinstance(op.get("points"), list) else []
         listed = f", points={points!r}" if points and not _labels_of(op) else ""
         return (f"self.stage_image({_q(row['file'])}, {_q(op.get('caption') or '')}, credit={_q(_shown_credit(row))}"
-                f"{_labels_arg(row)}{move}{listed})")
+                f"{_labels_arg(row)}{_label_extras(op)}{move}{listed})")
     if kind == "figure":
         figure = script_figures[str(op["id"])]
         caption = op.get("caption") or figure.get("caption") or ""
@@ -3460,7 +3485,15 @@ def _op_call(op: dict) -> str:
     if kind == "point":
         return f"self.point({_q(str(op['target']))})"
     if kind == "shade":
-        return f"self.shade_part({_q(str(op['part']))})"
+        return f"self.shade_part({_q(str(op['part']))}" + (", hold=True)" if op.get("hold") else ")")
+    if kind == "unshade":
+        return "self.unshade()"
+    if kind == "label":
+        return f"self.label({_q(str(op['part']))})"
+    if kind == "unlabel":
+        return f"self.unlabel({_q(str(op['part']))})"
+    if kind == "unfocus":
+        return f"self.unfocus({_q(str(op['diagram']))})"
     if kind == "gallery":
         shown = []
         for item in _gallery_items(op):
@@ -3800,6 +3833,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         raise ValueError("\n".join(errors))
     script_figures.clear()
     script_figures.update(script.get("figures") or {})
+    _ENGINE[0] = str(script.get("engine") or "")
     USED_PICTURES.clear()
     AUTO_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")

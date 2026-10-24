@@ -166,6 +166,12 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   operations, the script's own pointing: `point` (`Lecture.point`: a named thing on screen pulses once) and `shade`
   (`Lecture.shade_part`: a labelled picture's part lit, the rest shaded). The camera is off: `zoom` is left out with a
   note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
+- A picture's labels as the script says (current engine): `stage_image(hold=, sides=, notes=)` holds labels back
+  (`_picture_view` queues none for them), puts a label's tag on the side it is given (`_label_layout` left/right of the
+  picture; `_labels_on` tries the given spot of its part first) and writes a short note under its name (`_label_tag`).
+  New operations: `label` (`Lecture.label`: a held label brought on), `unlabel` (`Lecture.unlabel`: a label faded, the
+  picture kept), `unshade` (`Lecture.unshade`) and `unfocus` (`Lecture.unfocus`: a diagram's veils lifted); `shade`
+  takes `hold` (`held_light`: `_looks_away` and `_lifts` leave the light on until an `unshade`).
 - `compile_lecture.anchors` merges a beat's `_spoken_as` with what it had: the checks run twice, and the second run saw
   the parts' anchors already folded into their names and wrote the table without them.
 - The music bed is continuous (both engines): `Lecture._bed_gap` fills from where the last line's piece ended to where

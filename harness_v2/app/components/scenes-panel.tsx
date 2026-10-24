@@ -578,7 +578,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
         </div>
       </div>
       {sl?.plans?.[c] && <PlanJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy} />}
-      <ChapterJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy || !built} />
+      <ChapterJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy} />
       <RenderState r={r} what="the chapter" />
       {r?.status === "done" && r.audio && <p className="text-[11px] text-emerald-300" data-testid="scenes-render-voiced">With its voice (spoken first): heard as it plays.</p>}
       {r?.status === "done" && r.ir && r.assets && (
@@ -1054,9 +1054,9 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
         <span className="text-[11px] text-neutral-500">{plan.elements.length} elements · {plan.scenes.length} scenes · {steps} steps
           {plan.at ? ` · ${new Date(plan.at).toLocaleString()}` : ""}</span>
         <span className="ml-auto flex gap-3">
-          <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("plan")}
+          <button className="text-[11px] text-sky-300 hover:underline" onClick={() => open("plan")}
             data-testid="scenes-plan-edit">{tab === "plan" ? "close the plan" : "the plan (director) as JSON"}</button>
-          <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("cues")}
+          <button className="text-[11px] text-sky-300 hover:underline" onClick={() => open("cues")}
             data-testid="scenes-cues-edit">{tab === "cues" ? "close the choreography" : "the choreography (timelines) as JSON"}</button>
         </span>
       </div>
@@ -1075,6 +1075,7 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
       </ul>
       {plan.notes?.length ? <p className="mt-1 text-[10px] text-amber-300">mended or left out: {plan.notes.slice(0, 6).join("; ")}{plan.notes.length > 6 ? ` (+${plan.notes.length - 6})` : ""}</p> : null}
       {bad && <p className="mt-1 text-[11px] text-red-300">{bad}</p>}
+      {disabled && <BusyNote run={run} lecture={lecture} act={act} />}
       {tab && (
         <div className="mt-1 space-y-1">
           <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
@@ -1091,6 +1092,17 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
         </div>
       )}
     </div>
+  );
+}
+
+/** Why saving is off: the lecture is being built (what it is doing), with a way to stop it. */
+function BusyNote({ run, lecture, act }: { run: Run; lecture: number; act: Act }) {
+  const sl = run.scenes?.lectures[lecture];
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-300" data-testid="scenes-busy-note">
+      Lecture {lecture} is being built{sl?.doing ? ` (${sl.doing})` : ""}: you can read and change the JSON, and save it once the build is done.
+      <button className="text-red-300 hover:underline" onClick={() => void act({ action: "stop" })}>stop the build</button>
+    </p>
   );
 }
 
@@ -1132,10 +1144,11 @@ function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: nu
       <div className="flex items-center gap-2 text-xs">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">The chapter as JSON (its beats)</p>
         <span className="text-[11px] text-neutral-500">every beat&apos;s operations as built (from the plan and cues, when it was built as one piece): change them, save, and the chapter is rendered again</span>
-        <button className="ml-auto text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled || loading}
+        <button className="ml-auto text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={loading}
           onClick={() => (open ? setOpen(false) : void load())} data-testid="scenes-chapter-json-edit">{open ? "close" : loading ? "loading…" : "edit as JSON"}</button>
       </div>
       {bad && <p className="mt-1 text-[11px] text-red-300">{bad}</p>}
+      {open && disabled && <BusyNote run={run} lecture={lecture} act={act} />}
       {open && (
         <div className="mt-1 space-y-1">
           <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}

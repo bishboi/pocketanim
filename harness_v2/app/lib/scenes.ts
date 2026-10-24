@@ -147,8 +147,10 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
   if (!run) throw new Error("no such run");
   if (a.action === "stop") {
     stopJob(id, "scenes");
+    settleScenes(run);
     return run;
   }
+  settleScenes(run);
   if (run.legacy) throw new Error(run.legacy);
   const st = stateOf(run);
   if (a.action === "look") {
@@ -513,6 +515,32 @@ function lock(run: Run, lectures: number[], work: (n: number) => Promise<void>, 
     }
     saveRun(run, true);
   })();
+}
+
+/**
+ * A lecture shown as being built that no job of this server is building (a job that ended without setting it back, a
+ * build cut off) set back: done when it has beats, else waiting; and the step itself when nothing is running. Else the
+ * page keeps its buttons off for a build that is not there.
+ */
+function settleScenes(run: Run): void {
+  const st = run.scenes;
+  if (!st) return;
+  let changed = false;
+  for (const [k, sl] of Object.entries(st.lectures)) {
+    if (busy.has(busyKey(run.id, Number(k)))) continue;
+    if (sl.status === "running" || (sl.status === "waiting" && sl.doing)) {
+      sl.status = Object.keys(sl.beats).length ? "done" : "waiting";
+      sl.doing = undefined;
+      for (const b of Object.values(sl.beats)) if (b.status === "running") b.status = b.ops.length ? "done" : "waiting";
+      changed = true;
+    }
+  }
+  if (st.status === "running" && !active.get(run.id)) {
+    st.status = "stopped";
+    st.ended = Date.now();
+    changed = true;
+  }
+  if (changed) saveRun(run, true);
 }
 
 /** Lectures being built now, by number. */

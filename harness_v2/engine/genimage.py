@@ -1120,12 +1120,6 @@ def _template_look(style: str | None, art: str | None = None) -> dict:
     return look
 
 
-def _board_colours(style: str | None) -> tuple[str, str]:
-    """(background, ink) of a lecture style's board, for a diagram drawn to sit on it."""
-    look = _template_look(style)
-    return look["bg"], look["ink"]
-
-
 def redraw_prompt(caption: str, style: str | None, context: str | None = None, fix: str | None = None,
                   art: str | None = None, plain: bool = False, faithful: bool = False, how: str | None = None) -> str:
     """What the diagram model is told when it redraws a book's figure from the figure itself: the same diagram, its

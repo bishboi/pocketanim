@@ -1984,11 +1984,6 @@ PICTURE_OPS = {"photo", "figure", "illustration", "molecule", "equation", "bars"
 NOT_A_FIGURE = re.compile(r"\b(QR|bar ?code|logo|watermark)\b|क्यूआर", re.I)
 
 
-def book_figure_count(script: dict) -> int:
-    return sum(1 for f in (script.get("figures") or {}).values()
-               if not NOT_A_FIGURE.search(str((f or {}).get("caption", ""))))
-
-
 def _word_list(text: str) -> list[str]:
     """Lower-case words in any script (Devanagari's vowel signs are marks, so \\w alone would split them)."""
     return re.findall(r"[\w\u0900-\u097F]+", str(text).lower())
@@ -2144,32 +2139,6 @@ def _text_heavy(script: dict) -> tuple[list[str], list[str]]:
 # Words a line gives an example or a comparison with, in English and Hindi.
 EXAMPLE_WORDS = re.compile(r"\b(for example|for instance|example|e\.g\.|imagine|such as|think of|just like|like when|suppose|"
                            r"say you|picture this)\b|जैसे|उदाहरण|मान लो|मान लीजिए|मान लें|कल्पना|सोचो|सोचिए", re.I)
-
-
-def teaching_plan(minutes: float, source_words: int = 0) -> dict:
-    """How deep a lecture of this length goes.
-
-    The content decides the topics (about one every 350 words of a source; a bare topic is split by the time
-    there is). The minutes a topic gets decide how many examples each statement has and how many questions
-    the class is asked.
-    """
-    if source_words > 400:
-        topics = min(15, max(2, round(source_words / 350)))
-    else:
-        topics = min(12, max(2, round(minutes / 3)))
-    per_topic = minutes / topics
-    # One example makes an idea clear; a second only where there is time for a hard one. More was repetition.
-    examples = 1 if per_topic < 4 else 2
-    problems = 1 if per_topic < 2 else 2 if per_topic < 4 else 3
-    questions = 0.5 if per_topic < 2 else 1 if per_topic < 4 else 2 if per_topic < 7 else 3
-    return {"minutes": minutes, "topics": topics, "examples": examples, "questions_per_topic": questions,
-            # A short video of a long chapter cannot ask a question every topic: at most one every 2 minutes,
-            # and an example beat every 50 seconds or so.
-            "min_questions": min(max(1, round(topics * questions)), max(1, int(minutes // 2))),
-            "min_examples": min(max(2, round(topics * 2 * examples * 0.5)), max(2, round(minutes * 1.2))),
-            "problems_per_topic": problems,
-            # A problem solved from the very basics takes about 4 minutes, its theory about as long.
-            "min_problems": min(topics * problems, max(1, int(minutes // 7)))}
 
 
 PANEL_FACTS = 3          # key points a side panel (a map chapter's) holds under its title
@@ -2610,43 +2579,6 @@ def _timeline_of(chapter: dict) -> list[list[str]] | None:
     return events[:7] if len(events) >= 3 else None
 
 
-# Capitalised words that start sentences or name no one: not subjects to look up.
-NAME_STOP = set("""
-I A An The This That These Those It Its He She His Her They Their We Our You Your Chapter Today Here There Then
-In On At Of And But Or So As When While After Before During From To For With By Now Next Later First Finally
-Many Most Some Every Each One Two Three Let Look See Why What Who How Where Which Imagine Think Remember
-India Indian Indians Hindi English Earth Sun Moon North South East West January February March April May June
-July August September October November December Monday Tuesday Wednesday Thursday Friday Saturday Sunday
-""".split())
-_NAME = re.compile(r"[A-Z][a-zA-Z'’.-]+(?:\s+(?:of|the|de|ud|al|and|-)?\s*[A-Z][a-zA-Z'’.-]+)*")
-
-
-def named_subjects(beat: dict, limit: int = 2) -> list[str]:
-    """What a beat is about, to look up a picture of: its `about` (a name the writer gave, in English), else the
-    proper names in its English narration (people, movements, monuments, events: "Sunderlal Bahuguna",
-    "Chipko Movement", "Battle of Plassey")."""
-    about = beat.get("about")
-    if about:
-        return [str(a) for a in (about if isinstance(about, list) else [about]) if str(a).strip()][:limit]
-    out: list[str] = []
-    for sentence in re.split(r"(?<=[.!?।;:])\s+", str(beat.get("say", ""))):
-        sentence = sentence.strip()
-        for m in _NAME.finditer(sentence):
-            words = m.group(0).split()
-            while words and words[0] in NAME_STOP:
-                words = words[1:]
-            while words and words[-1] in ("of", "the", "and", "-"):
-                words = words[:-1]
-            if not words or all(w in NAME_STOP for w in words):
-                continue
-            if len(words) == 1 and m.start() == 0 and m.group(0) == words[0]:
-                continue            # one capitalised word opening a sentence is just a capital letter
-            name = " ".join(words).rstrip(".’'")
-            if len(name) > 2 and name not in out:
-                out.append(name)
-    return out[:limit]
-
-
 PARAGRAPH_MAX = 5        # beats a picture may hold without the script asking for a new one
 
 
@@ -2796,43 +2728,6 @@ USED_PICTURES: set = set()
 AUTO_PICTURES: list = []
 STYLE_NOW: dict = {"style": None, "auto_illustrations": False}
 
-PLAIN = set("""
-about above after again against almost along also although always among another around because become before
-being below between both came come could does doing down during each even every first from further have having
-here into itself just know known large like made make many more most much must near never next only other over
-own part same should since small some such than that their them then there these they thing things this those
-though three through today together under until upon very want were what when where which while whole will with
-within without would your called means mean each other people place places important different example because
-often usually really almost called across towards toward still again later early every whole across
-""".split())
-
-
-def picture_queries(beat: dict, chapter: dict, genre: str | None, index: int) -> list[str]:
-    """What to search an illustration or diagram for: the writer's `picture` (English), else the beat's key
-    terms in English narration (with the chapter's title for context), else the chapter's own title on its
-    first beat."""
-    if beat.get("picture"):
-        return [str(beat["picture"])]
-    title = str(chapter.get("title", ""))
-    latin_title = title if re.search(r"[A-Za-z]{3}", title) and not re.search(r"[\u0900-\u097F]", title) else ""
-    def stem(word: str) -> str:
-        return re.sub(r"(ies|es|s)$", "", word.lower())
-
-    words = [w.lower() for w in re.findall(r"[A-Za-z][a-z]{3,}", str(beat.get("say", ""))) if w.lower() not in PLAIN]
-    # A topic word recurs: rank a beat's words by how often the chapter uses them, then by length.
-    chapter_text = " ".join([title] + [str(b.get("say", "")) for b in chapter.get("beats") or []]).lower()
-    counts: dict[str, int] = {}
-    for w in re.findall(r"[a-z]{4,}", chapter_text):
-        counts[stem(w)] = counts.get(stem(w), 0) + 1
-    queries = []
-    if words:
-        key = sorted(dict.fromkeys(words), key=lambda w: (counts.get(stem(w), 0), len(w)), reverse=True)[:2]
-        queries.append(" ".join(key))
-        if latin_title:
-            queries.append(f"{latin_title} {key[0]}")
-    if index == 0 and latin_title:
-        queries.append(latin_title)
-    return queries[:2]
 
 
 def _icon_spots(op: dict) -> list:
@@ -3744,9 +3639,6 @@ def _op_call(op: dict) -> str:
         return f"self.question({_q(op['text'])}{extra}{title})"
     if kind == "answer":
         return "self.answer()"
-    if kind == "zoom":
-        node = _q(str(op["node"])) if op.get("node") is not None else "None"
-        return f"self.zoom({_q(str(op['diagram']))}, {node}, {float(op.get('scale') or 1.8)!r})"
     if kind == "option":
         return f"self.option({op.get('_index', 0)!r}" + (
             f", right={bool(op['right'])!r})" if op.get("right") is not None else ")")

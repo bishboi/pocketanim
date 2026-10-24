@@ -701,16 +701,6 @@ def _overlap(a, b) -> float:
     return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
 
 
-def _touching(groups, pad: float = 0.04) -> bool:
-    """Whether any piece of one group overlaps any piece of another."""
-    boxes = [[_bbox(m, pad) for m in g] for g in groups]
-    for i in range(len(boxes)):
-        for j in range(i + 1, len(boxes)):
-            if any(_overlap(a, b) > 0 for a in boxes[i] for b in boxes[j]):
-                return True
-    return False
-
-
 def has_image(mob) -> bool:
     """Whether a picture holds a photo (an ImageMobject): it is then grouped with Group and faded in, as a photo
     cannot be written like a line."""
@@ -2545,7 +2535,6 @@ def unicode_math(tex: str) -> str:
 # the motion costs the program nothing.
 DRIFT = {"period": 26.0, "amp": 0.3, "scale": 0.025, "turn": 0.012}
 PICTURE_DRIFT = {"period": 17.0, "amp": 0.14, "scale": 0.035, "turn": 0.0}
-DRIFT_NUMBERS = ("period", "amp", "scale", "turn", "t0", "cx", "cy")
 
 
 def drift_at(t: float, period: float, amp: float, scale: float, turn: float) -> tuple[float, float, float, float]:
@@ -2868,7 +2857,8 @@ class Lecture(Scene):
     def name_part(self, phrase, mob, shown=None, act=None, auto: bool = True) -> None:
         """Something on the screen with a name the narration may say again (a timeline's date, a map's place, a
         card's heading): pointed at on its words (beat). `shown()`, when given, says whether it is drawn now; `act()`,
-        when given, is what pointing at it does (the camera moving in on a picture's part), else it pulses."""
+        when given, is what pointing at it does (a picture's part lit, the rest shaded), else it pulses. `auto`: the
+        engine may point at it by itself when a line names it (never in a strict chapter); False: only `point` does."""
         if mob is None or not str(phrase or "").strip():
             return
         parts = self.__dict__.setdefault("_named_parts", [])
@@ -3499,7 +3489,7 @@ class Lecture(Scene):
 
     def _queued(self, given: list, words, seconds: float) -> list:
         """The line's pictures with what their calls queued to come on by themselves (a labelled picture's labels,
-        each on its part's words), and the camera drawn back out of a picture whose parts this line does not name.
+        each on its part's words), and the light lifted from a picture whose parts this line does not name.
         Without word times the labels follow the picture, one after another."""
         queue = self.__dict__.pop("_word_queue", [])
         away = self._clear_strays([a for a, _ in given]) + self._looks_away(words)
@@ -4246,7 +4236,7 @@ class Lecture(Scene):
             if lens is not None and id(lens) not in listed and id(lens) in on_screen:
                 going.append(FadeOut(lens))
             going += [FadeIn(m) for m in hidden if id(m) not in on_screen]
-            view.update(zoom=None, lens=None, hidden=[])
+            view.update(lit=None, lens=None, hidden=[])
         # And whatever else is on the screen that no layout holds (strays: a part a picture left behind, a free
         # figure's piece dropped from the stage's list): the stage changes, so nothing of the old one stays.
         # Not the parts of a free figure that goes on (stem.BoardMixin.free).
@@ -4415,8 +4405,6 @@ class Lecture(Scene):
         # under a picture), the stage split where neither ends up small.
         left, right = self._pair_boxes([picture, *picture_parts], [card, *card_parts])
         moved = self._fit_box([picture, *picture_parts], left)
-        if picture is first and hasattr(self, "_zoom_follow"):
-            self._zoom_follow(*moved)
         self._fit_box([card, *card_parts], right, grow=1.3)
         card.is_aside = True
         card.aside_box = right
@@ -4541,8 +4529,6 @@ class Lecture(Scene):
             holder.remove(cover)
             self._cover_holder = False
             self.add(cover.set_z_index(Z_MARK + 9.9))
-        if hasattr(self, "_zoom_follow"):
-            self._zoom_follow(f, np.array(centre, dtype=float), shift)
         arriving = {id(m) for m in [*self._beat_new, *self._beat_revealed]}
         # A free-form figure moved aside is frozen first: a part that redraws itself (a TracedPath, always_redraw)
         # changed its shape during the move, which the exporter could not write, and the whole build stopped.
@@ -4644,8 +4630,8 @@ class Lecture(Scene):
 
         A picture the image model made is drawn in, shape by shape (cutout_strokes). `labels` ([(text, x, y)] or
         [(text, x, y, x0, y0, x1, y1)], x and y from 0 to 1 across and down the picture, x0..y1 the box round the
-        part) are each written beside it as the part is said, a box round the part and a line to it, and the camera
-        moves in on the part (_picture_view)."""
+        part) are each written beside it as the part is said, a box round the part and a line to it, and the rest of
+        the picture shaded round the part (_picture_view)."""
         if self.board_mode and self._solving() and not self._beat_new:
             self._log("skipped", what="figure during a problem", path=str(path))
             return None
@@ -4833,8 +4819,8 @@ class Lecture(Scene):
 
     def _picture_view(self, image, labels, width: float, inside: bool = False) -> dict:
         """Lay out a picture's labels (not yet shown), queue each to come on as its part is said (beat), and let a
-        later line that names a part move the camera back in on it (name_part)."""
-        view = {"image": image, "parts": {}, "revealed": set(), "zoom": None, "lens": None, "hidden": [],
+        later line that names a part light it again (name_part)."""
+        view = {"image": image, "parts": {}, "revealed": set(), "lit": None, "lens": None, "hidden": [],
                 "beat": self.__dict__.get("_sync_beat", 0),
                 "drift": image.__dict__.get("_panim_drift")}
         for piece in (self._labels_on(image, labels) if inside else self._label_layout(image, labels, width)):
@@ -4849,7 +4835,7 @@ class Lecture(Scene):
         queue = self.__dict__.setdefault("_word_queue", [])
         for name, piece in view["parts"].items():
             # Built when the line plays (_with_looks), in the order the parts are said: each label's coming on and
-            # each camera move starts from where the one before left the picture. A label the script holds back
+            # each light starts from where the one before left the picture. A label the script holds back
             # comes on later, with its `label` op.
             if not self._label_opt("hold", name):
                 queue.append(SimpleNamespace(panim_said=name, panim_look=(view, name), panim_heard=False))
@@ -5056,7 +5042,7 @@ class Lecture(Scene):
         shade is. None when it is round this part already, or cannot be."""
         if not self._view_on(view) or name not in view["parts"]:
             return None
-        if view["zoom"] == name:
+        if view["lit"] == name:
             return None
         steps = []
         if name not in view["revealed"]:
@@ -5071,7 +5057,7 @@ class Lecture(Scene):
         # A heading over the part steps aside while it is talked about.
         hidden = self._overlays_over(view, name)
         moves += [FadeOut(m, run_time=self.LOOK_RUN) for m in hidden]
-        view.update(zoom=name, lens=shade, hidden=hidden)
+        view.update(lit=name, lens=shade, hidden=hidden)
         view.setdefault("spoken", set()).add(name)
         steps.append(AnimationGroup(*moves))
         look = AnimationGroup(*steps, lag_ratio=1.0)
@@ -5086,7 +5072,7 @@ class Lecture(Scene):
         and their boxes stay; the whole picture is clear again."""
         out = []
         for view in self.__dict__.get("_views", []):
-            if view.get("zoom") is None or view.get("held_light") or not view["parts"] or \
+            if view.get("lit") is None or view.get("held_light") or not view["parts"] or \
                     not set(view["parts"]) <= view.get("spoken", set()):
                 continue
             lit = [c for a, c in given if getattr(a, "panim_view", None) is view and isinstance(c, (list, tuple)) and c]
@@ -5110,7 +5096,7 @@ class Lecture(Scene):
         if shade is None:
             return None
         hidden = view.get("hidden") or []
-        view.update(zoom=None, lens=None, hidden=[])
+        view.update(lit=None, lens=None, hidden=[])
         if any(shade is x for x in self.stage_extra):
             self.stage_extra.remove(shade)
         return AnimationGroup(FadeOut(shade, run_time=self.LOOK_RUN), *[FadeIn(m, run_time=self.LOOK_RUN) for m in hidden])
@@ -5120,14 +5106,14 @@ class Lecture(Scene):
         the heading it moved aside back)."""
         out = []
         for view in self.__dict__.get("_views", []):
-            if view["zoom"] is None or (view.get("held_light") and self._view_on(view)):
+            if view["lit"] is None or (view.get("held_light") and self._view_on(view)):
                 continue
             if self._view_on(view) and words and any(self._said(words, n) is not None for n in view["parts"]) \
                     and not view.pop("lift_next", False):
                 continue
             if not self._view_on(view):
                 hidden, lens = view.get("hidden") or [], view.get("lens")
-                view.update(zoom=None, lens=None, hidden=[])
+                view.update(lit=None, lens=None, hidden=[])
                 out += [FadeIn(m) for m in hidden if m not in self.mobjects]
                 if lens is not None and lens in self.mobjects:
                     out.append(FadeOut(lens))
@@ -6704,13 +6690,8 @@ class Lecture(Scene):
             return None
         new = [str(n) for n in nodes if str(n) in d["nodes"] and str(n) not in d["shown"]]
         d["shown"].update(new)
-        # The focus moves on: the veils lift, and a stage moved in on one part moves back out to the whole.
+        # The focus moves on: the veils lift.
         before = self._unveil(d)
-        if d.get("pushed") and key in getattr(self, "_zoomed", {}):
-            out = self.zoom(key, None)
-            if out is not None:
-                before.append(out)
-            d["pushed"] = False
         drawn = [d["nodes"][i] for i in new] + [mob for a, b, mob in d["edges"]
                                                  if (a in new or b in new) and a in d["shown"] and b in d["shown"]]
         self.stage_pending = [m for m in self.stage_pending if all(m is not x for x in drawn)]
@@ -8281,28 +8262,6 @@ class MapLecture(BoardMixin, Lecture):
         """A unit breaks: it falls back and fades."""
         parts = self._unit(uid)
         return parts.animate.shift(np.array([direction[0], direction[1], 0.0]) * 0.6).set_opacity(0.25)
-
-    def volley(self, source: str, target=None, tone: str | None = None):
-        """Fire from a unit: short dashed lines toward the target, flashing out."""
-        parts = self._unit(source)
-        start = parts[0].get_center()
-        if target is None:
-            end = start + RIGHT * 1.2
-        elif isinstance(target, str) and target in getattr(self, "units", {}):
-            end = self.units[target][0].get_center()
-        else:
-            end = self.frame.pt(*self.at(target))
-        direction = end - start
-        normal = np.array([-direction[1], direction[0], 0.0])
-        length = np.linalg.norm(direction) or 1.0
-        normal = normal / length * 0.12
-        shots = VGroup(*[
-            DashedVMobject(Line(start + normal * k, start + direction * 0.85 + normal * k,
-                                color=role(tone or "highlight"), stroke_width=2.5), num_dashes=8)
-            for k in (-1, 0, 1)
-        ])
-        shots.set_z_index(Z_MARK + 2)
-        return AnimationGroup(Create(shots), FadeOut(shots), lag_ratio=1.0)
 
     def clock(self, time: str):
         """A clock in the map's corner, its hands turning to `time` (HH:MM)."""

@@ -4386,6 +4386,7 @@ class Lecture(Scene):
         slide = self._move_stage(f, whole.get_center(), box_a)
         self._fit_box(news, box_b, grow=1.3)
         group.is_aside = True
+        group.is_pair = True             # a picture of its own, not a card: nothing more goes beside the two (_aside)
         group.aside_box = box_b
         self.stage_pending = [*self.stage_pending, *self._next_pending]
         self._next_pending = []
@@ -4440,6 +4441,7 @@ class Lecture(Scene):
         moved = self._fit_box([picture, *picture_parts], left)
         self._fit_box([card, *card_parts], right, grow=1.3)
         card.is_aside = True
+        card.is_pair = True
         card.aside_box = right
         self.stage_pending = [m for m in [*picture_parts, *card_parts] if all(m is not a for a in added)]
         self._next_pending = []
@@ -4512,6 +4514,10 @@ class Lecture(Scene):
         body = self.stage_body
         if not self.board_mode or body is None or self.works or self._problem is not None \
                 or getattr(body, "is_text_card", False) or not len(body.get_family()) > 1:
+            return None
+        if any(getattr(m, "is_pair", False) for m in self.stage_extra):
+            # Two pictures share the stage already (§5.3 "Two at once"): no room for a third thing beside them,
+            # and the second of them is no card for this one to replace. It takes the stage instead.
             return None
         left, right = self._halves()
         mob.is_aside = True

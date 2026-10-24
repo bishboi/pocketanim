@@ -152,7 +152,7 @@ export function readChapterScript(x: unknown): ChapterScript {
     if (b.beat !== undefined && !Number.isInteger(b.beat)) fail(`beat ${i + 1}: "beat" must be the beat's number`);
     return { ...(b.beat !== undefined ? { beat: b.beat as number } : {}), say: (b.say as string).trim(), do: ops as Record<string, unknown>[],
       ...(b.paragraph === true ? { paragraph: true } : {}), ...(b.pause ? { pause: Number(b.pause) } : {}),
-      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim() } : {}) };
+      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim() } : {}), ...(b.screen === "join" ? { screen: "join" as const } : {}) };
   });
   const text = (k: string) => (typeof o[k] === "string" && (o[k] as string).trim() ? (o[k] as string).trim() : undefined);
   if (o.region !== undefined && o.region !== null && (typeof o.region !== "object" || Array.isArray(o.region))) fail('"region" must be an object or null');
@@ -256,7 +256,7 @@ export async function voiceAction(id: string, a: VoiceAction): Promise<Run> {
     }
     if (edited.style && edited.style !== fresh.style || edited.art && edited.art !== fresh.art) notes.push("the look is the run's (Scenes tab), so the edited style and art were not applied");
     await scenesAction(id, { action: "editChapter", lecture: a.lecture, chapter: a.chapter,
-      beats: beats.map((b) => ({ beat: b.beat!, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })),
+      beats: beats.map((b) => ({ beat: b.beat!, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about, screen: b.screen })),
       emblem: edited.emblem ?? null, region: edited.region ?? null });
     const after = await loadRun(id);
     if (!after) return run;

@@ -171,6 +171,9 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   boxes (a label past 6 words, a node's text past 10, an item past 5, an arrow's label past 4; items at most 4).
 - A beat's `"screen": "join"` (`Lecture.screen_join`, `_join`): its new main picture joins the one up from an earlier
   line, which slides into its share (`_move_stage`) while the new one comes on in the other (`_pair_boxes`).
+- Two pictures sharing the stage (joined, or two in one line) are marked `is_pair`: `_aside` puts nothing beside them
+  (a card beside a picture used to take the second picture for an old card, fade it out and land over the first);
+  the card takes the stage instead.
 - The line-start clear of strays leaves what the line itself takes away by its parts (`_clear_strays`): a picture slid
   aside sits on the screen in the group its move made, and was cleared as the line began, its shade coming back for
   the line's own fade.

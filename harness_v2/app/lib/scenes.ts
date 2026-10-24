@@ -37,6 +37,9 @@ import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } 
 import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
 import { actsFor, choreographyOf, estimatedWords, fitPlan, flatSteps, keptSteps, lowerPlan, partsOf, planProblems, readCues, readPlan, sceneSeconds, type BeatWords,
   type ChapterPlan, type Cue, type CueAct, type PlanElement, type PlanScene } from "./director";
+import { BEAT_CHOREOGRAPHY_TOOL, BEAT_DIRECTOR_TOOL, beatChoreographyPrompt, beatDirectorPrompt } from "./prompts/beat-director";
+import { applyPatch, beatsProblems, fitBeats, isPlanOfBeats, opParts, paragraphsOf, patchStillFits, readBeats, readPatch, upBefore,
+  type BeatPatch, type BeatsPlan, type ContentBeat, type PatchStep } from "./beat-director";
 import { manualFor } from "./manuals";
 import { PRIMITIVES, primitiveText } from "./primitives";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
@@ -71,7 +74,7 @@ export type ScenesAction =
   | { action: "beatKinds"; lecture: number; beat: number; kinds: string[] | null }
   | { action: "chapterKinds"; lecture: number; chapter: number; kinds: string[] | null }
   | { action: "edit"; lecture: number; beat: number; ops: unknown; render?: boolean }
-  | { action: "editChapter"; lecture: number; chapter: number; beats: { beat: number; ops: unknown; paragraph?: boolean; pause?: number; about?: string }[];
+  | { action: "editChapter"; lecture: number; chapter: number; beats: { beat: number; ops: unknown; paragraph?: boolean; pause?: number; about?: string; screen?: string }[];
       emblem?: string | null; region?: Record<string, unknown> | null; render?: boolean }
   | { action: "editPlan"; lecture: number; chapter: number; plan: unknown; choreograph?: boolean; render?: boolean }
   | { action: "editCues"; lecture: number; chapter: number; cues: unknown; render?: boolean }
@@ -251,7 +254,8 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       const b = beatState(sl, e.beat);
       const kept = filterOps(e.ops as Record<string, unknown>[], allowedFor(run, sl, e.beat));
       Object.assign(b, { ops: kept.ops, dropped: kept.dropped, edited: true, status: "done", errors: undefined, notes: undefined,
-        paragraph: e.paragraph || undefined, pause: e.pause || undefined, about: e.about || undefined });
+        paragraph: e.paragraph || undefined, pause: e.pause || undefined, about: e.about || undefined,
+        screen: e.screen === "join" ? "join" : undefined });
     }
     if (a.emblem !== undefined) sl.emblem = a.emblem || undefined;
     if (a.region !== undefined) (sl.regions ??= {})[a.chapter] = a.region;
@@ -266,10 +270,14 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     // the chapter's voice kept. Compiled, and rendered when asked.
     lectureOf(a.lecture);
     if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
-    if (!lectureState(run, a.lecture).plans?.[a.chapter]?.scenes.some((x) => x.id === a.scene)) throw new Error(`chapter ${a.chapter} has no scene ${a.scene}`);
-    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: scene ${a.scene} built again${a.note ? ` (${a.note})` : ""}; its voice kept.`);
+    const had = lectureState(run, a.lecture).plans?.[a.chapter];
+    // On the current engine a scene is a paragraph of the director's beats ("P2": the second).
+    const paragraph = isPlanOfBeats(had) ? paragraphsOf(had.beats)[Number(/^P(\d+)$/i.exec(a.scene)?.[1]) - 1] : undefined;
+    if (isPlanOfBeats(had) ? !paragraph : !had?.scenes.some((x) => x.id === a.scene)) throw new Error(`chapter ${a.chapter} has no scene ${a.scene}`);
+    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: ${paragraph ? "paragraph" : "scene"} ${a.scene} built again${a.note ? ` (${a.note})` : ""}; its voice kept.`);
     lock(run, [a.lecture], async () => {
-      await rebuildScene(run, a.lecture, a.chapter, a.scene, a.note);
+      if (paragraph) await redirectBeats(run, a.lecture, a.chapter, paragraph, { note: a.note, label: `paragraph ${a.scene} again` });
+      else await rebuildScene(run, a.lecture, a.chapter, a.scene, a.note);
       await compileChapter(run, a.lecture, a.chapter);
       if (a.render) startRender(run, a.lecture, a.chapter);
     });
@@ -284,6 +292,10 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (!scriptOf(run, a.lecture)!.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const had = sl.plans?.[a.chapter];
     if (!had) throw new Error(`chapter ${a.chapter} was not built as one piece (with the director): build it first`);
+    if (isPlanOfBeats(had)) {
+      await editBeats(run, a, had);
+      return run;
+    }
     const engine = stateOf(run).engine === "motion" ? "motion" : "current";
     const own = chapterBeats(run, a.lecture, a.chapter);
     const { words } = await chapterWords(run, a.lecture, a.chapter);
@@ -859,6 +871,8 @@ async function directorBase(run: Run, n: number, c: number, note?: string) {
 }
 
 async function directChapter(run: Run, n: number, c: number, note?: string): Promise<void> {
+  // On the current engine the director writes the beats themselves, and the choreographer patches them.
+  if (stateOf(run).engine !== "motion") return directBeats(run, n, c, note);
   const { st, sl, script, engine, own, kinds, motion, base, mine } = await directorBase(run, n, c, note);
   const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (director${motion ? ", motion engine" : ""})`,
     lecture: n, model: st.model, prompt: directorPrompt(base, { chapter: c, beats: own, ...(motion ? {} : { catalog: primitiveCatalog(kinds) }) }) });
@@ -935,7 +949,8 @@ async function directChapter(run: Run, n: number, c: number, note?: string): Pro
  * only those choreographed again; the other scenes' cues kept. The chapter's voice is kept: nothing is spoken again.
  */
 async function rebuildScene(run: Run, n: number, c: number, sceneId: string, note?: string): Promise<void> {
-  const had = lectureState(run, n).plans?.[c];
+  const was = lectureState(run, n).plans?.[c];
+  const had = isPlanOfBeats(was) ? undefined : was;
   const target = had?.scenes.find((x) => x.id === sceneId);
   if (!had || !target) throw new Error(`chapter ${c} has no scene ${sceneId}`);
   const { sl, engine, kinds, motion, base, mine } = await directorBase(run, n, c, note);
@@ -1220,6 +1235,273 @@ function fakeChoreography(group: PlanScene[], elements: ChoreographyElement[], w
   return { elements: out };
 }
 
+// ---------------------------------------------------------------- a chapter's beats (current engine) -------------
+
+/**
+ * A chapter built as beats, changed by hand (the Scenes tab's JSON): the director's beats (the patch kept, the steps
+ * that still fit; or choreographed again), or the patch. Compiled, and rendered when asked.
+ */
+async function editBeats(run: Run, a: Extract<ScenesAction, { action: "editPlan" | "editCues" }>, had: BeatsPlan) {
+  const own = chapterBeats(run, a.lecture, a.chapter);
+  const { words } = await chapterWords(run, a.lecture, a.chapter);
+  let beats = had.beats;
+  let patch: BeatPatch[] | undefined;
+  let notes: string[] = [];
+  if (a.action === "editPlan") {
+    const raw = Array.isArray(a.plan) ? { beats: a.plan } : a.plan;
+    if (!raw || typeof raw !== "object") throw new Error('the beats must be a JSON object: {"beats": [{"beat": 12, "do": [...]}]}');
+    const got = readBeats(raw as Record<string, unknown>, own);
+    keepBeatKinds(run, a.lecture, got.beats);
+    if (!got.beats.some((b) => b.do.length)) throw new Error(`the beats show nothing that can be drawn${got.notes.length ? `: ${got.notes.slice(0, 4).join("; ")}` : ""}`);
+    beats = got.beats;
+    notes = got.notes;
+    if (!a.choreograph) patch = patchStillFits(had.patch, beats, words).patch;
+  } else {
+    const got = readPatch(a.cues, beats, words);
+    if (got.dropped.length) throw new Error(`${got.dropped.length} step(s) cannot be used: ${got.dropped.slice(0, 6).join("; ")}`);
+    patch = got.patch;
+  }
+  log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: its ${a.action === "editPlan" ? "beats" : "patch"} changed by hand` +
+    (a.action === "editPlan" && a.choreograph ? ", choreographed again." : "."));
+  lock(run, [a.lecture], async () => {
+    applyBeats(run, a.lecture, a.chapter, beats, patch ?? await choreographBeats(run, a.lecture, a.chapter, beats, words), notes);
+    saveRun(run);
+    await compileChapter(run, a.lecture, a.chapter);
+    if (a.render) startRender(run, a.lecture, a.chapter);
+  });
+}
+
+/**
+ * A chapter built as one piece on the current engine, in one JSON (lib/beat-director.ts). (1) The director writes the
+ * chapter's beats: each line's operations, which line each part comes on, the paragraphs, pauses and joins; nothing
+ * timed. Past the LIMITS: asked again once with what was wrong, then cut to fit. (2) Each few paragraphs are
+ * choreographed in a call of their own, at once, answered as a patch on those beats. (3) Code applies the patch: the
+ * beats as the compiler reads them. Both kept by chapter (sl.plans, kind "beats").
+ */
+async function directBeats(run: Run, n: number, c: number, note?: string): Promise<void> {
+  const { st, sl, script, own, kinds, base, mine } = await directorBase(run, n, c, note);
+  const catalog = primitiveCatalog(kinds);
+  const ask = (label: string, problems?: { beats: unknown; list: string[] }) => {
+    const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (${label})`, lecture: n, model: st.model,
+      prompt: beatDirectorPrompt(base, { chapter: c, beats: own, catalog, problems }) });
+    sl.calls.push(call.id);
+    for (const t of own) beatState(sl, t).calls.push(call.id);
+    saveRun(run);
+    return call;
+  };
+  for (const t of own) beatState(sl, t).status = "running";
+  const call = ask("director");
+  let reply = await callTool({ call, tool: BEAT_DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakeBeats(run, n, mine, kinds) });
+  if (!reply) {
+    for (const t of own) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
+    throw new Error(`the call failed: ${call.error ?? "no reply"}`);
+  }
+  let read = readBeats(reply, own);
+  let dropped = keepBeatKinds(run, n, read.beats);
+  const problems = beatsProblems(read.beats);
+  if (problems.length) {
+    check(call, "Limits", "fixed", `${problems.length} past the limits: ${problems.slice(0, 6).join("; ")}; asked again`);
+    const again = ask("director, again within the limits", { beats: read.beats, list: problems });
+    const second = await callTool({ call: again, tool: BEAT_DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakeBeats(run, n, mine, kinds) });
+    if (second) {
+      const read2 = readBeats(second, own);
+      const dropped2 = keepBeatKinds(run, n, read2.beats);
+      const left = beatsProblems(read2.beats);
+      check(again, "Limits", left.length ? "fixed" : "pass", left.length ? `${left.length} still past them (cut to fit): ${left.slice(0, 6).join("; ")}` : "within the limits");
+      if (read2.beats.some((b) => b.do.length) && left.length < problems.length) {
+        reply = second;
+        read = read2;
+        dropped = dropped2;
+      }
+    }
+  }
+  const { beats } = read;
+  const fitted = fitBeats(beats);
+  if (fitted.length) check(call, "Cut to fit", "fixed", fitted.slice(0, 8).join("; "));
+  const shown = beats.reduce((k, b) => k + b.do.length, 0);
+  check(call, "Beats", shown ? "pass" : "fail", `${shown} operation(s) on ${beats.length} beat(s) in ${paragraphsOf(beats).length} paragraph(s)`);
+  if (read.notes.length) check(call, "Mended", "fixed", read.notes.slice(0, 10).join("; "));
+  if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
+  if (typeof reply.emblem === "string" && reply.emblem.trim() && !sl.emblem) sl.emblem = reply.emblem.trim().slice(0, 160);
+  const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
+  if (region && (script.chapters.some((x) => x.map) || beats.some((b) => b.do.some((o) => MAP_OPS.has(String(o.op)))))) {
+    (sl.regions ??= {})[c] = region;
+    check(call, "Region", "pass", `chapter ${c}: ${JSON.stringify(region)}`);
+  }
+  const { words } = await chapterWords(run, n, c);
+  const patch = await choreographBeats(run, n, c, beats, words);
+  const notes = applyBeats(run, n, c, beats, patch, [...read.notes, ...fitted]);
+  if (notes.length) check(call, "Applied", "fixed", `${notes.length} step(s) left out: ${notes.slice(0, 8).join("; ")}`);
+  saveRun(run);
+}
+
+/** The kinds switched off, as in any build: a beat's operations of a kind switched off (or of none) taken out. How
+ * many. */
+function keepBeatKinds(run: Run, n: number, beats: ContentBeat[]): number {
+  const sl = lectureState(run, n);
+  let dropped = 0;
+  for (const b of beats) {
+    const kept = filterOps(b.do, allowedFor(run, sl, b.beat));
+    dropped += kept.dropped.length;
+    b.do = kept.ops as Record<string, unknown>[];
+  }
+  return dropped;
+}
+
+/** The chapter's paragraphs in groups of about CHOREOGRAPHY_SECONDS of narration (never more than CHOREOGRAPHY_SCENES);
+ * with `only`, the paragraphs that have one of those beats. */
+function paragraphGroups(beats: ContentBeat[], words: Map<number, BeatWords>, only?: Set<number>): ContentBeat[][][] {
+  const byBeat = new Map(beats.map((b) => [b.beat, b]));
+  const runs = paragraphsOf(beats).filter((r) => !only || r.some((b) => only.has(b))).map((r) => r.map((b) => byBeat.get(b)!));
+  const out: ContentBeat[][][] = [];
+  let group: ContentBeat[][] = [];
+  let seconds = 0;
+  for (const r of runs) {
+    group.push(r);
+    seconds += r.reduce((k, b) => k + (words.get(b.beat)?.seconds ?? 0) + (words.get(b.beat)?.pause ?? 0), 0);
+    if (seconds >= CHOREOGRAPHY_SECONDS || group.length >= CHOREOGRAPHY_SCENES) {
+      out.push(group);
+      group = [];
+      seconds = 0;
+    }
+  }
+  if (group.length) out.push(group);
+  return out;
+}
+
+/** The patch on a chapter's beats (on `only` those, when given): its paragraphs choreographed a group at a time, the
+ * groups at once. */
+async function choreographBeats(run: Run, n: number, c: number, beats: ContentBeat[], words: Map<number, BeatWords>,
+  only?: Set<number>): Promise<BeatPatch[]> {
+  const sl = lectureState(run, n);
+  const look = motionLookWords(stateOf(run));
+  const groups = paragraphGroups(beats, words, only);
+  const up = upBefore(beats);
+  const model = modelFor("choreography");
+  const all: BeatPatch[] = [];
+  await eachAtOnce(groups.map((_, i) => i), CHOREOGRAPHY_AT_ONCE, async (gi) => {
+    const group = groups[gi];
+    const mine = group.flat();
+    // A Manim figure times itself (the Manim agent writes it to the beat's word times): not choreographed.
+    const shown = mine.map((b) => ({ ...b, do: b.do.filter((o) => o.op !== "manim") }));
+    const scope = new Set(mine.map((b) => b.beat));
+    const ops = [...new Set([...shown.flatMap((b) => b.do.map((o) => String(o.op))), "point", "shade", "focus", "unlabel", "unstage"])];
+    const manuals = ops.map((op) => ({ op, text: manualFor(op, "current") })).filter((m) => m.text);
+    const at = beats.findIndex((b) => b.beat === mine[0].beat);
+    const prev = beats[at - 1];
+    const next = beats[at + mine.length];
+    const paragraphs = group.map((r) => r.map((b) => shown.find((x) => x.beat === b.beat)!));
+    const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, beats ${mine[0].beat}-${mine[mine.length - 1].beat}`,
+      lecture: n, model, effort: "low",
+      prompt: beatChoreographyPrompt({ lecture: n, chapter: c, look, paragraphs, words, up, manuals,
+        before: prev ? `beat ${prev.beat}: "${words.get(prev.beat)?.text.slice(0, 120) ?? ""}"` : undefined,
+        after: next ? `beat ${next.beat} begins: "${words.get(next.beat)?.text.slice(0, 120) ?? ""}"` : undefined }) });
+    sl.calls.push(call.id);
+    for (const b of scope) beatState(sl, b).calls.push(call.id);
+    saveRun(run);
+    const reply = await callTool({ call, tool: BEAT_CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakePatch(shown, words) });
+    const { patch, dropped } = readPatch(reply ?? {}, beats, words, scope);
+    const steps = patch.reduce((k, p) => k + p.steps.length, 0);
+    check(call, "Steps", !reply || !steps ? "fail" : dropped.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
+      : `${steps} step(s) on ${patch.length} beat(s)` + (dropped.length ? `; ${dropped.length} left out: ${dropped.slice(0, 5).join("; ")}` : ""));
+    all.push(...patch);
+  });
+  return all.sort((a, b) => a.beat - b.beat);
+}
+
+/**
+ * A chapter's beats with its patch applied (applyPatch), each beat's operations, paragraph, pause, about and screen
+ * written; both kept (sl.plans, kind "beats"), to be seen and changed. What was left out.
+ */
+function applyBeats(run: Run, n: number, c: number, beats: ContentBeat[], patch: BeatPatch[], notes: string[] = []): string[] {
+  const sl = lectureState(run, n);
+  const applied = applyPatch(beats, patch);
+  for (const b of beats) {
+    Object.assign(beatState(sl, b.beat), { ops: applied.ops.get(b.beat) ?? [], dropped: [], status: "done", edited: false, errors: undefined,
+      notes: undefined, paragraph: b.paragraph || undefined, pause: b.pause, about: b.about, screen: b.screen });
+  }
+  (sl.plans ??= {})[c] = { kind: "beats", beats, patch, at: Date.now(), notes: [...notes, ...applied.notes].slice(0, 60) };
+  sl.scriptAt = run.script?.lectures[n]?.at;
+  return applied.notes;
+}
+
+/**
+ * Some beats of a chapter built on the current engine written again by the director (shown the chapter's beats; the
+ * others kept): a paragraph rebuilt by hand, or the beats the compiler refused (`refused`: what it said of each).
+ * Only those beats' paragraphs choreographed again; the rest of the patch kept.
+ */
+async function redirectBeats(run: Run, n: number, c: number, targets: number[], o: { note?: string; refused?: Record<number, string[]>; label: string }) {
+  const had = lectureState(run, n).plans?.[c];
+  if (!isPlanOfBeats(had)) throw new Error(`chapter ${c} was not built as beats by the director`);
+  const { st, sl, kinds, base, mine } = await directorBase(run, n, c, o.note);
+  const refused = o.refused ? Object.entries(o.refused).flatMap(([b, errs]) => errs.map((e) => `beat ${b}: ${e}`)) : undefined;
+  const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c}, ${o.label} (director)`, lecture: n, model: st.model,
+    prompt: beatDirectorPrompt(base, { chapter: c, beats: targets, catalog: primitiveCatalog(kinds),
+      only: { beats: targets, all: had.beats, note: o.note, why: refused ? "the compiler refused them" : undefined },
+      ...(refused ? { problems: { beats: had.beats.filter((b) => targets.includes(b.beat)), list: refused, refused: true } } : {}) }) });
+  sl.calls.push(call.id);
+  for (const t of targets) beatState(sl, t).calls.push(call.id);
+  saveRun(run);
+  const reply = await callTool({ call, tool: BEAT_DIRECTOR_TOOL, onChange: () => saveRun(run),
+    fake: () => fakeBeats(run, n, mine.filter((b) => targets.includes(b.n)), kinds) });
+  if (!reply) throw new Error(`the call failed: ${call.error ?? "no reply"}`);
+  const read = readBeats(reply, targets);
+  const dropped = keepBeatKinds(run, n, read.beats);
+  const fitted = fitBeats(read.beats);
+  // A paragraph keeps its start (readBeats starts one at its first beat); a mended beat keeps the paragraph it had.
+  for (const b of read.beats) {
+    const was = had.beats.find((x) => x.beat === b.beat);
+    if (o.refused) b.paragraph = was?.paragraph;
+  }
+  const beats = had.beats.map((b) => read.beats.find((x) => x.beat === b.beat) ?? b);
+  check(call, "Beats", read.beats.some((b) => b.do.length) ? "pass" : "fail", `${read.beats.reduce((k, b) => k + b.do.length, 0)} operation(s) on beats ${targets.join(", ")}`);
+  if ([...read.notes, ...fitted].length) check(call, "Mended", "fixed", [...read.notes, ...fitted].slice(0, 8).join("; "));
+  if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off taken out`);
+  const { words } = await chapterWords(run, n, c);
+  const only = new Set(targets);
+  const fresh = await choreographBeats(run, n, c, beats, words, only);
+  const redone = new Set(paragraphGroups(beats, words, only).flat(2).map((b) => b.beat));
+  // The other beats' steps, those that still fit (a step whose `until` is now in a redone beat is checked again).
+  const kept = patchStillFits(had.patch.filter((p) => !redone.has(p.beat)), beats, words).patch;
+  const notes = applyBeats(run, n, c, beats, [...kept, ...fresh], [...(had.notes ?? []).slice(0, 20), ...read.notes]);
+  if (notes.length) check(call, "Applied", "fixed", `${notes.length} step(s) left out: ${notes.slice(0, 6).join("; ")}`);
+  saveRun(run);
+}
+
+/** The stand-in director's beats (no key): the stand-in's beats, a new paragraph at a main picture after two beats. */
+function fakeBeats(run: Run, n: number, beats: SceneBeatInput[], kinds: string[]) {
+  const base = fakeScenes(run, n, beats, kinds);
+  let since = 0;
+  return { region: base.region, beats: base.beats.map((b, i) => {
+    const ops = (b.do as Record<string, unknown>[]).filter((o) => !["reveal", "focus", "zoom", "emphasis", "clear"].includes(String(o.op)));
+    const starts = i === 0 || (ops.some((o) => MAIN.has(String(o.op))) && since >= 2) || since >= 4;
+    since = starts ? 1 : since + 1;
+    return { beat: b.beat, do: ops, ...(starts ? { paragraph: true } : {}) };
+  }) };
+}
+
+/** The stand-in choreographer's patch (no key): each operation on the first word of its line that is in its words,
+ * else as the line begins; each part on the first word that names it; a labelled picture's part lit as it is named. */
+function fakePatch(beats: ContentBeat[], words: Map<number, BeatWords>) {
+  const plainWord = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const find = (beat: number, text: string) => (words.get(beat)?.words ?? []).findIndex((w) => plainWord(w.w).length > 3 && text.toLowerCase().includes(plainWord(w.w)));
+  return { beats: beats.map((b) => {
+    const steps: PatchStep[] = [];
+    b.do.forEach((op, i) => {
+      const named = ["title", "text", "label", "term", "value", "name", "caption", "part"].map((k) => op[k]).filter((v) => typeof v === "string").join(" ");
+      const at = Math.max(0, find(b.beat, named));
+      steps.push({ at: `w${at}`, do: "enter", op: i });
+      for (const p of opParts(op)) {
+        const hit = find(b.beat, p.name);
+        if (hit < 0) continue;
+        steps.push({ at: `w${Math.max(hit, at)}`, do: "show", op: i, part: p.name });
+        if (op.op === "picture" && Array.isArray(op.labels)) steps.push({ at: `w${Math.max(hit, at) + 1}`, do: "light", part: p.name });
+      }
+    });
+    return { beat: b.beat, steps };
+  }) };
+}
+
 // ---------------------------------------------------------------- the voice first ---------------
 
 /** The music bed's setting for the engine (engine/music.py): off when the Scenes tab turned it off. */
@@ -1500,6 +1782,32 @@ async function fixChapter(run: Run, n: number, c: number) {
   const figures = mine.filter((b) => b.errors?.length && isFigure(b));
   if (!broken.length && !figures.length) return;
   saveRun(run);
+  // A chapter the director wrote as beats: its refused beats (what the compiler could not mend itself) asked of the
+  // director again, told what the compiler said, never of the per-beat writer; a beat still refused shows nothing new.
+  if (broken.length && isPlanOfBeats(sl.plans?.[c])) {
+    try {
+      await redirectBeats(run, n, c, broken.map((b) => b.n), { refused: Object.fromEntries(broken.map((b) => [b.n, b.errors!])),
+        label: `mend ${broken.length} beat(s)` });
+    } catch (e) {
+      log(run, `Lecture ${n}, chapter ${c}: the director could not mend its refused beats (${(e as Error).message}).`);
+    }
+    await agentsOn(run, n, (b) => broken.some((x) => x.n === b.n) && !b.ops.some((o) => o.op === "manim" && o.code), c);
+    await compileChapter(run, n, c);
+    const still = chapterBeats(run, n, c).map((k) => sl.beats[k]).filter((b): b is SceneBeat => !!b?.errors?.length && !isFigure(b));
+    const plan = sl.plans?.[c];
+    if (still.length && isPlanOfBeats(plan)) {
+      for (const b of still) {
+        const own = plan.beats.find((x) => x.beat === b.n);
+        if (own) own.do = [];
+        Object.assign(b, { ops: [], errors: undefined });
+      }
+      plan.notes = [...(plan.notes ?? []), ...still.map((b) => `beat ${b.n}: still refused after the director's mend: it shows nothing new`)].slice(0, 60);
+      log(run, `Lecture ${n}, chapter ${c}: beat(s) ${still.map((b) => b.n).join(", ")} still refused: their operations left out.`);
+      await compileChapter(run, n, c);
+    }
+    broken.length = 0;
+    if (!figures.length) return;
+  }
   if (broken.length) await writeBeats(run, n, { what: "fix", beats: broken.map((b) => b.n) }, Object.fromEntries(broken.map((b) => [b.n, b.errors!])));
   for (const b of figures) {
     if (stopRequested(`${run.id}:scenes`)) break;
@@ -1600,7 +1908,8 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
     beats: c.beats.map((b) => {
       const sb = sl.beats[b.n];
       return { n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sb?.ops ?? [],
-        ...(sb?.paragraph ? { paragraph: true } : {}), ...(sb?.pause ? { pause: sb.pause } : {}), ...(sb?.about ? { about: sb.about } : {}) };
+        ...(sb?.paragraph ? { paragraph: true } : {}), ...(sb?.pause ? { pause: sb.pause } : {}), ...(sb?.about ? { about: sb.about } : {}),
+        ...(sb?.screen === "join" ? { screen: "join" } : {}) };
     }),
   }));
   if (only) {

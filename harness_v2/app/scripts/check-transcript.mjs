@@ -426,8 +426,9 @@ assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
 assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
 assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "point", "shade", "unshade", "label", "unlabel", "unfocus", "unstage", "define", "clear"].includes(o.op))),
   "only the kinds switched on");
-// A chapter as one piece (the default): the director's plan (elements and scenes, no timing), then each few scenes
-// choreographed (the stand-in here) with their artifacts' manuals, lowered into the beats on their words.
+// A chapter as one piece (the default), on the current engine in one JSON: the director writes the beats (each line's
+// operations, no timing, no pointing), then each few paragraphs choreographed (the stand-in here) with their
+// artifacts' manuals, answered as a patch on those beats that code applies.
 const directorCalls = run.calls.filter((c) => c.step === "scenes" && /\(director\)$/.test(c.label));
 assert.equal(directorCalls.length, run.script.lectures[1].chapters.length, "one director call a chapter");
 // The director's prompt is its own: its instructions, the primitives, the facts it needs; none of the per-beat writer's.
@@ -448,15 +449,67 @@ assert.ok(directorCalls.every((c) => !c.prompt.system.some((p) => /^v1-/.test(p.
   assert.equal(d.planProblems(big).length, 0, JSON.stringify(d.planProblems(big)));
   assert.ok(notes.length >= 2, JSON.stringify(notes));
 }
-assert.ok(directorCalls.every((c) => c.prompt.system.some((p) => p.key === "director" && /THE CHAPTER'S PLAN/.test(p.text))
-  && !c.prompt.system.some((p) => p.key === "v2-anchors") && c.checks.some((k) => k.name === "Plan" && k.result === "pass")), "the director plans, and times nothing");
+// The director's beats and the choreographer's patch (lib/beat-director.ts): limits said and cut to fit, timing and
+// pointing taken out of the director's beats, a patch read against them (a word of its line, an operation by number,
+// a part by name, a look that cannot change content) and applied.
+{
+  const b = await import(path.resolve(here, "../lib/beat-director.ts"));
+  const long = Array.from({ length: 7 }, (_, k) => ({ beat: k + 1, do: [] }));
+  long[0].do = [{ op: "diagram", id: "d", nodes: Array.from({ length: 8 }, (_, k) => ({ id: `n${k}`, label: `Node ${k}` })), edges: [], on: "w2" },
+    { op: "point", target: "Node 1" }];
+  const read = b.readBeats({ beats: long }, long.map((x) => x.beat));
+  assert.ok(read.beats[0].paragraph && read.beats[0].do.length === 1 && read.beats[0].do[0].on === undefined && read.notes.some((x) => /point left out/.test(x)), JSON.stringify(read));
+  const problems = b.beatsProblems(read.beats);
+  assert.ok(problems.some((x) => /7 beats/.test(x)) && problems.some((x) => /8 nodes/.test(x)), JSON.stringify(problems));
+  b.fitBeats(read.beats);
+  assert.deepEqual([b.paragraphsOf(read.beats).map((r) => r.length), read.beats[0].do[0].nodes.length, b.beatsProblems(read.beats).length], [[4, 3], 6, 0]);
+  const beats = [
+    { beat: 1, paragraph: true, do: [{ op: "picture", generate: "a river bank", labels: ["water", "soil"], hold: ["soil"] }] },
+    { beat: 2, do: [{ op: "label", part: "soil" }] },
+    { beat: 3, do: [] },
+    { beat: 4, paragraph: true, do: [{ op: "diagram", id: "chain", nodes: [{ id: "food", label: "Food" }, { id: "towns", label: "Towns" }], edges: [["food", "towns"]], show: ["food"] }] },
+    { beat: 5, do: [{ op: "reveal", diagram: "chain", nodes: ["towns"] }] }];
+  const d = await import(path.resolve(here, "../lib/director.ts"));
+  const words = new Map([1, 2, 3, 4, 5].map((n) => [n, d.estimatedWords(n, "one two three four five six seven eight")]));
+  assert.deepEqual([b.opParts(beats[0].do[0]).map((p) => p.name), b.opParts(beats[3].do[0]).map((p) => p.name), b.opParts(beats[1].do[0])], [["water"], ["Food"], []],
+    "a part held for a later line is not this line's");
+  const patch = b.readPatch({ beats: [
+    { beat: 1, steps: [{ at: "w1", do: "enter", op: 0 }, { at: "w2", do: "show", op: 0, part: "water" }, { at: "w9", do: "light", part: "water", until: "b3.w5" },
+      { at: "w2", do: "show", op: 0, part: "nope" }], look: [{ op: 0, move: "drift", labels: ["x"] }] },
+    { beat: 2, steps: [{ at: "w3", do: "enter", op: 0 }] },
+    { beat: 3, steps: [{ at: "w2", do: "hide", part: "water" }, { at: "w4", do: "exit" }] },
+    { beat: 5, steps: [{ at: "w1", do: "enter", op: 0 }, { at: "w2", do: "focus", diagram: "chain", node: "towns", until: "b5.w6" }, { at: "w3", do: "pulse", target: "Food" }] },
+    { beat: 99, steps: [] }] }, beats, words);
+  assert.equal(patch.dropped.length, 3, JSON.stringify(patch.dropped));
+  assert.ok(patch.dropped.some((x) => /no part "nope"/.test(x)) && patch.dropped.some((x) => /cannot change "labels"/.test(x)) && patch.dropped.some((x) => /beat 99/.test(x)));
+  const { ops, notes } = b.applyPatch(beats, patch.patch);
+  assert.deepEqual(ops.get(1).map((o) => [o.op, o.on, o.hold, o.move]), [["picture", "w1", ["soil"], "drift"], ["shade", "w7", true, undefined]], JSON.stringify(ops.get(1)));
+  assert.equal(ops.get(1)[0].labels[0].on, "w2", "a part on its word");
+  assert.deepEqual(ops.get(2).map((o) => [o.op, o.on]), [["label", "w3"]]);
+  assert.deepEqual(ops.get(3).map((o) => [o.op, o.on]), [["unlabel", "w2"], ["unstage", "w4"], ["unshade", "w5"]], JSON.stringify(ops.get(3)));
+  assert.deepEqual(ops.get(5).map((o) => [o.op, o.on]), [["reveal", "w1"], ["focus", "w2"], ["point", "w3"], ["unfocus", "w6"]], JSON.stringify(ops.get(5)));
+  assert.equal(notes.length, 0, JSON.stringify(notes));
+  assert.deepEqual(b.upBefore(beats).get(3).length, 1, "what is up as a line begins");
+  // A reveal's nodes each on the word of its own show (a reveal for each word); a field sent empty is not given.
+  const two = structuredClone(beats);
+  two[3].do[0].nodes.push({ id: "trade", label: "Trade" });
+  two[4].do[0].nodes = ["towns", "trade"];
+  const split = b.readPatch({ beats: [{ beat: 5, steps: [{ at: "w2", do: "show", op: 0, part: "Towns", until: "", target: "" },
+    { at: "w5", do: "show", op: 0, part: "trade", until: "" }, { at: "w6", do: "light", part: "water", until: "" }] }] }, two, words);
+  assert.deepEqual(split.dropped, [], JSON.stringify(split.dropped));
+  assert.deepEqual(b.applyPatch(two, split.patch).ops.get(5).map((o) => [o.op, o.nodes, o.on]),
+    [["reveal", ["towns"], "w2"], ["reveal", ["trade"], "w5"], ["shade", undefined, "w6"]]);
+}
+assert.ok(directorCalls.every((c) => c.prompt.system.some((p) => p.key === "director" && /THE CHAPTER'S BEATS/.test(p.text))
+  && !c.prompt.system.some((p) => p.key === "v2-anchors") && c.checks.some((k) => k.name === "Beats" && k.result === "pass")), "the director writes the beats, and times nothing");
 const choreoCalls = run.calls.filter((c) => c.step === "scenes" && /^Choreography: lecture 1/.test(c.label));
 assert.ok(choreoCalls.length >= run.script.lectures[1].chapters.length && choreoCalls.every((c) => c.status === "done"
-  && c.prompt.system.some((p) => p.key === "manuals" && /=== \w+ ===/.test(p.text)) && c.checks.some((k) => k.name === "Cues" && k.result !== "fail")),
-  "every chapter's scenes choreographed with their manuals");
+  && c.prompt.system.some((p) => p.key === "manuals" && /=== \w+ ===/.test(p.text)) && c.checks.some((k) => k.name === "Steps" && k.result !== "fail")),
+  "every chapter's paragraphs choreographed with their manuals");
 const plans = Object.values(sl1.plans ?? {});
-assert.equal(plans.length, run.script.lectures[1].chapters.length, "each chapter's plan kept");
-assert.ok(plans.every((pl) => pl.scenes.length && pl.elements.every((e) => pl.scenes.some((x) => x.uses.includes(e.id)))), "every element in a scene");
+assert.equal(plans.length, run.script.lectures[1].chapters.length, "each chapter's beats kept");
+assert.ok(plans.every((pl, i) => pl.kind === "beats" && pl.beats.length === run.script.lectures[1].chapters[i].beats.length && pl.beats[0].paragraph
+  && pl.patch.length), "every chapter's beats and patch kept");
 const lowered = Object.values(sl1.beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
 assert.ok(lowered.length && lowered.every((o) => /^(w\d+|start)$/.test(o.on)), `the elements lowered on their words: ${JSON.stringify(lowered.slice(0, 3))}`);
 // Strict on the current engine: every chapter's script says so, its compile keeps it, and the engine is told.
@@ -465,27 +518,28 @@ const strictScript = await strictLib.engineScript(run, 1, run.scenes.look);
 assert.ok(strictScript.chapters.every((c) => c.strict === true), "the director's chapters are strict on the current engine");
 const strictCompiled = await strictLib.compile(run, strictScript, path.join(strictLib.scenesDir(run.id), "strict-check"), 1);
 assert.ok(strictCompiled.source?.includes("self.strict_beats(True)") && !strictCompiled.errors.length, strictCompiled.errors.join("; "));
-// The plan and its cues, seen and changed by hand (the Scenes tab's "Director plan and cues"): cues that do not fit
-// are refused with why; cues and a plan saved are lowered, compiled; a plan can be choreographed again.
+// The beats and the patch, seen and changed by hand (the Scenes tab's "Director beats and choreography"): a patch
+// that does not fit is refused with why; a patch and beats saved are applied, compiled; beats can be choreographed again.
 const pc = run.script.lectures[1].chapters[0].n;
 const kept = sl1.plans[pc];
-const stepsOf = (pl) => pl.choreography.elements.flatMap((e) => e.timeline);
-assert.ok(kept.choreography?.elements.length === kept.elements.length && stepsOf(kept).length && stepsOf(kept).every((q) => /^b\d+\.w\d+$/.test(q.at)),
-  "each element's timeline kept with the plan, each step on its word");
-await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { elements: [{ id: "nope", timeline: [{ at: "b999.w0", do: "enter" }] }] } }), /cannot be used/);
-await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { elements: [{ id: kept.elements[0].id, timeline: [], look: { nodes: [] } }] } }), /cannot change "nodes"/);
-const entersOnly = { elements: kept.choreography.elements.map((e) => ({ id: e.id, timeline: e.timeline.filter((q) => q.do === "enter" || q.do === "show") })) };
-const enters = entersOnly.elements.flatMap((e) => e.timeline);
+const stepsOf = (pl) => pl.patch.flatMap((p) => p.steps);
+assert.ok(stepsOf(kept).length && stepsOf(kept).every((q) => /^w\d+$/.test(q.at)), "the patch kept with the beats, each step on a word of its line");
+await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { beats: [{ beat: 999, steps: [{ at: "w0", do: "enter", op: 0 }] }] } }), /cannot be used/);
+const firstOp = kept.beats.find((x) => x.do.length);
+await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: { beats: [{ beat: firstOp.beat, steps: [], look: [{ op: 0, nodes: [] }] }] } }), /cannot change "nodes"/);
+const entersOnly = { beats: kept.patch.map((p) => ({ beat: p.beat, steps: p.steps.filter((q) => q.do === "enter" || q.do === "show") })) };
+const enters = entersOnly.beats.flatMap((p) => p.steps);
 await scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: entersOnly });
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
-assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "the choreography saved");
+assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "the patch saved");
 assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
-const edited = structuredClone({ elements: run.scenes.lectures[1].plans[pc].elements, scenes: run.scenes.lectures[1].plans[pc].scenes });
-edited.elements[0].role = "edited by hand";
+const edited = structuredClone({ beats: run.scenes.lectures[1].plans[pc].beats });
+edited.beats[0].about = "edited by hand";
 await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited });
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
-assert.equal(run.scenes.lectures[1].plans[pc].elements[0].role, "edited by hand", "the plan saved");
-assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "with the timelines that still fit it");
+assert.equal(run.scenes.lectures[1].plans[pc].beats[0].about, "edited by hand", "the beats saved");
+assert.equal(run.scenes.lectures[1].beats[edited.beats[0].beat].about, "edited by hand", "and applied");
+assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "with the patch's steps that still fit them");
 // The lowering of every step (lib/director.ts), on the current engine: a label shown on a later line held back and
 // brought on by a `label`, its note, a light held until a word (shade with hold, then unshade), a hide (an
 // unlabel), a focus held (focus, then unfocus), a pulse on a node (point), a look merged and content refused.
@@ -554,18 +608,38 @@ await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: 
 run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
 assert.ok(run.calls.filter((c) => /^Choreography:/.test(c.label)).length > choreoBefore, "a plan choreographed again");
 assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
-await assert.rejects(scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: { elements: [], scenes: [] } }), /no element/);
-// One scene built again (the director for its beats only, then its choreography); the other scenes and the voice kept.
-const sceneOne = run.scenes.lectures[1].plans[pc].scenes[0];
-const otherScenes = run.scenes.lectures[1].plans[pc].scenes.slice(1).map((x) => JSON.stringify(x));
-await scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: sceneOne.id, note: "a different picture" });
-run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
-const rebuilt = run.scenes.lectures[1].plans[pc];
-assert.ok(run.calls.some((c) => new RegExp(`scene ${sceneOne.id} again \\(director`).test(c.label)), "the director asked for that scene only");
-assert.ok(otherScenes.every((x) => rebuilt.scenes.some((y) => JSON.stringify(y) === x)), "the other scenes as they were");
-assert.deepEqual(rebuilt.scenes.flatMap((x) => x.beats).sort((a, b) => a - b), run.script.lectures[1].chapters[0].beats.map((b) => b.n), "every beat still in a scene");
-assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
-await assert.rejects(scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: "S99" }), /no scene S99/);
+await assert.rejects(scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: { beats: [] } }), /show nothing/);
+// One paragraph built again (the director for its beats only, then its choreography); the other beats and the voice kept.
+{
+  const b = await import(path.resolve(here, "../lib/beat-director.ts"));
+  const before = run.scenes.lectures[1].plans[pc];
+  const first = b.paragraphsOf(before.beats)[0];
+  const others = before.beats.filter((x) => !first.includes(x.beat)).map((x) => JSON.stringify(x));
+  await scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: "P1", note: "a different picture" });
+  run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+  const rebuilt = run.scenes.lectures[1].plans[pc];
+  assert.ok(run.calls.some((c) => /paragraph P1 again \(director\)/.test(c.label)), "the director asked for that paragraph only");
+  assert.ok(others.every((x) => rebuilt.beats.some((y) => JSON.stringify(y) === x)), "the other beats as they were");
+  assert.deepEqual(rebuilt.beats.map((x) => x.beat), run.script.lectures[1].chapters[0].beats.map((x) => x.n), "every beat still there");
+  assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
+  await assert.rejects(scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: "P99" }), /no scene P99/);
+  // A beat the compiler refuses in a directed chapter is mended by the director (told what the compiler said), not
+  // by the per-beat writer.
+  const bad = structuredClone({ beats: rebuilt.beats });
+  const target = bad.beats[1] ?? bad.beats[0];
+  target.do = [{ op: "define" }];
+  await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: bad });
+  run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+  assert.ok(run.scenes.lectures[1].beats[target.beat].errors?.length, "the beat refused");
+  const writerBefore = run.calls.filter((c) => /mend \d+ beat\(s\)$/.test(c.label)).length;
+  await scenesAction(run.id, { action: "fix", lecture: 1 });
+  run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+  const mend = run.calls.find((c) => /mend 1 beat\(s\) \(director\)/.test(c.label));
+  assert.ok(mend && mend.prompt.user.some((p) => p.key === "problems" && /define/.test(p.text)), "the director told what the compiler refused");
+  assert.equal(run.calls.filter((c) => /mend \d+ beat\(s\)$/.test(c.label)).length, writerBefore, "never the per-beat writer in a directed chapter");
+  assert.ok(!run.scenes.lectures[1].beats[target.beat].errors?.length, "the beat mended");
+  assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
+}
 // The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
 await scenesAction(run.id, { action: "engine", engine: "current", director: false });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });

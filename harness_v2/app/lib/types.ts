@@ -2,6 +2,7 @@
  * What a run is, as the server keeps it and the page shows it. Plain data (no Node imports): the page reads it.
  */
 
+import type { BeatsPlan } from "./beat-director";
 import type { ChapterPlan } from "./director";
 import type { Part } from "./prompts/parts";
 import type { Block } from "./source/blocks";
@@ -326,6 +327,8 @@ export type SceneBeat = {
   paragraph?: boolean;
   pause?: number;
   about?: string;
+  /** The script's "screen": "join": the beat's new main picture joins the one up (engine/BEAT_SCRIPT.md). */
+  screen?: "join";
   /** What code took out of the model's answer (a kind switched off, an op the engine does not know). */
   dropped?: string[];
   /** The compiler's errors on this beat (it does not compile), and its notes (warnings, what it mended). */
@@ -471,8 +474,10 @@ export type SceneLecture = {
   chapterKinds?: Record<string, string[]>;
   /** When the script it was built from was made (a newer script: rebuild). */
   scriptAt?: number;
-  /** Each chapter's plan (by chapter number), when it was built as one piece (lib/director.ts). */
-  plans?: Record<string, ChapterPlan>;
+  /** Each chapter's plan (by chapter number), when it was built as one piece: on the current engine its beats as the
+   * director wrote them with the choreographer's patch (kind "beats", lib/beat-director.ts); on the motion engine its
+   * elements and scenes with their choreography (lib/director.ts). */
+  plans?: Record<string, ChapterPlan | BeatsPlan>;
   error?: string;
   calls: string[];
   at?: number;
@@ -636,7 +641,7 @@ export type ChapterScript = {
   genre?: string | null;
   /** strict: everything that comes on, and when, is the script's own (BEAT_SCRIPT.md, the chapter's "strict"). */
   chapter: { title: string; narration?: string; map?: boolean; strict?: boolean;
-    beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string }[] };
+    beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string; screen?: "join" }[] };
 };
 
 /** The video step's settings (the voice's own are run.voice.settings). */

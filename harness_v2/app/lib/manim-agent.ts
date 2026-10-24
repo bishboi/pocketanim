@@ -16,6 +16,7 @@
  * beat (SceneBeat.agent) for the page.
  */
 
+import { isPlanOfBeats, paragraphsOf } from "./beat-director";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -287,7 +288,10 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   const voice = voiced?.get(beat);
   const secs = voice?.seconds ?? Math.max(2, said.split(/\s+/).length / 2.6);
   // The scene it is in (a chapter built as one piece): its beats, so the figure is built across them.
-  const scene = sl.plans?.[chapter.n]?.scenes.find((x) => x.beats.includes(beat));
+  const built = sl.plans?.[chapter.n];
+  const scene: { id: string; beats: number[]; intent?: string } | undefined = isPlanOfBeats(built)
+    ? paragraphsOf(built.beats).map((beats, k) => ({ id: `P${k + 1}`, beats })).find((x) => x.beats.includes(beat))
+    : built?.scenes.find((x) => x.beats.includes(beat));
   const look = lookWords(st.look);
   const state: ManimAgentState = { status: "running", model: o.model || st.manimModel || run.options.manimModel || modelFor("manim"),
     imageModel: run.options.imageModel || modelFor("image"), id, plan: plan || undefined, instruction: o.instruction, steps: [], images: [], turns: 0, cost: 0, started: Date.now() };

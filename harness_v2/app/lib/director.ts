@@ -53,7 +53,7 @@ const DO_OF: Record<CueAct, string> = { enter: "enter", hide: "hide", shade: "li
 /** A cue's act as the choreographer writes it (`show` for a part's entry). */
 export const doName = (act: CueAct, part: boolean) => (part && act === "enter" ? "show" : DO_OF[act]);
 /** What a look may not change: the element's own content (the director's). */
-const NOT_LOOK = new Set(["op", "id", "on", "nodes", "edges", "labels", "items", "events", "steps_of", "show", "hide", "text", "title"]);
+export const NOT_LOOK = new Set(["op", "id", "on", "nodes", "edges", "labels", "items", "events", "steps_of", "show", "hide", "text", "title"]);
 /** A beat's line as the voice says it (or, unspoken, as it would be: `estimated`). */
 export type BeatWords = { n: number; text: string; seconds: number; pause: number; words: { w: string; t: number }[]; estimated?: boolean };
 export type Engine = "current" | "motion";
@@ -73,7 +73,7 @@ const MAIN_OPS = new Set(["picture", "photo", "illustration", "figure", "gallery
 /** A stamp's words at most. */
 const STAMP_LETTERS = 24;
 
-const isObj = (x: unknown): x is Op => !!x && typeof x === "object" && !Array.isArray(x);
+export const isObj = (x: unknown): x is Op => !!x && typeof x === "object" && !Array.isArray(x);
 const nameOf = (o: Op) => NAMED_BY.map((k) => o[k]).find((v) => (typeof v === "string" || typeof v === "number") && String(v).trim());
 
 export function slug(text: string): string {
@@ -167,41 +167,46 @@ export function planProblems(plan: ChapterPlan): string[] {
     if (sc.beats.length > L.sceneBeats) out.push(`scene ${sc.id} has ${sc.beats.length} beats (at most ${L.sceneBeats}): cut it where the idea turns`);
     if (sc.uses.length > L.sceneElements) out.push(`scene ${sc.id} uses ${sc.uses.length} elements (at most ${L.sceneElements})`);
   }
-  for (const el of plan.elements) {
-    const op = el.op;
-    const say = (what: string) => out.push(`${el.id} (${String(op.op)}): ${what}`);
-    if (op.op === "diagram" && Array.isArray(op.nodes)) {
-      if (op.nodes.length > L.nodes) say(`${op.nodes.length} nodes (at most ${L.nodes}): split it into two diagrams for two scenes`);
-      for (const n of op.nodes.filter(isObj)) {
-        if (wordCount(n.label ?? n.id) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} is ${wordCount(n.label)} words (at most ${L.nodeWords})`);
-        const items = Array.isArray(n.items) ? n.items : [];
-        if (items.length > L.items) say(`node ${JSON.stringify(n.label ?? n.id)} has ${items.length} items (at most ${L.items})`);
-        if (items.some((x) => wordCount(x) > L.itemWords)) say(`node ${JSON.stringify(n.label ?? n.id)} has an item longer than ${L.itemWords} words`);
-        if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} has a sentence in it: words on the screen are names`);
-      }
-      for (const e of Array.isArray(op.edges) ? op.edges : []) {
-        if (Array.isArray(e) && e.length > 2 && wordCount(e[2]) > L.edgeWords) say(`the arrow label ${JSON.stringify(e[2])} is longer than ${L.edgeWords} words`);
-      }
+  for (const el of plan.elements) out.push(...opProblems(el.id, el.op));
+  return out;
+}
+
+/** Where one operation goes past LIMITS (its lists, its words), each said with `id` (an element's id, a beat's op). */
+export function opProblems(id: string, op: Op): string[] {
+  const out: string[] = [];
+  const L = LIMITS;
+  const say = (what: string) => out.push(`${id} (${String(op.op)}): ${what}`);
+  if (op.op === "diagram" && Array.isArray(op.nodes)) {
+    if (op.nodes.length > L.nodes) say(`${op.nodes.length} nodes (at most ${L.nodes}): split it into two diagrams for two scenes`);
+    for (const n of op.nodes.filter(isObj)) {
+      if (wordCount(n.label ?? n.id) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} is ${wordCount(n.label)} words (at most ${L.nodeWords})`);
+      const items = Array.isArray(n.items) ? n.items : [];
+      if (items.length > L.items) say(`node ${JSON.stringify(n.label ?? n.id)} has ${items.length} items (at most ${L.items})`);
+      if (items.some((x) => wordCount(x) > L.itemWords)) say(`node ${JSON.stringify(n.label ?? n.id)} has an item longer than ${L.itemWords} words`);
+      if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) say(`node ${JSON.stringify(n.label ?? n.id)} has a sentence in it: words on the screen are names`);
     }
-    if (op.op === "timeline" && Array.isArray(op.events)) {
-      if (op.events.length > L.events) say(`${op.events.length} events (at most ${L.events})`);
-      for (const ev of op.events) {
-        const label = Array.isArray(ev) ? ev[1] : isObj(ev) ? ev.label : "";
-        if (wordCount(label) > L.eventWords) say(`the event ${JSON.stringify(label)} is longer than ${L.eventWords} words`);
-      }
+    for (const e of Array.isArray(op.edges) ? op.edges : []) {
+      if (Array.isArray(e) && e.length > 2 && wordCount(e[2]) > L.edgeWords) say(`the arrow label ${JSON.stringify(e[2])} is longer than ${L.edgeWords} words`);
     }
-    if (op.op === "compare" && Array.isArray(op.columns)) {
-      if (op.columns.length > L.columns) say(`${op.columns.length} columns (at most ${L.columns})`);
-      for (const c of op.columns.filter(isObj)) {
-        const pts = Array.isArray(c.points) ? c.points : [];
-        if (pts.length > L.points) say(`column ${JSON.stringify(c.title)} has ${pts.length} points (at most ${L.points})`);
-        if (pts.some((x) => wordCount(x) > L.pointWords)) say(`column ${JSON.stringify(c.title)} has a point longer than ${L.pointWords} words`);
-      }
+  }
+  if (op.op === "timeline" && Array.isArray(op.events)) {
+    if (op.events.length > L.events) say(`${op.events.length} events (at most ${L.events})`);
+    for (const ev of op.events) {
+      const label = Array.isArray(ev) ? ev[1] : isObj(ev) ? ev.label : "";
+      if (wordCount(label) > L.eventWords) say(`the event ${JSON.stringify(label)} is longer than ${L.eventWords} words`);
     }
-    if (op.op === "picture" && Array.isArray(op.labels)) {
-      if (op.labels.length > L.labels) say(`${op.labels.length} labels (at most ${L.labels})`);
-      if (op.labels.some((x) => wordCount(nameOfLabel(x)) > L.labelWords)) say(`a label longer than ${L.labelWords} words`);
+  }
+  if (op.op === "compare" && Array.isArray(op.columns)) {
+    if (op.columns.length > L.columns) say(`${op.columns.length} columns (at most ${L.columns})`);
+    for (const c of op.columns.filter(isObj)) {
+      const pts = Array.isArray(c.points) ? c.points : [];
+      if (pts.length > L.points) say(`column ${JSON.stringify(c.title)} has ${pts.length} points (at most ${L.points})`);
+      if (pts.some((x) => wordCount(x) > L.pointWords)) say(`column ${JSON.stringify(c.title)} has a point longer than ${L.pointWords} words`);
     }
+  }
+  if (op.op === "picture" && Array.isArray(op.labels)) {
+    if (op.labels.length > L.labels) say(`${op.labels.length} labels (at most ${L.labels})`);
+    if (op.labels.some((x) => wordCount(nameOfLabel(x)) > L.labelWords)) say(`a label longer than ${L.labelWords} words`);
   }
   return out;
 }
@@ -235,38 +240,43 @@ export function fitPlan(plan: ChapterPlan): string[] {
     notes.push(`scene ${sc.id}: ${sc.beats.length} beats cut into ${parts} scenes`);
   }
   plan.scenes = scenes;
-  for (const el of plan.elements) {
-    const op = el.op;
-    const said = (what: string) => notes.push(`${el.id}: ${what}`);
-    if (op.op === "diagram" && Array.isArray(op.nodes)) {
-      if (op.nodes.length > L.nodes) {
-        const kept = new Set(op.nodes.slice(0, L.nodes).filter(isObj).map((n) => String(n.id)));
-        said(`${op.nodes.length - L.nodes} node(s) past ${L.nodes} left out`);
-        op.nodes = op.nodes.slice(0, L.nodes);
-        if (Array.isArray(op.edges)) op.edges = op.edges.filter((e) => Array.isArray(e) && kept.has(String(e[0])) && kept.has(String(e[1])));
-        if (Array.isArray(op.show)) op.show = op.show.filter((x) => kept.has(String(x)));
-      }
-      for (const n of (op.nodes as unknown[]).filter(isObj)) {
-        if (typeof n.label === "string" && wordCount(n.label) > L.nodeWords) n.label = cut(n.label, L.nodeWords);
-        if (Array.isArray(n.items)) n.items = n.items.slice(0, L.items).map((x: unknown) => cut(x, L.itemWords));
-        if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) delete n.text;
-      }
-      if (Array.isArray(op.edges)) op.edges = op.edges.map((e) => (Array.isArray(e) && e.length > 2 ? [e[0], e[1], cut(e[2], L.edgeWords), ...e.slice(3)] : e));
+  for (const el of plan.elements) notes.push(...fitOp(el.id, el.op));
+  return notes;
+}
+
+/** One operation's lists and words cut to LIMITS, in place; what was cut, each said with `id`. */
+export function fitOp(id: string, op: Op): string[] {
+  const notes: string[] = [];
+  const L = LIMITS;
+  const said = (what: string) => notes.push(`${id}: ${what}`);
+  if (op.op === "diagram" && Array.isArray(op.nodes)) {
+    if (op.nodes.length > L.nodes) {
+      const kept = new Set(op.nodes.slice(0, L.nodes).filter(isObj).map((n) => String(n.id)));
+      said(`${op.nodes.length - L.nodes} node(s) past ${L.nodes} left out`);
+      op.nodes = op.nodes.slice(0, L.nodes);
+      if (Array.isArray(op.edges)) op.edges = op.edges.filter((e) => Array.isArray(e) && kept.has(String(e[0])) && kept.has(String(e[1])));
+      if (Array.isArray(op.show)) op.show = op.show.filter((x) => kept.has(String(x)));
     }
-    if (op.op === "timeline" && Array.isArray(op.events)) {
-      if (op.events.length > L.events) said(`${op.events.length - L.events} event(s) past ${L.events} left out`);
-      op.events = op.events.slice(0, L.events).map((ev) => (Array.isArray(ev) ? [ev[0], cut(ev[1], L.eventWords), ...ev.slice(2)]
-        : isObj(ev) ? { ...ev, label: cut(ev.label, L.eventWords) } : ev));
+    for (const n of (op.nodes as unknown[]).filter(isObj)) {
+      if (typeof n.label === "string" && wordCount(n.label) > L.nodeWords) n.label = cut(n.label, L.nodeWords);
+      if (Array.isArray(n.items)) n.items = n.items.slice(0, L.items).map((x: unknown) => cut(x, L.itemWords));
+      if (typeof n.text === "string" && wordCount(n.text) > L.nodeWords) delete n.text;
     }
-    if (op.op === "compare" && Array.isArray(op.columns)) {
-      if (op.columns.length > L.columns) said(`${op.columns.length - L.columns} column(s) past ${L.columns} left out`);
-      op.columns = op.columns.slice(0, L.columns).map((c) => (isObj(c) && Array.isArray(c.points)
-        ? { ...c, points: c.points.slice(0, L.points).map((x) => cut(x, L.pointWords)) } : c));
-    }
-    if (op.op === "picture" && Array.isArray(op.labels)) {
-      if (op.labels.length > L.labels) said(`${op.labels.length - L.labels} label(s) past ${L.labels} left out`);
-      op.labels = op.labels.slice(0, L.labels).map((x) => (isObj(x) ? { ...x, name: cut(x.name, L.labelWords) } : cut(x, L.labelWords)));
-    }
+    if (Array.isArray(op.edges)) op.edges = op.edges.map((e) => (Array.isArray(e) && e.length > 2 ? [e[0], e[1], cut(e[2], L.edgeWords), ...e.slice(3)] : e));
+  }
+  if (op.op === "timeline" && Array.isArray(op.events)) {
+    if (op.events.length > L.events) said(`${op.events.length - L.events} event(s) past ${L.events} left out`);
+    op.events = op.events.slice(0, L.events).map((ev) => (Array.isArray(ev) ? [ev[0], cut(ev[1], L.eventWords), ...ev.slice(2)]
+      : isObj(ev) ? { ...ev, label: cut(ev.label, L.eventWords) } : ev));
+  }
+  if (op.op === "compare" && Array.isArray(op.columns)) {
+    if (op.columns.length > L.columns) said(`${op.columns.length - L.columns} column(s) past ${L.columns} left out`);
+    op.columns = op.columns.slice(0, L.columns).map((c) => (isObj(c) && Array.isArray(c.points)
+      ? { ...c, points: c.points.slice(0, L.points).map((x) => cut(x, L.pointWords)) } : c));
+  }
+  if (op.op === "picture" && Array.isArray(op.labels)) {
+    if (op.labels.length > L.labels) said(`${op.labels.length - L.labels} label(s) past ${L.labels} left out`);
+    op.labels = op.labels.slice(0, L.labels).map((x) => (isObj(x) ? { ...x, name: cut(x.name, L.labelWords) } : cut(x, L.labelWords)));
   }
   return notes;
 }
@@ -498,7 +508,7 @@ const anchor = (word: number) => (word <= 0 ? "start" : `w${word}`);
 const before = (a: [number, number], b: [number, number]) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 
 /** Every "on" taken out of an operation: the cues say when. */
-function withoutOn(x: unknown): unknown {
+export function withoutOn(x: unknown): unknown {
   if (Array.isArray(x)) return x.map(withoutOn);
   if (!isObj(x)) return x;
   const out: Op = {};
@@ -507,7 +517,7 @@ function withoutOn(x: unknown): unknown {
 }
 
 /** The part's place in the operation given its "on" (a string becomes {"name", "on"}). */
-function setOn(op: Op, place: (string | number)[], on: string): void {
+export function setOn(op: Op, place: (string | number)[], on: string): void {
   let holder: unknown = op;
   for (const step of place.slice(0, -1)) holder = (holder as Record<string | number, unknown>)?.[step];
   const key = place[place.length - 1];

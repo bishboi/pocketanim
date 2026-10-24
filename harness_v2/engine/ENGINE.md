@@ -154,3 +154,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   quiet music bed under each line (`music.py`, a calm mood: `MUSIC_MOOD`), from where its voice starts to the end of
   its pause, ducked under its words (`PANIM_MUSIC=off`, the Scenes tab's music box, turns it off). The underline's
   moves make no sound effect. The motion engine has its own of both: `WORD_CAPTION` and `MUSIC_BED` are off there.
+- An anchor may be a word's number in its line (`"on": "w7"`, the line split at spaces, `w0` its first): the
+  compiler makes it the line's own words from that word, as few as `pocket_lecture.said_at` hears there first
+  (`compile_lecture._word_phrase`), then checks it as any other anchor. The Scenes tab's word timing call writes them
+  on the current engine (voice first, README "Voice first on the current engine"). What the engine draws is unchanged.

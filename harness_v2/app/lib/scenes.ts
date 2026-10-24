@@ -33,6 +33,7 @@ import { errorOf, runPython } from "./manim";
 import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
+import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
 import { beatFigures, lectureFigures } from "./script-figures";
@@ -476,8 +477,9 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
   const beats = beatInputs(run, n);
-  if (voiceFirst(st)) {
-    // Each beat as its voice says it, for the chapters spoken already.
+  if (voiceFirst(st) && st.engine === "motion") {
+    // Each beat as its voice says it, for the chapters spoken already (the motion writer anchors to its words itself;
+    // on the current engine the word timing call does, after it: timeWords).
     for (const c of new Set(beats.map((b) => b.chapter))) {
       const voiced = await voicedBeats(run, n, c);
       if (voiced) for (const b of beats) if (b.chapter === c && voiced.has(b.n)) b.voice = voiced.get(b.n);
@@ -559,18 +561,170 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   }
   sl.scriptAt = run.script?.lectures[n]?.at;
   saveRun(run);
+  if (voiceFirst(st) && st.engine !== "motion") {
+    const written = targets.filter((t) => answered.has(t));
+    for (const c of new Set(written.map((t) => chapterOfBeat(run, n, t)).filter((c): c is number => c !== undefined))) {
+      await timeWords(run, n, c, written.filter((t) => chapterOfBeat(run, n, t) === c));
+    }
+  }
 }
 
-// ---------------------------------------------------------------- the voice first (motion engine) ---------------
+// ---------------------------------------------------------------- the word timing (current engine) --------------
 
-/** Whether the chapters are spoken before their scenes are written: on the motion engine, unless switched off. */
+/** Operations that act as their line begins (compile_lecture.UNSAID_OPS): not timed to a word. */
+const UNSAID = new Set(["clear", "unstage", "manim", "answer", "emphasis", "zoom", "camera", "pause", "think", "map_in", "map_away", "recap"]);
+/** A part's name (compile_lecture.NAMED_BY). */
+const NAMED_BY = ["label", "text", "title", "name", "term", "date"];
+/** Lists of ids, places on the screen, colours: no thing of their own. */
+const NOT_PARTS = new Set(["show", "hide", "ids", "order", "range", "colors", "colours", "keep", "path", "at", "from", "to", "size"]);
+const PART_DEPTH = 4;
+
+type Place = (string | number)[];
+type Slot = TimingSlot & { beat: number; place: Place };
+
+/** What an operation shows, in a few words, for the timing call. */
+function opWords(o: Record<string, unknown>): string {
+  const said = ["title", "text", "label", "term", "name", "place", "caption", "generate", "question", "kind"]
+    .map((k) => o[k]).filter((v) => typeof v === "string" && v.trim()).map((v) => String(v).trim().slice(0, 70));
+  return `${String(o.op ?? "operation")}${said.length ? ` ${JSON.stringify(said.slice(0, 2).join(" — "))}` : ""}`;
+}
+
+/** The things a beat's operations put on the screen that can each come on with a word: the operations (not those that
+ * act as the line begins) and the parts inside them (a node, a label, an event, a point...), with where each is. */
+function timingSlots(beat: number, ops: Record<string, unknown>[], next: () => number): Slot[] {
+  const out: Slot[] = [];
+  const inside = (value: unknown, place: Place, parent: number, what: string, depth: number) => {
+    if (depth > PART_DEPTH || !value || typeof value !== "object") return;
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "on" || NOT_PARTS.has(key)) continue;
+      if (!Array.isArray(inner)) {
+        if (inner && typeof inner === "object") inside(inner, [...place, key], parent, what, depth + 1);
+        continue;
+      }
+      inner.forEach((item, i) => {
+        if (typeof item === "string" && /\p{L}/u.test(item) && item.trim().length <= 80) {
+          const id = next();
+          out.push({ id, beat, place: [...place, key, i], parent, what: `${key.replace(/s$/, "")} ${JSON.stringify(item.trim())}` });
+        } else if (item && typeof item === "object" && !Array.isArray(item)) {
+          const o = item as Record<string, unknown>;
+          const name = NAMED_BY.map((k) => o[k]).find((v) => (typeof v === "string" || typeof v === "number") && String(v).trim());
+          if (name !== undefined) {
+            const id = next();
+            out.push({ id, beat, place: [...place, key, i], parent, what: `${key.replace(/s$/, "")} ${JSON.stringify(String(name).trim().slice(0, 70))}`,
+              ...(typeof o.on === "string" && o.on.trim() ? { writer: o.on.trim() } : {}) });
+            inside(o, [...place, key, i], id, what, depth + 1);
+          } else inside(o, [...place, key, i], parent, what, depth + 1);
+        }
+      });
+    }
+  };
+  ops.forEach((o, i) => {
+    if (!o || typeof o !== "object" || UNSAID.has(String(o.op))) return;
+    const id = next();
+    out.push({ id, beat, place: [i], what: opWords(o), ...(typeof o.on === "string" && o.on.trim() ? { writer: o.on.trim() } : {}) });
+    inside(o, [i], id, opWords(o), 1);
+  });
+  return out;
+}
+
+const plain = (w: string) => w.toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** The stand-in's words (no key): each thing on the first word of the line that is in its name (or its writer's
+ * words), else on its picture's word. */
+function fakeWords(beats: TimingBeat[], slots: Slot[]): { anchors: { slot: number; word: number }[] } {
+  const anchors: { slot: number; word: number }[] = [];
+  const got = new Map<number, number>();
+  for (const s of slots) {
+    const words = beats.find((b) => b.beat === s.beat)?.words ?? [];
+    const named = `${s.what} ${s.writer ?? ""}`.toLowerCase();
+    const k = words.findIndex((w) => plain(w.w).length > 3 && named.includes(plain(w.w)));
+    const word = Math.max(k >= 0 ? k : 0, s.parent !== undefined ? got.get(s.parent) ?? 0 : 0);
+    got.set(s.id, word);
+    anchors.push({ slot: s.id, word });
+  }
+  return { anchors };
+}
+
+/**
+ * The current engine's word timing (voice first): one call of its own (the timing role's model), after the scene
+ * writer, for a voiced chapter's beats just written. It is shown each beat's line as the voice says it (its words by
+ * number with their times) and every thing its operations put on the screen, and gives each the word it comes on
+ * with; that is written as the thing's "on" ("w7", the line's words from word 7: compile_lecture.anchors), a string
+ * part as {"name", "on"}. Checked: a word inside its line, a part never before its picture.
+ */
+async function timeWords(run: Run, n: number, c: number, targets: number[]): Promise<void> {
+  const voiced = await voicedBeats(run, n, c);
+  if (!voiced) return;
+  const sl = lectureState(run, n);
+  let count = 0;
+  const slots: Slot[] = [];
+  const beats: TimingBeat[] = [];
+  for (const t of targets) {
+    const v = voiced.get(t);
+    const ops = (sl.beats[t]?.ops ?? []) as Record<string, unknown>[];
+    if (!v?.words.length || !ops.length) continue;
+    const own = timingSlots(t, ops, () => ++count);
+    if (!own.length) continue;
+    slots.push(...own);
+    beats.push({ beat: t, seconds: v.seconds, pause: v.pause, words: v.words, slots: own });
+  }
+  if (!slots.length) return;
+  const { voiceOf } = await import("./voice");
+  const model = voiceOf(run).settings.timingModel || modelFor("timing");
+  const title = scriptOf(run, n)?.chapters.find((x) => x.n === c)?.title;
+  const call = newCall(run, { step: "scenes", label: `Time the pictures to the words: lecture ${n}, chapter ${c} (${slots.length} thing(s) in ${beats.length} beat(s))`,
+    lecture: n, model, effort: "low", prompt: wordTimingPrompt({ lecture: n, chapter: c, title, beats }) });
+  sl.calls.push(call.id);
+  for (const b of beats) beatState(sl, b.beat).calls.push(call.id);
+  saveRun(run);
+  const reply = await callTool({ call, tool: WORD_TIMING_TOOL, onChange: () => saveRun(run), fake: () => fakeWords(beats, slots) });
+  const answer = new Map<number, number>();
+  for (const a of Array.isArray(reply?.anchors) ? reply!.anchors as { slot?: unknown; word?: unknown }[] : []) {
+    const id = Math.round(Number(a?.slot));
+    const word = Math.round(Number(a?.word));
+    if (Number.isFinite(id) && Number.isFinite(word) && !answer.has(id)) answer.set(id, word);
+  }
+  const words = new Map<number, number>();
+  let mended = 0;
+  let missing = 0;
+  for (const s of slots) {
+    const last = (voiced.get(s.beat)?.words.length ?? 1) - 1;
+    const asked = answer.get(s.id);
+    if (asked === undefined) missing += 1;
+    let word = asked ?? (s.parent !== undefined ? words.get(s.parent) : undefined);
+    if (word === undefined) continue;                // left as the writer had it
+    const floor = s.parent !== undefined ? words.get(s.parent) ?? 0 : 0;
+    const kept = Math.min(last, Math.max(0, floor, word));
+    if (asked !== undefined && kept !== word) mended += 1;
+    word = kept;
+    words.set(s.id, word);
+    // Written where the thing is: an operation's or a part's "on"; a part given as a string becomes {"name", "on"}.
+    const ops = sl.beats[s.beat].ops as unknown[];
+    let holder: unknown = ops;
+    for (const step of s.place.slice(0, -1)) holder = (holder as Record<string | number, unknown>)?.[step];
+    const key = s.place[s.place.length - 1];
+    const at = (holder as Record<string | number, unknown>)?.[key];
+    const on = word === 0 ? "start" : `w${word}`;
+    if (typeof at === "string") (holder as unknown[])[key as number] = { name: at, on };
+    else if (at && typeof at === "object") (at as Record<string, unknown>).on = on;
+  }
+  check(call, "Words", !answer.size ? "fail" : missing ? "fixed" : "pass", !answer.size
+    ? "no words given: the pictures keep the scene writer's words"
+    : `${words.size} of ${slots.length} thing(s) on their words${missing ? `; ${missing} not answered (a part on its picture's word, else the writer's)` : ""}`);
+  if (mended) check(call, "In order", "fixed", `${mended} word(s) moved inside the line, or to the word of the picture they are in`);
+  saveRun(run);
+}
+
+// ---------------------------------------------------------------- the voice first ---------------
+
 /** The music bed's setting for the engine (engine/music.py): off when the Scenes tab turned it off. */
 export function musicEnv(st: ScenesState): Record<string, string> {
   return { PANIM_MUSIC: st.music === false ? "off" : "on" };
 }
 
+/** Whether the chapters are spoken before their scenes are written (on either engine), unless switched off. */
 export function voiceFirst(st: ScenesState): boolean {
-  return st.engine === "motion" && st.voiceFirst !== false && process.env.V2_SCENES_VOICE_FIRST !== "0";
+  return st.voiceFirst !== false && process.env.V2_SCENES_VOICE_FIRST !== "0";
 }
 
 /**
@@ -788,7 +942,7 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
 
 /** A voiced chapter's beats that ask more than their lines have time for, written again once (pacingProblems). */
 async function paceChapter(run: Run, n: number, c: number, beats: number[], note?: string) {
-  if (!voiceFirst(stateOf(run))) return;
+  if (!voiceFirst(stateOf(run)) || stateOf(run).engine !== "motion") return;
   const voiced = await voicedBeats(run, n, c);
   if (!voiced) return;
   const problems = pacingProblems(lectureState(run, n), voiced, beats);

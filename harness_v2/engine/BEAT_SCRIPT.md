@@ -194,6 +194,23 @@ part with no anchor of its own whose name the line says in another spelling is t
 (है, थे, "Wu"), too short to be found on its own, is mended to the two words it is said with ("ऊपर थी"). A part's anchor is kept by its name for the line
 (`self.spoken_as({...})` before the beat), and the engine times the part by it (`Lecture.spoken_as`, `_said`).
 
+An anchor may also be a word's number in its line, `"w<k>"`: the line split at spaces, `w0` its first word. This is
+what the Scenes tab's word timing call writes on the current engine (voice first, [README](../README.md) "Voice
+first on the current engine"): the compiler makes it the line's own words from word k, as few as are heard there
+first (`compile_lecture._word_phrase`: `pocket_lecture.said_at` finds them at word k, not on an earlier word), and
+checks it as any other anchor. A number past the line's last word is taken off with a note (`fixed: ... "on": 'w40'
+is past its line's last word: it comes on in its turn`).
+
+```json
+{"say": "The fields fed the granary, and the granary fed the city of Harappa.",
+ "do": [{"op": "diagram", "id": "chain", "kind": "flow", "on": "w1",
+         "nodes": [{"id": "fields", "label": "Fields", "on": "w1"}, {"id": "granary", "label": "Granary", "on": "w7"},
+                   {"id": "city", "label": "Harappa", "on": "w12"}]}]}
+```
+
+Here `w7` is "granary fed" (the second "granary": "granary" alone is said first at word 4), so the node comes on
+with the second time it is said.
+
 How many operations a beat may carry: the compiler sets **no limit**. Above 5 it warns ("the eye cannot follow more
 than about four"); nothing is refused. v1's instructions asked for at most four; v2's scene writer is told no limit by
 default (the Scenes tab's pace can set one). One rule is hard: **a `manim` beat carries only its `manim` operation**.

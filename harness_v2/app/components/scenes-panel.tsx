@@ -1110,9 +1110,11 @@ function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
         <select className={sel} disabled={!motion} value={m.timeline ?? ""} onChange={(e) => set("timeline", e.target.value)}>
           <option value="">track</option>{["ribbon", "cards", "road", "vertical"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
-      <label className="flex items-center gap-1 text-neutral-300" title="Each chapter is spoken and its words aligned before its scenes are written: the scene writer sees how long every line is, the quiet after it and its words by number with their times, and anchors to them">
-        <input type="checkbox" disabled={!motion} checked={motion && st?.voiceFirst !== false}
-          onChange={(e) => act({ action: "engine", engine: "motion", voiceFirst: e.target.checked })} data-testid="scenes-voice-first" /> voice first</label>
+      <label className="flex items-center gap-1 text-neutral-300" title={motion
+        ? "Each chapter is spoken and its words aligned before its scenes are written: the scene writer sees how long every line is, the quiet after it and its words by number with their times, and anchors to them"
+        : "Each chapter is spoken and its words aligned before its scenes are written; then a timing call of its own puts every picture and every part of one on the exact word it comes on with"}>
+        <input type="checkbox" checked={st?.voiceFirst !== false}
+          onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", voiceFirst: e.target.checked })} data-testid="scenes-voice-first" /> voice first</label>
       <label className="flex items-center gap-1 text-neutral-300" title="A quiet music bed under the voice (on either engine: the motion look's mood, a calm one on the current engine), dipping under its words and up a little in its pauses">
         <input type="checkbox" checked={st?.music !== false}
           onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", music: e.target.checked })} data-testid="scenes-music" /> music</label>

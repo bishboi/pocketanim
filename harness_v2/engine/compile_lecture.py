@@ -3119,6 +3119,35 @@ def _short_word_phrase(spoken: list[str], wanted: str) -> str | None:
     return None
 
 
+WORD_ID = re.compile(r"^\s*w(\d+)\s*$")
+_ID_PUNCT = ".,;:!?\"'“”‘’()[]—–-…।॥"
+
+
+def _word_phrase(say: str, k: int) -> str | None:
+    """The words of a line from its word number `k` (the line split at spaces, w0 its first: as the timing call is
+    shown the voiced line): as few as the voice is heard saying there first (pocket_lecture.said_at finds them at
+    word k, not earlier), so the part comes on exactly on that word. None when k is past the line's end."""
+    import pocket_lecture as pl
+
+    raw = [w.strip(_ID_PUNCT) for w in str(say or "").split()]
+    while k < len(raw) and not raw[k]:
+        k += 1                                      # a dash or a mark on its own: the word after it
+    if k >= len(raw):
+        return None
+    words = [{"w": w, "start": float(i)} for i, w in enumerate(raw)]
+    for n in range(1, 7):
+        phrase = " ".join(w for w in raw[k:k + n] if w)
+        if pl.said_at(words, phrase) == float(k):
+            return phrase
+    # Never found there first (its words said earlier too): the word before it, said with it.
+    for n in range(2, 7):
+        if k - 1 >= 0 and raw[k - 1]:
+            phrase = " ".join(w for w in raw[k - 1:k - 1 + n] if w)
+            if pl.said_at(words, phrase) == float(k - 1):
+                return phrase
+    return " ".join(w for w in raw[k:k + 3] if w)
+
+
 def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
     """Each operation's and each part's "on" checked against its line (pocket_lecture.said_at, on the line as it is
     spoken): kept when the line says it, mended to the line's own words when nearly, refused when not. A part's
@@ -3147,6 +3176,16 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                 if on.lower() == "start":
                     holder["on"] = "start"
                     return
+                number = WORD_ID.match(on)
+                if number:
+                    # A word's number in its line (the timing call's answer): the line's words from it.
+                    said = _word_phrase(str(beat.get("say") or ""), int(number.group(1)))
+                    if said is None:
+                        warnings.append(f"fixed: chapter {ci} beat {bi}: {where}: \"on\": {on!r} is past its line's "
+                                        "last word: it comes on in its turn")
+                        holder.pop("on", None)
+                        return
+                    on = said
                 if pl.said_at(words, on) is None:
                     near = _closest(spoken, on)
                     short = _short_word_phrase(spoken, on)

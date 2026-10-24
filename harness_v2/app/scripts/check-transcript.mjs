@@ -415,6 +415,15 @@ assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fa
 const scenesCall = run.calls.find((c) => c.step === "scenes");
 const offAll = scenesCall.prompt.system.find((p) => p.key === "off");
 assert.ok(scenesCall.prompt.system.some((p) => p.key === "v2-anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the scene writer is told to anchor every visual");
+// Voice first on the current engine: each chapter spoken first, then a timing call of its own (the stand-in here)
+// puts every picture and part on its word ("w7", or "start"), and the compiler takes them.
+const timingCalls = run.calls.filter((c) => c.step === "scenes" && /^Time the pictures to the words/.test(c.label));
+assert.equal(timingCalls.length, run.script.lectures[1].chapters.length, "one word timing call a chapter");
+assert.ok(timingCalls.every((c) => c.status === "done" && c.prompt.system.some((p) => p.key === "word-timing")
+  && c.checks.some((k) => k.name === "Words" && k.status !== "fail")), "each timed, its words checked");
+assert.ok(!scenesCall.prompt.user.some((p) => /w0 /.test(p.text)), "the current scene writer is not shown word numbers");
+const anchored = Object.values(sl1.beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
+assert.ok(anchored.length && anchored.every((o) => /^(w\d+|start)$/.test(o.on)), `the pictures on their words: ${JSON.stringify(anchored.slice(0, 3))}`);
 assert.ok(offAll && /AI illustrations/.test(offAll.text) && !/Diagrams/.test(offAll.text), "the kinds switched off are named as such");
 // A beat's kinds of its own, its operations by hand, one beat built again.
 const firstBeat = sceneBeats[0].n;
@@ -657,7 +666,7 @@ await scenesAction(run.id, { action: "chapterKinds", lecture: 1, chapter: kc.n, 
 await scenesAction(run.id, { action: "build", scope: "chapter", lecture: 1, chapter: kc.n });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.ok(kc.beats.every((b) => run.scenes.lectures[1].beats[b.n].ops.every((o) => ["panel", "fact", "define", "clear"].includes(o.op))), "only the chapter's kinds");
-const kcCall = run.calls.filter((c) => c.step === "scenes" && /chapter/.test(c.label)).at(-1);
+const kcCall = run.calls.filter((c) => c.step === "scenes" && /^Scenes: .*chapter/.test(c.label)).at(-1);
 const offPart = kcCall.prompt.system.find((p) => p.key === "off");
 assert.ok(offPart && /Diagrams/.test(offPart.text) && !/Definitions/.test(offPart.text), "the kinds the chapter may not use are named as switched off");
 // The instructions are v1's, word for word, in v1's order; the subject's guidance as v1 tells it.

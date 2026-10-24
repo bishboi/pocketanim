@@ -2,6 +2,7 @@
  * What a run is, as the server keeps it and the page shows it. Plain data (no Node imports): the page reads it.
  */
 
+import type { ChapterPlan } from "./director";
 import type { Part } from "./prompts/parts";
 import type { Block } from "./source/blocks";
 import type { Goal } from "./plan";
@@ -470,6 +471,8 @@ export type SceneLecture = {
   chapterKinds?: Record<string, string[]>;
   /** When the script it was built from was made (a newer script: rebuild). */
   scriptAt?: number;
+  /** Each chapter's plan (by chapter number), when it was built as one piece (lib/director.ts). */
+  plans?: Record<string, ChapterPlan>;
   error?: string;
   calls: string[];
   at?: number;
@@ -510,6 +513,9 @@ export type ScenesState = {
   voiceFirst?: boolean;
   /** A quiet music bed under the voice, ducked under its words (engine/music.py; on unless false). */
   music?: boolean;
+  /** A chapter is built as one piece: its plan (elements and scenes) by the director, its cues by the choreography,
+   * a few scenes a call (lib/director.ts; on unless false). */
+  director?: boolean;
   error?: string;
   started?: number;
   ended?: number;

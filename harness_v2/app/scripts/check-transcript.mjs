@@ -411,8 +411,29 @@ const sceneBeats = run.script.lectures[1].chapters.flatMap((c) => c.beats);
 assert.ok(sceneBeats.every((b) => sl1.beats[b.n]?.status === "done"), "every beat has its visuals");
 assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
 assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
-assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "define", "clear"].includes(o.op))), "only the kinds switched on");
-const scenesCall = run.calls.find((c) => c.step === "scenes");
+assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "zoom", "define", "clear"].includes(o.op))),
+  "only the kinds switched on");
+// A chapter as one piece (the default): the director's plan (elements and scenes, no timing), then each few scenes
+// choreographed (the stand-in here) with their artifacts' manuals, lowered into the beats on their words.
+const directorCalls = run.calls.filter((c) => c.step === "scenes" && /\(director\)$/.test(c.label));
+assert.equal(directorCalls.length, run.script.lectures[1].chapters.length, "one director call a chapter");
+assert.ok(directorCalls.every((c) => c.prompt.system.some((p) => p.key === "director" && /THE CHAPTER'S PLAN/.test(p.text))
+  && !c.prompt.system.some((p) => p.key === "v2-anchors") && c.checks.some((k) => k.name === "Plan" && k.result === "pass")), "the director plans, and times nothing");
+const choreoCalls = run.calls.filter((c) => c.step === "scenes" && /^Choreography: lecture 1/.test(c.label));
+assert.ok(choreoCalls.length >= run.script.lectures[1].chapters.length && choreoCalls.every((c) => c.status === "done"
+  && c.prompt.system.some((p) => p.key === "manuals" && /=== \w+ ===/.test(p.text)) && c.checks.some((k) => k.name === "Cues" && k.result !== "fail")),
+  "every chapter's scenes choreographed with their manuals");
+const plans = Object.values(sl1.plans ?? {});
+assert.equal(plans.length, run.script.lectures[1].chapters.length, "each chapter's plan kept");
+assert.ok(plans.every((pl) => pl.scenes.length && pl.elements.every((e) => pl.scenes.some((x) => x.uses.includes(e.id)))), "every element in a scene");
+const lowered = Object.values(sl1.beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
+assert.ok(lowered.length && lowered.every((o) => /^(w\d+|start)$/.test(o.on)), `the elements lowered on their words: ${JSON.stringify(lowered.slice(0, 3))}`);
+// The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
+await scenesAction(run.id, { action: "engine", engine: "current", director: false });
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+const scenesCall = run.calls.find((c) => c.step === "scenes" && /^Scenes: lecture 1, chapter \d+$/.test(c.label));
 const offAll = scenesCall.prompt.system.find((p) => p.key === "off");
 assert.ok(scenesCall.prompt.system.some((p) => p.key === "v2-anchors" && /EVERY VISUAL LANDS ON ITS WORDS/.test(p.text)), "the scene writer is told to anchor every visual");
 // Voice first on the current engine: each chapter spoken first, then a timing call of its own (the stand-in here)
@@ -420,11 +441,12 @@ assert.ok(scenesCall.prompt.system.some((p) => p.key === "v2-anchors" && /EVERY 
 const timingCalls = run.calls.filter((c) => c.step === "scenes" && /^Time the pictures to the words/.test(c.label));
 assert.equal(timingCalls.length, run.script.lectures[1].chapters.length, "one word timing call a chapter");
 assert.ok(timingCalls.every((c) => c.status === "done" && c.prompt.system.some((p) => p.key === "word-timing")
-  && c.checks.some((k) => k.name === "Words" && k.status !== "fail")), "each timed, its words checked");
+  && c.checks.some((k) => k.name === "Words" && k.result !== "fail")), "each timed, its words checked");
 assert.ok(!scenesCall.prompt.user.some((p) => /w0 /.test(p.text)), "the current scene writer is not shown word numbers");
-const anchored = Object.values(sl1.beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
+const anchored = Object.values(run.scenes.lectures[1].beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
 assert.ok(anchored.length && anchored.every((o) => /^(w\d+|start)$/.test(o.on)), `the pictures on their words: ${JSON.stringify(anchored.slice(0, 3))}`);
 assert.ok(offAll && /AI illustrations/.test(offAll.text) && !/Diagrams/.test(offAll.text), "the kinds switched off are named as such");
+await scenesAction(run.id, { action: "engine", engine: "current", director: true });
 // A beat's kinds of its own, its operations by hand, one beat built again.
 const firstBeat = sceneBeats[0].n;
 await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: ["define"] });
@@ -756,6 +778,7 @@ await assert.rejects(scenesAction(run.id, { action: "engine", engine: "motion", 
 await scenesAction(run.id, { action: "engine", engine: "motion", look: "newsroom", timeline: "ribbon" });
 run = await loadRun(run.id);
 assert.ok(run.scenes.engine === "motion" && run.scenes.motion.look === "newsroom", "the engine set for the run");
+await scenesAction(run.id, { action: "engine", engine: "motion", director: false });
 const callsBefore = run.calls.length;
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
@@ -791,6 +814,19 @@ assert.ok(run.script.lectures[1].chapters.every((c) => c.beats.every((b) => b.li
 const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
 assert.ok(templateBeats > 0, "motion templates in the beats");
 assert.ok(motionBeats.every((b) => !b.errors?.length), `nothing refused on the motion engine: ${motionBeats.flatMap((b) => b.errors ?? []).join("; ")}`);
+assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
+// The motion engine with the director: its plan, then its scenes choreographed (templates pointed at by "<id>.<part>",
+// stamps), compiled with nothing refused.
+await scenesAction(run.id, { action: "engine", engine: "motion", director: true });
+const directedFrom = run.calls.length;
+await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
+run = await slow(run.id, (r) => r.scenes.status === "running");
+assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+const motionDirector = run.calls.slice(directedFrom).find((c) => /\(director, motion engine\)$/.test(c.label));
+assert.ok(motionDirector && motionDirector.prompt.system.some((p) => p.key === "templates") && !motionDirector.prompt.system.some((p) => p.key === "anchors"),
+  "the motion director told of the templates, not of timing");
+assert.ok(run.calls.slice(directedFrom).some((c) => /^Choreography:/.test(c.label) && !c.prompt.system.some((p) => p.key === "no-stamps")), "choreographed, stamps allowed");
+assert.ok(Object.values(run.scenes.lectures[1].beats).every((b) => !b.errors?.length), "nothing refused from the director's plan on the motion engine");
 assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
 const motionScript = await engineScript(run, 1, run.scenes.look);
 assert.ok(motionScript.engine === "motion" && motionScript.look === "newsroom" && motionScript.timeline === "ribbon", "its beat script on the motion engine");

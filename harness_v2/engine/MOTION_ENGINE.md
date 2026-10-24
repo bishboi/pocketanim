@@ -112,6 +112,9 @@ or labelled as it is named, an emphasis, a zoom, a stamp in the pause), with a n
 changes (`"paragraph": true`). A main picture is held at least 8 s; a beat that brings one sooner than 7 s after the
 last is sent back with what to change (`app/lib/scenes.ts` `pacingProblems`, `MIN_HOLD`: only what takes the stage
 counts -- a template other than a stamp or an emphasis, a picture, a diagram, a timeline, a Manim figure).
+With the Scenes tab's director on (the default), a chapter's scenes are the director's own (README "A chapter as one
+piece"): its plan cuts the chapter into scenes and the choreography puts each element on its word, so nothing is
+sent back for its pace; a scene held under 7 s is noted on the director's call.
 
 **The pace.** Every line is followed by at least `LINE_PAD` (0.4 s) of quiet, the pause the voice left there when it
 is longer, and an idea's last line by `PARAGRAPH_PAD` (1.4 s): the next idea begins after a breath. The voice's own

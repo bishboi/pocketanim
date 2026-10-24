@@ -14,9 +14,10 @@
   drawn by it only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
 - The default flow is the Scenes tab on the motion engine (beta, `engine/MOTION_ENGINE.md`), then Voice: a lecture's
   scenes start on it unless `V2_SCENES_ENGINE=current`. On it each chapter is spoken and aligned first and its scenes
-  written to the voice's times ("voice first", MOTION_ENGINE.md §1). The current engine is voice first too: its scene
-  writer is unchanged and a word timing call of its own then puts every picture and part on its word (README "Voice
-  first on the current engine"). The Video tab (README "The video step": the video agent in free
+  written to the voice's times ("voice first", MOTION_ENGINE.md §1). The current engine is voice first too. On both, a
+  chapter is built as one piece: a director call plans its elements and scenes, then each few scenes are choreographed
+  in a call of their own with their artifacts' manuals, and code lowers both into the beats (README "A chapter as one
+  piece", `app/lib/director.ts`). The Video tab (README "The video step": the video agent in free
   Manim, `app/lib/video-agent.ts`, checked against the phone by `engine/tools/agent_tools.py phone`) is set aside behind
   "Video agent…", not removed.
 - The kit (`engine/agent/kit/`) is the video agent's optional library. A change to what it offers (a piece, an

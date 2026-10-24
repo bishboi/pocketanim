@@ -1115,6 +1115,9 @@ function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
         : "Each chapter is spoken and its words aligned before its scenes are written; then a timing call of its own puts every picture and every part of one on the exact word it comes on with"}>
         <input type="checkbox" checked={st?.voiceFirst !== false}
           onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", voiceFirst: e.target.checked })} data-testid="scenes-voice-first" /> voice first</label>
+      <label className="flex items-center gap-1 text-neutral-300" title="Each chapter built as one piece: a director plans its elements and scenes, then each few scenes are choreographed in a call of their own (shown the voice's word times and each artifact's manual): what comes on, and what is pointed at, zoomed or stamped, on which word">
+        <input type="checkbox" checked={st?.director !== false}
+          onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", director: e.target.checked })} data-testid="scenes-director" /> director</label>
       <label className="flex items-center gap-1 text-neutral-300" title="A quiet music bed under the voice (on either engine: the motion look's mood, a calm one on the current engine), dipping under its words and up a little in its pauses">
         <input type="checkbox" checked={st?.music !== false}
           onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", music: e.target.checked })} data-testid="scenes-music" /> music</label>

@@ -34,6 +34,10 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
+import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
+import { actsFor, estimatedWords, lowerPlan, partsOf, readCues, readPlan, sceneSeconds, type BeatWords, type ChapterPlan, type Cue, type CueAct,
+  type PlanElement, type PlanScene } from "./director";
+import { manualFor } from "./manuals";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
 import { beatFigures, lectureFigures } from "./script-figures";
@@ -77,7 +81,7 @@ export type ScenesAction =
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
   | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string;
-      voiceFirst?: boolean; music?: boolean }
+      voiceFirst?: boolean; music?: boolean; director?: boolean }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
 
@@ -169,6 +173,7 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
       st.motion = m;
     }
     if (a.voiceFirst !== undefined) st.voiceFirst = a.voiceFirst ? undefined : false;
+    if (a.director !== undefined) st.director = a.director ? undefined : false;
     if (a.music !== undefined) st.music = a.music ? undefined : false;
     log(run, `Scenes: the ${st.engine === "motion" ? `motion engine (beta)${st.motion?.look ? `, look ${st.motion.look}` : ""}` : "current engine"}.`);
     saveRun(run, true);
@@ -715,6 +720,237 @@ async function timeWords(run: Run, n: number, c: number, targets: number[]): Pro
   saveRun(run);
 }
 
+// ---------------------------------------------------------------- a chapter as one piece (director) ----------------
+
+/** Whether a chapter is built as one piece (lib/director.ts): its plan (elements and scenes) by the director, its cues
+ * by the choreography, a few scenes a call. On unless the Scenes tab turned it off (or V2_SCENES_DIRECTOR=0). */
+export function directed(st: ScenesState): boolean {
+  return st.director !== false && process.env.V2_SCENES_DIRECTOR !== "0";
+}
+
+/** Choreography calls at once, and about how much narration one is given (its scenes, whole). */
+const CHOREOGRAPHY_AT_ONCE = Math.max(1, Number(process.env.V2_CHOREOGRAPHY_PARALLEL) || 4);
+const CHOREOGRAPHY_SECONDS = Math.max(10, Number(process.env.V2_CHOREOGRAPHY_SECONDS) || 30);
+const CHOREOGRAPHY_SCENES = 4;
+
+/**
+ * A chapter built as one piece. (1) The director (the scenes model, the scene writer's instructions) writes the
+ * chapter's plan: its elements and its scenes, no timing. (2) Each few scenes are choreographed in a call of their own
+ * (the choreography model), at once: shown their lines as the voice says them (estimated when the chapter is not
+ * spoken), their elements with their parts and what may be done with each, and the manuals of those artifacts;
+ * answered as cues. (3) Code checks both and lowers them into the beats' operations (lib/director.ts lowerPlan),
+ * which are compiled as any other. The plan is kept by chapter (sl.plans).
+ */
+async function directChapter(run: Run, n: number, c: number, note?: string): Promise<void> {
+  const st = stateOf(run);
+  const sl = lectureState(run, n);
+  const script = scriptOf(run, n)!;
+  const lecture = run.lectures.find((l) => l.n === n)!;
+  const engine = st.engine === "motion" ? "motion" : "current";
+  const own = chapterBeats(run, n, c);
+  const beats = beatInputs(run, n);
+  for (const b of beats) if (b.chapter !== c) delete b.ops;
+  const kinds = own.length ? ALL_KINDS.filter((k) => own.some((t) => kindsFor(run, sl, t).includes(k))) : st.kinds;
+  for (const b of beats) if (b.kinds && (!own.includes(b.n) || kinds.every((k) => b.kinds!.includes(k)))) delete b.kinds;
+  const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
+  const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
+  const motion = engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
+  const chosen = sl.regions?.[c] ?? sl.region ?? undefined;
+  const base = scenesPrompt({ lecture: { n, title: lecture.title }, look: motionLookWords(st), kinds, labels,
+    chapters: script.chapters.map((x) => ({ n: x.n, title: x.title, narration: x.narration, map: x.map })),
+    beats, figures, region: chosen, ask: { what: "chapter", chapter: c }, note, manimAgent: st.manimAgent !== false,
+    subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange }, motion });
+  const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (director${motion ? ", motion engine" : ""})`,
+    lecture: n, model: st.model, prompt: directorPrompt(base, { chapter: c, beats: own }) });
+  sl.calls.push(call.id);
+  for (const t of own) {
+    const b = beatState(sl, t);
+    b.status = "running";
+    b.calls.push(call.id);
+  }
+  saveRun(run);
+  const mine = beats.filter((b) => own.includes(b.n));
+  const reply = await callTool({ call, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
+  if (!reply) {
+    for (const t of own) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
+    throw new Error(`the call failed: ${call.error ?? "no reply"}`);
+  }
+  const plan = readPlan(reply, own);
+  // The kinds switched off, as in any build: an element of a kind switched off (or of none) is left out.
+  let dropped = 0;
+  plan.elements = plan.elements.filter((el) => {
+    const first = plan.scenes.find((x) => x.uses.includes(el.id))?.beats[0] ?? own[0];
+    const kept = filterOps([el.op], allowedFor(run, sl, first));
+    dropped += kept.dropped.length;
+    if (!kept.ops.length) return false;
+    el.op = kept.ops[0] as Record<string, unknown>;
+    return true;
+  });
+  const ids = new Set(plan.elements.map((e) => e.id));
+  for (const x of plan.scenes) x.uses = x.uses.filter((u) => ids.has(u));
+  check(call, "Plan", plan.elements.length ? "pass" : "fail", `${plan.elements.length} element(s) in ${plan.scenes.length} scene(s) over ${own.length} beat(s)`);
+  if (plan.notes.length) check(call, "Mended", "fixed", plan.notes.slice(0, 10).join("; "));
+  if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
+  if (typeof reply.emblem === "string" && reply.emblem.trim() && !sl.emblem) sl.emblem = reply.emblem.trim().slice(0, 160);
+  const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
+  if (region && (script.chapters.some((x) => x.map) || plan.elements.some((e) => MAP_OPS.has(String(e.op.op))))) {
+    (sl.regions ??= {})[c] = region;
+    check(call, "Region", "pass", `chapter ${c}: ${JSON.stringify(region)}`);
+  }
+  const extras = new Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>();
+  for (const x of plan.scenes) extras.set(x.beats[0], { paragraph: true });
+  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; paragraph?: unknown; pause?: unknown; about?: unknown }[] : []) {
+    const k = Math.round(Number(b?.beat));
+    if (!own.includes(k)) continue;
+    const pause = Number(b.pause);
+    extras.set(k, { ...extras.get(k), ...(b.paragraph === true ? { paragraph: true } : {}),
+      ...(Number.isFinite(pause) && pause > 0 ? { pause: Math.min(pause, 4) } : {}),
+      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim().slice(0, 120) } : {}) });
+  }
+  // Each beat's line as the voice says it (spoken first), else as it would be.
+  const voiced = await voicedBeats(run, n, c);
+  const words = new Map<number, BeatWords>();
+  for (const b of mine) {
+    const v = voiced?.get(b.n);
+    words.set(b.n, v ? { n: b.n, text: b.text, seconds: v.seconds, pause: v.pause, words: v.words } : estimatedWords(b.n, b.text));
+  }
+  const cues = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
+  const lowered = lowerPlan(plan, cues, words, engine);
+  for (const t of own) {
+    Object.assign(beatState(sl, t), { ops: lowered.ops.get(t) ?? [], dropped: [], status: "done", edited: false, errors: undefined, notes: undefined,
+      paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
+  }
+  if (lowered.notes.length) check(call, "Lowered", "fixed", `${lowered.notes.length} cue(s) mended or left out: ${lowered.notes.slice(0, 8).join("; ")}`);
+  const short = voiced ? plan.scenes.filter((x, i) => i < plan.scenes.length - 1 && sceneSeconds(x, words) < MIN_HOLD) : [];
+  if (short.length) check(call, "Held", "info", `${short.length} scene(s) held under ${MIN_HOLD} s: ${short.map((x) => `${x.id} ${sceneSeconds(x, words).toFixed(1)} s`).join(", ")}`);
+  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, at: Date.now(), notes: [...plan.notes, ...lowered.notes].slice(0, 60) };
+  sl.scriptAt = run.script?.lectures[n]?.at;
+  saveRun(run);
+}
+
+/** The chapter's scenes in groups of about CHOREOGRAPHY_SECONDS of narration (never more than CHOREOGRAPHY_SCENES). */
+function sceneGroups(scenes: PlanScene[], words: Map<number, BeatWords>): PlanScene[][] {
+  const out: PlanScene[][] = [];
+  let group: PlanScene[] = [];
+  let seconds = 0;
+  for (const x of scenes) {
+    group.push(x);
+    seconds += sceneSeconds(x, words);
+    if (seconds >= CHOREOGRAPHY_SECONDS || group.length >= CHOREOGRAPHY_SCENES) {
+      out.push(group);
+      group = [];
+      seconds = 0;
+    }
+  }
+  if (group.length) out.push(group);
+  return out;
+}
+
+/** The chapter's cues: its scenes choreographed a group at a time, the groups at once (directChapter). */
+async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, words: Map<number, BeatWords>, engine: "current" | "motion",
+  look: string): Promise<Cue[]> {
+  const sl = lectureState(run, n);
+  const firstScene = new Map<string, string>();
+  for (const x of plan.scenes) for (const id of x.uses) if (!firstScene.has(id)) firstScene.set(id, x.id);
+  const byId = new Map(plan.elements.map((e) => [e.id, e]));
+  const groups = sceneGroups(plan.scenes, words);
+  const model = modelFor("choreography");
+  const all: Cue[] = [];
+  await eachAtOnce(groups.map((_, i) => i), CHOREOGRAPHY_AT_ONCE, async (gi) => {
+    const group = groups[gi];
+    const inGroup = new Set(group.map((x) => x.id));
+    const elements: ChoreographyElement[] = [];
+    const acts = new Map<string, CueAct[]>();
+    for (const id of [...new Set(group.flatMap((x) => x.uses))]) {
+      const el = byId.get(id);
+      if (!el) continue;
+      const already = !inGroup.has(firstScene.get(id) ?? "");
+      const may = actsFor(el, engine);
+      const parts = partsOf(el);
+      const element = already ? may.element.filter((a) => a !== "enter") : may.element;
+      const partActs = already && !may.laterParts ? may.parts.filter((a) => a !== "enter") : may.parts;
+      if (element.length) acts.set(id, element);
+      for (const p of parts) if (partActs.length) acts.set(p.ref, partActs);
+      elements.push({ el, parts, acts: { ...may, element, parts: partActs }, scene: group.find((x) => x.uses.includes(id))!.id, already });
+    }
+    if (engine === "motion") acts.set("*", ["stamp"]);
+    const ops = [...new Set(elements.map((e) => String(e.el.op.op)))];
+    const manuals = ops.map((op) => ({ op, text: manualFor(op, engine) })).filter((m) => m.text);
+    const at = plan.scenes.indexOf(group[0]);
+    const prev = plan.scenes[at - 1];
+    const next = plan.scenes[at + group.length];
+    const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, scene${group.length > 1 ? "s" : ""} ` +
+      `${group[0].id}${group.length > 1 ? `-${group[group.length - 1].id}` : ""}`, lecture: n, model, effort: "low",
+      prompt: choreographyPrompt({ lecture: n, chapter: c, engine, look, scenes: group, words, elements, manuals, stamps: engine === "motion",
+        before: prev ? `scene ${prev.id}${prev.intent ? ` (${prev.intent})` : ""} showed ${prev.uses.join(", ")}` : undefined,
+        after: next ? `scene ${next.id} begins: "${words.get(next.beats[0])?.text.slice(0, 120) ?? ""}"` : undefined }) });
+    sl.calls.push(call.id);
+    for (const b of group.flatMap((x) => x.beats)) beatState(sl, b).calls.push(call.id);
+    saveRun(run);
+    const reply = await callTool({ call, tool: CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakeChoreography(group, elements, words) });
+    const { cues, dropped } = readCues(reply ?? {}, { words, beats: new Set(group.flatMap((x) => x.beats)), acts, scenes: inGroup });
+    const entering = elements.filter((e) => !e.already);
+    const unentered = entering.filter((e) => !cues.some((q) => q.ref === e.el.id && q.act === "enter"));
+    check(call, "Cues", !reply || !cues.length ? "fail" : dropped.length || unentered.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
+      : `${cues.length} cue(s) for ${elements.length} element(s)` + (dropped.length ? `; ${dropped.length} left out: ${dropped.slice(0, 5).join("; ")}` : "") +
+        (unentered.length ? `; ${unentered.length} element(s) given no entry come on as their scene begins (${unentered.map((e) => e.el.id).join(", ")})` : ""));
+    all.push(...cues);
+  });
+  return all;
+}
+
+/** The stand-in's plan (no key): the stand-in's beats made elements, a new scene at a main picture after two beats. */
+function fakePlan(run: Run, n: number, beats: SceneBeatInput[], kinds: string[], engine: "current" | "motion") {
+  const base = (engine === "motion" ? fakeMotionScenes : fakeScenes)(run, n, beats, kinds);
+  const elements: PlanElement[] = [];
+  const scenes: { id: string; beats: number[]; uses: string[] }[] = [];
+  let scene: (typeof scenes)[number] | undefined;
+  for (const b of base.beats) {
+    const ops = (b.do as Record<string, unknown>[]).filter((o) => !["reveal", "focus", "zoom", "emphasis", "clear"].includes(String(o.op)));
+    if (!scene || (ops.some((o) => MAIN.has(String(o.op))) && scene.beats.length >= 2)) {
+      scene = { id: `S${scenes.length + 1}`, beats: [], uses: [] };
+      scenes.push(scene);
+    }
+    scene.beats.push(b.beat);
+    for (const o of ops) {
+      const id = `e${elements.length + 1}`;
+      elements.push({ id, op: o });
+      scene.uses.push(id);
+    }
+  }
+  return { region: base.region, elements, scenes };
+}
+
+/** The stand-in's cues (no key): each element on the first word of its scene's lines that is in its words, else as its
+ * scene begins; each part on the first word that names it (a diagram's node in any line of its scene). */
+function fakeChoreography(group: PlanScene[], elements: ChoreographyElement[], words: Map<number, BeatWords>) {
+  const plainWord = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const find = (beats: number[], text: string) => {
+    const said = text.toLowerCase();
+    for (const b of beats) {
+      const k = (words.get(b)?.words ?? []).findIndex((w) => plainWord(w.w).length > 3 && said.includes(plainWord(w.w)));
+      if (k >= 0) return [b, k] as const;
+    }
+    return undefined;
+  };
+  const cues: { at: string; ref: string; act: string }[] = [];
+  for (const e of elements) {
+    const beats = group.filter((x) => x.uses.includes(e.el.id)).flatMap((x) => x.beats);
+    let at: readonly [number, number] = [beats[0], 0];
+    if (!e.already) {
+      const named = ["title", "text", "label", "term", "value", "name", "caption"].map((k) => e.el.op[k]).filter((v) => typeof v === "string").join(" ");
+      at = find(beats, named) ?? [beats[0], 0];
+      cues.push({ at: `b${at[0]}.w${at[1]}`, ref: e.el.id, act: "enter" });
+    }
+    if (!e.acts.parts.includes("enter")) continue;
+    for (const p of e.parts) {
+      const hit = find(e.acts.laterParts ? beats.filter((b) => b >= at[0]) : [at[0]], p.name);
+      if (hit) cues.push({ at: `b${hit[0]}.w${hit[1]}`, ref: p.ref, act: "enter" });
+    }
+  }
+  return { cues };
+}
+
 // ---------------------------------------------------------------- the voice first ---------------
 
 /** The music bed's setting for the engine (engine/music.py): off when the Scenes tab turned it off. */
@@ -925,8 +1161,11 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
       try {
         if (voiceFirst(stateOf(run))) await speakFirst(run, n, c);
         if (stopRequested(key)) return;
-        await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
-        if (!stopRequested(key)) await paceChapter(run, n, c, chapterBeats(run, n, c), note);
+        if (directed(stateOf(run))) await directChapter(run, n, c, note);
+        else {
+          await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
+          if (!stopRequested(key)) await paceChapter(run, n, c, chapterBeats(run, n, c), note);
+        }
         if (!stopRequested(key)) await finishChapter(run, n, c);
       } finally {
         going.delete(c);

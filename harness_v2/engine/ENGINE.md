@@ -168,3 +168,7 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
 - `compile_lecture.anchors` merges a beat's `_spoken_as` with what it had: the checks run twice, and the second run saw
   the parts' anchors already folded into their names and wrote the table without them.
+- The music bed is continuous (both engines): `Lecture._bed_gap` fills from where the last line's piece ended to where
+  the next begins (a map coming in, a picture changing, a chapter card) with the bed at its level between words,
+  placed back in time (`add_sound` with a negative offset, which the exporter records too), and `tear_down` fills to
+  the video's end (the outro, the credits). Before, the music stopped in every animation between lines.

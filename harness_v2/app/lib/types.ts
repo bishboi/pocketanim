@@ -612,6 +612,8 @@ export type LabItem = {
   lecture?: number;
   script: ChapterScript;
   result?: ChapterVoice;
+  /** Its last compile-only check (the Lab's Check): what the compiler refused (errors), mended and warned. */
+  checked?: { at: number; ok: boolean; errors: string[]; warnings: string[] };
   at: number;
 };
 

@@ -13,32 +13,44 @@ import type { BeatWords, CueAct, PlanElement, PlanPart, PlanScene } from "../dir
 
 // ---------------------------------------------------------------- the director -----------------------------------
 
-const DIRECTOR = `THIS CALL'S ANSWER: THE CHAPTER'S PLAN (write_plan). It replaces the per-beat answer described above: the
-operations are written exactly as above, but each is an ELEMENT of the chapter, and the chapter is cut into SCENES.
-You say WHAT is on the screen and WHY; a second call, shown the voice's word times, says WHEN each element and each
-of its parts comes on, and points at, lights and takes off what is up as the lines go on. So write no "on", "delay" or "in_pause":
-they are taken out.
+const DIRECTOR = `THIS CALL'S ANSWER: THE CHAPTER'S PLAN (write_plan). It replaces the per-beat answer described above.
 
+You are the chapter's DIRECTOR. You decide WHAT the viewer sees and WHY, for the whole chapter at once, as a
+documentary's director plans its shots: a few strong scenes, each one idea, each built up while it is explained.
+You do not decide WHEN anything moves: a choreographer, shown the voice's word times and each primitive's full
+manual, puts every element and every part of one on its word and points at, lights and takes off what is up. So
+write no "on", "delay" or "in_pause" (they are taken out), and do not split a picture to time it: give it whole.
+
+HOW TO PLAN
+1. Read the chapter's beats and find its IDEAS: where the narration turns to something new. Each idea is a SCENE,
+   usually 2-6 beats (15-40 s). A new scene only where the idea changes; never one per sentence.
+2. For each scene choose ONE MAIN ELEMENT that carries the idea for its whole length, and choose it from the
+   primitives below by what it can DO over several lines: a diagram built node by node and focused, a labelled
+   picture whose parts are lit one by one, a timeline whose events are named in turn, a map whose places come on
+   as they are said, a compare whose columns come in turn. A primitive with parts lets the choreographer move
+   something on every line; a bare card does not.
+3. Add what the lines add to it: a definition beside it as a hard word is named, a number, a question, a quote.
+   Keep each scene to the main element and two or three more.
+4. Give every element ALL its parts: a diagram's every node (they come on as they are said, in later lines too), a
+   picture's every label, a timeline's every event, a compare's every column. The choreographer can only bring on,
+   point at and light what you gave.
+5. Vary the scenes: not three diagrams in a row; a picture, then a diagram, a map, a comparison, a question for the
+   class. Prefer pictures of real things (people, places, objects) where seeing them teaches; drawn primitives
+   (diagram, timeline, compare) where the idea is a structure.
+
+THE ANSWER
 ELEMENTS: everything the chapter shows, once each:
   {"id": "<short name: chain, river, surplus>", "role": "<subject | part | key_term | number | question | contrast |
-   place | person | annotation>", "op": {<one operation, as above, with all its parts>}}
-  - Give an element ALL the parts it will show over its scene: a diagram's every node (they are brought on as they
-    are said, in a later line too), a picture's every label, a timeline's every event, a chain's every step. Never
-    split one picture into several elements to bring its parts on later.
-  - A diagram's "id" is its element's id.
-
+   place | person | annotation>", "op": {<one operation, with all its parts>}}
+  - The id is how the scenes and the choreographer name it (a diagram's own "id" is its element's id).
 SCENES: the chapter cut into scenes, in order, every beat in exactly one:
   {"id": "S1", "beats": [<its beats' numbers, a run in order>], "intent": "<hook | explain | reveal_parts |
-   build_chain | compare | count_up | zoom_detail | name_it | story | recap>", "layout"?: "<full | main+side>",
-   "uses": [<the ids of the elements on screen in it>]}
-  - A scene is ONE IDEA of the narration (usually 2-6 beats, 15-40 s): one main element (a picture, a diagram, a
-    template, a map run) held while the idea is explained, and what is added to it as the lines go on (a definition
-    beside it, a number, its parts). A new scene only where the idea changes: its main element replaces the last.
+   build_chain | compare | count_up | name_it | story | question | recap>", "layout"?: "<full | main+side>",
+   "uses": [<the ids of the elements on screen in it, the main one first>]}
   - An element may go on into the next scene when it stays up (list it in both): it comes on in the first.
-  - A manim figure is a scene of its own, its only element.
-
-Also, by beat when it matters: "beats": [{"beat": <n>, "paragraph"?: true, "pause"?: 1-2, "about"?: "<English name>"}].
-The first beat of each scene starts a paragraph by itself.`;
+  - A manim figure is a scene of its own, its only element (the Manim agent writes it, timed to its words).
+Also, by beat when it matters: "beats": [{"beat": <n>, "pause"?: 1-2, "about"?: "<English name>"}]. The first beat
+of each scene starts a paragraph by itself.`;
 
 export const DIRECTOR_TOOL = {
   type: "function" as const,
@@ -95,18 +107,32 @@ export const DIRECTOR_TOOL = {
 
 /** The scene writer's prompt made the director's: its instructions on how operations are written kept, the parts on
  * anchors and timing (the choreography's) taken out, the plan's answer told, and the request asked again. */
-export function directorPrompt(scenes: Prompt, o: { chapter: number; beats: number[] }): Prompt {
+export function directorPrompt(scenes: Prompt, o: { chapter: number; beats: number[]; catalog?: string;
+  only?: { scene: string; beats: number[]; plan: { elements: PlanElement[]; scenes: PlanScene[] }; note?: string } }): Prompt {
   const timing = new Set(["v2-anchors", "anchors", "timing"]);
   const system: Part[] = [];
+  const add = () => {
+    system.push(part("director", "The answer: the chapter's plan (elements and scenes)", "rules", DIRECTOR));
+    if (o.catalog) system.push(part("primitives", "The primitives: what each shows and what can be done with it", "rules",
+      `THE PRIMITIVES (the current engine's operations, each with its parts and what the choreographer can do with it):\n${o.catalog}`));
+  };
   for (const p of scenes.system) {
     if (timing.has(p.key)) continue;
     system.push(p);
-    if (p.key === "shape") system.push(part("director", "The answer: the chapter's plan (elements and scenes)", "rules", DIRECTOR));
+    if (p.key === "shape") add();
   }
-  if (!system.some((p) => p.key === "director")) system.push(part("director", "The answer: the chapter's plan (elements and scenes)", "rules", DIRECTOR));
-  const user = scenes.user.map((p) => (p.key !== "ask" ? p : part("ask", "Request", "ask",
-    `Write chapter ${o.chapter}'s plan (write_plan): its elements and its scenes, every one of its beats (` +
-    `${o.beats.map((b) => `#${b}`).join(", ")}) in one scene, in order.`)));
+  if (!system.some((p) => p.key === "director")) add();
+  const ask = o.only
+    ? `Write scene ${o.only.scene} again (write_plan): beats ${o.only.beats.map((b) => `#${b}`).join(", ")} only. The chapter's plan as it ` +
+      `is (below): the other scenes stay as they are. Answer with this scene's elements (new ids, or the ids of elements it ` +
+      `keeps from the scenes around it) and ONE scene (or a few) covering exactly those beats.`
+    : `Write chapter ${o.chapter}'s plan (write_plan): its elements and its scenes, every one of its beats (` +
+      `${o.beats.map((b) => `#${b}`).join(", ")}) in one scene, in order.`;
+  const user = scenes.user.map((p) => (p.key !== "ask" ? p : part("ask", "Request", "ask", ask)));
+  if (o.only) {
+    user.splice(user.length - 1, 0, part("plan", "The chapter's plan as it is", "plan", JSON.stringify(o.only.plan)),
+      ...(o.only.note ? [part("scene-note", `What to change in scene ${o.only.scene}`, "context", o.only.note)] : []));
+  }
   return { system, user };
 }
 
@@ -148,7 +174,14 @@ WHEN
   shade). But never more than two emphases in a line. There is no camera: nothing zooms or pans.
 - Nothing happens that you do not cue: a part with no cue comes on as its line begins, and nothing is pointed at
   because the line says its name.
-- Use only the refs and acts given. Do not invent elements.`;
+- Use only the refs and acts given. Do not invent elements.
+
+BE RICH: the video is alive only when something moves on every line, on its words. Use each primitive's manual
+("HOW TO CHOREOGRAPH"): bring every part on by itself on the word that names it, never all at once; on a diagram,
+focus the node being explained (emphasis) and bring the next nodes on in the lines that name them; on a labelled
+picture, shade each part as it is explained, one after another; point (emphasis) at what a line names again; take a
+picture off (exit) when its idea is done and nothing replaces it. A scene of four lines should have ten or more
+moments, each on its word, about a second or more apart.`
 
 export const CHOREOGRAPHY_TOOL = {
   type: "function" as const,

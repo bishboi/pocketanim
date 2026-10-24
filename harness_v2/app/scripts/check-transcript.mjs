@@ -470,6 +470,17 @@ run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectur
 assert.ok(run.calls.filter((c) => /^Choreography:/.test(c.label)).length > choreoBefore, "a plan choreographed again");
 assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
 await assert.rejects(scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: { elements: [], scenes: [] } }), /no element/);
+// One scene built again (the director for its beats only, then its choreography); the other scenes and the voice kept.
+const sceneOne = run.scenes.lectures[1].plans[pc].scenes[0];
+const otherScenes = run.scenes.lectures[1].plans[pc].scenes.slice(1).map((x) => JSON.stringify(x));
+await scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: sceneOne.id, note: "a different picture" });
+run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+const rebuilt = run.scenes.lectures[1].plans[pc];
+assert.ok(run.calls.some((c) => new RegExp(`scene ${sceneOne.id} again \\(director`).test(c.label)), "the director asked for that scene only");
+assert.ok(otherScenes.every((x) => rebuilt.scenes.some((y) => JSON.stringify(y) === x)), "the other scenes as they were");
+assert.deepEqual(rebuilt.scenes.flatMap((x) => x.beats).sort((a, b) => a - b), run.script.lectures[1].chapters[0].beats.map((b) => b.n), "every beat still in a scene");
+assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
+await assert.rejects(scenesAction(run.id, { action: "rebuildScene", lecture: 1, chapter: pc, scene: "S99" }), /no scene S99/);
 // The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
 await scenesAction(run.id, { action: "engine", engine: "current", director: false });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
@@ -695,7 +706,7 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   await assert.rejects(Promise.resolve().then(() => readChapterScript({ engine: "beta", chapter: { title: "x", beats: [{ say: "x" }] } })), /"engine" is "motion"/);
   const added = await labAction(run.id, { action: "add", preset: "diagram-build" });
   assert.equal(added.name, "Diagram built over beats");
-  let lv, mv;
+  let lv;
   if (FULL) {
   await labAction(run.id, { action: "try", id: added.id });
   run = await slow(run.id, (r) => voiceRunning(r), 3000);
@@ -710,20 +721,17 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   const fromChapter = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
   assert.ok(fromChapter.script.chapter.beats.length === ch1.beats.length && fromChapter.script.chapter.beats.every((b) => b.beat === undefined), "a lecture's chapter, its beats the experiment's own");
   // A motion experiment: spoken, timed and played on the motion engine; a lecture's chapter added in a motion look.
-  const moving = await labAction(run.id, { action: "add", preset: "m-columns" });
-  if (FULL) {
-  await labAction(run.id, { action: "try", id: moving.id });
-  run = await slow(run.id, (r) => voiceRunning(r), 3000);
-  mv = run.lab.items.find((i) => i.id === moving.id).result;
-  assert.equal(mv.status, "done", mv.error);
-  assert.ok(mv.ir && mv.audio && mv.frames > 0 && mv.beats.length === 2, "the motion experiment played with its narration");
-  assert.ok(readFileSync(path.join(fileOf(mv.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "drawn by the motion engine");
-  }
-  const inMotion = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n, motion: true, look: "newsroom" });
-  assert.ok(inMotion.script.engine === "motion" && inMotion.script.look === "newsroom" && / \(motion: newsroom\)$/.test(inMotion.name), "a chapter in a motion look");
-  const c2 = await compileScript(run, await engineScriptOf(run, 1, inMotion.script), path.join(scenesDir(run.id), "lab-check", "chapter-in-motion"));
-  assert.ok(c2.source && !c2.errors.length && c2.source.includes("(MotionLecture)"), `a lecture's chapter compiles on the motion engine: ${c2.errors.join("; ")}`);
-  for (const i of [moving, inMotion]) await labAction(run.id, { action: "remove", id: i.id });
+  // The Lab is the current engine's: a motion preset is not one of its presets; a lecture's chapter comes on it as it is.
+  await assert.rejects(labAction(run.id, { action: "add", preset: "m-columns" }), /no preset/);
+  const inMotion = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
+  assert.ok(!inMotion.script.engine, "a lecture's chapter, on the current engine");
+  // Every primitive at once (lib/primitives.ts), checked by compiling it only: nothing refused.
+  const every = await labAction(run.id, { action: "add", every: true });
+  assert.ok(every.script.chapter.beats.length >= 30, "a beat for each primitive");
+  const checkedLab = await labAction(run.id, { action: "check", id: every.id });
+  assert.ok(checkedLab.checked.ok, `every primitive compiles: ${checkedLab.checked.errors.join("; ")}`);
+  assert.deepEqual(checkedLab.checked.warnings.filter((w) => /left out|no such op/i.test(w)), [], "nothing left out");
+  for (const i of [inMotion, every]) await labAction(run.id, { action: "remove", id: i.id });
   const copy = await labAction(run.id, { action: "duplicate", id: added.id });
   assert.ok(!copy.result && copy.name.endsWith("(copy)"));
   await labAction(run.id, { action: "save", id: copy.id, name: "Variant", script: { chapter: { title: "V", beats: [{ say: "One beat.", do: [{ op: "fact", text: "a variant" }] }] } } });
@@ -734,8 +742,7 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   assert.equal((await loadRun(run.id)).lab.items.length, 0, "removed");
   console.log(`lab: ${FULL ? LAB_PRESETS.length : 2} presets and ${LAB_SNIPPETS.length} snippets compile` +
     (lv ? `; an experiment played in ${(lv.frames / lv.fps).toFixed(1)} s` : ""));
-  console.log(`lab (motion beta): ${FULL ? LAB_MOTION_PRESETS.length : Math.ceil(LAB_MOTION_PRESETS.length / 8)} presets and ${LAB_MOTION_SNIPPETS.length} snippets compile` +
-    (mv ? `; one played in ${(mv.frames / mv.fps).toFixed(1)} s` : ""));
+  console.log(`motion presets: ${FULL ? LAB_MOTION_PRESETS.length : Math.ceil(LAB_MOTION_PRESETS.length / 8)} and ${LAB_MOTION_SNIPPETS.length} snippets compile on the motion engine`);
 }
 
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).

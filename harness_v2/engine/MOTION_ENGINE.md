@@ -175,7 +175,10 @@ pace is the Voice step's (`teacher`, the default: 10% slower, pitch kept). Words
    notes of the chord in eighths too; punchy: and a soft low pulse on the beat), made by formula on the lecture's own
    clock, so the pieces each line adds join into one bed; −24 dB while a word is said and −16 dB in a pause of 0.6 s
    or more, with 150 ms ramps. It is a sound of the line's like the voice, so the video and the players' narration
-   track both carry it. `PANIM_MUSIC=off` (the Scenes tab's "music" box) leaves it out; `PANIM_MUSIC_GAIN` adds dB.
+   track both carry it. It never stops for an animation: what plays between two lines' pieces (a map moving in, a
+   picture changing, a chapter's card, the credits) gets the bed too, at its level between words, from where the last
+   piece ended (`Lecture._bed_gap`, placed back in time; and to the video's end in `tear_down`).
+   `PANIM_MUSIC=off` (the Scenes tab's "music" box) leaves it out; `PANIM_MUSIC_GAIN` adds dB.
 10. **Kept alive** (`MotionLecture._lively`). A word the voice **stresses** (said 1.2 standard deviations louder than
    its line's words, from the line's own audio: `_word_stress`) pulses what it names on the screen, two a line at
    most. A stretch of a line with nothing moving for 2 s or more gets one quiet beat on a word said in it (two in a

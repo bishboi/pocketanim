@@ -8,16 +8,25 @@
 
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { LAB_MOTION_PRESETS, LAB_PRESETS } from "./lab-presets";
-import { scenesDir } from "./scenes";
+import { LAB_PRESETS } from "./lab-presets";
+import { everyPrimitive } from "./primitives";
+import { compile, scenesDir } from "./scenes";
 import { loadRun, saveRun } from "./store";
 import type { ChapterScript, LabItem, LabState, Run } from "./types";
-import { chapterScript, readChapterScript, speakChapter } from "./voice";
+import { chapterScript, engineScriptOf, readChapterScript as readAny, speakChapter } from "./voice";
+
+/** A Lab script, on the current engine (the Lab tries the current engine's primitives; the motion engine is not here). */
+function readChapterScript(x: unknown): ChapterScript {
+  const s = readAny(x);
+  for (const k of ["engine", "look", "energy", "transition", "idle", "timeline"] as const) delete s[k];
+  return s;
+}
 
 export type LabAction =
   | { action: "add"; preset?: string; lecture?: number; chapter?: number; name?: string; script?: unknown;
-      /** From a lecture's chapter: drawn by the motion engine (beta), in this look. */
-      motion?: boolean; look?: string }
+      /** One beat for each of the current engine's primitives (lib/primitives.ts). */
+      every?: boolean }
+  | { action: "check"; id: string; script?: unknown }
   | { action: "save"; id: string; name?: string; lecture?: number; script?: unknown }
   | { action: "try"; id: string; script?: unknown }
   | { action: "duplicate"; id: string }
@@ -62,7 +71,7 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
     let from: string | undefined;
     let lecture = a.lecture;
     if (a.preset) {
-      const p = [...LAB_PRESETS, ...LAB_MOTION_PRESETS].find((x) => x.id === a.preset);
+      const p = LAB_PRESETS.find((x) => x.id === a.preset);
       if (!p) throw new Error(`no preset "${a.preset}"`);
       script = readChapterScript(p.script);
       name ||= p.name;
@@ -72,10 +81,14 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
       script = await chapterScript(run, n, a.chapter);
       // Beat numbers belong to the lecture's scenes; an experiment's beats are its own.
       script.chapter.beats = script.chapter.beats.map(({ beat: _, ...b }) => b);
-      name ||= `Lecture ${n}, chapter ${a.chapter}: ${script.chapter.title}${a.motion ? ` (motion: ${a.look || "its style"})` : ""}`;
+      for (const k of ["engine", "look", "energy", "transition", "idle", "timeline"] as const) delete script[k];
+      name ||= `Lecture ${n}, chapter ${a.chapter}: ${script.chapter.title}`;
       from = `L${n}c${a.chapter}`;
-      if (a.motion) script = { ...script, engine: "motion", ...(a.look ? { look: a.look } : {}) };
       lecture = n;
+    } else if (a.every) {
+      script = readChapterScript(everyPrimitive());
+      name ||= "Every primitive";
+      from = "every";
     } else {
       script = readChapterScript(a.script ?? { chapter: { title: "An experiment", beats: [{ say: "Write the words said here.", do: [] }] } });
       name ||= "An experiment";
@@ -99,6 +112,15 @@ export async function labAction(id: string, a: LabAction): Promise<LabItem | nul
     lab.items.splice(lab.items.indexOf(item) + 1, 0, copy);
     saveRun(run, true);
     return copy;
+  }
+  if (a.action === "check") {
+    // Compiled only (no voice, no render): what the compiler refuses, mends and warns, at once.
+    if (a.script !== undefined) item.script = readChapterScript(a.script);
+    const out = await compile(run, await engineScriptOf(run, lectureFor(run, item.lecture), item.script), path.join(itemDir(run, item.id), "check"),
+      lectureFor(run, item.lecture));
+    item.checked = { at: Date.now(), ok: !!out.source && !out.errors.length, errors: out.errors, warnings: out.warnings };
+    saveRun(run, true);
+    return item;
   }
   const key = `${id}|${item.id}`;
   if (a.action === "remove") {

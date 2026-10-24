@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * The Lab: try animations with the voice, apart from the lectures (lib/lab.ts). Each experiment is a chapter's beat
- * script (engine/BEAT_SCRIPT.md), started from a preset (one per kind of animation), from a lecture's chapter, or
- * blank; edited here, and spoken and played: compiled, spoken with the Voice tab's voice, its animations timed to the
- * words, and played with its narration, with every line's word times and each animation's start shown under it.
+ * The Lab: try the current engine's primitives with the voice, apart from the lectures (lib/lab.ts). Each experiment
+ * is a chapter's beat script (engine/BEAT_SCRIPT.md), started from a preset, from every primitive at once
+ * (lib/primitives.ts), from a lecture's chapter, or blank; edited here in a form (each beat and its operations, the
+ * fields of each primitive) or as JSON; checked (compiled only: what the compiler refuses or mends), or spoken and
+ * played: compiled, spoken with the Voice tab's voice, its animations timed to the words, played with its narration.
  */
 
-import { useEffect, useState } from "react";
-import { LAB_MOTION_PRESETS, LAB_MOTION_SNIPPETS, LAB_PRESETS, LAB_SNIPPETS } from "@/lib/lab-presets";
-import { MOTION_LOOKS } from "@/lib/prompts/scenes-motion";
+import { useEffect, useRef, useState } from "react";
+import { LAB_PRESETS } from "@/lib/lab-presets";
+import { PRIMITIVES, PRIMITIVE_BY_OP, type Field } from "@/lib/primitives";
 import type { LabItem, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
 import { unfence, VoiceResult } from "./voice-panel";
@@ -23,19 +24,20 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
 }) {
   const items = run.lab?.items ?? [];
   const [open, setOpen] = useState<string | undefined>(items[0]?.id);
-  const [count, setCount] = useState(items.length);
-  // A new experiment is opened as it arrives.
+  const known = useRef<Set<string> | null>(null);
+  // A new experiment (one not seen before: added, or a copy) is opened as it arrives.
+  const ids = items.map((i) => i.id).join(",");
   useEffect(() => {
-    if (items.length > count) setOpen(items[items.length - 1].id);
-    setCount(items.length);
-  }, [items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    const now = items.map((i) => i.id);
+    const fresh = known.current ? now.filter((id) => !known.current!.has(id)) : [];
+    if (fresh.length) setOpen(fresh[fresh.length - 1]);
+    else if (!open || !now.includes(open)) setOpen(now[0]);
+    known.current = new Set(now);
+  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
   const settings = run.voice?.settings ?? { engine: ready?.gemini ? "gemini" : "espeak", pace: "teacher" };
   const engine = ENGINES.find((e) => e.id === settings.engine) ?? ENGINES[0];
   const item = items.find((i) => i.id === open);
   const chapters = run.lectures.flatMap((l) => (run.script?.lectures[l.n]?.chapters ?? []).map((c) => ({ n: l.n, c })));
-  // A lecture's chapter may be added as it is, or on the motion engine (beta) in one of its looks.
-  const [motionLook, setMotionLook] = useState("");
-  const groups = [...new Set(LAB_MOTION_PRESETS.map((p) => p.group))];
 
   return (
     <div className="space-y-3" data-testid="lab">
@@ -43,8 +45,9 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
         <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h3 className="text-sm font-semibold text-neutral-100">Lab</h3>
           <span className="text-neutral-400">
-            Try animations with the voice, apart from the lectures: start from a preset (one for each kind of animation), a lecture&apos;s chapter,
-            or blank; change its beat-script JSON; <b>Speak and play</b> compiles it, speaks it, times each animation to its words and plays it.
+            Try the current engine&apos;s primitives with the voice, apart from the lectures: start from a preset, every primitive, a lecture&apos;s
+            chapter, or blank; change it in the form or as JSON; <b>Check</b> compiles it only; <b>Speak and play</b> compiles it, speaks it,
+            times each animation to its words and plays it.
           </span>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -67,14 +70,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
             <select data-testid="lab-preset" className="w-64 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
               onChange={(e) => { if (e.target.value) void act({ action: "add", preset: e.target.value }); }}>
               <option value="">pick one…</option>
-              <optgroup label="Current engine">
-                {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
-              </optgroup>
-              {groups.map((g) => (
-                <optgroup key={g} label={`Motion engine (beta): ${g}`}>
-                  {LAB_MOTION_PRESETS.filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
-                </optgroup>
-              ))}
+              {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
             </select>
           </label>
           {chapters.length > 0 && (
@@ -82,23 +78,14 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
               <span className="text-neutral-400">…or from a lecture&apos;s chapter</span>
               <select data-testid="lab-chapter" className="w-56 rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value=""
                 onChange={(e) => { const [n, c] = e.target.value.split("|").map(Number);
-                  if (e.target.value) void act({ action: "add", lecture: n, chapter: c, ...(motionLook ? { motion: true, look: motionLook === "own" ? undefined : motionLook } : {}) }); }}>
+                  if (e.target.value) void act({ action: "add", lecture: n, chapter: c }); }}>
                 <option value="">pick one…</option>
                 {chapters.map(({ n, c }) => <option key={`${n}|${c.n}`} value={`${n}|${c.n}`}>Lecture {n}, chapter {c.n}: {c.title}</option>)}
               </select>
             </label>
           )}
-          {chapters.length > 0 && (
-            <label className="flex flex-col gap-1">
-              <span className="text-neutral-400">…drawn by</span>
-              <select data-testid="lab-chapter-engine" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value={motionLook}
-                onChange={(e) => setMotionLook(e.target.value)}>
-                <option value="">the current engine</option>
-                <option value="own">the motion engine (beta), its own style</option>
-                {MOTION_LOOKS.map((l) => <option key={l} value={l}>the motion engine (beta), look: {l}</option>)}
-              </select>
-            </label>
-          )}
+          <button data-testid="lab-every" className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`} title={`One beat for each of the ${PRIMITIVES.length - 1} primitives (a Manim figure aside: the Manim agent writes it), on India's map`}
+            onClick={() => void act({ action: "add", every: true })}>Every primitive</button>
           <button data-testid="lab-blank" className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "add" })}>Blank</button>
         </div>
         {ready && !ready[settings.engine] && <p className="mt-2 text-amber-300">{engine.label} has no key here ({engine.key}): pick espeak-ng to try offline, for free.</p>}
@@ -116,7 +103,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
       )}
       {!items.length && <p className="text-xs text-neutral-400">No experiment yet: pick a preset above.</p>}
       {item && <Experiment key={item.id} run={run} item={item} onCall={onCall} act={act} />}
-      <Reference motion={(item?.script as { engine?: string } | undefined)?.engine === "motion"} />
+      <Reference />
     </div>
   );
 }
@@ -134,15 +121,15 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
   const beats = (parsed as { chapter?: { beats?: unknown[] } } | undefined)?.chapter?.beats;
   const running = item.result?.status === "running";
   const changed = !parseError && JSON.stringify(parsed) !== JSON.stringify(item.script);
-  const motion = (parsed as { engine?: string } | undefined)?.engine === "motion";
-  const snippets = motion ? [...LAB_MOTION_SNIPPETS, ...LAB_SNIPPETS] : LAB_SNIPPETS;
-  const addBeat = (k: number) => {
-    const s = snippets[k];
-    if (!s || parseError || !parsed) return;
+  const [mode, setMode] = useState<"form" | "json">("form");
+  const addBeat = (op: string) => {
+    const p = PRIMITIVE_BY_OP.get(op);
+    if (!p || parseError || !parsed) return;
     const next = structuredClone(parsed) as { chapter: { beats: unknown[] } };
-    next.chapter.beats.push({ say: s.say, do: [s.do] });
+    next.chapter.beats.push({ say: p.say, do: [structuredClone(p.example)] });
     setText(JSON.stringify(next, null, 2));
   };
+  const checked = item.checked;
   return (
     <section className="space-y-2 rounded border border-neutral-800 p-3 text-xs" data-testid="lab-experiment">
       <div className="flex flex-wrap items-center gap-2">
@@ -163,29 +150,46 @@ function Experiment({ run, item, onCall, act }: { run: Run; item: LabItem; onCal
         <button data-testid="lab-try" disabled={!!parseError || !parsed || running} className={`${btn} border-emerald-700 text-emerald-200 hover:bg-emerald-950`}
           onClick={() => { if (text.trim().startsWith("```")) setText(JSON.stringify(parsed, null, 2)); void act({ action: "try", id: item.id, script: parsed }); }}>
           {running ? `${item.result?.phase ?? "trying"}…` : "Speak and play"}</button>
+        <button data-testid="lab-check" disabled={!!parseError || !parsed || running} className={`${btn} border-sky-700 text-sky-200 hover:bg-sky-950`}
+          title="Compile it only (no voice, no render): what the compiler refuses or mends"
+          onClick={() => void act({ action: "check", id: item.id, script: parsed })}>Check</button>
         <button data-testid="lab-save" disabled={!changed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "save", id: item.id, script: parsed })}>Save</button>
         <button disabled={!!parseError || !parsed} className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => setText(JSON.stringify(parsed, null, 2))}>Format</button>
         <button className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => void act({ action: "duplicate", id: item.id })}>Duplicate (to try a variant)</button>
         <select data-testid="lab-snippet" className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1" value="" disabled={!!parseError || !parsed}
-          onChange={(e) => addBeat(Number(e.target.value))}>
+          onChange={(e) => addBeat(e.target.value)}>
           <option value="">Add a beat with…</option>
-          {snippets.map((s, k) => <option key={k} value={k}>{s.op}</option>)}
+          {PRIMITIVES.map((p) => <option key={p.op} value={p.op}>{p.op}: {p.what.slice(0, 60)}</option>)}
         </select>
+        <span className="flex overflow-hidden rounded border border-neutral-700" data-testid="lab-mode">
+          {(["form", "json"] as const).map((m) => (
+            <button key={m} className={`px-2 py-1 ${mode === m ? "bg-neutral-700 text-white" : "text-neutral-300 hover:bg-neutral-800"}`} onClick={() => setMode(m)}>
+              {m === "form" ? "Form" : "JSON"}</button>
+          ))}
+        </span>
         <button disabled={running} className={`${btn} ml-auto border-red-900 text-red-300 hover:bg-red-950`}
           onClick={() => { if (confirm(`Delete "${item.name}"?`)) void act({ action: "remove", id: item.id }); }}>Delete</button>
       </div>
-      {motion && (
-        <p className="text-violet-300" data-testid="lab-motion-note">
-          Motion engine (beta): <code>look</code>, <code>energy</code>, <code>transition</code> and <code>timeline</code> set how it looks and moves; its
-          templates (<code>counter</code>, <code>chart</code>, <code>units</code>, <code>cards</code>, <code>stamp</code>…) take <code>on</code>, the words they land on.
-        </p>
+      {checked && (
+        <div className={`rounded border p-2 ${checked.ok ? "border-emerald-900 text-emerald-200" : "border-red-900 text-red-200"}`} data-testid="lab-checked">
+          <p className="font-semibold">{checked.ok ? "Compiles" : "Refused"} · {new Date(checked.at).toLocaleTimeString()}
+            {checked.warnings.length ? <span className="font-normal text-amber-300"> · {checked.warnings.length} note(s)</span> : null}</p>
+          {checked.errors.map((e, k) => <p key={`e${k}`} className="text-red-300">✗ {e}</p>)}
+          {checked.warnings.slice(0, 12).map((w, k) => <p key={`w${k}`} className="text-amber-200/90">• {w}</p>)}
+        </div>
       )}
-      <p className="text-neutral-500">
-        The JSON is a chapter: <code>chapter.beats</code>, each <code>{"{say, do: [operations], paragraph?, pause?}"}</code>; <code>style</code>/<code>art</code> change
-        the look, <code>region</code> (with <code>chapter.map: true</code>) draws a map. The reference is under the editor.
-      </p>
-      <textarea data-testid="lab-json" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)}
-        className="mono h-[26rem] w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] leading-snug text-neutral-100" />
+      {mode === "form" && parsed && !parseError
+        ? <FormEditor value={parsed as LabScript} onChange={(v) => setText(JSON.stringify(v, null, 2))} />
+        : (
+          <>
+            <p className="text-neutral-500">
+              The JSON is a chapter: <code>chapter.beats</code>, each <code>{"{say, do: [operations], paragraph?, pause?}"}</code>; <code>style</code>/<code>art</code> change
+              the look, <code>region</code> (with <code>chapter.map: true</code>) draws a map. The reference is under the editor.
+            </p>
+            <textarea data-testid="lab-json" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)}
+              className="mono h-[26rem] w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] leading-snug text-neutral-100" />
+          </>
+        )}
       {item.result && (
         <div className="space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">Spoken and played {item.result.at ? new Date(item.result.at).toLocaleTimeString() : ""}</p>
@@ -240,25 +244,142 @@ function MadePicture({ p }: { p: Made }) {
   );
 }
 
-/** engine/BEAT_SCRIPT.md (or, for a motion experiment, engine/MOTION_ENGINE.md), to read beside the editor. */
-function Reference({ motion }: { motion: boolean }) {
+/** engine/BEAT_SCRIPT.md, to read beside the editor. */
+function Reference() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
-  useEffect(() => setText(null), [motion]);
   useEffect(() => {
     if (!open || text !== null) return;
     void (async () => {
-      const res = await fetch(`/api/runs/_/lab${motion ? "?engine=motion" : ""}`, { cache: "no-store" });
+      const res = await fetch("/api/runs/_/lab", { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       setText(j.reference ?? j.error ?? "the reference could not be read");
     })();
-  }, [open, text, motion]);
+  }, [open, text]);
   return (
     <details className="rounded border border-neutral-800 p-2 text-xs" data-testid="lab-reference" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="cursor-pointer text-neutral-200">{motion
-        ? "The motion engine's reference (beta): its templates, looks, moments, transitions and timeline styles (engine/MOTION_ENGINE.md)"
-        : "The beat script's reference: every operation and its arguments (engine/BEAT_SCRIPT.md)"}</summary>
+      <summary className="cursor-pointer text-neutral-200">The beat script&apos;s reference: every operation and its arguments (engine/BEAT_SCRIPT.md)</summary>
       <pre className="mono mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap text-[11px] leading-snug text-neutral-300">{text ?? "reading…"}</pre>
     </details>
+  );
+}
+
+type LabOp = Record<string, unknown>;
+type LabBeat = { say: string; do: LabOp[]; paragraph?: boolean; pause?: number };
+type LabScript = { chapter: { title: string; beats: LabBeat[] } & Record<string, unknown> } & Record<string, unknown>;
+const input = "rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-[11px] text-neutral-100";
+
+/** The experiment as a form: its title, each beat (its words, paragraph, pause) and each of its operations, with the
+ * fields of its primitive (lib/primitives.ts). Every change is written back to the JSON. */
+function FormEditor({ value, onChange }: { value: LabScript; onChange: (v: LabScript) => void }) {
+  const beats = Array.isArray(value.chapter?.beats) ? value.chapter.beats : [];
+  const set = (f: (v: LabScript) => void) => {
+    const next = structuredClone(value);
+    next.chapter.beats ??= [];
+    f(next);
+    onChange(next);
+  };
+  const move = <T,>(list: T[], i: number, d: number) => {
+    const j = i + d;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+  };
+  return (
+    <div className="space-y-2" data-testid="lab-form">
+      <label className="flex items-center gap-2 text-neutral-400">Chapter title
+        <input className={`${input} w-80`} value={String(value.chapter?.title ?? "")} onChange={(e) => set((v) => { v.chapter.title = e.target.value; })} />
+      </label>
+      {beats.map((b, i) => (
+        <div key={i} className="space-y-1 rounded border border-neutral-800 bg-neutral-900/40 p-2" data-testid="lab-form-beat">
+          <div className="flex items-center gap-2">
+            <span className="text-neutral-500">#{i + 1}</span>
+            <textarea className={`${input} h-10 flex-1`} value={b.say ?? ""} placeholder="the words said" onChange={(e) => set((v) => { v.chapter.beats[i].say = e.target.value; })} />
+            <label className="flex items-center gap-1 text-neutral-400"><input type="checkbox" checked={!!b.paragraph}
+              onChange={(e) => set((v) => { if (e.target.checked) v.chapter.beats[i].paragraph = true; else delete v.chapter.beats[i].paragraph; })} />paragraph</label>
+            <label className="flex items-center gap-1 text-neutral-400">pause
+              <input type="number" step="0.5" min="0" max="2" className={`${input} w-12`} value={b.pause ?? ""}
+                onChange={(e) => set((v) => { if (e.target.value) v.chapter.beats[i].pause = Number(e.target.value); else delete v.chapter.beats[i].pause; })} /></label>
+            <button className="text-neutral-400 hover:text-white" title="up" onClick={() => set((v) => move(v.chapter.beats, i, -1))}>↑</button>
+            <button className="text-neutral-400 hover:text-white" title="down" onClick={() => set((v) => move(v.chapter.beats, i, 1))}>↓</button>
+            <button className="text-red-300 hover:text-red-200" title="remove the beat" onClick={() => set((v) => { v.chapter.beats.splice(i, 1); })}>✕</button>
+          </div>
+          {(Array.isArray(b.do) ? b.do : []).map((op, k) => (
+            <OpForm key={k} op={op} onChange={(o) => set((v) => { v.chapter.beats[i].do[k] = o; })}
+              onMove={(d) => set((v) => move(v.chapter.beats[i].do, k, d))} onRemove={() => set((v) => { v.chapter.beats[i].do.splice(k, 1); })} />
+          ))}
+          <select className={input} value="" onChange={(e) => { const p = PRIMITIVE_BY_OP.get(e.target.value);
+            if (p) set((v) => { (v.chapter.beats[i].do ??= []).push(structuredClone(p.example)); }); }}>
+            <option value="">+ an operation…</option>
+            {PRIMITIVES.map((p) => <option key={p.op} value={p.op}>{p.op}</option>)}
+          </select>
+        </div>
+      ))}
+      <button className={`${btn} border-neutral-700 hover:bg-neutral-800`} onClick={() => set((v) => { v.chapter.beats.push({ say: "", do: [] }); })}>+ a beat</button>
+    </div>
+  );
+}
+
+/** One operation: its primitive (changed: started again from its example), each of its fields, and its anchor. */
+function OpForm({ op, onChange, onMove, onRemove }: { op: LabOp; onChange: (o: LabOp) => void; onMove: (d: number) => void; onRemove: () => void }) {
+  const p = PRIMITIVE_BY_OP.get(String(op.op));
+  const field = (f: Field) => {
+    const v = op[f.key];
+    const put = (x: unknown) => {
+      const next = { ...op };
+      if (x === undefined || x === "" || (Array.isArray(x) && !x.length)) delete next[f.key];
+      else next[f.key] = x;
+      onChange(next);
+    };
+    const label = <span className={`w-20 shrink-0 ${f.required ? "text-neutral-200" : "text-neutral-400"}`} title={f.hint}>{f.key}{f.required ? "*" : ""}</span>;
+    if (f.kind === "bool") return <label key={f.key} className="flex items-center gap-1">{label}<input type="checkbox" checked={v === true} onChange={(e) => put(e.target.checked || undefined)} /></label>;
+    if (f.kind === "select") return <label key={f.key} className="flex items-center gap-1">{label}
+      <select className={input} value={String(v ?? "")} onChange={(e) => put(e.target.value || undefined)}>{(f.options ?? []).map((o) => <option key={o} value={o}>{o || "—"}</option>)}</select></label>;
+    if (f.kind === "number") return <label key={f.key} className="flex items-center gap-1">{label}
+      <input type="number" className={`${input} w-24`} value={v === undefined ? "" : String(v)} onChange={(e) => put(e.target.value === "" ? undefined : Number(e.target.value))} /></label>;
+    if (f.kind === "texts") return <label key={f.key} className="flex items-start gap-1">{label}
+      <textarea className={`${input} h-12 flex-1`} placeholder="one a line" value={Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n") : ""}
+        onChange={(e) => put(e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))} /></label>;
+    if (f.kind === "json") return <JsonField key={f.key} label={label} value={v} hint={f.hint} onChange={put} />;
+    if (f.kind === "long") return <label key={f.key} className="flex items-start gap-1">{label}
+      <textarea className={`${input} h-12 flex-1`} placeholder={f.hint} value={String(v ?? "")} onChange={(e) => put(e.target.value)} /></label>;
+    return <label key={f.key} className="flex items-center gap-1">{label}
+      <input className={`${input} flex-1`} placeholder={f.hint} value={v === undefined ? "" : String(v)} onChange={(e) => put(e.target.value)} /></label>;
+  };
+  const known = new Set(["op", "on", ...(p?.fields.map((f) => f.key) ?? [])]);
+  const extra = Object.keys(op).filter((k) => !known.has(k));
+  return (
+    <div className="ml-6 space-y-1 rounded border border-neutral-800 p-1.5" data-testid="lab-form-op">
+      <div className="flex items-center gap-2">
+        <select className={input} value={String(op.op ?? "")} onChange={(e) => { const q = PRIMITIVE_BY_OP.get(e.target.value); if (q) onChange(structuredClone(q.example)); }}>
+          {!p && <option value={String(op.op ?? "")}>{String(op.op ?? "?")}</option>}
+          {PRIMITIVES.map((x) => <option key={x.op} value={x.op}>{x.op}</option>)}
+        </select>
+        <span className="min-w-0 flex-1 truncate text-neutral-500" title={p?.what}>{p?.what ?? "not one of the primitives: its JSON below"}</span>
+        <label className="flex items-center gap-1 text-neutral-400" title='the words it lands on ("w7", "start", or the words)'>on
+          <input className={`${input} w-24`} value={String(op.on ?? "")} onChange={(e) => { const next = { ...op }; if (e.target.value) next.on = e.target.value; else delete next.on; onChange(next); }} /></label>
+        <button className="text-neutral-400 hover:text-white" onClick={() => onMove(-1)}>↑</button>
+        <button className="text-neutral-400 hover:text-white" onClick={() => onMove(1)}>↓</button>
+        <button className="text-red-300 hover:text-red-200" onClick={onRemove}>✕</button>
+      </div>
+      <div className="grid gap-1 md:grid-cols-2">{p?.fields.map(field)}</div>
+      {(extra.length > 0 || !p) && (
+        <JsonField label={<span className="w-20 shrink-0 text-neutral-400">{p ? "more" : "the op"}</span>}
+          value={Object.fromEntries((p ? extra : Object.keys(op).filter((k) => k !== "op")).map((k) => [k, op[k]]))}
+          onChange={(x) => onChange({ op: op.op, ...(p ? Object.fromEntries([...known].filter((k) => k !== "op" && op[k] !== undefined).map((k) => [k, op[k]])) : {}),
+            ...(x && typeof x === "object" ? x as LabOp : {}) })} />
+      )}
+    </div>
+  );
+}
+
+/** A field written as JSON (a list of nodes, of events, of columns): applied when it parses. */
+function JsonField({ label, value, hint, onChange }: { label: React.ReactNode; value: unknown; hint?: string; onChange: (v: unknown) => void }) {
+  const [text, setText] = useState(value === undefined ? "" : JSON.stringify(value));
+  const [bad, setBad] = useState(false);
+  return (
+    <label className="flex items-start gap-1 md:col-span-2">{label}
+      <textarea className={`${input} mono h-14 flex-1 ${bad ? "border-red-700" : ""}`} placeholder={hint} value={text}
+        onChange={(e) => { setText(e.target.value); try { onChange(e.target.value.trim() ? JSON.parse(e.target.value) : undefined); setBad(false); } catch { setBad(true); } }} />
+    </label>
   );
 }

@@ -919,10 +919,16 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if not words:
             words = [{"start": 0.0, "end": seconds}]
         root = Path(os.environ.get("PANIM_AUDIO_DIR") or Path(pl.__file__).resolve().parent / ".cache") / "music"
-        path = music.piece(str(self.M.get("energy", "lively")), begun, seconds + float(line.get("pad") or 0.0),
-                           words, root)
+        self._bed_gap(begun)
+        length = seconds + float(line.get("pad") or 0.0)
+        path = music.piece(self._bed_mood(), begun, length, words, root)
         if path:
             self.add_sound(path, gain=0)
+            self._bed_end = max(float(self.__dict__.get("_bed_end", 0.0)), begun + length)
+
+    def _bed_mood(self) -> str:
+        """The music's mood on the motion engine: the look's energy (Lecture._bed_gap fills between lines with it)."""
+        return str(self.M.get("energy", "lively"))
 
     # The look's sound effects (sfx.py), tuned: a calm look's softer (a swish for a whoosh, quieter pops); the same
     # sound again soon after is quieter, a third is left out; and one that would land on a stressed word is quieter,

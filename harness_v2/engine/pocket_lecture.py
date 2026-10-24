@@ -3228,9 +3228,39 @@ class Lecture(Scene):
         if not words:
             words = [{"start": 0.0, "end": seconds}]
         root = Path(os.environ.get("PANIM_AUDIO_DIR") or Path(__file__).resolve().parent / ".cache") / "music"
-        path = music.piece(self.MUSIC_MOOD, begun, seconds + float(line.get("pad") or 0.0), words, root)
+        self._bed_gap(begun)
+        length = seconds + float(line.get("pad") or 0.0)
+        path = music.piece(self.MUSIC_MOOD, begun, length, words, root)
         if path:
             self.add_sound(path, gain=0)
+            self._bed_end = max(float(self.__dict__.get("_bed_end", 0.0)), begun + length)
+
+    def _bed_mood(self) -> str:
+        return self.MUSIC_MOOD
+
+    def _bed_gap(self, until: float) -> None:
+        """The bed through what plays between two lines' pieces (a map coming in, a picture changing, a chapter's
+        card, the credits): from where the last piece ended to `until`, at its level between words, so the music
+        never stops for an animation. From the lecture's start before the first line."""
+        import music
+
+        if not music.enabled() or voice_mode() == "silent":
+            return
+        start = float(self.__dict__.get("_bed_end", 0.0))
+        if until - start <= 0.05:
+            return
+        root = Path(os.environ.get("PANIM_AUDIO_DIR") or Path(__file__).resolve().parent / ".cache") / "music"
+        path = music.piece(self._bed_mood(), start, until - start, [], root)
+        if path:
+            now = float(getattr(getattr(self, "renderer", None), "time", 0.0) or 0.0)
+            self.add_sound(path, time_offset=start - now, gain=0)
+        self._bed_end = until
+
+    def tear_down(self):
+        """The bed on to the end of the video (its last line's hold, the outro, the credits), when it played at all."""
+        if "_bed_end" in self.__dict__:
+            self._bed_gap(float(getattr(getattr(self, "renderer", None), "time", 0.0) or 0.0))
+        super().tear_down()
 
     def _beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
               cues: list | None = None) -> float:

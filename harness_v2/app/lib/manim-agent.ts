@@ -25,7 +25,7 @@ import { usingFixture } from "./llm";
 import { modelFor } from "./models";
 import { part, render, type Part } from "./prompts/parts";
 import { imageData, newCall } from "./run";
-import { agentRegistry, compile, engineScript, fileUrl, lectureState, scenesDir, scriptOf, stateOf } from "./scenes";
+import { agentRegistry, compile, engineScript, fileUrl, lectureState, scenesDir, scriptOf, stateOf, voicedBeats } from "./scenes";
 import { beatFigures, lectureFigures } from "./script-figures";
 import { figureFile } from "./source/blocks";
 import { linesOf } from "./source/book";
@@ -60,6 +60,15 @@ const TOOLS = [
 const ROLE = "You are the Manim agent of a narrated lecture video. You build ONE beat's Manim figure: the animation on screen " +
   "while the beat's sentences are said. You work in turns with tools: make the pictures the figure needs (make_image), " +
   "check your code (check: the compiler reads it and runs it, nothing is rendered), mend what it says, and finish (finish) with the code you settle on.";
+
+const TIMING = [
+  "TIMING: YOU TIME THE FIGURE. Nothing else moves it: your code starts as the line starts (t = 0) and runs as written,",
+  "so the figure follows the voice only if you time it. Use the beat's word times (given): before each step, self.wait()",
+  "for the gap until its word, and give its self.play a run_time that ends before the next step's word -- a part comes on",
+  "as the narration names it (0.2 s before the word), a highlight as the word that turns the idea is said. Add up your",
+  "waits and run_times as you go: the total must stay within the line's seconds (the quiet after it is a hold: one last",
+  "settle, never a new step). Many small steps on their words read better than one long play at the start.",
+].join("\n");
 
 const RULES = [
   "THE CODE is the body of construct() for this beat: build objects and self.play(...) them. Beats with the same figure id",
@@ -273,7 +282,12 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   const id = figureIdOf(b, beat);
   const plan = existing ? String(existing.plan ?? "") : "";
   const said = sbeat.lines.map((k) => lines[k - 1] ?? "").join(" ").trim();
-  const secs = Math.max(2, said.split(/\s+/).length / 2.6);
+  // The beat as its voice says it (the chapter spoken first), so the figure is timed to its words; else estimated.
+  const voiced = await voicedBeats(run, n, chapter.n).catch(() => undefined);
+  const voice = voiced?.get(beat);
+  const secs = voice?.seconds ?? Math.max(2, said.split(/\s+/).length / 2.6);
+  // The scene it is in (a chapter built as one piece): its beats, so the figure is built across them.
+  const scene = sl.plans?.[chapter.n]?.scenes.find((x) => x.beats.includes(beat));
   const look = lookWords(st.look);
   const state: ManimAgentState = { status: "running", model: o.model || st.manimModel || run.options.manimModel || modelFor("manim"),
     imageModel: run.options.imageModel || modelFor("image"), id, plan: plan || undefined, instruction: o.instruction, steps: [], images: [], turns: 0, cost: 0, started: Date.now() };
@@ -302,7 +316,12 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   const userParts: Part[] = [
     part("lecture", "The lecture and chapter", "context", `Lecture ${n}: ${lecture.title}. Chapter ${chapter.n}: ${chapter.title} (on the board).`),
     part("look", "The look", "context", `The board is drawn in ${look}: its colours are INK, MUTED_INK and PALETTE. The pictures you make (make_image) are drawn in the style you describe for each: choose it.`),
-    part("beat", `Beat #${beat}: what is said (about ${secs.toFixed(0)} s)`, "book", `"${said}"\nThe script's note of what is on screen: ${sbeat.show || "-"}`),
+    part("beat", `Beat #${beat}: what is said (${voice ? `${secs} s, then ${voice.pause} s quiet` : `about ${secs.toFixed(0)} s`})`, "book", `"${said}"\nThe script's note of what is on screen: ${sbeat.show || "-"}`),
+    part("timing", voice ? "The beat's words and when each is said (its own timing: you time the figure)" : "The beat's timing (estimated: the voice is not made yet)", "context", [
+      voice ? `Words (seconds from the line's start): ${voice.words.map((w, i) => `w${i} ${w.w} ${w.t.toFixed(1)}`).join(" | ")}`
+        : `About ${secs.toFixed(1)} s; its words are said evenly through it.`,
+      ...(scene ? [`It is in scene ${scene.id} (beats ${scene.beats.join(", ")}${scene.intent ? `, ${scene.intent}` : ""}): the beats after it in that scene build on this figure.`] : []),
+    ]),
     ...(plan ? [part("plan", "The scene writer's plan for this figure", "plan", plan)] : []),
     ...(o.instruction ? [part("instruction", "What you are asked (by the person building the video)", "ask", o.instruction)] : []),
     part("figure", `The figure: id "${id}"`, "context", before.length
@@ -314,7 +333,8 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
       figures.map((f) => `${f.id}: ${f.caption || "(no caption)"} - ${f.way}${f.beats.length > 1 ? ` (also shown on beats ${f.beats.filter((x) => x !== beat).join(", ")})` : ""}`))] : []),
     part("ask", "Request", "ask", "Build this beat's figure: make the pictures it needs, write the code, check it, mend it, finish."),
   ];
-  const system: Part[] = [part("role", "Role", "rules", ROLE), part("rules", "Code, pictures, how to work", "rules", RULES)];
+  const system: Part[] = [part("role", "Role", "rules", ROLE), part("rules", "Code, pictures, how to work", "rules", RULES),
+    part("timing-rules", "Timing the figure to the voice", "rules", TIMING)];
   const messages: Msg[] = [
     { role: "system", content: render(system) },
     { role: "user", content: figureData.length ? [{ type: "text", text: render(userParts) }, ...figureData.map((url) => ({ type: "image_url", image_url: { url } }))] : render(userParts) },

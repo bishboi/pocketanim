@@ -1060,8 +1060,14 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
       </div>
       <ul className="mt-1 flex flex-wrap gap-1 text-[10px]">
         {plan.scenes.map((x) => (
-          <li key={x.id} className="rounded bg-violet-950/50 px-1.5 py-px text-violet-200" title={x.uses.join(", ")}>
+          <li key={x.id} className="flex items-center gap-1 rounded bg-violet-950/50 px-1.5 py-px text-violet-200" title={x.uses.join(", ")}>
             {x.id} · #{x.beats[0]}{x.beats.length > 1 ? `–${x.beats[x.beats.length - 1]}` : ""}{x.intent ? ` · ${x.intent}` : ""} · {x.uses.length} el.
+            <button className="ml-1 text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} data-testid={`scenes-scene-rebuild-${x.id}`}
+              title="Build this scene again (the director and the choreography, for its beats only); the voice is kept"
+              onClick={() => {
+                const note = window.prompt(`Build scene ${x.id} again. What should change? (optional)`, "");
+                if (note !== null) void act({ action: "rebuildScene", lecture, chapter: c, scene: x.id, note: note.trim() || undefined, render: true });
+              }}>rebuild</button>
           </li>
         ))}
       </ul>

@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { engineDir } from "./maps";
+import { PRIMITIVE_BY_OP } from "./primitives";
 import { MOTION_KIND } from "./visual-kinds";
 
 type Sections = Map<string, string[]>;
@@ -56,6 +57,11 @@ export function manualFor(op: string, engine: "current" | "motion"): string {
   const template = engine === "motion" && MOTION_KIND.ops.includes(name);
   const own = (template ? d.motion.get(name) : d.beat.get(name)) ?? [];
   const row = engine === "motion" && !template ? d.motionRows.get(name) : undefined;
-  const text = [...own, ...(row ? [`In motion: ${row}`] : [])].join("\n\n");
-  return text.length > MOST ? `${text.slice(0, MOST)}\n...` : text;
+  // On the current engine, first how it is choreographed (lib/primitives.ts): its parts and every move it has.
+  const p = engine === "current" ? PRIMITIVE_BY_OP.get(name) : undefined;
+  const moves = p ? [`HOW TO CHOREOGRAPH ${name.toUpperCase()}: ${p.what}`, ...(p.parts ? [`Its parts: ${p.parts}.`] : []),
+    ...p.moves.map((m) => `- ${m}`)].join("\n") : "";
+  const doc = [...own, ...(row ? [`In motion: ${row}`] : [])].join("\n\n");
+  const cut = doc.length > MOST ? `${doc.slice(0, MOST)}\n...` : doc;
+  return [moves, cut].filter(Boolean).join("\n\n");
 }

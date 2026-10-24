@@ -147,3 +147,10 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
 - `PACES["teacher"]` (`PANIM_PACE=teacher`, the Voice step's default): the voice 10% slower, its pitch kept (the
   voice modules' ffmpeg `atempo`; its lines cached apart from the 1.0 ones), the pauses the voice left between lines
   kept but never under 0.4 s, and 1.4 s between paragraphs. The other paces are as they were.
+- The word being said, and music, copied from the motion engine (`Lecture.beat` wraps the line, now `_beat`): with a
+  voice, the caption is laid out a line at a time with where each word sits measured (`_word_caption`), and the word
+  being said is underlined as it is said, the underline moving as fades in the holds (`_kara_plan`, `_kara_moves`),
+  which the exporter writes as verbs, so the phone and the web player show it (`PANIM_KARAOKE=0` turns it off); and a
+  quiet music bed under each line (`music.py`, a calm mood: `MUSIC_MOOD`), from where its voice starts to the end of
+  its pause, ducked under its words (`PANIM_MUSIC=off`, the Scenes tab's music box, turns it off). The underline's
+  moves make no sound effect. The motion engine has its own of both: `WORD_CAPTION` and `MUSIC_BED` are off there.

@@ -97,6 +97,9 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
     """A lecture in a look, every template animated (see the module's notes)."""
 
     # ---------------------------------------------------------------- set-up ----------------------------------------
+    WORD_CAPTION = False     # the engine's word caption and music bed: this engine has its own (caption, _m_music)
+    MUSIC_BED = False
+
     def setup(self):
         super().setup()
         self.M = K.M
@@ -897,9 +900,6 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         if k is not None and k.get("t0") is None:
             k["t0"] = begun
         line = self.__dict__.pop("_m_line", None)
-        if wav:
-            # Where the voice begins on the video's clock: the QA run lines the players' clock up with it by these.
-            self._log("voice", wav=str(wav), at=round(begun, 3))
         if wav and line:
             self._m_music(line, begun, float(seconds or 0.0))
 

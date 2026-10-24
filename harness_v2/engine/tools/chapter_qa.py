@@ -3,8 +3,8 @@
     .venv/bin/python harness_v2/engine/tools/chapter_qa.py <script.json|scene.py> <out_dir>
         [--voice fake|real] [--pictures fake|real] [--every 2] [--quality l]
 
-A beat script (the motion engine's, as the Scenes tab writes it) is compiled (compile_motion.py); a scene is taken as
-it is. It is then built as the Scenes tab builds a chapter (no title slide, no closing fade, so the credits come over
+A beat script is compiled by its engine's compiler (compile_motion.py for `"engine": "motion"`, as the Scenes tab
+writes it, else compile_lecture.py); a scene is taken as it is. It is then built as the Scenes tab builds a chapter (no title slide, no closing fade, so the credits come over
 the last picture), spoken (`fake`: sync_probe's stand-in voice, whose word times are exact, free and offline; `real`:
 the voice PANIM_TTS names, through prespeak.py, cached in <out_dir>/audio), rendered with Manim, exported for the
 phone and the web player (export_scene.py), and checked:
@@ -112,7 +112,10 @@ def main() -> int:
 
     # ---- compile
     if src.suffix == ".json":
-        r = _run([py, ENGINE / "compile_motion.py", src, "--json"], out, {**env, "PANIM_VOICE": "silent"},
+        # The script's own engine: the motion engine's compiler for `"engine": "motion"`, else the current engine's.
+        engine = json.loads(src.read_text()).get("engine")
+        compiler = "compile_motion.py" if engine == "motion" else "compile_lecture.py"
+        r = _run([py, ENGINE / compiler, src, "--json"], out, {**env, "PANIM_VOICE": "silent"},
                  out / "compile.log", 900)
         made = _last_json(r.stdout)
         report["compile"] = {"errors": made.get("errors") or [], "warnings": made.get("warnings") or []}

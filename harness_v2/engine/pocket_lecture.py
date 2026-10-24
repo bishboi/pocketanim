@@ -2974,6 +2974,8 @@ class Lecture(Scene):
     def play(self, *animations, **kwargs):
         """Manim's play, without the empty groups it refuses (see _playable); nothing to play is no play."""
         animations = [a for a in (_playable(a) for a in animations) if a is not None]
+        if self.WORD_CAPTION and animations:
+            animations = self._kara_moves(animations, kwargs)
         if animations and getattr(self, "_free_ink", None):
             import stem
 
@@ -2991,6 +2993,9 @@ class Lecture(Scene):
 
         if not sfx.enabled() or getattr(self, "_free_ink", None):
             return
+        animations = [a for a in animations if not getattr(a, "_m_karaoke", False)]
+        if not animations:
+            return                                          # the caption's underline moving: no sound
         if voice_mode() == "silent" and os.environ.get("PANIM_SFX") != "1":
             return                                          # a silent build (a preview, a test) stays silent
         kind, _ = sfx.classify(animations)
@@ -3004,8 +3009,191 @@ class Lecture(Scene):
             self._last_sfx = now
             self.add_sound(wav, gain=sfx.gain(kind))
 
+    # ---------------- the word being said, and the music under the voice ----------------
+    # Copied from the motion engine (motion.py: its caption, _karaoke_plan, _karaoke, _m_music), for this engine's
+    # lectures: the caption underlines each word as it is said (laid out a line at a time, where each word sits
+    # measured, so any script works, Hindi's joined letters too), the underline moving as fades in the holds, which
+    # the exporter writes as verbs (the phone and the web player show it); and a quiet music bed under each line
+    # (music.py), ducked under its words. Only with a voice. PANIM_KARAOKE=0 / PANIM_MUSIC=off turn them off. The
+    # motion engine has its own of both (WORD_CAPTION and MUSIC_BED off there).
+    WORD_CAPTION = True
+    MUSIC_BED = True
+    MUSIC_MOOD = "calm"
+    KARAOKE_SWAP = 0.05      # seconds an underline takes to move to the next word
+
     def beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
              cues: list | None = None) -> float:
+        """A line (_beat), its caption underlining each word as it is said, the music bed under it."""
+        self._kara = self._kara_plan(text) if self.WORD_CAPTION else None
+        self._bed_line = {"text": text, "pad": beat_pad(text) if pad is None else float(pad)} if self.MUSIC_BED \
+            else None
+        try:
+            return self._beat(text, *anims, rt=rt, pad=pad, cues=cues)
+        finally:
+            k, self._kara, self._kara_ready, self._bed_line = self.__dict__.get("_kara"), None, {}, None
+            if k and k.get("cur") is not None and any(k["cur"] is m for m in self.mobjects):
+                self.remove(k["cur"])
+
+    @staticmethod
+    def _kara_on() -> bool:
+        return os.environ.get("PANIM_KARAOKE", "1") != "0"
+
+    def _kara_width(self, word: str, size: float) -> float:
+        cache = self.__dict__.setdefault("_kara_widths", {})
+        key = (word, size)
+        if key not in cache:
+            try:
+                if _complex(word):
+                    raise ValueError("joined script")
+                cache[key] = T(word, size, disable_ligatures=True).width
+            except ValueError:
+                cache[key] = T(word, size).width
+        return cache[key]
+
+    def _word_caption(self, text: str) -> VGroup:
+        """The caption a line of words at a time, with where each word sits (`_kara_words`: (left, right, bottom))."""
+        lines = textwrap.wrap(text, 92)
+        if len(lines) > 2:
+            lines = textwrap.wrap(text, int(len(text) / 2) + 8)
+        size = tok("caption_size", 19)
+        terms = os.environ.get("PANIM_CAPTION_TERMS", "1") != "0"
+        colour = readable(getattr(P, "role_highlight", P.GOLD), TH["cap_bg"], 4.5)
+        if contrast(colour, TH["cap_fg"]) < 1.6:
+            colour = readable(P.GOLD, TH["cap_bg"], 4.5)
+        rows = []
+        for line in lines:
+            try:
+                if _complex(line):
+                    raise ValueError("joined script")
+                t = T(line, size, TH["cap_fg"], disable_ligatures=True)
+            except ValueError:
+                t = T(line, size, TH["cap_fg"])
+            spans = self._caption_spans(line) if terms else []
+            if spans and self._colour_spans(t, line, spans, colour):
+                t._panim_terms = [line[a:b] for a, b in spans]
+            if len(t.submobjects) == len(line):
+                t.remove(*[g for g, c in zip(list(t.submobjects), line) if c.isspace()])
+            rows.append((line, t))
+        block = VGroup(*[t for _, t in rows]).arrange(DOWN, buff=0.1)
+        fit(block, 13.2)
+        box = RoundedRectangle(corner_radius=0.03 if TH["upper"] else 0.12, width=block.width + 0.5,
+                               height=block.height + 0.3, fill_color=TH["cap_bg"], fill_opacity=TH["cap_op"],
+                               stroke_width=1.2 if STYLE == "blueprint" else 0, stroke_color=P.MUTED)
+        box.move_to([0, CAPTION_Y, 0])
+        block.move_to(box)
+        group = VGroup(box, block)
+        if STYLE == "cardboard":
+            shadow = box.copy().set_fill("#000000", 0.28).shift(RIGHT * 0.05 + DOWN * 0.05)
+            group = VGroup(shadow, box, block).rotate(-0.006)
+        group.set_z_index(Z_CAPTION)
+        spots = []
+        space = max(1e-3, self._kara_width("a a", size) - 2 * self._kara_width("a", size))
+        for line, t in rows:
+            words = line.split()
+            widths = [self._kara_width(w, size) for w in words]
+            natural = sum(widths) + space * max(0, len(words) - 1)
+            k = t.width / natural if natural > 0 else 1.0
+            x, bottom = t.get_left()[0], t.get_bottom()[1]
+            for width in widths:
+                spots.append((x, x + width * k, bottom))
+                x += (width + space) * k
+        group._kara_words = spots
+        return group
+
+    def _kara_plan(self, text: str) -> dict | None:
+        """The underlines of a line and when each comes on: its caption's pieces made now (caption() hands them
+        out as the line puts them up), each word's underline at its time, never before its piece is up."""
+        if not self._kara_on() or voice_mode() == "silent":
+            return None
+        try:
+            words = line_words(text)
+            _, seconds = narrate(text)
+        except Exception:  # noqa: BLE001 -- no word times: the caption as ever
+            return None
+        if not words:
+            return None
+        pieces = caption_pieces(text)
+        swaps = self._caption_swaps(text, pieces, seconds, words)
+        starts = [0.0] + [at for at, _ in swaps]
+        tokens = " ".join(str(text).split()).split()
+        n, m = len(tokens), len(words)
+        colour = readable(getattr(P, "role_highlight", P.GOLD), TH["cap_bg"], 3.0)
+        ready, events, i, last = {}, [], 0, 0.0
+        for p, piece in enumerate(pieces):
+            cap = self._word_caption(piece)
+            ready[piece] = cap
+            begin = starts[p] if p < len(starts) else starts[-1]
+            if p:
+                events.append((begin, None))
+            for left, right, bottom in cap._kara_words:
+                k = i if n == m else round(i * (m - 1) / max(1, n - 1))
+                at = max(float(words[min(k, m - 1)].get("start") or 0.0), begin, last)
+                bar = Rectangle(width=max(0.06, right - left), height=0.055, stroke_width=0, fill_color=colour,
+                                fill_opacity=1).move_to([(left + right) / 2, bottom - 0.05, 0])
+                bar.set_z_index(Z_CAPTION + 1)
+                events.append((at, bar))
+                last, i = at, i + 1
+        events.append((max(last, float(words[-1].get("end") or last)) + 0.1, None))
+        self._kara_ready = ready
+        return {"t0": None, "events": events, "cur": None}
+
+    def _kara_moves(self, animations, kwargs):
+        """A hold with the underline's moves that fall in it, as fades (an empty fade for each stretch between), so
+        the exporter writes them as one `lag` of verbs. Only in a hold: beside a play's own animations the players
+        hid a picture that play moved; a word said during a play is underlined as the play ends."""
+        k = self.__dict__.get("_kara")
+        if not k or k.get("t0") is None or not k["events"] or kwargs.get("rate_func") is not None:
+            return animations
+        if not all(type(a).__name__ == "Wait" for a in animations):
+            return animations
+        run = float(kwargs["run_time"]) if kwargs.get("run_time") is not None else \
+            max((float(getattr(a, "run_time", 0.0) or 0.0) for a in animations), default=0.0)
+        if run <= self.KARAOKE_SWAP * 2:
+            return animations
+        now = float(self.renderer.time) - k["t0"]
+        end, cursor, steps = now + run, now, []
+        swap = self.KARAOKE_SWAP
+        while k["events"] and k["events"][0][0] <= end - swap - 1e-3:
+            at, bar = k["events"].pop(0)
+            at = max(at, cursor)
+            if at - cursor > 1e-3:
+                steps.append(FadeOut(VMobject(), run_time=at - cursor))
+            moves = [x for x in (FadeOut(k["cur"], run_time=swap) if k["cur"] is not None else None,
+                                 FadeIn(bar, run_time=swap) if bar is not None else None) if x is not None]
+            if moves:
+                steps.append(AnimationGroup(*moves, run_time=swap) if len(moves) > 1 else moves[0])
+            cursor = at + swap
+            k["cur"] = bar
+        if not steps:
+            return animations
+        if end - cursor > 1e-3:
+            steps.append(FadeOut(VMobject(), run_time=end - cursor))
+        moves = LaggedStart(*steps, lag_ratio=1.0, rate_func=linear)
+        moves._m_karaoke = True                 # the caption's own (no sound effect; a hold stays a hold)
+        return [moves]
+
+    def _bed(self, begun: float, seconds: float) -> None:
+        """The music bed under the line now spoken, from where its voice begins to the end of its pause."""
+        line = self.__dict__.get("_bed_line")
+        if not line:
+            return
+        import music
+
+        if not music.enabled() or voice_mode() == "silent":
+            return
+        try:
+            words = line_words(line["text"]) or []
+        except Exception:  # noqa: BLE001 -- no word times: ducked under the whole line
+            words = []
+        if not words:
+            words = [{"start": 0.0, "end": seconds}]
+        root = Path(os.environ.get("PANIM_AUDIO_DIR") or Path(__file__).resolve().parent / ".cache") / "music"
+        path = music.piece(self.MUSIC_MOOD, begun, seconds + float(line.get("pad") or 0.0), words, root)
+        if path:
+            self.add_sound(path, gain=0)
+
+    def _beat(self, text: str, *anims, rt: float | None = None, pad: float | None = None,
+              cues: list | None = None) -> float:
         """One narration line and the animations that go with it.
 
         The line is spoken first and measured; the animations take 55% of it
@@ -3168,6 +3356,13 @@ class Lecture(Scene):
         self._voice_until = now + float(seconds or 0.0)
         if wav:
             self.add_sound(wav)
+            # Where the voice begins on the video's clock: a QA run lines the players' clock up with it by these.
+            self._log("voice", wav=str(wav), at=round(now, 3))
+            k = self.__dict__.get("_kara")
+            if k is not None and k.get("t0") is None:
+                k["t0"] = now
+            if self.MUSIC_BED:
+                self._bed(now, float(seconds or 0.0))
 
     def _voice_done(self, pad: float = 0.0) -> None:
         """Hold until the line's voice has been said (and its pause), by the render's clock."""
@@ -3562,6 +3757,9 @@ class Lecture(Scene):
         return True
 
     def caption(self, text: str) -> VGroup:
+        ready = self.__dict__.get("_kara_ready") or {}
+        if text in ready:
+            return ready.pop(text)
         lines = textwrap.wrap(text, 92)
         if len(lines) > 2:
             lines = textwrap.wrap(text, int(len(text) / 2) + 8)

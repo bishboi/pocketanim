@@ -23,8 +23,11 @@ type Op = Record<string, unknown>;
 
 export type PlanElement = { id: string; role?: string; op: Op };
 export type PlanScene = { id: string; beats: number[]; intent?: string; layout?: string; uses: string[] };
-/** A chapter's plan, as the director gave it (mended): kept on the lecture's scenes by chapter. */
-export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; at?: number; notes?: string[] };
+/** A cue as it is kept and shown: its word as "b12.w3" (the choreography's own answer, mended). */
+export type PlanCue = { at: string; ref: string; act: string; how?: string; text?: string; in_pause?: boolean };
+/** A chapter's plan, as the director gave it (mended), with the cues it was lowered with: kept on the lecture's scenes
+ * by chapter, seen and changed by hand on the Scenes tab. */
+export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; cues?: PlanCue[]; at?: number; notes?: string[] };
 export type PlanPart = { ref: string; element: string; place: (string | number)[]; name: string; parent?: string; node?: string };
 export type CueAct = "enter" | "emphasis" | "shade" | "exit" | "stamp";
 export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; inPause?: boolean };

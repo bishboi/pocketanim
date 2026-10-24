@@ -577,6 +577,7 @@ function ChapterDetail({ run, lecture, c, busy, model, act, setPick }: {
             onClick={() => act({ action: "render", lecture: lecture.n, chapter: c, style, art })}>{r?.status === "running" ? "Rendering…" : r ? "Render the chapter again" : "Render the chapter"}</button>
         </div>
       </div>
+      {sl?.plans?.[c] && <PlanJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy} />}
       <ChapterJson run={run} lecture={lecture.n} c={c} act={act} disabled={busy || !built} />
       <RenderState r={r} what="the chapter" />
       {r?.status === "done" && r.audio && <p className="text-[11px] text-emerald-300" data-testid="scenes-render-voiced">With its voice (spoken first): heard as it plays.</p>}
@@ -1017,6 +1018,74 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
  * and the chapter's region), edited by hand as JSON, saved into the scenes and the chapter rendered again. The words
  * said are the transcript's: an edited "say" is not applied.
  */
+/**
+ * A chapter built as one piece (the director, then the choreography): its plan (elements and scenes) and its cues,
+ * each seen and changed as JSON. A plan saved is lowered again with the cues that still fit it, or choreographed
+ * again; cues saved are checked against the plan (each ref, act and word) and lowered. The chapter is then compiled
+ * and rendered again.
+ */
+function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
+  const plan = run.scenes?.lectures[lecture]?.plans?.[c];
+  const [tab, setTab] = useState<"plan" | "cues" | null>(null);
+  const [json, setJson] = useState("");
+  const [bad, setBad] = useState<string | null>(null);
+  if (!plan) return null;
+  const open = (t: "plan" | "cues") => {
+    setBad(null);
+    if (tab === t) return setTab(null);
+    setJson(JSON.stringify(t === "plan" ? { elements: plan.elements, scenes: plan.scenes } : plan.cues ?? [], null, 2));
+    setTab(t);
+  };
+  const save = async (choreograph = false) => {
+    let value: unknown;
+    try { value = JSON.parse(json); } catch (e) { setBad(`not JSON: ${(e as Error).message}`); return; }
+    setBad(null);
+    const ok = tab === "plan"
+      ? await act({ action: "editPlan", lecture, chapter: c, plan: value, choreograph, render: true })
+      : await act({ action: "editCues", lecture, chapter: c, cues: value, render: true });
+    if (ok) setTab(null);
+  };
+  return (
+    <div className="rounded border border-violet-900/60 p-2" data-testid="scenes-plan-json">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">Director plan and cues</p>
+        <span className="text-[11px] text-neutral-500">{plan.elements.length} elements · {plan.scenes.length} scenes · {plan.cues?.length ?? 0} cues
+          {plan.at ? ` · ${new Date(plan.at).toLocaleString()}` : ""}</span>
+        <span className="ml-auto flex gap-3">
+          <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("plan")}
+            data-testid="scenes-plan-edit">{tab === "plan" ? "close the plan" : "the plan (director) as JSON"}</button>
+          <button className="text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} onClick={() => open("cues")}
+            data-testid="scenes-cues-edit">{tab === "cues" ? "close the cues" : "the cues (choreography) as JSON"}</button>
+        </span>
+      </div>
+      <ul className="mt-1 flex flex-wrap gap-1 text-[10px]">
+        {plan.scenes.map((x) => (
+          <li key={x.id} className="rounded bg-violet-950/50 px-1.5 py-px text-violet-200" title={x.uses.join(", ")}>
+            {x.id} · #{x.beats[0]}{x.beats.length > 1 ? `–${x.beats[x.beats.length - 1]}` : ""}{x.intent ? ` · ${x.intent}` : ""} · {x.uses.length} el.
+          </li>
+        ))}
+      </ul>
+      {plan.notes?.length ? <p className="mt-1 text-[10px] text-amber-300">mended or left out: {plan.notes.slice(0, 6).join("; ")}{plan.notes.length > 6 ? ` (+${plan.notes.length - 6})` : ""}</p> : null}
+      {bad && <p className="mt-1 text-[11px] text-red-300">{bad}</p>}
+      {tab && (
+        <div className="mt-1 space-y-1">
+          <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
+            onChange={(e) => setJson(e.target.value)} data-testid="scenes-plan-json-text" />
+          <p className="text-[10px] text-neutral-500">{tab === "plan"
+            ? "Elements: {id, role, op} (one operation each, all its parts; no \"on\"). Scenes: {id, beats: [their numbers], intent, layout, uses: [element ids]}, every beat in one. Saved, it is lowered with the cues that still fit, or choreographed again."
+            : "Each cue: {at: \"b<beat>.w<word>\", ref: an element's id or a part's \"<element>.<part>\" (a stamp: a scene's id), act: enter | emphasis | shade | exit | stamp, how?, text?, in_pause?}. A cue that does not fit the plan is said, and nothing is saved."}</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save(false)}
+              data-testid="scenes-plan-save">{tab === "plan" ? "Save the plan (keep the cues) and re-render" : "Save the cues and re-render"}</button>
+            {tab === "plan" && <button className={`${btn} border-violet-700 text-violet-200 hover:bg-violet-950`} disabled={disabled} onClick={() => void save(true)}
+              data-testid="scenes-plan-choreograph">Save the plan and choreograph it again</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const [json, setJson] = useState("");
@@ -1053,8 +1122,8 @@ function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: nu
   return (
     <div className="rounded border border-neutral-800 p-2" data-testid="scenes-chapter-json">
       <div className="flex items-center gap-2 text-xs">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">The chapter as JSON</p>
-        <span className="text-[11px] text-neutral-500">every beat&apos;s operations as built: change them, save, and the chapter is rendered again</span>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">The chapter as JSON (its beats)</p>
+        <span className="text-[11px] text-neutral-500">every beat&apos;s operations as built (from the plan and cues, when it was built as one piece): change them, save, and the chapter is rendered again</span>
         <button className="ml-auto text-[11px] text-sky-300 hover:underline disabled:opacity-40" disabled={disabled || loading}
           onClick={() => (open ? setOpen(false) : void load())} data-testid="scenes-chapter-json-edit">{open ? "close" : loading ? "loading…" : "edit as JSON"}</button>
       </div>

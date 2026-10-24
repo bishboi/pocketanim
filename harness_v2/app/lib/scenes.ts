@@ -36,7 +36,7 @@ import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type Sc
 import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
 import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
 import { actsFor, estimatedWords, lowerPlan, partsOf, readCues, readPlan, sceneSeconds, type BeatWords, type ChapterPlan, type Cue, type CueAct,
-  type PlanElement, type PlanScene } from "./director";
+  type PlanCue, type PlanElement, type PlanScene } from "./director";
 import { manualFor } from "./manuals";
 import { check, clearStop, jobs, log, newCall, stopJob, stopRequested } from "./run";
 import { runManimAgent } from "./manim-agent";
@@ -72,6 +72,8 @@ export type ScenesAction =
   | { action: "edit"; lecture: number; beat: number; ops: unknown; render?: boolean }
   | { action: "editChapter"; lecture: number; chapter: number; beats: { beat: number; ops: unknown; paragraph?: boolean; pause?: number; about?: string }[];
       emblem?: string | null; region?: Record<string, unknown> | null; render?: boolean }
+  | { action: "editPlan"; lecture: number; chapter: number; plan: unknown; choreograph?: boolean; render?: boolean }
+  | { action: "editCues"; lecture: number; chapter: number; cues: unknown; render?: boolean }
   | { action: "build"; scope: Scope; lecture?: number; chapter?: number; beat?: number; model?: string; oneAtATime?: boolean; note?: string }
   | { action: "fix"; lecture: number; model?: string }
   | { action: "compile"; lecture: number }
@@ -250,6 +252,43 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     if (a.emblem !== undefined) sl.emblem = a.emblem || undefined;
     if (a.region !== undefined) (sl.regions ??= {})[a.chapter] = a.region;
     lock(run, [a.lecture], async () => {
+      await compileChapter(run, a.lecture, a.chapter);
+      if (a.render) startRender(run, a.lecture, a.chapter);
+    });
+    return run;
+  }
+  if (a.action === "editPlan" || a.action === "editCues") {
+    // A chapter built as one piece, changed by hand (the Scenes tab's plan and cues): its plan (elements and scenes),
+    // lowered again with the cues it had (those that still fit) or choreographed again; or its cues. Compiled, and
+    // rendered when asked.
+    const sl = lectureOf(a.lecture);
+    if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
+    if (!scriptOf(run, a.lecture)!.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
+    const had = sl.plans?.[a.chapter];
+    if (!had) throw new Error(`chapter ${a.chapter} was not built as one piece (with the director): build it first`);
+    const engine = stateOf(run).engine === "motion" ? "motion" : "current";
+    const own = chapterBeats(run, a.lecture, a.chapter);
+    const { words } = await chapterWords(run, a.lecture, a.chapter);
+    let plan: ChapterPlan = { elements: had.elements, scenes: had.scenes, notes: [] };
+    let cues: Cue[] | undefined;
+    if (a.action === "editPlan") {
+      if (!a.plan || typeof a.plan !== "object" || Array.isArray(a.plan)) throw new Error('the plan must be a JSON object: {"elements": [...], "scenes": [...]}');
+      plan = readPlan(a.plan as Record<string, unknown>, own);
+      keepKinds(run, a.lecture, plan, own);
+      if (!plan.elements.length) throw new Error(`the plan has no element that can be drawn${plan.notes?.length ? `: ${plan.notes.slice(0, 4).join("; ")}` : ""}`);
+      if (!a.choreograph) cues = planCues(plan, had.cues, words, engine).cues;
+    } else {
+      if (!Array.isArray(a.cues)) throw new Error('the cues must be a JSON list: [{"at": "b12.w3", "ref": "...", "act": "enter"}, ...]');
+      const read = planCues(plan, a.cues, words, engine);
+      if (read.dropped.length) throw new Error(`${read.dropped.length} cue(s) cannot be used: ${read.dropped.slice(0, 6).join("; ")}`);
+      cues = read.cues;
+    }
+    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: its ${a.action === "editPlan" ? "plan" : "cues"} changed by hand` +
+      (a.action === "editPlan" && a.choreograph ? ", choreographed again." : "."));
+    lock(run, [a.lecture], async () => {
+      const done = cues ?? await choreograph(run, a.lecture, a.chapter, plan, words, engine, motionLookWords(stateOf(run)));
+      applyPlan(run, a.lecture, a.chapter, plan, done, words, engine, keptExtras(run, a.lecture, a.chapter, plan));
+      saveRun(run);
       await compileChapter(run, a.lecture, a.chapter);
       if (a.render) startRender(run, a.lecture, a.chapter);
     });
@@ -780,18 +819,7 @@ async function directChapter(run: Run, n: number, c: number, note?: string): Pro
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
   }
   const plan = readPlan(reply, own);
-  // The kinds switched off, as in any build: an element of a kind switched off (or of none) is left out.
-  let dropped = 0;
-  plan.elements = plan.elements.filter((el) => {
-    const first = plan.scenes.find((x) => x.uses.includes(el.id))?.beats[0] ?? own[0];
-    const kept = filterOps([el.op], allowedFor(run, sl, first));
-    dropped += kept.dropped.length;
-    if (!kept.ops.length) return false;
-    el.op = kept.ops[0] as Record<string, unknown>;
-    return true;
-  });
-  const ids = new Set(plan.elements.map((e) => e.id));
-  for (const x of plan.scenes) x.uses = x.uses.filter((u) => ids.has(u));
+  const dropped = keepKinds(run, n, plan, own);
   check(call, "Plan", plan.elements.length ? "pass" : "fail", `${plan.elements.length} element(s) in ${plan.scenes.length} scene(s) over ${own.length} beat(s)`);
   if (plan.notes.length) check(call, "Mended", "fixed", plan.notes.slice(0, 10).join("; "));
   if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
@@ -811,25 +839,96 @@ async function directChapter(run: Run, n: number, c: number, note?: string): Pro
       ...(Number.isFinite(pause) && pause > 0 ? { pause: Math.min(pause, 4) } : {}),
       ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim().slice(0, 120) } : {}) });
   }
-  // Each beat's line as the voice says it (spoken first), else as it would be.
+  const { words, voiced } = await chapterWords(run, n, c);
+  const cues = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
+  const lowered = applyPlan(run, n, c, plan, cues, words, engine, extras);
+  if (lowered.length) check(call, "Lowered", "fixed", `${lowered.length} cue(s) mended or left out: ${lowered.slice(0, 8).join("; ")}`);
+  const short = voiced ? plan.scenes.filter((x, i) => i < plan.scenes.length - 1 && sceneSeconds(x, words) < MIN_HOLD) : [];
+  if (short.length) check(call, "Held", "info", `${short.length} scene(s) held under ${MIN_HOLD} s: ${short.map((x) => `${x.id} ${sceneSeconds(x, words).toFixed(1)} s`).join(", ")}`);
+  saveRun(run);
+}
+
+/** The kinds switched off, as in any build: an element of a kind switched off (or of none) is taken out of the plan,
+ * and out of its scenes. How many operations or pictures were taken out. */
+function keepKinds(run: Run, n: number, plan: ChapterPlan, own: number[]): number {
+  const sl = lectureState(run, n);
+  let dropped = 0;
+  plan.elements = plan.elements.filter((el) => {
+    const first = plan.scenes.find((x) => x.uses.includes(el.id))?.beats[0] ?? own[0];
+    const kept = filterOps([el.op], allowedFor(run, sl, first));
+    dropped += kept.dropped.length;
+    if (!kept.ops.length) return false;
+    el.op = kept.ops[0] as Record<string, unknown>;
+    return true;
+  });
+  const ids = new Set(plan.elements.map((e) => e.id));
+  for (const x of plan.scenes) x.uses = x.uses.filter((u) => ids.has(u));
+  return dropped;
+}
+
+/** Each beat of a chapter as its voice says it (spoken first), else as it would be (estimated); and the voice's own. */
+async function chapterWords(run: Run, n: number, c: number): Promise<{ words: Map<number, BeatWords>; voiced?: Map<number, BeatVoice> }> {
   const voiced = await voicedBeats(run, n, c);
+  const own = new Set(chapterBeats(run, n, c));
   const words = new Map<number, BeatWords>();
-  for (const b of mine) {
+  for (const b of beatInputs(run, n).filter((x) => own.has(x.n))) {
     const v = voiced?.get(b.n);
     words.set(b.n, v ? { n: b.n, text: b.text, seconds: v.seconds, pause: v.pause, words: v.words } : estimatedWords(b.n, b.text));
   }
-  const cues = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
+  return { words, voiced };
+}
+
+/** A cue as the plan keeps it (and the page shows it): its word as "b12.w3". */
+function cueJson(c: Cue): PlanCue {
+  return { at: `b${c.beat}.w${c.word}`, ref: c.ref, act: c.act, ...(c.how ? { how: c.how } : {}), ...(c.text ? { text: c.text } : {}),
+    ...(c.inPause ? { in_pause: true } : {}) };
+}
+
+/** What every element and part of a chapter's plan may do, for cues read against the whole chapter (given by hand). */
+function planActs(plan: ChapterPlan, engine: "current" | "motion"): Map<string, CueAct[]> {
+  const acts = new Map<string, CueAct[]>();
+  for (const el of plan.elements) {
+    const may = actsFor(el, engine);
+    acts.set(el.id, may.element);
+    for (const p of partsOf(el)) acts.set(p.ref, may.parts);
+  }
+  if (engine === "motion") acts.set("*", ["stamp"]);
+  return acts;
+}
+
+/** Cues read against a chapter's plan and words (readCues): those that can be used, and what was not. */
+function planCues(plan: ChapterPlan, raw: unknown, words: Map<number, BeatWords>, engine: "current" | "motion") {
+  return readCues({ cues: Array.isArray(raw) ? raw : [] }, { words, beats: new Set(plan.scenes.flatMap((x) => x.beats)),
+    acts: planActs(plan, engine), scenes: new Set(plan.scenes.map((x) => x.id)) });
+}
+
+/**
+ * A chapter's plan and its cues lowered into its beats (lowerPlan), each beat's operations, paragraph, pause and about
+ * written; the plan kept with its cues (sl.plans), to be seen and changed. What was mended or left out.
+ */
+function applyPlan(run: Run, n: number, c: number, plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: "current" | "motion",
+  extras: Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>): string[] {
+  const sl = lectureState(run, n);
   const lowered = lowerPlan(plan, cues, words, engine);
-  for (const t of own) {
+  for (const t of chapterBeats(run, n, c)) {
     Object.assign(beatState(sl, t), { ops: lowered.ops.get(t) ?? [], dropped: [], status: "done", edited: false, errors: undefined, notes: undefined,
       paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
   }
-  if (lowered.notes.length) check(call, "Lowered", "fixed", `${lowered.notes.length} cue(s) mended or left out: ${lowered.notes.slice(0, 8).join("; ")}`);
-  const short = voiced ? plan.scenes.filter((x, i) => i < plan.scenes.length - 1 && sceneSeconds(x, words) < MIN_HOLD) : [];
-  if (short.length) check(call, "Held", "info", `${short.length} scene(s) held under ${MIN_HOLD} s: ${short.map((x) => `${x.id} ${sceneSeconds(x, words).toFixed(1)} s`).join(", ")}`);
-  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, at: Date.now(), notes: [...plan.notes, ...lowered.notes].slice(0, 60) };
+  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, cues: cues.map(cueJson), at: Date.now(),
+    notes: [...(plan.notes ?? []), ...lowered.notes].slice(0, 60) };
   sl.scriptAt = run.script?.lectures[n]?.at;
-  saveRun(run);
+  return lowered.notes;
+}
+
+/** A chapter's beats' paragraph, pause and about as they are, with a paragraph at each scene's first beat: for a
+ * plan changed by hand. */
+function keptExtras(run: Run, n: number, c: number, plan: ChapterPlan): Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">> {
+  const sl = lectureState(run, n);
+  const firsts = new Set(plan.scenes.map((x) => x.beats[0]));
+  return new Map(chapterBeats(run, n, c).map((t) => {
+    const b = sl.beats[t];
+    return [t, { ...(firsts.has(t) ? { paragraph: true } : {}), ...(b?.pause ? { pause: b.pause } : {}), ...(b?.about ? { about: b.about } : {}) }];
+  }));
 }
 
 /** The chapter's scenes in groups of about CHOREOGRAPHY_SECONDS of narration (never more than CHOREOGRAPHY_SCENES). */

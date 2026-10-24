@@ -434,6 +434,29 @@ const strictScript = await strictLib.engineScript(run, 1, run.scenes.look);
 assert.ok(strictScript.chapters.every((c) => c.strict === true), "the director's chapters are strict on the current engine");
 const strictCompiled = await strictLib.compile(run, strictScript, path.join(strictLib.scenesDir(run.id), "strict-check"), 1);
 assert.ok(strictCompiled.source?.includes("self.strict_beats(True)") && !strictCompiled.errors.length, strictCompiled.errors.join("; "));
+// The plan and its cues, seen and changed by hand (the Scenes tab's "Director plan and cues"): cues that do not fit
+// are refused with why; cues and a plan saved are lowered, compiled; a plan can be choreographed again.
+const pc = run.script.lectures[1].chapters[0].n;
+const kept = sl1.plans[pc];
+assert.ok(kept.cues?.length && kept.cues.every((q) => /^b\d+\.w\d+$/.test(q.at)), "the cues kept with the plan, each on its word");
+await assert.rejects(scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: [{ at: "b999.w0", ref: "nope", act: "enter" }] }), /cannot be used/);
+const enters = kept.cues.filter((q) => q.act === "enter");
+await scenesAction(run.id, { action: "editCues", lecture: 1, chapter: pc, cues: enters });
+run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+assert.equal(run.scenes.lectures[1].plans[pc].cues.length, enters.length, "the cues saved");
+assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
+const edited = structuredClone({ elements: run.scenes.lectures[1].plans[pc].elements, scenes: run.scenes.lectures[1].plans[pc].scenes });
+edited.elements[0].role = "edited by hand";
+await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited });
+run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+assert.equal(run.scenes.lectures[1].plans[pc].elements[0].role, "edited by hand", "the plan saved");
+assert.equal(run.scenes.lectures[1].plans[pc].cues.length, enters.length, "with the cues that still fit it");
+const choreoBefore = run.calls.filter((c) => /^Choreography:/.test(c.label)).length;
+await scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: edited, choreograph: true });
+run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectures[1].status === "running");
+assert.ok(run.calls.filter((c) => /^Choreography:/.test(c.label)).length > choreoBefore, "a plan choreographed again");
+assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
+await assert.rejects(scenesAction(run.id, { action: "editPlan", lecture: 1, chapter: pc, plan: { elements: [], scenes: [] } }), /no element/);
 // The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
 await scenesAction(run.id, { action: "engine", engine: "current", director: false });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });

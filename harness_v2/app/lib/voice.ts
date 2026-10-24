@@ -91,7 +91,8 @@ export async function chapterScript(run: Run, n: number, chapter: number): Promi
     .filter((k) => typeof full[k] === "string").map((k) => [k, full[k] as string])) } : {};
   return { ...motion, style: full.style as string, art: full.art as string, region: (full.region as ChapterScript["region"]) ?? null,
     emblem: (full.emblem as string) ?? null, genre: (full.genre as string) ?? null,
-    chapter: { title: ch.title, narration: ch.narration, map: ch.map, beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
+    chapter: { title: ch.title, narration: ch.narration, map: ch.map, ...(ch.strict ? { strict: true } : {}),
+      beats: ch.beats.map((b, i) => ({ beat: sc.beats[i]?.n, ...b })) } };
 }
 
 /** The scene writer's instructions, to give any chat model with this chapter's beat script (the editor's copy). */
@@ -163,7 +164,7 @@ export function readChapterScript(x: unknown): ChapterScript {
     genre: text("genre") ?? null,
     chapter: { title: (ch!.title as string).trim(), narration: typeof ch!.narration === "string" ? ch!.narration : "",
       // On the board, the map in for its beats that point at it; "map": false keeps the map out of the chapter.
-      ...(ch!.map === false ? { map: false } : {}), beats } };
+      ...(ch!.map === false ? { map: false } : {}), ...(ch!.strict === true ? { strict: true } : {}), beats } };
 }
 
 /** The engine's script for an edited chapter: the lecture's title and its figures, the chapter as edited. */
@@ -175,6 +176,7 @@ export async function engineScriptOf(run: Run, n: number, s: ChapterScript): Pro
   return { ...motion, title: run.lectures.find((l) => l.n === n)?.title ?? "", sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(s.emblem ? { emblem: s.emblem } : {}), ...(s.genre ? { genre: s.genre } : {}), figures: await figureFiles(run, n),
     chapters: [{ title: s.chapter.title, narration: s.chapter.narration ?? "", ...(s.chapter.map === false ? { map: false } : {}),
+      ...(s.chapter.strict ? { strict: true } : {}),
       beats: s.chapter.beats.map(({ beat: _, ...b }) => b) }] };
 }
 
@@ -368,7 +370,10 @@ export async function speakChapter(run: Run, n: number, chapter: number, target:
     await mkdir(voiceCache(), { recursive: true });
 
     phase("compiling the chapter");
-    const compiled = await compile(run, edited ? await engineScriptOf(run, n, edited) : await engineScript(run, n, look, { chapter }), dir, n);
+    const script = edited ? await engineScriptOf(run, n, edited) : await engineScript(run, n, look, { chapter });
+    // A strict chapter's animations are timed by its script alone: the timing model is not asked (step 4).
+    const strict = (script.chapters as { strict?: boolean }[] | undefined)?.some((c) => c.strict) ?? false;
+    const compiled = await compile(run, script, dir, n);
     if (!compiled.source) throw new Error(compiled.errors.length ? `it does not compile: ${compiled.errors.slice(0, 4).join("; ")}` : "the engine made no scene of it");
     target.pictures = await madePictures(run, compiled, dir);
     const source = compiled.source.split("\n").filter((l) => !/self\.(title_slide|outro_fade)\(/.test(l)).join("\n");
@@ -417,8 +422,9 @@ export async function speakChapter(run: Run, n: number, chapter: number, target:
       target.calls.push(call.id);
     }
 
-    phase("timing the animations to the words");
-    const { cues, aligned } = await timeAnimations(run, n, what, scene, dir, pyEnv, settings, target, beatOf);
+    phase(strict ? "the animations on the script's own words" : "timing the animations to the words");
+    const { cues, aligned } = strict ? { cues: [] as VoiceCue[], aligned: source }
+      : await timeAnimations(run, n, what, scene, dir, pyEnv, settings, target, beatOf);
     target.cues = cues;
 
     phase("rendering with the voice");

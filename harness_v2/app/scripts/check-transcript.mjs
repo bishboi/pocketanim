@@ -411,7 +411,7 @@ const sceneBeats = run.script.lectures[1].chapters.flatMap((c) => c.beats);
 assert.ok(sceneBeats.every((b) => sl1.beats[b.n]?.status === "done"), "every beat has its visuals");
 assert.equal(sl1.compile.status, "done", JSON.stringify(sl1.compile));
 assert.ok(Object.values(sl1.beats).every((b) => !b.errors?.length), "nothing refused by the compiler");
-assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "zoom", "define", "clear"].includes(o.op))),
+assert.ok(Object.values(sl1.beats).every((b) => b.ops.every((o) => ["panel", "fact", "picture", "diagram", "reveal", "focus", "point", "shade", "unstage", "define", "clear"].includes(o.op))),
   "only the kinds switched on");
 // A chapter as one piece (the default): the director's plan (elements and scenes, no timing), then each few scenes
 // choreographed (the stand-in here) with their artifacts' manuals, lowered into the beats on their words.
@@ -428,6 +428,12 @@ assert.equal(plans.length, run.script.lectures[1].chapters.length, "each chapter
 assert.ok(plans.every((pl) => pl.scenes.length && pl.elements.every((e) => pl.scenes.some((x) => x.uses.includes(e.id)))), "every element in a scene");
 const lowered = Object.values(sl1.beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
 assert.ok(lowered.length && lowered.every((o) => /^(w\d+|start)$/.test(o.on)), `the elements lowered on their words: ${JSON.stringify(lowered.slice(0, 3))}`);
+// Strict on the current engine: every chapter's script says so, its compile keeps it, and the engine is told.
+const strictLib = await import(path.resolve(here, "../lib/scenes.ts"));
+const strictScript = await strictLib.engineScript(run, 1, run.scenes.look);
+assert.ok(strictScript.chapters.every((c) => c.strict === true), "the director's chapters are strict on the current engine");
+const strictCompiled = await strictLib.compile(run, strictScript, path.join(strictLib.scenesDir(run.id), "strict-check"), 1);
+assert.ok(strictCompiled.source?.includes("self.strict_beats(True)") && !strictCompiled.errors.length, strictCompiled.errors.join("; "));
 // The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
 await scenesAction(run.id, { action: "engine", engine: "current", director: false });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });

@@ -6,12 +6,14 @@
  *     id and a role) and its scenes (a run of beats, one idea: the elements it uses, its intent, its layout). It says
  *     what is on screen and why, never when.
  *   - THE CUES (the choreography's calls, one for a few scenes, at once): when each element and each of its parts
- *     comes on (a beat's word: "b12.w3"), and what is done with it as the line goes on (an emphasis, a zoom, a stamp).
+ *     comes on (a beat's word: "b12.w3"), and what is done with it as the line goes on (an emphasis, a shade, a stamp,
+ *     an exit).
  *     The call is shown the manual of every artifact its scenes use (lib/manuals.ts).
  *   - LOWERING (here, in code): the plan and its cues made the beats' operations as the compilers read them: each
  *     element on the beat it comes on, its "on" the word ("w3"), its parts' words; a diagram's nodes said in a later
  *     line held back (`show`) and brought on by a `reveal` there; an emphasis on a diagram's node a `focus`, on a
- *     motion template an `emphasis` (`<id>.<part>`); a zoom a `zoom`; a stamp a `stamp`. What cannot be lowered is
+ *     motion template an `emphasis` (`<id>.<part>`), on any other part of the current engine a `point`; a shade a
+ *     `shade`; an exit an `unstage`; a stamp a `stamp`. There is no camera: nothing zooms. What cannot be lowered is
  *     mended (a part to its element's line) or left out, with a note.
  */
 
@@ -24,8 +26,8 @@ export type PlanScene = { id: string; beats: number[]; intent?: string; layout?:
 /** A chapter's plan, as the director gave it (mended): kept on the lecture's scenes by chapter. */
 export type ChapterPlan = { elements: PlanElement[]; scenes: PlanScene[]; at?: number; notes?: string[] };
 export type PlanPart = { ref: string; element: string; place: (string | number)[]; name: string; parent?: string; node?: string };
-export type CueAct = "enter" | "emphasis" | "zoom" | "stamp";
-export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; scale?: number; inPause?: boolean };
+export type CueAct = "enter" | "emphasis" | "shade" | "exit" | "stamp";
+export type Cue = { beat: number; word: number; ref: string; act: CueAct; how?: string; text?: string; inPause?: boolean };
 /** A beat's line as the voice says it (or, unspoken, as it would be: `estimated`). */
 export type BeatWords = { n: number; text: string; seconds: number; pause: number; words: { w: string; t: number }[]; estimated?: boolean };
 export type Engine = "current" | "motion";
@@ -190,13 +192,20 @@ export function partsOf(el: PlanElement): PlanPart[] {
   return out;
 }
 
+/** What is put on the board's strip or the map, not the stage: not taken off by an exit (the next picture, or the
+ * map going, does). */
+const NOT_STAGED = new Set(["panel", "fact", "stat", "bars", "clear", "icon", "marker", "river", "path", "arrow", "state", "dim",
+  "graticule", "journey", "empire", "relief"]);
+
 /** What the choreography may do with an element and with its parts, on this engine. */
 export function actsFor(el: PlanElement, engine: Engine): { element: CueAct[]; parts: CueAct[]; laterParts: boolean } {
   const diagram = el.op.op === "diagram";
   const template = isTemplate(el.op, engine);
+  const labelled = engine === "current" && el.op.op === "picture" && Array.isArray(el.op.labels) && el.op.labels.length > 0;
+  const exits = engine === "current" && !NOT_STAGED.has(String(el.op.op));
   return {
-    element: ["enter", ...(diagram ? ["zoom" as const] : []), ...(template ? ["emphasis" as const] : [])],
-    parts: ["enter", ...(diagram || engine === "motion" ? ["emphasis" as const] : []), ...(diagram ? ["zoom" as const] : [])],
+    element: ["enter", ...(template ? ["emphasis" as const] : []), ...(exits ? ["exit" as const] : [])],
+    parts: ["enter", "emphasis", ...(labelled ? ["shade" as const] : [])],
     laterParts: diagram,
   };
 }
@@ -254,9 +263,7 @@ export function readCues(reply: Op, o: { words: Map<number, BeatWords>; beats: S
       continue;
     }
     const how = typeof c.how === "string" && EMPHASIS_HOW.includes(c.how) ? c.how : undefined;
-    const scale = Number(c.scale);
-    cues.push({ beat, word, ref, act, ...(how ? { how } : {}), ...(Number.isFinite(scale) ? { scale: Math.min(3, Math.max(1.1, scale)) } : {}),
-      ...(c.in_pause === true ? { inPause: true } : {}) });
+    cues.push({ beat, word, ref, act, ...(how ? { how } : {}), ...(c.in_pause === true ? { inPause: true } : {}) });
   }
   return { cues, dropped };
 }
@@ -289,8 +296,8 @@ function setOn(op: Op, place: (string | number)[], on: string): void {
  * The chapter's beats' operations from its plan and cues. Each element goes on the beat its entry is cued on (else
  * its first scene's first beat, as the line begins) with "on" its word; each part with a cue gets its word, on its
  * element's beat (a diagram's node cued on a later beat of its scenes is held back and revealed there); a part is
- * never before its element or the part it is in. Emphases, zooms and stamps become operations of their own on their
- * beats. A `manim` beat keeps only its figure (the compiler's rule): what else came on it moves to the next beat of its
+ * never before its element or the part it is in. Emphases, shades, exits and stamps become operations of their
+ * own on their beats (an exit only on a beat that puts up nothing new: a new picture takes the last one off itself). A `manim` beat keeps only its figure (the compiler's rule): what else came on it moves to the next beat of its
  * scene, else is left out. Returns each beat's operations, in the order they come on, and what was mended.
  */
 export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: Engine): { ops: Map<number, Op[]>; notes: string[] } {
@@ -299,6 +306,7 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
   for (const s of plan.scenes) for (const b of s.beats) ops.set(b, []);
   const put = (beat: number, word: number, op: Op) => ops.get(beat)?.push({ op, at: [beat, word] });
   const { first, span } = lifeOf(plan);
+  const exits: { beat: number; word: number; ref: string }[] = [];
   const byRef = new Map<string, Cue[]>();
   for (const c of [...cues].sort((a, b) => a.beat - b.beat || a.word - b.word)) byRef.set(c.ref, [...(byRef.get(c.ref) ?? []), c]);
   for (const el of plan.elements) {
@@ -358,7 +366,7 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     for (const r of reveals.values()) if (r.nodes.length) put(r.beat, r.word, { op: "reveal", diagram: op.id, nodes: r.nodes, on: anchor(r.word) });
     // What is done with it while it is up.
     const partOf = new Map(parts.map((p) => [p.ref, p]));
-    for (const c of cues.filter((x) => x.act === "emphasis" || x.act === "zoom")) {
+    for (const c of cues.filter((x) => x.act === "emphasis" || x.act === "shade" || x.act === "exit")) {
       const p = partOf.get(c.ref);
       if (c.ref !== el.id && !p) continue;
       const since = entered.get(c.ref);
@@ -366,17 +374,25 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
         notes.push(`${c.ref}: ${c.act} on b${c.beat}.w${c.word}, when it is not on the screen: left out`);
         continue;
       }
-      if (c.act === "zoom") {
-        put(c.beat, c.word, { op: "zoom", diagram: op.id, ...(p?.node ? { node: p.node } : {}), ...(c.scale ? { scale: c.scale } : {}), on: anchor(c.word) });
+      if (c.act === "exit") {
+        exits.push({ beat: c.beat, word: c.word, ref: c.ref });
+      } else if (c.act === "shade") {
+        if (p) put(c.beat, c.word, { op: "shade", part: p.name, on: anchor(c.word) });
       } else if (op.op === "diagram" && p?.node) {
         put(c.beat, c.word, { op: "focus", diagram: op.id, node: p.node, on: anchor(c.word) });
       } else if (engine === "motion") {
         const target = template ? (p ? `${op.id}.${p.name}` : String(op.id)) : p?.name;
         if (target) put(c.beat, c.word, { op: "emphasis", target, how: c.how ?? "pulse", on: anchor(c.word) });
-      } else {
-        notes.push(`${c.ref}: an emphasis this engine draws by itself (a named part is pointed at as it is said): left out`);
+      } else if (p) {
+        put(c.beat, c.word, { op: "point", target: p.name, on: anchor(c.word) });
       }
     }
+  }
+  // An exit takes the stage's picture off, on a beat that puts up nothing new (a new picture takes it off itself).
+  for (const x of exits) {
+    const fresh = (ops.get(x.beat) ?? []).some((o) => !["point", "shade", "focus", "reveal", "emphasis", "stamp"].includes(String(o.op.op)));
+    if (fresh) notes.push(`${x.ref}: exit on b${x.beat}, where a new picture comes on and takes it off: left to it`);
+    else put(x.beat, x.word, { op: "unstage", on: anchor(x.word) });
   }
   for (const c of cues.filter((x) => x.act === "stamp")) {
     put(c.beat, c.word, { op: "stamp", text: c.text, on: anchor(c.word), ...(c.inPause ? { in_pause: true } : {}) });

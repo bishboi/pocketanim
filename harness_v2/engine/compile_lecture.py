@@ -368,10 +368,10 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
     _still_timelines(script)
     figures = script.get("figures") or {}
     known = {"panel", "fact", "stat", "bars", "clear", "icon", "figure", "photo", "illustration"} \
-        | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS
+        | KIT_OPS | MAP_OPS | BUILD_OPS | STEP_OPS | WORK_OPS | FREE_OPS | POINT_OPS
     need = {"panel": ["title"], "fact": ["text"], "stat": ["value", "label"], "bars": ["items"],
             "river": ["name"], "state": ["name"], "path": ["points"], "arrow": ["points"], "icon": ["name"],
-            "empire": ["name"]}
+            "empire": ["name"], "point": ["target"], "shade": ["part"]}
     # Pictures shown whole (a book figure shown as its picture, a draw op made as a picture): no parts to reveal.
     pictured: set[str] = {str(x) for x in script.get("_pictured") or []}
     for c, chapter in enumerate(script.get("chapters") or []):
@@ -387,6 +387,12 @@ def _fix_unusable(script: dict, has_map: bool) -> list[str]:
                 if kind in RETIRED_OPS:
                     _drop(op, at, "it is no longer built: free-form Manim draws it (a manim op)", notes)
                     continue
+                if kind == "zoom":
+                    # The camera is off: a zoom moved the stage under the labels and left it half moved.
+                    _drop(op, at, "the camera is off: a zoom is not drawn (point or focus at the part instead)", notes)
+                    continue
+                if kind == "unstage" and chapter.get("strict"):
+                    continue                    # a strict chapter's script takes its picture off itself
                 if kind not in known:
                     _drop(op, at, "no such op", notes)
                     continue
@@ -1411,6 +1417,9 @@ FLOW_SHAPES = ("process", "decision", "start", "end", "io", "store", "note")
 EDGE_STYLES = ("solid", "dashed", "bold")
 # A beat drawn by a block of Manim the model wrote (free_check.py): the only op on its beat.
 FREE_OPS = {"manim"}
+# Pointing at what is on the screen, on purpose (the script's own, never the engine's): a pulse on a named part
+# (`point`), a labelled picture's part lit with the rest shaded (`shade`).
+POINT_OPS = {"point", "shade"}
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS
 
 
@@ -1423,7 +1432,7 @@ def beat_order(ops: list[dict]) -> list[dict]:
         kind = op.get("op") if isinstance(op, dict) else None
         if kind == "unstage":
             return 0
-        if kind in WORK_OPS or kind in STEP_OPS:
+        if kind in WORK_OPS or kind in STEP_OPS or kind in POINT_OPS:
             return 2
         return 1
     return sorted(ops, key=rank)
@@ -2200,7 +2209,7 @@ def _stages_picture(op: dict) -> bool:
             kind in KIT_OPS | BUILD_OPS | STEM_OPS | WORK_OPS | FREE_OPS)
 
 
-def _map_runs(chapter: dict, has_region: bool, fills: list | None = None) -> list[tuple[int, int]]:
+def _map_runs(chapter: dict, has_region: bool, fills: list | None = None, strict: bool = False) -> list[tuple[int, int]]:
     """The runs of a chapter's beats taught on the map, as (first, last + 1) beat indexes. Every chapter is on the
     board; the map comes in on a beat that points at it and stays through the beats after it until one puts up a
     picture of its own with nothing on the map (a diagram, a photo, a manim figure), when it goes. A beat that
@@ -2215,7 +2224,7 @@ def _map_runs(chapter: dict, has_region: bool, fills: list | None = None) -> lis
             ops.append(fills[bi])
         if any(_points_at_map(op) for op in ops):
             if start is None:
-                start = floor
+                start = bi if strict else floor    # strict: from the beat that points at it, none before
         elif any(_stages_picture(op) for op in ops):
             if start is not None:
                 runs.append((start, bi))
@@ -2435,6 +2444,17 @@ def named_subjects(beat: dict, limit: int = 2) -> list[str]:
 
 
 PARAGRAPH_MAX = 5        # beats a picture may hold without the script asking for a new one
+
+
+def marked_paragraphs(beats: list) -> list[list[int]]:
+    """A strict chapter's paragraphs: only where its script marks them ("paragraph": true), none found."""
+    out: list[list[int]] = []
+    for index, beat in enumerate(beats):
+        if not out or beat.get("paragraph"):
+            out.append([index])
+        else:
+            out[-1].append(index)
+    return out
 
 
 def paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
@@ -2990,16 +3010,21 @@ def _diagram_labels(op: dict) -> dict:
             if isinstance(n, dict) and n.get("id") is not None}
 
 
-def _op_said(op: dict, parts: dict, asked: list) -> str | list[str] | None:
+def _op_said(op: dict, parts: dict, asked: list, strict: bool = False) -> str | list[str] | None:
     """The words a picture shows, so it starts as the narration says them: a marker's place, a shaded area's name,
     a diagram part revealed or pointed at, a term defined, a choice marked; for any other picture with words on it
     (a card, a chart, a timeline, a new diagram), the words it shows, to come on with the first of them said
-    (_shown_words). None for one that acts as the line begins (UNSAID_OPS) or shows no words."""
+    (_shown_words). None for one that acts as the line begins (UNSAID_OPS) or shows no words. In a strict chapter
+    only its own anchor ("on") times it: without one it comes on as the line begins."""
     kind = op.get("op")
     on = op.get("on")
     if isinstance(on, str) and on.strip():
         # The words the scene writer named for it (anchors); "start": as the line begins.
         return None if on.strip() == "start" else on.strip()
+    if strict:
+        return None
+    if kind in POINT_OPS:
+        return str(op.get("target") or op.get("part") or "") or None
     if kind in ("marker", "state", "river", "empire"):
         return str(op.get("label") or op.get("place") or op.get("name") or "") or None
     if kind in ("arrow", "path", "graticule"):
@@ -3158,6 +3183,7 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
 
     motion = script.get("engine") == "motion"
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
+        strict = bool(chapter.get("strict")) and not motion
         for bi, beat in enumerate(chapter.get("beats") or [], 1):
             if not isinstance(beat, dict):
                 continue
@@ -3204,6 +3230,8 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                 holder["on"] = on
                 if name:
                     alias[name] = on
+                elif strict:
+                    alias[on] = on              # a strict line's engine times only what is in its table
 
             def inside(value, where: str, depth: int = 0) -> None:
                 if depth > 4:
@@ -3223,7 +3251,7 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                         check(value, f"{where} {name!r}" if name else where, name)
                         if not motion:
                             value.pop("on", None)
-                    elif name and len(name) >= 3 and pl.said_at(words, name) is None:
+                    elif name and len(name) >= 3 and not strict and pl.said_at(words, name) is None:
                         # A part with no words of its own whose name the line says in another spelling (a matra,
                         # the other script, a plural): timed by the line's words for it.
                         near = _closest(spoken, name)
@@ -3245,7 +3273,9 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                     if key != "on":
                         inside(inner, where)
             if alias:
-                beat["_spoken_as"] = alias
+                # Merged: the checks run more than once, and a later run sees the parts' anchors already folded
+                # into their names (a label's {"name", "on"} its name), not to be lost.
+                beat["_spoken_as"] = {**(beat.get("_spoken_as") or {}), **alias}
 
 
 # Operations that are not a thing the narration names: they act as the line begins (or as their own `think` says).
@@ -3427,6 +3457,10 @@ def _op_call(op: dict) -> str:
                 f"where={_q(op.get('where', 'panel'))}{credit})")
     if kind == "unstage":
         return "self.clear_stage()"
+    if kind == "point":
+        return f"self.point({_q(str(op['target']))})"
+    if kind == "shade":
+        return f"self.shade_part({_q(str(op['part']))})"
     if kind == "gallery":
         shown = []
         for item in _gallery_items(op):
@@ -3832,11 +3866,15 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         out += ["", f"        # {index:02d}  {' '.join(str(chapter['title']).split())}"]
         out.append(f"        self.chapter({index}, {_q(chapter['title'])}, {_q(chapter.get('sub', ''))}, "
                    f"{_q(chapter.get('narration') or chapter['title'])})")
-        fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) else []
+        # A strict chapter (built as one piece: README "A chapter as one piece"): everything that comes on, and when,
+        # is its script's; the engine adds no picture, points at nothing and times nothing by its words.
+        strict = bool(chapter.get("strict"))
+        out.append(f"        self.strict_beats({strict!r})")
+        fills = auto_visuals(chapter, genre=script.get("genre")) if script.get("auto_visuals", True) and not strict else []
         AUTO_PICTURES.extend((index, bi + 1, fill) for bi, fill in enumerate(fills) if fill)
         # Every chapter is on the board (or its side panel); the map comes in for the runs of beats on it.
         on_board = board_chapter(script, chapter)
-        runs = {first: last for first, last in _map_runs(chapter, bool(region), fills)}
+        runs = {first: last for first, last in _map_runs(chapter, bool(region), fills, strict)}
         if 0 not in runs:
             out.append("        self.board()" if on_board else "        self.add_panel()")
         map_until = None                        # the beat the map's run ends at, while the map is up
@@ -3844,7 +3882,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         parts_named: dict[str, dict] = {}       # a diagram's part ids -> their names, for the words that say them
         asked: list[str] = []                   # the choices of the question up
         # A paragraph ends with a longer pause, so an idea settles before the next begins.
-        closing = {group[-1] for group in paragraphs(chapter.get("beats") or [])}
+        closing = {group[-1] for group in (marked_paragraphs if strict else paragraphs)(chapter.get("beats") or [])}
         for bi, beat in enumerate(chapter.get("beats") or []):
             if map_until is not None and bi == map_until:
                 out.append(f"        self.map_away(board={on_board})")
@@ -3909,7 +3947,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     calls.append(call)
                 elif call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
-                    said = _op_said(op, parts_named, asked)
+                    said = _op_said(op, parts_named, asked, strict)
                     said = (f", said={_q(said)}" if isinstance(said, str) else f", said=[{', '.join(_q(w) for w in said)}]") \
                         if said else ""
                     calls.append(f"self.safe(lambda: {call}, {_q(what)}{said})")

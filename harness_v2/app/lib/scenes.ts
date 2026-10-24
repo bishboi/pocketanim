@@ -1043,7 +1043,7 @@ export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>,
     const first = Math.min(...mains);
     if (lastMain !== undefined && first - lastMain < MIN_HOLD) {
       (out[k] ??= []).push(`a new main picture ${(first - lastMain).toFixed(1)} s after the one before: hold a main picture ` +
-        `at least ${MIN_HOLD + 1} s while its idea is explained -- build on it here (reveal or label a part, emphasis, zoom, ` +
+        `at least ${MIN_HOLD + 1} s while its idea is explained -- build on it here (reveal or label a part, emphasis, focus, ` +
         `a stamp in the pause), and bring the next main picture on the line where the idea changes`);
     }
     lastMain = Math.max(...mains);
@@ -1322,8 +1322,12 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   // (compile_lecture._map_runs). A chapter is never put on the map, or kept off it, as a whole.
   const own = only ? (sl.regions?.[only.chapter] ?? sl.region) : sl.region;
   const region = (script.chapters.some((c) => c.map) || usesMap(sl)) && own ? own : null;
+  // A chapter built as one piece on the current engine is strict: everything that comes on, and when, is its
+  // script's (compile_lecture: the chapter's "strict"; README "A chapter as one piece").
+  const st0 = stateOf(run);
+  const strict = (c: number) => st0.engine !== "motion" && directed(st0) && !!sl.plans?.[c];
   let chapters = script.chapters.map((c) => ({
-    n: c.n, title: c.title, narration: c.narration,
+    n: c.n, title: c.title, narration: c.narration, ...(strict(c.n) ? { strict: true } : {}),
     beats: c.beats.map((b) => {
       const sb = sl.beats[b.n];
       return { n: b.n, say: b.lines.map((k) => lines[k - 1] ?? "").join(" ").trim() || "…", do: sb?.ops ?? [],
@@ -1341,7 +1345,7 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
-    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration,
+    chapters: chapters.map((c) => ({ title: c.title, narration: c.narration, ...(c.strict ? { strict: true } : {}),
       beats: c.beats.map(({ n: _, ...b }) => b) })),
   };
 }

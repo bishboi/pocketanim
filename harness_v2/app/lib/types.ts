@@ -632,7 +632,8 @@ export type ChapterScript = {
   region?: Record<string, unknown> | null;
   emblem?: string | null;
   genre?: string | null;
-  chapter: { title: string; narration?: string; map?: boolean;
+  /** strict: everything that comes on, and when, is the script's own (BEAT_SCRIPT.md, the chapter's "strict"). */
+  chapter: { title: string; narration?: string; map?: boolean; strict?: boolean;
     beats: { beat?: number; say: string; do: Record<string, unknown>[]; paragraph?: boolean; pause?: number; about?: string }[] };
 };
 

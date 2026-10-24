@@ -16,7 +16,7 @@ import type { BeatWords, CueAct, PlanElement, PlanPart, PlanScene } from "../dir
 const DIRECTOR = `THIS CALL'S ANSWER: THE CHAPTER'S PLAN (write_plan). It replaces the per-beat answer described above: the
 operations are written exactly as above, but each is an ELEMENT of the chapter, and the chapter is cut into SCENES.
 You say WHAT is on the screen and WHY; a second call, shown the voice's word times, says WHEN each element and each
-of its parts comes on, and points, zooms and stamps as the lines go on. So write no "on", "delay" or "in_pause":
+of its parts comes on, and points at, lights and takes off what is up as the lines go on. So write no "on", "delay" or "in_pause":
 they are taken out.
 
 ELEMENTS: everything the chapter shows, once each:
@@ -124,7 +124,10 @@ A CUE: {"at": "b<beat>.w<word>", "ref": "<element or part, as given>", "act": "<
   - "emphasis" (where allowed): it is pointed at on that word ("how", on the motion engine: one of the manual's ways;
     a diagram's node is ringed, the rest dimmed). For what the line stresses: a contrast ("but", "only", "never"),
     a number, the answer, the word the idea turns on.
-  - "zoom" (a diagram, or one of its nodes): the camera moves in on it ("scale" 1.1-3); on the whole diagram, back out.
+  - "shade" (a labelled picture's part, where allowed): the rest of the picture shaded round the part while it is
+    explained (until the next line, or a shade on another part).
+  - "exit" (an element, where allowed): it is taken off the screen on that word, when the idea it showed is done and
+    nothing new replaces it (a new picture takes the last one off by itself: no exit then).
   - "stamp" (where allowed): {"at", "ref": "<scene id>", "act": "stamp", "text": "<1-3 words>", "in_pause"?: true}: a
     stamp slammed onto what is up: a verdict, a name, a number to remember. One a scene at most, often none; best in
     the quiet after its line ("in_pause": true).
@@ -141,15 +144,17 @@ WHEN
   line: give it a word of that line.
 - Each moment must be seen: keep them about 0.6 s apart or more (the times tell you); parts said in one breath may
   share a word. Not everything on w0. At most about three moments in a second.
-- Make every line do something: in a line that adds nothing new, point at what it speaks of (an emphasis, a zoom).
-  But never more than two emphases in a line.
+- Make every line do something: in a line that adds nothing new, point at what it speaks of (an emphasis, a
+  shade). But never more than two emphases in a line. There is no camera: nothing zooms or pans.
+- Nothing happens that you do not cue: a part with no cue comes on as its line begins, and nothing is pointed at
+  because the line says its name.
 - Use only the refs and acts given. Do not invent elements.`;
 
 export const CHOREOGRAPHY_TOOL = {
   type: "function" as const,
   function: {
     name: "choreograph",
-    description: "The scenes' cues: each element's and part's entry, and the emphases, zooms and stamps, each on a word.",
+    description: "The scenes' cues: each element's and part's entry, and the emphases, shades, exits and stamps, each on a word.",
     parameters: {
       type: "object",
       properties: {
@@ -160,9 +165,8 @@ export const CHOREOGRAPHY_TOOL = {
             properties: {
               at: { type: "string", description: "b<beat>.w<word>, e.g. b12.w3." },
               ref: { type: "string", description: "An element's or a part's ref (or a scene's id, for a stamp)." },
-              act: { type: "string", enum: ["enter", "emphasis", "zoom", "stamp"] },
+              act: { type: "string", enum: ["enter", "emphasis", "shade", "exit", "stamp"] },
               how: { type: "string" },
-              scale: { type: "number" },
               text: { type: "string" },
               in_pause: { type: "boolean" },
             },
@@ -202,7 +206,7 @@ export function choreographyPrompt(o: { lecture: number; chapter: number; engine
   return {
     system: [
       part("choreography", "How to choreograph the scenes", "rules", CHOREOGRAPHY),
-      ...(o.stamps ? [] : [part("no-stamps", "Not on this engine", "rules", "This engine has no stamps and no emphasis of its own on a picture: a picture's labelled parts are pointed at by the engine as they are said. Use emphasis only where an element's line says it may.")]),
+      ...(o.stamps ? [] : [part("no-stamps", "Not on this engine", "rules", "This engine has no stamps. An emphasis on a diagram's node rings it (the rest dimmed); on any other part it pulses once. The engine points at nothing by itself: what is pointed at, lit or taken off is only what you cue.")]),
       part("manuals", `The manuals of this call's artifacts (${o.manuals.length})`, "rules",
         o.manuals.map((m) => `=== ${m.op} ===\n${m.text}`).join("\n\n")),
     ],

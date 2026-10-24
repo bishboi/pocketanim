@@ -158,3 +158,13 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   compiler makes it the line's own words from that word, as few as `pocket_lecture.said_at` hears there first
   (`compile_lecture._word_phrase`), then checks it as any other anchor. The Scenes tab's word timing call writes them
   on the current engine (voice first, README "Voice first on the current engine"). What the engine draws is unchanged.
+- Strict chapters (the chapter's `"strict": true`, written for a chapter built as one piece; BEAT_SCRIPT.md §2):
+  `Lecture.strict_beats` makes `_said` time a thing by its anchor only (`spoken_as`, which the compiler then fills
+  with every anchor of the line), `_pointers` point at nothing, a labelled picture's parts get no light because they
+  are named, and a label with no anchor comes on as its line begins; the compiler adds no `auto_visuals`, finds no
+  paragraphs (`marked_paragraphs`), starts a map run on the beat that points at the map and accepts `unstage`. New
+  operations, the script's own pointing: `point` (`Lecture.point`: a named thing on screen pulses once) and `shade`
+  (`Lecture.shade_part`: a labelled picture's part lit, the rest shaded). The camera is off: `zoom` is left out with a
+  note, and `spotlight` (`focus`) no longer moves the stage in on a big diagram (`PUSH_IN_FROM` gone).
+- `compile_lecture.anchors` merges a beat's `_spoken_as` with what it had: the checks run twice, and the second run saw
+  the parts' anchors already folded into their names and wrote the table without them.

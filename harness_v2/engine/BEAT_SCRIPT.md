@@ -93,6 +93,7 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
 | `title` | text | The chapter's card and its name in the player's chapter list. |
 | `sub`? | text | A line under the title on the chapter card. |
 | `narration`? | text | What is said over the chapter card. Default: the title. |
+| `strict`? | true | **Everything that comes on, and when, is the script's own** (the Scenes tab's director writes it: README "A chapter as one piece"). Each thing comes on with its own anchor (`on`) and one with none as its line begins; nothing is looked for in a line by its name. The engine adds no picture (no `auto_visuals`), points at nothing, lights no part and reveals no part because a line says it (only `point`, `shade`, `focus` and `reveal` do); paragraphs are only where beats say `"paragraph": true`; the map comes in from the beat that points at it, never with the beats before it; `unstage` is accepted; and the Voice tab's timing model is not asked (§4, Timing). |
 | `map`? | false | `false` keeps the map out of the chapter (its map operations are left out with a note). Left out (or `true`), the chapter's beats that point at the map show it in their turn (below). A chapter is never put on the map as a whole. |
 | `beats` | list | The beats (§3), in order. |
 | `section`? | text | Which part of the source the chapter comes from. Not drawn; carried into the compile's report of the pictures used (their context). |
@@ -143,21 +144,22 @@ A beat is one narration line and what goes with it on screen.
 1. **The line is spoken**, with the chosen voice, or silent with an estimate of about 143 words a minute. Its length
    times the beat.
 2. **Order**: what goes up (pictures, diagrams, cards, map layers), then what adds to
-   them (`work`, `reveal`, `focus`, `zoom`, `answer`, `option`). Otherwise the order is as written.
+   them (`work`, `reveal`, `focus`, `point`, `shade`, `answer`, `option`). Otherwise the order is as written.
 3. **Timing** (the first that applies, for each animation; each starts 0.2 s before its words):
    - **Its anchor**: the words its `on` names (below).
    - Its part's name when the line says it: a picture's labels, a gallery's next picture, a diagram's next node, a
-     place, a term defined.
+     place, a term defined (not in a strict chapter: there only its anchor times it).
    - The words it shows, the first the line says: a card, a chart, a timeline, a new diagram (its title or the
      nodes it starts with), a picture (its caption or title).
-   - With cues (the voice step, `align_cues.py`), where the timing model puts it.
+   - With cues (the voice step, `align_cues.py`), where the timing model puts it (not in a strict chapter: its
+     script's anchors are all there is).
    - Otherwise, as the line begins, the animations together, quickly (a fifth of the line, 0.6 to 1.2 s).
 
    The base animations are quick (`PrimitiveRun`): a thing shown 0.6 s, the last picture cleared 0.5 s, none longer than
    2.5 s; each is sped up to finish before the next one in its line begins. A panel's points are their words
    alone, with no bullet; the board has no key point.
 4. **Pointing**: something already on screen whose name the line says (a diagram node, a picture's part, a place) is
-   pointed at on those words. A labelled picture is shaded round each part as it is named, however quickly the next
+   pointed at on those words (not in a strict chapter: there only `point`, `shade` and `focus` point). A labelled picture is shaded round each part as it is named, however quickly the next
    follows; once every labelled part has been talked about, the shade lifts (about a second and a half after the
    last) and the whole picture is clear again, its labels and boxes kept. At most 4 things are pointed at in one
    line.
@@ -274,10 +276,11 @@ For many values or change over time, use a `manim` chart instead.
 {"op": "clear"}
 ```
 
-#### `unstage`: not accepted from a script
-`{"op": "unstage"}` exists in the engine (it takes the picture off the stage, back to the map or an empty board, and
-would run first on its beat), but the compiler does not accept it from a script: it is left out as "no such op". The
-stage is cleared by itself when a map beat follows a picture, and a new picture replaces the last. See §9.
+#### `unstage`: take the picture off (a strict chapter only)
+`{"op": "unstage", "on": "w3"}` takes the stage's picture off, back to the map or an empty board, on its words. It is
+accepted only in a strict chapter (§2), where the script says when a picture goes; elsewhere it is left out as "no
+such op" (the stage is cleared by itself when a map beat follows a picture, and a new picture replaces the last; see
+§9). On a beat that puts up a picture of its own it does nothing (the new picture takes the last off).
 
 #### `icon`: a small icon on the map or in the panel
 ```json
@@ -396,7 +399,7 @@ and laid out so no picture or word covers another.
 ```
 | Arg | | |
 |---|---|---|
-| `id` | required | The diagram's name. `reveal`, `focus` and `zoom` refer to it. |
+| `id` | required | The diagram's name. `reveal` and `focus` refer to it. |
 | `kind`? | `flow` (default) \| `cycle` \| `hub` \| `pyramid` | See below. The older kinds still read: `flowchart`, `tree`, `hierarchy`, `categories` (= `flow`), `steps` (= a numbered flow). Unknown: drawn as a flow, with a note. |
 | `nodes` | required | 2-9 nodes (a flow up to 16, a hierarchy up to 20). Each node takes the fields in the next table. |
 | `edges`? | | `[from, to, label?, style?]` (or `{from, to, label, style}`). `label` says how they connect ("leads to", "light"). `style` is `solid` (default), `dashed` or `bold`. Edges to no node are left out. A flow or cycle with no edges joins its nodes in order. |
@@ -475,16 +478,36 @@ left out, and the reveal too if none is left.
 ```
 A ring round the node; the rest dims while it is talked about.
 
-#### `zoom`: move the camera in on one part
+#### `zoom`: not drawn (the camera is off)
+`{"op": "zoom", "diagram": "chain", "node": "granary"}` is left out with a note (`fixed: ... the camera is off: a zoom
+is not drawn`): moving the stage left the labels behind and the picture half moved. Point at the part instead
+(`focus`, `point`, `shade`). A `focus` no longer moves in on a big diagram either: the rest is dimmed, nothing moves.
+
+#### `point`: pulse what is on the screen, on purpose
 ```json
-{"op": "zoom", "diagram": "chain", "node": "granary", "scale": 2}
-{"op": "zoom", "diagram": "chain"}
+{"op": "point", "target": "Granary", "on": "w5"}
 ```
 | Arg | | |
 |---|---|---|
-| `diagram` | required | A diagram (or another picture with named parts) drawn earlier in the chapter. |
-| `node`? | | The part to move in on. Left out: back out to the whole. |
-| `scale`? | 1.1-3 | How much closer (default 1.8). |
+| `target` | required | The name of something on the screen: a diagram's node (its id or label), a picture's labelled part, a card, a place, a gallery's picture. It pulses once on its words. Nothing up by that name: left out with a note (`point: nothing on the screen called ...`). |
+
+#### `shade`: light one part of a labelled picture
+```json
+{"op": "shade", "part": "soil", "on": "w1"}
+```
+| Arg | | |
+|---|---|---|
+| `part` | required | One of the labels of the labelled picture up (`picture`'s `labels`). The rest of the picture is shaded round it (its label brought on first if it is not on yet) until the next line, or a shade on another part. No labelled picture up with that part: left out with a note. |
+
+```json
+{"title": "The first cities", "strict": true, "beats": [
+ {"say": "When the water goes back, it leaves rich soil behind.", "paragraph": true,
+  "do": [{"op": "picture", "generate": "a river bank after a flood, dark wet silt, early fields", "on": "w3",
+          "labels": [{"name": "water", "on": "w3"}, {"name": "soil", "on": "w9"}]}]},
+ {"say": "That soil is why the fields here are so rich.",
+  "do": [{"op": "shade", "part": "soil", "on": "w1"}, {"op": "point", "target": "water", "on": "start"}]},
+ {"say": "And then the story moves on.", "do": [{"op": "unstage", "on": "w3"}]}]}
+```
 
 ### 5.4 Cards, kits and questions
 
@@ -796,7 +819,6 @@ The compiler reads the script in three passes.
 - a Manim block that breaks the sandbox, raises, draws off the board, or is unreadable;
 - a diagram with the wrong number of nodes, or nodes without `id`/`label`;
 - a `question` with 1 or more than 5 choices, or an answer that is none of them;
-- a `zoom` scale outside 1.1-3;
 - a `work` without `id` or `lines`, or a `problem` without `text`.
 
 **Warns**: more than 5 operations on a beat; a caption over two lines; a side panel that overflows.

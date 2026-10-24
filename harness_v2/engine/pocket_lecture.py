@@ -2877,7 +2877,10 @@ class Lecture(Scene):
 
     def _pointers(self, words, seconds: float, hinted: set) -> list:
         """[(the pointing animation, [start, seconds])] for the things on the screen this line names: each once,
-        on its words, at most POINT_MOST; not one a picture of this line already shows on those words."""
+        on its words, at most POINT_MOST; not one a picture of this line already shows on those words. None in a
+        strict chapter: there the script points (point, shade, focus)."""
+        if self.__dict__.get("_strict"):
+            return []
         now = self.__dict__.get("_sync_beat", 0)
         on_screen = {id(m) for top in self.mobjects for m in top.get_family()}
         # What stays up through this line: a thing this line's pictures take away (the timeline a comparison
@@ -2923,6 +2926,43 @@ class Lecture(Scene):
             else:
                 made.append((ScaleInPlace(mob, 1.12, rate_func=there_and_back), [max(0.0, at - 0.1), 0.7]))
         return made
+
+    def point(self, target: str):
+        """The script's own pointing (`point`): what is on the screen by that name (a diagram's node, a picture's
+        part, a card, a place, a gallery's picture) pulses once. None, and a note, when nothing up has that name."""
+        want = _norm(target)
+        found = None
+        for part in reversed(self.__dict__.get("_named_parts", [])):
+            if _norm(part["say"]) == want and (part["shown"] is None or part["shown"]()):
+                found = part["mob"]
+                break
+        if found is None:
+            for key, d in getattr(self, "diagrams", {}).items():
+                labels = self.__dict__.get("_diagram_labels", {}).get(key) or {}
+                for node, mob in (d.get("nodes") or {}).items():
+                    if node in d["shown"] and not d.get("gone") and want in (_norm(node), _norm(labels.get(node, ""))):
+                        found = mob
+        on_screen = {id(m) for top in self.mobjects for m in top.get_family()}
+        if found is None or not any(id(x) in on_screen for x in (found.family_members_with_points() or [found])):
+            skipped(f"point: nothing on the screen called {target!r}")
+            return None
+        pulse = ScaleInPlace(found, 1.12, rate_func=there_and_back)
+        pulse.panim_run = 0.7
+        return pulse
+
+    def shade_part(self, part: str):
+        """The script's own light on a labelled picture's part (`shade`): the rest of the picture shaded round it
+        (its label brought on first if it is not on yet), until the next line, or a shade on another part."""
+        want = _norm(part)
+        for view in reversed(self.__dict__.get("_views", [])):
+            name = next((n for n in view["parts"] if _norm(n) == want), None)
+            if name is not None and self._view_on(view):
+                look = self._look(view, name)
+                if look is not None:
+                    look.panim_run = self.LOOK_RUN
+                return look
+        skipped(f"shade: no labelled picture up with a part {part!r}")
+        return None
 
     def _log(self, kind: str, **fields) -> None:
         """Append where a beat or chapter starts to PANIM_BEAT_LOG, if set.
@@ -3418,11 +3458,13 @@ class Lecture(Scene):
                 hinted.add(_norm(said))
                 timed += 1
             out.append((anim, cue))
-        # A label whose part this line does not say comes on after the picture is in, one after another.
+        # A label whose part this line does not say comes on after the picture is in, one after another (in a
+        # strict chapter, as the line begins, with its picture).
         late = [i for i, (a, c) in enumerate(out) if isinstance(a, SimpleNamespace) and not c]
-        begin = min(1.4, max(0.4, seconds * 0.35))
+        strict = bool(self.__dict__.get("_strict"))
+        begin = 0.0 if strict else min(1.4, max(0.4, seconds * 0.35))
         for k, i in enumerate(late):
-            out[i] = (out[i][0], [round(min(begin + 0.5 * k, max(0.0, seconds - 0.4)), 3), 0.6])
+            out[i] = (out[i][0], [0.0 if strict else round(min(begin + 0.5 * k, max(0.0, seconds - 0.4)), 3), 0.6])
         out = self._with_looks(out, seconds)
         pointers = self._pointers(words, seconds, hinted)
         out += pointers
@@ -3460,7 +3502,7 @@ class Lecture(Scene):
                 continue
             view, name = holder.panim_look
             look = None
-            if holder.panim_heard and not view.get("still") and self._view_on(view):
+            if holder.panim_heard and not view.get("still") and self._view_on(view) and not self.__dict__.get("_strict"):
                 # Every part said gets the light, however soon the next is said (the move is cut to fit): lit only
                 # where the narration stayed a moment, the light stayed on the sheep while the goats were named.
                 look = self._look(view, name)
@@ -3479,7 +3521,8 @@ class Lecture(Scene):
 
     def _said(self, words, phrase) -> float | None:
         """When the line says `phrase` (a part's name): by the words its anchor names for this line, else by the
-        phrase itself (said_at)."""
+        phrase itself (said_at). In a strict chapter by its anchor only: a thing with none is not looked for in
+        the line, and comes on as the line begins."""
         if not phrase:
             return None
         anchor = (self.__dict__.get("_spoken_as") or {}).get(_norm(phrase))
@@ -3487,7 +3530,15 @@ class Lecture(Scene):
             at = said_at(words, anchor)
             if at is not None:
                 return at
+        if self.__dict__.get("_strict"):
+            return None
         return said_at(words, phrase)
+
+    def strict_beats(self, on: bool) -> None:
+        """A strict chapter's lines (compile_lecture: the chapter's "strict"): everything that comes on, and when,
+        is the script's own -- each thing on its anchor, one with none as its line begins; nothing pointed at,
+        lit or revealed by the engine because a line says its name."""
+        self._strict = bool(on)
 
     def queue_on_words(self, say: str, build) -> None:
         """Queue `build(heard)` to make what comes on when `say` is said in the line about to play (beat): heard is
@@ -6497,8 +6548,6 @@ class Lecture(Scene):
 
     # The rest of a diagram while one part is talked about: under a veil of the board's colour this opaque.
     DIM_VEIL = 0.6
-    # A diagram this many parts or more is moved in on as one of them is talked about (the camera follows).
-    PUSH_IN_FROM = 7
 
     def _unveil(self, d: dict) -> list:
         """The veils over a diagram's other parts lifted (the focus moved on, or more of it is shown)."""
@@ -6511,8 +6560,8 @@ class Lecture(Scene):
 
     def spotlight(self, key: str, node: str):
         """Draw the eye to one node of a diagram: the rest of the diagram dimmed under a veil of the board's colour
-        while it is talked about, and, on a big diagram, the stage moved in on it (the camera follows the
-        explanation). No box is drawn around the node: the veil alone sets it apart."""
+        while it is talked about. No box is drawn around the node: the veil alone sets it apart, and nothing moves
+        (the stage was moved in on a big diagram; the camera is off)."""
         d = self.diagrams.get(key)
         if not d or d.get("gone") or str(node) not in d["nodes"] or str(node) not in d["shown"]:
             # Its picture has left the stage: a ring now would circle an empty patch of whatever replaced it.
@@ -6526,16 +6575,7 @@ class Lecture(Scene):
             if d["focus"] in self.stage_extra:
                 self.stage_extra.remove(d["focus"])
         anims += self._unveil(d)
-        # On a big diagram the stage first moves in on this part (the camera follows the explanation); what is laid
-        # over the diagram after that (the veils, the ring) is laid where the parts will then be.
-        shown_parts = len([i for i in d["shown"] if i in d["nodes"]])
         push, moved = None, None
-        if shown_parts >= self.PUSH_IN_FROM and hasattr(self, "zoom"):
-            # One move from wherever the stage is (moved in on another part, or not) to this part.
-            push = self.zoom(key, str(node), 1.5, inside=True)
-            if push is not None:
-                d["pushed"] = True
-                moved = self._zoom_place
         # One focal point: every other part shown so far goes quiet under a veil; the arrows into and out of this one
         # stay clear.
         if not d.get("drawing"):

@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { LAB_PRESETS } from "@/lib/lab-presets";
+import { LAB_MOTION_PRESETS, LAB_PRESETS } from "@/lib/lab-presets";
 import { PRIMITIVES, PRIMITIVE_BY_OP, type Field } from "@/lib/primitives";
 import type { LabItem, Run } from "@/lib/types";
 import { ENGINES } from "@/lib/voice-engines";
@@ -45,7 +45,7 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
         <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h3 className="text-sm font-semibold text-neutral-100">Lab</h3>
           <span className="text-neutral-400">
-            Try the current engine&apos;s primitives with the voice, apart from the lectures: start from a preset, every primitive, a lecture&apos;s
+            Try the engine&apos;s primitives, templates and looks with the voice, apart from the lectures: start from a preset, every primitive, a lecture&apos;s
             chapter, or blank; change it in the form or as JSON; <b>Check</b> compiles it only; <b>Speak and play</b> compiles it, speaks it,
             times each animation to its words and plays it.
           </span>
@@ -71,6 +71,10 @@ export function LabPanel({ run, ready, onCall, act, voiceAct }: {
               onChange={(e) => { if (e.target.value) void act({ action: "add", preset: e.target.value }); }}>
               <option value="">pick one…</option>
               {LAB_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+              {[...new Set(LAB_MOTION_PRESETS.map((p) => p.group))].map((g) => (
+                <optgroup key={g} label={g}>
+                  {LAB_MOTION_PRESETS.filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.name}: {p.note}</option>)}
+                </optgroup>))}
             </select>
           </label>
           {chapters.length > 0 && (

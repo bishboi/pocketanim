@@ -1,4 +1,4 @@
-"""The motion engine's timelines: the classic timeline (dates in proportion, periods, pictures) brought on in motion,
+"""The engine's timelines: the classic timeline (dates in proportion, periods, pictures) brought on in motion,
 and four more styles. In every style each event comes on as the line says its date or its words (or one after the
 other when it does not), and a later line that names an event points at it.
 

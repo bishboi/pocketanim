@@ -8,24 +8,22 @@
 - The scene writer's instructions are v1's word for word (`app/lib/prompts/v1-lecture.ts`, from
   `scripts/sync-v1-lecture.py`); v2's additions go in their own parts in `app/lib/prompts/scenes.ts`.
 - v1 (`harness/`) is not modified; v2's engine is its own copy (`engine/ENGINE.md` lists v2's changes).
-- The motion engine (beta) is documented in `engine/MOTION_ENGINE.md`; any change to what `engine/compile_motion.py` or
-  `engine/motion*.py` accepts updates that file in the same commit (`npm run check` fails when a template, an argument
-  or a script field it reads is missing). The current engine owns the primitives; the motion engine adds its looks on
-  top. The current engine draws some of the motion engine's templates itself, in its own style (`engine/templates.py`,
-  `compile_lecture.TEMPLATE_OPS`, BEAT_SCRIPT.md §5.9): a change to such a template's drawing changes both engines,
-  and is checked on both. Its looks, transitions, idle motion and sound effects stay the motion engine's: a script
-  is drawn in them only with `"engine": "motion"`: in the Lab, or for a run whose Scenes tab's engine is set to motion.
-- The default flow is the Scenes tab on the motion engine (beta, `engine/MOTION_ENGINE.md`), then Voice: a lecture's
-  scenes start on it unless `V2_SCENES_ENGINE=current`. On it each chapter is spoken and aligned first and its scenes
-  written to the voice's times ("voice first", MOTION_ENGINE.md §1). The current engine is voice first too. On both, a
-  chapter is built as one piece. On the current engine the director writes the beats themselves (each line's
-  operations, its paragraphs and joins; no timing, no pointing), each few paragraphs are choreographed in a call of
-  their own as a patch on those beats, and code applies it; refused beats go back to the director (README "A chapter
-  as beats", `app/lib/beat-director.ts`). On the motion engine a director call plans its elements and scenes, each
-  few scenes are choreographed, and code lowers both into the beats (README "A chapter as one piece",
-  `app/lib/director.ts`). The Video tab (README "The video step": the video agent in free
-  Manim, `app/lib/video-agent.ts`, checked against the phone by `engine/tools/agent_tools.py phone`) is set aside behind
-  "Video agent…", not removed.
+- There is one engine. Every beat script is compiled by `engine/compile_motion.py` (the lecture compiler,
+  `engine/compile_lecture.py`, with its motion layer installed: running either file does the same) onto
+  `motion.MotionLecture` (over `pocket_lecture.MapLecture`): the current engine's rules (strict chapters, joins, two at
+  once, hold and reveal, enter, speed, point) drawn with the motion layer's looks, transitions, idle motion, sound,
+  music, pointing and every template. How it moves is documented in `engine/MOTION_ENGINE.md`; any change to what
+  `engine/compile_motion.py` or `engine/motion*.py` accepts updates that file in the same commit (`npm run check` fails
+  when a template, an argument or a script field it reads is missing). A script's old `"engine": "motion"` is read and
+  dropped. The app's "templates" kind is every template (`compile_motion.MOTION_OPS`); the writers are told them in
+  `app/lib/prompts/scenes-templates.ts`.
+- The default flow is the Scenes tab, then Voice. Each chapter is spoken and aligned first ("voice first") and built
+  as one piece: the director writes the beats themselves (each line's operations, its paragraphs and joins; no
+  timing, no pointing), each line is choreographed in a call of its own as a patch on those beats, and code applies
+  it; refused beats go back to the director (README "A chapter as beats", `app/lib/beat-director.ts`). The Scenes
+  tab's Motion row sets the look, energy, transition, idle motion and timeline style for the run. The Video tab
+  (README "The video step": the video agent in free Manim, `app/lib/video-agent.ts`, checked against the phone by
+  `engine/tools/agent_tools.py phone`) is set aside behind "Video agent…", not removed.
 - The kit (`engine/agent/kit/`) is the video agent's optional library. A change to what it offers (a piece, an
   argument, a look) updates `engine/agent/kit/KIT.md` in the same commit (the agent reads only that), and
   `engine/agent/kit/gallery.py` still renders every snippet in both looks.

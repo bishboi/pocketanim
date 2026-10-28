@@ -50,7 +50,7 @@ Contents: [the whole script](#1-the-whole-script) · [a chapter](#2-a-chapter) �
 |---|---|---|
 | `title` | text | The lecture's title: the title slide, and the name of the scene's introduction. |
 | `sub`? | text | A line under the title on the title slide. |
-| `engine`? | `"motion"` | Drawn by the motion engine (beta, [MOTION_ENGINE.md](MOTION_ENGINE.md)); left out, this engine. The compiler keeps the parts' own anchors (`on`) for its templates. |
+| `engine`? | `"motion"` | Old scripts only: read and dropped. There is one engine: every script is drawn in motion ([MOTION_ENGINE.md](MOTION_ENGINE.md): its `look`, `energy`, `transition`, `idle` and `timeline` are script fields too). |
 | `intro`? | text | What is said over the title slide. Default: `"<title>. <sub>"`. |
 | `style`? | name | The **look** (the film's frame, board colour, fonts): `atlas` (default), `parchment`, `lab`, `cosmos`, `vox`, `cardboard`, `whiteboard`, `blueprint`, `chalkboard`, also `friendly`, `ink`, `water`. See §7. |
 | `art`? | name | How pictures are drawn: `auto` (the look's own), `clean`, `detailed`, `blueprint`, `chalk`, `sketch`, `neon`, `watercolour`. |
@@ -93,7 +93,7 @@ Options read by the checks rather than by the drawing (the v2 app sets `teaching
 | `title` | text | The chapter's card and its name in the player's chapter list. |
 | `sub`? | text | A line under the title on the chapter card. |
 | `narration`? | text | What is said over the chapter card. Default: the title. |
-| `strict`? | true | **Everything that comes on, and when, is the script's own** (the Scenes tab's director writes it: README "A chapter as beats", "A chapter as one piece"). Each thing comes on with its own anchor (`on`) and one with none as its line begins; nothing is looked for in a line by its name. The engine adds no picture (no `auto_visuals`), points at nothing, lights no part and reveals no part because a line says it (only `point`, `shade`, `focus` and `reveal` do); paragraphs are only where beats say `"paragraph": true`; the map comes in from the beat that points at it, never with the beats before it; `unstage` is accepted; and the Voice tab's timing model is not asked (§4, Timing). **Pointing only at what is up** (current engine; the compiler mends it, each mend said as `fixed: ...`): a `shade`, `label` or `unlabel` is kept only when a labelled picture up has that part, an `unshade` when a labelled picture is up, a `focus`, `reveal` or `unfocus` when that diagram is up, and a `point` at a name of another main picture of the chapter only when a picture up shows it (the one or two main pictures of the last line that brought any; §5.3 "Two at once"). |
+| `strict`? | true | **Everything that comes on, and when, is the script's own** (the Scenes tab's director writes it: README "A chapter as beats", "A chapter as one piece"). Each thing comes on with its own anchor (`on`) and one with none as its line begins; nothing is looked for in a line by its name. The engine adds no picture (no `auto_visuals`), points at nothing, lights no part and reveals no part because a line says it (only `point`, `shade`, `focus` and `reveal` do); paragraphs are only where beats say `"paragraph": true`; the map comes in from the beat that points at it, never with the beats before it; `unstage` is accepted; and the Voice tab's timing model is not asked (§4, Timing). **Pointing only at what is up** (the compiler mends it, each mend said as `fixed: ...`): a `shade`, `label` or `unlabel` is kept only when a labelled picture up has that part, an `unshade` when a labelled picture is up, a `focus`, `reveal` or `unfocus` when that diagram is up, and a `point` at a name of another main picture of the chapter only when a picture up shows it (the one or two main pictures of the last line that brought any; §5.3 "Two at once"). |
 | `map`? | false | `false` keeps the map out of the chapter (its map operations are left out with a note). Left out (or `true`), the chapter's beats that point at the map show it in their turn (below). A chapter is never put on the map as a whole. |
 | `beats` | list | The beats (§3), in order. |
 | `section`? | text | Which part of the source the chapter comes from. Not drawn; carried into the compile's report of the pictures used (their context). |
@@ -131,14 +131,14 @@ A beat is one narration line and what goes with it on screen.
 | `do`? | list | The beat's **operations** (§5), what comes on screen as the line is said. Empty or left out: what is up stays up. |
 | `paragraph`? | true | This beat starts a paragraph (an idea over a few beats). The beat before it ends the last paragraph, so it gets the longer hold. Where the script marks none, the compiler finds paragraphs itself. |
 | `pause`? | number | Extra seconds of silence after the line (at most 2), for a line that needs to sink in. |
-| `screen`? | `"join"` | v2, current engine: this line's new main picture **joins** the one already up instead of replacing it: the one up slides into its share of the stage and the new one comes on in the other (side by side or one over the other, where each is seen best). Left out (with a note) when the line brings no main picture, nothing is up, or more than two would then be up. Without it a new main picture replaces what is up (two brought on in one line share the stage). See §5.3 "Two at once". |
+| `screen`? | `"join"` | v2: this line's new main picture **joins** the one already up instead of replacing it: the one up slides into its share of the stage and the new one comes on in the other (side by side or one over the other, where each is seen best). Left out (with a note) when the line brings no main picture, nothing is up, or more than two would then be up. Without it a new main picture replaces what is up (two brought on in one line share the stage). See §5.3 "Two at once". |
 | `about`? | text \| list | Whom or what the beat is about, its English name(s) ("Sunderlal Bahuguna"). Used to find pictures for a paragraph left without a visual (`auto_visuals`). Without it, proper names in the line are used. |
 | `picture`? | text | What to picture for this beat if the paragraph is left without a visual (`auto_illustrations`), in English. |
 | `rt`? | number | The time (seconds) the beat's animations take, instead of the engine's own. |
 | `cues`? | list | Written by the voice step, not by hand: the start (and length) of each animation, timed to the words. |
 | (`do` items) `on`? | text | On any operation or part: the words of `say` it lands on, or `"start"` (§4, Anchors). |
-| (`do` items) `enter`? | name | v2, current engine: how a picture it puts on the stage comes on, in place of its own way: `fade`, `rise`, `pop`, `drop`, `slide`, `zoom`, `flip`, `draw` (lines and words drawn on), `type` (its frame, then its words typed in), `unfold`, `iris` (motion_kit's entrances, `Lecture.entering`). A template (§5.9) brings each of its parts on that way too. Not one of them: left out (its own way), with a note. |
-| (`do` items) `speed`? | name | v2, current engine: `fast`, `base` or `slow`: its animation in 0.6, 1 or 1.6 times its own time (`Lecture.entering`). |
+| (`do` items) `enter`? | name | v2: how a picture it puts on the stage comes on, in place of its own way: `fade`, `rise`, `pop`, `drop`, `slide`, `zoom`, `flip`, `draw` (lines and words drawn on), `type` (its frame, then its words typed in), `unfold`, `iris` (motion_kit's entrances, `Lecture.entering`). A template (§5.9) brings each of its parts on that way too. Not one of them: left out (its own way), with a note. |
+| (`do` items) `speed`? | name | v2: `fast`, `base` or `slow`: its animation in 0.6, 1 or 1.6 times its own time (`Lecture.entering`). |
 
 ---
 
@@ -200,8 +200,8 @@ part with no anchor of its own whose name the line says in another spelling is t
 (`self.spoken_as({...})` before the beat), and the engine times the part by it (`Lecture.spoken_as`, `_said`).
 
 An anchor may also be a word's number in its line, `"w<k>"`: the line split at spaces, `w0` its first word. This is
-what the Scenes tab's word timing call writes on the current engine (voice first, [README](../README.md) "Voice
-first on the current engine"): the compiler makes it the line's own words from word k, as few as are heard there
+what the Scenes tab's word timing call writes (voice first, director off, [README](../README.md) "Voice
+first, director off"): the compiler makes it the line's own words from word k, as few as are heard there
 first (`compile_lecture._word_phrase`: `pocket_lecture.said_at` finds them at word k, not on an earlier word), and
 checks it as any other anchor. A number past the line's last word is taken off with a note (`fixed: ... "on": 'w40'
 is past its line's last word: it comes on in its turn`).
@@ -323,8 +323,8 @@ The older operation names still work: `illustration` (= `generate`), `photo` (`s
 | `caption`? | text | Under the picture. |
 | `move`? | `bob` \| `sway` \| `breathe` \| `drift` | The picture moves gently once drawn (a boat bobs, a flag sways, a heart breathes, a ship drifts on). Another word is left out with a note. A picture with `labels` stays still (its boxes, names and lights sit on its parts). |
 | `points`? | 2-4 short lines | The split layout: the picture large on the left, these lines on the right. Not with `labels`. |
-| `hold`? | labels | v2, current engine: these labels are held back: not shown with the picture, each brought on by a `label` op on a later line (§5.3). |
-| `notes`? | {label: text} | v2, current engine: a short line (up to 60 letters) written small under the label's name: a date, a number, what the part does. |
+| `hold`? | labels | v2: these labels are held back: not shown with the picture, each brought on by a `label` op on a later line (§5.3). |
+| `notes`? | {label: text} | v2: a short line (up to 60 letters) written small under the label's name: a date, a number, what the part does. |
 | `aspect`? | `16:9` \| `4:3` \| `1:1` | The shape it is made in. Default: the screen's shape when it is the line's only picture. |
 | `diagram`? | true | Made by the diagram model (as `draw`). |
 
@@ -495,7 +495,7 @@ is not drawn`): moving the stage left the labels behind and the picture half mov
 | Arg | | |
 |---|---|---|
 | `target` | required | The name of something on the screen: a diagram's node (its id or label), a picture's labelled part, a card, a place, a gallery's picture, a template's part. It is pointed at on its words. Nothing up by that name: left out with a note (`point: nothing on the screen called ...`). A part the same line brings on earlier (a held part revealed) counts. |
-| `how`? | name | v2, current engine: `pulse` (it swells once: the default), `lift` (it rises a little and settles), `circle` (a ring drawn round it), `underline` (a line drawn under it). A ring or a line stays until the next one is drawn or its picture leaves (`Lecture.POINT_HOWS`). Not one of them: a pulse, with a note. |
+| `how`? | name | v2: `pulse` (it swells once: the default), `lift` (it rises a little and settles), `circle` (a ring drawn round it), `underline` (a line drawn under it). A ring or a line stays until the next one is drawn or its picture leaves (`Lecture.POINT_HOWS`). Not one of them: a pulse, with a note. |
 
 ```json
 {"op": "point", "target": "New schools", "how": "underline", "on": "w2"}
@@ -590,7 +590,7 @@ shown on a later line, a light held `until` a word, a label hidden):
 
 #### Two at once: how a line's main pictures share the stage
 A picture, a diagram, a timeline, a comparison, a gallery, a process, a quote, a drawing or a problem each takes the
-stage, and what was up before goes. **Two brought on in one line are laid out together** (current engine), where
+stage, and what was up before goes. **Two brought on in one line are laid out together**, where
 each is seen best: side by side, or one over the other (a wide timeline under a picture), the stage split where the
 smaller of the two is drawn largest. A third in that line does not fit: the compiler moves it to a later line that
 brings none of its own, as that line begins (its words and its parts' taken out) -- the first line that points at a
@@ -634,7 +634,7 @@ replaces them. While two pictures share the stage, nothing more goes beside them
 | Arg | | |
 |---|---|---|
 | `events` | 2-10 | `[date, label, picture?]` (or `{date, label, picture, on}`: an event with its own words comes on with them). With one event it becomes a card. Past ten, the first ten are kept. |
-| `enter`? | `draw` \| `travel` \| `whole` | v2, current engine: how it comes on. `draw` (the default): the title and the track (its scale, its periods) draw themselves in, then each event pops onto the track (its node, its stem growing out, its date and words), on its own words when it has an `on`, else in date order (in a strict chapter as the line begins). `travel`: the same, with a marker that runs along the track to each event as it comes. `whole`: all of it at once. The engine never pulses an event because a line names its date: only `point` does. |
+| `enter`? | `draw` \| `travel` \| `whole` | v2: how it comes on, in place of its style (MOTION_ENGINE.md §5; left out: drawn in its style, `track` unless the timeline or the script names another). `draw`: the title and the track (its scale, its periods) draw themselves in, then each event pops onto the track (its node, its stem growing out, its date and words), on its own words when it has an `on`, else in date order (in a strict chapter as the line begins). `travel`: the same, with a marker that runs along the track to each event as it comes. `whole`: all of it at once. The engine never pulses an event because a line names its date: only `point` does. |
 | `title`? | | Over the timeline. |
 | `range`? | `[from, to]` | v2: the years the track covers, to zoom in on a period. Events outside it are left out (with a note). |
 | `spans`? | up to 6 | v2: periods `[from, to, label]` (a reign, an era, a war, a dynasty), shaded on the track and drawn as labelled bars in a strip under the scale. Overlapping periods (or their names) are stacked in lanes. A span whose dates are not years is left out. |
@@ -883,23 +883,22 @@ One of `lat` or `lon`.
 ```
 Fades what is filled before highlighting one area.
 
-### 5.9 Templates (the motion engine's, in this style)
+### 5.9 Templates
 
-v2, current engine: some of the motion engine's templates (MOTION_ENGINE.md §3) are drawn here too, by
-`templates.TemplateLecture`, in the lecture's own style: the template's drawing and its choreography (its parts
-coming on in turn, each on its words), never the motion engine's look (no texture, no dressed pictures, no transitions
-between pictures, no idle motion, no sound effects, no pulses on stressed words). A template is a main picture
-(§5.3 "Two at once"); its parts are pointed at by name (`point`), and in a strict chapter only its own anchors time
-them (each part's `on`; a part without one comes on in its turn after the template). Its checks and mends are the
-motion engine's (compile_motion), each said as `fixed: ...`. Every template takes `enter` (the shared entrances,
-§3) for how its parts come on, `speed`, an `id`, and `hold`.
+v2: every template of MOTION_ENGINE.md §3 (a counter, a chart, cards, a chain, a list, a versus, a venn, a timeline of
+causes...) is an operation of the beat script, drawn by `motion.MotionLecture` in the script's look with its
+choreography (its parts coming on in turn, each on its words). A template is a main picture (§5.3 "Two at once"; a
+`stamp` or an `emphasis` lands on what is up instead); its parts are pointed at by name (`point`), and in a strict
+chapter only its own anchors time them (each part's `on`; a part without one comes on in its turn after the
+template). Its checks and mends are compile_motion's, each said as `fixed: ...`. Every template takes `enter` (the
+shared entrances, §3, `draw` and `type` read as the kit's `write` and `typewrite`, or the kit's own: `ink`, `stamp`,
+`spin`...) for how its parts come on, `speed`, an `id`, and `hold`; each template's fields are in MOTION_ENGINE.md §3.
 
 **Built over several lines** (`hold`, then `reveal` with `of`): a template's parts named in `hold` do not come on in
 its own line; a later line's `{"op": "reveal", "of": "<the template's id>", "parts": [<names>]}` brings them on, on
 the reveal's `on` (else each on its own name, else in its turn). A template that holds parts and has no `id` is given
 one (`<op>-c<chapter>b<beat>`, with a note). In a strict chapter, a reveal is kept only while its template is up.
-On the motion engine (MOTION_ENGINE.md §3) every template holds parts this way, and so does a timeline in a `style`
-(its events, by their labels).
+A timeline in a `style` holds its events this way too (by their labels).
 
 ```json
 {"op": "list", "id": "why", "title": "Why so fast", "mark": "check", "hold": ["Railways"],

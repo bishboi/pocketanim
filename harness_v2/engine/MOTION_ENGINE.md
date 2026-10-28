@@ -1,31 +1,33 @@
-# The motion engine (beta)
+# How the engine moves
 
-The motion engine draws a lecture the way a modern explainer channel does: everything on screen is **designed in a
+There is one engine, and this is its motion layer: it draws every lecture the way a modern explainer channel does: everything on screen is **designed in a
 look** (colours, fonts, a textured board, cards with soft shadows, pictures dressed as stickers, prints or newsprint)
 and **animated with intent** (each template brings its parts on in a choreography, each part landing on the words
 that name it, one picture giving way to the next with a transition, nothing ever frozen).
 
-It is a beta beside the current engine, not a replacement. Nothing of the current engine, its compiler or what it has
-made changes: the motion engine is its own files, and a script is drawn by it only when it says `"engine": "motion"`.
+Every beat script is drawn this way: `compile_motion.py` is the lecture compiler (`compile_lecture.py`) with the motion
+layer installed (running `compile_lecture.py` installs it too), so everything of BEAT_SCRIPT.md -- its checks and
+mends, strict chapters, joins, two pictures at once, hold and reveal, `enter`, `speed`, `point` -- holds, and is drawn
+by `motion.MotionLecture` (over `pocket_lecture.MapLecture`) in a look, with every template here. There was once a
+separate "motion engine (beta)" beside a "current engine" that drew without looks, transitions, idle motion or sound;
+the two are one now, and a script's old `"engine": "motion"` is read and dropped.
 
-How to teach is the writer's on it: `compile_motion.py` sets `teaching_rules: false` unless the script says otherwise,
-so only what is needed to draw the video is checked (known operations and their fields, real places, Manim blocks
-that run), never the lecture compiler's teaching rules (empty stretches, plain language, text-heavy beats, the panel's
-points). The app's scene writer for it is told the elements, how each is used and examples, and nothing that limits
-how they are chosen (`app/lib/prompts/scenes-beta.ts`), and asked for a rich, moving screen: something new on every
-beat, often several moments in one, each on its words. Before the app builds a whole lecture on it, every beat that
-says several sentences is split into one beat a sentence (`splitBeats`), so the screen can change on each.
+How to teach is the writer's: `compile_motion.py` sets `teaching_rules: false` unless the script says otherwise, so
+only what is needed to draw the video is checked (known operations and their fields, real places, Manim blocks that
+run), never the lecture compiler's teaching rules (empty stretches, plain language, text-heavy beats, the panel's
+points). The app's director and scene writer are told every template, how each is used and how to move with intent
+(`app/lib/prompts/scenes-templates.ts`, when the "templates" kind is on).
 
 ```
-beat script (JSON, "engine": "motion") ─▶ compile_motion.py ─▶ Manim scene on motion.MotionLecture ─▶ export_scene.py ─▶ .panim ─▶ phone / web player
+beat script (JSON)                     ─▶ compile_motion.py ─▶ Manim scene on motion.MotionLecture ─▶ export_scene.py ─▶ .panim ─▶ phone / web player
                                            = compile_lecture.py          (pocket_lecture's MapLecture,        (unchanged: every motion is a verb
                                              extended in-process           every template in motion)            the players have, or a baked clip)
 ```
 
 | File | What it is |
 |---|---|
-| `compile_motion.py` | The compiler: `compile_lecture.py` imported and extended in its own process (new operations, `on`, looks), so every check, mend and picture of the beat script works as it does there. |
-| `motion.py` | `MotionLecture`: the engine. Extends `pocket_lecture.MapLecture`; redraws the classic operations in motion and adds the templates (`m_*`). |
+| `compile_motion.py` | The compiler: `compile_lecture.py` imported and extended in its own process (the templates, `on`, looks), so every check, mend and picture of the beat script works as it does there. |
+| `motion.py` | `MotionLecture`: the engine every scene is drawn on. Extends `pocket_lecture.MapLecture`; redraws the classic operations in motion and adds the templates (`m_*`). |
 | `motion_kit.py` | The primitives: words, cards, chips, stamps, marks, and the motions (entrances, emphasis, exits, a counter, a spring, a shake). |
 | `motion_timeline.py` | The timeline in five styles. |
 | `motion_more.py` | The templates for the shape of a history, a society or an argument: hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar, converge, table, ask. |
@@ -46,13 +48,11 @@ Contents: [the script](#1-the-script) · [how a beat plays](#2-how-a-beat-plays-
 
 ## 1. The script
 
-A motion script is a beat script ([BEAT_SCRIPT.md](BEAT_SCRIPT.md)): its `chapters`, their beats and their
-operations, with these additions. Everything in BEAT_SCRIPT.md
-still holds: the same chapters, beats, operations, pictures, maps and checks.
+A script is a beat script ([BEAT_SCRIPT.md](BEAT_SCRIPT.md)): its `chapters`, their beats and their operations, with
+these additions. Everything in BEAT_SCRIPT.md holds: the same chapters, beats, operations, pictures, maps and checks.
 
 ```json
 {
-  "engine": "motion",
   "look": "paper",
   "energy": "lively",
   "transition": "slide",
@@ -70,7 +70,7 @@ still holds: the same chapters, beats, operations, pictures, maps and checks.
 
 | Field | | What it does |
 |---|---|---|
-| `engine` | `"motion"` | Drawn by the motion engine. Left out: the current engine. |
+| `engine` | `"motion"` | Old scripts only: read and dropped (there is one engine). |
 | `look`? | `paper` \| `newsroom` \| `chalk` \| `data` \| `studio` \| `sketch` \| `archive` \| `neon` \| `brush` \| `collage` \| `textbook` \| `chalkcolour` \| `isometric` \| `drafting` | The design and the way of moving (§6). Left out: the script's classic `style` keeps its colours and fonts and moves as its nearest look does (vox, parchment, cardboard → paper; atlas, cosmos, blueprint → data; lab, friendly, water → studio; whiteboard, ink → sketch; chalkboard → chalk). |
 | `energy`? | `calm` \| `lively` \| `punchy` | How fast everything moves (§7). Default: the look's own. |
 | `transition`? | `slide` \| `push` \| `wipe` \| `dissolve` \| `zoom` \| `page` \| `cut` \| `whip` \| `stack` \| `flash` \| `turn` \| `match` | How one picture gives way to the next (§6, Transitions). Default: the look's own. |
@@ -82,7 +82,7 @@ still holds: the same chapters, beats, operations, pictures, maps and checks.
 its line>"`: it starts as those words are said (the voice's word times), not as the line begins; `"start"`: as the line
 begins. Inside a template, items carry their own `on` (a chart's column, a group of units, a chain's step, a card's
 mark); without one, an item lands on its own name when the line says it, or in its turn. Every anchor is checked
-against its line, mended or refused, as on the current engine (BEAT_SCRIPT.md §4, Anchors); a template without one
+against its line, mended or refused (BEAT_SCRIPT.md §4, Anchors); a template without one
 lands on the first of its own words the line says.
 
 **Word numbers, `delay` and `in_pause`: timing to a voice recorded first.** An `on` (an operation's or a part's) may
@@ -93,14 +93,11 @@ after its words, 0 to 3; `MotionLecture._m_when`, `_cue_plan`), and a `stamp` or
 plays in the quiet after its line, which lasts as long as it did unless it needs more (`MotionLecture.beat`); on any
 other operation it is left out, with a note (a template played after its line would have its parts' moments before it).
 
-In the app (the Scenes tab, motion engine, "voice first": on unless switched off, or `V2_SCENES_VOICE_FIRST=0`) each
-chapter is **spoken and aligned before its scenes are written** (lib/video.ts `narrate`, engine/tools/chapter_voice.py:
-the voice's cache is the one the Voice step reads, so nothing is spoken twice) and the scene writer is given each beat
-as it is said: `#12 [ch 1] 3.4 s, then 0.9 s quiet: "..."` and `words: w0 Japan 0.0 · w1 owes 0.4 · ...`, with the
-rules to anchor by word number and pace by the clock (`app/lib/prompts/scenes-beta.ts`, VOICED). A beat that asks more
-than its line has time for (more new pictures than one per 2.5 s of line, more moments than one per 0.6 s) is written
-again once with what to change (`lib/scenes.ts` pacingProblems). The Scenes tab's renders of a chapter spoken first are made with its voice (from
-the cache: nothing is spoken again) and play it as their clock.
+In the app (the Scenes tab, "voice first": on unless switched off, or `V2_SCENES_VOICE_FIRST=0`) each chapter is
+**spoken and aligned before its scenes are written** (lib/video.ts `narrate`, engine/tools/chapter_voice.py: the
+voice's cache is the one the Voice step reads, so nothing is spoken twice); the director writes its beats and the
+choreographer puts each thing and each part on its word number (`app/lib/beat-director.ts`). The Scenes tab's renders
+of a chapter spoken first are made with its voice (from the cache: nothing is spoken again) and play it as their clock.
 
 ---
 
@@ -109,12 +106,9 @@ the cache: nothing is spoken again) and play it as their clock.
 **Scenes, not slides.** The scene writer is told to show each idea of the narration (usually a paragraph, 20 to 40 s)
 as one scene: one main picture, held while the idea is explained and built on by every later line (a part revealed
 or labelled as it is named, an emphasis, a zoom, a stamp in the pause), with a new main picture only where the idea
-changes (`"paragraph": true`). A main picture is held at least 8 s; a beat that brings one sooner than 7 s after the
-last is sent back with what to change (`app/lib/scenes.ts` `pacingProblems`, `MIN_HOLD`: only what takes the stage
-counts -- a template other than a stamp or an emphasis, a picture, a diagram, a timeline, a Manim figure).
-With the Scenes tab's director on (the default), a chapter's scenes are the director's own (README "A chapter as one
-piece"): its plan cuts the chapter into scenes and the choreography puts each element on its word, so nothing is
-sent back for its pace; a scene held under 7 s is noted on the director's call.
+changes (`"paragraph": true`). With the Scenes tab's director on (the default), a chapter's paragraphs are the
+director's own (README "A chapter as beats"): it cuts the chapter into paragraphs, each with one main picture built
+up over its lines, and the choreographer puts each thing on its word.
 
 **The pace.** Every line is followed by at least `LINE_PAD` (0.4 s) of quiet, the pause the voice left there when it
 is longer, and an idea's last line by `PARAGRAPH_PAD` (1.4 s): the next idea begins after a breath. The voice's own
@@ -786,7 +780,7 @@ a coloured pill, its children budding off it.
 
 Any template, and a timeline in a `style`, may hold parts back for a later line: `"hold": [<part names>]` (with an
 `id`), then on that line `{"op": "reveal", "of": "<id>", "parts": [<names>], "on": "<words>"}` brings them on there
-(`MotionLecture.holding`, `reveal_held`; the same as the current engine's, BEAT_SCRIPT.md §5.9). A part's name is
+(`MotionLecture.holding`, `reveal_held`; BEAT_SCRIPT.md §5.9). A part's name is
 the one its template times it by: a card's title, a list's point, a criterion's text, a side's title, an event's
 label. A labelled picture holds labels the same way (`hold`, then `label`).
 
@@ -818,7 +812,7 @@ Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:
 | `picture`'s `move` | Besides the lecture engine's moves, three cameras: `kenburns` (a slow push in and drift, as a documentary films a still), `pan` (carried slowly across it), `pullback` (opens close in and pulls back to the whole). A picture's camera, not a template's. |
 | chapter card, title slide | The number springs in, the kicker is typed, the title's words rise, the accent bar is drawn; the card sweeps up and away. |
 
-Diagrams, maps, worked solutions, questions and free-form Manim are drawn as the current engine draws them, in the
+Diagrams, maps, worked solutions, questions and free-form Manim are drawn as pocket_lecture draws them, in the
 look's colours and fonts, with the look's entrances and transitions where they bring none of their own. A map's
 `arrow` through three places or more draws each leg as its own gentle arc, joined (never one curve smoothed through
 them all, which swung past the middle place and hooked back); one that turns back on itself (more than 110° at a
@@ -848,7 +842,8 @@ Dates are read as in BEAT_SCRIPT.md (`"1526"`, `"500 BC"`, `"16th century"`...).
 | `road` | A winding road drawn across the board; a marker travels along it to each stop as it is said (a baked clip), the stop's pin pops and its sign springs up (scaled in with an overshoot). |
 | `vertical` | A line down the side; a dot slides down to each event, its date (large) and words sweeping in from both sides. |
 
-A timeline that cannot be drawn in its style falls back to the still one, with a note.
+A timeline that cannot be drawn in its style falls back to the still one, with a note. A timeline given an `enter` of its own (`draw`, `travel`, `whole`: BEAT_SCRIPT.md, timeline) and no `style`, in a
+script with no `timeline`, comes on that way instead (`MotionLecture.big_timeline`).
 
 ---
 
@@ -882,7 +877,7 @@ shared word or figure across).
 `breathe` (swelling and settling in place), `sway` (rocking a little), `parallax` (carried slowly across, as a
 camera passing), `flicker` (a quick unsteady tremble, as old film), `none` (still).
 
-A look is registered as a style of the lecture engine, so everything the current engine draws (captions, maps,
+A look is registered as a style of the lecture engine, so everything pocket_lecture draws (captions, maps,
 diagrams, the panel) is in its colours and fonts. Each rests on a classic style (paper → vox, newsroom → atlas, chalk
 → chalkboard, data → cosmos, studio → lab, sketch → whiteboard): the voice tools read that, and the look speaks with
 its voice. Textures and dressed pictures are made here (numpy, Pillow) into `.cache/motion/`, once each.
@@ -986,21 +981,18 @@ PANIM_TTS=espeak .venv/bin/python -m manim -ql scene.py GeneratedScene          
   `words`, from `pocket_lecture.line_words`: as aligned, or `est` when only estimated); the Scenes tab's player shows
   the line being spoken under the picture with the word being said lit, so the word times the animations are set to
   can be checked by ear (the caption in the picture comes on with its whole line, so it cannot show them).
-- **In the app**: the **Lab** tab has the motion presets (each template, each timeline style, each classic operation,
-  each look, each transition and energy, and whole scenes), "Add a beat with" its templates, this reference beside
-  the editor, and "from a lecture's chapter … drawn by the motion engine" in any look, to see a lecture's own chapter
-  in motion. **Speak and play** compiles, speaks, times and plays it as for any experiment.
-- **In the Scenes tab**: the **Engine** row (current / motion (beta), with the look, energy, transition and timeline
-  style) sets the engine for the run. On motion, the scene writer is also told of the templates (its own instructions
-  part, `motion`, after v1's), each lecture's beat script carries `"engine": "motion"` and its settings, and the
-  compile, the beat and chapter renders and the Voice tab's speak-and-play are all on the motion engine; an edited
-  motion script can be applied there. The beats already built stay as they are when the engine is switched: the motion
-  engine draws every current operation, and the current engine leaves the templates out (with a note) until they are
-  built again. The lectures and videos made before are never touched.
-- **`npm run check`** also builds a lecture on the motion engine from the Scenes tab (stand-in scene writer), checks
-  its templates, compiles and renders a beat of it, and switches back.
-- **`npm run check`** (harness_v2/app) compiles every motion preset and snippet on the motion engine with nothing
-  left out, plays one with the voice, and compiles a lecture's chapter in a motion look.
+- **In the app**: the **Lab** tab has the presets in a look (each template, each timeline style, each classic
+  operation, each look, each transition and energy, and whole scenes) beside the beat script's, "Add a beat with" its
+  templates, and "from a lecture's chapter" in the run's look. **Speak and play** compiles, speaks, times and plays it
+  as for any experiment.
+- **In the Scenes tab**: the **Motion** row sets the look, energy, transition, idle motion and timeline style for the
+  run (and voice first, the director, the music bed); each lecture's beat script carries them, and every compile,
+  render and the Voice tab's speak-and-play draw in them. The beats already built stay as they are until built again;
+  the lectures and videos made before are never touched. The "templates" kind (on by default) tells the director and
+  the scene writer every template (`app/lib/prompts/scenes-templates.ts`).
+- **`npm run check`** (harness_v2/app) builds a lecture in a look from the Scenes tab (stand-in director), checks its
+  templates, compiles and renders a beat of it on `MotionLecture`; and compiles the presets in a look and every
+  template snippet with nothing left out.
 - `PANIM_IMAGES=1 PANIM_IMAGE_FAKE=1` builds with stand-in pictures, offline.
 
 ### The QA loop: build chapters, judge them, fix, again
@@ -1061,12 +1053,12 @@ What the loop has found and fixed so far:
 - **Pictures for the new templates** (cards, prints, a document's portrait) are made by the image model like any
   picture: with no key they are left out (the template plays without them).
 - **Timing in the players** of a long lagged group can differ slightly from Manim's render (§9).
-- **A run has one engine**: the Scenes tab's setting applies to all its lectures (switching it does not rebuild them).
+- **A run has one look**: the Scenes tab's Motion row applies to all its lectures (changing it does not rebuild them).
 
 ---
 
 ## Keeping this document current
 
-This file is the reference for the motion engine and is checked: `npm run check` fails when compile_motion.py accepts
-a template, or reads a script field, that is not named here (in backticks). Any change to what the motion compiler or
-engine accepts updates this file in the same change.
+This file is the reference for how the engine moves and is checked: `npm run check` fails when compile_motion.py
+accepts a template, or reads a script field, that is not named here (in backticks). Any change to what compile_motion.py
+or motion*.py accepts updates this file in the same change.

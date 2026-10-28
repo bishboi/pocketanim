@@ -1,16 +1,15 @@
 /**
- * Each artifact's manual, for the choreography call (lib/director.ts): the section of the engine's own documentation
+ * Each artifact's manual, for the choreography call (lib/beat-director.ts): the section of the engine's own documentation
  * that tells of the operation or template (engine/BEAT_SCRIPT.md, engine/MOTION_ENGINE.md), cut out as it is written
- * there. The documents are checked against what the compilers read (`npm run check`), so a manual says what the
- * engine draws. On the motion engine a classic operation's manual also gives its row of MOTION_ENGINE.md §4 (how it
- * is redrawn in motion).
+ * there. The documents are checked against what the compiler reads (`npm run check`), so a manual says what the
+ * engine draws. A classic operation's manual also gives its row of MOTION_ENGINE.md §4 (how it moves).
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { engineDir } from "./maps";
 import { PRIMITIVE_BY_OP } from "./primitives";
-import { MOTION_KIND } from "./visual-kinds";
+import { TEMPLATES } from "./visual-kinds";
 
 type Sections = Map<string, string[]>;
 
@@ -50,15 +49,16 @@ function load() {
   return docs;
 }
 
-/** The manual of one operation or template, as its engine's documentation tells it; "" when it has none. */
-export function manualFor(op: string, engine: "current" | "motion"): string {
+/** The manual of one operation or template, as the engine's documentation tells it; "" when it has none: a template's
+ * section of MOTION_ENGINE.md; an operation's of BEAT_SCRIPT.md with its row of MOTION_ENGINE.md §4 (how it moves);
+ * first, how it is choreographed (lib/primitives.ts) when it is a primitive. */
+export function manualFor(op: string): string {
   const d = load();
   const name = PICTURE.has(op) ? "picture" : op;
-  const template = engine === "motion" && MOTION_KIND.ops.includes(name);
+  const template = TEMPLATES.ops.includes(name);
   const own = (template ? d.motion.get(name) : d.beat.get(name)) ?? [];
-  const row = engine === "motion" && !template ? d.motionRows.get(name) : undefined;
-  // On the current engine, first how it is choreographed (lib/primitives.ts): its parts and every move it has.
-  const p = engine === "current" ? PRIMITIVE_BY_OP.get(name) : undefined;
+  const row = !template ? d.motionRows.get(name) : undefined;
+  const p = PRIMITIVE_BY_OP.get(name);
   const moves = p ? [`HOW TO CHOREOGRAPH ${name.toUpperCase()}: ${p.what}`, ...(p.parts ? [`Its parts: ${p.parts}.`] : []),
     ...p.moves.map((m) => `- ${m}`)].join("\n") : "";
   const doc = [...own, ...(row ? [`In motion: ${row}`] : [])].join("\n\n");

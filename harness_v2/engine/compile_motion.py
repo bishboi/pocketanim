@@ -1,8 +1,8 @@
-"""The motion engine's compiler (beta): a beat script to a scene on motion.MotionLecture.
+"""The engine's compiler: a beat script to a scene on motion.MotionLecture.
 
-It is the lecture compiler (compile_lecture.py) with more: everything a beat script says compiles as it does there
--- the same checks, the same mends, the same pictures -- and plays in motion, in a look; and a beat may also use the
-motion templates (title, counter, chart, units, cards, stamp, kpi, chain, list, versus, donut, document, polaroids,
+There is one engine. It is the lecture compiler (compile_lecture.py) with its motion layer: everything a beat script
+says compiles as it does there -- the same checks, the same mends, the same pictures, strict chapters, joins -- and
+plays in motion, in a look (transitions, idle motion, sound, music); and a beat may also use the templates (title, counter, chart, units, cards, stamp, kpi, chain, list, versus, donut, document, polaroids,
 emphasis; and hierarchy, exchange, plan, lineage, lifespan, analogy, myth, ritual, share, calendar,
 converge, table, ask: motion_more.py; venn, quadrant, funnel, gauge, scale, iceberg, before_after, ranking:
 motion_forms.py), each with `on`: the words it lands on, and many with a `layout` (the same content in another form)
@@ -11,7 +11,7 @@ and `enter` (how its parts come on). The reference is MOTION_ENGINE.md.
     .venv/bin/python harness_v2/engine/compile_motion.py script.json -o scene.py
     .venv/bin/python harness_v2/engine/compile_motion.py - --json < script.json
 
-A script for it says `"engine": "motion"` and may set:
+A script may set (an old script's `"engine": "motion"` is read and dropped: there is no other engine):
 
     look        the motion look: paper, newsroom, chalk, data, studio, sketch (motion_looks.py). Without one, the
                 script's classic `style` is used, moving as its nearest look does.
@@ -160,6 +160,7 @@ def _look(script: dict) -> tuple[str | None, list[str]]:
     style = script.get("style")
     if look is None and style in motion_looks.LOOKS:
         look = style
+    script.pop("engine", None)        # one engine: an old script's "engine": "motion" says nothing more
     if look is not None and look not in motion_looks.LOOKS:
         notes.append(f"{cl.FIXED}look {look!r} is not one of {', '.join(motion_looks.LOOKS)}; the style's own motion is "
                      "used")
@@ -258,6 +259,9 @@ def motion_fixes(script: dict) -> list[str]:
                 if missing:
                     notes.append(f"{fixed}{at}: {kind} left out: it needs {', '.join(missing)}")
                     continue
+                if op.get("enter") is not None:
+                    # The shared entrances by the beat script's names (compile_lecture.ENTRANCES), as the kit calls them.
+                    op["enter"] = {"draw": "write", "type": "typewrite"}.get(str(op["enter"]), op["enter"])
                 _mend_form(op, kind, at, notes)
                 problem = _mend(op, at, notes)
                 if problem:
@@ -847,11 +851,6 @@ def _mend_forms(op: dict, kind: str, at: str, notes: list[str], most: int | None
 _ORIG = {}
 
 
-def _patched_pictures_of(op: dict):
-    # The current engine's templates have their pictures from compile_lecture itself (TEMPLATE_OPS).
-    return _ORIG["pictures_of"](op) + (_pictures(op) if op.get("op") in set(MOTION_OPS) - cl.TEMPLATE_OPS else [])
-
-
 def _patched_picture_fetch(spec: dict):
     fetch = _ORIG["_picture_fetch"](spec)
     if fetch and isinstance(spec, dict) and spec.get("_big") and fetch.get("op") == "illustration":
@@ -873,15 +872,15 @@ def _inner_on(op: dict) -> bool:
     return op.get("op") in INNER_ON
 
 
-def _patched_op_said(op: dict, parts: dict, asked: list):
+def _patched_op_said(op: dict, parts: dict, asked: list, strict: bool = False):
     inner = _inner_on(op)
     if str(op.get("on") or "").strip() == "start" and not inner:
         return None                                  # as the line begins (compile_lecture.anchors)
     if op.get("on") and not inner:
         return str(op["on"])
     if inner:
-        return _ORIG["_op_said"]({k: v for k, v in op.items() if k != "on"}, parts, asked)
-    return _ORIG["_op_said"](op, parts, asked)
+        return _ORIG["_op_said"]({k: v for k, v in op.items() if k != "on"}, parts, asked, strict)
+    return _ORIG["_op_said"](op, parts, asked, strict)
 
 
 def _patched_beat_order(ops: list) -> list:
@@ -950,7 +949,7 @@ def _op_call_motion(op: dict):
 
 
 def _patched_lint(script: dict, *a, **kw):
-    # How to teach is the writer's on the motion engine: only what is needed to draw the video is checked (the
+    # How to teach is the writer's: only what is needed to draw the video is checked (the
     # lecture compiler's teaching rules -- empty stretches, plain language, text-heavy beats, the panel's points --
     # are off unless the script turns them on).
     script.setdefault("teaching_rules", False)
@@ -990,17 +989,17 @@ def _patched_compile_script(script: dict, scene_class: str = "GeneratedScene", e
     # The engine lays out its own words (as a lecture scene does): the exporter's label pass, for placements a
     # model guessed, must not move them (tools/export_scene.FIXED_LAYOUT reads this line).
     source = source.replace("from pocket_lecture import *  # noqa: E402,F403",
-                            "# panim: fixed-layout (the motion engine lays out its own words)\n"
-                            "from motion import *  # noqa: E402,F403 -- the motion engine (beta), over pocket_lecture", 1)
+                            "# panim: fixed-layout (the engine lays out its own words)\n"
+                            "from motion import *  # noqa: E402,F403 -- the engine's motion layer, over pocket_lecture", 1)
     source = source.replace(f"class {scene_class}(MapLecture):", f"class {scene_class}(MotionLecture):", 1)
     source = source.replace("compiled from a beat script by harness/lecture/compile_lecture.py",
-                            "compiled from a beat script by harness_v2/engine/compile_motion.py (the motion engine, beta)", 1)
+                            "compiled from a beat script by harness_v2/engine/compile_motion.py", 1)
     compile(source, "scene.py", "exec")
     return source
 
 
 def _patched_paragraphs(beats: list, is_map_op=None) -> list[list[int]]:
-    """The pause after each line, on the motion engine: the voice's own (the gap it left there in the chapter's take,
+    """The pause after each line: the voice's own (the gap it left there in the chapter's take,
     pocket_lecture.beat_pad), and a paragraph's longer hold only where the writer marked `"paragraph": true`. Read by
     the lecture compiler, almost every beat here puts up a picture of its own and so closed a paragraph: 0.8 s of
     quiet after every sentence where the voice paused 0.3 s, and not the quiet the scene writer was shown. Everything
@@ -1078,20 +1077,24 @@ def _patched_chapter_frame(chapter: dict, region: dict | None):
 
 
 def install() -> None:
-    """Extend compile_lecture, in this process, with the motion templates."""
+    """Extend compile_lecture, in this process, with the motion layer: every template, the looks."""
     if _ORIG:
         return
-    for name in ("pictures_of", "_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script", "paragraphs",
+    for name in ("_picture_fetch", "_op_said", "beat_order", "_op_call", "lint", "compile_script", "paragraphs",
                  "_chapter_frame"):
         _ORIG[name] = getattr(cl, name)
     cl.KIT_OPS.update(MOTION_OPS)
     cl.PICTURE_MOVES = tuple(dict.fromkeys((*cl.PICTURE_MOVES, *CAMERA_MOVES)))
     cl.RETIRED_OPS.difference_update(MOTION_OPS)        # "counter" was a retired classic op; here it is a template
+    # Every template is the engine's own: checked, held and revealed, put on the stage and pointed at as one.
+    cl.TEMPLATE_OPS.update(MOTION_OPS)
+    cl.TEMPLATE_OVERLAYS.update(OVERLAY_OPS)
     pictures = set(MOTION_OPS) - OVERLAY_OPS
+    cl.TEMPLATE_PICTURES.update(pictures)
+    cl.STAGE_MAIN.update(pictures)
     # What counts as a picture for the checks (a paragraph's visual, a chapter's opening, the next picture).
     for name in ("VISUAL_OPS", "PICTURE_OPS", "STAGE_PICTURES", "_NEW_PICTURE"):
         getattr(cl, name).update(pictures)
-    cl.pictures_of = _patched_pictures_of
     cl._picture_fetch = _patched_picture_fetch
     cl._op_said = _patched_op_said
     cl.beat_order = _patched_beat_order

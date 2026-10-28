@@ -340,7 +340,7 @@ export default function Page() {
               </button>
             ))}
             <button onClick={toggleAside} data-testid="video-agent-tab" className="pb-1 text-[11px] text-neutral-500 hover:text-neutral-300"
-              title="The Video tab (the video agent in free Manim): set aside, as the Scenes tab builds the videos on the motion engine">
+              title="The Video tab (the video agent in free Manim): set aside, as the Scenes tab builds the videos">
               {aside ? "Hide the video agent" : "Video agent…"}</button>
             <span className="ml-auto flex items-center gap-1 pb-1 text-[11px] text-neutral-400" data-testid="layout">
               <span className="text-neutral-500">PDF</span>

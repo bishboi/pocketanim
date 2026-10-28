@@ -741,14 +741,8 @@ def _fix_steps(script: dict) -> list[str]:
 def _shared_choices(script: dict) -> list[str]:
     """Every op's shared choices read and mended: `enter` (ENTRANCES; a template has its own too), `speed`
     (SPEEDS), and a point's `how` (POINT_HOWS). One not known is left out (its op's own way), with a note."""
-    motion = script.get("engine") == "motion"
-    # What may hold parts for a later line's reveal: the current engine's templates; on the motion engine every
-    # template and its styled timeline.
-    holders = set(TEMPLATE_OPS)
-    if motion:
-        import compile_motion as cm
-
-        holders |= set(cm.MOTION_OPS) | {"timeline"}
+    # What may hold parts for a later line's reveal: every template, and a timeline.
+    holders = set(TEMPLATE_OPS) | {"timeline"}
     notes: list[str] = []
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
@@ -771,8 +765,6 @@ def _shared_choices(script: dict) -> list[str]:
                 if op.get("op") in holders and op.get("hold") and not op.get("id"):
                     op["id"] = f"{op['op']}-c{c + 1}b{b + 1}"
                     notes.append(f"{FIXED}{at}: it holds parts back for a later reveal, so it is given an id: {op['id']!r}")
-                if motion:
-                    continue            # the motion engine reads its own enter, speed and pointing
                 if op.get("enter") is not None and op.get("op") not in TEMPLATE_OPS and op["enter"] not in ENTRANCES:
                     notes.append(f"{FIXED}{at} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; its own way is used")
                     op.pop("enter")
@@ -786,56 +778,11 @@ def _shared_choices(script: dict) -> list[str]:
     return notes
 
 
-def _template_fixes(script: dict) -> list[str]:
-    """The current engine's templates (TEMPLATE_OPS) checked and mended as the motion engine checks them
-    (compile_motion): one missing what it shows left out, counts cut to what fits, unknown layouts and marks set to
-    the default; a part's `on` given as a word's number ("w7") made the line's words. The motion engine's own
-    compile does this for every template itself."""
-    if script.get("engine") == "motion":
-        return []
-    import compile_motion as cm
-
-    notes: list[str] = []
-    for c, chapter in enumerate(script.get("chapters") or []):
-        for b, beat in enumerate(chapter.get("beats") or []):
-            ops = beat.get("do") if isinstance(beat.get("do"), list) else []
-            if not any(isinstance(o, dict) and o.get("op") in TEMPLATE_OPS for o in ops):
-                continue
-            at = f"chapter {c + 1} beat {b + 1}"
-            kept = []
-            for op in ops:
-                kind = op.get("op") if isinstance(op, dict) else None
-                if kind not in TEMPLATE_OPS:
-                    kept.append(op)
-                    continue
-                cm._word_ids({"say": beat.get("say"), "do": [op]}, at, notes)
-                missing = [f for f in cm.MOTION_OPS[kind]["need"] if op.get(f) in (None, "", [], {})]
-                if missing:
-                    notes.append(f"{FIXED}{at}: {kind} left out: it needs {', '.join(missing)}")
-                    continue
-                cm._mend_form(op, kind, at, notes)
-                problem = cm._mend(op, at, notes)
-                if problem:
-                    notes.append(f"{FIXED}{at}: {kind} left out: {problem}")
-                    continue
-                if op.get("enter") is not None:
-                    # The shared entrances by the script's names (ENTRANCES), as the motion kit calls them.
-                    op["enter"] = {"draw": "write", "type": "typewrite"}.get(str(op["enter"]), op["enter"])
-                    if op["enter"] not in cm.ENTRANCES:
-                        notes.append(f"{FIXED}{at}: {kind} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; "
-                                     "its own way is used")
-                        op.pop("enter")
-                kept.append(op)
-            beat["do"] = kept
-    return notes
-
-
 def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     """Everything the compiler mends by itself, in place, before the checks: what it did, as warnings that start
     with "fixed: " (shown in the log, never sent back to the writer)."""
     canonical_ops(script)
     notes = _shared_choices(script)
-    notes += _template_fixes(script)
     notes += _fix_unusable(script, has_map)
     notes += _split_manim_beats(script)
     notes += _fix_steps(script)
@@ -846,8 +793,8 @@ def mechanical_fixes(script: dict, has_map: bool) -> list[str]:
     return notes + reveals
 
 
-# The motion engine's templates the current engine draws (templates.TemplateLecture), in its own style: their checks
-# and mends are compile_motion's (_template_fixes), their call the motion engine's (`self.m_<op>(...)`).
+# The templates (counters, charts, cards, lists, versus...): drawn by motion.MotionLecture, their checks and mends
+# compile_motion's, their call `self.m_<op>(...)`. compile_motion.install() fills it with every template.
 TEMPLATE_OPS = {"list"}
 # Put over what is up, not a picture of its own.
 TEMPLATE_OVERLAYS = {"stamp"}
@@ -934,8 +881,6 @@ def _one_on_the_stage(script: dict) -> list[str]:
        that brought any): a light, a label or a label taken off on a part of a labelled picture up; a focus or a
        reveal on a diagram up; a `point` at a name of another main picture of the chapter only when a picture up
        shows it. Each left out is said."""
-    if script.get("engine") == "motion":
-        return []
     notes: list[str] = []
     for c, chapter in enumerate(script.get("chapters") or []):
         if not isinstance(chapter, dict):
@@ -1651,10 +1596,7 @@ def _picture_found(spec) -> tuple | None:
 
 def _label_extras(op: dict) -> str:
     """stage_image's script-given say over its labels: those held back (`hold`, brought on by a `label` op) and a
-    short note under a label's name (`notes`). The current engine's (the motion engine draws its labels its own
-    way)."""
-    if _ENGINE[0] == "motion":
-        return ""
+    short note under a label's name (`notes`)."""
     out = ""
     hold = [str(x) for x in op.get("hold") or [] if str(x).strip()] if isinstance(op.get("hold"), list) else []
     if hold:
@@ -1779,8 +1721,6 @@ FREE_OPS = {"manim"}
 # Pointing at what is on the screen, on purpose (the script's own, never the engine's): a pulse on a named part
 # (`point`), a labelled picture's part lit with the rest shaded (`shade`).
 POINT_OPS = {"point", "shade", "label", "unlabel", "unshade", "unfocus"}
-# The engine the script is compiled for ("motion" or the current one): set as a compile begins.
-_ENGINE: list[str] = [""]
 VISUAL_OPS = {"photo", "figure", "illustration"} | KIT_OPS | BUILD_OPS | FREE_OPS | TEMPLATE_PICTURES
 
 
@@ -3439,9 +3379,8 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
     picture's label may be {"name", "on"}: it becomes its name."""
     import pocket_lecture as pl
 
-    motion = script.get("engine") == "motion"
     for ci, chapter in enumerate(script.get("chapters") or [], 1):
-        strict = bool(chapter.get("strict")) and not motion
+        strict = bool(chapter.get("strict"))
         for bi, beat in enumerate(chapter.get("beats") or [], 1):
             if not isinstance(beat, dict):
                 continue
@@ -3526,6 +3465,8 @@ def anchors(script: dict, errors: list[str], warnings: list[str]) -> None:
                 if not isinstance(op, dict):
                     continue
                 where = str(op.get("op") or "operation")
+                # A template's parts (and a timeline's events) keep their own words: motion.py times each by them.
+                motion = op.get("op") in TEMPLATE_OPS or op.get("op") == "timeline"
                 check(op, where)
                 for key, inner in op.items():
                     if key != "on":
@@ -3706,9 +3647,9 @@ def _op_call(op: dict) -> str:
             extra += ", spans=[" + ", ".join(f"({_q(a)}, {_q(b)}, {_q(t)})" for a, b, t in op["spans"]) + "]"
         if op.get("scale") == "even":
             extra += ', scale="even"'
-        if _ENGINE[0] != "motion":
-            # How it comes on (the current engine's): drawn in, the events one by one (the default), or whole.
-            extra += f", enter={_q(op.get('enter') if op.get('enter') in TIMELINE_ENTERS else 'draw')}"
+        if op.get("enter") in TIMELINE_ENTERS:
+            # How it comes on: drawn in, the events one by one, travelled, or whole (left out: in its style).
+            extra += f", enter={_q(op['enter'])}"
         return f"self.big_timeline([{events}]{title}{extra})"
     if kind == "quote":
         return f"self.quote({_q(op['text'])}, {_q(op.get('who', ''))})"
@@ -4078,7 +4019,6 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         raise ValueError("\n".join(errors))
     script_figures.clear()
     script_figures.update(script.get("figures") or {})
-    _ENGINE[0] = str(script.get("engine") or "")
     USED_PICTURES.clear()
     AUTO_PICTURES.clear()
     STYLE_NOW["style"] = script.get("style")
@@ -4105,12 +4045,6 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
     # MapLecture's layout (the stage or map on the left, the panel on the right)
     # serves a lecture with no region too; it only draws a map when told to.
     base = "MapLecture"
-    # A lecture that uses a template (a list, cards, a table...) is drawn by the engine that has them (templates.py).
-    templated = script.get("engine") != "motion" and any(
-        isinstance(op, dict) and op.get("op") in TEMPLATE_OPS
-        for ch in script.get("chapters") or [] for b in ch.get("beats") or [] for op in b.get("do") or [])
-    if templated:
-        base = "TemplateLecture"
 
     out = [
         f'"""{script.get("title", "Lecture")}: compiled from a beat script by harness/lecture/compile_lecture.py."""',
@@ -4126,8 +4060,6 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
         "from manim import *  # noqa: E402,F403",
         "from pocket_lecture import *  # noqa: E402,F403",
     ]
-    if templated:
-        out.append("from templates import TemplateLecture  # noqa: E402 -- the motion engine's templates, in this style")
     if script.get("places"):
         # The lecture's own places (the map agent's), for every place, area and range the scene looks up.
         home = (region or {}).get("country")
@@ -4188,7 +4120,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
             if beat.get("_spoken_as"):
                 # The words each part of this line's pictures lands on (its "on"), by the part's name (anchors).
                 out.append(f"        self.spoken_as({beat['_spoken_as']!r})")
-            if beat.get("screen") == "join" and script.get("engine") != "motion":
+            if beat.get("screen") == "join":
                 # The line's new main picture joins the one up (BEAT_SCRIPT.md "Two at once").
                 out.append("        self.screen_join()")
             ops = beat_order(list(beat.get("do") or []))
@@ -4237,8 +4169,7 @@ def compile_script(script: dict, scene_class: str = "GeneratedScene", engine_pat
                     calls.append(call)
                 elif call:
                     what = f"chapter {index} beat {bi + 1} {op.get('op')}"
-                    # (Only a strict chapter passes `strict`: compile_motion wraps _op_said with three arguments.)
-                    said = _op_said(op, parts_named, asked, strict) if strict else _op_said(op, parts_named, asked)
+                    said = _op_said(op, parts_named, asked, strict)
                     said = (f", said={_q(said)}" if isinstance(said, str) else f", said=[{', '.join(_q(w) for w in said)}]") \
                         if said else ""
                     enter = op.get("enter") if op.get("op") not in TEMPLATE_OPS else None
@@ -4410,4 +4341,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # One engine: the lecture compiler with its motion layer (compile_motion.py: looks, templates, transitions, idle
+    # motion, sound), whichever of the two files is run.
+    import compile_motion
+
+    compile_motion.install()
+    raise SystemExit(compile_motion.cl.main())

@@ -159,16 +159,16 @@ export const LAB_SNIPPETS: { op: string; say: string; do: Record<string, unknown
   { op: "clear", say: "Let us start afresh.", do: { op: "clear" } },
 ];
 
-// ---------------------------------------------------------------- the motion engine (beta) ----------------------------
-// engine/MOTION_ENGINE.md: every classic operation in motion, the motion templates, six looks, transitions, energies
-// and the timeline's five styles. Each preset is one small chapter on the motion engine (`"engine": "motion"`).
+// ---------------------------------------------------------------- how it moves ----------------------------------------
+// engine/MOTION_ENGINE.md: every classic operation in motion, the templates, the looks, transitions, energies and the
+// timeline's five styles. Each preset is one small chapter in a look.
 
 export type LabMotionPreset = LabPreset & { group: string };
 
 const M_LOOKS = MOTION_LOOKS;
 
 const motion = (look: string, title: string, beats: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
-  ({ engine: "motion", look, region: null, ...extra, chapter: { title, narration: title, map: !!extra.region, beats } });
+  ({ look, region: null, ...extra, chapter: { title, narration: title, map: !!extra.region, beats } });
 
 const DEBT_CHART = { op: "chart", kicker: "Debt · % of the economy", unit: "%", highlight: "Japan", reference: { value: 100, label: "The economy" },
   items: [["Japan", 204], ["Italy", 138], ["USA", 126], ["France", 118], ["Canada", 111], ["Germany", 65]] };
@@ -426,7 +426,7 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
     ["diagram", "Diagram, in the look", { say: "Fields fed the granary, and the granary fed the craftsmen.", do: [{ op: "diagram", id: "d", kind: "flow", title: "Where the surplus went",
       nodes: [{ id: "f", label: "Fields" }, { id: "g", label: "Granary" }, { id: "c", label: "Craftsmen" }] }] }],
   ] as [string, string, Record<string, unknown>][]).map(([id, name, beat]): LabMotionPreset => ({
-    id: `m-classic-${id}`, group: "Classic operations, in motion", name, note: `The beat script's ${id} operation, drawn and animated by the motion engine.`,
+    id: `m-classic-${id}`, group: "Classic operations, in motion", name, note: `The beat script's ${id} operation, drawn and animated in a look.`,
     script: motion("chalk", name, [beat]) })),
   // ---- the looks, side by side: the same three beats in each
   ...M_LOOKS.map((look): LabMotionPreset => ({
@@ -494,7 +494,7 @@ export const LAB_MOTION_PRESETS: LabMotionPreset[] = [
       { say: "His army was outnumbered.", do: [{ op: "stamp", text: "Outnumbered", on: "outnumbered" }] }]) },
 ];
 
-/** One motion template of each kind, to add to a motion experiment as a new beat. */
+/** One template of each kind, to add to an experiment as a new beat. */
 export const LAB_MOTION_SNIPPETS: { op: string; say: string; do: Record<string, unknown> }[] = [
   { op: "diagram (drawn as one picture)", say: "Wheat goes to the mill, and the mill's flour becomes bread.", do: { op: "diagram", id: "bread", kind: "flow", drawn: "picture", about: "how bread is made", nodes: [{ id: "wheat", label: "Wheat", entity: "a sheaf of golden wheat, a warm watercolour" }, { id: "mill", label: "Mill", entity: "a stone windmill, a warm watercolour" }, { id: "loaf", label: "Bread", entity: "a round loaf of bread, a warm watercolour" }], edges: [["wheat", "mill", "harvested"], ["mill", "loaf", "ground and baked"]] } },
   { op: "counter", say: "Debt is two hundred and four percent.", do: { op: "counter", value: "204%", label: "of the economy", delta: "+12%" } },

@@ -39,29 +39,26 @@ export const VISUAL_KINDS: VisualKind[] = [
   { id: "numbers", label: "Stats and bars", about: "A key number large, or a small bar chart.", ops: ["stat", "bars"] },
   { id: "work", label: "Worked solutions", about: "Working built line by line beside a figure; a long problem.", ops: ["work", "problem"] },
   { id: "words", label: "Quotes and step boxes", about: "A primary source in its own words; steps in boxes.", ops: ["quote", "process"] },
-  { id: "templates", label: "Lists, cards and tables", about: "The motion engine's templates drawn in the lecture's own style: points coming in as they are said (more to come, one at a time as each is checked).",
-    ops: ["list"] },
-];
-
-export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
-
-/** The motion engine's templates (engine/MOTION_ENGINE.md, beta): allowed only when the Scenes tab builds on it. */
-export const MOTION_KIND: VisualKind = {
-  id: "motion", label: "Motion templates (beta)",
-  about: "The motion engine's animated templates: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, pointing; hierarchies, exchanges, site plans, lineages, lifespans, analogies, myths corrected, rituals, shares, calendars, convergence, tables, questions; venns, quadrants, funnels, gauges, balances, icebergs, before-and-afters, rankings; webs of causes, portrait cards, a source against the evidence, population pyramids, migration flows, quotes revealed word by word, front pages, letters, countdowns; racing bars, waterfalls, stacked areas, slopes, dot grids, numbers split into parts, zooms into a picture, layers, cycle wheels, checklists, pros and cons, mind maps. Many take a layout, and all an entrance of their own.",
-  ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "emphasis",
+  { id: "templates", label: "Animated templates",
+    about: "Animated templates (engine/MOTION_ENGINE.md §3), each part landing on the words that name it: counters, charts, grids of units, cards, stamps, data cards, chains, lists, versus, donuts, highlighted documents, polaroids, headlines, pointing; hierarchies, exchanges, site plans, lineages, lifespans, analogies, myths corrected, rituals, shares, calendars, convergence, tables, questions; venns, quadrants, funnels, gauges, balances, icebergs, before-and-afters, rankings; webs of causes, portrait cards, a source against the evidence, population pyramids, migration flows, quotes revealed word by word, front pages, letters, countdowns; racing bars, waterfalls, stacked areas, slopes, dot grids, numbers split into parts, zooms into a picture, layers, cycle wheels, checklists, pros and cons, mind maps. Many take a layout, and all an entrance of their own.",
+    ops: ["title", "counter", "chart", "units", "cards", "stamp", "kpi", "chain", "list", "versus", "donut", "document", "polaroids", "emphasis",
     "hierarchy", "exchange", "plan", "lineage", "lifespan", "analogy", "myth", "ritual", "share", "calendar", "converge", "table", "ask",
     "venn", "quadrant", "funnel", "gauge", "scale", "iceberg", "before_after", "ranking",
     "cause_web", "portrait_card", "source_vs_reality", "population_pyramid", "migration_flow", "quote_reveal", "newspaper", "letter",
     "countdown", "race_bars", "waterfall", "stacked_area", "slope", "dot_compare", "split_number", "zoom_in", "layers", "cycle_wheel",
-    "checklist", "pros_cons", "mind_map"],
-};
+    "checklist", "pros_cons", "mind_map"] },
+];
+
+export const ALL_KINDS = VISUAL_KINDS.map((k) => k.id);
+
+/** The templates (the "templates" kind): every one the engine draws (compile_motion.MOTION_OPS). */
+export const TEMPLATES = VISUAL_KINDS.find((k) => k.id === "templates")!;
 
 /** Always allowed: the board's words. */
 export const BASE_OPS = ["panel", "fact", "clear", "unstage"];
 
 export function kindById(id: string): VisualKind | undefined {
-  return VISUAL_KINDS.find((k) => k.id === id) ?? (id === MOTION_KIND.id ? MOTION_KIND : undefined);
+  return VISUAL_KINDS.find((k) => k.id === id);
 }
 
 /** The kind of a picture spec ({generate} | {draw} | {figure} | {items}), or of a picture-ish op. */
@@ -79,8 +76,7 @@ export function kindOfOp(op: Record<string, unknown>): string | undefined {
   if (BASE_OPS.includes(name)) return "base";
   if (name === "picture") return pictureKind(op) ?? "illustration";
   if (name === "illustration" && op.diagram === true) return "drawing";
-  // A template the current engine draws too is its own kind (on both engines); the rest are the motion engine's.
-  return VISUAL_KINDS.find((k) => k.ops.includes(name))?.id ?? (MOTION_KIND.ops.includes(name) ? MOTION_KIND.id : undefined);
+  return VISUAL_KINDS.find((k) => k.ops.includes(name))?.id;
 }
 
 type Op = Record<string, unknown>;
@@ -136,8 +132,8 @@ export function filterOps(ops: Op[], allowed: string[]): { ops: Op[]; dropped: s
         continue;
       }
     }
-    // The motion templates' pictures: a card's, a print's, a step's, a side's (a print without one is left out).
-    if (kind === MOTION_KIND.id) {
+    // The templates' pictures: a card's, a print's, a step's, a side's (a print without one is left out).
+    if (kind === TEMPLATES.id) {
       const inner = (x: unknown, where: string) => {
         const it = x as Op;
         if (!it || typeof it !== "object") return true;

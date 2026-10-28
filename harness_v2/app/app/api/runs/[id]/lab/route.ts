@@ -17,9 +17,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 }
 
-/** GET [?engine=motion]: the beat script's reference (engine/BEAT_SCRIPT.md), or the motion engine's (MOTION_ENGINE.md). */
+/** GET [?ref=motion]: the beat script's reference (engine/BEAT_SCRIPT.md), or how it moves (MOTION_ENGINE.md). */
 export async function GET(request: NextRequest) {
-  const motion = new URL(request.url).searchParams.get("engine") === "motion";
+  const motion = new URL(request.url).searchParams.get("ref") === "motion";
   try {
     return NextResponse.json({ reference: await readFile(path.join(engineDir(), motion ? "MOTION_ENGINE.md" : "BEAT_SCRIPT.md"), "utf8") });
   } catch (error) {

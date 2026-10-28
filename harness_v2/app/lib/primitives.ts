@@ -86,7 +86,7 @@ export const PRIMITIVES: Primitive[] = [
     fields: [{ key: "steps", kind: "texts", required: true, hint: "2-8 steps" }, { key: "cycle", kind: "bool" }, { key: "title", kind: "text" }],
     parts: "each step", moves: ["each step on the word that names it, in its line", "pulse on a step: it pulses"],
     say: "Water evaporates, condenses and falls as rain.", example: { op: "process", steps: ["Evaporation", "Condensation", "Rain"], cycle: true } },
-  // ---------------- templates (the motion engine's, drawn in this style: engine/templates.py) ----------------
+  // ---------------- templates (engine/MOTION_ENGINE.md §3; every one is told the writers in prompts/scenes-templates.ts) ----------------
   { op: "list", group: "templates", what: "Points that come in one at a time as they are said: reasons, features, steps of an argument.",
     fields: [{ key: "items", kind: "texts", required: true, hint: "up to 7 points (5 reads best), each 1-6 words" }, { key: "title", kind: "text" },
       { key: "mark", kind: "select", options: ["", "bullet", "number", "check"] }, { key: "layout", kind: "select", options: ["", "column", "grid", "pills", "steps"] }],

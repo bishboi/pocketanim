@@ -57,10 +57,10 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   words and prompts, instead of `genimage._reusable` and `reference_for`; answers kept beside the pictures
   (`judge-<key>.json`) and reported in `genimage.report()["judged"]`. `genimage._words` and `_names` leave out colour
   codes, look words and titles.
-- **The motion engine (beta)**: `compile_motion.py`, `motion.py`, `motion_kit.py`, `motion_timeline.py`,
-  `motion_looks.py`, `tools/motion_strip.py`, documented in [MOTION_ENGINE.md](MOTION_ENGINE.md). Its own files: a
-  script is drawn by it only when it says `"engine": "motion"`; compile_lecture and pocket_lecture are imported and
-  extended in its process, not changed. `sfx.py` gains three sounds only it uses (`stamp`, `count`, `swish`).
+- **The motion layer** (once "the motion engine (beta)"; since "One engine" below, every script is drawn by it):
+  `compile_motion.py`, `motion.py`, `motion_kit.py`, `motion_timeline.py`, `motion_looks.py`, `tools/motion_strip.py`,
+  documented in [MOTION_ENGINE.md](MOTION_ENGINE.md); compile_lecture and pocket_lecture are imported and extended in
+  its process. `sfx.py` gains three sounds only it uses (`stamp`, `count`, `swish`).
 - `MapFrame.xy` keeps every point a number: latitudes off the poles (±85°) and a place the projection cannot reach put
   far off the map. A conic projection sent the pole to NaN, and one NaN in the player's geometry
   (`tools/scene_ir.py`, which now also leaves out any shape or picture key placed by no number) made the whole video
@@ -205,13 +205,14 @@ Earth by cartopy into its own shared folder, exactly as v1's engine does.
   the next begins (a map coming in, a picture changing, a chapter card) with the bed at its level between words,
   placed back in time (`add_sound` with a negative offset, which the exporter records too), and `tear_down` fills to
   the video's end (the outro, the credits). Before, the music stopped in every animation between lines.
-- The motion engine's templates on the current engine (`templates.py`, BEAT_SCRIPT.md §5.9): a scene that uses one
-  is a `TemplateLecture` (MapLecture with the motion engine's template mixins and the helpers they are drawn with,
-  taken from `motion.MotionLecture` as they are; never its stage, timing or look). Templates draw in the style's own
-  colours and fonts (motion_kit's classic mode), with no idle motion, no transitions, no sound effects
-  (`motion_kit.SOUNDS`) and no pulses on stressed words. `compile_lecture.TEMPLATE_OPS` is the set the current engine
-  draws; their checks and mends are compile_motion's (`_template_fixes`). A template's parts can be held for a later
-  line (`TemplateLecture.holding`, `reveal_held`; the script's `hold` and `reveal` with `of`).
+- **One engine** (this replaces "the motion engine's templates on the current engine", `templates.py`, which is
+  gone): every script is compiled by `compile_motion.py` (running `compile_lecture.py` installs it too) and drawn by
+  `motion.MotionLecture`, so the current engine's rules (strict chapters, joins, two at once, hold and reveal,
+  `enter`, `speed`, `point`) are drawn with the motion layer's looks, transitions, idle motion, sound effects, music,
+  pointing and every template. `compile_motion.install` fills `compile_lecture.TEMPLATE_OPS` (and the stage's sets)
+  with every template; compile_lecture's `"engine": "motion"` branches are gone and the field is dropped;
+  `MotionLecture.big_timeline` takes the current engine's `enter` (draw, travel, whole) when the timeline names no
+  style; a template's parts keep their own `on` (`anchors`).
 - Every op's shared choices (`Lecture.entering`): `enter` (how a picture put on the stage comes on, motion_kit's
   entrances, in place of its own) and `speed` (its run 0.6, 1 or 1.6 times its own); `point` takes `how` (pulse,
   lift, circle, underline: `_point_mark`). A point at a part the same line brings on (still in `stage_pending`) is

@@ -1,5 +1,6 @@
-"""The motion engine (beta): the lecture engine's beats, voice and timing, with everything on screen designed and
-animated as a modern explainer is -- in a look (motion_looks.py), with motion built into each template.
+"""The engine's motion layer: the lecture engine's beats, voice and timing, with everything on screen designed and
+animated as a modern explainer is -- in a look (motion_looks.py), with motion built into each template. Every
+lecture is drawn by it (there is one engine; compile_motion.py writes every scene on MotionLecture).
 
 A scene compiled by compile_motion.py:
 
@@ -1414,7 +1415,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
     # A template's parts the script holds back (`hold`: their names) do not come on in its own line: each moment the
     # template sets up for one is kept (by the template's id and the part's name) instead of being waited for in the
     # line, and a later line's `reveal` (`of`: the template, `parts`: their names) waits for them there. Both engines
-    # (templates.TemplateLecture shares these).
+    # (shared by every template).
 
     def holding(self, tid: str, names, make):
         """A template (or a styled timeline) made with these parts held back for a later line's reveal."""
@@ -3220,9 +3221,12 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
 
     # ---------------------------------------------------------------- the timeline, in motion and in styles -------
     def big_timeline(self, events, title: str | None = None, range=None, spans=None, scale: str | None = None,
-                     style: str | None = None):
+                     style: str | None = None, enter: str | None = None):
         import motion_timeline
 
+        if enter and not style and not os.environ.get("MOTION_TIMELINE"):
+            # Asked to come on a way of its own (drawn in, travelled, whole: BEAT_SCRIPT.md, timeline) and in no style.
+            return super().big_timeline(events, title, range=range, spans=spans, scale=scale, enter=enter)
         style = style or os.environ.get("MOTION_TIMELINE") or "track"
         try:
             return motion_timeline.build(self, events, title, range, spans, scale, style)

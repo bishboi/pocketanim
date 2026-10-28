@@ -1,4 +1,4 @@
-"""The motion engine's looks: each a whole design -- colours, fonts, the board's texture, how cards, photos and stamps
+"""The engine's looks: each a whole design -- colours, fonts, the board's texture, how cards, photos and stamps
 are dressed -- and a whole way of moving: how long things take, how they ease, how much they overshoot, how one
 picture gives way to the next, how things idle while the voice goes on, and what they sound like.
 

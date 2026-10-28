@@ -3,7 +3,6 @@
  */
 
 import type { BeatsPlan } from "./beat-director";
-import type { ChapterPlan } from "./director";
 import type { Part } from "./prompts/parts";
 import type { Block } from "./source/blocks";
 import type { Goal } from "./plan";
@@ -292,7 +291,7 @@ export type SceneRender = {
   frames?: number;
   /** A beat's render: the frames that are the beat [first, last] (the chapter before it is recorded too). */
   range?: [number, number];
-  /** Rendered with the chapter's voice (spoken first, motion engine): the narration track the player plays as its clock. */
+  /** Rendered with the chapter's voice (spoken first): the narration track the player plays as its clock. */
   audio?: string;
   /** With its voice: each line where it starts in the video and its words' aligned times in it (seconds into the
    * line; `est`: estimated, no aligner), for the player's spoken-words strip. */
@@ -474,14 +473,17 @@ export type SceneLecture = {
   chapterKinds?: Record<string, string[]>;
   /** When the script it was built from was made (a newer script: rebuild). */
   scriptAt?: number;
-  /** Each chapter's plan (by chapter number), when it was built as one piece: on the current engine its beats as the
-   * director wrote them with the choreographer's patch (kind "beats", lib/beat-director.ts); on the motion engine its
-   * elements and scenes with their choreography (lib/director.ts). */
-  plans?: Record<string, ChapterPlan | BeatsPlan>;
+  /** Each chapter's plan (by chapter number), when it was built as one piece: its beats as the director wrote them
+   * with the choreographer's patch (kind "beats", lib/beat-director.ts). (A run made before may hold another kind of
+   * plan, from the retired motion-engine director: it is shown as built, and built again to change it.) */
+  plans?: Record<string, BeatsPlan | LegacyPlan>;
   error?: string;
   calls: string[];
   at?: number;
 };
+
+/** A chapter plan of the retired motion-engine director (elements and scenes): kept in old runs, never made now. */
+export type LegacyPlan = { elements: unknown[]; scenes: unknown[]; kind?: undefined };
 
 export type ScenesState = {
   status: "idle" | "running" | "done" | "failed" | "stopped" | "interrupted";
@@ -506,20 +508,17 @@ export type ScenesState = {
   visualChange?: "paragraph" | "beat";
   /** The images the Manim agent made, by lecture, by name. */
   agentImages?: Record<string, Record<string, AgentImage>>;
-  /** "motion": the lectures are built, compiled, rendered and spoken on the motion engine (beta:
-   * engine/MOTION_ENGINE.md); left out, the current engine. */
-  engine?: "motion";
-  /** The motion engine's settings: its look (paper, newsroom, chalk, data, studio, sketch, archive, neon, brush, collage, textbook, chalkcolour, isometric, drafting; left out: the style's own
-   * motion), energy, transition, idle motion and the timeline's style. */
+  /** How the lecture moves (engine/MOTION_ENGINE.md): its look (paper, newsroom, chalk, data, studio, sketch, archive,
+   * neon, brush, collage, textbook, chalkcolour, isometric, drafting; left out: the style's own colours, moving as
+   * its nearest look does), energy, transition, idle motion and the timeline's style. */
   motion?: { look?: string; energy?: string; transition?: string; idle?: string; timeline?: string };
-  /** On the motion engine, each chapter is spoken and its words aligned before its scenes are written, and the scene
-   * writer is given each beat's length, its words by number with their times, and the quiet after it (on unless
-   * false). */
+  /** Each chapter is spoken and its words aligned before its scenes are written, and its pictures timed to those
+   * words (on unless false). */
   voiceFirst?: boolean;
   /** A quiet music bed under the voice, ducked under its words (engine/music.py; on unless false). */
   music?: boolean;
-  /** A chapter is built as one piece: its plan (elements and scenes) by the director, its cues by the choreography,
-   * a few scenes a call (lib/director.ts; on unless false). */
+  /** A chapter is built as one piece: its beats by the director, its timing by the choreographer as a patch on them
+   * (lib/beat-director.ts; on unless false). */
   director?: boolean;
   error?: string;
   started?: number;
@@ -626,9 +625,7 @@ export type LabState = { items: LabItem[] };
 
 /** A chapter's beat script as the Voice tab edits it: what the compiler is given for it (its figures added). */
 export type ChapterScript = {
-  /** "motion": drawn by the motion engine (beta: engine/MOTION_ENGINE.md), in `look`, every template animated. */
-  engine?: "motion";
-  /** The motion engine's: its look (one of MOTION_LOOKS), energy, transition, idle, timeline style. */
+  /** How it moves (engine/MOTION_ENGINE.md): its look (one of MOTION_LOOKS), energy, transition, idle, timeline style. */
   look?: string;
   energy?: string;
   transition?: string;

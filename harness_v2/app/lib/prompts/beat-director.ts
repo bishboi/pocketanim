@@ -30,7 +30,8 @@ HOW TO DIRECT
      more of it: {"op": "reveal", "diagram": "<its id>", "nodes": [<ids>]}.
    - a labelled picture: on its first line with "hold": [the labels said in later lines]; each later line that
      explains one: {"op": "label", "part": "<the label>"}.
-   - a template (a list...): on its first line with "id" and "hold": [the parts said in later lines]; each later
+   - a template (a counter, a chart, cards, a chain, a list, a versus... see TEMPLATES): on its first line with "id"
+     and "hold": [the parts said in later lines]; each later
      line that names more of it: {"op": "reveal", "of": "<its id>", "parts": [<names>]}.
    - a timeline, a comparison, a process: all its parts on its own line (the choreographer brings each on its word).
 3. Add at most two small things a line needs: a word defined, a key number, a question.
@@ -40,8 +41,10 @@ HOW TO DIRECT
 5. A line that adds nothing new has an empty "do": the choreographer points at what it speaks of.
 6. Keep every picture small enough to read on a phone (the limits below). It shows ONE idea of ONE paragraph: the
    next idea is the next paragraph's. Never put the whole chapter into one diagram or one comparison.
-7. Vary the paragraphs (a picture, then a diagram, then a map), and prefer pictures of real people, places and
-   things where seeing them teaches; drawn primitives where the idea is a structure.
+7. Vary the paragraphs (a picture, then a template, then a diagram, then a map), and prefer pictures of real people,
+   places and things where seeing them teaches; drawn primitives where the idea is a structure; a template where the
+   idea is a number, a comparison, a sequence, a ranking or a list (counters, charts, versus, chains, cards...), in
+   its forms ("layout") and entrances ("enter") varied across the chapter.
 
 LIMITS (the engine shrinks or cuts what goes past them)
 - A paragraph: 2-${LIMITS.sceneBeats} beats; a line brings on at most ${LIMITS.sceneElements} things.
@@ -94,7 +97,7 @@ export const BEAT_DIRECTOR_TOOL = {
 
 /** The parts of the scene writer's prompt the director keeps: the facts it needs (the subject, the kinds switched
  * off, how pictures are written, the map), none of the per-beat writer's rules. */
-const DIRECTOR_KEEPS = new Set(["off", "subject", "v1-matters", "v2-picture-style", "pictures", "map"]);
+const DIRECTOR_KEEPS = new Set(["off", "subject", "v1-matters", "v2-picture-style", "pictures", "map", "v2-templates", "v2-intent"]);
 
 /** The director's prompt: its own instructions, the primitives, the facts kept from the scene writer's prompt, the
  * chapter's lines; with `only` some beats asked again (the chapter's beats shown, the others kept), with `problems`

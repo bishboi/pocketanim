@@ -17,10 +17,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BeatPicture, Call, MissingPicture, Run, SceneBeat, SceneLecture, SceneRender } from "@/lib/types";
 import type { BeatsPlan } from "@/lib/beat-director";
-import type { ChapterPlan } from "@/lib/director";
 import { linesOf } from "@/lib/source/book";
 import { ART_STYLES, STYLES, STYLE_ART, artOf, artPreview, styleOf, type PreviewMark } from "@/lib/styles";
-import { MOTION_KIND, VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
+import { VISUAL_KINDS, kindById, kindOfOp } from "@/lib/visual-kinds";
 import { MOTION_IDLES, MOTION_LOOKS, MOTION_TRANSITIONS } from "@/lib/prompts/scenes-motion";
 import { beatFigures, lectureFigures } from "@/lib/script-figures";
 import { money, seconds } from "./call-inspector";
@@ -130,7 +129,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
             </select></label>
           <span className="text-neutral-500">used for the next builds (and the Voice tab&apos;s instructions); build again to see it</span>
         </div>
-        <EngineRow st={st} act={act} />
+        <MotionRow st={st} act={act} />
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-300" data-testid="scenes-summary">
           <span className={st?.status === "failed" ? "text-red-300" : running ? "text-sky-300" : st?.status === "done" ? "text-emerald-300" : "text-neutral-400"}>{st ? st.status : "not built yet"}</span>
           <span>{done} of {scripted.length} lectures built</span>
@@ -138,7 +137,7 @@ export function ScenesPanel({ run, defaultModel, manimModel, reuseModel = "", se
           {refused > 0 && <span className="text-red-300">{refused} refused by the compiler</span>}
           {(st?.renders ?? 0) > 0 && <span className="text-sky-300">{st!.renders} rendering…</span>}
           <span className="text-neutral-500">{styleOf(look.style).name} · {artOf(look.art).name} art</span>
-          {st?.engine === "motion" && <span className="text-fuchsia-300" data-testid="scenes-engine-badge">motion engine (beta){st.motion?.look ? ` · ${st.motion.look}` : ""}</span>}
+          {st?.motion?.look && <span className="text-fuchsia-300" data-testid="scenes-look-badge">{st.motion.look} look</span>}
           <span className="font-semibold">{money(cost)}</span>
         </div>
         {st?.error && <p className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{st.error}</p>}
@@ -1021,11 +1020,10 @@ function CompilerView({ sl, beats, setPick }: { sl?: SceneLecture; beats: { n: n
  * said are the transcript's: an edited "say" is not applied.
  */
 /**
- * A chapter built as one piece (the director, then the choreography): its plan (elements and scenes) and its
- * choreography (each element's timeline and look), each seen and changed as JSON. A plan saved is lowered again with
- * the steps that still fit it, or choreographed again; a choreography saved is checked against the plan (each
- * element, part, step and word) and lowered. The chapter is then compiled
- * and rendered again.
+ * A chapter built as one piece (the director, then the choreography): the director's beats and the choreographer's
+ * patch (lib/beat-director.ts), each seen and changed as JSON. Beats saved keep the steps of the patch that still fit,
+ * or are choreographed again; a patch saved is checked against the beats. The chapter is then compiled and rendered
+ * again. A scene is a paragraph ("P2").
  */
 function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
   const plan = run.scenes?.lectures[lecture]?.plans?.[c];
@@ -1033,21 +1031,18 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
   const [json, setJson] = useState("");
   const [bad, setBad] = useState<string | null>(null);
   if (!plan) return null;
-  // On the current engine: the director's beats and the choreographer's patch (lib/beat-director.ts); a scene is a
-  // paragraph ("P2"). On the motion engine: the elements and scenes, and each element's timeline.
-  const beats = "kind" in plan && plan.kind === "beats" ? plan as BeatsPlan : undefined;
-  const old = beats ? undefined : plan as ChapterPlan;
-  const steps = beats ? beats.patch.reduce((k, p) => k + p.steps.length, 0)
-    : old?.choreography?.elements.reduce((k, e) => k + e.timeline.length, 0) ?? old?.cues?.length ?? 0;
-  const scenes = beats
-    ? paragraphRuns(beats.beats).map((run, k) => ({ id: `P${k + 1}`, beats: run.map((b) => b.beat), intent: undefined as string | undefined,
-      title: run.map((b) => `#${b.beat}: ${b.do.map((o) => String(o.op)).join(", ") || "—"}`).join("\n"), count: `${run.reduce((k2, b) => k2 + b.do.length, 0)} op.` }))
-    : old!.scenes.map((x) => ({ id: x.id, beats: x.beats, intent: x.intent, title: x.uses.join(", "), count: `${x.uses.length} el.` }));
+  if (!("kind" in plan) || plan.kind !== "beats") {
+    return <p className="rounded border border-violet-900/60 p-2 text-[11px] text-neutral-400" data-testid="scenes-plan-json">
+      Built by the old motion-engine director (retired): build this chapter again to see and change its beats.</p>;
+  }
+  const beats = plan as BeatsPlan;
+  const steps = beats.patch.reduce((k, p) => k + p.steps.length, 0);
+  const scenes = paragraphRuns(beats.beats).map((run, k) => ({ id: `P${k + 1}`, beats: run.map((b) => b.beat),
+    title: run.map((b) => `#${b.beat}: ${b.do.map((o) => String(o.op)).join(", ") || "—"}`).join("\n"), count: `${run.reduce((k2, b) => k2 + b.do.length, 0)} op.` }));
   const open = (t: "plan" | "cues") => {
     setBad(null);
     if (tab === t) return setTab(null);
-    setJson(JSON.stringify(beats ? (t === "plan" ? { beats: beats.beats } : { beats: beats.patch })
-      : t === "plan" ? { elements: old!.elements, scenes: old!.scenes } : old!.choreography ?? { cues: old!.cues ?? [] }, null, 2));
+    setJson(JSON.stringify(t === "plan" ? { beats: beats.beats } : { beats: beats.patch }, null, 2));
     setTab(t);
   };
   const save = async (choreograph = false) => {
@@ -1059,13 +1054,13 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
       : await act({ action: "editCues", lecture, chapter: c, cues: value, render: true });
     if (ok) setTab(null);
   };
-  const what = beats ? { plan: "the director's beats", cues: "the choreography (patch)", unit: "paragraph" } : { plan: "the plan (director)", cues: "the choreography (timelines)", unit: "scene" };
+  const what = { plan: "the director's beats", cues: "the choreography (patch)", unit: "paragraph" };
   return (
     <div className="rounded border border-violet-900/60 p-2" data-testid="scenes-plan-json">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">{beats ? "Director beats and choreography" : "Director plan and choreography"}</p>
-        <span className="text-[11px] text-neutral-500">{beats ? `${beats.beats.length} beats · ${scenes.length} paragraphs` : `${old!.elements.length} elements · ${old!.scenes.length} scenes`} · {steps} steps
-          {plan.at ? ` · ${new Date(plan.at).toLocaleString()}` : ""}</span>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-300">Director beats and choreography</p>
+        <span className="text-[11px] text-neutral-500">{`${beats.beats.length} beats · ${scenes.length} paragraphs`} · {steps} steps
+          {beats.at ? ` · ${new Date(beats.at).toLocaleString()}` : ""}</span>
         <span className="ml-auto flex gap-3">
           <button className="text-[11px] text-sky-300 hover:underline" onClick={() => open("plan")}
             data-testid="scenes-plan-edit">{tab === "plan" ? `close ${what.plan}` : `${what.plan} as JSON`}</button>
@@ -1076,7 +1071,7 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
       <ul className="mt-1 flex flex-wrap gap-1 text-[10px]">
         {scenes.map((x) => (
           <li key={x.id} className="flex items-center gap-1 rounded bg-violet-950/50 px-1.5 py-px text-violet-200" title={x.title}>
-            {x.id} · #{x.beats[0]}{x.beats.length > 1 ? `–${x.beats[x.beats.length - 1]}` : ""}{x.intent ? ` · ${x.intent}` : ""} · {x.count}
+            {x.id} · #{x.beats[0]}{x.beats.length > 1 ? `–${x.beats[x.beats.length - 1]}` : ""} · {x.count}
             <button className="ml-1 text-sky-300 hover:underline disabled:opacity-40" disabled={disabled} data-testid={`scenes-scene-rebuild-${x.id}`}
               title={`Build this ${what.unit} again (the director and the choreography, for its beats only); the voice is kept`}
               onClick={() => {
@@ -1086,25 +1081,21 @@ function PlanJson({ run, lecture, c, act, disabled }: { run: Run; lecture: numbe
           </li>
         ))}
       </ul>
-      {plan.notes?.length ? <p className="mt-1 text-[10px] text-amber-300">mended or left out: {plan.notes.slice(0, 6).join("; ")}{plan.notes.length > 6 ? ` (+${plan.notes.length - 6})` : ""}</p> : null}
+      {beats.notes?.length ? <p className="mt-1 text-[10px] text-amber-300">mended or left out: {beats.notes.slice(0, 6).join("; ")}{beats.notes.length > 6 ? ` (+${beats.notes.length - 6})` : ""}</p> : null}
       {bad && <p className="mt-1 text-[11px] text-red-300">{bad}</p>}
       {disabled && <BusyNote run={run} lecture={lecture} act={act} />}
       {tab && (
         <div className="mt-1 space-y-1">
           <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
             onChange={(e) => setJson(e.target.value)} data-testid="scenes-plan-json-text" />
-          <p className="text-[10px] text-neutral-500">{beats
-            ? tab === "plan"
-              ? "{beats: [{beat, do: [operations, no \"on\", no pointing], paragraph?, pause?, about?, screen?: \"join\"}]}: what each line brings on, and on which line each part comes (a diagram's show and later reveals, a picture's hold and later labels). Saved, the patch's steps that still fit are kept, or it is choreographed again."
-              : "{beats: [{beat, steps: [{at: \"w<word>\", do: enter | show (op, part) | pulse (target) | light (part, until?) | focus (diagram, node, until?) | hide (part) | exit, op?: <its operation's number>}], look?: [{op, move, flow, enter, spans...}]}]}. A step that does not fit the beats is said, and nothing is saved."
-            : tab === "plan"
-              ? "Elements: {id, role, op} (one operation each, all its parts; no \"on\"). Scenes: {id, beats: [their numbers], intent, layout, uses: [element ids]}, every beat in one. Saved, it is lowered with the timelines that still fit, or choreographed again."
-              : "{elements: [{id, timeline: [{at: \"b<beat>.w<word>\", do: enter | show | pulse | light | focus | hide | exit, part?, until?: \"b<beat>.w<word>\" (a light or a focus held), note?, how?, in_pause?}], look?: {move, flow, steps, spans, range, style...}}], stamps?: [{at, scene, text}]}. A step that does not fit the plan is said, and nothing is saved."}</p>
+          <p className="text-[10px] text-neutral-500">{tab === "plan"
+            ? "{beats: [{beat, do: [operations, no \"on\", no pointing], paragraph?, pause?, about?, screen?: \"join\"}]}: what each line brings on, and on which line each part comes (a diagram's show and later reveals, a picture's hold and later labels, a template's hold and later reveals). Saved, the patch's steps that still fit are kept, or it is choreographed again."
+            : "{beats: [{beat, steps: [{at: \"w<word>\", do: enter | show (op, part) | pulse (target) | light (part, until?) | focus (diagram, node, until?) | hide (part) | exit, op?: <its operation's number>}], look?: [{op, move, flow, enter, spans...}]}]}. A step that does not fit the beats is said, and nothing is saved."}</p>
           <div className="flex flex-wrap gap-1.5">
             <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save(false)}
-              data-testid="scenes-plan-save">{tab === "plan" ? (beats ? "Save the beats (keep the patch) and re-render" : "Save the plan (keep the timelines) and re-render") : "Save the choreography and re-render"}</button>
+              data-testid="scenes-plan-save">{tab === "plan" ? "Save the beats (keep the patch) and re-render" : "Save the choreography and re-render"}</button>
             {tab === "plan" && <button className={`${btn} border-violet-700 text-violet-200 hover:bg-violet-950`} disabled={disabled} onClick={() => void save(true)}
-              data-testid="scenes-plan-choreograph">{beats ? "Save the beats and choreograph them again" : "Save the plan and choreograph it again"}</button>}
+              data-testid="scenes-plan-choreograph">Save the beats and choreograph them again</button>}
           </div>
         </div>
       )}
@@ -1202,58 +1193,44 @@ function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: nu
 }
 
 /**
- * Which engine draws the lecture: the current one, or the motion engine (beta: engine/MOTION_ENGINE.md), which draws
- * every current operation in motion and adds its templates (the scene writer is told of them); its look, energy,
- * transition and timeline style. Used for the next builds, compiles, renders and the Voice tab.
+ * How the lecture moves (engine/MOTION_ENGINE.md): its look, energy, transition, idle motion and timeline style; and
+ * how it is built (voice first, the director, the music bed). Used for the next builds, compiles, renders and the
+ * Voice tab.
  */
-function EngineRow({ st, act }: { st: Run["scenes"]; act: Act }) {
-  const motion = st?.engine === "motion";
+function MotionRow({ st, act }: { st: Run["scenes"]; act: Act }) {
   const m = st?.motion ?? {};
-  const set = (k: string, v: string) => act({ action: "engine", engine: "motion", [k]: v });
-  const sel = "rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 disabled:opacity-40";
-  const templated = Object.values(st?.lectures ?? {}).reduce((k, l) => k + Object.values(l.beats).filter((b) => b.ops.some((o) => MOTION_KIND.ops.includes(String(o.op)))).length, 0);
+  const set = (k: string, v: unknown) => act({ action: "motion", [k]: v });
+  const sel = "rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5";
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="scenes-engine">
-      <span className="text-fuchsia-300">Engine</span>
-      <label className="flex items-center gap-1 text-neutral-300" title="pocket_lecture: what every lecture has been built with">
-        <input type="radio" checked={!motion} onChange={() => act({ action: "engine", engine: "current" })} data-testid="scenes-engine-current" /> current</label>
-      <label className="flex items-center gap-1 text-neutral-300" title="The motion engine (beta): every operation drawn in motion, each part landing on its words, plus templates (counters, charts, cards, stamps...) the scene writer is told of">
-        <input type="radio" checked={motion} onChange={() => act({ action: "engine", engine: "motion" })} data-testid="scenes-engine-motion" /> motion (beta)</label>
-      <label className="flex items-center gap-1 text-neutral-300">look
-        <select className={sel} disabled={!motion} value={m.look ?? ""} onChange={(e) => set("look", e.target.value)} data-testid="scenes-motion-look">
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" data-testid="scenes-motion">
+      <span className="text-fuchsia-300">Motion</span>
+      <label className="flex items-center gap-1 text-neutral-300" title="The look: colours, fonts, a textured board, cards, pictures dressed as stickers, prints or newsprint, and its way of moving">look
+        <select className={sel} value={m.look ?? ""} onChange={(e) => set("look", e.target.value)} data-testid="scenes-motion-look">
           <option value="">the style&apos;s own</option>{MOTION_LOOKS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">energy
-        <select className={sel} disabled={!motion} value={m.energy ?? ""} onChange={(e) => set("energy", e.target.value)}>
+        <select className={sel} value={m.energy ?? ""} onChange={(e) => set("energy", e.target.value)}>
           <option value="">the look&apos;s own</option>{["calm", "lively", "punchy"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">transition
-        <select className={sel} disabled={!motion} value={m.transition ?? ""} onChange={(e) => set("transition", e.target.value)}>
+        <select className={sel} value={m.transition ?? ""} onChange={(e) => set("transition", e.target.value)}>
           <option value="">the look&apos;s own</option>{MOTION_TRANSITIONS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">idle
-        <select className={sel} disabled={!motion} value={m.idle ?? ""} onChange={(e) => set("idle", e.target.value)}>
+        <select className={sel} value={m.idle ?? ""} onChange={(e) => set("idle", e.target.value)}>
           <option value="">the look&apos;s own</option>{MOTION_IDLES.map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
       <label className="flex items-center gap-1 text-neutral-300">timeline
-        <select className={sel} disabled={!motion} value={m.timeline ?? ""} onChange={(e) => set("timeline", e.target.value)}>
+        <select className={sel} value={m.timeline ?? ""} onChange={(e) => set("timeline", e.target.value)}>
           <option value="">track</option>{["ribbon", "cards", "road", "vertical"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select></label>
-      <label className="flex items-center gap-1 text-neutral-300" title={motion
-        ? "Each chapter is spoken and its words aligned before its scenes are written: the scene writer sees how long every line is, the quiet after it and its words by number with their times, and anchors to them"
-        : "Each chapter is spoken and its words aligned before its scenes are written; then a timing call of its own puts every picture and every part of one on the exact word it comes on with"}>
-        <input type="checkbox" checked={st?.voiceFirst !== false}
-          onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", voiceFirst: e.target.checked })} data-testid="scenes-voice-first" /> voice first</label>
-      <label className="flex items-center gap-1 text-neutral-300" title="Each chapter built as one piece. On the current engine the director writes its beats (what each line brings on, the paragraphs, the joins), then each few paragraphs are choreographed as a patch (shown the voice's word times and each artifact's manual): what comes on, and what is pointed at, on which word. On the motion engine the director plans elements and scenes, then they are choreographed (with stamps)">
-        <input type="checkbox" checked={st?.director !== false}
-          onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", director: e.target.checked })} data-testid="scenes-director" /> director</label>
-      <label className="flex items-center gap-1 text-neutral-300" title="A quiet music bed under the voice (on either engine: the motion look's mood, a calm one on the current engine), dipping under its words and up a little in its pauses">
-        <input type="checkbox" checked={st?.music !== false}
-          onChange={(e) => act({ action: "engine", engine: motion ? "motion" : "current", music: e.target.checked })} data-testid="scenes-music" /> music</label>
-      <span className="text-neutral-500">{motion
-        ? "the scene writer is told of the motion templates; builds, renders and the Voice tab use the motion engine"
-        : "the lectures built so far stay as they are either way"}</span>
-      {!motion && templated > 0 && <span className="text-amber-300">{templated} beats use motion templates: the current engine leaves those out</span>}
+      <label className="flex items-center gap-1 text-neutral-300" title="Each chapter is spoken and its words aligned before its scenes are written; then every picture and every part of one is put on the exact word it comes on with">
+        <input type="checkbox" checked={st?.voiceFirst !== false} onChange={(e) => set("voiceFirst", e.target.checked)} data-testid="scenes-voice-first" /> voice first</label>
+      <label className="flex items-center gap-1 text-neutral-300" title="Each chapter built as one piece: the director writes its beats (what each line brings on, the paragraphs, the joins), then each line is choreographed as a patch (shown the voice's word times and each artifact's manual): what comes on, and what is pointed at, on which word">
+        <input type="checkbox" checked={st?.director !== false} onChange={(e) => set("director", e.target.checked)} data-testid="scenes-director" /> director</label>
+      <label className="flex items-center gap-1 text-neutral-300" title="A quiet music bed under the voice in the look's mood, dipping under its words and up a little in its pauses">
+        <input type="checkbox" checked={st?.music !== false} onChange={(e) => set("music", e.target.checked)} data-testid="scenes-music" /> music</label>
+      <span className="text-neutral-500">the lectures built so far stay as they are until built again</span>
     </div>
   );
 }

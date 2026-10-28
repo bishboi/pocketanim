@@ -301,17 +301,14 @@ assert.ok(mcall.checks.some((c) => c.name === "Render" && c.result === "pass"), 
   const doc = readFileSync(path.join(engine, "BEAT_SCRIPT.md"), "utf8");
   const missing = Object.entries(known).flatMap(([kind, names]) => names.filter((k) => !doc.includes(`\`${k}\``)).map((k) => `${kind}: ${k}`));
   assert.deepEqual(missing, [], `engine/BEAT_SCRIPT.md does not document: ${missing.join(", ")}`);
-  // The templates the current engine draws are the app's "templates" kind, and each has its primitive (its catalog
-  // entry and an example that compiles).
-  const tl = await rp(["-c", "import json, compile_lecture as c; print(json.dumps(sorted(c.TEMPLATE_OPS)))"], engine, { PYTHONPATH: engine });
+  // The templates the engine draws (compile_motion installed over compile_lecture) are the app's "templates" kind.
+  const tl = await rp(["-c", "import json, compile_motion as m; m.install(); print(json.dumps(sorted(m.cl.TEMPLATE_OPS)))"], engine, { PYTHONPATH: engine });
   const templateOps = JSON.parse(tl.stdout.trim().split("\n").pop());
   const vk = await import(path.resolve(here, "../lib/visual-kinds.ts"));
-  const prims = await import(path.resolve(here, "../lib/primitives.ts"));
-  assert.deepEqual([...vk.VISUAL_KINDS.find((k) => k.id === "templates").ops].sort(), templateOps, "the templates kind is compile_lecture.TEMPLATE_OPS");
-  assert.ok(templateOps.every((op) => prims.PRIMITIVE_BY_OP.has(op)), "each template has its primitive");
+  assert.deepEqual([...vk.VISUAL_KINDS.find((k) => k.id === "templates").ops].sort(), templateOps, "the templates kind is the engine's TEMPLATE_OPS");
   assert.ok(known.ops.length > 30 && known.script.length > 10 && known.beat.length > 4, "the compiler's names were read");
-  // The motion engine's reference (engine/MOTION_ENGINE.md, beta) likewise: its templates, their arguments, the
-  // script fields it reads and the values it accepts.
+  // How it moves (engine/MOTION_ENGINE.md) likewise: the templates, their arguments, the script fields the motion
+  // layer reads and the values it accepts.
   const motionCode = [
     "import json, re, compile_motion as m, motion_looks as l",
     "src = open('compile_motion.py').read()",
@@ -419,8 +416,6 @@ const offOps = filterOps([{ op: "picture", generate: "a farmer" }, { op: "diagra
 assert.equal(offOps.ops.length, 3, "the illustration and the unknown op taken out");
 assert.ok(!offOps.ops[0].nodes[0].picture && offOps.ops[1].events[0].length === 2, "pictures on nodes and events taken out when illustrations are off");
 assert.equal(offOps.dropped.length, 4);
-// This part is the current engine's (a lecture's scenes start on the motion engine, which is checked further on).
-await scenesAction(run.id, { action: "engine", engine: "current" });
 await scenesAction(run.id, { action: "look", style: "chalkboard", art: "sketch" });
 await scenesAction(run.id, { action: "kinds", kinds: ["figure", "diagram", "define", "timeline"] });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
@@ -441,22 +436,7 @@ const directorCalls = run.calls.filter((c) => c.step === "scenes" && /\(director
 assert.equal(directorCalls.length, run.script.lectures[1].chapters.length, "one director call a chapter");
 // The director's prompt is its own: its instructions, the primitives, the facts it needs; none of the per-beat writer's.
 assert.ok(directorCalls.every((c) => !c.prompt.system.some((p) => /^v1-/.test(p.key) && p.key !== "v1-matters") && c.prompt.system.some((p) => p.key === "primitives")
-  && c.prompt.system.reduce((k, p) => k + p.text.length, 0) < 25000), "the director told only what it needs");
-// Its limits: a plan past them is said (planProblems) and cut to fit (fitPlan): a scene too long split, a diagram too
-// big cut to its nodes and its words.
-{
-  const d = await import(path.resolve(here, "../lib/director.ts"));
-  const big = { elements: [{ id: "tree", op: { op: "diagram", id: "tree", nodes: Array.from({ length: 9 }, (_, k) => ({ id: `n${k}`,
-    label: k ? `Node ${k}` : "A very long label of a great many words", items: ["one two three four", "a", "b", "c"] })), edges: [["n0", "n8", "one two three"]] } }],
-    scenes: [{ id: "S1", beats: [1, 2, 3, 4, 5, 6, 7, 8, 9], uses: ["tree"] }] };
-  const problems = d.planProblems(big);
-  assert.ok(problems.some((x) => /9 beats/.test(x)) && problems.some((x) => /9 nodes/.test(x)) && problems.some((x) => /items/.test(x)), JSON.stringify(problems));
-  const notes = d.fitPlan(big);
-  assert.deepEqual(big.scenes.map((x) => x.beats.length), [5, 4], JSON.stringify(big.scenes));
-  assert.ok(big.scenes.every((x) => x.uses.includes("tree")) && big.elements[0].op.nodes.length === 6 && big.elements[0].op.edges.length === 0, JSON.stringify(big.elements[0].op));
-  assert.equal(d.planProblems(big).length, 0, JSON.stringify(d.planProblems(big)));
-  assert.ok(notes.length >= 2, JSON.stringify(notes));
-}
+  && c.prompt.system.reduce((k, p) => k + p.text.length, 0) < 50000), "the director told only what it needs (the templates' reference the most of it)");
 // The director's beats and the choreographer's patch (lib/beat-director.ts): limits said and cut to fit, timing and
 // pointing taken out of the director's beats, a patch read against them (a word of its line, an operation by number,
 // a part by name, a look that cannot change content) and applied.
@@ -571,52 +551,7 @@ run = await slow(run.id, (r) => r.scenes.status === "running" || r.scenes.lectur
 assert.equal(run.scenes.lectures[1].plans[pc].beats[0].about, "edited by hand", "the beats saved");
 assert.equal(run.scenes.lectures[1].beats[edited.beats[0].beat].about, "edited by hand", "and applied");
 assert.equal(stepsOf(run.scenes.lectures[1].plans[pc]).length, enters.length, "with the patch's steps that still fit them");
-// The lowering of every step (lib/director.ts), on the current engine: a label shown on a later line held back and
-// brought on by a `label`, its note, a light held until a word (shade with hold, then unshade), a hide (an
-// unlabel), a focus held (focus, then unfocus), a pulse on a node (point), a look merged and content refused.
 {
-  const d = await import(path.resolve(here, "../lib/director.ts"));
-  const plan = { elements: [{ id: "bank", op: { op: "picture", generate: "a river bank", labels: ["water", "soil"] } },
-    { id: "chain", op: { op: "diagram", id: "chain", nodes: [{ id: "food", label: "Food" }, { id: "towns", label: "Towns" }], edges: [["food", "towns"]] } }],
-    scenes: [{ id: "S1", beats: [1, 2, 3], uses: ["bank"] }, { id: "S2", beats: [4, 5], uses: ["chain"] }] };
-  const words = new Map([1, 2, 3, 4, 5].map((n) => [n, d.estimatedWords(n, "one two three four five six seven eight")]));
-  const acts = new Map();
-  for (const el of plan.elements) {
-    const may = d.actsFor(el, "current");
-    acts.set(el.id, may.element);
-    for (const p of d.partsOf(el)) acts.set(p.ref, may.parts);
-  }
-  const choreo = { elements: [
-    { id: "bank", look: { move: "drift" }, timeline: [{ at: "b1.w1", do: "enter" }, { at: "b1.w2", do: "show", part: "water", note: "the flood" },
-      { at: "b2.w3", do: "show", part: "soil" }, { at: "b2.w4", do: "light", part: "soil", until: "b3.w5" }, { at: "b3.w2", do: "hide", part: "water" }] },
-    { id: "chain", look: { flow: true }, timeline: [{ at: "b4.w0", do: "enter" }, { at: "b4.w3", do: "show", part: "towns" },
-      { at: "b5.w1", do: "focus", part: "towns", until: "b5.w6" }, { at: "b5.w3", do: "pulse", part: "food" }] }] };
-  const steps = d.flatSteps(choreo, new Set(acts.keys()));
-  const read = d.readCues({ cues: steps.cues }, { words, beats: new Set([1, 2, 3, 4, 5]), acts, scenes: new Set(["S1", "S2"]) });
-  assert.deepEqual([...steps.dropped, ...read.dropped], [], "every step read");
-  const { ops } = d.lowerPlan(plan, read.cues, words, "current", steps.looks);
-  const pic = ops.get(1).find((o) => o.op === "picture");
-  assert.deepEqual([pic.hold, pic.sides, pic.notes, pic.move], [["soil"], undefined, { water: "the flood" }, "drift"], JSON.stringify(pic));
-  assert.deepEqual(ops.get(2).map((o) => [o.op, o.part, o.hold, o.on]), [["label", "soil", undefined, "w3"], ["shade", "soil", true, "w4"]], JSON.stringify(ops.get(2)));
-  assert.deepEqual(ops.get(3).map((o) => [o.op, o.on]), [["unlabel", "w2"], ["unshade", "w5"]], JSON.stringify(ops.get(3)));
-  assert.equal(ops.get(4).find((o) => o.op === "diagram").flow, true, "a diagram's look merged");
-  assert.deepEqual(ops.get(5).map((o) => [o.op, o.on]), [["focus", "w1"], ["point", "w3"], ["unfocus", "w6"]], JSON.stringify(ops.get(5)));
-  // The choreographer's JSON round-trips through the cues.
-  const back = d.choreographyOf(plan, read.cues, steps.looks);
-  assert.deepEqual(back.elements.map((e) => e.timeline.map((q) => q.do).join(",")), ["enter,show,show,light,hide", "enter,show,focus,pulse"], JSON.stringify(back));
-  assert.equal(back.elements[0].timeline[3].until, "b3.w5", "a light's until kept");
-  assert.ok(d.flatSteps({ elements: [{ id: "bank", timeline: [], look: { labels: ["x"] } }] }).dropped.length === 1, "a look cannot change content");
-  // At most two main pictures at once: a picture and a timeline cued on one line stay together; a third comes on as
-  // the next line begins.
-  const three = { elements: [plan.elements[0], { id: "dates", op: { op: "timeline", events: [["1500", "A"], ["1600", "B"]] } },
-    { id: "two", op: { op: "compare", columns: [{ title: "A", points: ["x"] }, { title: "B", points: ["y"] }] } }],
-    scenes: [{ id: "S1", beats: [1, 2, 3], uses: ["bank", "dates", "two"] }] };
-  const threeCues = d.readCues({ cues: [{ at: "b1.w1", ref: "bank", act: "enter" }, { at: "b1.w4", ref: "dates", act: "enter" },
-    { at: "b1.w6", ref: "two", act: "enter" }] },
-    { words, beats: new Set([1, 2, 3]), acts: new Map([["bank", ["enter"]], ["dates", ["enter"]], ["two", ["enter"]]]), scenes: new Set(["S1"]) }).cues;
-  const lowered2 = d.lowerPlan(three, threeCues, words, "current");
-  assert.deepEqual([lowered2.ops.get(1).map((o) => o.op), lowered2.ops.get(2).map((o) => [o.op, o.on])], [["picture", "timeline"], [["compare", "start"]]],
-    JSON.stringify([...lowered2.ops]));
   // The compiler mends a chapter the same way, whatever wrote it: a third main picture of a line moved (to the line
   // that points into it), and in a strict chapter pointing at what is not up left out.
   const { runPython: rp2 } = await import(path.resolve(here, "../lib/manim.ts"));
@@ -672,7 +607,7 @@ await assert.rejects(scenesAction(run.id, { action: "editPlan", lecture: 1, chap
   assert.equal(run.scenes.lectures[1].compiles[pc].status, "done", JSON.stringify(run.scenes.lectures[1].compiles[pc]));
 }
 // The scene writer of before (director off): one call a chapter writing each beat's do, then the word timing call.
-await scenesAction(run.id, { action: "engine", engine: "current", director: false });
+await scenesAction(run.id, { action: "motion", director: false });
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
@@ -689,7 +624,7 @@ assert.ok(!scenesCall.prompt.user.some((p) => /w0 /.test(p.text)), "the current 
 const anchored = Object.values(run.scenes.lectures[1].beats).flatMap((b) => b.ops).filter((o) => typeof o.on === "string");
 assert.ok(anchored.length && anchored.every((o) => /^(w\d+|start)$/.test(o.on)), `the pictures on their words: ${JSON.stringify(anchored.slice(0, 3))}`);
 assert.ok(offAll && /AI illustrations/.test(offAll.text) && !/Diagrams/.test(offAll.text), "the kinds switched off are named as such");
-await scenesAction(run.id, { action: "engine", engine: "current", director: true });
+await scenesAction(run.id, { action: "motion", director: true });
 // A beat's kinds of its own, its operations by hand, one beat built again.
 const firstBeat = sceneBeats[0].n;
 await scenesAction(run.id, { action: "beatKinds", lecture: 1, beat: firstBeat, kinds: ["define"] });
@@ -879,21 +814,20 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
     assert.ok(c.source && !c.errors.length, `the Lab's ${name} compiles: ${c.errors.join("; ")}`);
     assert.deepEqual(c.warnings.filter((w) => /left out|unknown/i.test(w)), [], `the Lab's ${name}: nothing left out`);
   });
-  // The motion engine (beta): every motion preset and snippet compiles on it, with nothing left out.
+  // The presets in a look (templates, looks, transitions, energies, timelines): each compiles, with nothing left out.
   const { LAB_MOTION_PRESETS, LAB_MOTION_SNIPPETS } = await import(path.resolve(here, "../lib/lab-presets.ts"));
-  const motionAll = { engine: "motion", look: "paper", region: null, chapter: { title: "Motion snippets",
+  const motionAll = { look: "paper", region: null, chapter: { title: "Motion snippets",
     beats: [{ say: "Japan, Italy and Germany.", do: [{ op: "chart", items: [["Japan", 204], ["Italy", 138], ["Germany", 65]] }] },
       ...LAB_MOTION_SNIPPETS.map((x) => ({ say: x.say, do: [x.do] }))] } };
   const motionPresets = [...LAB_MOTION_PRESETS.map((p) => [p.id, p.script]), ["motion-snippets", motionAll]];
   // By default every eighth preset and the snippets (each template is in the snippets).
   await atOnce(FULL ? motionPresets : [...motionPresets.filter((_, i) => i % 8 === 0), motionPresets.at(-1)], 4, async ([name, script]) => {
     const c = await compileScript(run, await engineScriptOf(run, 1, readChapterScript(script)), path.join(scenesDir(run.id), "lab-check", name));
-    assert.ok(c.source && !c.errors.length, `the Lab's ${name} compiles on the motion engine: ${c.errors.join("; ")}`);
-    assert.ok(c.source.includes("(MotionLecture)") && c.source.includes("from motion import *"), `the Lab's ${name} is a motion scene`);
+    assert.ok(c.source && !c.errors.length, `the Lab's ${name} compiles: ${c.errors.join("; ")}`);
+    assert.ok(c.source.includes("(MotionLecture)") && c.source.includes("from motion import *"), `the Lab's ${name} is drawn by the motion layer`);
     assert.deepEqual(c.warnings.filter((w) => /left out|unknown|is not one of/i.test(w) && !/no reusable illustration|picture/i.test(w)), [],
       `the Lab's ${name}: nothing left out`);
   });
-  await assert.rejects(Promise.resolve().then(() => readChapterScript({ engine: "beta", chapter: { title: "x", beats: [{ say: "x" }] } })), /"engine" is "motion"/);
   const added = await labAction(run.id, { action: "add", preset: "diagram-build" });
   assert.equal(added.name, "Diagram built over beats");
   let lv;
@@ -910,11 +844,10 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   }
   const fromChapter = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
   assert.ok(fromChapter.script.chapter.beats.length === ch1.beats.length && fromChapter.script.chapter.beats.every((b) => b.beat === undefined), "a lecture's chapter, its beats the experiment's own");
-  // A motion experiment: spoken, timed and played on the motion engine; a lecture's chapter added in a motion look.
-  // The Lab is the current engine's: a motion preset is not one of its presets; a lecture's chapter comes on it as it is.
-  await assert.rejects(labAction(run.id, { action: "add", preset: "m-columns" }), /no preset/);
-  const inMotion = await labAction(run.id, { action: "add", lecture: 1, chapter: ch1.n });
-  assert.ok(!inMotion.script.engine, "a lecture's chapter, on the current engine");
+  // A preset in a look is one of the Lab's; a lecture's chapter comes with the run's look.
+  const inMotion = await labAction(run.id, { action: "add", preset: "m-columns" });
+  assert.ok(!inMotion.script.engine && inMotion.script.look, "a preset in a look, no engine to choose");
+  await assert.rejects(labAction(run.id, { action: "add", preset: "m-nothing" }), /no preset/);
   // Every primitive at once (lib/primitives.ts), checked by compiling it only: nothing refused.
   const every = await labAction(run.id, { action: "add", every: true });
   assert.ok(every.script.chapter.beats.length >= 30, "a beat for each primitive");
@@ -932,7 +865,7 @@ await voiceAction(run.id, { action: "reset", lecture: 1, chapter: ch1.n });
   assert.equal((await loadRun(run.id)).lab.items.length, 0, "removed");
   console.log(`lab: ${FULL ? LAB_PRESETS.length : 2} presets and ${LAB_SNIPPETS.length} snippets compile` +
     (lv ? `; an experiment played in ${(lv.frames / lv.fps).toFixed(1)} s` : ""));
-  console.log(`motion presets: ${FULL ? LAB_MOTION_PRESETS.length : Math.ceil(LAB_MOTION_PRESETS.length / 8)} and ${LAB_MOTION_SNIPPETS.length} snippets compile on the motion engine`);
+  console.log(`presets in a look: ${FULL ? LAB_MOTION_PRESETS.length : Math.ceil(LAB_MOTION_PRESETS.length / 8)} and ${LAB_MOTION_SNIPPETS.length} snippets compile`);
 }
 
 // A chapter's own kinds: its beats built with only those (a beat's own still wins).
@@ -1029,76 +962,41 @@ await assert.rejects(scenesAction(run.id, { action: "reset", lecture: 1, chapter
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 
-// The motion engine (beta) in the Scenes tab: a lecture built with its templates, compiled and rendered on it, its
-// chapters tried on it in the Voice tab; then back to the current engine (which leaves the templates out).
-const { engineScript, compile: compileMotion } = await import(path.resolve(here, "../lib/scenes.ts"));
-await assert.rejects(scenesAction(run.id, { action: "engine", engine: "motion", look: "pastel-dream" }), /motion look is one of/);
-await scenesAction(run.id, { action: "engine", engine: "motion", look: "newsroom", timeline: "ribbon" });
+// How the lecture moves (the Scenes tab's Motion row): a look and a timeline style set for the run, the templates
+// switched on; a lecture built (the director, the stand-in here) with templates, compiled on the one engine
+// (compile_motion: MotionLecture), a beat rendered with the chapter's voice, its chapter JSON edited and rendered again.
+const { engineScript, compile: compileScene } = await import(path.resolve(here, "../lib/scenes.ts"));
+await assert.rejects(scenesAction(run.id, { action: "motion", look: "pastel-dream" }), /the look is one of/);
+await scenesAction(run.id, { action: "motion", look: "newsroom", timeline: "ribbon" });
+await scenesAction(run.id, { action: "kinds", kinds: ["figure", "diagram", "define", "timeline", "templates"] });
 run = await loadRun(run.id);
-assert.ok(run.scenes.engine === "motion" && run.scenes.motion.look === "newsroom", "the engine set for the run");
-await scenesAction(run.id, { action: "engine", engine: "motion", director: false });
+assert.ok(run.scenes.motion.look === "newsroom" && !("engine" in run.scenes), "the look set for the run; no engine to choose");
 const callsBefore = run.calls.length;
 await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
 run = await slow(run.id, (r) => r.scenes.status === "running");
 assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
-const motionCall = run.calls.slice(callsBefore).find((c) => c.step === "scenes");
-assert.ok(/motion engine/.test(motionCall.label) && motionCall.prompt.system.some((p) => p.key === "templates" && /MOTION TEMPLATES/.test(p.text)), "the scene writer told of the motion templates");
-// On the beta the scene writer is told the elements, how to use them and examples: nothing that limits its choices.
-assert.ok(!motionCall.prompt.system.some((p) => ["subject", "pace", "matters"].includes(p.key) || p.key.startsWith("v1-")),
-  `no subject tuning, pace or v1 rules on the beta: ${motionCall.prompt.system.map((p) => p.key).join(", ")}`);
-assert.ok(["pictures", "diagrams", "timelines", "map", "manim", "examples"].every((k) => motionCall.prompt.system.some((p) => p.key === k)), "every element told");
-// The voice first: each chapter spoken and aligned before its scenes, the writer given each beat's seconds, the quiet
-// after it and its words by number with their times, and told to anchor by word number and pace by the clock.
-assert.ok(motionCall.prompt.system.some((p) => p.key === "anchors" && /THE VOICE IS RECORDED ALREADY/.test(p.text) && /"on": "w4"/.test(p.text)),
-  "the beta writer is told to anchor by word number and pace by the clock");
-const voicedPart = motionCall.prompt.user.find((p) => p.key === "script");
-assert.ok(/ s, then [\d.]+ s quiet: "/.test(voicedPart.text) && /words: w0 \S+ 0\.0 · w1 /.test(voicedPart.text), "each beat with its seconds, its quiet and its words by number");
-const { chapterVideo } = await import(path.resolve(here, "../lib/video.ts"));
-assert.ok(run.script.lectures[1].chapters.every((c) => chapterVideo(run, 1, c.n).narration?.status === "done"), "every chapter spoken first");
-const mch1 = run.script.lectures[1].chapters[0];   // its beats numbered again (one sentence each)
-const { pacingProblems, voicedBeats } = await import(path.resolve(here, "../lib/scenes.ts"));
-const voiced1 = await voicedBeats(run, 1, mch1.n);
-assert.ok(voiced1 && voiced1.size === mch1.beats.length, "every beat of the chapter has its voice");
-const crowded = { beats: { [mch1.beats[0].n]: { ops: [{ op: "counter", value: "1", on: "w0" }, { op: "chart", items: [["a", 1]], on: "w0" },
-  { op: "title", text: "x", on: "w0" }, { op: "venn", sets: ["a", "b"], on: "w0" }] } } };
-const tight = new Map([[mch1.beats[0].n, { seconds: 2, pause: 0.5, words: [{ w: "a", t: 0 }] }]]);
-assert.match((pacingProblems(crowded, tight, [mch1.beats[0].n])[mch1.beats[0].n] ?? []).join(" "), /4 new pictures in a 2 s line/, "a beat that asks too much is sent back");
-assert.deepEqual(pacingProblems({ beats: { [mch1.beats[0].n]: { ops: [{ op: "counter", value: "1", on: "w0" }, { op: "stamp", text: "x", in_pause: true }] } } },
-  tight, [mch1.beats[0].n]), {}, "one picture and a stamp in the quiet fit a 2 s line");
-assert.ok(motionCall.prompt.system.some((p) => p.key === "shape" && /HOW TO BUILD THE JSON/.test(p.text)) &&
-  motionCall.prompt.system.some((p) => p.key === "choose" && /WHICH PRIMITIVE FOR WHAT/.test(p.text)), "the beta writer is told how to build the JSON and which primitive suits what");
-const motionBeats = Object.values(run.scenes.lectures[1].beats);
-assert.ok(run.script.lectures[1].chapters.every((c) => c.beats.every((b) => b.lines.length === 1)), "one sentence a beat on the motion engine");
-const templateBeats = motionBeats.filter((b) => b.ops.some((o) => ["title", "counter", "list", "stamp"].includes(o.op))).length;
-assert.ok(templateBeats > 0, "motion templates in the beats");
-assert.ok(motionBeats.every((b) => !b.errors?.length), `nothing refused on the motion engine: ${motionBeats.flatMap((b) => b.errors ?? []).join("; ")}`);
+const templatedDirector = run.calls.slice(callsBefore).find((c) => /\(director\)$/.test(c.label));
+assert.ok(templatedDirector?.prompt.system.some((p) => p.key === "v2-templates" && /^TEMPLATES\./.test(p.text)), "the director told of the templates");
+const builtBeats = Object.values(run.scenes.lectures[1].beats);
+const templateBeats = builtBeats.filter((b) => b.ops.some((o) => ["counter", "list"].includes(o.op))).length;
+assert.ok(templateBeats > 0, "templates in the beats");
+assert.ok(builtBeats.every((b) => !b.errors?.length), `nothing refused: ${builtBeats.flatMap((b) => b.errors ?? []).join("; ")}`);
 assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
-// The motion engine with the director: its plan, then its scenes choreographed (templates pointed at by "<id>.<part>",
-// stamps), compiled with nothing refused.
-await scenesAction(run.id, { action: "engine", engine: "motion", director: true });
-const directedFrom = run.calls.length;
-await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
-run = await slow(run.id, (r) => r.scenes.status === "running");
-assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
-const motionDirector = run.calls.slice(directedFrom).find((c) => /\(director, motion engine\)$/.test(c.label));
-assert.ok(motionDirector && motionDirector.prompt.system.some((p) => p.key === "templates") && !motionDirector.prompt.system.some((p) => p.key === "anchors"),
-  "the motion director told of the templates, not of timing");
-assert.ok(run.calls.slice(directedFrom).some((c) => /^Choreography:/.test(c.label) && !c.prompt.system.some((p) => p.key === "no-stamps")), "choreographed, stamps allowed");
-assert.ok(Object.values(run.scenes.lectures[1].beats).every((b) => !b.errors?.length), "nothing refused from the director's plan on the motion engine");
-assert.equal(run.scenes.lectures[1].compile.status, "done", JSON.stringify(run.scenes.lectures[1].compile));
-const motionScript = await engineScript(run, 1, run.scenes.look);
-assert.ok(motionScript.engine === "motion" && motionScript.look === "newsroom" && motionScript.timeline === "ribbon", "its beat script on the motion engine");
-const motionCompiled = await compileMotion(run, motionScript, path.join(scenesDir(run.id), "motion-check"), 1);
-assert.ok(motionCompiled.source?.includes("(MotionLecture)") && !motionCompiled.errors.length, motionCompiled.errors.join("; "));
+const movingScript = await engineScript(run, 1, run.scenes.look);
+assert.ok(!movingScript.engine && movingScript.look === "newsroom" && movingScript.timeline === "ribbon", "its beat script in its look");
+const movingCompiled = await compileScene(run, movingScript, path.join(scenesDir(run.id), "motion-check"), 1);
+assert.ok(movingCompiled.source?.includes("(MotionLecture)") && movingCompiled.source.includes('MOTION_LOOK", "newsroom"') && !movingCompiled.errors.length,
+  movingCompiled.errors.join("; "));
+const mch1 = run.script.lectures[1].chapters[0];
 await scenesAction(run.id, { action: "render", lecture: 1, chapter: ch1.n, beat: firstBeat });
 run = await slow(run.id, (r) => r.scenes.renders > 0, 3000);
-const motionRender = run.scenes.lectures[1].beats[firstBeat].render;
-assert.equal(motionRender.status, "done", motionRender.error);
-assert.ok(motionRender.audio && existsSync(fileOf(motionRender.audio)), "the Scenes tab's render plays with the chapter's voice (spoken first)");
-assert.ok(readFileSync(path.join(fileOf(motionRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the motion engine");
+const movingRender = run.scenes.lectures[1].beats[firstBeat].render;
+assert.equal(movingRender.status, "done", movingRender.error);
+assert.ok(movingRender.audio && existsSync(fileOf(movingRender.audio)), "the Scenes tab's render plays with the chapter's voice (spoken first)");
+assert.ok(readFileSync(path.join(fileOf(movingRender.ir), "..", "scene.py"), "utf8").includes("MotionLecture"), "rendered by the engine's motion layer");
 // The Scenes tab's chapter JSON: edited (a stamp added on its first beat), saved and the chapter rendered again.
 const asBuilt = await chapterScript(run, 1, mch1.n);
-asBuilt.chapter.beats[0].do = [...asBuilt.chapter.beats[0].do, { op: "stamp", text: "Edited", in_pause: true }];
+asBuilt.chapter.beats[0].do = [...asBuilt.chapter.beats[0].do, { op: "stamp", text: "Edited" }];
 await scenesAction(run.id, { action: "editChapter", lecture: 1, chapter: mch1.n, render: true, emblem: asBuilt.emblem, region: asBuilt.region,
   beats: asBuilt.chapter.beats.map((b) => ({ beat: b.beat, ops: b.do, paragraph: b.paragraph, pause: b.pause, about: b.about })) });
 run = await slow(run.id, (r) => !["done", "failed"].includes(r.scenes.lectures[1].chapters?.[mch1.n]?.status), 3000);
@@ -1107,15 +1005,11 @@ assert.equal(rerendered.status, "done", rerendered.error);
 assert.ok(run.scenes.lectures[1].beats[mch1.beats[0].n].edited && run.scenes.lectures[1].beats[mch1.beats[0].n].ops.some((o) => o.text === "Edited"),
   "the edited chapter saved into the scenes");
 assert.ok(readFileSync(path.join(fileOf(rerendered.ir), "..", "scene.py"), "utf8").includes("'Edited'"), "and rendered again with the edit");
-const motionChapter = await chapterScript(run, 1, ch1.n);
-assert.ok(motionChapter.engine === "motion" && motionChapter.look === "newsroom", "the Voice tab's chapter carries the engine");
-assert.ok((await editInstructions(run, 1)).includes("MOTION TEMPLATES"), "the hand instructions tell of the templates");
-await scenesAction(run.id, { action: "engine", engine: "current" });
-run = await loadRun(run.id);
-assert.ok(!run.scenes.engine && !(await engineScript(run, 1, run.scenes.look)).engine, "back on the current engine");
-await scenesAction(run.id, { action: "build", scope: "lecture", lecture: 1 });
-run = await slow(run.id, (r) => r.scenes.status === "running");
-assert.equal(run.scenes.lectures[1].status, "done", run.scenes.lectures[1].error);
+const movingChapter = await chapterScript(run, 1, ch1.n);
+assert.ok(!movingChapter.engine && movingChapter.look === "newsroom", "the Voice tab's chapter carries the look");
+assert.ok((await editInstructions(run, 1)).includes("TEMPLATES."), "the hand instructions tell of the templates");
+// A script of before that says "engine": "motion" still reads (the field is dropped: there is one engine).
+assert.equal((await import(path.resolve(here, "../lib/voice.ts"))).readChapterScript({ engine: "motion", look: "paper", chapter: { title: "x", beats: [{ say: "x", do: [] }] } }).look, "paper");
 // A strict chapter (built as one piece) spoken in the Voice tab: its animations are its script's, the timing model
 // is not asked.
 await voiceAction(run.id, { action: "speak", lecture: 1, chapter: ch1.n });
@@ -1124,7 +1018,7 @@ const strictVoice = run.voice.lectures[1][ch1.n];
 assert.equal(strictVoice.status, "done", strictVoice.error);
 assert.ok(!strictVoice.cues?.length && !strictVoice.calls.some((id) => /^Time the animations/.test(run.calls.find((x) => x.id === id)?.label ?? "")),
   "a strict chapter is not timed again by the timing model");
-console.log(`scenes (motion beta): lecture 1 built with ${templateBeats} template beats, compiled and a beat rendered`);
+console.log(`scenes (in a look): lecture 1 built with ${templateBeats} template beats, compiled and a beat rendered`);
 
 // Export: numbered sentences, goals with their sentences, figures with their triage; imported again as a run.
 const x = exportTranscript(run);
@@ -1222,7 +1116,7 @@ r2 = await wait(bare.id, (r) => r.generation.status === "running");
 assert.equal(r2.generation.figures["/page/0/Picture/0"].status, "done", r2.generation.figures["/page/0/Picture/0"].error);
 await assert.rejects(triageAction(bare.id, { action: "override", block: "/page/9/Nothing/1", kind: "map" }), /no such figure/);
 
-// Sync: the two anchored example lectures (engine/examples/sync, Hinglish on the motion engine and English on the
+// Sync: the two anchored example lectures (engine/examples/sync, Hinglish in a motion look and English on the
 // board) compiled and run without drawing, in a voice whose word times are exact (tools/sync_probe.py): every
 // animation tied to words begins on them (from 0.6 s before to 0.35 s after). V2_CHECK_FULL only (minutes of renders).
 if (FULL) {
@@ -1231,8 +1125,7 @@ if (FULL) {
   const probes = await Promise.all(["motion-hinglish", "board-english"].map(async (name) => {
     const dir = mkdtempSync(path.join(tmpdir(), `v2-sync-${name}-`));
     const env = { PYTHONPATH: engine, PANIM_IMAGE_FAKE: "1", PANIM_IMAGE_MODEL: "stand-in", PANIM_DIAGRAM_MODEL: "stand-in", PANIM_VOICE: "silent" };
-    const compiler = name.startsWith("motion") ? "compile_motion.py" : "compile_lecture.py";
-    const made = await rp([path.join(engine, compiler), "-", "--json"], dir, env, readFileSync(path.join(engine, "examples", "sync", `${name}.json`), "utf8"), 600_000);
+    const made = await rp([path.join(engine, "compile_motion.py"), "-", "--json"], dir, env, readFileSync(path.join(engine, "examples", "sync", `${name}.json`), "utf8"), 600_000);
     const compiled = JSON.parse(made.stdout.trim().split("\n").pop());
     assert.ok(compiled.source && !compiled.errors.length, `${name} compiles: ${compiled.errors?.join("; ")}`);
     writeFileSync(path.join(dir, "scene.py"), compiled.source);

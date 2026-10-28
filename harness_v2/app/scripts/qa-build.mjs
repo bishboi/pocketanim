@@ -1,5 +1,5 @@
 // The QA loop's test chapters, made as the app makes them (engine/tools/chapter_qa.py judges them): a source PDF read,
-// its lectures written, each chapter spoken and aligned (voice first), its scenes written on the motion engine; then
+// its lectures written, each chapter spoken and aligned (voice first), its scenes written in a look; then
 // each chapter's beat script saved to engine/examples/qa/<name>-L<n>-c<k>.json, as the Scenes tab compiles it.
 // Uses the models and voice the environment names (OPENROUTER_API_KEY, GEMINI_API_KEY, ...); its runs are kept in
 // the working directory's .data, so run it from a scratch folder, not the app's.
@@ -51,7 +51,7 @@ for (const source of sources) {
     console.error(`${name}: the lecture was not written: ${run.error}`);
     continue;
   }
-  await scenesAction(run.id, { action: "engine", engine: "motion", look });
+  await scenesAction(run.id, { action: "motion", look });
   for (const lecture of run.lectures) {
     await scenesAction(run.id, { action: "build", scope: "lecture", lecture: lecture.n });
     run = await until(run.id, (r) => r.scenes?.status === "running", 120);

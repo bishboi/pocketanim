@@ -9,7 +9,7 @@
  * the whole lecture, for one chapter, or for one beat (the rest of its chapter given as it is, for context).
  */
 
-import { ANCHORS, betaSystem } from "./scenes-beta";
+import { ANCHORS, INTENT, TEMPLATES_TEXT } from "./scenes-templates";
 import { part, render, type Part } from "./parts";
 import { V1_FREE_DRAWINGS_HEAD, V1_LECTURE, V1_MANIM_PLAN, V1_MANIM_RULES } from "./v1-lecture";
 
@@ -174,7 +174,7 @@ export type SceneBeatInput = {
   kinds?: string[];
   /** Its operations now (a beat given for context, or the one being written again). */
   ops?: unknown[];
-  /** Its line as spoken already (the voice comes first on the motion engine): its length, the quiet after it, and
+  /** Its line as spoken already (the voice comes first): its length, the quiet after it, and
    * each of its words (w0 its first, as the line is written) with when it is said, from the line's start. */
   voice?: BeatVoice;
 };
@@ -206,8 +206,6 @@ export function scenesPrompt(x: {
   subject?: SceneSubject;
   /** How many operations a beat, how often the visuals change: v1's (4, a paragraph at a time) unless set. */
   pace?: ScenePace;
-  /** Built on the motion engine (beta): its templates and moments are told after v1's instructions. */
-  motion?: { look?: string; timeline?: string };
 }): { system: Part[]; user: Part[] } {
   const writing = (b: SceneBeatInput) => x.ask.what === "lecture" || (x.ask.what === "chapter" && b.chapter === x.ask.chapter)
     || (x.ask.what === "beat" && b.n === x.ask.beat) || (x.ask.what === "fix" && x.ask.beats.includes(b.n));
@@ -227,28 +225,6 @@ export function scenesPrompt(x: {
         : `beats ${x.ask.beats.map((n) => `#${n}`).join(", ")} only, mending what the compiler says of each`;
   const off = Object.keys(x.labels).filter((k) => !x.kinds.includes(k));
   const v1 = (key: string, label: string, kind: Part["kind"] = "rules") => part(`v1-${key}`, label, kind, V1_LECTURE[key]);
-  if (x.motion) {
-    // The motion engine (beta): the elements, how to use them and examples, and nothing that limits how (no subject
-    // tuning, no pace, no rules for choosing a visual): prompts/scenes-beta.ts.
-    return {
-      system: betaSystem({ manimAgent: x.manimAgent, off, labels: x.labels, look: x.motion.look, voiced: x.beats.some((b) => !!b.voice) }),
-      user: [
-        part("look", "The look", "context", `The board is drawn in ${x.look}. The pictures the image model makes are drawn in the style you describe for each.`),
-        part("lecture", "The lecture and its chapters", "plan", [`Lecture ${x.lecture.n}: ${x.lecture.title}`,
-          ...x.chapters.map((c) => `Chapter ${c.n}: ${c.title} - title card: "${c.narration}"`),
-          ...(x.region ? [`Map region (already chosen): ${JSON.stringify(x.region)}`] : [])]),
-        part("figures", `The lecture's figures (${x.figures.length})`, "items", x.figures.length
-          ? x.figures.map((f) => `${f.id}: ${f.way}${f.ready ? "" : " (not made yet)"} - ${f.caption || "(no caption)"}`) : "None."),
-        part("script", `The beats (${x.beats.length})`, "book", x.beats.map(beatLine)),
-        ...(x.note ? [part("note", "Your note for this", "context", x.note)] : []),
-        ...(x.ask.what === "fix" ? [part("retry", "What the compiler refused", "retry",
-          "The compiler could not draw these beats, or they ask more than their lines have time for (COMPILER lines above). " +
-          "Write them again so they can be drawn and seen.")] : []),
-        part("ask", "Request", "ask", `Write the visuals (write_scenes) of ${target}: each beat by its number, with its do -- rich and alive, ` +
-          "something new on every beat and often several moments in one, each on its words."),
-      ],
-    };
-  }
   return {
     system: [
       part("role", "Role", "rules", ROLE),
@@ -269,6 +245,8 @@ export function scenesPrompt(x: {
       v1("stage", "The stage: diagrams, pictures, side by side, other operations"),
       part("v2-picture-style", "Pictures: their style is yours (v2)", "rules", PICTURE_STYLE),
       part("v2-timeline", "Timelines (v2's additions)", "rules", TIMELINE_ADDITIONS),
+      ...(x.kinds.includes("templates") ? [part("v2-templates", "Templates (v2)", "rules", TEMPLATES_TEXT),
+        part("v2-intent", "Moving with intent (v2)", "rules", INTENT)] : []),
       ...(x.kinds.includes("diagram") && x.kinds.includes("drawing") ? [part("v2-picture-flow", "A flow drawn as one picture (v2)", "rules", PICTURE_FLOW)] : []),
       part("v1-free", "Free-form drawings, worked solutions and problems", "rules", V1_FREE_DRAWINGS_HEAD),
       v1("concept", "Concept maps and chains"),
@@ -329,10 +307,9 @@ const HAND_SHAPE = [
  * it change the chapter (the Voice tab's editor): v1's instructions as the scene writer gets them, its subject and
  * the kinds switched off, with the role and the answer's shape for a whole chapter, and Manim written as code.
  */
-export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject; pace?: ScenePace;
-  motion?: { look?: string; timeline?: string } }): string {
+export function handInstructions(x: { look: string; kinds: string[]; labels: Record<string, string>; subject?: SceneSubject; pace?: ScenePace }): string {
   const system = scenesPrompt({ lecture: { n: 0, title: "" }, look: x.look, kinds: x.kinds, labels: x.labels, chapters: [], beats: [],
-    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace, motion: x.motion }).system
+    figures: [], ask: { what: "lecture" }, manimAgent: false, subject: x.subject, pace: x.pace }).system
     .map((p) => (p.key === "role" ? { ...p, text: HAND_ROLE } : p.key === "shape" ? { ...p, text: HAND_SHAPE } : p));
   return [render(system), "", `THE LOOK: the board is drawn in ${x.look}: its diagrams, cards, words and drawn shapes. Do not choose colours outside it for them. The pictures the image model makes are drawn in the style you describe for each.`].join("\n");
 }

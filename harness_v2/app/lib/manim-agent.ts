@@ -291,7 +291,7 @@ export async function runManimAgent(run: Run, n: number, beat: number, o: { inst
   const built = sl.plans?.[chapter.n];
   const scene: { id: string; beats: number[]; intent?: string } | undefined = isPlanOfBeats(built)
     ? paragraphsOf(built.beats).map((beats, k) => ({ id: `P${k + 1}`, beats })).find((x) => x.beats.includes(beat))
-    : built?.scenes.find((x) => x.beats.includes(beat));
+    : undefined;
   const look = lookWords(st.look);
   const state: ManimAgentState = { status: "running", model: o.model || st.manimModel || run.options.manimModel || modelFor("manim"),
     imageModel: run.options.imageModel || modelFor("image"), id, plan: plan || undefined, instruction: o.instruction, steps: [], images: [], turns: 0, cost: 0, started: Date.now() };

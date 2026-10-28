@@ -34,11 +34,9 @@ import { modelFor } from "./models";
 import { part } from "./prompts/parts";
 import { SCENES_TOOL, scenesPrompt, type BeatVoice, type SceneBeatInput, type ScenesAsk } from "./prompts/scenes";
 import { WORD_TIMING_TOOL, wordTimingPrompt, type TimingBeat, type TimingSlot } from "./prompts/word-timing";
-import { CHOREOGRAPHY_TOOL, DIRECTOR_TOOL, choreographyPrompt, directorPrompt, type ChoreographyElement } from "./prompts/director";
-import { actsFor, choreographyOf, estimatedWords, fitPlan, flatSteps, keptSteps, lowerPlan, partsOf, planProblems, readCues, readPlan, sceneSeconds, type BeatWords,
-  type ChapterPlan, type Cue, type CueAct, type PlanElement, type PlanScene } from "./director";
+import { estimatedWords, type BeatWords } from "./director";
 import { BEAT_CHOREOGRAPHY_TOOL, BEAT_DIRECTOR_TOOL, beatChoreographyPrompt, beatDirectorPrompt } from "./prompts/beat-director";
-import { applyPatch, beatsProblems, fitBeats, isPlanOfBeats, opParts, paragraphsOf, patchStillFits, readBeats, readPatch, upBefore,
+import { MAIN, applyPatch, beatsProblems, fitBeats, isPlanOfBeats, opParts, paragraphsOf, patchStillFits, readBeats, readPatch, upBefore,
   type BeatPatch, type BeatsPlan, type ContentBeat, type PatchStep } from "./beat-director";
 import { manualFor } from "./manuals";
 import { PRIMITIVES, primitiveText } from "./primitives";
@@ -50,7 +48,7 @@ import { linesOf } from "./source/book";
 import { DATA, loadRun, saveRun } from "./store";
 import { DEFAULT_LOOK, cleanLook, lookWords, type Look } from "./styles";
 import type { Beat, BeatPicture, ImageReport, MissingPicture, Run, SceneBeat, SceneChapterRender, SceneCompile, SceneLecture, SceneRender, ScenesState, SpokenLine } from "./types";
-import { ALL_KINDS, MOTION_KIND, VISUAL_KINDS, filterOps, kindOfOp } from "./visual-kinds";
+import { ALL_KINDS, VISUAL_KINDS, filterOps, kindOfOp } from "./visual-kinds";
 
 const MAP_OPS = new Set(VISUAL_KINDS.find((k) => k.id === "map")?.ops ?? []);
 
@@ -87,7 +85,7 @@ export type ScenesAction =
   | { action: "agentSettings"; on?: boolean; model?: string }
   | { action: "reuseSettings"; on?: boolean; model?: string }
   | { action: "pace"; maxOps?: number; change?: "paragraph" | "beat" }
-  | { action: "engine"; engine: "current" | "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string;
+  | { action: "motion"; look?: string; energy?: string; transition?: string; idle?: string; timeline?: string;
       voiceFirst?: boolean; music?: boolean; director?: boolean }
   | { action: "reset"; lecture: number; chapter?: number }
   | { action: "stop" };
@@ -111,9 +109,12 @@ export function fileUrl(runId: string, file: string): string {
 }
 
 export function stateOf(run: Run): ScenesState {
-  // A lecture's scenes start on the motion engine (beta) unless V2_SCENES_ENGINE=current; the Scenes tab switches.
-  run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {},
-    ...(process.env.V2_SCENES_ENGINE?.trim().toLowerCase() === "current" ? {} : { engine: "motion" as const }) };
+  run.scenes ??= { status: "idle", model: "", look: { ...DEFAULT_LOOK }, kinds: [...ALL_KINDS], rounds: 0, lectures: {} };
+  // Runs made before the templates were one kind with the rest had them switched on under another name.
+  if (!run.scenes.kinds.includes("templates") && ((run.scenes as { engine?: string }).engine === "motion" || run.scenes.kinds.includes("motion"))) {
+    run.scenes.kinds = ALL_KINDS.filter((k) => k === "templates" || run.scenes!.kinds.includes(k));
+  }
+  delete (run.scenes as { engine?: string }).engine;
   return run.scenes;
 }
 
@@ -171,20 +172,17 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     saveRun(run, true);
     return run;
   }
-  if (a.action === "engine") {
-    // The beats already built stay as they are: the motion engine draws every current operation too, and the current
-    // engine leaves out the motion templates (with a note) until they are built again.
-    st.engine = a.engine === "motion" ? "motion" : undefined;
-    if (st.engine) {
-      const m = { ...(st.motion ?? {}) };
-      for (const k of ["look", "energy", "transition", "idle", "timeline"] as const) if (a[k] !== undefined) m[k] = a[k] || undefined;
-      if (m.look && !(MOTION_LOOKS as readonly string[]).includes(m.look)) throw new Error(`the motion look is one of ${MOTION_LOOKS.join(", ")}`);
-      st.motion = m;
-    }
+  if (a.action === "motion") {
+    // How the lectures move (their look, energy, transition, idle motion, timeline style), and how they are built:
+    // for the next builds, compiles and renders; the beats already built stay as they are.
+    const m = { ...(st.motion ?? {}) };
+    for (const k of ["look", "energy", "transition", "idle", "timeline"] as const) if (a[k] !== undefined) m[k] = a[k] || undefined;
+    if (m.look && !(MOTION_LOOKS as readonly string[]).includes(m.look)) throw new Error(`the look is one of ${MOTION_LOOKS.join(", ")}`);
+    st.motion = m;
     if (a.voiceFirst !== undefined) st.voiceFirst = a.voiceFirst ? undefined : false;
     if (a.director !== undefined) st.director = a.director ? undefined : false;
     if (a.music !== undefined) st.music = a.music ? undefined : false;
-    log(run, `Scenes: the ${st.engine === "motion" ? `motion engine (beta)${st.motion?.look ? `, look ${st.motion.look}` : ""}` : "current engine"}.`);
+    log(run, `Scenes: ${st.motion.look ? `look ${st.motion.look}` : "the style's own look"}.`);
     saveRun(run, true);
     return run;
   }
@@ -271,63 +269,28 @@ export async function scenesAction(id: string, a: ScenesAction): Promise<Run> {
     lectureOf(a.lecture);
     if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
     const had = lectureState(run, a.lecture).plans?.[a.chapter];
-    // On the current engine a scene is a paragraph of the director's beats ("P2": the second).
+    if (had && !isPlanOfBeats(had)) throw new Error(LEGACY_PLAN);
+    // A scene is a paragraph of the director's beats ("P2": the second).
     const paragraph = isPlanOfBeats(had) ? paragraphsOf(had.beats)[Number(/^P(\d+)$/i.exec(a.scene)?.[1]) - 1] : undefined;
-    if (isPlanOfBeats(had) ? !paragraph : !had?.scenes.some((x) => x.id === a.scene)) throw new Error(`chapter ${a.chapter} has no scene ${a.scene}`);
-    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: ${paragraph ? "paragraph" : "scene"} ${a.scene} built again${a.note ? ` (${a.note})` : ""}; its voice kept.`);
+    if (!paragraph) throw new Error(`chapter ${a.chapter} has no scene ${a.scene}`);
+    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: paragraph ${a.scene} built again${a.note ? ` (${a.note})` : ""}; its voice kept.`);
     lock(run, [a.lecture], async () => {
-      if (paragraph) await redirectBeats(run, a.lecture, a.chapter, paragraph, { note: a.note, label: `paragraph ${a.scene} again` });
-      else await rebuildScene(run, a.lecture, a.chapter, a.scene, a.note);
+      await redirectBeats(run, a.lecture, a.chapter, paragraph, { note: a.note, label: `paragraph ${a.scene} again` });
       await compileChapter(run, a.lecture, a.chapter);
       if (a.render) startRender(run, a.lecture, a.chapter);
     });
     return run;
   }
   if (a.action === "editPlan" || a.action === "editCues") {
-    // A chapter built as one piece, changed by hand (the Scenes tab's plan and cues): its plan (elements and scenes),
-    // lowered again with the cues it had (those that still fit) or choreographed again; or its cues. Compiled, and
-    // rendered when asked.
+    // A chapter built as one piece, changed by hand (the Scenes tab's beats and patch). Compiled, and rendered when
+    // asked.
     const sl = lectureOf(a.lecture);
     if (busy.has(busyKey(id, a.lecture))) throw new Error(`lecture ${a.lecture} is being built: wait, or stop it`);
     if (!scriptOf(run, a.lecture)!.chapters.some((c) => c.n === a.chapter)) throw new Error(`lecture ${a.lecture} has no chapter ${a.chapter}`);
     const had = sl.plans?.[a.chapter];
     if (!had) throw new Error(`chapter ${a.chapter} was not built as one piece (with the director): build it first`);
-    if (isPlanOfBeats(had)) {
-      await editBeats(run, a, had);
-      return run;
-    }
-    const engine = stateOf(run).engine === "motion" ? "motion" : "current";
-    const own = chapterBeats(run, a.lecture, a.chapter);
-    const { words } = await chapterWords(run, a.lecture, a.chapter);
-    let plan: ChapterPlan = { elements: had.elements, scenes: had.scenes, notes: [] };
-    let cues: Cue[] | undefined;
-    let looks = keptSteps(had).looks;
-    if (a.action === "editPlan") {
-      if (!a.plan || typeof a.plan !== "object" || Array.isArray(a.plan)) throw new Error('the plan must be a JSON object: {"elements": [...], "scenes": [...]}');
-      plan = readPlan(a.plan as Record<string, unknown>, own);
-      keepKinds(run, a.lecture, plan, own);
-      if (!plan.elements.length) throw new Error(`the plan has no element that can be drawn${plan.notes?.length ? `: ${plan.notes.slice(0, 4).join("; ")}` : ""}`);
-      if (!a.choreograph) cues = planCues(plan, keptSteps(had, planRefs(plan, engine)).cues, words, engine).cues;
-      const ids = new Set(plan.elements.map((e) => e.id));
-      looks = new Map([...looks].filter(([k]) => ids.has(k)));
-    } else {
-      if (!a.cues || typeof a.cues !== "object") throw new Error('the choreography must be a JSON object: {"elements": [{"id": "...", "timeline": [{"at": "b12.w3", "do": "enter"}]}]}');
-      const steps = flatSteps(a.cues, planRefs(plan, engine));
-      const read = planCues(plan, steps.cues, words, engine);
-      const wrong = [...steps.dropped, ...read.dropped];
-      if (wrong.length) throw new Error(`${wrong.length} step(s) cannot be used: ${wrong.slice(0, 6).join("; ")}`);
-      cues = read.cues;
-      looks = steps.looks;
-    }
-    log(run, `Lecture ${a.lecture}, chapter ${a.chapter}: its ${a.action === "editPlan" ? "plan" : "cues"} changed by hand` +
-      (a.action === "editPlan" && a.choreograph ? ", choreographed again." : "."));
-    lock(run, [a.lecture], async () => {
-      const done = cues ? { cues, looks } : await choreograph(run, a.lecture, a.chapter, plan, words, engine, motionLookWords(stateOf(run)));
-      applyPlan(run, a.lecture, a.chapter, plan, done.cues, words, engine, keptExtras(run, a.lecture, a.chapter, plan), done.looks);
-      saveRun(run);
-      await compileChapter(run, a.lecture, a.chapter);
-      if (a.render) startRender(run, a.lecture, a.chapter);
-    });
+    if (!isPlanOfBeats(had)) throw new Error(LEGACY_PLAN);
+    await editBeats(run, a, had);
     return run;
   }
   if (a.action === "agent") {
@@ -583,14 +546,6 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
   const beats = beatInputs(run, n);
-  if (voiceFirst(st) && st.engine === "motion") {
-    // Each beat as its voice says it, for the chapters spoken already (the motion writer anchors to its words itself;
-    // on the current engine the word timing call does, after it: timeWords).
-    for (const c of new Set(beats.map((b) => b.chapter))) {
-      const voiced = await voicedBeats(run, n, c);
-      if (voiced) for (const b of beats) if (b.chapter === c && voiced.has(b.n)) b.voice = voiced.get(b.n);
-    }
-  }
   const targets = beats.filter((b) => ask.what === "lecture" || (ask.what === "chapter" && b.chapter === ask.chapter)
     || (ask.what === "beat" && b.n === ask.beat) || (ask.what === "fix" && ask.beats.includes(b.n))).map((b) => b.n);
   const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
@@ -601,17 +556,16 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
   const label = ask.what === "chapter" ? `Scenes: lecture ${n}, chapter ${ask.chapter}` : ask.what === "beat" ? `Scenes: lecture ${n}, beat ${ask.beat}`
     : ask.what === "fix" ? `Scenes: lecture ${n}, mend ${targets.length} beat(s)` : `Scenes: lecture ${n}`;
-  const motion = st.engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
   // The chapter it writes in: the other chapters' beats are given as words only, never their visuals, so a chapter is
   // written the same whichever chapters were built before it; its own region is the one already chosen.
   const own = ask.what === "chapter" ? ask.chapter : ask.what === "lecture" ? undefined : chapterOfBeat(run, n, targets[0] ?? -1);
   if (own !== undefined) for (const b of beats) if (b.chapter !== own) delete b.ops;
   const chosen = own !== undefined ? (sl.regions?.[own] ?? sl.region ?? undefined) : sl.region;
-  const call = newCall(run, { step: "scenes", label: motion ? `${label} (motion engine)` : label, lecture: n, model: st.model,
+  const call = newCall(run, { step: "scenes", label, lecture: n, model: st.model,
     prompt: scenesPrompt({ lecture: { n, title: lecture.title }, look: motionLookWords(st), kinds, labels,
       chapters: script.chapters.map((c) => ({ n: c.n, title: c.title, narration: c.narration, map: c.map })),
       beats, figures, region: chosen, ask, problems, note, manimAgent: st.manimAgent !== false, subject: await subjectOf(run, n),
-      pace: { maxOps: st.maxOps, change: st.visualChange }, motion }) });
+      pace: { maxOps: st.maxOps, change: st.visualChange } }) });
   sl.calls.push(call.id);
   for (const t of targets) {
     const b = beatState(sl, t);
@@ -620,7 +574,7 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
   }
   saveRun(run);
   const reply = await callTool({ call, tool: SCENES_TOOL, onChange: () => saveRun(run),
-    fake: () => (motion ? fakeMotionScenes : fakeScenes)(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
+    fake: () => fakeScenes(run, n, beats.filter((b) => targets.includes(b.n)), kinds) });
   if (!reply) {
     for (const t of targets) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
     throw new Error(`the call failed: ${call.error ?? "no reply"}`);
@@ -671,7 +625,7 @@ async function writeBeats(run: Run, n: number, ask: ScenesAsk, problems?: Record
     for (const c of new Set(targets.map((t) => chapterOfBeat(run, n, t)))) if (c !== undefined && sl.plans?.[c]) delete sl.plans[c];
   }
   saveRun(run);
-  if (voiceFirst(st) && st.engine !== "motion") {
+  if (voiceFirst(st)) {
     const written = targets.filter((t) => answered.has(t));
     for (const c of new Set(written.map((t) => chapterOfBeat(run, n, t)).filter((c): c is number => c !== undefined))) {
       await timeWords(run, n, c, written.filter((t) => chapterOfBeat(run, n, t) === c));
@@ -827,25 +781,15 @@ async function timeWords(run: Run, n: number, c: number, targets: number[]): Pro
 
 // ---------------------------------------------------------------- a chapter as one piece (director) ----------------
 
-/** Whether a chapter is built as one piece (lib/director.ts): its plan (elements and scenes) by the director, its cues
- * by the choreography, a few scenes a call. On unless the Scenes tab turned it off (or V2_SCENES_DIRECTOR=0). */
+/** Whether a chapter is built as one piece (lib/beat-director.ts): its beats by the director, their timing by the
+ * choreographer. On unless the Scenes tab turned it off (or V2_SCENES_DIRECTOR=0). */
 export function directed(st: ScenesState): boolean {
   return st.director !== false && process.env.V2_SCENES_DIRECTOR !== "0";
 }
 
-/** Choreography calls at once, and about how much narration one is given (its scenes, whole). */
-const CHOREOGRAPHY_AT_ONCE = Math.max(1, Number(process.env.V2_CHOREOGRAPHY_PARALLEL) || 4);
-const CHOREOGRAPHY_SECONDS = Math.max(10, Number(process.env.V2_CHOREOGRAPHY_SECONDS) || 30);
-const CHOREOGRAPHY_SCENES = 4;
+/** Said when a chapter's plan was made by the retired motion-engine director (a run made before). */
+const LEGACY_PLAN = "this chapter was built by the old motion-engine director (retired): build it again to change it";
 
-/**
- * A chapter built as one piece. (1) The director (the scenes model, the scene writer's instructions) writes the
- * chapter's plan: its elements and its scenes, no timing. (2) Each few scenes are choreographed in a call of their own
- * (the choreography model), at once: shown their lines as the voice says them (estimated when the chapter is not
- * spoken), their elements with their parts and what may be done with each, and the manuals of those artifacts;
- * answered as cues. (3) Code checks both and lowers them into the beats' operations (lib/director.ts lowerPlan),
- * which are compiled as any other. The plan is kept by chapter (sl.plans).
- */
 /** What the director of a chapter is told: the scene writer's prompt for the chapter (the scenes model's instructions,
  * its beats, the kinds it may use), and what goes with it. */
 async function directorBase(run: Run, n: number, c: number, note?: string) {
@@ -853,7 +797,6 @@ async function directorBase(run: Run, n: number, c: number, note?: string) {
   const sl = lectureState(run, n);
   const script = scriptOf(run, n)!;
   const lecture = run.lectures.find((l) => l.n === n)!;
-  const engine: "current" | "motion" = st.engine === "motion" ? "motion" : "current";
   const own = chapterBeats(run, n, c);
   const beats = beatInputs(run, n);
   for (const b of beats) if (b.chapter !== c) delete b.ops;
@@ -861,168 +804,12 @@ async function directorBase(run: Run, n: number, c: number, note?: string) {
   for (const b of beats) if (b.kinds && (!own.includes(b.n) || kinds.every((k) => b.kinds!.includes(k)))) delete b.kinds;
   const labels = Object.fromEntries(VISUAL_KINDS.map((k) => [k.id, k.label]));
   const figures = lectureFigures(run, n).map((f) => ({ id: f.id, way: f.way, caption: f.caption, ready: f.ready }));
-  const motion = engine === "motion" ? { look: st.motion?.look, timeline: st.motion?.timeline } : undefined;
   const chosen = sl.regions?.[c] ?? sl.region ?? undefined;
   const base = scenesPrompt({ lecture: { n, title: lecture.title }, look: motionLookWords(st), kinds, labels,
     chapters: script.chapters.map((x) => ({ n: x.n, title: x.title, narration: x.narration, map: x.map })),
     beats, figures, region: chosen, ask: { what: "chapter", chapter: c }, note, manimAgent: st.manimAgent !== false,
-    subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange }, motion });
-  return { st, sl, script, engine, own, beats, kinds, motion, base, mine: beats.filter((b) => own.includes(b.n)) };
-}
-
-async function directChapter(run: Run, n: number, c: number, note?: string): Promise<void> {
-  // On the current engine the director writes the beats themselves, and the choreographer patches them.
-  if (stateOf(run).engine !== "motion") return directBeats(run, n, c, note);
-  const { st, sl, script, engine, own, kinds, motion, base, mine } = await directorBase(run, n, c, note);
-  const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (director${motion ? ", motion engine" : ""})`,
-    lecture: n, model: st.model, prompt: directorPrompt(base, { chapter: c, beats: own, ...(motion ? {} : { catalog: primitiveCatalog(kinds) }) }) });
-  sl.calls.push(call.id);
-  for (const t of own) {
-    const b = beatState(sl, t);
-    b.status = "running";
-    b.calls.push(call.id);
-  }
-  saveRun(run);
-  let reply = await callTool({ call, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
-  if (!reply) {
-    for (const t of own) Object.assign(beatState(sl, t), { status: sl.beats[t].ops.length ? "done" : "failed" });
-    throw new Error(`the call failed: ${call.error ?? "no reply"}`);
-  }
-  let plan = readPlan(reply, own);
-  let dropped = keepKinds(run, n, plan, own);
-  // A plan past the LIMITS (a scene too long, an element too big to read): asked again once with what was wrong.
-  const problems = planProblems(plan);
-  if (problems.length) {
-    check(call, "Limits", "fixed", `${problems.length} past the limits: ${problems.slice(0, 6).join("; ")}; asked again`);
-    const again = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c} (director, again within the limits)`, lecture: n,
-      model: st.model, prompt: directorPrompt(base, { chapter: c, beats: own, ...(motion ? {} : { catalog: primitiveCatalog(kinds) }),
-        problems: { plan: { elements: plan.elements, scenes: plan.scenes }, list: problems } }) });
-    sl.calls.push(again.id);
-    for (const t of own) beatState(sl, t).calls.push(again.id);
-    saveRun(run);
-    const second = await callTool({ call: again, tool: DIRECTOR_TOOL, onChange: () => saveRun(run), fake: () => fakePlan(run, n, mine, kinds, engine) });
-    if (second) {
-      const plan2 = readPlan(second, own);
-      const dropped2 = keepKinds(run, n, plan2, own);
-      const left = planProblems(plan2);
-      check(again, "Limits", left.length ? "fixed" : "pass", left.length ? `${left.length} still past them (cut to fit): ${left.slice(0, 6).join("; ")}` : "within the limits");
-      if (plan2.elements.length && left.length < problems.length) {
-        reply = second;
-        plan = plan2;
-        dropped = dropped2;
-      }
-    }
-  }
-  const fitted = fitPlan(plan);
-  if (fitted.length) check(call, "Cut to fit", "fixed", fitted.slice(0, 8).join("; "));
-  check(call, "Plan", plan.elements.length ? "pass" : "fail", `${plan.elements.length} element(s) in ${plan.scenes.length} scene(s) over ${own.length} beat(s)`);
-  if (plan.notes.length) check(call, "Mended", "fixed", plan.notes.slice(0, 10).join("; "));
-  if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off (or unknown) taken out`);
-  if (typeof reply.emblem === "string" && reply.emblem.trim() && !sl.emblem) sl.emblem = reply.emblem.trim().slice(0, 160);
-  const region = reply.region && typeof reply.region === "object" ? reply.region as Record<string, unknown> : undefined;
-  if (region && (script.chapters.some((x) => x.map) || plan.elements.some((e) => MAP_OPS.has(String(e.op.op))))) {
-    (sl.regions ??= {})[c] = region;
-    check(call, "Region", "pass", `chapter ${c}: ${JSON.stringify(region)}`);
-  }
-  const extras = new Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>();
-  for (const x of plan.scenes) extras.set(x.beats[0], { paragraph: true });
-  for (const b of Array.isArray(reply.beats) ? reply.beats as { beat?: unknown; paragraph?: unknown; pause?: unknown; about?: unknown }[] : []) {
-    const k = Math.round(Number(b?.beat));
-    if (!own.includes(k)) continue;
-    const pause = Number(b.pause);
-    extras.set(k, { ...extras.get(k), ...(b.paragraph === true ? { paragraph: true } : {}),
-      ...(Number.isFinite(pause) && pause > 0 ? { pause: Math.min(pause, 4) } : {}),
-      ...(typeof b.about === "string" && b.about.trim() ? { about: b.about.trim().slice(0, 120) } : {}) });
-  }
-  const { words, voiced } = await chapterWords(run, n, c);
-  const done = await choreograph(run, n, c, plan, words, engine, motionLookWords(st));
-  const lowered = applyPlan(run, n, c, plan, done.cues, words, engine, extras, done.looks);
-  if (lowered.length) check(call, "Lowered", "fixed", `${lowered.length} cue(s) mended or left out: ${lowered.slice(0, 8).join("; ")}`);
-  const short = voiced ? plan.scenes.filter((x, i) => i < plan.scenes.length - 1 && sceneSeconds(x, words) < MIN_HOLD) : [];
-  if (short.length) check(call, "Held", "info", `${short.length} scene(s) held under ${MIN_HOLD} s: ${short.map((x) => `${x.id} ${sceneSeconds(x, words).toFixed(1)} s`).join(", ")}`);
-  saveRun(run);
-}
-
-/**
- * One scene of a chapter built as one piece, built again: the director asked for that scene's beats only (shown the
- * chapter's plan; the other scenes stay as they are), its new elements and scene(s) put in the plan in its place, and
- * only those choreographed again; the other scenes' cues kept. The chapter's voice is kept: nothing is spoken again.
- */
-async function rebuildScene(run: Run, n: number, c: number, sceneId: string, note?: string): Promise<void> {
-  const was = lectureState(run, n).plans?.[c];
-  const had = isPlanOfBeats(was) ? undefined : was;
-  const target = had?.scenes.find((x) => x.id === sceneId);
-  if (!had || !target) throw new Error(`chapter ${c} has no scene ${sceneId}`);
-  const { sl, engine, kinds, motion, base, mine } = await directorBase(run, n, c, note);
-  const call = newCall(run, { step: "scenes", label: `Scenes: lecture ${n}, chapter ${c}, scene ${sceneId} again (director${motion ? ", motion engine" : ""})`,
-    lecture: n, model: stateOf(run).model, prompt: directorPrompt(base, { chapter: c, beats: target.beats, ...(motion ? {} : { catalog: primitiveCatalog(kinds) }),
-      only: { scene: sceneId, beats: target.beats, plan: { elements: had.elements, scenes: had.scenes }, note } }) });
-  sl.calls.push(call.id);
-  for (const t of target.beats) beatState(sl, t).calls.push(call.id);
-  saveRun(run);
-  const reply = await callTool({ call, tool: DIRECTOR_TOOL, onChange: () => saveRun(run),
-    fake: () => fakePlan(run, n, mine.filter((b) => target.beats.includes(b.n)), kinds, engine) });
-  if (!reply) throw new Error(`the call failed: ${call.error ?? "no reply"}`);
-  // The scene's answer: its elements (new ones renamed off the plan's ids; the plan's own kept by id) and scenes.
-  const others = had.scenes.filter((x) => x.id !== sceneId);
-  const keptIds = new Set(had.elements.map((e) => e.id));
-  const fresh = readPlan(reply, target.beats);
-  const fittedScene = fitPlan(fresh);
-  if (fittedScene.length) check(call, "Cut to fit", "fixed", fittedScene.slice(0, 6).join("; "));
-  const rename = new Map<string, string>();
-  const taken = new Set([...keptIds, ...others.map((x) => x.id)]);
-  const added = fresh.elements.filter((e) => {
-    const old = had.elements.find((x) => x.id === e.id);
-    if (old && JSON.stringify(old.op) === JSON.stringify(e.op)) return false;     // one it keeps as it is
-    let id = e.id;
-    while (taken.has(id)) id = `${id}-2`;
-    taken.add(id);
-    rename.set(e.id, id);
-    e.id = id;
-    if (e.op.op === "diagram") e.op.id = id;
-    return true;
-  });
-  const scenes = fresh.scenes.map((x) => {
-    let id = x.id;
-    while (taken.has(id)) id = `${id}b`;
-    taken.add(id);
-    return { ...x, id, uses: x.uses.map((u) => rename.get(u) ?? u) };
-  });
-  const usedElsewhere = new Set(others.flatMap((x) => x.uses));
-  const plan: ChapterPlan = { elements: [...had.elements.filter((e) => usedElsewhere.has(e.id) || scenes.some((x) => x.uses.includes(e.id))
-    && !rename.has(e.id)), ...added], scenes: [...others, ...scenes].sort((a, b) => a.beats[0] - b.beats[0]), notes: fresh.notes };
-  const dropped = keepKinds(run, n, plan, target.beats);
-  check(call, "Scene", added.length || scenes.length ? "pass" : "fail", `scene ${sceneId}: ${added.length} new element(s), ${scenes.length} scene(s) in its place`);
-  if (dropped) check(call, "Switched off", "fixed", `${dropped} operation(s) or picture(s) of a kind switched off taken out`);
-  const { words } = await chapterWords(run, n, c);
-  const fresher = await choreograph(run, n, c, { elements: plan.elements, scenes }, words, engine, motionLookWords(stateOf(run)));
-  const span = new Set(target.beats);
-  // The other scenes' cues, those that still fit the plan (planCues leaves out a ref that is gone), and their looks.
-  const kept = keptSteps(had, planRefs(plan, engine));
-  const keep = planCues(plan, kept.cues.filter((q) => !span.has(Number(/^b(\d+)/.exec(String(q.at))?.[1]))), words, engine).cues;
-  const looks = new Map([...kept.looks].filter(([k]) => plan.elements.some((e) => e.id === k)));
-  for (const [k, v] of fresher.looks) looks.set(k, v);
-  const notes = applyPlan(run, n, c, plan, [...keep, ...fresher.cues], words, engine, keptExtras(run, n, c, plan), looks);
-  if (notes.length) check(call, "Lowered", "fixed", `${notes.length} cue(s) mended or left out: ${notes.slice(0, 6).join("; ")}`);
-  saveRun(run);
-}
-
-/** The kinds switched off, as in any build: an element of a kind switched off (or of none) is taken out of the plan,
- * and out of its scenes. How many operations or pictures were taken out. */
-function keepKinds(run: Run, n: number, plan: ChapterPlan, own: number[]): number {
-  const sl = lectureState(run, n);
-  let dropped = 0;
-  plan.elements = plan.elements.filter((el) => {
-    const first = plan.scenes.find((x) => x.uses.includes(el.id))?.beats[0] ?? own[0];
-    const kept = filterOps([el.op], allowedFor(run, sl, first));
-    dropped += kept.dropped.length;
-    if (!kept.ops.length) return false;
-    el.op = kept.ops[0] as Record<string, unknown>;
-    return true;
-  });
-  const ids = new Set(plan.elements.map((e) => e.id));
-  for (const x of plan.scenes) x.uses = x.uses.filter((u) => ids.has(u));
-  return dropped;
+    subject: await subjectOf(run, n), pace: { maxOps: st.maxOps, change: st.visualChange } });
+  return { st, sl, script, own, beats, kinds, base, mine: beats.filter((b) => own.includes(b.n)) };
 }
 
 /** Each beat of a chapter as its voice says it (spoken first), else as it would be (estimated); and the voice's own. */
@@ -1037,59 +824,7 @@ async function chapterWords(run: Run, n: number, c: number): Promise<{ words: Ma
   return { words, voiced };
 }
 
-/** What every element and part of a chapter's plan may do, for cues read against the whole chapter (given by hand). */
-function planActs(plan: ChapterPlan, engine: "current" | "motion"): Map<string, CueAct[]> {
-  const acts = new Map<string, CueAct[]>();
-  for (const el of plan.elements) {
-    const may = actsFor(el, engine);
-    acts.set(el.id, may.element);
-    for (const p of partsOf(el)) acts.set(p.ref, may.parts);
-  }
-  if (engine === "motion") acts.set("*", ["stamp"]);
-  return acts;
-}
-
-/** Every element's and part's ref in a chapter's plan. */
-function planRefs(plan: ChapterPlan, engine: "current" | "motion"): Set<string> {
-  return new Set(planActs(plan, engine).keys());
-}
-
-/** Cues read against a chapter's plan and words (readCues): those that can be used, and what was not. */
-function planCues(plan: ChapterPlan, raw: unknown, words: Map<number, BeatWords>, engine: "current" | "motion") {
-  return readCues({ cues: Array.isArray(raw) ? raw : [] }, { words, beats: new Set(plan.scenes.flatMap((x) => x.beats)),
-    acts: planActs(plan, engine), scenes: new Set(plan.scenes.map((x) => x.id)) });
-}
-
-/**
- * A chapter's plan and its cues lowered into its beats (lowerPlan), each beat's operations, paragraph, pause and about
- * written; the plan kept with its cues (sl.plans), to be seen and changed. What was mended or left out.
- */
-function applyPlan(run: Run, n: number, c: number, plan: ChapterPlan, cues: Cue[], words: Map<number, BeatWords>, engine: "current" | "motion",
-  extras: Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">>, looks: Map<string, Record<string, unknown>> = new Map()): string[] {
-  const sl = lectureState(run, n);
-  const lowered = lowerPlan(plan, cues, words, engine, looks);
-  for (const t of chapterBeats(run, n, c)) {
-    Object.assign(beatState(sl, t), { ops: lowered.ops.get(t) ?? [], dropped: [], status: "done", edited: false, errors: undefined, notes: undefined,
-      paragraph: undefined, pause: undefined, about: undefined, ...extras.get(t) });
-  }
-  (sl.plans ??= {})[c] = { elements: plan.elements, scenes: plan.scenes, choreography: choreographyOf(plan, cues, looks), at: Date.now(),
-    notes: [...(plan.notes ?? []), ...lowered.notes].slice(0, 60) };
-  sl.scriptAt = run.script?.lectures[n]?.at;
-  return lowered.notes;
-}
-
-/** A chapter's beats' paragraph, pause and about as they are, with a paragraph at each scene's first beat: for a
- * plan changed by hand. */
-function keptExtras(run: Run, n: number, c: number, plan: ChapterPlan): Map<number, Pick<SceneBeat, "paragraph" | "pause" | "about">> {
-  const sl = lectureState(run, n);
-  const firsts = new Set(plan.scenes.map((x) => x.beats[0]));
-  return new Map(chapterBeats(run, n, c).map((t) => {
-    const b = sl.beats[t];
-    return [t, { ...(firsts.has(t) ? { paragraph: true } : {}), ...(b?.pause ? { pause: b.pause } : {}), ...(b?.about ? { about: b.about } : {}) }];
-  }));
-}
-
-/** The current engine's primitives the director may use (lib/primitives.ts), those of the kinds switched on. */
+/** The primitives the director may use (lib/primitives.ts), those of the kinds switched on. */
 function primitiveCatalog(kinds: string[]): string {
   const pictures = ["figure", "illustration", "drawing", "gallery"];
   return PRIMITIVES.filter((p) => {
@@ -1097,142 +832,6 @@ function primitiveCatalog(kinds: string[]): string {
     const k = kindOfOp(p.example);
     return !k || k === "base" || kinds.includes(k);
   }).map(primitiveText).join("\n");
-}
-
-/** The chapter's scenes in groups of about CHOREOGRAPHY_SECONDS of narration (never more than CHOREOGRAPHY_SCENES). */
-function sceneGroups(scenes: PlanScene[], words: Map<number, BeatWords>): PlanScene[][] {
-  const out: PlanScene[][] = [];
-  let group: PlanScene[] = [];
-  let seconds = 0;
-  for (const x of scenes) {
-    group.push(x);
-    seconds += sceneSeconds(x, words);
-    if (seconds >= CHOREOGRAPHY_SECONDS || group.length >= CHOREOGRAPHY_SCENES) {
-      out.push(group);
-      group = [];
-      seconds = 0;
-    }
-  }
-  if (group.length) out.push(group);
-  return out;
-}
-
-/** The chapter's cues and looks: its scenes choreographed a group at a time, the groups at once (directChapter). */
-async function choreograph(run: Run, n: number, c: number, plan: ChapterPlan, words: Map<number, BeatWords>, engine: "current" | "motion",
-  look: string): Promise<{ cues: Cue[]; looks: Map<string, Record<string, unknown>> }> {
-  const sl = lectureState(run, n);
-  const firstScene = new Map<string, string>();
-  for (const x of plan.scenes) for (const id of x.uses) if (!firstScene.has(id)) firstScene.set(id, x.id);
-  const byId = new Map(plan.elements.map((e) => [e.id, e]));
-  const groups = sceneGroups(plan.scenes, words);
-  const model = modelFor("choreography");
-  const all: Cue[] = [];
-  const looks = new Map<string, Record<string, unknown>>();
-  await eachAtOnce(groups.map((_, i) => i), CHOREOGRAPHY_AT_ONCE, async (gi) => {
-    const group = groups[gi];
-    const inGroup = new Set(group.map((x) => x.id));
-    const elements: ChoreographyElement[] = [];
-    const acts = new Map<string, CueAct[]>();
-    for (const id of [...new Set(group.flatMap((x) => x.uses))]) {
-      const el = byId.get(id);
-      // A Manim figure times itself (the Manim agent writes it to the beat's word times): not choreographed.
-      if (!el || el.op.op === "manim") continue;
-      const already = !inGroup.has(firstScene.get(id) ?? "");
-      const may = actsFor(el, engine);
-      const parts = partsOf(el);
-      const element = already ? may.element.filter((a) => a !== "enter") : may.element;
-      const partActs = already && !may.laterParts ? may.parts.filter((a) => a !== "enter") : may.parts;
-      if (element.length) acts.set(id, element);
-      for (const p of parts) if (partActs.length) acts.set(p.ref, partActs);
-      elements.push({ el, parts, acts: { ...may, element, parts: partActs }, scene: group.find((x) => x.uses.includes(id))!.id, already });
-    }
-    if (engine === "motion") acts.set("*", ["stamp"]);
-    const ops = [...new Set(elements.map((e) => String(e.el.op.op)))];
-    const manuals = ops.map((op) => ({ op, text: manualFor(op, engine) })).filter((m) => m.text);
-    const at = plan.scenes.indexOf(group[0]);
-    const prev = plan.scenes[at - 1];
-    const next = plan.scenes[at + group.length];
-    const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, scene${group.length > 1 ? "s" : ""} ` +
-      `${group[0].id}${group.length > 1 ? `-${group[group.length - 1].id}` : ""}`, lecture: n, model, effort: "low",
-      prompt: choreographyPrompt({ lecture: n, chapter: c, engine, look, scenes: group, words, elements, manuals, stamps: engine === "motion",
-        before: prev ? `scene ${prev.id}${prev.intent ? ` (${prev.intent})` : ""} showed ${prev.uses.join(", ")}` : undefined,
-        after: next ? `scene ${next.id} begins: "${words.get(next.beats[0])?.text.slice(0, 120) ?? ""}"` : undefined }) });
-    sl.calls.push(call.id);
-    for (const b of group.flatMap((x) => x.beats)) beatState(sl, b).calls.push(call.id);
-    saveRun(run);
-    const reply = await callTool({ call, tool: CHOREOGRAPHY_TOOL, onChange: () => saveRun(run), fake: () => fakeChoreography(group, elements, words) });
-    const steps = flatSteps(reply ?? {}, new Set(acts.keys()));
-    const read = readCues({ cues: steps.cues }, { words, beats: new Set(group.flatMap((x) => x.beats)), acts, scenes: inGroup });
-    const { cues } = read;
-    const dropped = [...steps.dropped, ...read.dropped];
-    for (const [k, v] of steps.looks) if (elements.some((e) => e.el.id === k)) looks.set(k, v);
-    const entering = elements.filter((e) => !e.already);
-    const unentered = entering.filter((e) => !cues.some((q) => q.ref === e.el.id && q.act === "enter"));
-    check(call, "Cues", !reply || !cues.length ? "fail" : dropped.length || unentered.length ? "fixed" : "pass", !reply ? `no answer: ${call.error ?? ""}`
-      : `${cues.length} cue(s) for ${elements.length} element(s)` + (dropped.length ? `; ${dropped.length} left out: ${dropped.slice(0, 5).join("; ")}` : "") +
-        (unentered.length ? `; ${unentered.length} element(s) given no entry come on as their scene begins (${unentered.map((e) => e.el.id).join(", ")})` : ""));
-    all.push(...cues);
-  });
-  return { cues: all, looks };
-}
-
-/** The stand-in's plan (no key): the stand-in's beats made elements, a new scene at a main picture after two beats. */
-function fakePlan(run: Run, n: number, beats: SceneBeatInput[], kinds: string[], engine: "current" | "motion") {
-  const base = (engine === "motion" ? fakeMotionScenes : fakeScenes)(run, n, beats, kinds);
-  const elements: PlanElement[] = [];
-  const scenes: { id: string; beats: number[]; uses: string[] }[] = [];
-  let scene: (typeof scenes)[number] | undefined;
-  for (const b of base.beats) {
-    const ops = (b.do as Record<string, unknown>[]).filter((o) => !["reveal", "focus", "zoom", "emphasis", "clear"].includes(String(o.op)));
-    if (!scene || (ops.some((o) => MAIN.has(String(o.op))) && scene.beats.length >= 2)) {
-      scene = { id: `S${scenes.length + 1}`, beats: [], uses: [] };
-      scenes.push(scene);
-    }
-    scene.beats.push(b.beat);
-    for (const o of ops) {
-      const id = `e${elements.length + 1}`;
-      elements.push({ id, op: o });
-      scene.uses.push(id);
-    }
-  }
-  return { region: base.region, elements, scenes };
-}
-
-/** The stand-in's cues (no key): each element on the first word of its scene's lines that is in its words, else as its
- * scene begins; each part on the first word that names it (a diagram's node in any line of its scene). */
-function fakeChoreography(group: PlanScene[], elements: ChoreographyElement[], words: Map<number, BeatWords>) {
-  const plainWord = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-  const find = (beats: number[], text: string) => {
-    const said = text.toLowerCase();
-    for (const b of beats) {
-      const k = (words.get(b)?.words ?? []).findIndex((w) => plainWord(w.w).length > 3 && said.includes(plainWord(w.w)));
-      if (k >= 0) return [b, k] as const;
-    }
-    return undefined;
-  };
-  const out: { id: string; timeline: { at: string; do: string; part?: string; until?: string }[] }[] = [];
-  for (const e of elements) {
-    const timeline: (typeof out)[number]["timeline"] = [];
-    out.push({ id: e.el.id, timeline });
-    const beats = group.filter((x) => x.uses.includes(e.el.id)).flatMap((x) => x.beats);
-    let at: readonly [number, number] = [beats[0], 0];
-    if (!e.already) {
-      const named = ["title", "text", "label", "term", "value", "name", "caption"].map((k) => e.el.op[k]).filter((v) => typeof v === "string").join(" ");
-      at = find(beats, named) ?? [beats[0], 0];
-      timeline.push({ at: `b${at[0]}.w${at[1]}`, do: "enter" });
-    }
-    if (!e.acts.parts.includes("enter")) continue;
-    for (const p of e.parts) {
-      const hit = find(e.acts.laterParts ? beats.filter((b) => b >= at[0]) : [at[0]], p.name);
-      if (!hit) continue;
-      const part = p.ref.slice(e.el.id.length + 1);
-      timeline.push({ at: `b${hit[0]}.w${hit[1]}`, do: "show", part });
-      // A labelled picture's part lit as it is named, held to the end of its line.
-      const last = (words.get(hit[0])?.words.length ?? 1) - 1;
-      if (e.acts.parts.includes("shade") && last > hit[1] + 1) timeline.push({ at: `b${hit[0]}.w${hit[1] + 1}`, do: "light", part, until: `b${hit[0]}.w${last}` });
-    }
-  }
-  return { elements: out };
 }
 
 // ---------------------------------------------------------------- a chapter's beats (current engine) -------------
@@ -1383,7 +982,7 @@ async function choreographBeats(run: Run, n: number, c: number, beats: ContentBe
     // A Manim figure times itself (the Manim agent writes it to the beat's word times): not choreographed.
     const shown = { ...b, do: b.do.filter((o) => o.op !== "manim") };
     const kinds = [...new Set([...shown.do.map((o) => String(o.op)), "point", "shade", "focus", "unlabel", "unstage"])];
-    const manuals = kinds.map((op) => ({ op, text: manualFor(op, "current") })).filter((m) => m.text);
+    const manuals = kinds.map((op) => ({ op, text: manualFor(op) })).filter((m) => m.text);
     const prev = beats[i - 1];
     const next = beats[i + 1];
     const call = newCall(run, { step: "scenes", label: `Choreography: lecture ${n}, chapter ${c}, beat ${b.beat}`, lecture: n, model, effort: "low",
@@ -1563,125 +1162,9 @@ async function speakFirst(run: Run, n: number, c: number): Promise<void> {
     : `Lecture ${n}, chapter ${c}: could not be spoken first (${told?.error ?? "no voice"}): its scenes are written without the voice's times.`);
 }
 
-/** Operations that come over what is up rather than putting a picture of their own on the stage. */
-const OVER = new Set(["stamp", "emphasis", "reveal", "focus", "zoom", "option", "dim", "clear", "panel", "unstage", "answer"]);
-
-/**
- * What cannot be seen in the time a voiced beat gives it: more pictures than its line has seconds for (each new one
- * needs about 2.5 s to come on and be looked at), or more moments than can each be seen (about 0.6 s apart). The
- * beats that fail, with what to change: sent back once (writeBeats "fix").
- */
-export function pacingProblems(sl: SceneLecture, voiced: Map<number, BeatVoice>, beats: number[]): Record<number, string[]> {
-  const out: Record<number, string[]> = {};
-  // Where the beats fall in the chapter (each line's seconds and the quiet after it), for how long each main picture
-  // is held: a new one less than MIN_HOLD after the last made the video a slideshow.
-  let clock = 0;
-  let lastMain: number | undefined;
-  for (const k of beats) {
-    const v = voiced.get(k);
-    const ops = (sl.beats[k]?.ops ?? []) as Record<string, unknown>[];
-    const at = clock;
-    if (v) clock += v.seconds + (v.pause ?? 0);
-    if (!v || !ops.length) continue;
-    const firstWord = (on: unknown): number => {
-      const m = typeof on === "string" ? /^\s*w(\d+)\s*$/.exec(on) : null;
-      return m ? v.words[Number(m[1])]?.t ?? 0 : 0;
-    };
-    const mains = ops.filter((o) => MAIN.has(String(o.op)) && !o.in_pause).map((o) => at + firstWord(o.on));
-    if (!mains.length) continue;
-    const first = Math.min(...mains);
-    if (lastMain !== undefined && first - lastMain < MIN_HOLD) {
-      (out[k] ??= []).push(`a new main picture ${(first - lastMain).toFixed(1)} s after the one before: hold a main picture ` +
-        `at least ${MIN_HOLD + 1} s while its idea is explained -- build on it here (reveal or label a part, emphasis, focus, ` +
-        `a stamp in the pause), and bring the next main picture on the line where the idea changes`);
-    }
-    lastMain = Math.max(...mains);
-  }
-  for (const k of beats) {
-    const v = voiced.get(k);
-    const ops = (sl.beats[k]?.ops ?? []) as Record<string, unknown>[];
-    if (!v || !ops.length) continue;
-    const said = (on: unknown): number | undefined => {
-      const m = typeof on === "string" ? /^\s*w(\d+)\s*$/.exec(on) : null;
-      if (m) return v.words[Number(m[1])]?.t;
-      if (typeof on !== "string" || !on.trim()) return undefined;
-      const first = on.trim().toLowerCase().split(/\s+/)[0].replace(/[^\p{L}\p{N}]+/gu, "");
-      return v.words.find((w) => w.w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") === first)?.t;
-    };
-    const times: number[] = [];
-    const walk = (x: unknown, top: boolean) => {
-      if (Array.isArray(x)) return x.forEach((y) => walk(y, false));
-      if (!x || typeof x !== "object") return;
-      const o = x as Record<string, unknown>;
-      if (top && o.in_pause) return;
-      const t = said(o.on);
-      if (t !== undefined || top) times.push((t ?? 0) + (Number(o.delay) || 0));
-      for (const [key, y] of Object.entries(o)) if (key !== "on" && typeof y === "object") walk(y, false);
-    };
-    ops.forEach((o) => walk(o, true));
-    const pictures = ops.filter((o) => !OVER.has(String(o.op))).length;
-    const room = Math.max(1, Math.round(v.seconds / 2.5));
-    const problems: string[] = [];
-    if (pictures > room) {
-      problems.push(`${pictures} new pictures in a ${v.seconds} s line: each needs about 2.5 s to come on and be seen, so keep ` +
-        `${room}; point at the rest on what is up (emphasis, reveal) or move one to the beat before or after`);
-    }
-    const sorted = [...new Set(times.map((t) => Math.round(t * 10) / 10))].sort((a, b) => a - b);
-    const fits = 1 + Math.floor(v.seconds / 0.6);
-    if (sorted.length > fits) {
-      problems.push(`${sorted.length} moments in a ${v.seconds} s line: about ${fits} can each be seen (one every 0.6 s); ` +
-        "bring several parts on together (one \"on\"), or let some come on in their turn");
-    }
-    if (problems.length) out[k] = [...(out[k] ?? []), ...problems];
-  }
-  return out;
-}
-
-/** The fewest seconds a main picture is held before the next replaces it (pacingProblems); the writer is asked for 8. */
-const MIN_HOLD = 7;
-/** What takes the stage, replacing what is up: the motion templates (not a stamp or an emphasis, which land on it)
- * and the stage's pictures. A map's markers and routes, a define card beside a picture, a reveal: not. */
-const MAIN = new Set([...MOTION_KIND.ops.filter((o) => o !== "stamp" && o !== "emphasis"),
-  "picture", "diagram", "timeline", "manim", "figure", "illustration", "gallery"]);
-
 /** A whole lecture (chapter by chapter), one chapter, or one beat; compiled; the refused beats mended once. */
-/**
- * On the motion engine (beta), before a whole lecture is built: every beat that says several sentences becomes one
- * beat a sentence, numbered again in order, so the screen can change on every sentence (more beats, each with its own
- * visuals). Its book figures stay on its first sentence; its own visual kinds go to each of its pieces; whatever else
- * the scenes held for it is rewritten by the build. Returns how many beats there were and are.
- */
-function splitBeats(run: Run, n: number): [number, number] | undefined {
-  const script = run.script?.lectures[n];
-  if (!script?.chapters.some((c) => c.beats.some((b) => b.lines.length > 1))) return undefined;
-  const sl = lectureState(run, n);
-  const kinds = new Map<number, string[] | undefined>();
-  let before = 0;
-  let next = 0;
-  for (const c of script.chapters) {
-    const beats: Beat[] = [];
-    for (const b of c.beats) {
-      before += 1;
-      b.lines.forEach((line, k) => {
-        next += 1;
-        kinds.set(next, sl.beats[b.n]?.kinds);
-        beats.push({ n: next, lines: [line], show: b.show, ...(k === 0 && b.figures?.length ? { figures: b.figures } : {}),
-          ...(k === 0 && b.figure ? { figure: b.figure } : {}) });
-      });
-    }
-    c.beats = beats;
-  }
-  sl.beats = {};
-  for (const [k, own] of kinds) if (own) beatState(sl, k).kinds = own;
-  return [before, next];
-}
-
 async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?: number }, note?: string) {
   const sl = lectureState(run, n);
-  if (stateOf(run).engine === "motion" && !what.chapter && !what.beat) {
-    const split = splitBeats(run, n);
-    if (split) log(run, `Lecture ${n}: ${split[0]} beats split into ${split[1]}, one sentence each, for the motion engine.`);
-  }
   const script = scriptOf(run, n)!;
   const key = `${run.id}:scenes`;
   Object.assign(sl, { status: "running", error: undefined });
@@ -1691,7 +1174,6 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
     sl.doing = `beat ${what.beat}`;
     saveRun(run);
     await writeBeats(run, n, { what: "beat", beat: what.beat }, undefined, note);
-    if (bc !== undefined && !stopRequested(key)) await paceChapter(run, n, bc, [what.beat], note);
     const c = chapterOfBeat(run, n, what.beat);
     if (c !== undefined && !stopRequested(key)) await finishChapter(run, n, c);
   } else {
@@ -1710,11 +1192,8 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
       try {
         if (voiceFirst(stateOf(run))) await speakFirst(run, n, c);
         if (stopRequested(key)) return;
-        if (directed(stateOf(run))) await directChapter(run, n, c, note);
-        else {
-          await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
-          if (!stopRequested(key)) await paceChapter(run, n, c, chapterBeats(run, n, c), note);
-        }
+        if (directed(stateOf(run))) await directBeats(run, n, c, note);
+        else await writeBeats(run, n, { what: "chapter", chapter: c }, undefined, note);
         if (!stopRequested(key)) await finishChapter(run, n, c);
       } finally {
         going.delete(c);
@@ -1726,18 +1205,6 @@ async function buildLecture(run: Run, n: number, what: { chapter?: number; beat?
   if (stopRequested(key)) return;
   Object.assign(sl, { status: "done", at: Date.now(), doing: undefined });
   saveRun(run);
-}
-
-/** A voiced chapter's beats that ask more than their lines have time for, written again once (pacingProblems). */
-async function paceChapter(run: Run, n: number, c: number, beats: number[], note?: string) {
-  if (!voiceFirst(stateOf(run)) || stateOf(run).engine !== "motion") return;
-  const voiced = await voicedBeats(run, n, c);
-  if (!voiced) return;
-  const problems = pacingProblems(lectureState(run, n), voiced, beats);
-  const over = Object.keys(problems).map(Number);
-  if (!over.length) return;
-  log(run, `Lecture ${n}, chapter ${c}: ${over.length} beat(s) ask more than their lines have time for: written again.`);
-  await writeBeats(run, n, { what: "fix", beats: over }, problems, note);
 }
 
 /** A chapter's beats written: its Manim figures, compiled, and its refused beats mended once. */
@@ -1900,7 +1367,7 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   // A chapter built as one piece on the current engine is strict: everything that comes on, and when, is its
   // script's (compile_lecture: the chapter's "strict"; README "A chapter as one piece").
   const st0 = stateOf(run);
-  const strict = (c: number) => st0.engine !== "motion" && directed(st0) && !!sl.plans?.[c];
+  const strict = (c: number) => directed(st0) && isPlanOfBeats(sl.plans?.[c]);
   let chapters = script.chapters.map((c) => ({
     n: c.n, title: c.title, narration: c.narration, ...(strict(c.n) ? { strict: true } : {}),
     beats: c.beats.map((b) => {
@@ -1916,8 +1383,8 @@ export async function engineScript(run: Run, n: number, look: Look, only?: { cha
   }
   const st = stateOf(run);
   return {
-    // On the motion engine (beta): compiled by compile_motion.py, in its look (scenes.compile picks the compiler).
-    ...(st.engine === "motion" ? { engine: "motion", ...Object.fromEntries(Object.entries(st.motion ?? {}).filter(([, v]) => v)) } : {}),
+    // How it moves: its look, energy, transition, idle motion and timeline style (engine/MOTION_ENGINE.md).
+    ...Object.fromEntries(Object.entries(st.motion ?? {}).filter(([, v]) => v)),
     title: lecture.title, sub: "", style: look.style, art: look.art, region, place_figures: false,
     ...(sl.emblem ? { emblem: sl.emblem } : {}), ...(sl.subject?.genre ? { genre: sl.subject.genre } : {}),
     figures: await figureFiles(run, n),
@@ -2095,10 +1562,8 @@ function recordJudged(run: Run, n: number, judged: Judged[]): Record<string, str
 
 export async function compile(run: Run, script: Record<string, unknown>, dir: string, n?: number): Promise<Compiled> {
   await mkdir(dir, { recursive: true });
-  // A script for the motion engine (beta: engine/MOTION_ENGINE.md) is compiled by its own compiler, which is the
-  // lecture compiler extended; the rest of the way (voice, timing, export, player) is the same.
-  const compiler = script.engine === "motion" ? "compile_motion.py" : "compile_lecture.py";
-  const out = await runPython([path.join(engineDir(), compiler), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
+  // The engine's compiler: the lecture compiler with its motion layer (engine/MOTION_ENGINE.md).
+  const out = await runPython([path.join(engineDir(), "compile_motion.py"), "-", "--json"], dir, engineEnv(run, n), JSON.stringify(script), COMPILE_TIMEOUT);
   try {
     const json = JSON.parse(out.stdout.slice(out.stdout.indexOf("{"))) as Compiled & { source?: string | null };
     const judgedCalls = n !== undefined ? recordJudged(run, n, json.images?.judged ?? []) : {};
@@ -2275,7 +1740,7 @@ export async function playable(run: Run, n: number, dir: string, source: string,
  * the engine's beat log, as the frames it plays. A beat's render plays the beat (the chapter before it is there,
  * recorded); a chapter's plays it all, with each beat's frames for its strip.
  */
-/** Each line of a render where it starts in the video and its words' times (the motion engine's beat log). */
+/** Each line of a render where it starts in the video and its words' times (the engine's beat log). */
 function spokenLines(said: { start: number; text?: string; words?: { w: string; start: number; end: number; est?: boolean }[] }[]): SpokenLine[] | undefined {
   const out = said.filter((r) => r.words?.length).map((r) => ({ start: r.start, text: r.text ?? "", est: r.words!.some((w) => w.est) || undefined,
     words: r.words!.map((w) => ({ w: w.w, start: w.start, end: w.end })) }));
@@ -2357,6 +1822,11 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
     else if (first.has(b.n) && on.has("diagram") && words.length >= 3) {
       const nodes = words.slice(0, 3).map((w, i) => ({ id: `n${i + 1}`, label: w }));
       ops.push({ op: "diagram", id: `d${b.n}`, kind: "flow", nodes, edges: [["n1", "n2"], ["n2", "n3"]] });
+    } else if (on.has("templates") && /\b\d[\d,]*(?:\.\d+)?\b/.test(b.text)) {
+      const number = b.text.match(/\b\d[\d,]*(?:\.\d+)?\b/)![0];
+      ops.push({ op: "counter", value: number, label: (b.show || words.slice(0, 4).join(" ")).slice(0, 50) });
+    } else if (on.has("templates") && b.n % 4 === 2 && words.length >= 3) {
+      ops.push({ op: "list", id: `l${b.n}`, mark: "check", items: words.slice(0, 3).map((w) => ({ text: w })) });
     } else if (on.has("define") && b.n % 3 === 0 && words[0]) ops.push({ op: "define", term: words[0], meaning: b.text.slice(0, 60) });
     // No key point on the board: a define card of the line's own words instead.
     else if (words[0]) ops.push({ op: "define", term: words[0], meaning: (b.show || b.text).slice(0, 60) });
@@ -2365,35 +1835,14 @@ function fakeScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[
   return { region: null, beats: out };
 }
 
-/** The kinds a beat may use, and on the motion engine its templates. */
+/** The kinds a beat may use. */
 function allowedFor(run: Run, sl: SceneLecture, n: number): string[] {
-  const kinds = kindsFor(run, sl, n);
-  // On the motion engine every template is allowed with its templates (those the current engine draws too included).
-  return stateOf(run).engine === "motion" ? [...kinds, MOTION_KIND.id, "templates"] : kinds;
+  return kindsFor(run, sl, n);
 }
 
-/** The look as the scene writer is told it: the run's, and on the motion engine its motion look. */
+/** The look as the scene writer is told it: the run's, and its motion look when one is set. */
 function motionLookWords(st: ScenesState): string {
   const words = lookWords(st.look);
-  return st.engine === "motion" && st.motion?.look ? `the motion engine's ${st.motion.look} look (over ${words})` : words;
+  return st.motion?.look ? `the ${st.motion.look} look (over ${words})` : words;
 }
 
-/** The stand-in's scenes on the motion engine (no key): the current stand-in's, with a motion template on beats it
- * suits -- a headline on a chapter's first beat, a counter where the line has a number, a list of the line's words,
- * and a stamp now and then. */
-function fakeMotionScenes(run: Run, n: number, beats: SceneBeatInput[], kinds: string[]) {
-  const base = fakeScenes(run, n, beats, kinds);
-  const script = scriptOf(run, n)!;
-  const first = new Set(script.chapters.map((c) => c.beats[0]?.n));
-  return { ...base, beats: base.beats.map((b) => {
-    const input = beats.find((x) => x.n === b.beat)!;
-    const words = input.text.replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter((w) => w.length > 3);
-    const number = input.text.match(/\b\d[\d,]*(?:\.\d+)?\b/)?.[0];
-    const chapter = script.chapters.find((c) => c.n === input.chapter)!;
-    if (first.has(b.beat)) return { ...b, do: [{ op: "title", text: chapter.title.slice(0, 50), kicker: `Chapter ${chapter.n}` }] };
-    if (number) return { ...b, do: [{ op: "counter", value: number, label: (input.show || words.slice(0, 4).join(" ")).slice(0, 50), on: number }] };
-    if (b.beat % 4 === 2 && words.length >= 3) return { ...b, do: [{ op: "list", mark: "check", items: words.slice(0, 3).map((w) => ({ text: w, on: w })) }] };
-    if (b.beat % 4 === 3) return { ...b, do: [...b.do, { op: "stamp", text: (words[0] ?? "Noted").slice(0, 14) }] };
-    return b;
-  }) };
-}

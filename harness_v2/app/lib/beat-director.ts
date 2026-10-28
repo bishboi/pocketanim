@@ -15,6 +15,7 @@
 
 import { fitOp, isObj, NOT_LOOK, opProblems, partsOf, LIMITS, setOn, withoutOn, type BeatWords } from "./director";
 import { ENTRANCES, POINT_HOWS, SPEEDS } from "./primitives";
+import { TEMPLATES } from "./visual-kinds";
 
 type Op = Record<string, unknown>;
 
@@ -30,9 +31,12 @@ export type BeatsPlan = { kind: "beats"; beats: ContentBeat[]; patch: BeatPatch[
 
 /** The steps a choreographer may write. */
 export const STEPS = ["enter", "show", "pulse", "light", "focus", "hide", "exit"] as const;
-/** What takes the stage on the current engine (two in one line share it; compile_lecture.STAGE_MAIN). */
+/** The templates that take the stage (all but a stamp and an emphasis, which land on what is up). */
+export const TEMPLATE_PICTURES = new Set(TEMPLATES.ops.filter((o) => o !== "stamp" && o !== "emphasis"));
+/** What takes the stage (two in one line share it; compile_lecture.STAGE_MAIN): the stage's pictures and the
+ * templates. */
 export const MAIN = new Set(["picture", "photo", "illustration", "figure", "gallery", "diagram", "timeline", "compare", "process",
-  "quote", "draw", "problem", "molecule"]);
+  "quote", "draw", "problem", "molecule", ...TEMPLATE_PICTURES]);
 /** The pointing the choreographer writes, never the director (left out of its beats with a note). */
 const POINTING = new Set(["point", "shade", "unshade", "focus", "unfocus", "unlabel", "unstage", "emphasis", "zoom"]);
 

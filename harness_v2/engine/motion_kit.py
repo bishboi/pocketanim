@@ -1,4 +1,4 @@
-"""The motion engine's primitives: words, cards and marks in the look's design, and the motions that bring them on,
+"""The motion layer's primitives: words, cards and marks in the look's design, and the motions that bring them on,
 point at them and take them away -- each one a play the phones' players have (FadeIn with shift, scale and rate,
 Create, Write, `.animate` moves and scales, lagged groups), or, where nothing they have will do (a number counting,
 a spring, a shake), a play marked to be baked into a small clip by the exporter (`_panim_bake`).
@@ -24,8 +24,7 @@ import pocket_lecture as pl
 
 # The look in use (motion_looks.motion_of): set by MotionLecture as the scene starts.
 M: dict = {}
-# Whether the animations made here carry their sound effects (sfx.py). The current engine draws these templates
-# without them (templates.TemplateLecture turns it off).
+# Whether the animations made here carry their sound effects (sfx.py).
 SOUNDS = True
 
 

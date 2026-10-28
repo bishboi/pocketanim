@@ -1,4 +1,4 @@
-"""A quiet music bed under a lecture's voice (the motion engine): made here, by formula, so nothing is fetched or
+"""A quiet music bed under a lecture's voice (every lecture): made here, by formula, so nothing is fetched or
 licensed, and the same moment of the lecture always sounds the same.
 
 The bed is a function of time on the lecture's own clock: a pad of soft chords (four chords, four seconds each,

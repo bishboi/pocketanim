@@ -97,13 +97,21 @@ def _norm(s) -> str:
 # ---------------------------------------------------------------- the data -------------------------------------------
 
 def _fetch(url: str, file: Path) -> Path:
+    """A data file, downloaded once: by curl (the system's certificates and proxy, a time limit), else urllib."""
     if not file.exists():
+        import shutil
+        import subprocess
         file.parent.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(url, headers={"User-Agent": "pocketanim-v3"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = r.read()
         tmp = file.with_suffix(".part")
-        tmp.write_bytes(data)
+        print(f"fetching map data: {file.name}", flush=True)
+        ok = False
+        if shutil.which("curl"):
+            ok = subprocess.run(["curl", "-sfL", "--connect-timeout", "15", "--max-time", "180", "-o", str(tmp), url]
+                                ).returncode == 0
+        if not ok:
+            req = urllib.request.Request(url, headers={"User-Agent": "pocketanim-v3"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                tmp.write_bytes(r.read())
         tmp.replace(file)
     return file
 

@@ -77,7 +77,18 @@ done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \
   && tar xzf flag-icons-7.2.3.tgz -C flagpkg)
 # Real maps: Natural Earth's countries, coasts, seas, rivers and towns (about 25 MB, once; a year's borders come later).
-../.venv3/bin/python engine/geo.py --fetch >/dev/null 2>&1 || echo "could not fetch the map data (it is fetched when a map is first drawn)"
+# Each file at most 3 minutes; one that does not come is fetched when a map first needs it.
+step "map data (about 25 MB, once)"
+mkdir -p .cache/geo
+NE=https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson
+for f in ne_50m_admin_0_countries ne_50m_admin_0_map_units ne_10m_populated_places_simple ne_50m_rivers_lake_centerlines \
+         ne_10m_geography_marine_polys ne_50m_geography_regions_points ne_10m_admin_0_countries; do
+  [ -f ".cache/geo/$f.geojson" ] && continue
+  echo "  $f"
+  curl -fL --connect-timeout 15 --max-time 180 --progress-bar -o ".cache/geo/$f.part" "$NE/$f.geojson" \
+    && mv ".cache/geo/$f.part" ".cache/geo/$f.geojson" || { rm -f ".cache/geo/$f.part"; echo "  could not fetch $f (it is fetched when a map first needs it)"; }
+done
+step "browser for the player export, voices"
 # The player's MP4 export runs the player in headless Chromium (Playwright's own, about 150 MB, once).
 ../.venv3/bin/python -m playwright install chromium >/dev/null 2>&1 || echo "could not fetch Chromium for the player export (python -m playwright install chromium)"
 for v in en_US-ryan-high en_US-lessac-high; do

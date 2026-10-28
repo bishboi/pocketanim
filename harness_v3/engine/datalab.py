@@ -21,6 +21,8 @@ from pathlib import Path
 
 CACHE = Path(__file__).resolve().parent.parent / ".cache" / "datalab"
 SKIP = {"PageHeader", "PageFooter"}
+# Datalab sits behind Cloudflare, which refuses Python's default User-Agent ("error code: 1010").
+UA = {"User-Agent": "harness-v3/1.0 (+https://github.com/bishboi/pocketanim)", "Accept": "application/json"}
 
 
 def _host() -> str:
@@ -28,7 +30,7 @@ def _host() -> str:
 
 
 def _get(url: str, key: str | None) -> dict:
-    req = urllib.request.Request(url, headers={"X-Api-Key": key} if key else {})
+    req = urllib.request.Request(url, headers=UA | ({"X-Api-Key": key} if key else {}))
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())
 
@@ -49,12 +51,15 @@ def convert(pdf: bytes) -> tuple[dict, bool]:
     body += (f'--{bound}\r\nContent-Disposition: form-data; name="file"; filename="book.pdf"\r\n'
              f"Content-Type: application/pdf\r\n\r\n").encode() + pdf + f"\r\n--{bound}--\r\n".encode()
     req = urllib.request.Request(f"{_host()}/api/v1/convert", data=body, method="POST",
-                                 headers={"X-Api-Key": key, "Content-Type": f"multipart/form-data; boundary={bound}"})
+                                 headers=UA | {"X-Api-Key": key, "Content-Type": f"multipart/form-data; boundary={bound}"})
     try:
         with urllib.request.urlopen(req, timeout=300) as r:
             start = json.loads(r.read())
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Datalab refused the PDF ({e.code}): {e.read()[:300].decode(errors='replace')}") from e
+        said = e.read()[:300].decode(errors="replace")
+        hint = {401: " (is DATALAB_API_KEY right?)", 403: " (the key, or Cloudflare blocking this machine)",
+                413: " (the PDF is too big)", 429: " (too many requests: wait and try again)"}.get(e.code, "")
+        raise RuntimeError(f"Datalab refused the PDF ({e.code}){hint}: {said}") from e
     check = start.get("request_check_url")
     if not check:
         raise RuntimeError(f"Datalab refused the PDF: {start.get('error') or start}")

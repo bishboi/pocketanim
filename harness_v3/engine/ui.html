@@ -274,7 +274,8 @@ function renderBook() {
       <div class="step"><h4>read (Datalab)</h4><div class="row"><span class="chip ${b.read.status}">${b.read.status}</span><span class="soft">${secs(b.read.seconds)}</span>
         ${b.read.cost ? `<span class="money">${usd(b.read.cost)}</span>` : ""}</div>
         ${b.read.error ? `<div class="err">${esc(b.read.error)}</div>` : ""}
-        <div class="notes">${esc(b.read.status === "running" ? "Datalab is converting the PDF (a minute or a few)…" : (b.read.notes || []).join("\n"))}</div></div>
+        <div class="notes">${esc(b.read.status === "running" ? "Datalab is converting the PDF (a minute or a few)…" : (b.read.notes || []).join("\n"))}</div>
+        ${b.read.status !== "running" ? `<div class="row" style="margin-top:8px"><button onclick="reread()">read again</button></div>` : ""}</div>
       <div class="step"><h4>script</h4><div class="row"><span class="chip ${d.busy ? "running" : !b.scripts.length ? "waiting" : b.scripts[b.scripts.length - 1].status}">${d.busy ? "running" : b.scripts.length + " scripts"}</span>
         <span class="money">${usd(byStep.script)}</span><span class="soft">${secs(b.scripts.reduce((k, s) => k + (s.seconds || 0), 0))}</span></div>
         <div class="notes">${total} videos written</div></div>
@@ -345,6 +346,11 @@ function scriptCard(s) {
             <span class="soft">${Object.entries(ri.steps).map(([n, st]) => `<span class="chip ${st}" title="${n}">${n[0]}</span>`).join(" ")}</span>` : ""}</div>
         ${ri && ri.video ? `<video controls preload="none" style="margin-top:6px;max-width:420px" src="/files/${v.run}/video.mp4?v=${ri.cost}-${ri.status}"></video>` : ""}</div>`;
     }).join("")}</div>`;
+}
+
+async function reread() {
+  try { await api(`/api/books/${bsel}/read`, {method: "POST", body: "{}"}); range = null; refreshBook(true); loadRuns(); }
+  catch (e) { alert(e.message); }
 }
 
 async function writeScript() {

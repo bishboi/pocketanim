@@ -108,6 +108,18 @@ def add(name: str, data: bytes) -> dict:
     return book
 
 
+def reread(bid: str) -> None:
+    """A read that failed (or any read) started again from the kept PDF."""
+    with _lock:
+        book = load(bid)
+        if book.get("status") == "reading":
+            raise RuntimeError("the PDF is being read: wait for it")
+        book["status"] = "reading"
+        book["read"] = {"status": "running", "started": time.time(), "notes": []}
+        save(book)
+    threading.Thread(target=_read, args=(bid,), daemon=True).start()
+
+
 def _read(bid: str) -> None:
     d = book_dir(bid)
     notes: list[str] = []

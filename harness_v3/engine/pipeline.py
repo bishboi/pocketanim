@@ -45,7 +45,9 @@ def chat(system: str, user: str, model: str, images: list[str] | None = None, ma
     body = {"model": model, "max_tokens": max_tokens, "temperature": 0.4,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content if images else user}]}
     req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                          "User-Agent": "harness-v3/1.0", "HTTP-Referer": "https://github.com/bishboi/pocketanim",
+                                          "X-Title": "harness v3"})
     with urllib.request.urlopen(req, timeout=180) as r:
         out = json.loads(r.read())
     USAGE.append({"model": model, **(out.get("usage") or {})})

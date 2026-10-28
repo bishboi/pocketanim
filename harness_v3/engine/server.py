@@ -16,6 +16,7 @@ The API (JSON):
     POST /api/books                        the PDF as the body (header X-Filename): kept, and read by Datalab
     GET  /api/books/<id>                   the book (sections, scripts, calls), each video's run beside it, the totals
     GET  /api/books/<id>/pages?from=&to=   the pages' text
+    POST /api/books/<id>/read              the PDF read again (after a failed read)
     POST /api/books/<id>/script            {from, to, model, videos, seconds, notes}: a script of those pages, started
     PUT  /api/books/<id>/scripts/<s>/<k>   {title, narration}: a video's narration changed by hand
     DELETE /api/books/<id>/scripts/<s>     a script dropped (its runs stay)
@@ -152,7 +153,10 @@ class Handler(BaseHTTPRequestHandler):
                 book = books.add(unquote(self.headers.get("X-Filename") or "book.pdf"), self.rfile.read(n))
                 return self._json({"id": book["id"]})
             b = self._body()
-            if m := re.fullmatch(r"/api/books/([\w-]+)/script", path):
+            if m := re.fullmatch(r"/api/books/([\w-]+)/read", path):
+                books.reread(m.group(1))
+                self._json({"ok": True})
+            elif m := re.fullmatch(r"/api/books/([\w-]+)/script", path):
                 self._json({"script": books.script(m.group(1), b.get("from") or 1, b.get("to") or 1, b)})
             elif m := re.fullmatch(r"/api/books/([\w-]+)/build", path):
                 v = b.get("video")

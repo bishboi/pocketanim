@@ -243,6 +243,13 @@ def main() -> None:
     left = runs.recover() + books.recover()
     if left:
         print(f"{len(left)} run(s) or book(s) were cut off when the server last stopped: marked stopped")
+    import subprocess
+    try:
+        rev = subprocess.run(["git", "-C", str(HERE), "log", "-1", "--format=%h %s"], capture_output=True, text=True,
+                             timeout=5).stdout.strip()
+        print(f"code: {rev}" if rev else "code: (not a git checkout)")
+    except Exception:  # noqa: BLE001 -- no git: nothing to say
+        pass
     for p in problems():
         print("SETUP: " + p)
     if env.LOADED:

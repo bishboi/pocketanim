@@ -402,6 +402,7 @@ class ScoreScene(MovingCameraScene):
 
     # ------------------------------------------------------------ the clock --------------------------------------------
     DRIFT = 0.005           # the camera's slow push in while no camera move runs (a share of the view a second)
+    CREEP = 0.035           # and how far it goes at most after a camera move
 
     def _tick(self, dt: float) -> None:
         drawing = getattr(self, "_drawing", None)
@@ -419,9 +420,13 @@ class ScoreScene(MovingCameraScene):
         else:
             self.clock += dt
         t = self.clock
-        if dt and not any(isinstance(tw, Call) and getattr(tw, "camera", False) and tw.t0 <= t <= tw.t1 for tw in self.tweens):
-            # Never quite still: the view creeps in, as a camera on a slow dolly.
+        if any(isinstance(tw, Call) and getattr(tw, "camera", False) and tw.t0 <= t <= tw.t1 for tw in self.tweens):
+            self._crept = 0.0                   # a camera move: the creep starts again after it
+        elif dt and getattr(self, "_crept", 0.0) < self.CREEP:
+            # Never quite still: the view creeps in, as a camera on a slow dolly; at most CREEP of the view after a
+            # camera move, so a long shot does not crop what was placed near its edges.
             self.camera.frame.scale(1 - self.DRIFT * dt)
+            self._crept = getattr(self, "_crept", 0.0) + self.DRIFT * dt
         for tw in self.tweens:
             if tw.done or t < tw.t0:
                 continue

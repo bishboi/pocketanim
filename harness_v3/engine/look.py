@@ -413,8 +413,9 @@ def card(title: str, mods: dict, k: float = 1.0):
     has_top = bool(mods.get("flag") or mods.get("img"))
     w = float(mods.get("w", 1.9 if has_top else 3.2)) * k
     h = float(mods.get("h", 2.5 if has_top else 2.0)) * k
+    small = min(w, h) < 0.8                  # a token (a note in a pile): its paper edge must still read
     face = Rectangle(width=w, height=h, fill_color=col(mods.get("fill") or "card"), fill_opacity=1,
-                     stroke_color=col("sand"), stroke_width=1.5)
+                     stroke_color=col("soft") if small else col("sand"), stroke_width=2.2 if small else 1.5)
     parts = [soft_shadow(face), face]
     top = face.get_top()[1]
     if mods.get("flag"):
@@ -426,13 +427,16 @@ def card(title: str, mods: dict, k: float = 1.0):
         f.move_to([face.get_center()[0], top - 0.08 * h - f.height / 2, 0])
         parts.append(f)
     if title:
-        t = text(title.upper() if has_top else title, (0.2 if has_top else 0.55) * k, bold=True, color="ink",
-                 width=w * 0.86)
-        t.move_to([face.get_center()[0], (face.get_bottom()[1] + 0.3 * h) if has_top else face.get_center()[1], 0])
+        # the title in proportion to the card: a big note's word stands tall, a token's sits small inside its edge
+        size = (0.2 * k) if has_top else min(0.55 * k, h * 0.34)
+        t = text(title.upper() if has_top else title, size, bold=True, color="ink", width=w * (0.86 if not small else 0.6))
+        t.move_to([face.get_center()[0], (face.get_bottom()[1] + 0.3 * h) if has_top
+                   else face.get_center()[1] + (0.04 * h if small else 0), 0])
         parts.append(t)
         if not has_top:
-            line = Line(LEFT * w * 0.16, RIGHT * w * 0.16, color=col("accent"), stroke_width=STROKE * 0.9)
-            parts.append(line.next_to(t, DOWN, buff=0.14 * k))
+            line = Line(LEFT * w * 0.16, RIGHT * w * 0.16, color=col("accent"),
+                        stroke_width=STROKE * (0.9 if not small else 0.35))
+            parts.append(line.next_to(t, DOWN, buff=(0.14 * k) if not small else h * 0.08))
     if mods.get("sub"):
         sub = label(str(mods["sub"]), 0.11 * k, "soft")
         sub.move_to([face.get_center()[0], face.get_bottom()[1] + 0.12 * h, 0])

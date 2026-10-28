@@ -1,0 +1,82 @@
+# Why Japan's debt hasn't sunk it: a 40-second test of the editorial kit, written as the score model should.
+look editorial
+
+# ---- debt: a chart of debt as a share of the economy, each country as it is named ------------------------------
+shot debt at 0,0
+ent head    label "government debt · % of the economy" size 0.2 at -3.3,3.15
+ent jp      flag jp size 1.15 at -5.75,1.45
+ent jpbar   bar 0 max 260 w 8.6 h 0.56 color accent at -0.6,1.45
+ent jpnum   num 0 suffix "%+" size 0.5 at 5.35,1.45
+ent us      flag us size 1.15 at -5.75,0
+ent usbar   bar 0 max 260 w 8.6 h 0.56 color grey at -0.6,0
+ent usnum   num 0 suffix "%" size 0.42 color soft at 5.35,0
+ent de      flag de size 1.15 at -5.75,-1.45
+ent debar   bar 0 max 260 w 8.6 h 0.56 color grey at -0.6,-1.45
+ent denum   num 0 suffix "%" size 0.42 color soft at 5.35,-1.45
+ent eco     path -1.59,2.35 -1.59,-2.3 dashed color soft flat
+ent ecol    label "100% = a year of everything it makes" size 0.13 at -1.59,-2.65
+ent src     label "imf, rounded" size 0.11 at -5.6,-3.4
+
+t0          cam debt
+w0          in head fade
+w0-w1       in jp drop
+w1          in jpbar fade
+w2          ring jp coral
+w8          in jpnum pop
+w8-w11      grow jpbar 200
+w8-w11      count jpnum 200
+w13-w15     in eco draw
+w14         in ecol fade
+w19         in us drop
+w20         in usbar fade
+w22         in usnum fade
+w22-w26     grow usbar 120
+w22-w26     count usnum 120
+w27         in de drop
+w27         in debar fade
+w28         in denum fade
+w28-w29     grow debar 60
+w28-w29     count denum 60
+w29         in src fade
+w27         dim us,usbar,usnum 0.45
+
+# ---- why: the question --------------------------------------------------------------------------------------------
+shot why at 18,0
+ent q       tag "why hasn't japan gone broke?" size 0.62 at 0,1.3
+ent jcard   card "Japan" flag jp at 0,-1.45
+
+w30-w31     cam why
+w31         in q pop
+w33         in jcard drop
+w35         shake jcard
+
+# ---- ious: the debt as a pile of IOUs, held at home, half by the central bank ------------------------------------
+shot ious at 18,-11
+ent head2   label "japan's government bonds" size 0.2 at -3.6,3.15
+ent iou     card "IOU" sub "a government bond" w 3.4 h 2.1 at 0.3,0.35
+ent ious    card "IOU" w 0.85 h 0.52 x 40 grid 8 gap 0.16 at 0.3,0.35
+ent hj      flag jp size 1.0 at -5.5,0.6
+ent hjl     label "held at home" size 0.13 at -5.5,-0.2
+ent abroad  tag "8% abroad" size 0.3 at 5.55,-1.75
+ent boj     tag "central bank ≈ half" size 0.34 at -1.9,-3.05
+ent more    card "IOU" w 0.85 h 0.52 x 8 gap 0.16 at 0.3,-2.25
+ent fin     tag "owed mostly to itself" size 0.5 at 0.3,2.8
+
+w36-w37     cam ious
+w36         in head2 fade
+w42         in iou pop
+w45         out iou shrink
+w45-w49     in ious pop stagger .03
+w56-w58     in hj drop
+w58         in hjl fade
+w59-w61     move ious[37] to 5.55,0.55 arc .3
+w60-w62     move ious[38] to 5.55,-0.15 arc .3
+w61-w63     move ious[39] to 5.55,-0.85 arc .3
+w62         in abroad pop
+w69         dim ious[20:40] 0.25
+w71         in boj pop
+w74-w76     pulse ious[0:20] stagger .015
+w77         out head2 fade
+w80-w83     in fin pop
+w85-w88     in more pop stagger .06
+t37.4-t40   cam wide

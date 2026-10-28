@@ -1134,6 +1134,7 @@ function BusyNote({ run, lecture, act }: { run: Run; lecture: number; act: Act }
 }
 
 function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: number; c: number; act: Act; disabled: boolean }) {
+  const render = run.scenes?.lectures[lecture]?.chapters?.[c];
   const [open, setOpen] = useState(false);
   const [json, setJson] = useState("");
   const [bad, setBad] = useState<string | null>(null);
@@ -1178,8 +1179,19 @@ function ChapterJson({ run, lecture, c, act, disabled }: { run: Run; lecture: nu
       {open && disabled && <BusyNote run={run} lecture={lecture} act={act} />}
       {open && (
         <div className="mt-1 space-y-1">
-          <textarea className="mono h-96 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
-            onChange={(e) => setJson(e.target.value)} data-testid="scenes-chapter-json-text" />
+          {/* The JSON on one side, the chapter as rendered on the other: read and change it while watching it play. */}
+          <div className="grid gap-2 lg:grid-cols-2">
+            <textarea className="mono h-[32rem] w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-[11px] text-neutral-100" value={json}
+              onChange={(e) => setJson(e.target.value)} data-testid="scenes-chapter-json-text" />
+            <div className="min-w-0" data-testid="scenes-chapter-json-player">
+              {render?.status === "done" && render.ir && render.assets
+                ? <IRPlayer src={render.ir} assets={render.assets} audio={render.audio} spoken={render.spoken} />
+                : render?.status === "done" && render.video
+                  ? <video key={render.video} src={render.video} controls className="w-full rounded border border-neutral-800 bg-black" />
+                  : <div className="flex aspect-video items-center justify-center rounded border border-neutral-800 bg-neutral-950 text-[11px] text-neutral-500">
+                    {render?.status === "running" ? "Rendering…" : "Not rendered yet: save and re-render to see it here."}</div>}
+            </div>
+          </div>
           <p className="text-[10px] text-neutral-500">Each beat keeps its &quot;beat&quot; number. The words said (&quot;say&quot;) are the transcript&apos;s: an edited say is not applied (edit the transcript for that). The look is the run&apos;s.</p>
           <button className={`${btn} border-emerald-700 bg-emerald-800 text-white`} disabled={disabled} onClick={() => void save()}
             data-testid="scenes-chapter-json-rerender">Save and re-render the chapter</button>

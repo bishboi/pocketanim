@@ -898,6 +898,8 @@ motion engine's (compile_motion), each said as `fixed: ...`. Every template take
 its own line; a later line's `{"op": "reveal", "of": "<the template's id>", "parts": [<names>]}` brings them on, on
 the reveal's `on` (else each on its own name, else in its turn). A template that holds parts and has no `id` is given
 one (`<op>-c<chapter>b<beat>`, with a note). In a strict chapter, a reveal is kept only while its template is up.
+On the motion engine (MOTION_ENGINE.md §3) every template holds parts this way, and so does a timeline in a `style`
+(its events, by their labels).
 
 ```json
 {"op": "list", "id": "why", "title": "Why so fast", "mark": "check", "hold": ["Railways"],

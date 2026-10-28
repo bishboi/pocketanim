@@ -23,7 +23,7 @@
  *     mended (a part to its element's line) or left out, with a note.
  */
 
-import { MOTION_KIND } from "./visual-kinds";
+import { MOTION_KIND, VISUAL_KINDS } from "./visual-kinds";
 
 type Op = Record<string, unknown>;
 
@@ -83,6 +83,14 @@ export function slug(text: string): string {
 /** A motion template (not a classic operation): on the motion engine it takes an `id`, and its parts are `<id>.<name>`. */
 export function isTemplate(op: Op, engine: Engine): boolean {
   return engine === "motion" && MOTION_KIND.ops.includes(String(op.op));
+}
+
+/** What can hold parts back for a later line's `reveal` with `of` (BEAT_SCRIPT.md §5.9): a template (on the current
+ * engine those it draws, the "templates" kind; on the motion engine every one) and, on the motion engine, a timeline. */
+export function holdsParts(op: Op, engine: Engine): boolean {
+  const kind = String(op.op);
+  return isTemplate(op, engine) || (engine === "motion" && kind === "timeline")
+    || (VISUAL_KINDS.find((k) => k.id === "templates")?.ops.includes(kind) ?? false);
 }
 
 // ---------------------------------------------------------------- the plan ---------------------------------------
@@ -367,7 +375,9 @@ export function actsFor(el: PlanElement, engine: Engine): { element: CueAct[]; p
   return {
     element: ["enter", ...(template ? ["emphasis" as const] : []), ...(exits ? ["exit" as const] : [])],
     parts: ["enter", "emphasis", ...(labelled ? ["shade" as const, "hide" as const] : []), ...(diagram ? ["focus" as const] : [])],
-    laterParts: diagram || labelled,
+    // A diagram's nodes, a labelled picture's labels (both engines) and a template's parts may come on in a later
+    // line of its scenes (held, then revealed there: lowerPlan).
+    laterParts: diagram || (el.op.op === "picture" && Array.isArray(el.op.labels) && el.op.labels.length > 0) || holdsParts(el.op, engine),
   };
 }
 
@@ -587,8 +597,12 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
     const entered = new Map<string, [number, number]>([[el.id, at]]);
     const reveals = new Map<string, { beat: number; word: number; nodes: string[] }>();
     const held = new Set<string>();
-    // A labelled picture on the current engine: its labels held back to a later line, each label's note.
-    const labelled = engine === "current" && op.op === "picture" && Array.isArray(op.labels);
+    // A labelled picture: its labels held back to a later line, each label's note (both engines).
+    const labelled = op.op === "picture" && Array.isArray(op.labels);
+    // A template (a timeline on the motion engine): its parts held back to a later line, revealed there.
+    const holder = !labelled && op.op !== "diagram" && holdsParts(op, engine);
+    const heldParts: string[] = [];
+    const partReveals = new Map<string, { beat: number; word: number; parts: string[] }>();
     const holdLabels: string[] = [];
     if (labelled) {
       const notes2: Record<string, string> = isObj(op.notes) ? { ...(op.notes as Record<string, string>) } : {};
@@ -624,6 +638,16 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
           entered.set(p.ref, pat);
           continue;
         }
+        if (holder && life.has(pat[0]) && !p.parent) {
+          // Said on a later line of its scenes: held, and revealed on that line's word.
+          const key = `${pat[0]}.${pat[1]}`;
+          const r = partReveals.get(key) ?? { beat: pat[0], word: pat[1], parts: [] };
+          r.parts.push(p.name);
+          partReveals.set(key, r);
+          heldParts.push(p.name);
+          entered.set(p.ref, pat);
+          continue;
+        }
         notes.push(`${p.ref}: cued on another line (b${pat[0]}) than its ${String(op.op)} (b${at[0]}): comes on in its turn with it`);
         continue;
       }
@@ -641,7 +665,12 @@ export function lowerPlan(plan: ChapterPlan, cues: Cue[], words: Map<number, Bea
       op.show = shown;
     }
     if (holdLabels.length) op.hold = holdLabels;
+    if (heldParts.length) {
+      op.id ??= el.id;
+      op.hold = heldParts;
+    }
     put(at[0], at[1], op);
+    for (const r of partReveals.values()) put(r.beat, r.word, { op: "reveal", of: String(op.id), parts: r.parts, on: anchor(r.word) });
     for (const r of reveals.values()) if (r.nodes.length) put(r.beat, r.word, { op: "reveal", diagram: op.id, nodes: r.nodes, on: anchor(r.word) });
     // What is done with it while it is up.
     const partOf = new Map(parts.map((p) => [p.ref, p]));

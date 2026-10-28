@@ -918,6 +918,10 @@ def _clean(value):
 
 def _patched_op_call(op: dict):
     call = _op_call_motion(op)
+    if call and not call.startswith("*") and op.get("hold") and op.get("id") and \
+            (op.get("op") in MOTION_OPS or op.get("op") == "timeline") and "self.holding(" not in call:
+        # Parts held back for a later line's reveal (MotionLecture.holding; BEAT_SCRIPT.md §5.9).
+        call = f"self.holding({cl._q(str(op['id']))}, {[str(x) for x in op['hold']]!r}, lambda: {call})"
     if call and not call.startswith("*") and (op.get("delay") or op.get("in_pause")):
         # Its moment moved: after its words by `delay`, or into the quiet after the line (MotionLecture._m_when).
         call = f"self._m_when({call}, after={float(op.get('delay') or 0):g}, pause={bool(op.get('in_pause'))})"

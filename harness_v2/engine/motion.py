@@ -1410,9 +1410,60 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             todo.extend(getattr(a, "animations", None) or [])
         return False
 
+    # ---------------------------------------------------------------- parts held for a later line -----------------
+    # A template's parts the script holds back (`hold`: their names) do not come on in its own line: each moment the
+    # template sets up for one is kept (by the template's id and the part's name) instead of being waited for in the
+    # line, and a later line's `reveal` (`of`: the template, `parts`: their names) waits for them there. Both engines
+    # (templates.TemplateLecture shares these).
+
+    def holding(self, tid: str, names, make):
+        """A template (or a styled timeline) made with these parts held back for a later line's reveal."""
+        self._m_hold = (str(tid), {pl._norm(n) for n in names or []})
+        try:
+            anim = make()
+        finally:
+            self.__dict__.pop("_m_hold", None)
+        if str(tid) not in self._mwhole and self._beat_new:
+            self._mwhole[str(tid)] = self._beat_new[-1]      # one that does not name itself (a timeline)
+        return anim
+
     def _moment(self, say, build, run: float | None = None) -> None:
         """Something that happens when the line says `say` (or, said nowhere, in its turn after the template); `say`
-        may be a list of ways the line may say it."""
+        may be a list of ways the line may say it. A part held for a later line is kept for its reveal."""
+        hold = self.__dict__.get("_m_hold")
+        if hold:
+            alts = say if isinstance(say, (list, tuple)) else [say]
+            key = next((pl._norm(a) for a in alts if pl._norm(a) in hold[1]), None)
+            if key is not None:
+                self.__dict__.setdefault("_m_held", {}).setdefault(hold[0], {})[key] = (say, build, run, K.FORCE_ENTER)
+                return
+        self._moment_now(say, build, run)
+
+    def reveal_held(self, tid: str, names, on: str | None = None):
+        """A template's held parts brought on in this line: on `on` (the reveal's words), else each on its own
+        name as the line says it, else in its turn. None (the parts come by their moments)."""
+        held = self.__dict__.get("_m_held", {}).get(str(tid), {})
+        whole = self._mwhole.get(str(tid))
+        if whole is None or not self._shown(whole):
+            pl.skipped(f"reveal: {tid!r} is not on the screen")
+            return None
+        for name in names or []:
+            got = held.pop(pl._norm(name), None)
+            if got is None:
+                pl.skipped(f"reveal: {tid!r} holds no part {name!r}")
+                continue
+            say, build, run, force = got
+            before, K.FORCE_ENTER = K.FORCE_ENTER, force
+            try:
+                self._moment_now(on or say, build, run)
+            finally:
+                K.FORCE_ENTER = before
+            # Its template is up already (no owner to wait for).
+            self.__dict__.get("_m_open", []).clear()
+        return None
+
+    def _moment_now(self, say, build, run: float | None = None) -> None:
+        """A moment waited for in this line (_moment's, unless held)."""
         alts = [str(x) for x in say if str(x or "").strip()] if isinstance(say, (list, tuple)) else None
         if alts:
             say = alts[0]
@@ -3037,13 +3088,13 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
                     "pan": dict(period=28.0, amp=0.45, scale=0.04, turn=0.0)}
 
     def stage_image(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
-                    points=()):
+                    points=(), hold=(), notes=None):
         camera = move if move in (*self.CAMERA_MOVES, "pullback") else None
         if camera:
             move = None
         if camera == "pullback":
             self._m_pullback = True
-        shown = self._stage_image_look(path, caption, credit, labels, move, points)
+        shown = self._stage_image_look(path, caption, credit, labels, move, points, hold, notes)
         self.__dict__.pop("_m_pullback", None)
         body = getattr(self, "stage_body", None)
         if camera in self.CAMERA_MOVES and body is not None and pl.drifts_on():
@@ -3052,11 +3103,11 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
         return shown
 
     def _stage_image_look(self, path: str, caption: str = "", credit: str = "", labels=(), move: str | None = None,
-                          points=()):
+                          points=(), hold=(), notes=None):
         """The engine's picture, dressed the look's way first (a sticker's white edge, a card, a polaroid, a
         newsprint duotone), its labels moved onto the dressed picture; it comes on the look's way and floats."""
         if self.M.get("classic") or (self._full_screen() and not pl.is_cutout(path)):
-            return super().stage_image(path, caption, credit, labels, move, points)
+            return super().stage_image(path, caption, credit, labels, move, points, hold, notes)
         how = "sticker" if pl.is_cutout(path) else self.M.get("photo", "card")
         if pl.is_cutout(path) and not self.M.get("sticker", True):
             how = "plain"
@@ -3064,7 +3115,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             dressed, (x0, y0, x1, y1) = motion_looks.dress(str(path), how)
         except Exception as error:  # noqa: BLE001 -- shown as it is
             pl.skipped(f"motion: the picture was not dressed ({type(error).__name__}: {error})"[:200])
-            return super().stage_image(path, caption, credit, labels, move, points)
+            return super().stage_image(path, caption, credit, labels, move, points, hold, notes)
         moved = []
         for row in labels or ():
             if not isinstance(row, (list, tuple)) or len(row) < 3:
@@ -3080,7 +3131,7 @@ class MotionLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTemplat
             moved.append(tuple(r))
         views = self.__dict__.setdefault("_views", [])
         before = len(views)
-        shown = super().stage_image(dressed, caption, credit, moved, move, points)
+        shown = super().stage_image(dressed, caption, credit, moved, move, points, hold, notes)
         if len(views) > before:
             # The shade round a named part covers the photo only, not the dressed edge and shadow round it (a grey
             # block over the page): where the photo is in the picture as the engine trims it.

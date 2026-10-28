@@ -741,8 +741,14 @@ def _fix_steps(script: dict) -> list[str]:
 def _shared_choices(script: dict) -> list[str]:
     """Every op's shared choices read and mended: `enter` (ENTRANCES; a template has its own too), `speed`
     (SPEEDS), and a point's `how` (POINT_HOWS). One not known is left out (its op's own way), with a note."""
-    if script.get("engine") == "motion":
-        return []
+    motion = script.get("engine") == "motion"
+    # What may hold parts for a later line's reveal: the current engine's templates; on the motion engine every
+    # template and its styled timeline.
+    holders = set(TEMPLATE_OPS)
+    if motion:
+        import compile_motion as cm
+
+        holders |= set(cm.MOTION_OPS) | {"timeline"}
     notes: list[str] = []
     for c, chapter in enumerate(script.get("chapters") or []):
         for b, beat in enumerate(chapter.get("beats") or []):
@@ -762,9 +768,11 @@ def _shared_choices(script: dict) -> list[str]:
                     op.update(made)
                     if not made["parts"]:
                         _drop(op, at, f"a reveal of {made['of']!r} names no parts", notes)
-                if op.get("op") in TEMPLATE_OPS and op.get("hold") and not op.get("id"):
+                if op.get("op") in holders and op.get("hold") and not op.get("id"):
                     op["id"] = f"{op['op']}-c{c + 1}b{b + 1}"
                     notes.append(f"{FIXED}{at}: it holds parts back for a later reveal, so it is given an id: {op['id']!r}")
+                if motion:
+                    continue            # the motion engine reads its own enter, speed and pointing
                 if op.get("enter") is not None and op.get("op") not in TEMPLATE_OPS and op["enter"] not in ENTRANCES:
                     notes.append(f"{FIXED}{at} enter {op['enter']!r} is not one of {', '.join(ENTRANCES)}; its own way is used")
                     op.pop("enter")

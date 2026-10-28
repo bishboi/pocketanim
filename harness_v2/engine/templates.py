@@ -30,10 +30,10 @@ from motion_story import StoryTemplates
 
 # The motion engine's helpers the templates are drawn with (motion.py's own, never one that overrides the current
 # engine's stage or timing: `_to_stage`, `_on_words` and `_stage_add` stay the current engine's, with what the
-# templates need added below; `_moment` is motion.py's, with parts held for a later line added below).
+# templates need added below; `_moment` and parts held for a later line are motion.py's).
 _SHARED = ["_after_moves", "_bar_chart", "_box", "_carry_from", "_carry_into", "_carry_key", "_column_chart",
            "_counter_shaped", "_emphasis", "_find_part", "_fit", "_follow_moves", "_hold_back", "_key_of", "_line_chart",
-           "_m_legible", "_moving_now", "_next_id", "_part", "_replaces", "_row_in", "_settle_z", "_shown",
+           "_m_legible", "_moving_now", "holding", "_moment", "_moment_now", "reveal_held", "_next_id", "_part", "_replaces", "_row_in", "_settle_z", "_shown",
            "_stamp_clear", "_title_in", "_titled", "_value_text", "_versus_split"]
 # The templates of motion.py itself (the mixins' are inherited).
 _TEMPLATES = ["m_cards", "m_chain", "m_chart", "m_counter", "m_document", "m_donut", "m_emphasis", "m_kpi", "m_list",
@@ -70,52 +70,6 @@ class TemplateLecture(StoryTemplates, ExplainTemplates, FormTemplates, MoreTempl
         for holder in self.__dict__.pop("_m_open", []):
             holder._m_owner = anim
         return anim
-
-    # ---------------------------------------------------------------- parts held for a later line -----------------
-    # A template's parts the script holds back (`hold`: their names) do not come on in its own line: each moment the
-    # template sets up for one is kept (by the template's id and the part's name) instead of being waited for in the
-    # line, and a later line's `reveal` (`of`: the template, `parts`: their names) waits for them there.
-
-    def holding(self, tid: str, names, make):
-        """A template made with these parts held back for a later line's reveal."""
-        self._m_hold = (str(tid), {pl._norm(n) for n in names or []})
-        try:
-            return make()
-        finally:
-            self.__dict__.pop("_m_hold", None)
-
-    def _moment(self, say, build, run: float | None = None) -> None:
-        hold = self.__dict__.get("_m_hold")
-        if hold:
-            alts = say if isinstance(say, (list, tuple)) else [say]
-            key = next((pl._norm(a) for a in alts if pl._norm(a) in hold[1]), None)
-            if key is not None:
-                self.__dict__.setdefault("_m_held", {}).setdefault(hold[0], {})[key] = (say, build, run, K.FORCE_ENTER)
-                return
-        MotionLecture._moment(self, say, build, run)
-
-    def reveal_held(self, tid: str, names, on: str | None = None):
-        """A template's held parts brought on in this line: on `on` (the reveal's words), else each on its own
-        name as the line says it, else in its turn. None (the parts come by their moments)."""
-        held = self.__dict__.get("_m_held", {}).get(str(tid), {})
-        whole = self._mwhole.get(str(tid))
-        if whole is None or not self._shown(whole):
-            pl.skipped(f"reveal: {tid!r} is not on the screen")
-            return None
-        for name in names or []:
-            got = held.pop(pl._norm(name), None)
-            if got is None:
-                pl.skipped(f"reveal: {tid!r} holds no part {name!r}")
-                continue
-            say, build, run, force = got
-            before, K.FORCE_ENTER = K.FORCE_ENTER, force
-            try:
-                MotionLecture._moment(self, on or say, build, run)
-            finally:
-                K.FORCE_ENTER = before
-            # Its template is up already (no owner to wait for).
-            self.__dict__.get("_m_open", []).clear()
-        return None
 
     def _stage_add(self, mob):
         out = super()._stage_add(mob)

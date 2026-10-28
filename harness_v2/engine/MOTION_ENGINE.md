@@ -782,6 +782,23 @@ stronger side (`lean`: `pros`, `cons` or `even`; else the longer column), the `v
 `center` in the middle; up to 8 `branches` (`{label, on, children?: [text]}`) growing out on curved stems, each in
 a coloured pill, its children budding off it.
 
+### Built over several lines: `hold`, then `reveal` with `of`
+
+Any template, and a timeline in a `style`, may hold parts back for a later line: `"hold": [<part names>]` (with an
+`id`), then on that line `{"op": "reveal", "of": "<id>", "parts": [<names>], "on": "<words>"}` brings them on there
+(`MotionLecture.holding`, `reveal_held`; the same as the current engine's, BEAT_SCRIPT.md §5.9). A part's name is
+the one its template times it by: a card's title, a list's point, a criterion's text, a side's title, an event's
+label. A labelled picture holds labels the same way (`hold`, then `label`).
+
+```json
+{"op": "cards", "id": "sch", "title": "Who wrote", "hold": ["Ricci"], "items": [{"title": "Xavier", "big": "1549"}, {"title": "Ricci", "big": "1582"}]}
+```
+```json
+{"op": "reveal", "of": "sch", "parts": ["Ricci"], "on": "Ricci"}
+```
+
+---
+
 ## 4. The classic operations, in motion
 
 Every operation of BEAT_SCRIPT.md works. On the board, these are redrawn:

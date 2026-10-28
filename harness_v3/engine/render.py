@@ -29,6 +29,8 @@ import json
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -112,7 +114,9 @@ class ScoreScene(MovingCameraScene):
     SCORE: S.Score
     WORDS: dict
     WAV: str | None = None
-    SPAN: tuple[float, float] | None = None
+    FRAMES: tuple[int, int] | None = None     # a chunk of the video (frames from, to), else all of it
+    FPS: int = 30
+    SOUND: bool = True
 
     def construct(self):
         sc, words = self.SCORE, self.WORDS
@@ -144,16 +148,23 @@ class ScoreScene(MovingCameraScene):
         f.move_to([shot.x, shot.y, 0]).set_width(S.SCREEN_W / shot.zoom)
         if first:
             self._cam_target(first)            # opens where the first camera move goes
-        total = sc.end + TAIL
-        t_from, t_to = self.SPAN or (0.0, total)
-        if self.WAV and t_from == 0:
+        f0, f1 = self.FRAMES or (0, frames_of(sc.end + TAIL, self.FPS))
+        if self.WAV and self.SOUND and f0 == 0:
             self.add_sound(self.WAV)
         driver = Mobject()
         driver.add_updater(lambda m, dt: self._tick(dt))
+        # Right above the paper in the drawing order: manim draws what comes before its first updated mobject once,
+        # as a still image, at the start of the wait. Only the paper is still; every entity is drawn each frame (a
+        # chunk starting mid-video froze a ghost of what was up then under the live frame).
+        driver.set_z_index(-99)
         self.add(driver)
-        self.clock = t_from
+        self.clock = 0.0
         self._tick(0.0)
-        self.wait(t_to - t_from)
+        for _ in range(f0):
+            # A chunk plays the timeline up to its start, undrawn, frame by frame as the whole video would: what
+            # it shows from there is the same frame for frame, so the chunks join without a seam.
+            self._tick(1.0 / self.FPS)
+        self.wait((f1 - f0 - 0.5) / self.FPS)   # exactly f1 - f0 frames
 
     # ------------------------------------------------------------ the canvas -------------------------------------------
     def _paper(self) -> None:
@@ -175,6 +186,7 @@ class ScoreScene(MovingCameraScene):
         tex.move_to([(max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2, 0])
         tex.set_z_index(-100)
         self.add(tex)
+        self.paper = tex
 
     def _build(self) -> None:
         sc = self.SCORE
@@ -190,6 +202,11 @@ class ScoreScene(MovingCameraScene):
     # Kinds a layout mend may move: what a small model places by number. Lands, seas, paths, arrows and rings are
     # placed against other things on purpose, and an entity placed on another (`at ENT`, `on PATH`) is meant there.
     SPREAD = {"icon", "text", "rect", "circle", "blob", "num", "bar", "dots"}
+    HOLDERS = {"rect", "circle", "blob"}
+
+    def _holder(self, e: S.Ent) -> bool:
+        """A shape that things are put on: a box, a disc, a region, an icon on its badge."""
+        return e.kind in self.HOLDERS or (e.kind == "icon" and bool(e.mods.get("badge")))
 
     def _spread(self) -> None:
         """Things of one shot up at the same time that partly overlap are pushed apart (the later one moves, along
@@ -201,9 +218,16 @@ class ScoreScene(MovingCameraScene):
             ents = [e for e in sc.ents.values() if e.shot == shot.name and e.kind in self.SPREAD
                     and not e.mods.get("on") and not (isinstance(e.mods.get("at"), str) and e.mods["at"] in self.E)]
             def holds(big, small) -> bool:
-                return big is not small and self._inside(self.E[small.name], self.E[big.name])
+                # Only a shape holds things (a box, a disc, a region): a long title's box is not a card.
+                return big is not small and self._holder(big) and self._inside(self.E[small.name], self.E[big.name])
             # What sits on another (a badge on its box, a label on its card) moves with it, and is not moved itself.
             riders = {e.name: [x for x in ents if holds(e, x)] for e in ents}
+            for e in ents:                      # nothing hangs off its shot's screen (a long title, a far `at`)
+                before = self.E[e.name].get_center().copy()
+                self._on_screen(self.E[e.name], shot)
+                if not np.allclose(before, self.E[e.name].get_center()):
+                    for x in riders[e.name]:
+                        self.E[x.name].shift(self.E[e.name].get_center() - before)
             ridden = {x.name for xs in riders.values() for x in xs}
             for _ in range(3):
                 moved = False
@@ -216,7 +240,7 @@ class ScoreScene(MovingCameraScene):
                         (a0, a1), (b0, b1) = times.get(a.name, (0, 1e9)), times.get(b.name, (0, 1e9))
                         if a1 <= b0 or b1 <= a0:
                             continue
-                        push = self._apart(self.E[a.name], self.E[b.name])
+                        push = self._apart(self.E[a.name], self.E[b.name], self._holder(a), self._holder(b))
                         if push is None:
                             continue
                         group = [self.E[b.name]] + [self.E[x.name] for x in riders[b.name]]
@@ -250,14 +274,14 @@ class ScoreScene(MovingCameraScene):
         return {n: (t_in.get(n, 0.0), t_out.get(n, 1e9)) for n in self.SCORE.ents}
 
     @staticmethod
-    def _apart(a, b, gap: float = 0.3):
-        """How far b must move to clear a, or None (apart, or one inside the other)."""
+    def _apart(a, b, a_holds: bool = True, b_holds: bool = True, gap: float = 0.3):
+        """How far b must move to clear a, or None (apart, or one inside a shape that holds it)."""
         al, ar, ab, at = a.get_left()[0], a.get_right()[0], a.get_bottom()[1], a.get_top()[1]
         bl, br, bb, bt = b.get_left()[0], b.get_right()[0], b.get_bottom()[1], b.get_top()[1]
         ox, oy = min(ar, br) - max(al, bl), min(at, bt) - max(ab, bb)
         if ox <= 0 or oy <= 0:
             return None
-        if ScoreScene._inside(a, b) or ScoreScene._inside(b, a):
+        if (b_holds and ScoreScene._inside(a, b)) or (a_holds and ScoreScene._inside(b, a)):
             return None
         if ox * oy < 0.04 * min((ar - al) * (at - ab), (br - bl) * (bt - bb)):
             return None                       # a corner touching: let be
@@ -272,6 +296,8 @@ class ScoreScene(MovingCameraScene):
                 and small.get_bottom()[1] >= big.get_bottom()[1] - e and small.get_top()[1] <= big.get_top()[1] + e)
 
     def _on_screen(self, m, shot) -> None:
+        if m.width > S.SCREEN_W / shot.zoom - 0.8:
+            m.scale_to_fit_width(S.SCREEN_W / shot.zoom - 0.8)
         o, hw, hh = np.array([shot.x, shot.y, 0.0]), S.SCREEN_W / shot.zoom / 2 - 0.3, S.SCREEN_H / shot.zoom / 2 - 0.3
         dx = max(0.0, (o[0] - hw) - m.get_left()[0]) - max(0.0, m.get_right()[0] - (o[0] + hw))
         dy = max(0.0, (o[1] - hh) - m.get_bottom()[1]) - max(0.0, m.get_top()[1] - (o[1] + hh))
@@ -300,6 +326,8 @@ class ScoreScene(MovingCameraScene):
         m = look.copies(one, int(e.mods["x"]), e.mods) if int(e.mods.get("x", 1)) > 1 else one()
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
+        if e.kind not in ("land", "waves", "path", "arrow", "islands") and (m.width > 12 or m.height > 7):
+            m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
         if e.mods.get("on") and len(m.submobjects) > 1:
             # Its copies (or dots) spread along a path, evenly.
             track = self._track(self.E[e.mods["on"]])
@@ -312,7 +340,8 @@ class ScoreScene(MovingCameraScene):
             m.move_to(where)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
-        m.set_z_index(int(e.mods.get("layer", 0)) * 10 + (5 if e.kind in ("text", "num") else 0))
+        layer = int(e.mods.get("layer", -1 if e.kind in ("blob", "islands") else 0))   # a region sits under what is on it
+        m.set_z_index(layer * 10 + (5 if e.kind in ("text", "num") else 0))
         if e.mods.get("opacity") is not None:
             Alpha(m).set(float(e.mods["opacity"]))
         self.E[e.name] = m
@@ -379,6 +408,10 @@ class ScoreScene(MovingCameraScene):
                 tw.done = True
                 print(f"score line {getattr(tw, 'line', '?')}: {getattr(tw, 'verb', 'an action')} stopped as it played: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
+        # What is drawn this frame is what is up now: manim keeps the list it took when the wait began, and a part
+        # replaced since (a number counting, a bar growing) would be drawn twice, the stale one under the live one.
+        if getattr(self, "moving_mobjects", None) is not None:
+            self.moving_mobjects = [m for m in self.mobjects if m is not self.paper]
 
     # ------------------------------------------------------------ actions ----------------------------------------------
     def _span(self, act: S.Act, lead: bool = True) -> tuple[float, float]:
@@ -778,7 +811,7 @@ class ScoreScene(MovingCameraScene):
 
     def _float(self, m, amp, t0, t1) -> None:
         state = {"y": 0.0}
-        phase = (hash(id(m)) % 100) / 100 * math.tau
+        phase = (len(self.tweens) * 0.618) % 1 * math.tau     # the same in every chunk's process
 
         def step(a):
             t = t0 + a * (t1 - t0)
@@ -830,28 +863,52 @@ class ScoreScene(MovingCameraScene):
         self.tweens.append(tw)
 
     def _introduce_the_rest(self) -> None:
-        """An entity no action brings on is simply there from the start (off the camera until it goes there)."""
+        """An entity no action brings on fades in as its shot starts (the first action there): never a thing
+        sitting still from the first frame. In the first shot, at the start, it is simply there."""
+        sc = self.SCORE
         named = set()
-        for a in self.SCORE.acts:
+        for a in sc.acts:
             if a.verb in ("in",):
                 named |= {re.sub(r"\[.*", "", x) for x in a.target.split(",")}
             if a.verb == "morph" and a.args:
                 named |= {re.sub(r"\[.*", "", x) for x in a.args[0].split(",")}
+        starts: dict[str, float] = {}
+        for a in sc.acts:
+            sh = S.shot_of(sc, a.target)
+            if sh:
+                starts[sh] = min(starts.get(sh, 1e9), a.t0)
         for name, m in self.E.items():
-            if name not in named:
+            if name in named:
+                continue
+            t = starts.get(sc.ents[name].shot, 0.0) if name in sc.ents else 0.0
+            if t <= 0.5:
                 self.up.add(id(m))
                 self.add(m)
+            else:
+                self._in(name, m, max(0.0, t - 0.3), t + 0.4, "fade")
 
 
-def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span=None) -> list[str]:
-    words = json.loads((voice_dir / "words.json").read_text())
-    sc = S.parse(score_text, words["words"], float(words["seconds"]))
+RES = {"h": (1920, 1080, 30), "m": (1280, 720, 30), "l": (854, 480, 15)}
+
+
+def frames_of(seconds: float, fps: int) -> int:
+    return int(round(seconds * fps))
+
+
+def jobs_default() -> int:
+    """How many chunks render at once: V3_RENDER_JOBS, else half the machine's cores (at most 8)."""
+    env = os.environ.get("V3_RENDER_JOBS", "").strip()
+    return max(1, int(env)) if env.isdigit() else max(1, min(8, (os.cpu_count() or 2) // 2))
+
+
+def _one(sc: S.Score, words: dict, voice_dir: Path, out: Path, quality: str, frames=None, sound=True,
+         media: Path | None = None) -> None:
     ScoreScene.SCORE, ScoreScene.WORDS = sc, words
     ScoreScene.WAV = str(voice_dir / "voice.wav")
-    ScoreScene.SPAN = span
-    res = {"h": (1920, 1080, 30), "m": (1280, 720, 30), "l": (854, 480, 15)}[quality]
-    media = out.parent / "media"
-    with tempconfig({"pixel_width": res[0], "pixel_height": res[1], "frame_rate": res[2], "media_dir": str(media),
+    ScoreScene.FRAMES, ScoreScene.SOUND = frames, sound
+    w, h, fps = RES[quality]
+    ScoreScene.FPS = fps
+    with tempconfig({"pixel_width": w, "pixel_height": h, "frame_rate": fps, "media_dir": str(media or out.parent / "media"),
                      "output_file": out.stem, "disable_caching": True, "verbosity": "WARNING",
                      "progress_bar": "none"}):
         scene = ScoreScene()
@@ -859,7 +916,48 @@ def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span
         made = Path(scene.renderer.file_writer.movie_file_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     os.replace(made, out)
-    return sc.notes
+
+
+def render(score_text: str, voice_dir: Path, out: Path, quality: str = "h", span=None, jobs: int | None = None) -> list[str]:
+    """The video. Long ones are cut into `jobs` chunks rendered at once, each in its own process, then joined and
+    the voice laid under them. Returns the notes (lines left out or mended)."""
+    words = json.loads((voice_dir / "words.json").read_text())
+    sc = S.parse(score_text, words["words"], float(words["seconds"]))
+    fps = RES[quality][2]
+    total = frames_of(sc.end + TAIL, fps)
+    if span:
+        _one(sc, words, voice_dir, out, quality, (frames_of(span[0], fps), min(total, frames_of(span[1], fps))))
+        return sc.notes
+    jobs = jobs or jobs_default()
+    if jobs <= 1 or total < 20 * fps:
+        _one(sc, words, voice_dir, out, quality)
+        return sc.notes
+    parts = out.parent / ".parts"
+    shutil.rmtree(parts, ignore_errors=True)
+    parts.mkdir(parents=True)
+    (parts / "video.score").write_text(score_text)
+    cuts = [round(total * k / jobs) for k in range(jobs + 1)]
+    procs = []
+    for k in range(jobs):
+        cmd = [sys.executable, __file__, str(parts / "video.score"), str(voice_dir), str(parts / f"part{k}.mp4"),
+               "--quality", quality, "--frames", f"{cuts[k]}:{cuts[k + 1]}", "--nosound", "--media", str(parts / f"media{k}")]
+        procs.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+    outs = [p.communicate() for p in procs]
+    for p, (o, e) in zip(procs, outs):
+        if p.returncode != 0:
+            raise RuntimeError(f"a chunk of the render failed:\n{(e or o)[-1500:]}")
+    notes = [l[6:] for l in outs[0][0].splitlines() if l.startswith("note: ")]
+    said = []
+    for o, e in outs:
+        said += [l for l in e.splitlines() if l.startswith("score line") and l not in said]
+    for l in said:
+        print(l, file=sys.stderr)
+    (parts / "list.txt").write_text("".join(f"file 'part{k}.mp4'\n" for k in range(jobs)))
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(parts / "list.txt"),
+                    "-i", str(voice_dir / "voice.wav"), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
+                    "-b:a", "160k", str(out)], check=True)
+    shutil.rmtree(parts, ignore_errors=True)
+    return notes
 
 
 def main() -> None:
@@ -870,9 +968,21 @@ def main() -> None:
     ap.add_argument("--quality", default="m")
     ap.add_argument("--from", dest="t_from", type=float)
     ap.add_argument("--to", dest="t_to", type=float)
+    ap.add_argument("--jobs", type=int, help="chunks rendered at once (default: V3_RENDER_JOBS, else half the cores)")
+    ap.add_argument("--frames", help=argparse.SUPPRESS)        # a chunk (from:to), for render() itself
+    ap.add_argument("--nosound", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--media", help=argparse.SUPPRESS)
     a = ap.parse_args()
+    if a.frames:
+        words = json.loads((Path(a.voice) / "words.json").read_text())
+        sc = S.parse(Path(a.score).read_text(), words["words"], float(words["seconds"]))
+        f0, f1 = (int(x) for x in a.frames.split(":"))
+        _one(sc, words, Path(a.voice), Path(a.out), a.quality, (f0, f1), not a.nosound, Path(a.media) if a.media else None)
+        for n in sc.notes:
+            print("note:", n)
+        return
     span = (a.t_from or 0.0, a.t_to) if a.t_to else None
-    notes = render(Path(a.score).read_text(), Path(a.voice), Path(a.out), a.quality, span)
+    notes = render(Path(a.score).read_text(), Path(a.voice), Path(a.out), a.quality, span, a.jobs)
     for n in notes:
         print("note:", n)
     print(f"wrote {a.out}")

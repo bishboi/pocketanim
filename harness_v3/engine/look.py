@@ -22,6 +22,7 @@ Every kind takes `at X,Y` (in its shot's frame), `layer`, `rot`, `opacity`, `x N
 from __future__ import annotations
 
 import math
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -95,8 +96,9 @@ def icon(name: str, size: float = 1.2, color=None, badge=None):
     return g
 
 
-def blob(r: float = 1.0, seed: int = 0, fill=None, wobble: float = 0.12):
-    """A soft irregular round shape (land, a cloud of something)."""
+def blob(r: float = 1.0, seed: int = 0, fill=None, wobble: float = 0.12, soft: bool = False):
+    """A soft irregular round shape (land, a cloud of something, a region). `soft`: a light tint of its colour with
+    a thin edge of the same colour (a region things sit in), else a solid shape with no ink outline."""
     rng = np.random.default_rng(seed)
     k = rng.uniform(-wobble, wobble, 6)
     ph = rng.uniform(0, math.tau, 6)
@@ -104,8 +106,9 @@ def blob(r: float = 1.0, seed: int = 0, fill=None, wobble: float = 0.12):
     def f(t):
         rr = r * (1 + sum(k[i] * math.sin((i + 2) * t + ph[i]) for i in range(3)))
         return np.array([rr * math.cos(t) * 1.25, rr * math.sin(t) * 0.8, 0])
-    m = ParametricFunction(f, t_range=[0, math.tau], fill_color=col(fill or "sand"), fill_opacity=1,
-                           stroke_color=col("ink"), stroke_width=STROKE * 0.6)
+    c = col(fill or "sand")
+    m = ParametricFunction(f, t_range=[0, math.tau], fill_color=c, fill_opacity=0.28 if soft else 1,
+                           stroke_color=c, stroke_width=STROKE * 0.5, stroke_opacity=0.9 if soft else 0)
     return m
 
 
@@ -184,6 +187,9 @@ def waves(n: int = 3, w: float = 12.0, color=None):
 
 
 def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color=None):
+    # A dot is small whatever `size` a model writes (it means 1 for an icon); the group stays a compact block.
+    n = max(1, min(int(n), 400))
+    size = 0.16 if size > 0.5 else min(max(size, 0.05), 0.22)
     g = VGroup(*[Dot(radius=size, color=col(color or "coral")) for _ in range(n)])
     if layout == "row":
         g.arrange(RIGHT, buff=size * 0.9)
@@ -193,7 +199,9 @@ def dots(n: int, layout: str = "grid", cols: int = 10, size: float = 0.16, color
             a, r = i * 2.39996, size * 2.4 * math.sqrt(i)
             d.move_to([r * math.cos(a), r * math.sin(a), 0])
     else:
-        g.arrange_in_grid(cols=max(1, cols), buff=size * 0.9)
+        g.arrange_in_grid(cols=max(1, min(cols, n)), buff=size * 0.9)
+    if g.width > 6 or g.height > 4:
+        g.scale(min(6 / g.width, 4 / g.height))
     return g
 
 
@@ -288,7 +296,8 @@ def build(kind: str, args: list[str], mods: dict, locate=None):
                                  fill_color=col(fill or c or "sand"), fill_opacity=1,
                                  stroke_color=col(mods.get("line") or "ink"), stroke_width=STROKE * 0.6 if mods.get("line") else 0)
         else:
-            m = blob(r, seed=int(abs(hash(str(args))) % 97), fill=fill or c)
+            # (crc32, not hash(): hash is salted per process, and chunks of one video render in separate processes)
+            m = blob(r, seed=zlib.crc32(str(args).encode()) % 97, fill=fill or c, soft=not fill)
         if mods.get("dashed"):
             m = DashedVMobject(m, num_dashes=40)
     elif kind == "waves":

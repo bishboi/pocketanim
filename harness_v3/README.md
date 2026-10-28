@@ -64,5 +64,9 @@ shows its five steps with status, time and cost (each can run again from there; 
 the video with its score (edit it and render again), the narration's timed words, the storyboard, and every call with
 its prompt, answer, tokens and cost. The sidebar lists runs with their cost and the total.
 
+Speed: a video's shots are scored at once (`V3_SCORE_JOBS`, 6), and a video longer than 20 s is rendered in
+chunks at once (`V3_RENDER_JOBS`, half the cores), each chunk playing the timeline up to its start unseen so the
+chunks join frame for frame; the voice is laid under the joined video.
+
 Not yet: the phone players (the demo is a video), more lands than Japan, and the
 critic run on a real model (it needs a key).

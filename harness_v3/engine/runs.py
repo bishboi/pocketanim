@@ -17,6 +17,7 @@ that step (the steps after it are run again too).
 from __future__ import annotations
 
 import base64
+import signal
 import json
 import os
 import re
@@ -28,6 +29,7 @@ import traceback
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -63,7 +65,8 @@ def _check(rid: str | None) -> None:
 
 def _proc(rid: str, cmd: list[str]) -> subprocess.CompletedProcess:
     """A step's program, killed when its run is stopped (as subprocess.run, output captured)."""
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Its own process group: a stop kills it and what it started (a render's chunks).
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
     _procs[rid] = p
     try:
         while True:
@@ -72,7 +75,7 @@ def _proc(rid: str, cmd: list[str]) -> subprocess.CompletedProcess:
                 break
             except subprocess.TimeoutExpired:
                 if rid in _stop:
-                    p.kill()
+                    _kill(p)
                     p.communicate()
                     raise Stopped("stopped by hand") from None
     finally:
@@ -93,14 +96,18 @@ def load(rid: str) -> dict:
     return json.loads((run_dir(rid) / "run.json").read_text())
 
 
+_mut = threading.RLock()   # a run's record, written by its step and by the shot calls running at once
+
+
 def save(run: dict) -> None:
-    d = run_dir(run["id"])
-    d.mkdir(parents=True, exist_ok=True)
-    run["cost"] = round(sum(c.get("cost") or 0 for c in run["calls"]), 6)
-    run["tokens"] = sum((c.get("tokens_in") or 0) + (c.get("tokens_out") or 0) for c in run["calls"])
-    tmp = d / "run.json.tmp"
-    tmp.write_text(json.dumps(run, indent=1))
-    tmp.replace(d / "run.json")
+    with _mut:
+        d = run_dir(run["id"])
+        d.mkdir(parents=True, exist_ok=True)
+        run["cost"] = round(sum(c.get("cost") or 0 for c in run["calls"]), 6)
+        run["tokens"] = sum((c.get("tokens_in") or 0) + (c.get("tokens_out") or 0) for c in run["calls"])
+        tmp = d / "run.json.tmp"
+        tmp.write_text(json.dumps(run, indent=1))
+        tmp.replace(d / "run.json")
 
 
 def listing() -> list[dict]:
@@ -146,8 +153,9 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
     model = run["settings"]["model"]
     call = {"id": uuid.uuid4().hex[:8], "step": step, "label": label, "model": model, "system": system, "user": user,
             "images": len(images or []), "started": time.time(), "status": "running"}
-    run["calls"].append(call)
-    save(run)
+    with _mut:
+        run["calls"].append(call)
+        save(run)
     key = os.environ.get("OPENROUTER_API_KEY")
     try:
         if not key:
@@ -178,21 +186,24 @@ def chat(run: dict, step: str, label: str, system: str, user: str, images: list[
         choice = (out.get("choices") or [{}])[0]
         text = ((choice.get("message") or {}).get("content") or "").strip()
         thought = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
-        call.update({"output": text, "tokens_in": usage.get("prompt_tokens"), "tokens_out": usage.get("completion_tokens"),
-                     "reasoning_tokens": thought, "finish": choice.get("finish_reason"), "cost": usage.get("cost"),
-                     "status": "done"})
+        with _mut:
+            call.update({"output": text, "tokens_in": usage.get("prompt_tokens"), "tokens_out": usage.get("completion_tokens"),
+                         "reasoning_tokens": thought, "finish": choice.get("finish_reason"), "cost": usage.get("cost"),
+                         "status": "done"})
         if not text:
             raise RuntimeError(f"{model} gave no answer (finish: {choice.get('finish_reason')}"
                                + (f"; {thought} tokens spent reasoning" if thought else "")
                                + "): try again, another model, or V3_REASONING=low/none")
         return text
     except Exception as e:
-        call.update({"status": "failed", "error": str(e)[:500]})
+        with _mut:
+            call.update({"status": "failed", "error": str(e)[:500]})
         raise
     finally:
-        call["ended"] = time.time()
-        call["seconds"] = round(call["ended"] - call["started"], 2)
-        save(run)
+        with _mut:
+            call["ended"] = time.time()
+            call["seconds"] = round(call["ended"] - call["started"], 2)
+            save(run)
 
 
 # ---------------------------------------------------------------- the steps --------------------------------------------
@@ -255,14 +266,17 @@ def _score(run: dict, only: int | None = None) -> None:
     shots = json.loads((d / "storyboard.json").read_text())
     words = _words(run)
     parts = json.loads((d / "shots.json").read_text()) if only is not None and (d / "shots.json").exists() else [None] * len(shots)
-    before = ""
-    for k in range(len(shots)):
-        if only is None or k == only:
-            parts[k] = _score_shot(run, shots, k, words, before)
-            (d / "shots.json").write_text(json.dumps(parts, indent=1))
-        before = " ".join(re.findall(r"^\s*ent\s+(\S+)", parts[k] or "", re.M))
+    todo = [k for k in range(len(shots)) if only is None or k == only]
+    # The shots are written at once (V3_SCORE_JOBS calls in flight): each is told the plan of the shot before it,
+    # not its score, so none waits for another. A name two shots both make is two things (score.parse).
+    jobs = max(1, int(os.environ.get("V3_SCORE_JOBS", "6")))
+    with ThreadPoolExecutor(max_workers=min(jobs, len(todo) or 1)) as pool:
+        made = {k: pool.submit(_score_shot, run, shots, k, words, shots[k - 1]["plan"] if k else "") for k in todo}
+        for k, f in made.items():
+            parts[k] = f.result()
+    (d / "shots.json").write_text(json.dumps(parts, indent=1))
     (d / "video.score").write_text("look paper\n\n" + "\n\n".join(p for p in parts if p) + "\n")
-    run["steps"]["score"]["notes"] = [f"{len(shots)} shots scored"]
+    run["steps"]["score"]["notes"] = [f"{len(todo)} shot(s) scored, {min(jobs, len(todo) or 1)} at once"]
 
 
 def _render(run: dict) -> None:
@@ -371,8 +385,15 @@ def stop(rid: str) -> bool:
     _stop.add(rid)
     p = _procs.get(rid)
     if p and p.poll() is None:
-        p.kill()
+        _kill(p)
     return True
+
+
+def _kill(p: subprocess.Popen) -> None:
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, AttributeError):
+        p.kill()
 
 
 def stop_all() -> list[str]:

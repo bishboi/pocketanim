@@ -91,7 +91,8 @@ def parse_storyboard(text: str, words: int) -> list[dict]:
 def score_prompt(plan: str, words: list[dict], shot_at: tuple[float, float], before: str = "") -> tuple[str, str]:
     said = " ".join(f"w{w['i']}:{w['w']}@{w['start']:.1f}" for w in words)
     user = (f"SHOT PLAN: {plan}\nPLACE IT: at {shot_at[0]:g},{shot_at[1]:g}\nWORDS: {said}\n"
-            + (f"UP FROM THE SHOT BEFORE (use these names, never `ent` them again; or move them out): {before}\n" if before else "")
+            + (f"THE SHOT BEFORE (for continuity; it is written at the same time, so make every thing you use): {before}\n"
+               if before else "")
             + (f"Start with: w{words[0]['i']} cam SHOT_NAME\n" if words else "")
             + "Write the shot's lines.")
     return SCORE + "\n\n" + GRAMMAR, user

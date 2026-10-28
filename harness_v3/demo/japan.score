@@ -1,0 +1,125 @@
+# Why Japan industrialised so fast: a 40-second demo of the score.
+look paper
+
+# ---- 1853: ships in the bay, a closed country, how far behind --------------------------------------------------------
+shot bay at 0,0
+ent japan   land japan size 1.05 at -3.2,0.2
+ent jname   text "JAPAN" size 0.26 bold color navy at -5.7,1.7
+ent sea     waves 4 w 8 color teal at 3.4,-2.4
+ent year    text "1853" size 1.3 bold color coral at 3.8,2.5
+ent ships   icon ship x4 gap 0.3 badge navy size 0.8 at 4.4,-1.15 layer 2
+ent port    circle r 0.12 fill coral at japan.uraga layer 3
+ent wall    ring r 3.05 color coral dashed at -3.2,0.25
+ent lock    icon lock badge coral size 0.9 at -0.95,2.45 layer 3
+ent years   num 0 suffix " years closed" size 0.42 color ink at -3.2,-3.12 layer 3
+ent tj      text "Japan" size 0.3 bold color coral at 3.0,1.75
+ent tw      text "The West" size 0.3 bold color navy at 3.25,0.25
+ent bj      bar 0 max 10 w 5.0 h 0.42 color coral at 5.6,1.2
+ent bw      bar 0 max 10 w 5.0 h 0.42 color navy at 5.6,-0.3
+
+t0          cam bay
+t0-w2       in japan draw stagger .15
+t0.2-w2     in sea draw stagger .2
+w1          in jname rise
+w1          in year write
+w2-w4       in ships slide-left stagger .22
+w2-w30      float ships .05
+w5-w8       move ships by -2.7,0.15
+w7          in port pop
+w8          ring port coral
+w9-w13      cam bay -2.6,0 zoom 1.06
+w9          out year fade
+w13         in wall draw
+w13         in lock pop
+w18         in years rise
+w18-w20     count years 200
+w22-w24     cam bay 0.9,0 zoom 0.86
+w22         out ships drop stagger .08
+w22         out port fade
+w24         in tj,tw rise stagger .15
+w24         in bj,bw fade
+w26-w29     grow bw 9.4
+w26-w27     grow bj 1.6
+w27         pulse tj
+
+# ---- a bet: learn from the West, fast; students out, engineers in ------------------------------------------------------
+shot bet at 18,0
+ent jb      icon mountain-snow badge coral size 2.0 at -4.6,-0.9 layer 2
+ent wb      icon landmark badge navy size 2.0 at 4.6,-0.9 layer 2
+ent jt      text "Japan" size 0.3 bold color coral at -4.6,-2.35
+ent wt      text "the West" size 0.3 bold color navy at 4.6,-2.35
+ent bet     text "THE BET" size 0.3 bold color soft at 0,3.15
+ent learn   text "learn from the West" size 0.62 bold color ink at 0,2.35
+ent fast    text "FAST" size 0.95 bold color coral rot 8 at 0,0.75 layer 3
+ent route   arrow jb wb curve -0.7 color soft dashed
+ent students dots 10 cluster size 0.11 color coral at -4.6,-0.9 layer 4
+ent engs    dots 8 cluster size 0.11 color gold at 4.6,-0.9 layer 4
+
+w30-w33     cam bet
+w30         in jb pop
+w33         in wb pop
+w36         in bet fade
+w37-w40     in learn write
+w40         pulse wb
+w44         in fast pop
+w44+0.35    shake fast
+w45         in route draw
+w46-w47     in students pop stagger .03
+w47-w48     move students to wb arc .55 stagger .05
+w49-w50     in engs pop stagger .03
+w50-w52     move engs to jb arc .55 stagger .05
+w48+0.3     pulse wb
+w51+0.4     pulse jb
+
+# ---- railways across the islands, factories where rice fields were ------------------------------------------------------
+shot land at 18,-11
+ent home    land japan size 1.3 at 0,0
+ent rail    path home.nagasaki home.hiroshima home.osaka home.tokyo home.sendai home.aomori dashed color ink width 0.7 layer 2
+ent train   icon train-front badge navy size 0.7 at home.nagasaki layer 4
+ent fields  icon wheat x5 size 0.55 color green on rail nudge 0,-0.45 layer 3
+ent works   icon factory x5 size 0.55 color navy on rail nudge 0,-0.45 layer 3
+ent smoke   dots 5 size 0.08 color soft on rail nudge 0.15,0.05 layer 3
+
+w52-w54     cam land
+w52         in home fade
+w53         in fields pop stagger .07
+w54-w57     in rail draw
+w54         in train pop
+w55-w57+0.8 along train rail
+w55-w57     flow rail n 6 navy
+w58-w62     morph fields works stagger .14
+w62-w64     in smoke rise stagger .08
+w62-end     float smoke .12
+
+# ---- 1905: fifty years on, Japan beats Russia ---------------------------------------------------------------------------
+shot win at 0,-11
+ent yr      num 1853 size 1.2 color ink at 0,2.75
+ent jw      icon mountain-snow badge coral size 2.2 at -3.3,-0.8 layer 2
+ent ru      icon castle badge navy size 2.2 at 3.3,-0.8 layer 2
+ent vs      text "vs" size 0.42 color soft at 0,-0.8
+ent span    path -5.2,1.2 5.2,1.2 color soft width 0.6
+ent miles   icon train-front x4 size 0.42 color navy on span nudge 0,0.36
+ent milef   icon factory x4 size 0.42 color coral on span nudge 0,-0.36
+ent ja      text "Japan" size 0.32 bold color coral at -3.3,-2.4
+ent rn      text "Russia" size 0.32 bold color navy at 3.3,-2.4
+
+w65-w67     cam win
+w66         in yr pop
+w67-w71     count yr 1905
+w67-w71     in span draw
+w67-w71     flow span n 4 coral
+w68-w71     in miles pop stagger .3
+w68-w71+0.3 in milef pop stagger .3
+w72         out miles,milef,span fade
+w72         in jw pop
+w72         in ja rise
+w73         in vs fade
+w73         in ru pop
+w73         in rn rise
+w75         pulse jw
+w77-w78     move jw by 1.0,0
+w78         shake ru
+w78         dim ru,rn .3
+w78+0.2     ring jw gold
+w78+0.3     scale jw 1.15
+t36.4-t38.6 cam wide

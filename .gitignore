@@ -66,3 +66,6 @@ ios/DerivedData/
 ios/App/Resources/library/
 ios/App/Info.plist
 ios/build/
+.venv3/
+harness_v3/.cache/
+harness_v3/out/

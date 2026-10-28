@@ -76,6 +76,8 @@ for f in "oswald/Oswald%5Bwght%5D.ttf:Oswald[wght].ttf" "ibmplexmono/IBMPlexMono
 done
 [ -d .cache/flagpkg/package/flags ] || (cd .cache && npm pack --silent flag-icons@7.2.3 >/dev/null 2>&1 && mkdir -p flagpkg \
   && tar xzf flag-icons-7.2.3.tgz -C flagpkg)
+# Real maps: Natural Earth's countries, coasts, seas, rivers and towns (about 25 MB, once; a year's borders come later).
+../.venv3/bin/python engine/geo.py --fetch >/dev/null 2>&1 || echo "could not fetch the map data (it is fetched when a map is first drawn)"
 # The player's MP4 export runs the player in headless Chromium (Playwright's own, about 150 MB, once).
 ../.venv3/bin/python -m playwright install chromium >/dev/null 2>&1 || echo "could not fetch Chromium for the player export (python -m playwright install chromium)"
 for v in en_US-ryan-high en_US-lessac-high; do

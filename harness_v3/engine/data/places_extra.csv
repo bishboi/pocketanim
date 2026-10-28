@@ -1,0 +1,132 @@
+# Places Natural Earth's populated_places lacks, for teaching maps.
+# Coordinates are approximate (about 0.05 degrees); a district name maps to its headquarters.
+name,country,lon,lat,aliases
+Lakhimpur,India,80.78,27.95,Lakhimpur Kheri|Kheri
+Dudhwa,India,80.66,28.48,Dudhwa National Park
+Robertsganj,India,83.07,24.69,Sonbhadra
+Ayodhya,India,82.20,26.80,Faizabad
+Banda,India,80.34,25.48,
+Lalitpur,India,78.41,24.69,
+Orai,India,79.45,25.99,Jalaun
+Ghazipur,India,83.58,25.58,
+Azamgarh,India,83.18,26.07,
+Ballia,India,84.15,25.76,
+Noida,India,77.39,28.54,Gautam Buddh Nagar
+Rae Bareli,India,81.23,26.23,Raebareli
+Sultanpur,India,82.07,26.26,
+Gonda,India,81.96,27.13,
+Basti,India,82.73,26.80,
+Deoria,India,83.78,26.50,
+Jaunpur,India,82.69,25.75,
+Hardoi,India,80.13,27.40,
+Unnao,India,80.49,26.55,
+Chitrakoot,India,80.90,25.20,Karwi
+Mahoba,India,79.87,25.29,
+Hamirpur,India,80.15,25.95,
+Bijnor,India,78.13,29.37,
+Etah,India,78.66,27.56,
+Mainpuri,India,79.02,27.23,
+Kasganj,India,78.64,27.81,
+Kannauj,India,79.92,27.05,
+Auraiya,India,79.51,26.46,
+Amethi,India,81.81,26.15,
+Bhadohi,India,82.57,25.40,Sant Ravidas Nagar
+Chandauli,India,83.27,25.26,
+Kushinagar,India,83.89,26.74,
+Maharajganj,India,83.56,27.13,
+Siddharthnagar,India,83.09,27.25,
+Shravasti,India,82.05,27.52,
+Balrampur,India,82.18,27.43,
+Jim Corbett National Park,India,78.77,29.53,Corbett
+Kaziranga,India,93.17,26.58,Kaziranga National Park
+Sundarbans,India,88.90,21.95,
+Gir,India,70.82,21.12,Gir National Park|Gir Forest
+Ranthambore,India,76.50,26.02,Ranthambhore
+Kanha,India,80.61,22.33,Kanha National Park
+Mount Abu,India,72.71,24.59,
+Guru Shikhar,India,72.78,24.65,
+Mawsynram,India,91.58,25.30,
+Cherrapunji,India,91.72,25.28,Sohra
+Shivamogga,India,75.57,13.93,Shimoga
+# Historic and teaching sites (archaeological sites, battlefields, freedom-movement places, monuments), at the site
+# itself; a place known by its modern town is the town.
+Harappa,Pakistan,72.86,30.63,
+Mohenjo-daro,Pakistan,68.14,27.33,Mohenjodaro|Moenjodaro
+Taxila,Pakistan,72.83,33.75,Takshashila
+Lothal,India,72.25,22.52,
+Dholavira,India,70.21,23.89,
+Kalibangan,India,74.13,29.47,
+Rakhigarhi,India,76.11,29.29,
+Sanchi,India,77.74,23.48,Sanchi Stupa
+Bodh Gaya,India,84.99,24.70,Bodhgaya
+Sarnath,India,83.03,25.38,
+Lumbini,Nepal,83.28,27.47,
+Nalanda,India,85.44,25.14,
+Vaishali,India,85.13,25.99,
+Pataliputra,India,85.14,25.61,
+Rajgir,India,85.42,25.03,Rajagriha|Rajgriha
+Dhauli,India,85.84,20.19,Kalinga
+Ajanta,India,75.70,20.55,Ajanta Caves
+Ellora,India,75.18,20.03,Ellora Caves
+Konark,India,86.09,19.89,Konark Sun Temple
+Khajuraho,India,79.92,24.85,
+Hampi,India,76.46,15.34,Vijayanagara
+Mahabalipuram,India,80.20,12.62,Mamallapuram
+Fatehpur Sikri,India,77.66,27.09,
+Somnath,India,70.40,20.89,
+Plassey,India,88.25,23.80,Palashi
+Buxar,India,83.98,25.56,
+Haldighati,India,73.69,24.89,
+Talikota,India,76.31,16.47,
+Srirangapatna,India,76.69,12.42,Seringapatam|Srirangapatnam
+Tarain,India,76.92,29.80,Taraori
+Khanwa,India,77.53,27.03,
+Kurukshetra,India,76.85,29.97,
+Dandi,India,72.80,20.89,
+Sabarmati Ashram,India,72.58,23.06,Sabarmati|Gandhi Ashram
+Champaran,India,84.92,26.65,Motihari
+Kheda,India,72.68,22.75,Kaira
+Bardoli,India,73.11,21.12,
+Chauri Chaura,India,83.58,26.65,
+Jallianwala Bagh,India,74.88,31.62,
+Kanyakumari,India,77.54,8.08,Cape Comorin
+Rameswaram,India,79.31,9.29,
+Sriharikota,India,80.23,13.72,
+# Historic and cultural regions (a lecture names them like places): the marker goes at the region's middle, so
+# "Normandy" or "Flanders" is never taken for a town of the same name on another continent.
+Normandy,France,0.3,49.1,Normandie
+Brittany,France,-2.9,48.2,Bretagne
+Burgundy,France,4.6,47.1,Bourgogne
+Aquitaine,France,0.0,44.5,Guyenne|Guienne
+Gascony,France,0.2,43.7,Gascogne
+Provence,France,6.0,43.8,
+Champagne,France,4.2,49.0,
+Picardy,France,2.3,49.9,Picardie
+Anjou,France,-0.5,47.5,
+Gaul,France,2.5,46.6,Gallia
+Flanders,Belgium,3.7,51.0,Vlaanderen|Flemish Region
+Wallonia,Belgium,4.8,50.4,
+England,United Kingdom,-1.5,52.6,
+Scotland,United Kingdom,-4.2,56.8,
+Wales,United Kingdom,-3.7,52.3,
+Northern Ireland,United Kingdom,-6.6,54.6,
+Lombardy,Italy,9.7,45.6,Lombardia
+Tuscany,Italy,11.1,43.4,Toscana
+Sicily,Italy,14.1,37.5,Sicilia
+Bavaria,Germany,11.4,48.9,Bayern
+Saxony,Germany,13.3,51.0,Sachsen
+Bohemia,Czechia,14.5,49.9,
+Castile,Spain,-4.0,40.5,Castilla
+Aragon,Spain,-0.9,41.5,Aragón
+Catalonia,Spain,1.7,41.8,Catalunya
+Andalusia,Spain,-4.6,37.4,Andalucía|Al-Andalus
+Navarre,Spain,-1.6,42.7,Navarra
+Anatolia,Turkey,32.9,39.0,Asia Minor
+Byzantium,Turkey,28.98,41.01,Constantinople
+Mesopotamia,Iraq,44.4,33.3,
+Persia,Iran,53.7,32.4,
+Deccan,India,77.5,17.5,Deccan Plateau
+Kalinga,India,85.1,20.3,
+Magadha,India,85.4,25.0,
+Gandhara,Pakistan,72.0,34.0,
+Awadh,India,81.0,26.8,Oudh|Avadh

@@ -203,7 +203,8 @@ class ScoreScene(MovingCameraScene):
         where a point should be) is left out, said in the notes, with the actions on it; the rest plays."""
         sc = self.SCORE
         ents = list(sc.ents.values())
-        paths = [e for e in ents if e.kind == "path"]
+        # What stands on a map (a region, a pin, a river) and paths are drawn after what they name.
+        paths = [e for e in ents if e.kind in ("path", "region", "pin", "river")]
         last = [e for e in ents if e.kind == "arrow" or (e.mods.get("on") and e.kind != "path")]   # on a path
         for e in [e for e in ents if e not in paths and e not in last] + paths + last:
             try:
@@ -232,7 +233,7 @@ class ScoreScene(MovingCameraScene):
         times = self._up_times()
         for shot in sc.shots.values():
             ents = [e for e in sc.ents.values() if e.shot == shot.name and e.kind in self.SPREAD
-                    and not e.mods.get("on") and not (isinstance(e.mods.get("at"), str) and e.mods["at"] in self.E)]
+                    and not e.mods.get("on") and not isinstance(e.mods.get("at"), str)]
             def holds(big, small) -> bool:
                 # Only a shape holds things (a box, a disc, a region): a long title's box is not a card.
                 return big is not small and self._holder(big) and self._inside(self.E[small.name], self.E[big.name])
@@ -341,11 +342,13 @@ class ScoreScene(MovingCameraScene):
 
     def _make(self, e: S.Ent) -> None:
         def one():
-            return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot))
+            return look.build(e.kind, e.args, e.mods, locate=lambda r: self._locate(r, e.shot),
+                              find=lambda n: self.E.get(n))
         m = look.copies(one, int(e.mods["x"]), e.mods) if int(e.mods.get("x", 1)) > 1 else one()
         if e.mods.get("rot"):
             m.rotate(math.radians(float(e.mods["rot"])))
-        if e.kind not in ("land", "waves", "path", "arrow", "islands") and (m.width > 12 or m.height > 7):
+        on_map = e.kind in ("region", "pin", "river")       # drawn where it stands on its map
+        if e.kind not in ("land", "waves", "path", "arrow", "islands", "map") and not on_map and (m.width > 12 or m.height > 7):
             m.scale(min(12 / m.width, 7 / m.height))      # nothing bigger than the screen
         if e.mods.get("on") and len(m.submobjects) > 1:
             # Its copies (or dots) spread along a path, evenly.
@@ -353,13 +356,15 @@ class ScoreScene(MovingCameraScene):
             n = len(m.submobjects)
             for i, part in enumerate(m.submobjects):
                 part.move_to(track.point_from_proportion((i + 0.5) / n))
-        elif e.kind not in ("arrow", "path"):
+        elif e.kind not in ("arrow", "path") and not on_map:
             at = e.mods.get("at", (0.0, 0.0))
             where = self._locate(at, e.shot) if isinstance(at, str) else self._origin(e.shot) + np.array([at[0], at[1], 0.0])
             m.move_to(where)
         if e.mods.get("nudge"):
             m.shift(np.array([*e.mods["nudge"], 0.0]))
-        layer = int(e.mods.get("layer", -1 if e.kind in ("blob", "islands") else 0))   # a region sits under what is on it
+        # A region sits under what is on it; a map under its regions, a pin over them.
+        layer = int(e.mods.get("layer", -2 if e.kind == "map" else -1 if e.kind in ("blob", "islands", "region", "river")
+                               else 1 if e.kind == "pin" else 0))
         m.set_z_index(layer * 10 + (5 if e.kind in ("text", "num") else 0))
         if e.mods.get("opacity") is not None:
             Alpha(m).set(float(e.mods["opacity"]))
@@ -532,6 +537,8 @@ class ScoreScene(MovingCameraScene):
                 (self._count if v == "count" else self._grow)(m, to, t0, t1)
         elif v in ("ring", "mark"):
             for (name, m) in self._targets(act.target):
+                if m is self.E[name] and self.SCORE.ents[name].kind == "pin":
+                    m = m[0]                # a pin is marked at its dot, not round its name
                 self._mark(name, m, v, look.col(act.args[0] if act.args else "coral"), t0, t1)
         elif v == "flow":
             self._flow(self._track(self.E[act.target]), int(self._opt(act, "n", 6, int)),

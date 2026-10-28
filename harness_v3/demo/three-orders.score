@@ -401,29 +401,51 @@ w843-w844   grow foodb 6
 w845-w847   in fam pop
 w854-w855   in skull pop
 
-# ---- 16 plague: debased coin, the Black Death -----------------------------------------------------------------
+# ---- 16 plague: debased coin, then the Black Death carried by ship into Europe (a real map of 1300) -------------
 shot plague at 54,-33
 ent coin    pic "a single medieval silver coin" size 1.5 at -5.2,2.2
-ent bd      tag "the black death" size 0.6 fill ink color white at 0.4,2.55
-ent ship    pic "a medieval wooden merchant ship with a single square sail" size 3.0 at -3.8,-0.2
-ent rat     pic "a black rat" size 1.1 at -2.6,-1.5 layer 3
-ent dates   label "1347 to 1350" size 0.13 at 2.9,1.55
-ent pop100  dots 100 grid 10 size 0.12 color ink at 2.9,-0.35
-ent cities  icon building-2 badge navy size 0.8 at -5.3,-2.7
+ent bd      tag "the black death" size 0.45 fill ink color white at -2.3,3.1
+ent pmap    map "-11,34,42,60" year 1300 w 8.7 h 5.6 at -2.5,-0.6
+ent sea     path pmap.caffa pmap.constantinople pmap.messina pmap.genoa dashed color ink
+ent caffa   pin Caffa map pmap side up
+ent mess    pin Messina map pmap side down
+ent ship    pic "a medieval wooden merchant ship with a single square sail" size 1.0 at pmap.caffa layer 3
+ent rat     pic "a black rat" size 0.7 at pmap.messina layer 3
+ent hit1    region "Holy Roman Empire" map pmap color red opacity 0.42
+ent hit2    region France map pmap color red opacity 0.42
+ent hit3    region "English territory" map pmap color red opacity 0.42
+ent hit4    region Castile map pmap color red opacity 0.42
+ent hit5    region "Byzantine Empire" map pmap color red opacity 0.42
+ent dates   label "1347 to 1350" size 0.13 at 4.9,1.75
+ent pop100  dots 100 grid 10 size 0.1 color ink at 4.9,-0.35
+ent flo     pin Florence map pmap side left
+ent par     pin Paris map pmap side left
+ent lond    pin London map pmap side left
 
 w856        in coin pop
 w859        pulse coin
 w864-w866   scale coin 0.6
 w871-w872   cam plague
+w871        out coin shrink
+w872-w873   in pmap fade
 w874-w875   in bd pop
-w876        in ship slide-right
+w876        in caffa,ship pop
+w877-w883   in sea draw
+w877-w883   along ship sea
+w884        in mess pop
 w884        in rat pop
-w885-w888   move rat by 1.6,0.2 arc .3
+w889        out ship fade
+w893        out rat fade
+w885-w887   move rat by 0.9,0.6 arc .3
+w889-w892   in hit5,hit1,hit2,hit4,hit3 fade stagger .25
 w890        in dates,pop100 fade
 w894-w898   color pop100[0:20] red stagger .02
 w902-w906   color pop100[20:40] coral stagger .02
-w907        in cities pop
-w912-w913   shake cities
+w907        in flo,par,lond pop stagger .12
+w909        ring flo red
+w910        ring par red
+w911        ring lond red
+w912-w913   pulse flo,par,lond
 
 # ---- 17 after: fewer people, higher wages, revolts ---------------------------------------------------------------
 shot after at 0,-44

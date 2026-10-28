@@ -10,6 +10,13 @@ Kinds (`ent NAME KIND ARGS [mods]`):
     waves N                 N wavy lines (water); `w`, `color`
     islands N               a chain of N islands (a stylised land); `size`, `fill`
     land NAME               a country's coastline (LANDS: japan), its islands as parts, its places as `NAME.place`
+    map REGION              a real map (geo.py): a region (europe, british isles, mediterranean...), a country, or
+                            "LON0,LAT0,LON1,LAT1"; `year Y` (the states of that time), `names`, `rivers`, `w`/`h`;
+                            any place on it as `NAME.place` (`eu.paris`, `eu.constantinople`)
+    region "NAME" map M     a country, a state of a year (`year`, else the map's) or a sea, shaded where it is on M;
+                            `color`, `opacity`, `outline`
+    pin "PLACE" map M       a place marked on M (a ringed dot and its name); `label "..."`, `side left`, `color`
+    river "NAME" map M      a river on M; `color`, `width`
     dots N                  N dots; `grid C` (C columns), `row`, `cluster`; `size`, `color`
     num V                   a number that can count; `prefix`, `suffix`, `size`, `color`
     bar V                   a bar of length V (of `max`, default 10) that can grow; `w` (its full length), `h`, `color`
@@ -298,9 +305,10 @@ def arrow(a, b, curve: float = 0.0, color=None, dashed: bool = False):
     return m
 
 
-def build(kind: str, args: list[str], mods: dict, locate=None):
+def build(kind: str, args: list[str], mods: dict, locate=None, find=None):
     """An entity's drawing (at the origin; render.py places it). `locate(name)`: another entity's place, for an
-    arrow between entities."""
+    arrow between entities; `find(name)`: another entity's drawing (the map a region, pin or river is on: these are
+    drawn where they stand on it)."""
     size = float(mods.get("size", 0))
     c = mods.get("color")
     if kind == "text":
@@ -330,6 +338,17 @@ def build(kind: str, args: list[str], mods: dict, locate=None):
         m = islands(int(args[0]) if args else 4, size or 1.0, mods.get("fill"))
     elif kind == "land":
         m = land(args[0] if args else "japan", size or 1.0, mods.get("fill"))
+    elif kind == "map":
+        m = GeoMap(args[0] if args else "world", float(mods.get("w", 12)), float(mods.get("h", 6.6)),
+                   int(mods["year"]) if mods.get("year") is not None else None, bool(mods.get("names")),
+                   bool(mods.get("rivers")), mods.get("fill"))
+    elif kind in ("region", "pin", "river"):
+        on = find(mods["map"]) if find and mods.get("map") else None
+        if not isinstance(on, GeoMap):
+            raise ValueError(f"a {kind} is drawn on a map: `map NAME` (a `map` entity drawn before it)")
+        what = args[0] if args else ""
+        m = (region(on, what, mods, c) if kind == "region" else pin(on, what, mods, c) if kind == "pin"
+             else river(on, what, c, float(mods.get("width", 1))))
     elif kind == "dots":
         n = int(args[0]) if args else 10
         lay = "row" if mods.get("row") else "cluster" if mods.get("cluster") else "grid"
@@ -492,4 +511,217 @@ def copies(make, n: int, mods: dict):
             m.move_to([r * math.cos(a), r * math.sin(a), 0])
     else:
         g.arrange(RIGHT, buff=gap)
+    return g
+
+
+# ---------------------------------------------------------------- maps (real data: geo.py) ---------------------------
+
+class _Place:
+    """A point on a map by (lon, lat), where it is as the map now stands (after any move or scale)."""
+
+    def __init__(self, m, lon: float, lat: float):
+        self.m, self.ll = m, (lon, lat)
+
+    def get_center(self):
+        return self.m.to_screen(*self.ll)
+
+
+class _Places:
+    """`MAP.NAME`: any place on a map by name (`eu.paris`, `eu.constantinople`, `eu.north_sea`), found when asked."""
+
+    def __init__(self, m):
+        self.m, self.found = m, {}
+
+    def __contains__(self, name) -> bool:
+        try:
+            self[name]
+            return True
+        except KeyError:
+            return False
+
+    def __getitem__(self, name):
+        if name not in self.found:
+            import geo
+            self.found[name] = _Place(self.m, *geo.place(name, self.m.bounds))
+        return self.found[name]
+
+    def __iter__(self):
+        return iter(self.found)
+
+
+class GeoMap(VGroup):
+    """A real map of a window of the world (geo.py): the sea, the land with today's borders (or, with a `year`, the
+    land with the states of that time over it), optional names and rivers. Its parts: [sea, land, borders, rivers,
+    names]. Places on it: `NAME.place`."""
+
+    def __init__(self, region: str, w: float = 12.0, h: float = 6.6, year: int | None = None, names: bool = False,
+                 rivers: bool = False, fill=None):
+        super().__init__()
+        import geo
+        from shapely.geometry import box
+        lon0, lat0, lon1, lat1 = geo.bounds(region)
+        self.k = math.cos(math.radians((lat0 + lat1) / 2))
+        # The window widened (or made taller) round its middle to fill w x h: the map takes the room it is given.
+        sx, sy = (lon1 - lon0) * self.k, lat1 - lat0
+        if sx / sy < w / h:
+            grow = (sy * w / h / self.k - (lon1 - lon0)) / 2
+            lon0, lon1 = max(-180.0, lon0 - grow), min(180.0, lon1 + grow)
+        else:
+            grow = (sx * h / w - sy) / 2
+            lat0, lat1 = max(-85.0, lat0 - grow), min(85.0, lat1 + grow)
+        self.bounds = (lon0, lat0, lon1, lat1)
+        self.year = year
+        self.s = min(w / ((lon1 - lon0) * self.k), h / (lat1 - lat0))
+        self.mid = ((lon0 + lon1) / 2, (lat0 + lat1) / 2)
+        self.span = max(lon1 - lon0, lat1 - lat0)
+        self.clip = box(*self.bounds)
+        sw, sh = (lon1 - lon0) * self.k * self.s, (lat1 - lat0) * self.s
+        # Three hidden points carried along when the map moves or scales: where its own coordinates go.
+        self._ref = VGroup(*(Dot(p, radius=0.001).set_opacity(0) for p in (ORIGIN, RIGHT, UP)))
+        sea = Rectangle(width=sw, height=sh, fill_color=col("sky"), fill_opacity=0.32, stroke_color=col("soft"),
+                        stroke_width=1.5)
+        land_c = col(fill or ("card" if L.get("_name") == "editorial" else "sand"))
+        land, borders = VGroup(), VGroup()
+        self.shapes = {}
+        for name, g in geo.countries(self.bounds):
+            mob = self.shape_mob(g, fill=land_c, stroke=col("soft"), width=0 if year is not None else 1.3)
+            if len(mob):
+                land.add(mob)
+                self.shapes[name] = g
+        if year is not None:
+            self.shapes = {}
+            for name, g in geo.states(year, self.bounds):
+                mob = self.shape_mob(g, fill=None, stroke=col("grey") if "grey" in L else col("soft"), width=1.5)
+                if len(mob):
+                    borders.add(mob)
+                    self.shapes[name] = g
+        rv = VGroup()
+        if rivers:
+            for _, g in geo.rivers(self.bounds):
+                rv.add(*self.line_mob(g, col("sky"), 1.6))
+        self.add(sea, land, borders, rv, self._names(sw / 2, sh / 2) if names else VGroup(), self._ref)
+        self.places = _Places(self)
+
+    # ---- coordinates
+    def local(self, lon: float, lat: float) -> np.ndarray:
+        return np.array([(lon - self.mid[0]) * self.k * self.s, (lat - self.mid[1]) * self.s, 0.0])
+
+    def to_screen(self, lon: float, lat: float) -> np.ndarray:
+        o, x, y = (d.get_center() for d in self._ref)
+        p = self.local(lon, lat)
+        return o + p[0] * (x - o) + p[1] * (y - o)
+
+    # ---- drawing a shape of the world on it
+    def _polys(self, g):
+        from shapely.geometry import GeometryCollection, MultiPolygon, Polygon as SPoly
+        if g is None or g.is_empty:
+            return []
+        if isinstance(g, SPoly):
+            return [g]
+        if isinstance(g, (MultiPolygon, GeometryCollection)):
+            return [q for part in g.geoms for q in self._polys(part)]
+        return []
+
+    def shape_mob(self, g, fill=None, stroke=None, width: float = 1.3, opacity: float = 1.0, screen: bool = False):
+        """A shape (lon/lat) clipped to the map, as filled outlines; `screen`: where the map now stands."""
+        try:
+            g = g.intersection(self.clip)
+        except Exception:  # noqa: BLE001
+            g = g.buffer(0).intersection(self.clip)
+        out = VGroup()
+        to = self.to_screen if screen else self.local
+        for p in self._polys(g):
+            if p.area < self.span ** 2 * 2e-5:
+                continue
+            p = p.simplify(self.span / 700, preserve_topology=True)
+            pts = [to(x, y) for x, y in list(p.exterior.coords)[:-1]]
+            if len(pts) < 3:
+                continue
+            m = VMobject(fill_color=fill or "#000000", fill_opacity=opacity if fill else 0,
+                         stroke_color=stroke or fill or "#000000", stroke_width=width, stroke_opacity=1 if width else 0)
+            m.set_points_as_corners([*pts, pts[0]])
+            out.add(m)
+        return out
+
+    def line_mob(self, g, color, width: float, screen: bool = False):
+        from shapely.geometry import LineString, MultiLineString
+        try:
+            g = g.intersection(self.clip)
+        except Exception:  # noqa: BLE001
+            return VGroup()
+        lines = [g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))
+        to = self.to_screen if screen else self.local
+        out = VGroup()
+        for ln in lines:
+            if not isinstance(ln, LineString) or ln.length < self.span / 200:
+                continue
+            ln = ln.simplify(self.span / 900)
+            m = VMobject(stroke_color=color, stroke_width=width)
+            m.set_points_as_corners([to(x, y) for x, y in ln.coords])
+            out.add(m)
+        return out
+
+    def _names(self, hw: float, hh: float):
+        """The names of the biggest countries (or states) on it that have room, none over another or off the map."""
+        sized = []
+        for n, g in self.shapes.items():
+            try:
+                a = g.intersection(self.clip).area / self.clip.area
+            except Exception:  # noqa: BLE001
+                continue
+            if a >= 0.012:
+                sized.append((a, n))
+        out, boxes = VGroup(), []
+        for a, n in sorted(sized, reverse=True)[:14]:
+            part = max(self._polys(self.shapes[n].intersection(self.clip)), key=lambda p: p.area, default=None)
+            if part is None:
+                continue
+            pt = part.representative_point()
+            t = label(n, 0.1 + 0.08 * min(1.0, a * 5), "ink").set_opacity(0.55).move_to(self.local(pt.x, pt.y))
+            bx = (t.get_left()[0] - 0.1, t.get_bottom()[1] - 0.06, t.get_right()[0] + 0.1, t.get_top()[1] + 0.06)
+            if (bx[0] < -hw or bx[2] > hw or bx[1] < -hh or bx[3] > hh
+                    or any(not (bx[2] < o[0] or o[2] < bx[0] or bx[3] < o[1] or o[3] < bx[1]) for o in boxes)):
+                continue
+            boxes.append(bx)
+            out.add(t)
+        return out
+
+
+def region(m: GeoMap, name: str, mods: dict, c=None):
+    """A country (today's), a state of a year (`year`, or the map's), or a sea, shaded on a map where it stands:
+    `outline` for its border only."""
+    import geo
+    year = mods.get("year", m.year)
+    g, _ = geo.shape(name, int(year) if year is not None else None, m.bounds)
+    colour = col(c or mods.get("fill") or "accent")
+    if mods.get("outline"):
+        return m.shape_mob(g, fill=None, stroke=colour, width=STROKE * 0.6, screen=True)
+    out = m.shape_mob(g, fill=colour, stroke=colour, width=2.5, opacity=float(mods.get("opacity", 0.6)), screen=True)
+    if not len(out):
+        raise ValueError(f"{name!r} is not on this map")
+    return out
+
+
+def river(m: GeoMap, name: str, c=None, width: float = 1.0):
+    import geo
+    out = m.line_mob(geo.river(name), col(c or "teal"), STROKE * 0.6 * width, screen=True)
+    if not len(out):
+        raise ValueError(f"the river {name!r} is not on this map")
+    return out
+
+
+def pin(m: GeoMap, where: str, mods: dict, c=None):
+    """A place marked on a map: a dot in a ring, its name beside it (`label "..."`, or `label ""` for none;
+    `side left|right|up|down`). Part 0 is the dot: the pin stands with it on the place."""
+    p = m.places[where].get_center()
+    colour = col(c or "coral")
+    dot = VGroup(Circle(radius=0.17, stroke_color=col("bg"), stroke_width=6),
+                 Circle(radius=0.17, stroke_color=colour, stroke_width=2.5),
+                 Dot(radius=0.08, color=colour).set_stroke(col("bg"), width=3, background=True)).move_to(p)
+    words = mods.get("label", where.replace("_", " "))
+    g = VGroup(dot)
+    if words:
+        side = {"left": LEFT, "up": UP, "down": DOWN}.get(str(mods.get("side", "")), RIGHT)
+        t = label(str(words), float(mods.get("size", 0.15)), "ink").next_to(dot, side, buff=0.12)
+        g.add(t.set_stroke(col("bg"), width=5, background=True))       # a paper halo: it reads over any shading
     return g

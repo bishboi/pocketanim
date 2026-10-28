@@ -29,6 +29,7 @@ w58-w62     morph fields works stagger .14
 | `engine/render.py` | The runtime: entities on the canvas, every action a tween on one clock, the camera, the narration under it. |
 | `engine/prompts.py` | The small-model calls: storyboard (one a video), score (one a shot), critic (frames judged). |
 | `engine/assets.py` | Pictures a score asks for (`pic`, `photo`), made by an image model through OpenRouter's Image API (`V3_IMAGE_MODEL`), cut out or framed with a soft shadow, kept by their words; flags (`flag jp`) from flag-icons, exact. |
+| `engine/geo.py` | Real maps' data: countries, coasts, seas, rivers and towns from Natural Earth; the states of a year from historical-basemaps (A. Ourednik, GPL-3.0; fetched when first asked for); places by name (towns, old names such as Constantinople, sites of the past, seas, else OpenStreetMap, cached). In `.cache/geo`. |
 | `engine/timeline.py` | The video as a timeline a player draws (no MP4): the renderer's own scene played without drawing, each drawn piece recorded (its shape once, then its transform, colours and width; a picture by its corners), keys only where something changes (`player/timeline.json`). |
 | `engine/player.html` | The player: draws a timeline at any time t in a canvas, in step with the voice (the Player tab; `/play/<run>`). |
 | `engine/export.py` | An MP4 made from the player in headless Chromium (chunks at once, the voice laid under), and a frame-by-frame comparison with the render's MP4: mean PSNR, the share of frames that differ, the moments that differ most side by side (the Compare tab). |
@@ -72,7 +73,14 @@ The kit (`look editorial`, the default): cream paper, near-black ink, one yellow
 IBM Plex Mono labels; and the pieces Video1-style explainers are made of: `card "JAPAN" flag jp` (a paper card),
 `tag "204%"` (a key number on the accent), `label "debt · % of the economy"` (small spaced capitals), `pic "a stack
 of yen banknotes"` (a made cut-out object), `photo "a mountain valley at dawn"` (a made print), `flag us`. Coordinates
-and actions stay free. The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
+and actions stay free.
+
+Maps are real and accurate (as v1 and v2's were): `ent eu map europe year 1300 names rivers` draws Europe with the
+states of 1300 (no year: today's borders); `ent hre region "Holy Roman Empire" map eu` shades a state, a country or a
+sea where it really is; `ent paris pin Paris map eu` marks a town; `ent rhine river Rhine map eu`; any place on a map
+is `eu.paris` (`path eu.venice eu.genoa eu.bruges` is a trade route, `cam eu.paris zoom 2` flies there). A region is a
+name (europe, british isles, mediterranean, middle east, india...), a country, or `"LON0,LAT0,LON1,LAT1"`; the map
+fills the `w`/`h` it is given (12 x 6.6 by default). The assets step makes the pictures between score and render (`V3_IMAGE_JOBS` at once), each
 call with its cost; a model can be set per step (`V3_MODEL_SCRIPT`, `_STORYBOARD`, `_SCORE`, `_VISION`).
 
 The player: every run gets a timeline step (before the render, which is now optional: `V3_RENDER_MP4=1`, the new

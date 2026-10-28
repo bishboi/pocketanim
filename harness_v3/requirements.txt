@@ -4,3 +4,4 @@ faster-whisper
 av>=15,<19
 cairosvg
 playwright
+shapely>=2

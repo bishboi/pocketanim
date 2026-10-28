@@ -18,13 +18,18 @@ shot NAME at X,Y              a new shot on the canvas (shots ~18 apart). Its `e
 ent NAME KIND ARGS [MODS]     a thing in the current shot. The screen is 14.2 wide, 8 tall, centred on the shot.
   KINDS: text "WORDS" | icon NAME (Lucide names: ship, train-front, factory, wheat, users, landmark, castle, lock,
          coins, flag, scroll, crown, mountain-snow, globe, school, anchor, swords, book-open...) | circle | rect | blob
-         | ring | waves N | land japan | dots N | num V | bar V | arrow A B | path P P P...
+         | ring | waves N | dots N | num V | bar V | arrow A B | path P P P...
+         | map REGION (a real, accurate map: europe, british isles, mediterranean, middle east, india, china, world...,
+           a country's name, or "LON0,LAT0,LON1,LAT1"; `year Y` draws the states of that time; `names`, `rivers`;
+           every place on it is MAP.PLACE, e.g. eu.paris, eu.constantinople, eu.north_sea)
+         | region "NAME" map M (a country, a state of the map's year e.g. "Holy Roman Empire", or a sea, shaded where
+           it really is; `outline`) | pin "PLACE" map M (a town marked, its name beside; `side left`) | river "NAME" map M
          | pic "WHAT" (a picture made for this video: ONE object, person or building, cut out, e.g. pic "a stack of
            gold coins"; no words in it; 1-3 a shot) | photo "A SCENE" (a framed print of a place or scene)
          | flag CODE (jp us in gb fr de cn...) | card "TITLE" [flag CODE] [img "WHAT"] [sub "a line"] (a paper card)
          | tag "WORDS" (bold words on the accent colour: the key number or claim) | label "WORDS" (small spaced
            capitals: a heading over something, a caption, a source)
-  MODS: at X,Y | at LAND.PLACE | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
+  MODS: at X,Y | at MAP.PLACE | size S | color C | fill C | badge C (icon on a disc) | bold | x N (N copies) with
         row|col|grid C|ring R and gap G | on PATH (copies spread along it) | nudge X,Y | layer N | rot DEG |
         w W h H r R | max M | suffix "..." prefix "..." | dashed | curve C | grid C | cluster
   COLORS: ink navy coral teal gold green sky soft sand red white
@@ -47,6 +52,8 @@ RULES
 - Lay things apart on the screen (x from -6 to 6, y from -3.4 to 3.4; side by side at least 3 apart). Overlap only
   to put one on another on purpose (a label on its card, an icon on its badge).
 - Show real things: a pic, a photo, a flag or a card says more than a line icon. One big picture per idea.
+- Where things happen, use a `map`, never a blob or a drawn shape for a country: draw it big (w 12 h 6.6), shade
+  regions, pin towns, draw routes as `path M.a M.b M.c`, and move the camera to a place (`cam M.paris zoom 2`).
 - Words on screen: a tag for the key number, a label for a heading; never sentences (the voice says them).
 - Use few kinds; get life from actions: stagger, arcs, morphs, flows, the camera.
 - Keep text short (1-4 words). The narration says the sentences."""

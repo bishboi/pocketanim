@@ -38,6 +38,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import env  # noqa: E402,F401 -- the keys from .env files, before anything reads them
 import books  # noqa: E402
 import runs  # noqa: E402
 from urllib.parse import parse_qs, unquote  # noqa: E402
@@ -207,6 +208,8 @@ def main() -> None:
     a = ap.parse_args()
     runs.RUNS.mkdir(parents=True, exist_ok=True)
     books.BOOKS.mkdir(parents=True, exist_ok=True)
+    if env.LOADED:
+        print("settings read from " + ", ".join(env.LOADED))
     print(f"harness_v3 on http://{a.host}:{a.port}" + ("" if os.environ.get("OPENROUTER_API_KEY")
                                                        else "  (no OPENROUTER_API_KEY: runs need a score given by hand)"))
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()

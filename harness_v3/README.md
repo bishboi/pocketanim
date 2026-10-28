@@ -45,8 +45,9 @@ w58-w62     morph fields works stagger .14
 ```
 sudo apt-get install -y libcairo2-dev libpango1.0-dev pkg-config ffmpeg   # once
 ./setup.sh                                                                 # once
-export OPENROUTER_API_KEY=...        # for script, storyboard, score and critic; optional V3_MODEL=provider/model
-export DATALAB_API_KEY=...           # to read PDFs (optional DATALAB_MODE=balanced|accurate|fast)
+cp .env.example .env.local           # then fill in OPENROUTER_API_KEY (script, storyboard, score, critic) and
+                                     # DATALAB_API_KEY (PDFs); v2's app/.env.local is read too, and exported
+                                     # variables win over both
 ../.venv3/bin/python engine/server.py --port 8300                          # then open http://localhost:8300
 ```
 
